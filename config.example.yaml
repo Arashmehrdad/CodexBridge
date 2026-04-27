@@ -1,0 +1,12 @@
+repos:
+  stream_alpha:
+    path: "D:/Github/Stream_Alpha"
+    default_tests:
+      - "python -m pytest"
+runs_dir: "runs"
+codex:
+  executable: "codex"
+  default_timeout_seconds: 1800
+gemini:
+  enabled: false
+
