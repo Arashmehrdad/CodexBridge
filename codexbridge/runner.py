@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -17,6 +18,22 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _is_windowsapps_path(path: str | Path | None) -> bool:
+    return bool(path) and "windowsapps" in str(path).lower()
+
+
+def _path_info(path: str | Path | None) -> dict:
+    if not path:
+        return {"path": None, "exists": False, "is_file": False, "is_dir": False}
+    candidate = Path(path)
+    return {
+        "path": str(candidate),
+        "exists": candidate.exists(),
+        "is_file": candidate.is_file(),
+        "is_dir": candidate.is_dir(),
+    }
+
+
 class CodexRunner:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -27,21 +44,84 @@ class CodexRunner:
         run_dir.mkdir(parents=True, exist_ok=False)
         return run_dir
 
-    def _codex_supports_required_flags(self) -> tuple[bool, str]:
+    def _resolve_codex_executable(self) -> str:
         executable = self.config.codex.executable
-        if shutil.which(executable) is None:
-            return False, f"Codex executable not found: {executable}"
-        result = subprocess.run(
-            [executable, "exec", "--help"],
-            text=True,
-            capture_output=True,
-        )
-        help_text = f"{result.stdout}\n{result.stderr}"
-        required = ["--sandbox", "--approval-policy"]
-        missing = [flag for flag in required if flag not in help_text]
-        if missing:
-            return False, f"Codex exec missing required flags: {', '.join(missing)}"
-        return True, ""
+        configured = Path(executable)
+        if configured.is_absolute() or configured.parent != Path("."):
+            if not configured.exists() or configured.is_dir():
+                raise FileNotFoundError(f"Configured Codex executable is not a file: {configured}")
+            return str(configured)
+
+        candidates: list[str] = []
+        if os.name == "nt":
+            for name in (executable, f"{executable}.cmd", f"{executable}.exe"):
+                resolved = shutil.which(name)
+                if resolved and not _is_windowsapps_path(resolved):
+                    candidates.append(resolved)
+            sandbox_bin = Path.home() / ".codex" / ".sandbox-bin" / f"{executable}.exe"
+            if sandbox_bin.exists():
+                candidates.append(str(sandbox_bin))
+
+        resolved = shutil.which(executable)
+        if resolved:
+            if _is_windowsapps_path(resolved):
+                raise PermissionError(f"Refusing WindowsApps Codex executable; configure a launchable codex.exe or codex.cmd: {resolved}")
+            candidates.append(resolved)
+
+        if candidates:
+            return candidates[0]
+        raise FileNotFoundError(f"Codex executable not found: {executable}")
+
+    def _subprocess_diagnostics(self, args: list[str], cwd: Path, exc: BaseException) -> str:
+        attempted = args[0] if args else self.config.codex.executable
+        resolved = attempted if Path(attempted).is_absolute() else shutil.which(attempted)
+        details = {
+            "executable_attempted": attempted,
+            "resolved_path": resolved,
+            "cwd": str(cwd),
+            "path_info": _path_info(resolved or attempted),
+            "path_excerpt": os.environ.get("PATH", "")[:1000],
+            "command_args": args,
+            "original_exception": repr(exc),
+        }
+        return json.dumps(details, indent=2)
+
+    def _run_subprocess(self, args: list[str], cwd: Path, *, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                args,
+                cwd=cwd,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=timeout,
+            )
+        except (OSError, PermissionError) as exc:
+            raise RuntimeError(self._subprocess_diagnostics(args, cwd, exc)) from exc
+
+    def _codex_exec_help(self, executable: str) -> str:
+        result = self._run_subprocess([executable, "exec", "--help"], Path.cwd())
+        return f"{result.stdout}\n{result.stderr}"
+
+    def _codex_exec_args(self, executable: str, sandbox: str, help_text: str, prompt: str) -> list[str]:
+        args = [executable, "exec"]
+        if "--sandbox" in help_text:
+            args.extend(["--sandbox", sandbox])
+        else:
+            raise ValueError("Codex exec missing required --sandbox support")
+
+        model = self.config.codex.model.strip()
+        if model:
+            args.extend(["-m", model])
+
+        if "--approval-policy" in help_text:
+            args.extend(["--approval-policy", "never"])
+        elif "--ask-for-approval" in help_text:
+            args.extend(["--ask-for-approval", "never"])
+
+        args.append(prompt)
+        return args
 
     def _write_artifacts(
         self,
@@ -60,21 +140,10 @@ class CodexRunner:
         (run_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     def _run_codex(self, repo_root: Path, sandbox: str, prompt: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
-                self.config.codex.executable,
-                "exec",
-                "--sandbox",
-                sandbox,
-                "--approval-policy",
-                "never",
-                prompt,
-            ],
-            cwd=repo_root,
-            text=True,
-            capture_output=True,
-            timeout=self.config.codex.default_timeout_seconds,
-        )
+        executable = self._resolve_codex_executable()
+        help_text = self._codex_exec_help(executable)
+        args = self._codex_exec_args(executable, sandbox, help_text, prompt)
+        return self._run_subprocess(args, repo_root, timeout=self.config.codex.default_timeout_seconds)
 
     def plan_task(self, repo_name: str, repo_root: Path, task: str, constraints: str | None = None) -> dict:
         prompt = build_plan_prompt(repo_name, task, constraints)
@@ -82,25 +151,24 @@ class CodexRunner:
         started_at = _utc_now()
         input_data = {"repo_name": repo_name, "task": task, "constraints": constraints}
         before_status = git_tools.git_status(repo_root)
-        supported, mismatch = self._codex_supports_required_flags()
-        if not supported:
-            result = self._base_result(run_dir, "codex_plan_task", repo_name, started_at, 1)
-            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI flags were not validated"], "safety_failure": True})
-            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
-            return result
-
         try:
             completed = self._run_codex(repo_root, "read-only", prompt)
             stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
         except subprocess.TimeoutExpired as exc:
             stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
+        except Exception as exc:
+            mismatch = str(exc)
+            result = self._base_result(run_dir, "codex_plan_task", repo_name, started_at, 1)
+            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI launch failed"], "safety_failure": True})
+            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
+            return result
 
         after_status = git_tools.git_status(repo_root)
         safety_failure = before_status != after_status
         result = self._base_result(run_dir, "codex_plan_task", repo_name, started_at, exit_code)
         result.update(
             {
-                "summary": stdout.strip() or stderr.strip(),
+                "summary": (stdout or "").strip() or (stderr or "").strip(),
                 "remaining_risks": ["Plan mode changed git status"] if safety_failure else [],
                 "safety_failure": safety_failure,
                 "changed_files": git_tools.changed_files(repo_root),
@@ -132,18 +200,17 @@ class CodexRunner:
             "allowed_files": allowed_files,
             "tests": tests,
         }
-        supported, mismatch = self._codex_supports_required_flags()
-        if not supported:
-            result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, 1)
-            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI flags were not validated"], "safety_failure": True})
-            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
-            return result
-
         try:
             completed = self._run_codex(repo_root, "workspace-write", prompt)
             stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
         except subprocess.TimeoutExpired as exc:
             stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
+        except Exception as exc:
+            mismatch = str(exc)
+            result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, 1)
+            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI launch failed"], "safety_failure": True})
+            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
+            return result
 
         changed = git_tools.changed_files(repo_root)
         allowed = set(allowed_files)
@@ -158,7 +225,7 @@ class CodexRunner:
         result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, exit_code)
         result.update(
             {
-                "summary": stdout.strip() or stderr.strip(),
+                "summary": (stdout or "").strip() or (stderr or "").strip(),
                 "remaining_risks": risks,
                 "safety_failure": safety_failure,
                 "changed_files": changed,
@@ -195,4 +262,3 @@ def latest_run_result(runs_dir: Path) -> dict:
     if not candidates:
         raise FileNotFoundError("No run results found")
     return json.loads(candidates[0].read_text(encoding="utf-8"))
-

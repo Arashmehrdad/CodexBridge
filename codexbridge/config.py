@@ -14,6 +14,7 @@ class RepoConfig(BaseModel):
 
 class CodexConfig(BaseModel):
     executable: str = "codex"
+    model: str = ""
     default_timeout_seconds: int = 1800
 
 
@@ -63,4 +64,3 @@ def resolve_repo(config: AppConfig, repo_name: str) -> Path:
     if not (repo_path / ".git").exists():
         raise ValueError(f"Repo path does not contain .git: {repo_path}")
     return repo_path
-
