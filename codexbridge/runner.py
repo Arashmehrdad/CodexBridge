@@ -34,6 +34,12 @@ def _path_info(path: str | Path | None) -> dict:
     }
 
 
+def _safe_command_args(args: list[str]) -> list[str]:
+    if not args:
+        return []
+    return [*args[:-1], "<prompt>"]
+
+
 class CodexRunner:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -111,6 +117,14 @@ class CodexRunner:
         else:
             raise ValueError("Codex exec missing required --sandbox support")
 
+        windows_sandbox = self.config.codex.windows_sandbox.strip()
+        if windows_sandbox:
+            args.extend(["-c", f'windows.sandbox="{windows_sandbox}"'])
+
+        if self.config.codex.sandbox_private_desktop is not None:
+            private_desktop = "true" if self.config.codex.sandbox_private_desktop else "false"
+            args.extend(["-c", f"windows.sandbox_private_desktop={private_desktop}"])
+
         model = self.config.codex.model.strip()
         if model:
             args.extend(["-m", model])
@@ -139,11 +153,11 @@ class CodexRunner:
         (run_dir / "stderr.txt").write_text(stderr, encoding="utf-8")
         (run_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-    def _run_codex(self, repo_root: Path, sandbox: str, prompt: str) -> subprocess.CompletedProcess[str]:
+    def _run_codex(self, repo_root: Path, sandbox: str, prompt: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         executable = self._resolve_codex_executable()
         help_text = self._codex_exec_help(executable)
         args = self._codex_exec_args(executable, sandbox, help_text, prompt)
-        return self._run_subprocess(args, repo_root, timeout=self.config.codex.default_timeout_seconds)
+        return self._run_subprocess(args, repo_root, timeout=self.config.codex.default_timeout_seconds), args
 
     def plan_task(self, repo_name: str, repo_root: Path, task: str, constraints: str | None = None) -> dict:
         prompt = build_plan_prompt(repo_name, task, constraints)
@@ -152,7 +166,7 @@ class CodexRunner:
         input_data = {"repo_name": repo_name, "task": task, "constraints": constraints}
         before_status = git_tools.git_status(repo_root)
         try:
-            completed = self._run_codex(repo_root, "read-only", prompt)
+            completed, _codex_args = self._run_codex(repo_root, "read-only", prompt)
             stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
         except subprocess.TimeoutExpired as exc:
             stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
@@ -200,8 +214,9 @@ class CodexRunner:
             "allowed_files": allowed_files,
             "tests": tests,
         }
+        codex_args: list[str] = []
         try:
-            completed = self._run_codex(repo_root, "workspace-write", prompt)
+            completed, codex_args = self._run_codex(repo_root, "workspace-write", prompt)
             stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
         except subprocess.TimeoutExpired as exc:
             stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
@@ -221,6 +236,10 @@ class CodexRunner:
             risks.append(f"Changed files outside allowed_files: {violations}")
         if exit_code != 0:
             risks.append("Codex exited nonzero")
+        combined_output = f"{stdout or ''}\n{stderr or ''}"
+        shell_spawn_failure = "windows sandbox: spawn setup refresh" in combined_output
+        if shell_spawn_failure:
+            risks.append("Codex shell spawn failed during Windows sandbox setup")
 
         result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, exit_code)
         result.update(
@@ -232,6 +251,15 @@ class CodexRunner:
                 "git_status": git_tools.git_status(repo_root),
                 "diff_stat": git_tools.diff_stat(repo_root),
                 "tests_run": tests,
+                "codex_command_args": _safe_command_args(codex_args),
+                "codex_sandbox": "workspace-write",
+                "codex_windows_sandbox": self.config.codex.windows_sandbox,
+                "codex_sandbox_private_desktop": self.config.codex.sandbox_private_desktop,
+                "codex_cwd": str(repo_root),
+                "codex_exit_code": exit_code,
+                "codex_stdout_excerpt": (stdout or "")[:4000],
+                "codex_stderr_excerpt": (stderr or "")[:4000],
+                "shell_spawn_failure": shell_spawn_failure,
             }
         )
         self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout=stdout, stderr=stderr, result=result)

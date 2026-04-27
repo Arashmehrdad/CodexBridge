@@ -15,6 +15,8 @@ class RepoConfig(BaseModel):
 class CodexConfig(BaseModel):
     executable: str = "codex"
     model: str = ""
+    windows_sandbox: str = ""
+    sandbox_private_desktop: bool | None = None
     default_timeout_seconds: int = 1800
 
 

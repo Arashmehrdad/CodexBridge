@@ -34,11 +34,23 @@ def test_runner_creates_run_artifact_structure(tmp_path: Path) -> None:
     assert "changed_files" in saved
 
 
-def make_runner(tmp_path: Path, executable: str = "codex", model: str = "") -> CodexRunner:
+def make_runner(
+    tmp_path: Path,
+    executable: str = "codex",
+    model: str = "",
+    windows_sandbox: str = "",
+    sandbox_private_desktop: bool | None = None,
+) -> CodexRunner:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))},
         runs_dir=str(tmp_path / "runs"),
-        codex=CodexConfig(executable=executable, model=model, default_timeout_seconds=1),
+        codex=CodexConfig(
+            executable=executable,
+            model=model,
+            windows_sandbox=windows_sandbox,
+            sandbox_private_desktop=sandbox_private_desktop,
+            default_timeout_seconds=1,
+        ),
         config_dir=tmp_path,
     )
     return CodexRunner(config)
@@ -80,6 +92,27 @@ def test_supported_approval_flag_is_included(tmp_path: Path) -> None:
     args = runner._codex_exec_args("codex.exe", "read-only", "--sandbox\n--approval-policy", "plan")
     assert "--approval-policy" in args
     assert "never" in args
+
+
+def test_windows_sandbox_override_is_included_when_configured(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path, windows_sandbox="unelevated")
+    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "implement")
+    assert "-c" in args
+    assert 'windows.sandbox="unelevated"' in args
+
+
+def test_private_desktop_override_is_included_when_configured(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path, sandbox_private_desktop=False)
+    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "implement")
+    assert "windows.sandbox_private_desktop=false" in args
+
+
+def test_safe_command_args_redacts_prompt(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path)
+    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "secret prompt")
+    from codexbridge.runner import _safe_command_args
+
+    assert _safe_command_args(args)[-1] == "<prompt>"
 
 
 def test_launch_diagnostics_include_executable_and_cwd(tmp_path: Path) -> None:
