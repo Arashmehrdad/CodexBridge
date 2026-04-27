@@ -6,6 +6,14 @@ from typing import Any, Protocol
 
 from .config import AppConfig
 from .job_manager import JobManager
+from .policy import (
+    BalancedAutonomyProfile,
+    decide_implementation_task,
+    decide_plan_task,
+    evaluate_implementation_profile,
+    evaluate_plan_profile,
+    profile_snapshot,
+)
 from .supervisor_store import SupervisorStore, utc_now
 
 
@@ -135,9 +143,11 @@ FakeJobBackend = FakeChildJobBackend
 
 
 class SupervisorEngine:
-    def __init__(self, store: SupervisorStore, jobs: ChildJobBackend):
+    def __init__(self, store: SupervisorStore, jobs: ChildJobBackend, autonomy_profile: Any | None = None, profile_name: str = "balanced"):
         self.store = store
         self.jobs = jobs
+        self.autonomy_profile = autonomy_profile or BalancedAutonomyProfile()
+        self.profile_name = profile_name
 
     def create_plan_supervisor(
         self,
@@ -156,6 +166,12 @@ class SupervisorEngine:
             "implementation_result": None,
             "implementation_lock": None,
             "blocked": None,
+            "policy": {
+                "profile": profile_snapshot(self.autonomy_profile, self.profile_name),
+                "plan": None,
+                "implementation": None,
+            },
+            "hard_stop": None,
         }
         if metadata:
             supervisor_metadata.update(metadata)
@@ -197,6 +213,18 @@ class SupervisorEngine:
             "allowed_files": list(allowed_files),
             "tests": list(tests),
         }
+        decision = decide_implementation_task(approved_plan, allowed_files, tests)
+        policy_result = evaluate_implementation_profile(
+            decision,
+            self.autonomy_profile,
+            allowed_files=allowed_files,
+            tests=tests,
+            profile_name=self.profile_name,
+        )
+        self._record_policy(metadata, "implementation", policy_result)
+        if not policy_result.allowed:
+            return self._hard_stop(supervisor, metadata, stage="implementation_policy", policy_result=policy_result)
+
         lock = self.store.acquire_repo_lock(
             supervisor["repo_name"],
             owner_id=supervisor_id,
@@ -266,6 +294,13 @@ class SupervisorEngine:
 
     def _start_plan(self, supervisor: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(supervisor["metadata"])
+        plan = metadata["plan"]
+        decision = decide_plan_task(plan["task"], plan.get("constraints", ""))
+        policy_result = evaluate_plan_profile(decision, self.autonomy_profile, self.profile_name)
+        self._record_policy(metadata, "plan", policy_result)
+        if not policy_result.allowed:
+            return self._hard_stop(supervisor, metadata, stage="plan_policy", policy_result=policy_result)
+
         response = self.jobs.start_plan(supervisor["repo_name"], metadata["plan"]["task"], metadata["plan"].get("constraints", ""))
         run_id = self._accepted_run_id(response)
         metadata["active_child"] = {"run_id": run_id, "kind": "plan"}
@@ -373,6 +408,36 @@ class SupervisorEngine:
             stage="failed",
             message=error,
             data={},
+        )
+        return updated
+
+    def _record_policy(self, metadata: dict[str, Any], phase: str, policy_result) -> None:
+        policy = dict(metadata.get("policy") or {})
+        policy["profile"] = policy_result.profile_snapshot
+        policy[phase] = policy_result.hard_stop["decision"]
+        metadata["policy"] = policy
+
+    def _hard_stop(self, supervisor: dict[str, Any], metadata: dict[str, Any], *, stage: str, policy_result) -> dict[str, Any]:
+        hard_stop = dict(policy_result.hard_stop)
+        hard_stop["stage"] = stage
+        hard_stop["at"] = utc_now()
+        metadata["hard_stop"] = hard_stop
+        metadata["active_child"] = None
+        updated = self.store.update_supervisor(
+            supervisor["supervisor_id"],
+            status="needs_input",
+            policy_tier=policy_result.decision.tier,
+            risk_level=policy_result.decision.risk_level,
+            requires_human=policy_result.decision.requires_human,
+            summary=policy_result.decision.reason or "Supervisor hard-stop requires input",
+            metadata_json=metadata,
+        )
+        self.store.append_event(
+            supervisor["supervisor_id"],
+            level="warning",
+            stage=stage,
+            message="Supervisor hard-stop requires input",
+            data=hard_stop,
         )
         return updated
 

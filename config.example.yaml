@@ -12,3 +12,16 @@ codex:
   default_timeout_seconds: 1800
 gemini:
   enabled: false
+supervisors:
+  default_autonomy_profile: "balanced"
+  autonomy_profiles:
+    balanced:
+      stop_on_requires_human: true
+      max_plan_tier: 1
+      max_implementation_tier: 2
+      require_tests_for_non_docs_changes: false
+    conservative:
+      stop_on_requires_human: true
+      max_plan_tier: 1
+      max_implementation_tier: 1
+      require_tests_for_non_docs_changes: true

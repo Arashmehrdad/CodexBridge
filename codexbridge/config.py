@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RepoConfig(BaseModel):
@@ -24,11 +24,38 @@ class GeminiConfig(BaseModel):
     enabled: bool = False
 
 
+class SupervisorAutonomyProfile(BaseModel):
+    stop_on_requires_human: bool = True
+    max_plan_tier: int = Field(default=1, ge=1, le=3)
+    max_implementation_tier: int = Field(default=2, ge=1, le=3)
+    require_tests_for_non_docs_changes: bool = False
+
+
+class SupervisorsConfig(BaseModel):
+    default_autonomy_profile: str = "balanced"
+    autonomy_profiles: Dict[str, SupervisorAutonomyProfile] = Field(
+        default_factory=lambda: {
+            "balanced": SupervisorAutonomyProfile(),
+            "conservative": SupervisorAutonomyProfile(max_implementation_tier=1, require_tests_for_non_docs_changes=True),
+        }
+    )
+
+    @model_validator(mode="after")
+    def validate_default_profile(self) -> "SupervisorsConfig":
+        if self.default_autonomy_profile not in self.autonomy_profiles:
+            raise ValueError(f"Unknown default_autonomy_profile: {self.default_autonomy_profile}")
+        return self
+
+    def effective_profile(self) -> SupervisorAutonomyProfile:
+        return self.autonomy_profiles[self.default_autonomy_profile]
+
+
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
     codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
+    supervisors: SupervisorsConfig = Field(default_factory=SupervisorsConfig)
     config_dir: Path = Field(default_factory=lambda: Path.cwd(), exclude=True)
 
     def resolve_runs_dir(self) -> Path:

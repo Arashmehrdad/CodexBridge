@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PureWindowsPath
+from typing import Protocol
 
 from .safety import is_secret_like_file
 
@@ -29,6 +30,29 @@ class PolicyDecision:
         }
 
 
+class AutonomyProfile(Protocol):
+    stop_on_requires_human: bool
+    max_plan_tier: int
+    max_implementation_tier: int
+    require_tests_for_non_docs_changes: bool
+
+
+@dataclass(frozen=True)
+class ProfilePolicyResult:
+    decision: PolicyDecision
+    allowed: bool
+    hard_stop: dict
+    profile_snapshot: dict
+
+
+@dataclass(frozen=True)
+class BalancedAutonomyProfile:
+    stop_on_requires_human: bool = True
+    max_plan_tier: int = 1
+    max_implementation_tier: int = 2
+    require_tests_for_non_docs_changes: bool = False
+
+
 def _looks_docs_only(paths: list[str]) -> bool:
     docs_suffixes = {".md", ".rst", ".txt"}
     docs_prefixes = ("docs/", "documentation/")
@@ -40,6 +64,64 @@ def _looks_docs_only(paths: list[str]) -> bool:
         if suffix not in docs_suffixes and not normalized.startswith(docs_prefixes):
             return False
     return True
+
+
+def profile_snapshot(profile: AutonomyProfile, name: str = "balanced") -> dict:
+    return {
+        "name": name,
+        "stop_on_requires_human": bool(profile.stop_on_requires_human),
+        "max_plan_tier": int(profile.max_plan_tier),
+        "max_implementation_tier": int(profile.max_implementation_tier),
+        "require_tests_for_non_docs_changes": bool(profile.require_tests_for_non_docs_changes),
+    }
+
+
+def evaluate_plan_profile(decision: PolicyDecision, profile: AutonomyProfile, profile_name: str = "balanced") -> ProfilePolicyResult:
+    reasons = []
+    if not decision.accepted:
+        reasons.append("policy_rejected")
+    if profile.stop_on_requires_human and decision.requires_human:
+        reasons.append("requires_human")
+    if decision.tier > profile.max_plan_tier:
+        reasons.append("plan_tier_exceeds_profile")
+    return _profile_result(decision, profile, profile_name, reasons)
+
+
+def evaluate_implementation_profile(
+    decision: PolicyDecision,
+    profile: AutonomyProfile,
+    *,
+    allowed_files: list[str],
+    tests: list[str],
+    profile_name: str = "balanced",
+) -> ProfilePolicyResult:
+    reasons = []
+    if not decision.accepted:
+        reasons.append("policy_rejected")
+    if profile.stop_on_requires_human and decision.requires_human:
+        reasons.append("requires_human")
+    if decision.tier > profile.max_implementation_tier:
+        reasons.append("implementation_tier_exceeds_profile")
+    if profile.require_tests_for_non_docs_changes and not _looks_docs_only(allowed_files) and not tests:
+        reasons.append("tests_required_for_non_docs_changes")
+    return _profile_result(decision, profile, profile_name, reasons)
+
+
+def _profile_result(decision: PolicyDecision, profile: AutonomyProfile, profile_name: str, reasons: list[str]) -> ProfilePolicyResult:
+    snapshot = profile_snapshot(profile, profile_name)
+    hard_stop = {
+        "blocked": bool(reasons),
+        "reasons": reasons,
+        "decision": {
+            "accepted": decision.accepted,
+            "tier": decision.tier,
+            "risk_level": decision.risk_level,
+            "requires_human": decision.requires_human,
+            "reason": decision.reason,
+        },
+        "profile": snapshot,
+    }
+    return ProfilePolicyResult(decision=decision, allowed=not reasons, hard_stop=hard_stop, profile_snapshot=snapshot)
 
 
 def decide_plan_task(task: str, constraints: str | None = None) -> PolicyDecision:

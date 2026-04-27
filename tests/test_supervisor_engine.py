@@ -6,6 +6,7 @@ import pytest
 
 from codexbridge.supervisor_engine import FakeChildJobBackend, SupervisorEngine
 from codexbridge.supervisor_store import SupervisorStore
+from codexbridge.policy import BalancedAutonomyProfile
 
 
 def make_engine(tmp_path: Path) -> tuple[SupervisorEngine, SupervisorStore, FakeChildJobBackend]:
@@ -14,12 +15,27 @@ def make_engine(tmp_path: Path) -> tuple[SupervisorEngine, SupervisorStore, Fake
     return SupervisorEngine(store, jobs), store, jobs
 
 
+def make_engine_with_profile(tmp_path: Path, profile: BalancedAutonomyProfile, profile_name: str = "custom") -> tuple[SupervisorEngine, SupervisorStore, FakeChildJobBackend]:
+    store = SupervisorStore(tmp_path / "runs")
+    jobs = FakeChildJobBackend()
+    return SupervisorEngine(store, jobs, autonomy_profile=profile, profile_name=profile_name), store, jobs
+
+
 def create_supervisor(engine: SupervisorEngine) -> dict:
     return engine.create_plan_supervisor(
         repo_name="codexbridge",
         objective="make a safe docs change",
         task="inspect README",
         constraints="do not edit",
+    )
+
+
+def create_supervisor_with_task(engine: SupervisorEngine, task: str, constraints: str = "") -> dict:
+    return engine.create_plan_supervisor(
+        repo_name="codexbridge",
+        objective="policy test",
+        task=task,
+        constraints=constraints,
     )
 
 
@@ -44,6 +60,13 @@ def test_queued_tick_starts_fake_plan_and_moves_to_planning(tmp_path: Path) -> N
     assert planning["metadata"]["active_child"]["run_id"]
     links = _store.list_run_links(planning["supervisor_id"])
     assert links[0]["run_id"] == active_run_id(planning)
+
+
+def test_create_plan_supervisor_records_effective_profile_metadata(tmp_path: Path) -> None:
+    engine, _store, _jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    assert supervisor["metadata"]["policy"]["profile"]["name"] == "balanced"
+    assert supervisor["metadata"]["policy"]["profile"]["max_implementation_tier"] == 2
 
 
 def test_planning_running_tick_is_idempotent(tmp_path: Path) -> None:
@@ -74,6 +97,31 @@ def test_completed_plan_moves_to_needs_input(tmp_path: Path) -> None:
     assert needs_input["metadata"]["plan_result"]["files"] == ["README.md"]
 
 
+def test_plan_hard_stop_before_child_starts_when_policy_rejected(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor_with_task(engine, "use login credentials")
+    stopped = engine.tick(supervisor["supervisor_id"])
+    assert stopped["status"] == "needs_input"
+    assert stopped["requires_human"] is True
+    assert stopped["risk_level"] == "high"
+    assert stopped["policy_tier"] == 3
+    assert stopped["metadata"]["hard_stop"]["stage"] == "plan_policy"
+    assert "policy_rejected" in stopped["metadata"]["hard_stop"]["reasons"]
+    assert len(jobs.jobs) == 0
+    assert store.get_events(stopped["supervisor_id"])[-1]["stage"] == "plan_policy"
+
+
+def test_plan_hard_stop_repeated_tick_is_idempotent(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor_with_task(engine, "use login credentials")
+    stopped = engine.tick(supervisor["supervisor_id"])
+    event_count = len(store.get_events(stopped["supervisor_id"], limit=100))
+    again = engine.tick(stopped["supervisor_id"])
+    assert again["status"] == "needs_input"
+    assert len(jobs.jobs) == 0
+    assert len(store.get_events(stopped["supervisor_id"], limit=100)) == event_count
+
+
 def test_approve_plan_starts_fake_implementation(tmp_path: Path) -> None:
     engine, _store, jobs = make_engine(tmp_path)
     needs_input = advance_to_needs_input(engine, jobs)
@@ -82,6 +130,17 @@ def test_approve_plan_starts_fake_implementation(tmp_path: Path) -> None:
     assert implementing["metadata"]["active_child"]["kind"] == "implementation"
     assert implementing["metadata"]["implementation_lock"]["repo_name"] == "codexbridge"
     assert len(jobs.jobs) == 2
+
+
+def test_balanced_profile_preserves_supervisor_happy_path(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    needs_input = advance_to_needs_input(engine, jobs)
+    implementing = engine.approve_plan(needs_input["supervisor_id"], "edit app", ["app.py"], [])
+    assert implementing["status"] == "implementing"
+    assert store.get_repo_lock("codexbridge") is not None
+    jobs.complete(active_run_id(implementing), summary="done")
+    completed = engine.tick(needs_input["supervisor_id"])
+    assert completed["status"] == "completed"
 
 
 def test_approval_blocked_when_repo_lock_exists(tmp_path: Path) -> None:
@@ -94,6 +153,41 @@ def test_approval_blocked_when_repo_lock_exists(tmp_path: Path) -> None:
     assert blocked["metadata"]["blocked"]["reason"] == "repo_write_lock_unavailable"
     assert blocked["metadata"]["active_child"] is None
     assert len(jobs.jobs) == 1
+
+
+def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(tmp_path: Path) -> None:
+    profile = BalancedAutonomyProfile(max_implementation_tier=1)
+    engine, store, jobs = make_engine_with_profile(tmp_path, profile, "conservative")
+    needs_input = advance_to_needs_input(engine, jobs)
+    stopped = engine.approve_plan(needs_input["supervisor_id"], "edit app", ["app.py"], ["python -m pytest"])
+    assert stopped["status"] == "needs_input"
+    assert stopped["policy_tier"] == 2
+    assert stopped["risk_level"] == "medium"
+    assert stopped["requires_human"] is False
+    assert stopped["metadata"]["hard_stop"]["stage"] == "implementation_policy"
+    assert "implementation_tier_exceeds_profile" in stopped["metadata"]["hard_stop"]["reasons"]
+    assert store.get_repo_lock("codexbridge") is None
+    assert len(jobs.jobs) == 1
+
+
+def test_approve_plan_hard_stops_when_tests_required_for_non_docs_changes(tmp_path: Path) -> None:
+    profile = BalancedAutonomyProfile(max_implementation_tier=2, require_tests_for_non_docs_changes=True)
+    engine, store, jobs = make_engine_with_profile(tmp_path, profile, "conservative")
+    needs_input = advance_to_needs_input(engine, jobs)
+    stopped = engine.approve_plan(needs_input["supervisor_id"], "edit app", ["app.py"], [])
+    assert stopped["status"] == "needs_input"
+    assert "tests_required_for_non_docs_changes" in stopped["metadata"]["hard_stop"]["reasons"]
+    assert store.get_repo_lock("codexbridge") is None
+    assert len(jobs.jobs) == 1
+
+
+def test_hard_stop_metadata_persists_after_store_reload(tmp_path: Path) -> None:
+    engine, _store, _jobs = make_engine(tmp_path)
+    supervisor = create_supervisor_with_task(engine, "use login credentials")
+    stopped = engine.tick(supervisor["supervisor_id"])
+    reloaded = SupervisorStore(tmp_path / "runs").get_supervisor(stopped["supervisor_id"])
+    assert reloaded["metadata"]["hard_stop"]["stage"] == "plan_policy"
+    assert reloaded["requires_human"] is True
 
 
 def test_approval_only_valid_from_needs_input(tmp_path: Path) -> None:
