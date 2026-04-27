@@ -135,4 +135,6 @@ CodexBridge v2 adds durable async run tools for longer jobs:
 3. Poll `get_run_status(run_id)` and `get_run_events(run_id)`.
 4. Fetch the final result with `get_run_result(run_id)`.
 
+If you lose the original `run_id`, use `list_runs(...)` to recover recent runs. If a queued or running job needs to be stopped, use `cancel_run(run_id)`.
+
 Runs are indexed in `runs/codexbridge.sqlite3` using SQLite WAL mode and write artifacts under `runs/<run_id>/`. Plain synchronous tools remain available for short tasks.
