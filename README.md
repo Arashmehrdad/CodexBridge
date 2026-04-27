@@ -125,3 +125,14 @@ Recommended workflow:
 6. Commit selected files with `commit_selected_files(...)` only after explicit approval.
 
 `push_current_branch` is intentionally not implemented in the MVP.
+
+## Async Run Workflow
+
+CodexBridge v2 adds durable async run tools for longer jobs:
+
+1. Call `start_codex_plan_task_async(...)` or `start_codex_implement_task_async(...)`.
+2. Save the returned `run_id`.
+3. Poll `get_run_status(run_id)` and `get_run_events(run_id)`.
+4. Fetch the final result with `get_run_result(run_id)`.
+
+Runs are indexed in `runs/codexbridge.sqlite3` using SQLite WAL mode and write artifacts under `runs/<run_id>/`. Plain synchronous tools remain available for short tasks.

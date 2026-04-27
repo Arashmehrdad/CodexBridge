@@ -9,7 +9,8 @@ from fastmcp import FastMCP
 from .config import AppConfig, load_config, resolve_repo
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import diff_stat, git_status, inspect_status
-from .runner import CodexRunner, latest_run_result
+from .job_manager import JobManager
+from .runner import CodexRunner, latest_run_result as latest_artifact_result
 from .self_check import run_self_check
 
 
@@ -45,6 +46,10 @@ def get_config_path() -> Path | None:
     return _config_path
 
 
+def get_job_manager() -> JobManager:
+    return JobManager(get_config(), get_config_path())
+
+
 @mcp.tool()
 def inspect_repo_status(repo_name: str) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
@@ -70,10 +75,15 @@ def codex_implement_task(repo_name: str, approved_plan: str, allowed_files: list
 
 
 @mcp.tool()
-def get_latest_run_result() -> dict:
+def get_latest_run_result(repo_name: str | None = None, tool: str | None = None) -> dict:
     """Read-only: return the most recent saved CodexBridge run result."""
     config = get_config()
-    return latest_run_result(config.resolve_runs_dir())
+    if repo_name or tool:
+        return get_job_manager().latest_result(repo_name=repo_name, tool=tool)
+    try:
+        return get_job_manager().latest_result()
+    except Exception:
+        return latest_artifact_result(config.resolve_runs_dir())
 
 
 @mcp.tool()
@@ -99,6 +109,48 @@ def run_local_self_check() -> dict:
     return run_self_check(config=config, config_path=get_config_path(), live_port=8765)
 
 
+@mcp.tool()
+def start_codex_plan_task_async(repo_name: str, task: str, constraints: str = "") -> dict:
+    """Read-only async tool: queue a plan-only Codex job and return a durable run_id immediately."""
+    return get_job_manager().start_plan(repo_name, task, constraints)
+
+
+@mcp.tool()
+def start_codex_implement_task_async(repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict:
+    """Write async tool: queue an approved implementation Codex job and return a durable run_id immediately."""
+    return get_job_manager().start_implementation(repo_name, approved_plan, allowed_files, tests)
+
+
+@mcp.tool()
+def get_run_status(run_id: str) -> dict:
+    """Read-only: return durable status metadata for a queued/running/completed async run."""
+    return get_job_manager().get_status(run_id)
+
+
+@mcp.tool()
+def get_run_events(run_id: str, limit: int = 50) -> list[dict]:
+    """Read-only: return recent timeline events for an async run."""
+    return get_job_manager().get_events(run_id, limit)
+
+
+@mcp.tool()
+def get_run_result(run_id: str) -> dict:
+    """Read-only: return the final or current structured result for an async run."""
+    return get_job_manager().get_result(run_id)
+
+
+@mcp.tool()
+def list_runs(repo_name: str | None = None, status: str | None = None, limit: int = 20) -> list[dict]:
+    """Read-only: list recent async runs with optional repo/status filters."""
+    return get_job_manager().list_runs(repo_name=repo_name, status=status, limit=limit)
+
+
+@mcp.tool()
+def cancel_run(run_id: str) -> dict:
+    """Write tool: request cancellation of a running async job without deleting artifacts."""
+    return get_job_manager().cancel_run(run_id)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the CodexBridge MCP server.")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
@@ -116,6 +168,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def run_server(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     set_config(load_config(config_path), config_path)
+    try:
+        get_job_manager().reconcile_startup()
+    except Exception:
+        pass
     if args.transport == "stdio":
         mcp.run(transport="stdio")
         return

@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+RUN_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_[a-z0-9_]+_[a-f0-9]{8}$")
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "needs_input"}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def validate_run_id(run_id: str) -> None:
+    if not RUN_ID_PATTERN.match(run_id):
+        raise ValueError(f"Invalid run_id: {run_id}")
+
+
+def dumps(data: dict[str, Any] | list[Any] | None) -> str:
+    return json.dumps(data or {}, sort_keys=True)
+
+
+def loads(value: str | None) -> Any:
+    if not value:
+        return {}
+    return json.loads(value)
+
+
+class RunStore:
+    def __init__(self, runs_dir: Path):
+        self.runs_dir = runs_dir
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.runs_dir / "codexbridge.sqlite3"
+        self.init_db()
+
+    def connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    def init_db(self) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    repo_name TEXT NOT NULL,
+                    tool TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    risk_level TEXT NOT NULL DEFAULT 'low',
+                    requires_human INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    ended_at TEXT,
+                    duration_seconds REAL,
+                    pid INTEGER,
+                    worker_pid INTEGER,
+                    exit_code INTEGER,
+                    run_dir TEXT NOT NULL,
+                    summary TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT '',
+                    safety_failure INTEGER NOT NULL DEFAULT 0,
+                    input_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT NOT NULL DEFAULT '{}'
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    data_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_repo_status ON runs(repo_name, status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, id)")
+
+    def journal_mode(self) -> str:
+        with self.connect() as conn:
+            return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+
+    def create_run(
+        self,
+        *,
+        run_id: str,
+        repo_name: str,
+        tool: str,
+        run_dir: Path,
+        input_data: dict[str, Any],
+        risk_level: str = "low",
+        requires_human: bool = False,
+        status: str = "queued",
+    ) -> dict[str, Any]:
+        validate_run_id(run_id)
+        created_at = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO runs (
+                    run_id, repo_name, tool, status, risk_level, requires_human,
+                    created_at, run_dir, input_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    repo_name,
+                    tool,
+                    status,
+                    risk_level,
+                    int(requires_human),
+                    created_at,
+                    str(run_dir),
+                    dumps(input_data),
+                ),
+            )
+        return self.get_run(run_id)
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        validate_run_id(run_id)
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return self._row_to_run(row)
+
+    def list_runs(self, repo_name: str | None = None, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 100))
+        where: list[str] = []
+        params: list[Any] = []
+        if repo_name:
+            where.append("repo_name = ?")
+            params.append(repo_name)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        sql = "SELECT * FROM runs"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_run(row) for row in rows]
+
+    def latest_run(self, repo_name: str | None = None, tool: str | None = None) -> dict[str, Any]:
+        where: list[str] = []
+        params: list[Any] = []
+        if repo_name:
+            where.append("repo_name = ?")
+            params.append(repo_name)
+        if tool:
+            where.append("tool = ?")
+            params.append(tool)
+        sql = "SELECT * FROM runs"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC LIMIT 1"
+        with self.connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        if row is None:
+            raise KeyError("No runs found")
+        return self._row_to_run(row)
+
+    def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
+        validate_run_id(run_id)
+        if not fields:
+            return self.get_run(run_id)
+        normalized = dict(fields)
+        if "requires_human" in normalized:
+            normalized["requires_human"] = int(bool(normalized["requires_human"]))
+        if "safety_failure" in normalized:
+            normalized["safety_failure"] = int(bool(normalized["safety_failure"]))
+        if "input_json" in normalized and not isinstance(normalized["input_json"], str):
+            normalized["input_json"] = dumps(normalized["input_json"])
+        if "result_json" in normalized and not isinstance(normalized["result_json"], str):
+            normalized["result_json"] = dumps(normalized["result_json"])
+        assignments = ", ".join(f"{key} = ?" for key in normalized)
+        params = [*normalized.values(), run_id]
+        with self.connect() as conn:
+            conn.execute(f"UPDATE runs SET {assignments} WHERE run_id = ?", params)
+        return self.get_run(run_id)
+
+    def append_event(
+        self,
+        run_id: str,
+        *,
+        level: str,
+        stage: str,
+        message: str,
+        data: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        validate_run_id(run_id)
+        event = {
+            "timestamp": timestamp or utc_now(),
+            "run_id": run_id,
+            "level": level,
+            "stage": stage,
+            "message": message,
+            "data": data or {},
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO events (run_id, timestamp, level, stage, message, data_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, event["timestamp"], level, stage, message, dumps(event["data"])),
+            )
+        return event
+
+    def get_events(self, run_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        validate_run_id(run_id)
+        limit = max(1, min(int(limit), 500))
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT * FROM events WHERE run_id = ? ORDER BY id DESC LIMIT ?
+                ) ORDER BY id ASC
+                """,
+                (run_id, limit),
+            ).fetchall()
+        return [self._row_to_event(row) for row in rows]
+
+    def mark_stale_running(self) -> int:
+        now = utc_now()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET status = 'failed', ended_at = ?, error = 'Server restarted while run was marked running'
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
+        return int(cursor.rowcount)
+
+    def _row_to_run(self, row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        result["requires_human"] = bool(result["requires_human"])
+        result["safety_failure"] = bool(result["safety_failure"])
+        result["input"] = loads(result.pop("input_json"))
+        result["result"] = loads(result.pop("result_json"))
+        return result
+
+    def _row_to_event(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "timestamp": row["timestamp"],
+            "run_id": row["run_id"],
+            "level": row["level"],
+            "stage": row["stage"],
+            "message": row["message"],
+            "data": loads(row["data_json"]),
+        }

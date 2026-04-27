@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .config import AppConfig, load_config
+from .run_store import RunStore
 
 
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> dict:
@@ -148,6 +149,12 @@ def run_self_check(
         checks["git_status"]["warning"] = "CodexBridge workspace is not a git repo; target repos are validated from config."
     if run_tests:
         checks["pytest"] = _run([sys.executable, "-m", "pytest", "-q"], root, timeout=300)
+
+    try:
+        store = RunStore(config.resolve_runs_dir() if config else root / "runs")
+        checks["run_store"] = {"ok": store.journal_mode() == "wal", "db_path": str(store.db_path), "journal_mode": store.journal_mode()}
+    except Exception as exc:
+        checks["run_store"] = {"ok": False, "error": str(exc)}
 
     if run_live_server:
         if config_path is None:
