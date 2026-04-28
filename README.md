@@ -14,7 +14,7 @@ ChatGPT app
   -> structured result back to ChatGPT
 ```
 
-ChatGPT acts as the strategist, researcher, and roadmap writer. Codex acts as the planner, implementer, and test runner. The bridge separates read-only tools from write tools, records every Codex run, and never pushes automatically.
+ChatGPT acts as the strategist, researcher, and roadmap writer. Codex acts as the planner, implementer, and test runner. The bridge separates read-only tools from write tools, records every Codex run, supports durable supervisor workflows for multi-step recovery tasks, and never pushes automatically.
 
 ## Human Involvement Policy
 
@@ -138,3 +138,27 @@ CodexBridge v2 adds durable async run tools for longer jobs:
 If you lose the original `run_id`, use `list_runs(...)` to recover recent runs. If a queued or running job needs to be stopped, use `cancel_run(run_id)`.
 
 Runs are indexed in `runs/codexbridge.sqlite3` using SQLite WAL mode and write artifacts under `runs/<run_id>/`. Plain synchronous tools remain available for short tasks.
+
+## Supervisor Workflow
+
+CodexBridge v3 adds supervisor tools for staged recovery work that may span multiple Codex child runs. Supervisors are durable records in the local SQLite store, with events, run links, notifications, and a canonical resume prompt.
+
+Typical flow:
+
+1. Call `start_supervised_recovery_task(repo_name, objective, task, constraints="", source_run_id=None, autonomy_profile="balanced")` to create a supervisor and advance one safe step.
+2. Call `get_supervisor_status(supervisor_id)` to inspect enriched status, including child run links, active child status, resume prompt info, and pending notification count.
+3. Call `get_supervisor_events(supervisor_id)` to review ordered supervisor events.
+4. Call `get_supervisor_result(supervisor_id)` to read plan and implementation result metadata.
+5. Call `resume_supervisor(supervisor_id)` to advance exactly one safe step.
+6. Call `pause_supervisor(supervisor_id)` only when the supervisor is `queued` or `needs_input`.
+7. Call `cancel_supervisor(supervisor_id)` to cancel the supervisor and active child if present.
+8. Call `get_supervisor_notifications(supervisor_id, delivery_status=None)` to read durable notification outbox rows.
+9. Call `get_supervisor_resume_prompt(supervisor_id)` to read `runs/supervisors/<supervisor_id>/resume_prompt.txt`.
+
+Current supervisor limits are intentional:
+
+- There is no background scheduler yet; ChatGPT or the operator advances work by calling `resume_supervisor`.
+- There is no approve-plan MCP tool yet.
+- There is no active-child pause yet; pause is limited to `queued` and `needs_input`.
+- Notification sinks are disabled by default.
+- Resume prompts reference child artifacts such as `prompt.txt`, `result.json`, `events.jsonl`, `stdout.txt`, and `stderr.txt` instead of embedding raw logs.

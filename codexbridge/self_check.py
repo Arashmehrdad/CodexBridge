@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from .config import AppConfig, load_config
 from .run_store import RunStore
+from .supervisor_store import SupervisorStore
 
 
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> dict:
@@ -155,6 +156,57 @@ def run_self_check(
         checks["run_store"] = {"ok": store.journal_mode() == "wal", "db_path": str(store.db_path), "journal_mode": store.journal_mode()}
     except Exception as exc:
         checks["run_store"] = {"ok": False, "error": str(exc)}
+
+    try:
+        supervisor_store = SupervisorStore(config.resolve_runs_dir() if config else root / "runs")
+        required_tables = {
+            "supervisors",
+            "supervisor_events",
+            "supervisor_run_links",
+            "repo_write_locks",
+            "supervisor_notifications",
+        }
+        with supervisor_store.connect() as conn:
+            existing_tables = {
+                row[0]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+            }
+        missing_tables = sorted(required_tables - existing_tables)
+        journal_mode = supervisor_store.journal_mode()
+        checks["supervisor_store"] = {
+            "ok": journal_mode == "wal" and not missing_tables,
+            "db_path": str(supervisor_store.db_path),
+            "journal_mode": journal_mode,
+            "required_tables": sorted(required_tables),
+            "missing_tables": missing_tables,
+        }
+    except Exception as exc:
+        checks["supervisor_store"] = {"ok": False, "error": str(exc)}
+
+    if config:
+        supervisors = config.supervisors
+        notifications = supervisors.notifications
+        default_profile = supervisors.default_autonomy_profile
+        checks["supervisor_config"] = {
+            "ok": default_profile in supervisors.autonomy_profiles,
+            "default_autonomy_profile": default_profile,
+            "available_profiles": sorted(supervisors.autonomy_profiles),
+            "notifications_enabled": notifications.enabled,
+            "notification_sinks": {
+                "file_enabled": notifications.file.enabled,
+                "webhook_enabled": notifications.webhook.enabled,
+                "windows_toast_enabled": notifications.windows_toast.enabled,
+            },
+        }
+        supervisor_prompt_root = config.resolve_runs_dir() / "supervisors"
+        checks["supervisor_resume_prompts"] = {
+            "ok": config.resolve_runs_dir().exists(),
+            "root": str(supervisor_prompt_root),
+            "pattern": str(supervisor_prompt_root / "<supervisor_id>" / "resume_prompt.txt"),
+        }
+    else:
+        checks["supervisor_config"] = {"ok": False, "error": "config unavailable"}
+        checks["supervisor_resume_prompts"] = {"ok": False, "error": "config unavailable"}
 
     if run_live_server:
         if config_path is None:
