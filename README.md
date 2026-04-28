@@ -162,3 +162,39 @@ Current supervisor limits are intentional:
 - There is no active-child pause yet; pause is limited to `queued` and `needs_input`.
 - Notification sinks are disabled by default.
 - Resume prompts reference child artifacts such as `prompt.txt`, `result.json`, `events.jsonl`, `stdout.txt`, and `stderr.txt` instead of embedding raw logs.
+
+## Local Browser Pulse Sender
+
+`scripts/browser_pulse_sender.py` is a standalone local-only helper for supervisor handoff states. It is not part of the MCP server and does not change supervisor behavior. It connects to an existing Chrome or Edge session through local CDP at `http://127.0.0.1:9222`, opens a real ChatGPT chat URL like `https://chatgpt.com/c/...`, sends a sanitized resume prompt, and optionally closes the tab.
+
+Path A, recommended: start a dedicated pulse browser profile so the normal browser does not need to be closed. This profile is separate from the normal browser profile, so sign in to ChatGPT in it once before expecting send mode to work.
+
+```powershell
+.\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -UserDataDir "D:\Github\CodexBridge\.pulse-chrome-profile" -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
+```
+
+Path B: use the existing normal browser profile. Close all browser windows first, or explicitly stop only the selected browser before relaunching it with CDP:
+
+```powershell
+.\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -KillExisting -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
+```
+
+The launcher verifies CDP with:
+
+```powershell
+curl.exe http://127.0.0.1:9222/json/version
+```
+
+Dry-run smoke test:
+
+```powershell
+python .\scripts\browser_pulse_sender.py --runs-dir runs --supervisor-id <supervisor_id> --chat-url https://chatgpt.com/c/<chat_id> --prompt "Browser pulse smoke test. Reply only: pulse received." --dry-run --once
+```
+
+Send mode:
+
+```powershell
+python .\scripts\browser_pulse_sender.py --runs-dir runs --supervisor-id <supervisor_id> --chat-url https://chatgpt.com/c/<chat_id> --prompt "Browser pulse smoke test. Reply only: pulse received." --send --once --close-tab
+```
+
+The pulse sender requires a real ChatGPT chat URL and uses the user's already-authenticated browser session. It does not read, export, print, or store cookies, passwords, tokens, or browser profile data. Its log records only `supervisor_id`, status, timestamp, and success/failure.

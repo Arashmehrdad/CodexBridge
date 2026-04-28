@@ -18,6 +18,9 @@ dependencies = [
 dev = [
   "pytest",
 ]
+pulse = [
+  "playwright",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
