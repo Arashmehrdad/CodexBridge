@@ -9,6 +9,10 @@ from .events import redact_and_truncate, truncate_text
 
 ARTIFACT_NAMES = ["prompt.txt", "result.json", "events.jsonl", "stdout.txt", "stderr.txt"]
 PROMPT_LIMIT = 20000
+PULSESENDER_DELIVERY_NOTE = (
+    "If this prompt arrived automatically, it was likely delivered by the local PulseSender watcher. "
+    "Continue from the supervisor context. Do not ask the user to manually relay this prompt again."
+)
 
 
 def supervisor_prompt_path(runs_dir: Path, supervisor_id: str) -> Path:
@@ -29,6 +33,8 @@ def build_resume_prompt(supervisor: dict[str, Any], child_run_base_dir: Path) ->
     child_links = list(safe.get("run_links") or [])
     lines: list[str] = [
         "You are Codex resuming a CodexBridge supervisor context.",
+        "",
+        PULSESENDER_DELIVERY_NOTE,
         "",
         f"repo_name: {safe.get('repo_name', '')}",
         f"supervisor_id: {safe.get('supervisor_id', '')}",

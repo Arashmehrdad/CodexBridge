@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.supervisor_resume_prompt import build_resume_prompt, supervisor_prompt_path, write_resume_prompt
+from codexbridge.supervisor_resume_prompt import (
+    PULSESENDER_DELIVERY_NOTE,
+    build_resume_prompt,
+    supervisor_prompt_path,
+    write_resume_prompt,
+)
 
 
 SUPERVISOR_ID = "20260428T120000Z_supervisor_abcdef12"
@@ -34,6 +39,16 @@ def test_needs_input_prompt_includes_plan_result_and_artifact_references(tmp_pat
     assert f"plan: {RUN_ID}" in prompt
     assert str(tmp_path / "runs" / RUN_ID / "result.json") in prompt
     assert "Review the plan result" in prompt
+
+
+def test_prompt_includes_pulsesender_delivery_note_once_near_top(tmp_path: Path) -> None:
+    prompt = build_resume_prompt(supervisor("needs_input"), tmp_path)
+    assert PULSESENDER_DELIVERY_NOTE in prompt
+    assert prompt.count(PULSESENDER_DELIVERY_NOTE) == 1
+    assert prompt.index(PULSESENDER_DELIVERY_NOTE) < prompt.index("repo_name:")
+    assert prompt.index(PULSESENDER_DELIVERY_NOTE) < prompt.index("Hard Rules:")
+    for prohibited in ("cookies", "tokens", "browser profile data", "internal browser state"):
+        assert prohibited not in PULSESENDER_DELIVERY_NOTE.lower()
 
 
 def test_blocked_needs_input_prompt_has_blocked_guidance(tmp_path: Path) -> None:
