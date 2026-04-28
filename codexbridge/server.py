@@ -12,6 +12,7 @@ from .git_tools import diff_stat, git_status, inspect_status
 from .job_manager import JobManager
 from .runner import CodexRunner, latest_run_result as latest_artifact_result
 from .self_check import run_self_check
+from .supervisor_service import SupervisorService
 
 
 mcp = FastMCP("CodexBridge")
@@ -48,6 +49,10 @@ def get_config_path() -> Path | None:
 
 def get_job_manager() -> JobManager:
     return JobManager(get_config(), get_config_path())
+
+
+def get_supervisor_service() -> SupervisorService:
+    return SupervisorService(get_config(), get_config_path())
 
 
 @mcp.tool()
@@ -149,6 +154,67 @@ def list_runs(repo_name: str | None = None, status: str | None = None, limit: in
 def cancel_run(run_id: str) -> dict:
     """Write tool: request cancellation of a running async job without deleting artifacts."""
     return get_job_manager().cancel_run(run_id)
+
+
+@mcp.tool()
+def start_supervised_recovery_task(
+    repo_name: str,
+    objective: str,
+    task: str,
+    constraints: str = "",
+    source_run_id: str | None = None,
+    autonomy_profile: str = "balanced",
+) -> dict:
+    """Write tool: create a supervisor and advance it one safe step."""
+    return get_supervisor_service().start_supervised_recovery_task(repo_name, objective, task, constraints, source_run_id, autonomy_profile)
+
+
+@mcp.tool()
+def get_supervisor_status(supervisor_id: str) -> dict:
+    """Read-only: return enriched supervisor status."""
+    return get_supervisor_service().get_status(supervisor_id)
+
+
+@mcp.tool()
+def get_supervisor_events(supervisor_id: str, limit: int = 50) -> list[dict]:
+    """Read-only: return ordered supervisor events."""
+    return get_supervisor_service().get_events(supervisor_id, limit)
+
+
+@mcp.tool()
+def get_supervisor_result(supervisor_id: str) -> dict:
+    """Read-only: return supervisor result metadata and linked run references."""
+    return get_supervisor_service().get_result(supervisor_id)
+
+
+@mcp.tool()
+def resume_supervisor(supervisor_id: str) -> dict:
+    """Write tool: advance a supervisor exactly one safe step."""
+    return get_supervisor_service().resume(supervisor_id)
+
+
+@mcp.tool()
+def pause_supervisor(supervisor_id: str) -> dict:
+    """Write tool: pause a queued or needs_input supervisor."""
+    return get_supervisor_service().pause(supervisor_id)
+
+
+@mcp.tool()
+def cancel_supervisor(supervisor_id: str) -> dict:
+    """Write tool: cancel a supervisor and active child if present."""
+    return get_supervisor_service().cancel(supervisor_id)
+
+
+@mcp.tool()
+def get_supervisor_notifications(supervisor_id: str, delivery_status: str | None = None, limit: int = 50) -> list[dict]:
+    """Read-only: return persisted supervisor notification rows."""
+    return get_supervisor_service().get_notifications(supervisor_id, delivery_status, limit)
+
+
+@mcp.tool()
+def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
+    """Read-only: return the canonical supervisor resume prompt if present."""
+    return get_supervisor_service().get_resume_prompt(supervisor_id)
 
 
 def build_parser() -> argparse.ArgumentParser:
