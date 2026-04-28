@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from codexbridge.supervisor_engine import FakeChildJobBackend, SupervisorEngine
+from codexbridge.supervisor_resume_prompt import supervisor_prompt_path
 from codexbridge.supervisor_store import SupervisorStore
 from codexbridge.policy import BalancedAutonomyProfile
 
@@ -41,6 +42,10 @@ def create_supervisor_with_task(engine: SupervisorEngine, task: str, constraints
 
 def active_run_id(supervisor: dict) -> str:
     return supervisor["metadata"]["active_child"]["run_id"]
+
+
+def resume_prompt(store: SupervisorStore, supervisor_id: str) -> Path:
+    return supervisor_prompt_path(store.runs_dir, supervisor_id)
 
 
 def advance_to_needs_input(engine: SupervisorEngine, jobs: FakeChildJobBackend) -> dict:
@@ -95,6 +100,9 @@ def test_completed_plan_moves_to_needs_input(tmp_path: Path) -> None:
     assert needs_input["status"] == "needs_input"
     assert needs_input["summary"] == "plan summary"
     assert needs_input["metadata"]["plan_result"]["files"] == ["README.md"]
+    prompt = resume_prompt(_store, needs_input["supervisor_id"])
+    assert prompt.exists()
+    assert active_run_id({"metadata": {"active_child": {"run_id": needs_input["metadata"]["plan_result"]["run_id"]}}}) in prompt.read_text(encoding="utf-8")
 
 
 def test_plan_hard_stop_before_child_starts_when_policy_rejected(tmp_path: Path) -> None:
@@ -112,6 +120,7 @@ def test_plan_hard_stop_before_child_starts_when_policy_rejected(tmp_path: Path)
     notifications = store.list_notifications(stopped["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "hard_stop"
+    assert resume_prompt(store, stopped["supervisor_id"]).exists()
 
 
 def test_plan_hard_stop_repeated_tick_is_idempotent(tmp_path: Path) -> None:
@@ -160,6 +169,7 @@ def test_approval_blocked_when_repo_lock_exists(tmp_path: Path) -> None:
     notifications = store.list_notifications(blocked["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "blocked_by_lock"
+    assert "repo_write_lock_unavailable" in resume_prompt(store, blocked["supervisor_id"]).read_text(encoding="utf-8")
 
 
 def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(tmp_path: Path) -> None:
@@ -239,6 +249,7 @@ def test_completed_implementation_marks_supervisor_completed(tmp_path: Path) -> 
     notifications = _store.list_notifications(completed["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "completed"
+    assert "status: completed" in resume_prompt(_store, completed["supervisor_id"]).read_text(encoding="utf-8")
 
 
 def test_plan_failure_marks_supervisor_failed(tmp_path: Path) -> None:
@@ -250,6 +261,7 @@ def test_plan_failure_marks_supervisor_failed(tmp_path: Path) -> None:
     assert failed["status"] == "failed"
     assert failed["error"] == "plan failed"
     assert _store.list_notifications(failed["supervisor_id"])[0]["kind"] == "failed"
+    assert "status: failed" in resume_prompt(_store, failed["supervisor_id"]).read_text(encoding="utf-8")
 
 
 def test_cancelled_plan_child_marks_supervisor_cancelled(tmp_path: Path) -> None:
@@ -259,6 +271,7 @@ def test_cancelled_plan_child_marks_supervisor_cancelled(tmp_path: Path) -> None
     jobs.cancel(active_run_id(planning))
     cancelled = engine.tick(supervisor["supervisor_id"])
     assert cancelled["status"] == "cancelled"
+    assert "status: cancelled" in resume_prompt(_store, cancelled["supervisor_id"]).read_text(encoding="utf-8")
 
 
 def test_implementation_failure_marks_supervisor_failed(tmp_path: Path) -> None:
@@ -290,6 +303,7 @@ def test_cancel_active_plan_marks_cancelled(tmp_path: Path) -> None:
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(planning)).status == "cancelled"
     assert _store.list_notifications(cancelled["supervisor_id"])[0]["kind"] == "cancelled"
+    assert resume_prompt(_store, cancelled["supervisor_id"]).exists()
 
 
 def test_cancel_active_implementation_marks_cancelled(tmp_path: Path) -> None:
@@ -309,10 +323,13 @@ def test_terminal_tick_is_noop(tmp_path: Path) -> None:
     jobs.complete(active_run_id(implementing), summary="done")
     completed = engine.tick(needs_input["supervisor_id"])
     event_count = len(store.get_events(needs_input["supervisor_id"], limit=100))
+    prompt = resume_prompt(store, needs_input["supervisor_id"])
+    before_mtime = prompt.stat().st_mtime_ns
     again = engine.tick(needs_input["supervisor_id"])
     assert again["status"] == "completed"
     assert again["summary"] == completed["summary"]
     assert len(store.get_events(needs_input["supervisor_id"], limit=100)) == event_count
+    assert prompt.stat().st_mtime_ns == before_mtime
 
 
 def test_state_survives_store_reload(tmp_path: Path) -> None:

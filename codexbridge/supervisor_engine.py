@@ -14,6 +14,7 @@ from .policy import (
     evaluate_plan_profile,
     profile_snapshot,
 )
+from .supervisor_resume_prompt import write_resume_prompt
 from .supervisor_store import SupervisorStore, utc_now
 
 
@@ -240,6 +241,7 @@ class SupervisorEngine:
                 message="Implementation blocked by repo write lock",
                 data={"repo_name": supervisor["repo_name"]},
             )
+            self._write_resume_prompt(updated)
             self._notify(
                 updated,
                 event_stage="blocked",
@@ -293,6 +295,7 @@ class SupervisorEngine:
             summary="Supervisor cancelled",
             metadata_json=metadata,
         )
+        self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor_id,
             level="warning",
@@ -363,6 +366,7 @@ class SupervisorEngine:
             summary=summary,
             metadata_json=metadata,
         )
+        self._attach_links_and_write_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
             level="info",
@@ -402,6 +406,7 @@ class SupervisorEngine:
             summary=result.get("summary", ""),
             metadata_json=metadata,
         )
+        self._attach_links_and_write_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
             level="info",
@@ -432,6 +437,7 @@ class SupervisorEngine:
             summary=error,
             metadata_json=metadata,
         )
+        self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
             level="error",
@@ -472,6 +478,7 @@ class SupervisorEngine:
             summary=policy_result.decision.reason or "Supervisor hard-stop requires input",
             metadata_json=metadata,
         )
+        self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
             level="warning",
@@ -500,6 +507,7 @@ class SupervisorEngine:
             summary="Child run cancelled",
             metadata_json=metadata,
         )
+        self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
             level="warning",
@@ -541,6 +549,16 @@ class SupervisorEngine:
             payload=payload,
             dedupe_key=dedupe_key,
         )
+
+    def _attach_links_and_write_prompt(self, supervisor: dict[str, Any]) -> None:
+        enriched = dict(supervisor)
+        enriched["run_links"] = self.store.list_run_links(supervisor["supervisor_id"])
+        self._write_resume_prompt(enriched)
+
+    def _write_resume_prompt(self, supervisor: dict[str, Any]) -> None:
+        enriched = dict(supervisor)
+        enriched.setdefault("run_links", self.store.list_run_links(supervisor["supervisor_id"]))
+        write_resume_prompt(self.store.runs_dir, enriched)
 
     def _release_implementation_lock(self, metadata: dict[str, Any]) -> None:
         lock = metadata.get("implementation_lock")
