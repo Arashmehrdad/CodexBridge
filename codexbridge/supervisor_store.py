@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .events import redact_and_truncate
+
 
 SUPERVISOR_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_supervisor_[a-f0-9]{8}$")
 LOCK_ID_PATTERN = re.compile(r"^lock_[a-f0-9]{8}$")
@@ -119,11 +121,34 @@ class SupervisorStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS supervisor_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    supervisor_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    event_stage TEXT NOT NULL,
+                    event_level TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    dedupe_key TEXT NOT NULL,
+                    delivery_status TEXT NOT NULL DEFAULT 'pending',
+                    delivery_attempts INTEGER NOT NULL DEFAULT 0,
+                    last_attempt_at TEXT,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    UNIQUE(supervisor_id, dedupe_key),
+                    FOREIGN KEY(supervisor_id) REFERENCES supervisors(supervisor_id) ON DELETE CASCADE
+                )
+                """
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisors_created_at ON supervisors(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisors_repo_status ON supervisors(repo_name, status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_events_supervisor ON supervisor_events(supervisor_id, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_run_links_supervisor ON supervisor_run_links(supervisor_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_write_locks_repo ON repo_write_locks(repo_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_notifications_supervisor ON supervisor_notifications(supervisor_id, id)")
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -350,6 +375,98 @@ class SupervisorStore:
             ).fetchone()
         return dict(row) if row is not None else None
 
+    def create_notification(
+        self,
+        supervisor_id: str,
+        *,
+        event_stage: str,
+        event_level: str,
+        kind: str,
+        title: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+        dedupe_key: str,
+    ) -> dict[str, Any]:
+        validate_supervisor_id(supervisor_id)
+        created_at = utc_now()
+        safe_title = str(redact_and_truncate(title, limit=4000))
+        safe_message = str(redact_and_truncate(message, limit=4000))
+        safe_payload = redact_and_truncate(payload or {}, limit=4000)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO supervisor_notifications (
+                    supervisor_id, created_at, event_stage, event_level, kind,
+                    title, message, payload_json, dedupe_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (supervisor_id, created_at, event_stage, event_level, kind, safe_title, safe_message, dumps(safe_payload), dedupe_key),
+            )
+            row = conn.execute(
+                """
+                SELECT * FROM supervisor_notifications
+                WHERE supervisor_id = ? AND dedupe_key = ?
+                """,
+                (supervisor_id, dedupe_key),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Notification not found after insert: {supervisor_id} {dedupe_key}")
+        return self._row_to_notification(row)
+
+    def get_notification(self, notification_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM supervisor_notifications WHERE id = ?", (notification_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Notification not found: {notification_id}")
+        return self._row_to_notification(row)
+
+    def list_notifications(
+        self,
+        supervisor_id: str | None = None,
+        delivery_status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 500))
+        where: list[str] = []
+        params: list[Any] = []
+        if supervisor_id:
+            validate_supervisor_id(supervisor_id)
+            where.append("supervisor_id = ?")
+            params.append(supervisor_id)
+        if delivery_status:
+            where.append("delivery_status = ?")
+            params.append(delivery_status)
+        sql = "SELECT * FROM supervisor_notifications"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_notification(row) for row in rows]
+
+    def update_notification_delivery(
+        self,
+        notification_id: int,
+        *,
+        delivery_status: str,
+        last_error: str = "",
+        increment_attempts: bool = True,
+    ) -> dict[str, Any]:
+        last_attempt_at = utc_now()
+        attempts_sql = "delivery_attempts + 1" if increment_attempts else "delivery_attempts"
+        with self.connect() as conn:
+            conn.execute(
+                f"""
+                UPDATE supervisor_notifications
+                SET delivery_status = ?, last_attempt_at = ?, last_error = ?,
+                    delivery_attempts = {attempts_sql}
+                WHERE id = ?
+                """,
+                (delivery_status, last_attempt_at, last_error, notification_id),
+            )
+        return self.get_notification(notification_id)
+
     def _row_to_supervisor(self, row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         result["requires_human"] = bool(result["requires_human"])
@@ -365,3 +482,8 @@ class SupervisorStore:
             "message": row["message"],
             "data": loads(row["data_json"]),
         }
+
+    def _row_to_notification(self, row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        result["payload"] = loads(result.pop("payload_json"))
+        return result

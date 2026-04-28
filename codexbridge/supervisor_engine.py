@@ -240,6 +240,16 @@ class SupervisorEngine:
                 message="Implementation blocked by repo write lock",
                 data={"repo_name": supervisor["repo_name"]},
             )
+            self._notify(
+                updated,
+                event_stage="blocked",
+                event_level="warning",
+                kind="blocked_by_lock",
+                title="CodexBridge supervisor blocked",
+                message="Implementation is blocked by an active repo write lock.",
+                payload={"repo_name": supervisor["repo_name"], "reason": "repo_write_lock_unavailable"},
+                dedupe_key="blocked_by_lock",
+            )
             return updated
 
         metadata["implementation_lock"] = lock
@@ -289,6 +299,16 @@ class SupervisorEngine:
             stage="cancelled",
             message="Supervisor cancelled",
             data={"run_id": run_id},
+        )
+        self._notify(
+            updated,
+            event_stage="cancelled",
+            event_level="warning",
+            kind="cancelled",
+            title="CodexBridge supervisor cancelled",
+            message="Supervisor was cancelled.",
+            payload={"run_id": run_id},
+            dedupe_key="cancelled",
         )
         return updated
 
@@ -389,6 +409,16 @@ class SupervisorEngine:
             message="Implementation completed",
             data={"run_id": run_id},
         )
+        self._notify(
+            updated,
+            event_stage="completed",
+            event_level="info",
+            kind="completed",
+            title="CodexBridge supervisor completed",
+            message="Supervisor completed implementation.",
+            payload={"run_id": run_id, "summary": result.get("summary", "")},
+            dedupe_key="completed",
+        )
         return updated
 
     def _fail(self, supervisor: dict[str, Any], error: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -408,6 +438,16 @@ class SupervisorEngine:
             stage="failed",
             message=error,
             data={},
+        )
+        self._notify(
+            updated,
+            event_stage="failed",
+            event_level="error",
+            kind="failed",
+            title="CodexBridge supervisor failed",
+            message=error,
+            payload={"error": error},
+            dedupe_key="failed",
         )
         return updated
 
@@ -439,6 +479,16 @@ class SupervisorEngine:
             message="Supervisor hard-stop requires input",
             data=hard_stop,
         )
+        self._notify(
+            updated,
+            event_stage=stage,
+            event_level="warning",
+            kind="hard_stop",
+            title="CodexBridge supervisor needs input",
+            message=policy_result.decision.reason or "Supervisor requires input.",
+            payload=hard_stop,
+            dedupe_key=f"hard_stop:{stage}",
+        )
         return updated
 
     def _cancel_from_child(self, supervisor: dict[str, Any], metadata: dict[str, Any], run_id: str) -> dict[str, Any]:
@@ -457,7 +507,40 @@ class SupervisorEngine:
             message="Child run cancelled",
             data={"run_id": run_id},
         )
+        self._notify(
+            updated,
+            event_stage="cancelled",
+            event_level="warning",
+            kind="cancelled",
+            title="CodexBridge supervisor cancelled",
+            message="Child run was cancelled.",
+            payload={"run_id": run_id},
+            dedupe_key="cancelled",
+        )
         return updated
+
+    def _notify(
+        self,
+        supervisor: dict[str, Any],
+        *,
+        event_stage: str,
+        event_level: str,
+        kind: str,
+        title: str,
+        message: str,
+        payload: dict[str, Any],
+        dedupe_key: str,
+    ) -> dict[str, Any]:
+        return self.store.create_notification(
+            supervisor["supervisor_id"],
+            event_stage=event_stage,
+            event_level=event_level,
+            kind=kind,
+            title=title,
+            message=message,
+            payload=payload,
+            dedupe_key=dedupe_key,
+        )
 
     def _release_implementation_lock(self, metadata: dict[str, Any]) -> None:
         lock = metadata.get("implementation_lock")

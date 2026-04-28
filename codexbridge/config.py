@@ -31,6 +31,29 @@ class SupervisorAutonomyProfile(BaseModel):
     require_tests_for_non_docs_changes: bool = False
 
 
+class SupervisorFileNotificationSinkConfig(BaseModel):
+    enabled: bool = False
+    path: str = ""
+
+
+class SupervisorWebhookNotificationSinkConfig(BaseModel):
+    enabled: bool = False
+    url_env: str = ""
+    timeout_seconds: int = Field(default=5, ge=1, le=60)
+
+
+class SupervisorWindowsToastNotificationSinkConfig(BaseModel):
+    enabled: bool = False
+
+
+class SupervisorNotificationsConfig(BaseModel):
+    enabled: bool = True
+    max_payload_chars: int = Field(default=4000, ge=200, le=20000)
+    file: SupervisorFileNotificationSinkConfig = Field(default_factory=SupervisorFileNotificationSinkConfig)
+    webhook: SupervisorWebhookNotificationSinkConfig = Field(default_factory=SupervisorWebhookNotificationSinkConfig)
+    windows_toast: SupervisorWindowsToastNotificationSinkConfig = Field(default_factory=SupervisorWindowsToastNotificationSinkConfig)
+
+
 class SupervisorsConfig(BaseModel):
     default_autonomy_profile: str = "balanced"
     autonomy_profiles: Dict[str, SupervisorAutonomyProfile] = Field(
@@ -39,6 +62,7 @@ class SupervisorsConfig(BaseModel):
             "conservative": SupervisorAutonomyProfile(max_implementation_tier=1, require_tests_for_non_docs_changes=True),
         }
     )
+    notifications: SupervisorNotificationsConfig = Field(default_factory=SupervisorNotificationsConfig)
 
     @model_validator(mode="after")
     def validate_default_profile(self) -> "SupervisorsConfig":

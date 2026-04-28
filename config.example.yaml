@@ -25,3 +25,15 @@ supervisors:
       max_plan_tier: 1
       max_implementation_tier: 1
       require_tests_for_non_docs_changes: true
+  notifications:
+    enabled: true
+    max_payload_chars: 4000
+    file:
+      enabled: false
+      path: ""
+    webhook:
+      enabled: false
+      url_env: ""
+      timeout_seconds: 5
+    windows_toast:
+      enabled: false

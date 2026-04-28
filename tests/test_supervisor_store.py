@@ -25,7 +25,7 @@ def test_supervisor_store_initializes_schema_and_wal(tmp_path: Path) -> None:
     assert store.journal_mode() == "wal"
     with store.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert {"supervisors", "supervisor_events", "supervisor_run_links", "repo_write_locks"}.issubset(tables)
+    assert {"supervisors", "supervisor_events", "supervisor_run_links", "repo_write_locks", "supervisor_notifications"}.issubset(tables)
 
 
 def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> None:
@@ -109,3 +109,37 @@ def test_expired_repo_lock_can_be_replaced(tmp_path: Path) -> None:
     assert replacement is not None
     assert replacement["lock_id"] != "lock_11111111"
     assert replacement["reason"] == "replacement"
+
+
+def test_supervisor_notifications_crud_dedupe_and_delivery_update(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    store.create_supervisor(supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify")
+    notification = store.create_notification(
+        SUPERVISOR_ID,
+        event_stage="completed",
+        event_level="info",
+        kind="completed",
+        title="Done",
+        message="API_KEY=abc123",
+        payload={"token": "token: secret-value", "summary": "ok"},
+        dedupe_key="completed",
+    )
+    duplicate = store.create_notification(
+        SUPERVISOR_ID,
+        event_stage="completed",
+        event_level="info",
+        kind="completed",
+        title="Duplicate",
+        message="Duplicate",
+        payload={},
+        dedupe_key="completed",
+    )
+    assert duplicate["id"] == notification["id"]
+    assert "abc123" not in notification["message"]
+    assert "secret-value" not in str(notification["payload"])
+    assert store.get_notification(notification["id"])["kind"] == "completed"
+    assert store.list_notifications(SUPERVISOR_ID)[0]["dedupe_key"] == "completed"
+
+    delivered = store.update_notification_delivery(notification["id"], delivery_status="delivered")
+    assert delivered["delivery_status"] == "delivered"
+    assert delivered["delivery_attempts"] == 1

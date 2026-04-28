@@ -109,6 +109,9 @@ def test_plan_hard_stop_before_child_starts_when_policy_rejected(tmp_path: Path)
     assert "policy_rejected" in stopped["metadata"]["hard_stop"]["reasons"]
     assert len(jobs.jobs) == 0
     assert store.get_events(stopped["supervisor_id"])[-1]["stage"] == "plan_policy"
+    notifications = store.list_notifications(stopped["supervisor_id"])
+    assert len(notifications) == 1
+    assert notifications[0]["kind"] == "hard_stop"
 
 
 def test_plan_hard_stop_repeated_tick_is_idempotent(tmp_path: Path) -> None:
@@ -120,6 +123,7 @@ def test_plan_hard_stop_repeated_tick_is_idempotent(tmp_path: Path) -> None:
     assert again["status"] == "needs_input"
     assert len(jobs.jobs) == 0
     assert len(store.get_events(stopped["supervisor_id"], limit=100)) == event_count
+    assert len(store.list_notifications(stopped["supervisor_id"])) == 1
 
 
 def test_approve_plan_starts_fake_implementation(tmp_path: Path) -> None:
@@ -153,6 +157,9 @@ def test_approval_blocked_when_repo_lock_exists(tmp_path: Path) -> None:
     assert blocked["metadata"]["blocked"]["reason"] == "repo_write_lock_unavailable"
     assert blocked["metadata"]["active_child"] is None
     assert len(jobs.jobs) == 1
+    notifications = store.list_notifications(blocked["supervisor_id"])
+    assert len(notifications) == 1
+    assert notifications[0]["kind"] == "blocked_by_lock"
 
 
 def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(tmp_path: Path) -> None:
@@ -168,6 +175,7 @@ def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(tmp
     assert "implementation_tier_exceeds_profile" in stopped["metadata"]["hard_stop"]["reasons"]
     assert store.get_repo_lock("codexbridge") is None
     assert len(jobs.jobs) == 1
+    assert store.list_notifications(stopped["supervisor_id"])[0]["kind"] == "hard_stop"
 
 
 def test_approve_plan_hard_stops_when_tests_required_for_non_docs_changes(tmp_path: Path) -> None:
@@ -228,6 +236,9 @@ def test_completed_implementation_marks_supervisor_completed(tmp_path: Path) -> 
     assert completed["metadata"]["implementation_result"]["changed_files"] == []
     assert completed["metadata"]["implementation_lock"] is None
     assert _store.get_repo_lock("codexbridge") is None
+    notifications = _store.list_notifications(completed["supervisor_id"])
+    assert len(notifications) == 1
+    assert notifications[0]["kind"] == "completed"
 
 
 def test_plan_failure_marks_supervisor_failed(tmp_path: Path) -> None:
@@ -238,6 +249,7 @@ def test_plan_failure_marks_supervisor_failed(tmp_path: Path) -> None:
     failed = engine.tick(supervisor["supervisor_id"])
     assert failed["status"] == "failed"
     assert failed["error"] == "plan failed"
+    assert _store.list_notifications(failed["supervisor_id"])[0]["kind"] == "failed"
 
 
 def test_cancelled_plan_child_marks_supervisor_cancelled(tmp_path: Path) -> None:
@@ -277,6 +289,7 @@ def test_cancel_active_plan_marks_cancelled(tmp_path: Path) -> None:
     cancelled = engine.cancel(supervisor["supervisor_id"])
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(planning)).status == "cancelled"
+    assert _store.list_notifications(cancelled["supervisor_id"])[0]["kind"] == "cancelled"
 
 
 def test_cancel_active_implementation_marks_cancelled(tmp_path: Path) -> None:

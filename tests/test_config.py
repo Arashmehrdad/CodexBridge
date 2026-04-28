@@ -26,6 +26,10 @@ def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
     config = AppConfig(repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().stop_on_requires_human is True
+    assert config.supervisors.notifications.enabled is True
+    assert config.supervisors.notifications.file.enabled is False
+    assert config.supervisors.notifications.webhook.enabled is False
+    assert config.supervisors.notifications.windows_toast.enabled is False
 
 
 def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
@@ -50,6 +54,14 @@ def test_unknown_default_supervisor_profile_rejected() -> None:
 def test_invalid_supervisor_profile_values_rejected() -> None:
     with pytest.raises(ValidationError):
         SupervisorAutonomyProfile(max_plan_tier=0)
+
+
+def test_invalid_supervisor_notification_values_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AppConfig(
+            repos={"sample": RepoConfig(path=".")},
+            supervisors={"notifications": {"max_payload_chars": 10}},
+        )
 
 
 def test_unknown_repo_rejected(tmp_path: Path) -> None:
