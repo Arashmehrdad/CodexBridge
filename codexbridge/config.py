@@ -24,6 +24,15 @@ class GeminiConfig(BaseModel):
     enabled: bool = False
 
 
+class LocalModelConfig(BaseModel):
+    enabled: bool = False
+    base_url: str = "http://localhost:11434/v1"
+    model: str = "llama3.2"
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1024, ge=1, le=32768)
+
+
 class SupervisorAutonomyProfile(BaseModel):
     stop_on_requires_human: bool = True
     max_plan_tier: int = Field(default=1, ge=1, le=3)
@@ -79,6 +88,7 @@ class AppConfig(BaseModel):
     runs_dir: str = "runs"
     codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
+    local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
     supervisors: SupervisorsConfig = Field(default_factory=SupervisorsConfig)
     config_dir: Path = Field(default_factory=lambda: Path.cwd(), exclude=True)
 
