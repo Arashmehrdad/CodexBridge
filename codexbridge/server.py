@@ -58,9 +58,10 @@ EVENT_LIST_OUTPUT = {
     "additionalProperties": True,
     "properties": {
         "ok": {"type": "boolean"},
+        "run_id": {"type": "string"},
+        "supervisor_id": {"type": "string"},
         "events": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
         "notifications": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "result": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
         "error": {"type": "string"},
     },
 }
@@ -92,9 +93,10 @@ REPO_STATUS_OUTPUT = {
         "repo_name": {"type": "string"},
         "branch": {"type": "string"},
         "status": {"type": "string"},
-        "changed_files": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "diff_stat": {},
-        "recent_commits": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "git_status": {"type": "string"},
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "diff_stat": {"type": "string"},
+        "recent_commits": {"type": "array", "items": {"type": "string"}},
         "error": {"type": "string"},
     },
 }
@@ -133,6 +135,37 @@ COMMIT_OUTPUT = {
         "error": {"type": "string"},
     },
 }
+
+
+class _StructuredListResult(dict):
+    def __init__(self, list_key: str, payload: dict):
+        super().__init__(payload)
+        self._list_key = list_key
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return super().__getitem__(self._list_key)[key]
+        return super().__getitem__(key)
+
+
+def _normalize_text_lines(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    if not isinstance(value, str):
+        return []
+    return [line for line in (part.strip() for part in value.splitlines()) if line]
+
+
+def _wrap_item_list(key: str, owner_id_key: str, owner_id: str, items: list[dict]) -> dict:
+    return _StructuredListResult(
+        key,
+        {
+            "ok": True,
+            owner_id_key: owner_id,
+            key: items,
+            "error": "",
+        },
+    )
 
 try:
     from starlette.requests import Request
@@ -175,7 +208,20 @@ def inspect_repo_status(repo_name: str) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    return inspect_status(repo_root)
+    result = dict(inspect_status(repo_root))
+    result["repo_name"] = repo_name
+    result["ok"] = True
+    result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
+    changed_files = result.get("changed_files")
+    if isinstance(changed_files, list):
+        result["changed_files"] = [str(item) for item in changed_files]
+    else:
+        result["changed_files"] = _normalize_text_lines(changed_files)
+    diff_stat = result.get("diff_stat")
+    result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
+    git_status_text = result.get("git_status")
+    result["git_status"] = git_status_text if isinstance(git_status_text, str) else ""
+    return result
 
 
 @mcp.tool(output_schema=CODEX_PLAN_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
@@ -250,9 +296,9 @@ def get_run_status(run_id: str) -> dict:
 
 
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_run_events(run_id: str, limit: int = 50) -> list[dict]:
+def get_run_events(run_id: str, limit: int = 50) -> dict:
     """Read-only: return recent timeline events for an async run."""
-    return get_job_manager().get_events(run_id, limit)
+    return _wrap_item_list("events", "run_id", run_id, get_job_manager().get_events(run_id, limit))
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -262,9 +308,13 @@ def get_run_result(run_id: str) -> dict:
 
 
 @mcp.tool(output_schema=RUN_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> list[dict]:
+def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
     """Read-only: list recent async runs with optional repo/status filters."""
-    return get_job_manager().list_runs(repo_name=repo_name or None, status=status or None, limit=limit)
+    return {
+        "ok": True,
+        "runs": get_job_manager().list_runs(repo_name=repo_name or None, status=status or None, limit=limit),
+        "error": "",
+    }
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -293,9 +343,9 @@ def get_supervisor_status(supervisor_id: str) -> dict:
 
 
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_supervisor_events(supervisor_id: str, limit: int = 50) -> list[dict]:
+def get_supervisor_events(supervisor_id: str, limit: int = 50) -> dict:
     """Read-only: return ordered supervisor events."""
-    return get_supervisor_service().get_events(supervisor_id, limit)
+    return _wrap_item_list("events", "supervisor_id", supervisor_id, get_supervisor_service().get_events(supervisor_id, limit))
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -323,9 +373,14 @@ def cancel_supervisor(supervisor_id: str) -> dict:
 
 
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_supervisor_notifications(supervisor_id: str, delivery_status: str = "", limit: int = 50) -> list[dict]:
+def get_supervisor_notifications(supervisor_id: str, delivery_status: str = "", limit: int = 50) -> dict:
     """Read-only: return persisted supervisor notification rows."""
-    return get_supervisor_service().get_notifications(supervisor_id, delivery_status or None, limit)
+    return _wrap_item_list(
+        "notifications",
+        "supervisor_id",
+        supervisor_id,
+        get_supervisor_service().get_notifications(supervisor_id, delivery_status or None, limit),
+    )
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

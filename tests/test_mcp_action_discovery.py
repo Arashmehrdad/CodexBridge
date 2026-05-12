@@ -36,6 +36,56 @@ EXPECTED_EXPOSED_ACTIONS = {
     "get_supervisor_notifications",
     "get_supervisor_resume_prompt",
 }
+REALISTIC_ACTION_OUTPUTS = {
+    "inspect_repo_status": {
+        "ok": True,
+        "repo_name": "repo",
+        "branch": "main",
+        "git_status": "## main\n M codexbridge/server.py\n",
+        "recent_commits": ["abc123 hotfix", "def456 previous change"],
+        "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
+        "changed_files": ["codexbridge/server.py"],
+    },
+    "codex_plan_task": {"ok": True, "repo_name": "repo", "plan": "1. Inspect\n2. Patch\n", "result": {"summary": "narrow plan"}, "error": ""},
+    "codex_implement_task": {
+        "ok": True,
+        "repo_name": "repo",
+        "changed_files": ["codexbridge/server.py", "tests/test_mcp_action_discovery.py"],
+        "tests": [{"command": "python -m pytest -q", "exit_code": 0}],
+        "result": {"summary": "applied"},
+        "error": "",
+    },
+    "get_latest_run_result": {"ok": True, "run_id": "run_1", "status": "completed", "repo_name": "repo", "result": {"summary": "done"}, "error": ""},
+    "git_diff_summary": {"git_status": "## main\n M codexbridge/server.py\n", "diff_stat": " 1 file changed\n"},
+    "commit_selected_files": {"ok": True, "repo_name": "repo", "commit_sha": "abc123", "files": ["codexbridge/server.py"], "message": "hotfix", "error": ""},
+    "run_local_self_check": {"ok": True, "checks": {"pytest": {"ok": True}, "pip_check": {"ok": True}}, "error": ""},
+    "start_codex_plan_task_async": {"ok": True, "run_id": "run_2", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
+    "start_codex_implement_task_async": {"ok": True, "run_id": "run_3", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
+    "get_run_status": {"ok": True, "run_id": "run_2", "status": "running", "repo_name": "repo", "result": {}, "error": ""},
+    "get_run_events": {"ok": True, "run_id": "run_2", "events": [{"stage": "queued", "message": "Run queued"}], "error": ""},
+    "get_run_result": {"ok": True, "run_id": "run_2", "status": "completed", "repo_name": "repo", "result": {"summary": "done"}, "error": ""},
+    "list_runs": {"ok": True, "runs": [{"run_id": "run_1", "status": "completed", "repo_name": "repo"}], "error": ""},
+    "cancel_run": {"run_id": "run_2", "status": "cancelled", "cancelled": True, "terminated": True},
+    "start_supervised_recovery_task": {"ok": True, "supervisor_id": "sup_1", "status": "queued", "result": {"summary": "queued"}, "error": ""},
+    "get_supervisor_status": {"ok": True, "supervisor_id": "sup_1", "status": "needs_input", "result": {"summary": "waiting"}, "error": ""},
+    "get_supervisor_events": {"ok": True, "supervisor_id": "sup_1", "events": [{"stage": "planning", "message": "tick"}], "error": ""},
+    "get_supervisor_result": {"ok": True, "supervisor_id": "sup_1", "status": "completed", "result": {"summary": "done"}, "error": ""},
+    "resume_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "queued", "result": {"summary": "resumed"}, "error": ""},
+    "pause_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "paused", "result": {"summary": "paused"}, "error": ""},
+    "cancel_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "cancelled", "result": {"summary": "cancelled"}, "error": ""},
+    "get_supervisor_notifications": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "notifications": [{"id": 1, "delivery_status": "pending", "channel": "file"}],
+        "error": "",
+    },
+    "get_supervisor_resume_prompt": {
+        "supervisor_id": "sup_1",
+        "exists": True,
+        "path": "D:\\Github\\CodexBridge\\runs\\supervisors\\sup_1\\resume_prompt.txt",
+        "content": "resume prompt",
+    },
+}
 
 
 def discovered_actions() -> list[dict]:
@@ -126,6 +176,16 @@ def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None
         Draft202012Validator.check_schema(action["outputSchema"])
 
 
+def test_realistic_outputs_validate_against_public_action_output_schemas() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+
+    assert set(REALISTIC_ACTION_OUTPUTS) == set(actions)
+
+    for name, sample in REALISTIC_ACTION_OUTPUTS.items():
+        json.dumps(sample, sort_keys=True)
+        validate(instance=sample, schema=actions[name]["outputSchema"])
+
+
 def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> None:
     config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
     server.set_config(config, tmp_path / "config.yaml")
@@ -145,7 +205,7 @@ def test_list_runs_output_matches_schema(monkeypatch) -> None:
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
     action = {item["name"]: item for item in discovered_actions()}["list_runs"]
 
-    result = {"result": server.list_runs(repo_name="repo")}
+    result = server.list_runs(repo_name="repo")
 
     validate(instance=result, schema=action["outputSchema"])
 
@@ -163,3 +223,57 @@ def test_run_status_events_result_and_supervisor_schemas_are_present() -> None:
         "get_supervisor_resume_prompt",
     }:
         assert actions[name]["outputSchema"] is not None
+
+
+def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "inspect_status",
+        lambda repo_root: {
+            "branch": "main",
+            "git_status": "## main\n M codexbridge/server.py\n",
+            "recent_commits": "abc123 first\n\ndef456 second\n",
+            "diff_stat": " 1 file changed\n",
+            "changed_files": ["codexbridge/server.py"],
+        },
+    )
+    action = {item["name"]: item for item in discovered_actions()}["inspect_repo_status"]
+
+    result = server.inspect_repo_status("repo")
+
+    assert result["recent_commits"] == ["abc123 first", "def456 second"]
+    assert result["changed_files"] == ["codexbridge/server.py"]
+    validate(instance=result, schema=action["outputSchema"])
+
+
+def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
+    class FakeJobManager:
+        def get_events(self, run_id, limit=50):
+            return [{"stage": "queued", "message": "Run queued"}]
+
+    class FakeSupervisorService:
+        def get_events(self, supervisor_id, limit=50):
+            return [{"stage": "planning", "message": "Supervisor tick"}]
+
+        def get_notifications(self, supervisor_id, delivery_status=None, limit=50):
+            return [{"id": 1, "delivery_status": "pending"}]
+
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: FakeSupervisorService())
+    actions = {item["name"]: item for item in discovered_actions()}
+
+    run_events = server.get_run_events("run_1")
+    supervisor_events = server.get_supervisor_events("sup_1")
+    notifications = server.get_supervisor_notifications("sup_1")
+
+    assert run_events["run_id"] == "run_1"
+    assert supervisor_events["supervisor_id"] == "sup_1"
+    assert notifications["supervisor_id"] == "sup_1"
+    validate(instance=run_events, schema=actions["get_run_events"]["outputSchema"])
+    validate(instance=supervisor_events, schema=actions["get_supervisor_events"]["outputSchema"])
+    validate(instance=notifications, schema=actions["get_supervisor_notifications"]["outputSchema"])
