@@ -108,5 +108,6 @@ class JobReport(BaseModel):
     status: JobStatus
     report_path: Path
     resume_prompt_path: Path
+    manifest_path: Path | None = None
     summary: str
     question_for_chatgpt: str = ""

@@ -17,6 +17,12 @@ class LocalAgentTaskType(str, Enum):
     SOURCE_EDIT = "source_edit"
     LOCAL_MODEL_REASONING = "local_model_reasoning"
     LONG_RUN_JOB = "long_run_job"
+    MEMORY = "memory"
+    POLICY = "policy"
+    CODEX_ROUTER = "codex_router"
+    SUPERVISOR = "supervisor"
+    LOCAL_CODING = "local_coding"
+    DASHBOARD = "dashboard"
     RISKY_ACTION = "risky_action"
     UNKNOWN = "unknown"
 
@@ -113,6 +119,12 @@ class LocalAgentResult(BaseModel):
     command_result: "CommandRunResult | None" = None
     local_model_result: "LocalModelResult | None" = None
     job_result: Any | None = None
+    memory_result: Any | None = None
+    policy_result: Any | None = None
+    codex_router_result: Any | None = None
+    supervisor_result: Any | None = None
+    local_coding_result: Any | None = None
+    dashboard_result: Any | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude_none=True)

@@ -24,6 +24,12 @@ def apply_policy(task_type: LocalAgentTaskType, objective: str) -> PolicyDecisio
         LocalAgentTaskType.LIST_FILES,
         LocalAgentTaskType.LOCAL_MODEL_REASONING,
         LocalAgentTaskType.LONG_RUN_JOB,
+        LocalAgentTaskType.MEMORY,
+        LocalAgentTaskType.POLICY,
+        LocalAgentTaskType.CODEX_ROUTER,
+        LocalAgentTaskType.SUPERVISOR,
+        LocalAgentTaskType.LOCAL_CODING,
+        LocalAgentTaskType.DASHBOARD,
         LocalAgentTaskType.UNKNOWN,
     }:
         return PolicyDecision(

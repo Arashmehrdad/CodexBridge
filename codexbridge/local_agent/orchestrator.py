@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from codexbridge.jobs.long_run_manager import LongRunJobManager
 from codexbridge.jobs.models import JobStatus
+from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRouter
+from codexbridge.memory.importers import import_runs
+from codexbridge.memory.repository import ProjectMemoryRepository
+from codexbridge.policy import PolicyEngine, PolicyEvaluationRequest
+from codexbridge.supervisor import LocalSupervisorManager, SupervisorTaskRequest
+from codexbridge.local_coding import LocalCodingManager, LocalCodingRequest
+from codexbridge.dashboard import get_dashboard_summary
 
 from .audit import create_audit_event
 from .local_model import LocalModelClient
@@ -17,10 +26,22 @@ def classify_task(objective: str) -> LocalAgentTaskType:
         return LocalAgentTaskType.RISKY_ACTION
     if _contains_any(text, ("production deploy", "deploy to production", "public release", "push main", "push to main", "force push")):
         return LocalAgentTaskType.RISKY_ACTION
+    if _policy_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.POLICY
+    if _codex_router_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.CODEX_ROUTER
+    if _supervisor_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.SUPERVISOR
+    if _local_coding_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.LOCAL_CODING
+    if _dashboard_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.DASHBOARD
     if _contains_any(text, ("fix", "bug", "edit", "refactor", "create module", "implement", "change source", "modify code")):
         return LocalAgentTaskType.SOURCE_EDIT
     if _job_action_for_objective(text)[0] is not None:
         return LocalAgentTaskType.LONG_RUN_JOB
+    if _memory_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.MEMORY
     if _local_model_task_for_objective(text) is not None:
         return LocalAgentTaskType.LOCAL_MODEL_REASONING
     if _contains_any(text, ("run tests", "pytest", "test suite")):
@@ -44,10 +65,22 @@ class LocalAgentOrchestrator:
         runner: LocalAgentCommandRunner | None = None,
         local_model: LocalModelClient | None = None,
         job_manager: LongRunJobManager | None = None,
+        memory_repository: ProjectMemoryRepository | None = None,
+        policy_engine: PolicyEngine | None = None,
+        codex_router: CodexEscalationRouter | None = None,
+        supervisor_manager: LocalSupervisorManager | None = None,
+        local_coding_manager: LocalCodingManager | None = None,
+        dashboard_runs_dir: Path | None = None,
     ):
         self.runner = runner or LocalAgentCommandRunner()
         self.local_model = local_model or LocalModelClient()
         self.job_manager = job_manager or LongRunJobManager()
+        self.memory_repository = memory_repository
+        self.policy_engine = policy_engine
+        self.codex_router = codex_router
+        self.supervisor_manager = supervisor_manager
+        self.local_coding_manager = local_coding_manager
+        self.dashboard_runs_dir = dashboard_runs_dir
 
     def handle_task(self, task_input: LocalAgentTaskInput | dict | str) -> LocalAgentResult:
         normalized = self._normalize_input(task_input)
@@ -65,6 +98,12 @@ class LocalAgentOrchestrator:
         command_result = None
         local_model_result = None
         job_result = None
+        memory_result = None
+        policy_result = None
+        codex_router_result = None
+        supervisor_result = None
+        local_coding_result = None
+        dashboard_result = None
         if command_id is not None and decision.accepted:
             command_result = self.runner.run_project_command(
                 command_id=command_id,
@@ -85,6 +124,24 @@ class LocalAgentOrchestrator:
                 job_result = self.job_manager.cancel_job(job_value)
             elif job_action == "report":
                 job_result = self.job_manager.generate_report(job_value)
+        memory_action, memory_value = _memory_action_for_objective(task.objective)
+        if memory_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.MEMORY:
+            memory_result = self._handle_memory_action(memory_action, memory_value, task)
+        policy_action, policy_value = _policy_action_for_objective(task.objective)
+        if policy_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.POLICY:
+            policy_result = self._handle_policy_action(policy_action, policy_value, task)
+        codex_action, codex_value = _codex_router_action_for_objective(task.objective)
+        if codex_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.CODEX_ROUTER:
+            codex_router_result = self._handle_codex_router_action(codex_action, codex_value, task)
+        supervisor_action, supervisor_value = _supervisor_action_for_objective(task.objective)
+        if supervisor_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.SUPERVISOR:
+            supervisor_result = self._handle_supervisor_action(supervisor_action, supervisor_value, task)
+        local_coding_action, local_coding_value = _local_coding_action_for_objective(task.objective)
+        if local_coding_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.LOCAL_CODING:
+            local_coding_result = self._handle_local_coding_action(local_coding_action, local_coding_value, task)
+        dashboard_action, dashboard_value = _dashboard_action_for_objective(task.objective)
+        if dashboard_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.DASHBOARD:
+            dashboard_result = self._handle_dashboard_action(dashboard_action, dashboard_value)
         audit_event = create_audit_event(
             task_id=task.task_id,
             action="classified",
@@ -109,6 +166,18 @@ class LocalAgentOrchestrator:
                 "job_action": job_action,
                 "job_value": job_value,
                 "job_manager_called": job_result is not None,
+                "memory_action": memory_action,
+                "memory_called": memory_result is not None,
+                "policy_action": policy_action,
+                "policy_called": policy_result is not None,
+                "codex_router_action": codex_action,
+                "codex_router_called": codex_router_result is not None,
+                "supervisor_action": supervisor_action,
+                "supervisor_called": supervisor_result is not None,
+                "local_coding_action": local_coding_action,
+                "local_coding_called": local_coding_result is not None,
+                "dashboard_action": dashboard_action,
+                "dashboard_called": dashboard_result is not None,
             },
         )
         status = decision.status
@@ -148,6 +217,12 @@ class LocalAgentOrchestrator:
             command_result=command_result,
             local_model_result=local_model_result,
             job_result=job_result,
+            memory_result=memory_result,
+            policy_result=policy_result,
+            codex_router_result=codex_router_result,
+            supervisor_result=supervisor_result,
+            local_coding_result=local_coding_result,
+            dashboard_result=dashboard_result,
         )
 
     def _normalize_input(self, task_input: LocalAgentTaskInput | dict | str) -> LocalAgentTaskInput:
@@ -156,6 +231,116 @@ class LocalAgentOrchestrator:
         if isinstance(task_input, str):
             return LocalAgentTaskInput(objective=task_input)
         return LocalAgentTaskInput(**task_input)
+
+    def _handle_memory_action(self, action: str, value: str, task: LocalAgentTask):
+        repository = self.memory_repository or ProjectMemoryRepository()
+        if action == "remember_fact":
+            return repository.remember_project_fact(value, repo_name=task.repo_name, repo_path=task.repo_path).to_dict()
+        if action == "remember_decision":
+            return repository.remember_decision(value, repo_name=task.repo_name, repo_path=task.repo_path).to_dict()
+        if action == "remember_validation_recipe":
+            return repository.remember_validation_recipe(value, repo_name=task.repo_name).to_dict()
+        if action == "search":
+            return repository.search(value).model_dump(mode="json")
+        if action == "latest_job":
+            record = repository.latest_job_summary()
+            return record.to_dict() if record else None
+        if action == "latest_run":
+            record = repository.latest_run_summary()
+            return record.to_dict() if record else None
+        if action == "continue_last":
+            record = repository.continue_last_task()
+            return record.to_dict() if record else None
+        if action == "import_runs":
+            return import_runs(repository, repository.store.db_path.parent.parent).model_dump(mode="json")
+        return None
+
+    def _handle_policy_action(self, action: str, value: str, task: LocalAgentTask):
+        engine = self.policy_engine or PolicyEngine()
+        if action in {"evaluate", "classify", "explain_blocked"}:
+            return engine.evaluate(
+                PolicyEvaluationRequest(
+                    action=value,
+                    action_type="policy_query",
+                    repo_name=task.repo_name,
+                    repo_path=task.repo_path,
+                )
+            ).to_dict()
+        if action == "list_pending":
+            return [item.model_dump(mode="json") for item in engine.approval_store.list_pending()]
+        if action == "show":
+            return engine.approval_store.get(value).model_dump(mode="json")
+        if action == "approve_chatgpt":
+            return engine.approval_store.record_decision(value, decided_by="chatgpt", approved=True).model_dump(mode="json")
+        if action == "deny":
+            return engine.approval_store.record_decision(value, decided_by="chatgpt", approved=False).model_dump(mode="json")
+        return None
+
+    def _handle_codex_router_action(self, action: str, value: str, task: LocalAgentTask):
+        router = self.codex_router or CodexEscalationRouter()
+        if action in {"prepare", "escalate", "route", "explain"}:
+            return router.route_escalation(
+                CodexEscalationRequest(
+                    objective=value,
+                    task_type="codex_escalation",
+                    repo_name=task.repo_name,
+                    repo_path=task.repo_path,
+                    invoke_codex=action == "escalate",
+                )
+            ).to_dict()
+        return None
+
+    def _handle_supervisor_action(self, action: str, value: str, task: LocalAgentTask):
+        manager = self.supervisor_manager or LocalSupervisorManager(supervisors_dir=Path.cwd() / "runs" / "supervisors")
+        if action == "start":
+            return manager.start_supervised_task(
+                SupervisorTaskRequest(objective=value, repo_name=task.repo_name, repo_path=task.repo_path)
+            ).model_dump(mode="json", exclude_none=True)
+        if action == "show":
+            return manager.get_status(value).model_dump(mode="json", exclude_none=True)
+        if action == "list":
+            return [run.model_dump(mode="json", exclude_none=True) for run in manager.list_runs()]
+        if action == "cancel":
+            return manager.cancel(value).model_dump(mode="json", exclude_none=True)
+        if action == "resume":
+            return manager.resume(value).model_dump(mode="json", exclude_none=True)
+        if action == "report":
+            return manager.generate_report(value).model_dump(mode="json", exclude_none=True)
+        return None
+
+    def _handle_local_coding_action(self, action: str, value: str, task: LocalAgentTask):
+        manager = self.local_coding_manager or LocalCodingManager()
+        if action == "prepare":
+            repo_path = task.repo_path or Path.cwd()
+            return manager.prepare_local_edit(
+                LocalCodingRequest(objective=value, repo_name=task.repo_name, repo_path=repo_path)
+            ).model_dump(mode="json", exclude_none=True)
+        if action in {"preview", "show"}:
+            return manager.get(value).model_dump(mode="json", exclude_none=True)
+        if action == "list":
+            return [run.model_dump(mode="json", exclude_none=True) for run in manager.list()]
+        if action == "apply":
+            edit = manager.get(value)
+            if hasattr(edit, "approval_request_id"):
+                approval_request_id = edit.approval_request_id or ""
+            else:
+                data = edit.model_dump(mode="json", exclude_none=True)
+                approval_request_id = data.get("approval_request_id", "")
+            return manager.apply_local_edit(value, approval_request_id).model_dump(mode="json", exclude_none=True)
+        if action == "rollback":
+            return manager.rollback_local_edit(value).model_dump(mode="json", exclude_none=True)
+        if action == "cancel":
+            return manager.cancel(value).model_dump(mode="json", exclude_none=True)
+        return None
+
+    def _handle_dashboard_action(self, action: str, value: str):
+        runs_dir = self.dashboard_runs_dir or Path.cwd() / "runs"
+        summary = get_dashboard_summary(runs_dir)
+        if action == "health":
+            return summary.health.model_dump(mode="json")
+        if action in {"summary", "list"}:
+            return summary.to_dict()
+        return None
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
@@ -207,4 +392,111 @@ def _job_action_for_objective(objective: str) -> tuple[str | None, str]:
         return "cancel", words[2]
     if text.startswith("generate job report ") and len(words) >= 4:
         return "report", words[3]
+    return None, ""
+
+
+def _memory_action_for_objective(objective: str) -> tuple[str | None, str]:
+    text = objective.strip()
+    lowered = text.lower()
+    prefixes = {
+        "remember project fact:": "remember_fact",
+        "remember decision:": "remember_decision",
+        "remember validation recipe:": "remember_validation_recipe",
+        "search memory:": "search",
+    }
+    for prefix, action in prefixes.items():
+        if lowered.startswith(prefix):
+            return action, text[len(prefix) :].strip()
+    if lowered == "show latest job memory":
+        return "latest_job", ""
+    if lowered == "show latest run memory":
+        return "latest_run", ""
+    if lowered == "continue last codexbridge task":
+        return "continue_last", ""
+    if lowered in {"import memory from recent job reports", "import memory from runs"}:
+        return "import_runs", ""
+    return None, ""
+
+
+def _policy_action_for_objective(objective: str) -> tuple[str | None, str]:
+    text = objective.strip()
+    lowered = text.lower()
+    prefixes = {
+        "evaluate policy:": "evaluate",
+        "classify risk:": "classify",
+        "explain why action is blocked:": "explain_blocked",
+        "show approval request ": "show",
+        "approve request ": "approve_chatgpt",
+        "deny request ": "deny",
+    }
+    for prefix, action in prefixes.items():
+        if lowered.startswith(prefix):
+            value = text[len(prefix) :].strip()
+            if action == "approve_chatgpt" and value.lower().endswith(" as chatgpt"):
+                value = value[: -len(" as chatgpt")].strip()
+            return action, value
+    if lowered == "list pending approvals":
+        return "list_pending", ""
+    return None, ""
+
+
+def _codex_router_action_for_objective(objective: str) -> tuple[str | None, str]:
+    text = objective.strip()
+    lowered = text.lower()
+    prefixes = {
+        "prepare codex packet:": "prepare",
+        "escalate to codex:": "escalate",
+        "route task for codex:": "route",
+        "explain why codex was/was not needed:": "explain",
+    }
+    for prefix, action in prefixes.items():
+        if lowered.startswith(prefix):
+            return action, text[len(prefix) :].strip()
+    return None, ""
+
+
+def _supervisor_action_for_objective(objective: str) -> tuple[str | None, str]:
+    text = objective.strip()
+    lowered = text.lower()
+    prefixes = {
+        "start supervised task:": "start",
+        "supervise task:": "start",
+        "show supervisor ": "show",
+        "cancel supervisor ": "cancel",
+        "resume supervisor ": "resume",
+        "generate supervisor report ": "report",
+    }
+    for prefix, action in prefixes.items():
+        if lowered.startswith(prefix):
+            return action, text[len(prefix) :].strip()
+    if lowered == "list supervisors":
+        return "list", ""
+    return None, ""
+
+
+def _local_coding_action_for_objective(objective: str) -> tuple[str | None, str]:
+    text = objective.strip()
+    lowered = text.lower()
+    prefixes = {
+        "prepare local edit:": "prepare",
+        "preview local edit ": "preview",
+        "apply local edit ": "apply",
+        "rollback local edit ": "rollback",
+        "show local edit ": "show",
+        "cancel local edit ": "cancel",
+    }
+    for prefix, action in prefixes.items():
+        if lowered.startswith(prefix):
+            return action, text[len(prefix) :].strip()
+    if lowered == "list local edits":
+        return "list", ""
+    return None, ""
+
+
+def _dashboard_action_for_objective(objective: str) -> tuple[str | None, str]:
+    lowered = objective.strip().lower()
+    if lowered in {"dashboard summary", "show dashboard summary", "list dashboard items"}:
+        return "summary" if lowered != "list dashboard items" else "list", ""
+    if lowered == "dashboard health":
+        return "health", ""
     return None, ""

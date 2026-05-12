@@ -33,6 +33,16 @@ def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
     assert config.local_model.enabled is False
     assert config.local_model.base_url == "http://localhost:11434/v1"
     assert config.local_model.model == "llama3.2"
+    assert config.return_loop.return_loop_enabled is True
+    assert config.return_loop.conversation_target == "codexbridge_gpt"
+    assert config.memory.memory_enabled is True
+    assert config.resolve_memory_db_path() == tmp_path / "runs" / "memory" / "project_memory.sqlite3"
+    assert config.autonomy.autonomy_enabled is True
+    assert config.autonomy.autonomy_default_profile == "chatgpt_delegated"
+    assert config.resolve_approval_store_path() == tmp_path / "runs" / "approvals"
+    assert config.codex_router.codex_router_enabled is True
+    assert config.codex_router.codex_router_invoke_enabled is False
+    assert config.resolve_codex_router_packet_dir() == tmp_path / "runs" / "codex_escalations"
 
 
 def test_local_model_config_defaults_and_overrides() -> None:

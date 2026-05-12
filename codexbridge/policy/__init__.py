@@ -4,7 +4,26 @@ from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from typing import Protocol
 
-from .safety import is_secret_like_file
+from codexbridge.safety import is_secret_like_file
+
+from .approval_store import ApprovalStore
+from .models import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalStatus,
+    ApprovalStoreRecord,
+    AutonomyProfileModel,
+    CanonicalPermissionTier,
+    PolicyDecisionValue,
+    PolicyEvaluationRequest,
+    PolicyEvaluationResult,
+    PolicyRule,
+    RiskClassification,
+    RiskLevel,
+)
+from .policy_engine import PolicyEngine
+from .profiles import get_autonomy_profile, list_autonomy_profiles
+from .risk_classifier import RiskClassifier
 
 
 @dataclass(frozen=True)
@@ -141,3 +160,33 @@ def decide_implementation_task(approved_plan: str, allowed_files: list[str], tes
     if _looks_docs_only(allowed_files):
         return PolicyDecision(True, 1, "low", False, "Docs-only allowed-file implementation is auto-approved")
     return PolicyDecision(True, 2, "medium", False, "Normal implementation requires ChatGPT approval before start")
+
+
+__all__ = [
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "ApprovalStatus",
+    "ApprovalStore",
+    "ApprovalStoreRecord",
+    "AutonomyProfile",
+    "AutonomyProfileModel",
+    "BalancedAutonomyProfile",
+    "CanonicalPermissionTier",
+    "PolicyDecision",
+    "PolicyDecisionValue",
+    "PolicyEngine",
+    "PolicyEvaluationRequest",
+    "PolicyEvaluationResult",
+    "PolicyRule",
+    "ProfilePolicyResult",
+    "RiskClassification",
+    "RiskClassifier",
+    "RiskLevel",
+    "decide_implementation_task",
+    "decide_plan_task",
+    "evaluate_implementation_profile",
+    "evaluate_plan_profile",
+    "get_autonomy_profile",
+    "list_autonomy_profiles",
+    "profile_snapshot",
+]

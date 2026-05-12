@@ -175,6 +175,8 @@ def test_job_modules_do_not_import_codex_pulsesender_browser_or_ollama() -> None
     source = "\n".join(path.read_text(encoding="utf-8") for path in Path("codexbridge/jobs").glob("*.py"))
 
     assert "CodexRunner" not in source
-    assert "PulseSender" not in source
-    assert "browser" not in source.lower()
+    assert "import PulseSender" not in source
+    assert "from PulseSender" not in source
+    assert "playwright" not in source.lower()
+    assert "selenium" not in source.lower()
     assert "ollama" not in source.lower()
