@@ -3,10 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import socket
+import urllib.error
+import urllib.request
+from typing import Any
 
 from jsonschema import Draft202012Validator, validate
 
-from codexbridge.config import AppConfig, RepoConfig
+from codexbridge.config import AppConfig, LocalModelConfig, RepoConfig
 import codexbridge.server as server
 
 
@@ -19,6 +23,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "git_diff_summary",
     "commit_selected_files",
     "run_local_self_check",
+    "local_model_health",
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
     "get_run_status",
@@ -59,6 +64,20 @@ REALISTIC_ACTION_OUTPUTS = {
     "git_diff_summary": {"git_status": "## main\n M codexbridge/server.py\n", "diff_stat": " 1 file changed\n"},
     "commit_selected_files": {"ok": True, "repo_name": "repo", "commit_sha": "abc123", "files": ["codexbridge/server.py"], "message": "hotfix", "error": ""},
     "run_local_self_check": {"ok": True, "checks": {"pytest": {"ok": True}, "pip_check": {"ok": True}}, "error": ""},
+    "local_model_health": {
+        "ok": True,
+        "status": "ok",
+        "enabled": True,
+        "base_url": "http://localhost:11434/v1",
+        "model": "llama3.2",
+        "models_endpoint_reachable": True,
+        "configured_model_available": True,
+        "completion_succeeded": True,
+        "duration_seconds": 0.1,
+        "timeout_seconds": 30,
+        "error": "",
+        "audit_event_id": "audit_1",
+    },
     "start_codex_plan_task_async": {"ok": True, "run_id": "run_2", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
     "start_codex_implement_task_async": {"ok": True, "run_id": "run_3", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
     "get_run_status": {"ok": True, "run_id": "run_2", "status": "running", "repo_name": "repo", "result": {}, "error": ""},
@@ -86,6 +105,17 @@ REALISTIC_ACTION_OUTPUTS = {
         "content": "resume prompt",
     },
 }
+
+
+class FakeResponse:
+    def __init__(self, payload: dict[str, Any] | str, status: int = 200):
+        self.payload = payload
+        self.status = status
+
+    def read(self) -> bytes:
+        if isinstance(self.payload, str):
+            return self.payload.encode("utf-8")
+        return json.dumps(self.payload).encode("utf-8")
 
 
 def discovered_actions() -> list[dict]:
@@ -161,6 +191,7 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "list_runs" in actions
     assert "get_supervisor_status" in actions
     assert "run_local_self_check" in actions
+    assert "local_model_health" in actions
     assert "pytest" not in actions
     assert "pip_check" not in actions
     assert "dashboard_summary" not in actions
@@ -195,6 +226,123 @@ def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> No
     result = server.run_local_self_check()
 
     validate(instance=result, schema=action["outputSchema"])
+
+
+def test_local_model_health_disabled_does_not_call_http(monkeypatch, tmp_path) -> None:
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "_local_model_urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no HTTP call expected")))
+    action = {item["name"]: item for item in discovered_actions()}["local_model_health"]
+
+    result = server.local_model_health()
+
+    assert result["status"] == "disabled"
+    assert result["ok"] is False
+    assert result["models_endpoint_reachable"] is False
+    validate(instance=result, schema=action["outputSchema"])
+
+
+def test_local_model_health_success_uses_models_and_tiny_completion(monkeypatch, tmp_path) -> None:
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        local_model=LocalModelConfig(enabled=True, model="llama3.2", timeout_seconds=5),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    captured: dict[str, Any] = {}
+
+    def fake_models(request: urllib.request.Request, timeout: int) -> FakeResponse:
+        captured["models_url"] = request.full_url
+        captured["models_timeout"] = timeout
+        return FakeResponse({"data": [{"id": "llama3.2"}]})
+
+    def fake_completion(request: urllib.request.Request, timeout: int) -> FakeResponse:
+        captured["completion_url"] = request.full_url
+        captured["completion_timeout"] = timeout
+        captured["completion_body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse({"choices": [{"message": {"content": "OK"}}]})
+
+    monkeypatch.setattr(server, "_local_model_urlopen", fake_models)
+    monkeypatch.setattr(server, "_local_model_transport", fake_completion)
+    action = {item["name"]: item for item in discovered_actions()}["local_model_health"]
+
+    result = server.local_model_health()
+
+    assert captured["models_url"] == "http://localhost:11434/v1/models"
+    assert captured["models_timeout"] == 5
+    assert captured["completion_url"] == "http://localhost:11434/v1/chat/completions"
+    assert captured["completion_timeout"] == 5
+    assert captured["completion_body"]["model"] == "llama3.2"
+    assert captured["completion_body"]["max_tokens"] == 16
+    assert result["ok"] is True
+    assert result["status"] == "ok"
+    assert result["configured_model_available"] is True
+    assert result["completion_succeeded"] is True
+    validate(instance=result, schema=action["outputSchema"])
+
+
+def test_local_model_health_connection_failure_returns_unavailable(monkeypatch, tmp_path) -> None:
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        local_model=LocalModelConfig(enabled=True),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError("refused")))
+
+    result = server.local_model_health()
+
+    assert result["status"] == "unavailable"
+    assert result["ok"] is False
+    assert result["completion_succeeded"] is False
+
+
+def test_local_model_health_timeout_returns_timeout(monkeypatch, tmp_path) -> None:
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        local_model=LocalModelConfig(enabled=True),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError(socket.timeout("timed out"))))
+
+    result = server.local_model_health()
+
+    assert result["status"] == "timeout"
+    assert result["ok"] is False
+
+
+def test_local_model_health_model_missing_does_not_run_completion(monkeypatch, tmp_path) -> None:
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        local_model=LocalModelConfig(enabled=True, model="missing-model"),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: FakeResponse({"data": [{"id": "llama3.2"}]}))
+    monkeypatch.setattr(server, "_local_model_transport", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("completion should not run")))
+
+    result = server.local_model_health()
+
+    assert result["status"] == "model_missing"
+    assert result["configured_model_available"] is False
+    assert result["completion_succeeded"] is False
+
+
+def test_local_model_health_malformed_models_response_returns_failed(monkeypatch, tmp_path) -> None:
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        local_model=LocalModelConfig(enabled=True),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: FakeResponse({"models": ["llama3.2"]}))
+
+    result = server.local_model_health()
+
+    assert result["status"] == "failed"
+    assert result["ok"] is False
+    assert result["completion_succeeded"] is False
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:

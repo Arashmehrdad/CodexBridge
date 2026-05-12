@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
+import socket
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import Any
 from typing import Sequence
 
 from fastmcp import FastMCP
@@ -13,6 +19,8 @@ from .job_manager import JobManager
 from .runner import CodexRunner, latest_run_result as latest_artifact_result
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
+from .local_agent.models import LocalModelStatus
+from .local_agent.ollama_adapter import OllamaChatAdapter
 
 
 mcp = FastMCP("CodexBridge")
@@ -135,6 +143,24 @@ COMMIT_OUTPUT = {
         "error": {"type": "string"},
     },
 }
+LOCAL_MODEL_HEALTH_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "status": {"type": "string", "enum": ["ok", "disabled", "unavailable", "timeout", "failed", "model_missing"]},
+        "enabled": {"type": "boolean"},
+        "base_url": {"type": "string"},
+        "model": {"type": "string"},
+        "models_endpoint_reachable": {"type": "boolean"},
+        "configured_model_available": {"type": ["boolean", "null"]},
+        "completion_succeeded": {"type": "boolean"},
+        "duration_seconds": {"type": "number"},
+        "timeout_seconds": {"type": "integer"},
+        "error": {"type": "string"},
+        "audit_event_id": {"type": ["string", "null"]},
+    },
+}
 
 
 class _StructuredListResult(dict):
@@ -166,6 +192,36 @@ def _wrap_item_list(key: str, owner_id_key: str, owner_id: str, items: list[dict
             "error": "",
         },
     )
+
+
+def _local_model_urlopen(request: urllib.request.Request, timeout_seconds: int) -> Any:
+    return urllib.request.urlopen(request, timeout=timeout_seconds)
+
+
+def _local_model_transport(request: urllib.request.Request, timeout_seconds: int) -> Any:
+    return urllib.request.urlopen(request, timeout=timeout_seconds)
+
+
+def _safe_local_model_error(text: object) -> str:
+    return str(text)[:500]
+
+
+def _read_http_error(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _extract_model_ids(payload: dict[str, Any]) -> list[str]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise ValueError("Malformed local model /models response: missing data list")
+    ids = []
+    for item in data:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            ids.append(item["id"])
+    return ids
 
 try:
     from starlette.requests import Request
@@ -275,6 +331,102 @@ def run_local_self_check() -> dict:
     """Read-only: run local setup, test, git, and MCP transport readiness checks."""
     config = get_config()
     return run_self_check(config=config, config_path=get_config_path(), live_port=8765)
+
+
+@mcp.tool(output_schema=LOCAL_MODEL_HEALTH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def local_model_health() -> dict:
+    """Read-only: verify configured Ollama/OpenAI-compatible local model connectivity with a tiny smoke prompt."""
+    config = get_config().local_model
+    started = time.monotonic()
+    base_url = config.base_url.rstrip("/")
+    result = {
+        "ok": False,
+        "status": "disabled",
+        "enabled": bool(config.enabled),
+        "base_url": base_url,
+        "model": config.model,
+        "models_endpoint_reachable": False,
+        "configured_model_available": None,
+        "completion_succeeded": False,
+        "duration_seconds": 0.0,
+        "timeout_seconds": config.timeout_seconds,
+        "error": "",
+        "audit_event_id": None,
+    }
+    if not config.enabled:
+        result["error"] = "Local model is disabled."
+        result["duration_seconds"] = time.monotonic() - started
+        return result
+
+    try:
+        models_request = urllib.request.Request(f"{base_url}/models", method="GET")
+        models_response = _local_model_urlopen(models_request, config.timeout_seconds)
+        status_code = int(getattr(models_response, "status", getattr(models_response, "code", 200)))
+        raw_body = models_response.read().decode("utf-8")
+        if status_code < 200 or status_code >= 300:
+            result["status"] = "failed"
+            result["error"] = f"Local model /models HTTP status {status_code}: {_safe_local_model_error(raw_body)}"
+            return _finish_local_model_health(result, started)
+        model_ids = _extract_model_ids(json.loads(raw_body))
+        result["models_endpoint_reachable"] = True
+        result["configured_model_available"] = config.model in model_ids
+        if not result["configured_model_available"]:
+            result["status"] = "model_missing"
+            result["error"] = f"Configured local model is not listed by /models: {config.model}"
+            return _finish_local_model_health(result, started)
+    except urllib.error.HTTPError as exc:
+        result["status"] = "failed"
+        result["error"] = f"Local model /models HTTP status {exc.code}: {_safe_local_model_error(_read_http_error(exc))}"
+        return _finish_local_model_health(result, started)
+    except (urllib.error.URLError, ConnectionError, OSError) as exc:
+        reason = getattr(exc, "reason", None)
+        result["status"] = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)) else "unavailable"
+        result["error"] = _safe_local_model_error(exc)
+        return _finish_local_model_health(result, started)
+    except TimeoutError as exc:
+        result["status"] = "timeout"
+        result["error"] = _safe_local_model_error(exc)
+        return _finish_local_model_health(result, started)
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        result["status"] = "failed"
+        result["error"] = _safe_local_model_error(exc)
+        return _finish_local_model_health(result, started)
+
+    smoke = OllamaChatAdapter(
+        base_url=base_url,
+        model=config.model,
+        timeout_seconds=config.timeout_seconds,
+        temperature=config.temperature,
+        max_tokens=min(config.max_tokens, 16),
+        transport=_local_model_transport,
+    ).call(
+        task_type="local_model_health",
+        messages=[
+            {"role": "system", "content": "You are a health check endpoint. Reply with OK."},
+            {"role": "user", "content": "Reply with OK."},
+        ],
+        max_tokens=min(config.max_tokens, 16),
+    )
+    result["audit_event_id"] = smoke.audit_event_id
+    result["completion_succeeded"] = smoke.status == LocalModelStatus.SUCCESS
+    if smoke.status == LocalModelStatus.SUCCESS:
+        result["ok"] = True
+        result["status"] = "ok"
+    elif smoke.status == LocalModelStatus.TIMEOUT:
+        result["status"] = "timeout"
+        result["error"] = smoke.error
+    elif smoke.status == LocalModelStatus.UNAVAILABLE:
+        result["status"] = "unavailable"
+        result["error"] = smoke.error
+    else:
+        result["status"] = "failed"
+        result["error"] = smoke.error or f"Local model smoke prompt failed with status: {smoke.status.value}"
+    return _finish_local_model_health(result, started)
+
+
+def _finish_local_model_health(result: dict, started: float) -> dict:
+    result["duration_seconds"] = time.monotonic() - started
+    return result
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
