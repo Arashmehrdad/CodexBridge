@@ -57,12 +57,14 @@ def get_dashboard_summary(
 
 def _collect_root_runs(runs_dir: Path, limit: int, max_file_bytes: int, errors: list[str]) -> list[DashboardRunSummary]:
     items = []
+    seen_run_dirs: set[Path] = set()
     for path in _safe_glob(runs_dir, "*/result.json", limit, max_file_bytes, errors):
         if any(part in {"jobs", "supervisors", "local_agent", "local_coding", "codex_escalations"} for part in path.relative_to(runs_dir).parts):
             continue
         data = _read_json(path, runs_dir, max_file_bytes, errors)
         if data is None:
             continue
+        seen_run_dirs.add(path.parent.resolve())
         items.append(
             DashboardRunSummary(
                 id=str(data.get("run_id") or path.parent.name),
@@ -75,6 +77,33 @@ def _collect_root_runs(runs_dir: Path, limit: int, max_file_bytes: int, errors: 
                 artifact_path=path,
                 summary=_safe_text(str(data.get("summary") or data.get("objective") or "")),
                 error=_safe_text(str(data.get("error") or "")),
+            )
+        )
+    for path in _safe_glob(runs_dir, "*/input.json", limit, max_file_bytes, errors):
+        if any(part in {"jobs", "supervisors", "local_agent", "local_coding", "codex_escalations"} for part in path.relative_to(runs_dir).parts):
+            continue
+        if path.parent.resolve() in seen_run_dirs:
+            continue
+        data = _read_json(path, runs_dir, max_file_bytes, errors)
+        if data is None:
+            continue
+        events_path = path.parent / "events.jsonl"
+        events = _read_jsonl(events_path, runs_dir, max_file_bytes, errors) if events_path.exists() else []
+        last_event = events[-1] if events else {}
+        started_at = str((events[0] if events else {}).get("timestamp") or path.parent.name)
+        updated_at = str(last_event.get("timestamp") or "")
+        stage = str(last_event.get("stage") or "")
+        status = "running" if stage in {"worker", "codex"} else (stage or "queued")
+        items.append(
+            DashboardRunSummary(
+                id=path.parent.name,
+                status=status,
+                created_at=started_at,
+                updated_at=updated_at,
+                repo_name=data.get("repo_name"),
+                artifact_path=path,
+                summary=_safe_text(str(data.get("task") or data.get("objective") or "")),
+                error="",
             )
         )
     return _sort_items(items)
@@ -322,6 +351,25 @@ def _read_json(path: Path, runs_dir: Path, max_file_bytes: int, errors: list[str
     except Exception as exc:
         errors.append(f"malformed_json:{path}:{exc}")
         return None
+
+
+def _read_jsonl(path: Path, runs_dir: Path, max_file_bytes: int, errors: list[str]) -> list[dict[str, Any]]:
+    try:
+        path.resolve().relative_to(runs_dir.resolve())
+    except ValueError:
+        return []
+    try:
+        if path.stat().st_size > max_file_bytes:
+            errors.append(f"skipped_large_artifact:{path}")
+            return []
+        records = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+        return records
+    except Exception as exc:
+        errors.append(f"malformed_jsonl:{path}:{exc}")
+        return []
 
 
 def _sort_items(items: list[T]) -> list[T]:
