@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 class RepoConfig(BaseModel):
     path: str
     default_tests: List[str] = Field(default_factory=list)
+    command_profiles: List[Dict] = Field(default_factory=list)
 
 
 class CodexConfig(BaseModel):

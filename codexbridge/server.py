@@ -15,7 +15,12 @@ from fastmcp import FastMCP
 from .config import AppConfig, load_config, resolve_repo
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import diff_stat, git_status, inspect_status
+from .git_tools import git_diff as _git_diff_raw
+from .git_tools import create_branch as _git_create_branch
 from .job_manager import JobManager
+from . import repo_reader as _repo_reader
+from . import repo_writer as _repo_writer
+from .command_profiles import resolve_command_profile, run_command_profile
 from .runner import CodexRunner, latest_run_result as latest_artifact_result
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
@@ -140,6 +145,263 @@ COMMIT_OUTPUT = {
         "commit_sha": {"type": "string"},
         "files": {"type": "array", "items": {"type": "string"}},
         "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+LIST_REPO_FILES_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "directory": {"type": "string"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "count": {"type": "integer"},
+        "truncated": {"type": "boolean"},
+        "max_results": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+}
+READ_REPO_FILE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "path": {"type": "string"},
+        "content": {"type": "string"},
+        "start_line": {"type": "integer"},
+        "end_line": {"type": "integer"},
+        "total_lines": {"type": "integer"},
+        "size_bytes": {"type": "integer"},
+        "sha256": {"type": "string"},
+        "git_head": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+}
+SEARCH_REPO_TEXT_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "query": {"type": "string"},
+        "directory": {"type": "string"},
+        "case_sensitive": {"type": "boolean"},
+        "hits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "path": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "snippet": {"type": "string"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "truncated": {"type": "boolean"},
+        "max_results": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+}
+RECENTLY_MODIFIED_FILES_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "path": {"type": "string"},
+                    "mtime": {"type": "number"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "limit": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+}
+REPO_GIT_STATUS_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "status": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+REPO_GIT_DIFF_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "path": {"type": "string"},
+        "staged": {"type": "boolean"},
+        "diff": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+}
+PREVIEW_PATCH_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "patch_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "diff": {"type": "string"},
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "changed_lines": {"type": "integer"},
+        "changed_bytes": {"type": "integer"},
+        "git_head": {"type": "string"},
+        "validation_errors": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"},
+    },
+}
+APPLY_PATCH_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "patch_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "path": {"type": "string"},
+                    "sha256": {"type": "string"},
+                },
+            },
+        },
+        "git_head": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+CREATE_FILE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "path": {"type": "string"},
+        "sha256": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "error": {"type": "string"},
+    },
+}
+DELETE_FILE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "path": {"type": "string"},
+        "rollback_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+MOVE_FILE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "source_path": {"type": "string"},
+        "destination_path": {"type": "string"},
+        "sha256": {"type": "string"},
+        "rollback_id": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+REVERT_PATCH_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "patch_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "reverted_files": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"},
+    },
+}
+RUN_COMMAND_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "command_id": {"type": "string"},
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "exit_code": {"type": "integer"},
+        "timed_out": {"type": "boolean"},
+        "duration_seconds": {"type": "number"},
+        "stdout": {"type": "string"},
+        "stderr": {"type": "string"},
+        "output_truncated": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+}
+GIT_LOG_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "commits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "sha": {"type": "string"},
+                    "author_name": {"type": "string"},
+                    "author_email": {"type": "string"},
+                    "date": {"type": "string"},
+                    "subject": {"type": "string"},
+                },
+            },
+        },
+        "count": {"type": "integer"},
+        "path": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+READ_REPO_FILES_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "results": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "count": {"type": "integer"},
+        "truncated_batch": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+}
+CREATE_BRANCH_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "branch_name": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -539,6 +801,231 @@ def get_supervisor_notifications(supervisor_id: str, delivery_status: str = "", 
 def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
     """Read-only: return the canonical supervisor resume prompt if present."""
     return get_supervisor_service().get_resume_prompt(supervisor_id)
+
+
+@mcp.tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_repo_files(repo_name: str, directory: str = "", max_results: int = 500) -> dict:
+    """Read-only: list files in a repository directory. Returns repo-relative POSIX paths only."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.list_repo_files(repo_root, directory=directory, max_results=max_results)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=READ_REPO_FILE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def read_repo_file(repo_name: str, path: str, start_line: int = 1, end_line: int = 0) -> dict:
+    """Read-only: read a text file from a repository. Rejects binary files, caps output, and redacts secrets."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.read_repo_file(repo_root, path, start_line=start_line, end_line=end_line)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=SEARCH_REPO_TEXT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def search_repo_text(
+    repo_name: str,
+    query: str,
+    directory: str = "",
+    max_results: int = 50,
+    case_sensitive: bool = False,
+) -> dict:
+    """Read-only: search for a literal string in repository text files. Returns path, line, and redacted snippets."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.search_repo_text(
+        repo_root,
+        query,
+        directory=directory,
+        max_results=max_results,
+        case_sensitive=case_sensitive,
+    )
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=RECENTLY_MODIFIED_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
+    """Read-only: list files sorted by filesystem mtime, newest first. Reflects unsaved changes immediately."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.get_recently_modified_files(repo_root, limit=limit)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=REPO_GIT_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def repo_git_status(repo_name: str) -> dict:
+    """Read-only: return raw git status --short --branch output for a whitelisted repository."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    status_text = git_status(repo_root)
+    return {"ok": True, "repo_name": repo_name, "status": status_text, "error": ""}
+
+
+@mcp.tool(output_schema=REPO_GIT_DIFF_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def repo_git_diff(repo_name: str, path: str = "", staged: bool = False) -> dict:
+    """Read-only: return git diff output, optionally scoped to one validated relative path or the staging area."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _git_diff_raw(repo_root, path=path, staged=staged)
+    result["repo_name"] = repo_name
+    return result
+
+
+def _get_runs_dir() -> "Path":
+    return get_config().resolve_runs_dir()
+
+
+@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
+    """Read-only: validate patch operations and return a unified diff with a patch_id. Makes no changes."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.preview_repo_patch(repo_root, operations, _get_runs_dir())
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> dict:
+    """Write tool: apply a patch previously validated by preview_repo_patch. Rechecks all hashes before writing."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.apply_repo_patch(repo_root, operations, patch_id, _get_runs_dir())
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=CREATE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def create_repo_file(repo_name: str, path: str, content: str) -> dict:
+    """Write tool: create a new file in the repository. Rejects existing files and applies all path/content safety checks."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.create_repo_file(repo_root, path, content)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=DELETE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
+    """Write tool: delete a file after verifying its SHA-256. Saves rollback content."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.delete_repo_file(repo_root, path, expected_sha256, _get_runs_dir())
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=MOVE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def move_repo_file(
+    repo_name: str,
+    source_path: str,
+    destination_path: str,
+    expected_sha256: str,
+) -> dict:
+    """Write tool: move a file to a new repo-relative path after verifying its SHA-256. Saves rollback information."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.move_repo_file(
+        repo_root, source_path, destination_path, expected_sha256, _get_runs_dir()
+    )
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=REVERT_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
+    """Write tool: revert a previously applied managed patch using saved rollback content. Never uses git reset."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.revert_managed_patch(repo_root, patch_id, _get_runs_dir())
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=RUN_COMMAND_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def run_project_command(repo_name: str, command_id: str) -> dict:
+    """Write tool: run an allowlisted project command by command_id. Uses subprocess with shell=False."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    repo_profiles = list(config.repos[repo_name].command_profiles or [])
+    profile = resolve_command_profile(command_id, repo_profiles)
+    result = run_command_profile(profile, repo_root)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
+    """Read-only: return structured git log entries, optionally scoped to a file path."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.git_log(repo_root, limit=limit, path=path)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=READ_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
+    """Read-only: read up to 20 files in one call. Each request has path, start_line, end_line."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_reader.read_repo_files(repo_root, requests)
+    result["repo_name"] = repo_name
+    for item in result.get("results", []):
+        item["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=CREATE_BRANCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def create_git_branch(repo_name: str, branch_name: str) -> dict:
+    """Write tool: create a new local git branch. Rejects protected names and existing branches."""
+    import re as _re
+    from .repo_writer import _PROTECTED_BRANCHES, _PROTECTED_BRANCH_PREFIXES, _BRANCH_NAME_RE
+
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+
+    if not branch_name or not _BRANCH_NAME_RE.match(branch_name):
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "branch_name": branch_name,
+            "error": f"Invalid branch name: {branch_name!r}",
+        }
+    lower = branch_name.lower()
+    if lower in _PROTECTED_BRANCHES:
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "branch_name": branch_name,
+            "error": f"Branch name is protected: {branch_name!r}",
+        }
+    for prefix in _PROTECTED_BRANCH_PREFIXES:
+        if lower.startswith(prefix):
+            return {
+                "ok": False,
+                "repo_name": repo_name,
+                "branch_name": branch_name,
+                "error": f"Branch name matches protected prefix '{prefix}': {branch_name!r}",
+            }
+    from .git_tools import git_branch_list
+    existing = git_branch_list(repo_root)
+    if branch_name in existing:
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "branch_name": branch_name,
+            "error": f"Branch already exists: {branch_name!r}",
+        }
+    try:
+        _git_create_branch(repo_root, branch_name)
+    except ValueError as exc:
+        return {"ok": False, "repo_name": repo_name, "branch_name": branch_name, "error": str(exc)}
+
+    return {"ok": True, "repo_name": repo_name, "branch_name": branch_name, "error": ""}
 
 
 def build_parser() -> argparse.ArgumentParser:
