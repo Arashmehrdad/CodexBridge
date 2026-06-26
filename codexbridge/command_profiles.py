@@ -237,7 +237,7 @@ def run_command_profile(
     Execute *profile* in *cwd* with shell=False.
     Returns a structured result with stdout, stderr, exit_code, duration, and truncation flag.
     """
-    argv, env, python_executable, virtual_env = prepare_repo_execution(profile, cwd)
+    argv, env, _, _ = prepare_repo_execution(profile, cwd)
     started = time.monotonic()
     timed_out = False
     try:
@@ -287,10 +287,6 @@ def run_command_profile(
         "ok": exit_code == 0 and not timed_out,
         "command_id": profile.command_id,
         "argv": argv,
-        "configured_argv": profile.argv,
-        "python_executable": str(python_executable) if python_executable else "",
-        "virtual_env": str(virtual_env) if virtual_env else "",
-        "used_repo_venv": python_executable is not None,
         "exit_code": exit_code,
         "timed_out": timed_out,
         "duration_seconds": round(duration, 3),
