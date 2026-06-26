@@ -7,6 +7,9 @@ param(
     [string]$TunnelConfig = "$env:USERPROFILE\.cloudflared\codexbridge-mcp.yml",
     [string]$PublicMcpUrl = "https://mcp.spaceshipgames.win/mcp",
     [string]$PythonExecutable = "",
+    [int]$LocalStartupTimeoutSeconds = 30,
+    [int]$TunnelStartupTimeoutSeconds = 30,
+    [int]$ProbeIntervalSeconds = 1,
     [switch]$NoTunnel
 )
 
@@ -18,9 +21,12 @@ function Write-Step {
 }
 
 function Test-McpEndpoint {
-    param([string]$Url)
+    param(
+        [string]$Url,
+        [int]$TimeoutSeconds = 3
+    )
     try {
-        $response = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 10 -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec $TimeoutSeconds -ErrorAction Stop
         return @{
             Ok = $response.StatusCode -eq 406
             StatusCode = [int]$response.StatusCode
@@ -37,6 +43,22 @@ function Test-McpEndpoint {
             Error = $_.Exception.Message
         }
     }
+}
+
+function Wait-McpEndpoint {
+    param(
+        [string]$Url,
+        [int]$TimeoutSeconds,
+        [int]$IntervalSeconds = 1
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $last = Test-McpEndpoint -Url $Url
+    while (-not $last.Ok -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds $IntervalSeconds
+        $last = Test-McpEndpoint -Url $Url
+    }
+    return $last
 }
 
 function Get-CommandLineForPid {
@@ -115,34 +137,33 @@ if (-not (Test-Path (Join-Path $ProjectRoot $Config))) {
 }
 
 Write-Step "Checking local MCP endpoint $localUrl."
-$local = Test-McpEndpoint $localUrl
+$local = Test-McpEndpoint -Url $localUrl
 if (-not $local.Ok) {
     Write-Step "Local MCP endpoint is not ready, starting server."
     Start-CodexBridgeServer
-    Start-Sleep -Seconds 4
-    $local = Test-McpEndpoint $localUrl
+    Write-Step "Waiting up to $LocalStartupTimeoutSeconds seconds for local MCP readiness."
+    $local = Wait-McpEndpoint -Url $localUrl -TimeoutSeconds $LocalStartupTimeoutSeconds -IntervalSeconds $ProbeIntervalSeconds
 }
 if (-not $local.Ok) {
-    throw "Local MCP endpoint failed. Status=$($local.StatusCode) Error=$($local.Error)"
+    throw "Local MCP endpoint failed after $LocalStartupTimeoutSeconds seconds. Status=$($local.StatusCode) Error=$($local.Error)"
 }
 Write-Step "Local MCP endpoint ready. Plain GET returned expected 406."
 
 if (-not $NoTunnel) {
     Write-Step "Checking public MCP endpoint $PublicMcpUrl."
-    $public = Test-McpEndpoint $PublicMcpUrl
+    $public = Test-McpEndpoint -Url $PublicMcpUrl
     if (-not $public.Ok) {
         if (-not (Has-CodexBridgeMcpTunnelProcess)) {
             Write-Step "Public endpoint is not ready and CodexBridgeMCP tunnel process is not running. Starting tunnel."
             Start-CodexBridgeTunnel
-            Start-Sleep -Seconds 8
         } else {
             Write-Step "CodexBridgeMCP tunnel process is already running. Rechecking public endpoint."
-            Start-Sleep -Seconds 4
         }
-        $public = Test-McpEndpoint $PublicMcpUrl
+        Write-Step "Waiting up to $TunnelStartupTimeoutSeconds seconds for public MCP readiness."
+        $public = Wait-McpEndpoint -Url $PublicMcpUrl -TimeoutSeconds $TunnelStartupTimeoutSeconds -IntervalSeconds $ProbeIntervalSeconds
     }
     if (-not $public.Ok) {
-        throw "Public MCP endpoint failed. Status=$($public.StatusCode) Error=$($public.Error)"
+        throw "Public MCP endpoint failed after $TunnelStartupTimeoutSeconds seconds. Status=$($public.StatusCode) Error=$($public.Error)"
     }
     Write-Step "Public MCP endpoint ready. Plain GET returned expected 406."
 }
