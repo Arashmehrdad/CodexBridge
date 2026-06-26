@@ -35,7 +35,16 @@ def diff_stat(repo_root: Path) -> str:
 
 
 def changed_files(repo_root: Path) -> list[str]:
-    output = _run_git(repo_root, ["status", "--porcelain"]).stdout
+    """Return changed repository-relative paths, including every untracked file.
+
+    Git normally collapses a wholly untracked directory into one ``?? dir/``
+    status entry. ``commit_selected_files`` operates on explicit files, so the
+    status query must enumerate untracked files individually.
+    """
+    output = _run_git(
+        repo_root,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+    ).stdout
     files: list[str] = []
     for line in output.splitlines():
         if len(line) < 4:
@@ -147,4 +156,3 @@ def commit_selected_files(repo_root: Path, files: Iterable[str], title: str, des
         "remaining_dirty_files": changed_files(repo_root),
         "git_status": git_status(repo_root),
     }
-
