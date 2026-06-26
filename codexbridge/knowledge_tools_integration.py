@@ -89,7 +89,7 @@ KNOWLEDGE_SEARCH_OUTPUT = {
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
-                    "repo_name": {"type": ["string", "null"]},
+                    "repo_name": {"type": "string"},
                 },
                 "required": ["memory_id", "memory_type", "title", "summary", "tags", "repo_name"],
             },
@@ -131,7 +131,7 @@ def _memory_hit(record) -> dict[str, Any]:
         "title": record.title,
         "summary": record.summary,
         "tags": list(record.tags),
-        "repo_name": record.repo_name,
+        "repo_name": record.repo_name or "",
     }
 
 
