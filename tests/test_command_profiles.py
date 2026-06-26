@@ -63,12 +63,12 @@ def test_repo_override_unknown_id_falls_through_to_builtin() -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("argv", [
-    ["pip install requests"],          # single-element pip install
-    ["npm install express"],            # single-element npm install
+    ["pip install requests"],
+    ["npm install express"],
     ["cmd.exe", "/c", "dir"],
     ["powershell", "-Command", "Get-Process"],
     ["Invoke-Expression", "something"],
-    ["rm -rf /"],                       # single-element rm -rf
+    ["rm -rf /"],
     ["ssh", "user@host"],
     ["curl", "https://example.com"],
     ["wget", "https://example.com/file"],
@@ -97,7 +97,7 @@ def test_valid_custom_profile() -> None:
         argv=["python", "-m", "mypy", "src/"],
         timeout_seconds=30,
     )
-    spec.validate()  # should not raise
+    spec.validate()
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def test_valid_custom_profile() -> None:
 
 def test_all_builtin_profiles_validate() -> None:
     for name, spec in BUILTIN_PROFILES.items():
-        spec.validate()  # should not raise
+        spec.validate()
         assert spec.command_id == name
 
 
@@ -158,10 +158,19 @@ def test_run_command_uses_repo_virtualenv(tmp_path: Path, monkeypatch) -> None:
     assert captured["kwargs"]["shell"] is False
     assert captured["kwargs"]["env"]["VIRTUAL_ENV"] == str(expected_venv)
     assert captured["kwargs"]["env"]["PATH"].split(os.pathsep)[0] == str(expected_python.parent)
-    assert result["used_repo_venv"] is True
-    assert result["python_executable"] == str(expected_python)
-    assert result["virtual_env"] == str(expected_venv)
-    assert result["configured_argv"] == spec.argv
+    assert result["argv"][0] == str(expected_python)
+    assert set(result) == {
+        "ok",
+        "command_id",
+        "argv",
+        "exit_code",
+        "timed_out",
+        "duration_seconds",
+        "stdout",
+        "stderr",
+        "output_truncated",
+        "error",
+    }
 
 
 def test_repo_virtualenv_path_supports_bare_tools(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +193,7 @@ def test_repo_virtualenv_path_supports_bare_tools(tmp_path: Path, monkeypatch) -
 
     assert captured["argv"] == spec.argv
     assert captured["env"]["PATH"].split(os.pathsep)[0] == str(expected_python.parent)
-    assert result["used_repo_venv"] is True
+    assert result["argv"] == spec.argv
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +212,6 @@ def test_run_command_success(tmp_path: Path) -> None:
     assert "hello" in result["stdout"]
     assert result["timed_out"] is False
     assert result["command_id"] == "echo_test"
-    assert result["used_repo_venv"] is False
 
 
 def test_run_command_failure(tmp_path: Path) -> None:
