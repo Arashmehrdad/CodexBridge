@@ -96,8 +96,9 @@ class ProjectMemoryRepository:
 
         With no scope this preserves the historical global search. When a
         repository or project scope is supplied, unrelated records are never
-        returned. ``include_global`` additionally allows unscoped shared
-        records, which is useful for cross-project user preferences.
+        returned. ``include_global`` additionally allows records with no
+        repository scope. The historical ``project_key='codexbridge'`` default
+        is treated as global for those unscoped records.
         """
         normalized = query.strip().casefold()
         if not normalized:
@@ -113,7 +114,7 @@ class ProjectMemoryRepository:
         )
         if include_global:
             for record in self.store.list_records(limit=500):
-                if record.repo_name is None and record.project_key is None:
+                if record.repo_name is None and record.project_key in {None, "", "codexbridge"}:
                     candidates.append(record)
 
         seen: set[str] = set()
