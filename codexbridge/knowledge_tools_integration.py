@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from functools import wraps
 from typing import Any, Callable
 
@@ -114,11 +115,38 @@ MEMORY_WRITE_OUTPUT = {
 }
 
 
-def _runtime_context(repo_name: str):
-    from .config import resolve_repo
-    from .server import get_config
+def _active_server_config(mcp: Any):
+    """Return configuration from the module that owns this exact MCP instance.
 
-    config = get_config()
+    ``python -m codexbridge.server`` executes the server as ``__main__``. Importing
+    ``codexbridge.server`` again would create a second module with a separate
+    ``_config`` global. Resolve the module that owns the active MCP object instead,
+    then cache its configuration on that MCP instance.
+    """
+    cached = getattr(mcp, "_codexbridge_runtime_config", None)
+    if cached is not None:
+        return cached
+
+    for module in tuple(sys.modules.values()):
+        if module is None or getattr(module, "mcp", None) is not mcp:
+            continue
+        getter = getattr(module, "get_config", None)
+        if not callable(getter):
+            continue
+        try:
+            config = getter()
+        except RuntimeError:
+            continue
+        setattr(mcp, "_codexbridge_runtime_config", config)
+        return config
+
+    raise RuntimeError("CodexBridge config has not been loaded in the active MCP process")
+
+
+def _runtime_context(mcp: Any, repo_name: str):
+    from .config import resolve_repo
+
+    config = _active_server_config(mcp)
     repo_root = resolve_repo(config, repo_name)
     return config, repo_root
 
@@ -147,7 +175,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     def refresh_repo_wiki(repo_name: str, force: bool = False) -> dict:
         """Generate or incrementally refresh the repository-local CodexBridge wiki."""
         try:
-            _, repo_root = _runtime_context(repo_name)
+            _, repo_root = _runtime_context(mcp, repo_name)
             return RepoWikiService(repo_root, repo_name).refresh(force=force)
         except Exception as exc:
             return {
@@ -166,7 +194,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     def read_repo_wiki(repo_name: str, page: str = "overview.md") -> dict:
         """Read one generated repository wiki page by safe relative page name."""
         try:
-            _, repo_root = _runtime_context(repo_name)
+            _, repo_root = _runtime_context(mcp, repo_name)
             return RepoWikiService(repo_root, repo_name).read_page(page)
         except Exception as exc:
             return {
@@ -188,7 +216,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     ) -> dict:
         """Search the repository wiki and repository-scoped memory in one call."""
         try:
-            config, repo_root = _runtime_context(repo_name)
+            config, repo_root = _runtime_context(mcp, repo_name)
             maximum = max(1, min(limit, 50))
             wiki_hits = RepoWikiService(repo_root, repo_name).search(query, limit=maximum)
             memory = ProjectMemoryRepository(config=config)
@@ -227,7 +255,7 @@ def register_knowledge_tools(mcp: Any) -> None:
         try:
             if not decision.strip():
                 raise ValueError("decision must not be empty")
-            config, repo_root = _runtime_context(repo_name)
+            config, repo_root = _runtime_context(mcp, repo_name)
             memory = ProjectMemoryRepository(config=config)
             record = memory.remember_decision(
                 decision.strip(),
