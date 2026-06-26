@@ -105,12 +105,20 @@ class CodexContextBuilder:
         if self.memory_repository is None:
             return []
         try:
-            result = self.memory_repository.search(request.objective, limit=5)
+            result = self.memory_repository.search(
+                request.objective,
+                repo_name=request.repo_name,
+                limit=5,
+            )
             if not result.records:
                 for term in request.objective.split():
                     if len(term) < 4:
                         continue
-                    result = self.memory_repository.search(term, limit=5)
+                    result = self.memory_repository.search(
+                        term,
+                        repo_name=request.repo_name,
+                        limit=5,
+                    )
                     if result.records:
                         break
             return [
