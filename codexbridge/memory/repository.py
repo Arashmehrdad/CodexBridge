@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from codexbridge.config import AppConfig, MemoryConfig
 
-from .models import MemoryRecord, MemoryType, RepoProfileMemory, ValidationRecipeMemory
+from .models import MemoryRecord, MemorySearchResult, MemoryType, RepoProfileMemory, ValidationRecipeMemory
 from .store import ProjectMemoryStore
 
 
@@ -81,17 +82,90 @@ class ProjectMemoryRepository:
     def remember_validation_recipe_model(self, recipe: ValidationRecipeMemory) -> MemoryRecord:
         return self.remember_validation_recipe("\n".join(recipe.commands) + ("\n" + recipe.notes if recipe.notes else ""), repo_name=recipe.repo_name)
 
-    def search(self, query: str, *, limit: int = 20):
-        return self.store.search(query, limit=limit)
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        repo_name: str | None = None,
+        project_key: str | None = None,
+        include_global: bool = False,
+    ) -> MemorySearchResult:
+        """
+        Search memory, scoped to a repository or project when supplied.
 
-    def latest_job_summary(self) -> MemoryRecord | None:
-        return self.store.latest_by_type(MemoryType.JOB)
+        With no scope this preserves the historical global search. When a
+        repository or project scope is supplied, unrelated records are never
+        returned. ``include_global`` additionally allows unscoped shared
+        records, which is useful for cross-project user preferences.
+        """
+        normalized = query.strip().casefold()
+        if not normalized:
+            raise ValueError("query must not be empty")
+        maximum = max(1, min(limit, 200))
+        if repo_name is None and project_key is None:
+            return self.store.search(query, limit=maximum)
 
-    def latest_run_summary(self) -> MemoryRecord | None:
-        return self.store.latest_by_type(MemoryType.RUN)
+        candidates = self.store.list_records(
+            repo_name=repo_name,
+            project_key=project_key,
+            limit=500,
+        )
+        if include_global:
+            for record in self.store.list_records(limit=500):
+                if record.repo_name is None and record.project_key is None:
+                    candidates.append(record)
 
-    def latest_decision_summary(self) -> MemoryRecord | None:
-        return self.store.latest_by_type(MemoryType.DECISION)
+        seen: set[str] = set()
+        matches: list[MemoryRecord] = []
+        for record in candidates:
+            if record.memory_id in seen:
+                continue
+            seen.add(record.memory_id)
+            haystack = "\n".join(
+                [
+                    record.title,
+                    record.summary,
+                    record.content,
+                    " ".join(record.tags),
+                    json.dumps(record.metadata, sort_keys=True),
+                ]
+            ).casefold()
+            if normalized in haystack:
+                matches.append(record)
+                if len(matches) >= maximum:
+                    break
+        return MemorySearchResult(records=matches, query=query, total=len(matches))
 
-    def continue_last_task(self) -> MemoryRecord | None:
-        return self.latest_job_summary() or self.latest_run_summary() or self.latest_decision_summary()
+    def latest_job_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
+        return self._latest_by_type(MemoryType.JOB, repo_name=repo_name, project_key=project_key)
+
+    def latest_run_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
+        return self._latest_by_type(MemoryType.RUN, repo_name=repo_name, project_key=project_key)
+
+    def latest_decision_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
+        return self._latest_by_type(MemoryType.DECISION, repo_name=repo_name, project_key=project_key)
+
+    def continue_last_task(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
+        return (
+            self.latest_job_summary(repo_name=repo_name, project_key=project_key)
+            or self.latest_run_summary(repo_name=repo_name, project_key=project_key)
+            or self.latest_decision_summary(repo_name=repo_name, project_key=project_key)
+        )
+
+    def _latest_by_type(
+        self,
+        memory_type: MemoryType,
+        *,
+        repo_name: str | None = None,
+        project_key: str | None = None,
+    ) -> MemoryRecord | None:
+        if repo_name is None and project_key is None:
+            return self.store.latest_by_type(memory_type)
+        records = self.store.list_records(
+            repo_name=repo_name,
+            project_key=project_key,
+            memory_type=memory_type,
+            limit=1,
+        )
+        return records[0] if records else None
