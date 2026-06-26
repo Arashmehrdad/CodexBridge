@@ -6,6 +6,7 @@ param(
     [string]$McpPath = "/mcp",
     [string]$TunnelConfig = "$env:USERPROFILE\.cloudflared\codexbridge-mcp.yml",
     [string]$PublicMcpUrl = "https://mcp.spaceshipgames.win/mcp",
+    [string]$PythonExecutable = "",
     [switch]$NoTunnel
 )
 
@@ -45,11 +46,32 @@ function Get-CommandLineForPid {
     return ""
 }
 
+function Resolve-CodexBridgePython {
+    if ($PythonExecutable) {
+        if (-not (Test-Path $PythonExecutable -PathType Leaf)) {
+            throw "Configured Python executable not found: $PythonExecutable"
+        }
+        return (Resolve-Path $PythonExecutable).Path
+    }
+
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython -PathType Leaf) {
+        return (Resolve-Path $venvPython).Path
+    }
+
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonCommand) {
+        throw "Python was not found. Create $venvPython or pass -PythonExecutable."
+    }
+    return $pythonCommand.Source
+}
+
 function Start-CodexBridgeServer {
     $logDir = Join-Path $ProjectRoot "runs\service_logs"
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $stdout = Join-Path $logDir "codexbridge-server.out.log"
     $stderr = Join-Path $logDir "codexbridge-server.err.log"
+    $pythonPath = Resolve-CodexBridgePython
     $arguments = @(
         "-m", "codexbridge.server",
         "--config", $Config,
@@ -58,7 +80,8 @@ function Start-CodexBridgeServer {
         "--port", "$Port",
         "--path", $McpPath
     )
-    $process = Start-Process -FilePath "python" -ArgumentList $arguments -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    Write-Step "Using Python: $pythonPath"
+    $process = Start-Process -FilePath $pythonPath -ArgumentList $arguments -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     Write-Step "Started CodexBridge server PID $($process.Id)."
 }
 
