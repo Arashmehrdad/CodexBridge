@@ -7,13 +7,15 @@ Rules:
 - No package installation, network commands, deployment, deletion,
   PowerShell command strings, cmd.exe, Invoke-Expression, or shell=True.
 - Per-repo overrides may be supplied in config.yaml under repos.<name>.command_profiles.
+- Project commands prefer the target repository's local virtual environment.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,7 @@ _BLOCKED_ARGV_PATTERNS = [
 
 # Valid command_id format
 _COMMAND_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+_PYTHON_LAUNCHERS = frozenset({"python", "python.exe", "python3", "python3.exe"})
 
 
 @dataclass
@@ -166,6 +169,66 @@ def resolve_command_profile(
 # Execution
 # ---------------------------------------------------------------------------
 
+def _virtualenv_candidates(cwd: Path) -> tuple[tuple[str, ...], ...]:
+    """Return platform-preferred repository-local Python candidates."""
+    windows = (
+        (".venv", "Scripts", "python.exe"),
+        ("venv", "Scripts", "python.exe"),
+    )
+    posix = (
+        (".venv", "bin", "python"),
+        ("venv", "bin", "python"),
+    )
+    return windows + posix if os.name == "nt" else posix + windows
+
+
+def find_repo_python(cwd: Path) -> tuple[Path | None, Path | None]:
+    """
+    Find a repository-local virtual-environment interpreter.
+
+    Returns ``(python_executable, virtual_env_root)``. The candidate path is
+    kept inside the repository lexically; symlink targets are not resolved so
+    normal POSIX virtual environments remain supported.
+    """
+    repo_root = cwd.resolve()
+    for relative_parts in _virtualenv_candidates(repo_root):
+        candidate = repo_root.joinpath(*relative_parts)
+        try:
+            if candidate.is_file():
+                return candidate.absolute(), candidate.parent.parent.absolute()
+        except OSError:
+            continue
+    return None, None
+
+
+def prepare_repo_execution(
+    profile: CommandProfileSpec,
+    cwd: Path,
+) -> tuple[list[str], dict[str, str], Path | None, Path | None]:
+    """Build argv and environment for a command executed in *cwd*."""
+    argv = list(profile.argv)
+    env = os.environ.copy()
+    python_executable, virtual_env = find_repo_python(cwd)
+
+    if python_executable is not None and virtual_env is not None:
+        scripts_dir = python_executable.parent
+        current_path = env.get("PATH", "")
+        env["PATH"] = (
+            str(scripts_dir)
+            if not current_path
+            else f"{scripts_dir}{os.pathsep}{current_path}"
+        )
+        env["VIRTUAL_ENV"] = str(virtual_env)
+        env.pop("PYTHONHOME", None)
+
+        # Built-ins and normal repo profiles use a bare Python launcher. Replace
+        # it directly so the target repository's packages are always selected.
+        if argv and argv[0].lower() in _PYTHON_LAUNCHERS:
+            argv[0] = str(python_executable)
+
+    return argv, env, python_executable, virtual_env
+
+
 def run_command_profile(
     profile: CommandProfileSpec,
     cwd: Path,
@@ -174,12 +237,14 @@ def run_command_profile(
     Execute *profile* in *cwd* with shell=False.
     Returns a structured result with stdout, stderr, exit_code, duration, and truncation flag.
     """
+    argv, env, python_executable, virtual_env = prepare_repo_execution(profile, cwd)
     started = time.monotonic()
     timed_out = False
     try:
         completed = subprocess.run(
-            profile.argv,
+            argv,
             cwd=cwd,
+            env=env,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -221,7 +286,11 @@ def run_command_profile(
     return {
         "ok": exit_code == 0 and not timed_out,
         "command_id": profile.command_id,
-        "argv": profile.argv,
+        "argv": argv,
+        "configured_argv": profile.argv,
+        "python_executable": str(python_executable) if python_executable else "",
+        "virtual_env": str(virtual_env) if virtual_env else "",
+        "used_repo_venv": python_executable is not None,
         "exit_code": exit_code,
         "timed_out": timed_out,
         "duration_seconds": round(duration, 3),
