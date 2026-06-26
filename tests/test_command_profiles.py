@@ -1,17 +1,21 @@
 """
 Tests for codexbridge/command_profiles.py.
 Covers blocked-pattern rejection, unknown IDs, built-in profiles,
-repo-level overrides, and shell=False execution.
+repo-level overrides, repository virtual environments, and shell=False execution.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import codexbridge.command_profiles as cp
 from codexbridge.command_profiles import (
     BUILTIN_PROFILES,
     CommandProfileSpec,
+    find_repo_python,
     resolve_command_profile,
     run_command_profile,
 )
@@ -107,6 +111,83 @@ def test_all_builtin_profiles_validate() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Repository virtual-environment resolution
+# ---------------------------------------------------------------------------
+
+def _create_repo_python(repo_root: Path) -> tuple[Path, Path]:
+    relative = (
+        Path(".venv/Scripts/python.exe")
+        if os.name == "nt"
+        else Path(".venv/bin/python")
+    )
+    python_executable = repo_root / relative
+    python_executable.parent.mkdir(parents=True)
+    python_executable.write_text("", encoding="utf-8")
+    return python_executable.absolute(), python_executable.parent.parent.absolute()
+
+
+def test_find_repo_python_prefers_local_virtualenv(tmp_path: Path) -> None:
+    expected_python, expected_venv = _create_repo_python(tmp_path)
+
+    python_executable, virtual_env = find_repo_python(tmp_path)
+
+    assert python_executable == expected_python
+    assert virtual_env == expected_venv
+
+
+def test_run_command_uses_repo_virtualenv(tmp_path: Path, monkeypatch) -> None:
+    expected_python, expected_venv = _create_repo_python(tmp_path)
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(stdout="ok\n", stderr="", returncode=0)
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    spec = CommandProfileSpec(
+        command_id="ruff_check",
+        argv=["python", "-m", "ruff", "check", "."],
+        timeout_seconds=10,
+    )
+
+    result = run_command_profile(spec, tmp_path)
+
+    assert captured["argv"][0] == str(expected_python)
+    assert captured["kwargs"]["cwd"] == tmp_path
+    assert captured["kwargs"]["shell"] is False
+    assert captured["kwargs"]["env"]["VIRTUAL_ENV"] == str(expected_venv)
+    assert captured["kwargs"]["env"]["PATH"].split(os.pathsep)[0] == str(expected_python.parent)
+    assert result["used_repo_venv"] is True
+    assert result["python_executable"] == str(expected_python)
+    assert result["virtual_env"] == str(expected_venv)
+    assert result["configured_argv"] == spec.argv
+
+
+def test_repo_virtualenv_path_supports_bare_tools(tmp_path: Path, monkeypatch) -> None:
+    expected_python, _ = _create_repo_python(tmp_path)
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = kwargs["env"]
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    spec = CommandProfileSpec(
+        command_id="ruff_direct",
+        argv=["ruff", "check", "."],
+        timeout_seconds=10,
+    )
+
+    result = run_command_profile(spec, tmp_path)
+
+    assert captured["argv"] == spec.argv
+    assert captured["env"]["PATH"].split(os.pathsep)[0] == str(expected_python.parent)
+    assert result["used_repo_venv"] is True
+
+
+# ---------------------------------------------------------------------------
 # run_command_profile – shell=False execution
 # ---------------------------------------------------------------------------
 
@@ -122,6 +203,7 @@ def test_run_command_success(tmp_path: Path) -> None:
     assert "hello" in result["stdout"]
     assert result["timed_out"] is False
     assert result["command_id"] == "echo_test"
+    assert result["used_repo_venv"] is False
 
 
 def test_run_command_failure(tmp_path: Path) -> None:
@@ -159,7 +241,6 @@ def test_run_command_invalid_binary(tmp_path: Path) -> None:
 
 
 def test_run_command_output_truncation(tmp_path: Path, monkeypatch) -> None:
-    import codexbridge.command_profiles as cp
     monkeypatch.setattr(cp, "MAX_OUTPUT_BYTES", 10)
     spec = CommandProfileSpec(
         command_id="big_output",
