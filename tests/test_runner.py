@@ -63,6 +63,32 @@ def test_configured_executable_path_is_preferred(tmp_path: Path) -> None:
     assert runner._resolve_codex_executable() == str(exe)
 
 
+def test_stale_configured_path_falls_back_to_path(monkeypatch, tmp_path: Path) -> None:
+    stale = tmp_path / "old" / "codex.exe"
+    fallback = tmp_path / "bin" / "codex.cmd"
+    fallback.parent.mkdir()
+    fallback.write_text("stub\n", encoding="utf-8")
+
+    def fake_which(name: str):
+        return str(fallback) if name in {"codex", "codex.cmd"} else None
+
+    monkeypatch.setattr("codexbridge.runner.shutil.which", fake_which)
+    runner = make_runner(tmp_path, executable=str(stale))
+
+    assert runner._resolve_codex_executable() == str(fallback)
+
+
+def test_missing_explicit_path_reports_checked_fallbacks(monkeypatch, tmp_path: Path) -> None:
+    stale = tmp_path / "old" / "codex.exe"
+    monkeypatch.setattr("codexbridge.runner.shutil.which", lambda name: None)
+    runner = make_runner(tmp_path, executable=str(stale))
+
+    with pytest.raises(FileNotFoundError, match="No launchable fallback") as exc_info:
+        runner._resolve_codex_executable()
+
+    assert str(stale) in str(exc_info.value)
+
+
 def test_windowsapps_codex_executable_is_rejected(monkeypatch, tmp_path: Path) -> None:
     windowsapps = r"C:\Program Files\WindowsApps\OpenAI.Codex\codex.exe"
     monkeypatch.setattr("codexbridge.runner.shutil.which", lambda name: windowsapps)
