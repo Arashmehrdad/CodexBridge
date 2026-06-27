@@ -40,6 +40,61 @@ def _safe_command_args(args: list[str]) -> list[str]:
     return [*args[:-1], "<prompt>"]
 
 
+def _append_candidate(candidates: list[str], value: str | Path | None) -> None:
+    if not value:
+        return
+    text = str(value)
+    if text and text not in candidates:
+        candidates.append(text)
+
+
+def _codex_executable_candidates(executable: str) -> list[str]:
+    """Return ordered Codex executable candidates for portable Windows startup."""
+    configured = Path(executable)
+    explicit_path = configured.is_absolute() or configured.parent != Path(".")
+    candidates: list[str] = []
+
+    if explicit_path:
+        _append_candidate(candidates, configured)
+
+    base_name = configured.name or "codex"
+    suffix = Path(base_name).suffix.lower()
+    command_stem = Path(base_name).stem if suffix in {".cmd", ".exe", ".bat"} else base_name
+
+    command_names: list[str] = []
+    if not explicit_path:
+        command_names.append(executable)
+    command_names.extend(
+        [
+            f"{command_stem}.exe",
+            f"{command_stem}.cmd",
+            f"{command_stem}.bat",
+            command_stem,
+            "codex.exe",
+            "codex.cmd",
+            "codex.bat",
+            "codex",
+        ]
+    )
+    for name in command_names:
+        _append_candidate(candidates, shutil.which(name))
+
+    _append_candidate(candidates, Path.home() / ".codex" / ".sandbox-bin" / "codex.exe")
+
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        for root in (appdata, local_appdata):
+            if not root:
+                continue
+            npm_bin = Path(root) / "npm"
+            _append_candidate(candidates, npm_bin / "codex.exe")
+            _append_candidate(candidates, npm_bin / "codex.cmd")
+            _append_candidate(candidates, npm_bin / "codex.bat")
+
+    return candidates
+
+
 class CodexRunner:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -51,32 +106,37 @@ class CodexRunner:
         return run_dir
 
     def _resolve_codex_executable(self) -> str:
-        executable = self.config.codex.executable
+        executable = self.config.codex.executable.strip() or "codex"
         configured = Path(executable)
-        if configured.is_absolute() or configured.parent != Path("."):
-            if not configured.exists() or configured.is_dir():
-                raise FileNotFoundError(f"Configured Codex executable is not a file: {configured}")
-            return str(configured)
+        explicit_path = configured.is_absolute() or configured.parent != Path(".")
+        candidates = _codex_executable_candidates(executable)
+        checked: list[str] = []
+        blocked_windowsapps: list[str] = []
 
-        candidates: list[str] = []
-        if os.name == "nt":
-            for name in (executable, f"{executable}.cmd", f"{executable}.exe"):
-                resolved = shutil.which(name)
-                if resolved and not _is_windowsapps_path(resolved):
-                    candidates.append(resolved)
-            sandbox_bin = Path.home() / ".codex" / ".sandbox-bin" / f"{executable}.exe"
-            if sandbox_bin.exists():
-                candidates.append(str(sandbox_bin))
+        for candidate_text in candidates:
+            if candidate_text in checked:
+                continue
+            checked.append(candidate_text)
+            if _is_windowsapps_path(candidate_text):
+                blocked_windowsapps.append(candidate_text)
+                continue
+            candidate = Path(candidate_text)
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
 
-        resolved = shutil.which(executable)
-        if resolved:
-            if _is_windowsapps_path(resolved):
-                raise PermissionError(f"Refusing WindowsApps Codex executable; configure a launchable codex.exe or codex.cmd: {resolved}")
-            candidates.append(resolved)
-
-        if candidates:
-            return candidates[0]
-        raise FileNotFoundError(f"Codex executable not found: {executable}")
+        checked_text = ", ".join(checked) if checked else "no candidates"
+        if blocked_windowsapps:
+            blocked_text = ", ".join(blocked_windowsapps)
+            raise PermissionError(
+                "Refusing WindowsApps Codex executable because it is not a reliable subprocess target. "
+                f"Configure a launchable codex.exe or codex.cmd. Blocked: {blocked_text}. Checked: {checked_text}"
+            )
+        if explicit_path:
+            raise FileNotFoundError(
+                f"Configured Codex executable is unavailable: {configured}. "
+                f"No launchable fallback was found. Checked: {checked_text}"
+            )
+        raise FileNotFoundError(f"Codex executable not found: {executable}. Checked: {checked_text}")
 
     def _subprocess_diagnostics(self, args: list[str], cwd: Path, exc: BaseException) -> str:
         attempted = args[0] if args else self.config.codex.executable
