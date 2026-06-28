@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from codexbridge.local_agent.command_profiles import get_command_profile, list_command_profiles
+from codexbridge.local_agent.command_profiles import (
+    get_command_profile,
+    list_command_profiles,
+)
 from codexbridge.local_agent.models import PermissionTier
 
 

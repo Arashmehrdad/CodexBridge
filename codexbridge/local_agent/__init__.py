@@ -48,11 +48,17 @@ def __getattr__(name: str):
     if name == "LocalAgentOrchestrator" or name == "classify_task":
         from .orchestrator import LocalAgentOrchestrator, classify_task
 
-        return {"LocalAgentOrchestrator": LocalAgentOrchestrator, "classify_task": classify_task}[name]
+        return {
+            "LocalAgentOrchestrator": LocalAgentOrchestrator,
+            "classify_task": classify_task,
+        }[name]
     if name == "LocalAgentCommandRunner" or name == "run_project_command":
         from .runner import LocalAgentCommandRunner, run_project_command
 
-        return {"LocalAgentCommandRunner": LocalAgentCommandRunner, "run_project_command": run_project_command}[name]
+        return {
+            "LocalAgentCommandRunner": LocalAgentCommandRunner,
+            "run_project_command": run_project_command,
+        }[name]
     if name == "LocalModelClient":
         from .local_model import LocalModelClient
 

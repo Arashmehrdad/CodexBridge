@@ -35,28 +35,49 @@ class JobMonitor:
 
         process = self.processes.get(job_id)
         if process is None:
-            self.store.append_event(job_id, stage="status_refreshed", message="No live process handle for job", data={"status": result.status.value})
+            self.store.append_event(
+                job_id,
+                stage="status_refreshed",
+                message="No live process handle for job",
+                data={"status": result.status.value},
+            )
             return result
 
         now = time.monotonic()
         started_monotonic = getattr(process, "_codexbridge_started_monotonic", now)
         if now - started_monotonic > result.timeout_seconds:
             _terminate(process)
-            return self._finish(result, JobStatus.TIMEOUT, exit_code=None, error="Job timed out")
+            return self._finish(
+                result, JobStatus.TIMEOUT, exit_code=None, error="Job timed out"
+            )
 
         return_code = process.poll()
         if return_code is None:
-            self.store.append_event(job_id, stage="status_refreshed", message="Job is still running", data={"status": JobStatus.RUNNING.value})
+            self.store.append_event(
+                job_id,
+                stage="status_refreshed",
+                message="Job is still running",
+                data={"status": JobStatus.RUNNING.value},
+            )
             return result
 
         status = JobStatus.COMPLETED if return_code == 0 else JobStatus.FAILED
-        return self._finish(result, status, exit_code=int(return_code), error="" if return_code == 0 else "Job exited with non-zero status")
+        return self._finish(
+            result,
+            status,
+            exit_code=int(return_code),
+            error="" if return_code == 0 else "Job exited with non-zero status",
+        )
 
-    def _finish(self, result: JobResult, status: JobStatus, *, exit_code: int | None, error: str) -> JobResult:
+    def _finish(
+        self, result: JobResult, status: JobStatus, *, exit_code: int | None, error: str
+    ) -> JobResult:
         ended_at = utc_now()
         duration = _duration_seconds(result.started_at, ended_at)
         artifact_paths = _collect_artifacts(result)
-        failure_summary = error if status in {JobStatus.FAILED, JobStatus.TIMEOUT} else ""
+        failure_summary = (
+            error if status in {JobStatus.FAILED, JobStatus.TIMEOUT} else ""
+        )
         next_action = _next_action(status)
         updated = self.store.update_status(
             result.job_id,
@@ -71,7 +92,12 @@ class JobMonitor:
         )
         report = generate_job_report(updated)
         updated = self.store.get_job(result.job_id)
-        self.store.append_event(result.job_id, stage="report_generated", message="Job report generated", data=report.model_dump(mode="json"))
+        self.store.append_event(
+            result.job_id,
+            stage="report_generated",
+            message="Job report generated",
+            data=report.model_dump(mode="json"),
+        )
         _close_handles(self.processes.get(result.job_id))
         self.processes.pop(result.job_id, None)
         return updated
@@ -112,7 +138,10 @@ def _collect_artifacts(result: JobResult) -> list:
     profile = get_job_profile(result.job_profile)
     if profile is None or result.working_directory is None:
         return []
-    roots = [result.working_directory.resolve(), result.result_json_path.parent.resolve()]
+    roots = [
+        result.working_directory.resolve(),
+        result.result_json_path.parent.resolve(),
+    ]
     collected = []
     for pattern in profile.allowed_artifact_globs:
         for path in result.working_directory.glob(pattern):

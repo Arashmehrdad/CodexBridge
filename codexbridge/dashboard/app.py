@@ -13,12 +13,20 @@ def create_dashboard_app(config: AppConfig | None = None):
     try:
         from fastapi import FastAPI
         from fastapi.responses import HTMLResponse
-    except Exception as exc:  # pragma: no cover - exercised only without FastAPI installed
-        raise RuntimeError(f"FastAPI is not available for the dashboard: {exc}") from exc
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - exercised only without FastAPI installed
+        raise RuntimeError(
+            f"FastAPI is not available for the dashboard: {exc}"
+        ) from exc
 
     settings = config.dashboard if config else DashboardConfig()
     runs_dir = config.resolve_dashboard_runs_dir() if config else Path.cwd() / "runs"
-    app = FastAPI(title="CodexBridge Dashboard", version="1", docs_url=None if settings.dashboard_read_only else "/docs")
+    app = FastAPI(
+        title="CodexBridge Dashboard",
+        version="1",
+        docs_url=None if settings.dashboard_read_only else "/docs",
+    )
 
     def summary():
         return get_dashboard_summary(
@@ -31,7 +39,9 @@ def create_dashboard_app(config: AppConfig | None = None):
 
     @app.get("/health")
     def health():
-        return DashboardHealthResult(ok=True, read_only=True, runs_dir=runs_dir).model_dump(mode="json")
+        return DashboardHealthResult(
+            ok=True, read_only=True, runs_dir=runs_dir
+        ).model_dump(mode="json")
 
     @app.get("/", response_class=HTMLResponse)
     def index():

@@ -24,8 +24,19 @@ def test_supervisor_store_initializes_schema_and_wal(tmp_path: Path) -> None:
     assert store.db_path.exists()
     assert store.journal_mode() == "wal"
     with store.connect() as conn:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert {"supervisors", "supervisor_events", "supervisor_run_links", "repo_write_locks", "supervisor_notifications"}.issubset(tables)
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert {
+        "supervisors",
+        "supervisor_events",
+        "supervisor_run_links",
+        "repo_write_locks",
+        "supervisor_notifications",
+    }.issubset(tables)
 
 
 def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> None:
@@ -39,13 +50,20 @@ def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> No
     assert created["status"] == "queued"
     assert created["metadata"] == {"batch": 1}
 
-    updated = store.update_supervisor(SUPERVISOR_ID, status="running", summary="started", requires_human=True)
+    updated = store.update_supervisor(
+        SUPERVISOR_ID, status="running", summary="started", requires_human=True
+    )
     assert updated["status"] == "running"
     assert updated["requires_human"] is True
 
     reloaded = make_store(tmp_path)
     assert reloaded.get_supervisor(SUPERVISOR_ID)["summary"] == "started"
-    assert reloaded.list_supervisors(repo_name="codexbridge", status="running")[0]["supervisor_id"] == SUPERVISOR_ID
+    assert (
+        reloaded.list_supervisors(repo_name="codexbridge", status="running")[0][
+            "supervisor_id"
+        ]
+        == SUPERVISOR_ID
+    )
 
 
 def test_invalid_supervisor_and_lock_ids_rejected() -> None:
@@ -57,9 +75,17 @@ def test_invalid_supervisor_and_lock_ids_rejected() -> None:
 
 def test_supervisor_events_ordering_and_limit(tmp_path: Path) -> None:
     store = make_store(tmp_path)
-    store.create_supervisor(supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="test events")
+    store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="test events"
+    )
     for index in range(4):
-        store.append_event(SUPERVISOR_ID, level="info", stage="test", message=f"event {index}", data={"index": index})
+        store.append_event(
+            SUPERVISOR_ID,
+            level="info",
+            stage="test",
+            message=f"event {index}",
+            data={"index": index},
+        )
 
     events = store.get_events(SUPERVISOR_ID, limit=2)
     assert [event["message"] for event in events] == ["event 2", "event 3"]
@@ -68,8 +94,12 @@ def test_supervisor_events_ordering_and_limit(tmp_path: Path) -> None:
 
 def test_supervisor_run_links_persist_after_reload(tmp_path: Path) -> None:
     store = make_store(tmp_path)
-    store.create_supervisor(supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="link runs")
-    link = store.add_run_link(SUPERVISOR_ID, "20260428T120001Z_codex_plan_task_12345678", "plan")
+    store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="link runs"
+    )
+    link = store.add_run_link(
+        SUPERVISOR_ID, "20260428T120001Z_codex_plan_task_12345678", "plan"
+    )
     assert link["link_type"] == "plan"
 
     reloaded = make_store(tmp_path)
@@ -80,7 +110,9 @@ def test_supervisor_run_links_persist_after_reload(tmp_path: Path) -> None:
 
 def test_repo_lock_acquire_release_and_reacquire(tmp_path: Path) -> None:
     store = make_store(tmp_path)
-    first = store.acquire_repo_lock("codexbridge", owner_id=SUPERVISOR_ID, reason="test")
+    first = store.acquire_repo_lock(
+        "codexbridge", owner_id=SUPERVISOR_ID, reason="test"
+    )
     assert first is not None
     assert first["repo_name"] == "codexbridge"
 
@@ -102,18 +134,31 @@ def test_expired_repo_lock_can_be_replaced(tmp_path: Path) -> None:
             INSERT INTO repo_write_locks (lock_id, repo_name, owner_id, acquired_at, expires_at, reason)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ("lock_11111111", "codexbridge", SUPERVISOR_ID, expired, expired, "expired"),
+            (
+                "lock_11111111",
+                "codexbridge",
+                SUPERVISOR_ID,
+                expired,
+                expired,
+                "expired",
+            ),
         )
 
-    replacement = store.acquire_repo_lock("codexbridge", owner_id=SUPERVISOR_ID, reason="replacement")
+    replacement = store.acquire_repo_lock(
+        "codexbridge", owner_id=SUPERVISOR_ID, reason="replacement"
+    )
     assert replacement is not None
     assert replacement["lock_id"] != "lock_11111111"
     assert replacement["reason"] == "replacement"
 
 
-def test_supervisor_notifications_crud_dedupe_and_delivery_update(tmp_path: Path) -> None:
+def test_supervisor_notifications_crud_dedupe_and_delivery_update(
+    tmp_path: Path,
+) -> None:
     store = make_store(tmp_path)
-    store.create_supervisor(supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify")
+    store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify"
+    )
     notification = store.create_notification(
         SUPERVISOR_ID,
         event_stage="completed",
@@ -140,6 +185,8 @@ def test_supervisor_notifications_crud_dedupe_and_delivery_update(tmp_path: Path
     assert store.get_notification(notification["id"])["kind"] == "completed"
     assert store.list_notifications(SUPERVISOR_ID)[0]["dedupe_key"] == "completed"
 
-    delivered = store.update_notification_delivery(notification["id"], delivery_status="delivered")
+    delivered = store.update_notification_delivery(
+        notification["id"], delivery_status="delivered"
+    )
     assert delivered["delivery_status"] == "delivered"
     assert delivered["delivery_attempts"] == 1

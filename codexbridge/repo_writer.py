@@ -9,6 +9,7 @@ Rules:
 - Original content is saved for rollback before any file is touched.
 - No git reset, git checkout, or destructive shell commands are used.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -39,8 +40,8 @@ from .safety import validate_repo_relative_path
 # ---------------------------------------------------------------------------
 MAX_PATCH_FILES = 10
 MAX_PATCH_LINES = 1_000
-MAX_PATCH_BYTES = 200 * 1024        # 200 KB total content change
-MAX_CREATE_BYTES = 200 * 1024       # 200 KB for create_repo_file
+MAX_PATCH_BYTES = 200 * 1024  # 200 KB total content change
+MAX_CREATE_BYTES = 200 * 1024  # 200 KB for create_repo_file
 MANAGED_PATCHES_DIR = "managed_patches"
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ _BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._/\-]+$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -129,6 +131,7 @@ def _unified_diff_for_op(old_text: str, new_text: str, path: str) -> str:
 def _git_head(repo_root: Path) -> str:
     """Return current HEAD commit hash, or empty string if not available."""
     import subprocess
+
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo_root,
@@ -141,6 +144,7 @@ def _git_head(repo_root: Path) -> str:
 # ---------------------------------------------------------------------------
 # Patch validation (shared by preview and apply)
 # ---------------------------------------------------------------------------
+
 
 def _validate_operations(
     repo_root: Path,
@@ -162,7 +166,9 @@ def _validate_operations(
         return [], ["operations must be a non-empty list"]
 
     if len(operations) > MAX_PATCH_FILES:
-        errors.append(f"Patch exceeds {MAX_PATCH_FILES} file limit ({len(operations)} ops)")
+        errors.append(
+            f"Patch exceeds {MAX_PATCH_FILES} file limit ({len(operations)} ops)"
+        )
 
     seen_paths: set[str] = set()
     validated: list[dict] = []
@@ -273,9 +279,7 @@ def _validate_operations(
             f"Patch exceeds {MAX_PATCH_LINES} changed-line limit ({total_changed_lines} lines)"
         )
     if total_changed_bytes > MAX_PATCH_BYTES:
-        errors.append(
-            f"Patch exceeds {MAX_PATCH_BYTES // 1024} KB changed-byte limit"
-        )
+        errors.append(f"Patch exceeds {MAX_PATCH_BYTES // 1024} KB changed-byte limit")
 
     return validated, errors
 
@@ -283,6 +287,7 @@ def _validate_operations(
 # ---------------------------------------------------------------------------
 # preview_repo_patch
 # ---------------------------------------------------------------------------
+
 
 def preview_repo_patch(
     repo_root: Path,
@@ -316,7 +321,7 @@ def preview_repo_patch(
     manifest = {
         "patch_id": patch_id,
         "created_at": _utc_now(),
-        "repo_root": "",   # never store the absolute root
+        "repo_root": "",  # never store the absolute root
         "git_head_at_preview": head,
         "status": "preview_failed" if errors else "preview_ok",
         "operations": [
@@ -355,6 +360,7 @@ def preview_repo_patch(
 # apply_repo_patch
 # ---------------------------------------------------------------------------
 
+
 def apply_repo_patch(
     repo_root: Path,
     operations: list[dict],
@@ -379,7 +385,9 @@ def apply_repo_patch(
     if manifest.get("status") == "reverted":
         raise ValueError(f"Patch {patch_id} has been reverted")
     if manifest.get("status") == "preview_failed":
-        raise ValueError(f"Patch {patch_id} preview had validation errors; cannot apply")
+        raise ValueError(
+            f"Patch {patch_id} preview had validation errors; cannot apply"
+        )
 
     # Recheck git HEAD
     current_head = _git_head(repo_root)
@@ -405,8 +413,7 @@ def apply_repo_patch(
             )
         if op["current_sha256"] != m["current_sha256"]:
             raise ValueError(
-                f"File '{op['path']}' has changed since preview "
-                f"(hash mismatch)"
+                f"File '{op['path']}' has changed since preview (hash mismatch)"
             )
 
     # Save originals for rollback
@@ -475,6 +482,7 @@ def apply_repo_patch(
 # revert_managed_patch
 # ---------------------------------------------------------------------------
 
+
 def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict:
     """
     Revert a previously applied managed patch using saved rollback content.
@@ -493,7 +501,9 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
             f"Patch {patch_id} is not in 'applied' state (status: {manifest.get('status')})"
         )
 
-    applied_results = {r["path"]: r["sha256"] for r in manifest.get("applied_results", [])}
+    applied_results = {
+        r["path"]: r["sha256"] for r in manifest.get("applied_results", [])
+    }
     rollback_dir = patch_dir / "rollback"
 
     # Verify current hashes match applied hashes before reverting
@@ -519,9 +529,7 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
                 path_str.replace("/", "__").replace("\\", "__")
             )
             if not rollback_file.exists():
-                raise ValueError(
-                    f"Rollback content missing for '{path_str}'"
-                )
+                raise ValueError(f"Rollback content missing for '{path_str}'")
             original = rollback_file.read_bytes()
             parent = absolute.parent
             with tempfile.NamedTemporaryFile(
@@ -553,6 +561,7 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
 # ---------------------------------------------------------------------------
 # create_repo_file
 # ---------------------------------------------------------------------------
+
 
 def create_repo_file(repo_root: Path, path: str, content: str) -> dict:
     """
@@ -604,6 +613,7 @@ def create_repo_file(repo_root: Path, path: str, content: str) -> dict:
 # delete_repo_file
 # ---------------------------------------------------------------------------
 
+
 def delete_repo_file(
     repo_root: Path,
     path: str,
@@ -644,7 +654,9 @@ def delete_repo_file(
         "created_at": _utc_now(),
         "status": "deleted",
     }
-    (del_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (del_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
     absolute.unlink()
 
@@ -660,6 +672,7 @@ def delete_repo_file(
 # ---------------------------------------------------------------------------
 # move_repo_file
 # ---------------------------------------------------------------------------
+
 
 def move_repo_file(
     repo_root: Path,
@@ -714,7 +727,9 @@ def move_repo_file(
         "created_at": _utc_now(),
         "status": "moved",
     }
-    (mv_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (mv_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
     dst_parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src_abs), str(dst_abs))

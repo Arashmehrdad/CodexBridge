@@ -37,7 +37,9 @@ def make_job(tmp_path: Path, status: JobStatus) -> JobResult:
     )
     result.stdout_path.write_text("stdout", encoding="utf-8")
     result.stderr_path.write_text("stderr", encoding="utf-8")
-    result.result_json_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    result.result_json_path.write_text(
+        result.model_dump_json(indent=2), encoding="utf-8"
+    )
     return result
 
 
@@ -49,7 +51,18 @@ def test_job_reporter_writes_pulse_manifest_for_completed_job(tmp_path: Path) ->
     assert payload["status"] == "ready"
     assert payload["ready"] is True
     resume = report.resume_prompt_path.read_text(encoding="utf-8")
-    for field in ("job_id:", "repo_name:", "repo_path:", "job_profile:", "status:", "exit_code:", "duration:", "artifacts:", "recommended_next_action:", "question_for_chatgpt:"):
+    for field in (
+        "job_id:",
+        "repo_name:",
+        "repo_path:",
+        "job_profile:",
+        "status:",
+        "exit_code:",
+        "duration:",
+        "artifacts:",
+        "recommended_next_action:",
+        "question_for_chatgpt:",
+    ):
         assert field in resume
     assert "codex_called: false" in resume
     assert "pulsesender_sent: false/unknown" in resume
@@ -72,8 +85,13 @@ def test_job_reporter_writes_pulse_manifest_for_timeout_job(tmp_path: Path) -> N
     assert payload["source_status"] == "timeout"
 
 
-def test_return_loop_modules_do_not_import_pulsesender_codex_browser_or_shell_execution() -> None:
-    source = "\n".join(path.read_text(encoding="utf-8") for path in Path("codexbridge/return_loop").glob("*.py"))
+def test_return_loop_modules_do_not_import_pulsesender_codex_browser_or_shell_execution() -> (
+    None
+):
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("codexbridge/return_loop").glob("*.py")
+    )
 
     assert "import PulseSender" not in source
     assert "from PulseSender" not in source

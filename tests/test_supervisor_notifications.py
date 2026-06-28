@@ -76,7 +76,9 @@ def test_webhook_sink_uses_env_url_and_stubbed_transport(monkeypatch) -> None:
         return Response()
 
     monkeypatch.setenv("CODEXBRIDGE_WEBHOOK_URL", "https://example.invalid/hook")
-    sink = WebhookNotificationSink(enabled=True, url_env="CODEXBRIDGE_WEBHOOK_URL", transport=transport)
+    sink = WebhookNotificationSink(
+        enabled=True, url_env="CODEXBRIDGE_WEBHOOK_URL", transport=transport
+    )
     result = sink.send(notification())
     assert result["status"] == "delivered"
     assert captured["url"] == "https://example.invalid/hook"
@@ -85,7 +87,10 @@ def test_webhook_sink_uses_env_url_and_stubbed_transport(monkeypatch) -> None:
 
 def test_windows_toast_disabled_by_default(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr("codexbridge.supervisor_notifications.subprocess.run", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(
+        "codexbridge.supervisor_notifications.subprocess.run",
+        lambda *args, **kwargs: calls.append(args),
+    )
     result = WindowsToastNotificationSink().send(notification())
     assert result["status"] == "disabled"
     assert calls == []
@@ -97,7 +102,10 @@ def test_windows_toast_wrapper_handles_unavailable_toast(monkeypatch) -> None:
         stderr = "unavailable"
         stdout = ""
 
-    monkeypatch.setattr("codexbridge.supervisor_notifications.subprocess.run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(
+        "codexbridge.supervisor_notifications.subprocess.run",
+        lambda *args, **kwargs: Result(),
+    )
     result = WindowsToastNotificationSink(enabled=True).send(notification())
     assert result["status"] == "failed"
     assert "unavailable" in result["error"]
@@ -105,7 +113,9 @@ def test_windows_toast_wrapper_handles_unavailable_toast(monkeypatch) -> None:
 
 def test_dispatcher_updates_delivery_state_without_raising(tmp_path: Path) -> None:
     store = SupervisorStore(tmp_path / "runs")
-    store.create_supervisor(supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify")
+    store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify"
+    )
     stored = store.create_notification(
         SUPERVISOR_ID,
         event_stage="completed",

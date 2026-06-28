@@ -26,7 +26,9 @@ def test_repo_inspection_is_local_only_read_only() -> None:
     assert result.audit_event.metadata["codex_called"] is False
 
 
-def test_inspect_project_tests_returns_structured_local_only_result_without_codex(tmp_path: Path) -> None:
+def test_inspect_project_tests_returns_structured_local_only_result_without_codex(
+    tmp_path: Path,
+) -> None:
     result = LocalAgentOrchestrator().handle_task(
         LocalAgentTaskInput(
             repo_name="sample",
@@ -45,7 +47,10 @@ def test_inspect_project_tests_returns_structured_local_only_result_without_code
 
 
 def test_edit_refactor_fix_task_is_codex_required() -> None:
-    assert classify_task("refactor the runner and fix the bug") == LocalAgentTaskType.SOURCE_EDIT
+    assert (
+        classify_task("refactor the runner and fix the bug")
+        == LocalAgentTaskType.SOURCE_EDIT
+    )
 
     result = LocalAgentOrchestrator().handle_task("refactor the runner and fix the bug")
     assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
@@ -53,7 +58,9 @@ def test_edit_refactor_fix_task_is_codex_required() -> None:
     assert result.status == TaskStatus.CLASSIFIED
 
 
-def test_secret_credential_destructive_or_production_task_is_blocked_or_human_only() -> None:
+def test_secret_credential_destructive_or_production_task_is_blocked_or_human_only() -> (
+    None
+):
     objectives = [
         "read the API key from .env",
         "use credentials to deploy to production",
@@ -63,7 +70,10 @@ def test_secret_credential_destructive_or_production_task_is_blocked_or_human_on
 
     for objective in objectives:
         result = LocalAgentOrchestrator().handle_task(objective)
-        assert result.routing_decision in {RoutingDecision.BLOCKED, RoutingDecision.NEEDS_HUMAN_APPROVAL}
+        assert result.routing_decision in {
+            RoutingDecision.BLOCKED,
+            RoutingDecision.NEEDS_HUMAN_APPROVAL,
+        }
         assert result.permission_tier == PermissionTier.HUMAN_ONLY_RISKY_ACTION
         assert result.risk_level == RiskLevel.HIGH
         assert result.status in {TaskStatus.BLOCKED, TaskStatus.NEEDS_HUMAN_APPROVAL}

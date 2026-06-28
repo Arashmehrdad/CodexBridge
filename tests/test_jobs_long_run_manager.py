@@ -21,7 +21,12 @@ class FakeProcess:
         self.terminated = True
 
 
-def fake_popen(returncode: int | None = 0, stdout_text: str = "out\n", stderr_text: str = "", artifact: bool = False):
+def fake_popen(
+    returncode: int | None = 0,
+    stdout_text: str = "out\n",
+    stderr_text: str = "",
+    artifact: bool = False,
+):
     calls: list[dict[str, Any]] = []
 
     def factory(argv: list[str], **kwargs: Any) -> FakeProcess:
@@ -40,9 +45,13 @@ def fake_popen(returncode: int | None = 0, stdout_text: str = "out\n", stderr_te
     return factory, calls
 
 
-def test_unknown_job_profile_is_blocked_and_does_not_call_subprocess(tmp_path: Path) -> None:
+def test_unknown_job_profile_is_blocked_and_does_not_call_subprocess(
+    tmp_path: Path,
+) -> None:
     factory, calls = fake_popen()
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="missing", repo_path=tmp_path)
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="missing", repo_path=tmp_path)
 
     assert result.job.status == JobStatus.PROFILE_MISSING
     assert calls == []
@@ -50,7 +59,9 @@ def test_unknown_job_profile_is_blocked_and_does_not_call_subprocess(tmp_path: P
 
 def test_disabled_job_profile_is_blocked(tmp_path: Path) -> None:
     factory, calls = fake_popen()
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="disabled_demo", repo_path=tmp_path)
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="disabled_demo", repo_path=tmp_path)
 
     assert result.job.status == JobStatus.BLOCKED
     assert calls == []
@@ -58,7 +69,9 @@ def test_disabled_job_profile_is_blocked(tmp_path: Path) -> None:
 
 def test_arbitrary_shell_like_profile_text_is_rejected(tmp_path: Path) -> None:
     factory, calls = fake_popen()
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="python -c import os", repo_path=tmp_path)
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="python -c import os", repo_path=tmp_path)
 
     assert result.job.status == JobStatus.PROFILE_MISSING
     assert calls == []
@@ -66,7 +79,9 @@ def test_arbitrary_shell_like_profile_text_is_rejected(tmp_path: Path) -> None:
 
 def test_missing_repo_path_is_handled_cleanly(tmp_path: Path) -> None:
     factory, calls = fake_popen()
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="dummy_success", repo_path=tmp_path / "missing")
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="dummy_success", repo_path=tmp_path / "missing")
 
     assert result.job.status == JobStatus.REPO_MISSING
     assert result.job.error
@@ -75,7 +90,9 @@ def test_missing_repo_path_is_handled_cleanly(tmp_path: Path) -> None:
 
 def test_timeout_escalation_above_profile_limit_is_rejected(tmp_path: Path) -> None:
     factory, calls = fake_popen()
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="dummy_success", repo_path=tmp_path, timeout_seconds=31)
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="dummy_success", repo_path=tmp_path, timeout_seconds=31)
 
     assert result.job.status == JobStatus.PERMISSION_DENIED
     assert "timeout" in result.job.error.lower()
@@ -84,7 +101,9 @@ def test_timeout_escalation_above_profile_limit_is_rejected(tmp_path: Path) -> N
 
 def test_start_job_creates_artifacts_and_initial_result(tmp_path: Path) -> None:
     factory, calls = fake_popen(returncode=None)
-    result = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory).start_job(profile_id="dummy_success", repo_path=tmp_path)
+    result = LongRunJobManager(
+        runs_dir=tmp_path / "runs", popen_factory=factory
+    ).start_job(profile_id="dummy_success", repo_path=tmp_path)
 
     assert result.job.status == JobStatus.RUNNING
     assert result.job.result_json_path.match("*/runs/jobs/*/result.json")
@@ -172,7 +191,10 @@ def test_refresh_status_does_not_block_for_running_job(tmp_path: Path) -> None:
 
 
 def test_job_modules_do_not_import_codex_pulsesender_browser_or_ollama() -> None:
-    source = "\n".join(path.read_text(encoding="utf-8") for path in Path("codexbridge/jobs").glob("*.py"))
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("codexbridge/jobs").glob("*.py")
+    )
 
     assert "CodexRunner" not in source
     assert "import PulseSender" not in source

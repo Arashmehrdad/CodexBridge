@@ -65,10 +65,23 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_project_repo ON memory_records(project_key, repo_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_type ON memory_records(memory_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_source ON memory_records(source_kind, source_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_created ON memory_records(created_at)")
-        existing = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1").fetchone()
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_project_repo ON memory_records(project_key, repo_name)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_type ON memory_records(memory_type)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_source ON memory_records(source_kind, source_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_created ON memory_records(created_at)"
+        )
+        existing = conn.execute(
+            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+        ).fetchone()
         if existing is None:
-            conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))", (SCHEMA_VERSION,))
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))",
+                (SCHEMA_VERSION,),
+            )

@@ -5,6 +5,7 @@ All public functions accept a resolved repo_root (Path) and repo-relative
 POSIX strings.  They never accept or return absolute paths from the caller
 and never invoke Codex CLI, any AI model, or any agent component.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -21,10 +22,10 @@ from .safety import validate_repo_relative_path, redact_secret_values
 # ---------------------------------------------------------------------------
 # Limits
 # ---------------------------------------------------------------------------
-MAX_FILE_BYTES = 500_000          # cap on file content returned
-MAX_DIFF_BYTES = 300_000          # cap on git diff output
+MAX_FILE_BYTES = 500_000  # cap on file content returned
+MAX_DIFF_BYTES = 300_000  # cap on git diff output
 MAX_SEARCH_SNIPPET_BYTES = 4_000  # cap per search hit snippet (unused directly)
-MAX_BINARY_PROBE = 8_192          # bytes to probe for binary detection
+MAX_BINARY_PROBE = 8_192  # bytes to probe for binary detection
 
 # ---------------------------------------------------------------------------
 # Blocked path components (applies to every segment of a path)
@@ -68,6 +69,7 @@ _SECRET_LINE_RE = re.compile(
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
+
 
 def _posix_relative(repo_root: Path, absolute: Path) -> str:
     """Return a POSIX-style repo-relative string, never exposing repo_root."""
@@ -155,6 +157,7 @@ def _resolve_and_validate(repo_root: Path, relative_path: str) -> Path:
 # Binary detection
 # ---------------------------------------------------------------------------
 
+
 def _is_binary(path: Path) -> bool:
     """Heuristic binary check: look for null bytes in the first 8 KiB."""
     try:
@@ -169,6 +172,7 @@ def _is_binary(path: Path) -> bool:
 # Redaction
 # ---------------------------------------------------------------------------
 
+
 def _redact_text(text: str) -> str:
     """Redact obvious secret values using the existing safety helper."""
     return redact_secret_values(text)
@@ -177,6 +181,7 @@ def _redact_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 # SHA-256 and Git HEAD helpers
 # ---------------------------------------------------------------------------
+
 
 def _sha256_file(path: Path) -> str:
     """Return the SHA-256 hex digest of a file's raw bytes."""
@@ -204,6 +209,7 @@ def _git_head(repo_root: Path) -> str:
 # ---------------------------------------------------------------------------
 # list_repo_files
 # ---------------------------------------------------------------------------
+
 
 def list_repo_files(
     repo_root: Path,
@@ -256,7 +262,7 @@ def list_repo_files(
 
     return {
         "ok": True,
-        "repo_name": "",          # filled in by server.py
+        "repo_name": "",  # filled in by server.py
         "directory": directory,
         "files": sorted(files),
         "count": len(files),
@@ -269,6 +275,7 @@ def list_repo_files(
 # ---------------------------------------------------------------------------
 # read_repo_file
 # ---------------------------------------------------------------------------
+
 
 def read_repo_file(
     repo_root: Path,
@@ -314,7 +321,7 @@ def read_repo_file(
         selected = "".join(lines[start - 1 : end])
 
     content = _redact_text(selected)
-    truncated = (start > 1 or end < total_lines)
+    truncated = start > 1 or end < total_lines
 
     return {
         "ok": True,
@@ -335,6 +342,7 @@ def read_repo_file(
 # ---------------------------------------------------------------------------
 # search_repo_text
 # ---------------------------------------------------------------------------
+
 
 def search_repo_text(
     repo_root: Path,
@@ -433,6 +441,7 @@ def search_repo_text(
 # get_recently_modified_files
 # ---------------------------------------------------------------------------
 
+
 def get_recently_modified_files(repo_root: Path, limit: int = 50) -> dict:
     """
     Return up to *limit* files sorted by filesystem mtime (newest first).
@@ -470,10 +479,7 @@ def get_recently_modified_files(repo_root: Path, limit: int = 50) -> dict:
     return {
         "ok": True,
         "repo_name": "",
-        "files": [
-            {"path": rel_path, "mtime": mtime}
-            for mtime, rel_path in top
-        ],
+        "files": [{"path": rel_path, "mtime": mtime} for mtime, rel_path in top],
         "count": len(top),
         "limit": limit,
         "error": "",
@@ -485,7 +491,7 @@ def get_recently_modified_files(repo_root: Path, limit: int = 50) -> dict:
 # ---------------------------------------------------------------------------
 
 MAX_BATCH_REQUESTS = 20
-MAX_BATCH_COMBINED_BYTES = 2_000_000   # 2 MB combined content
+MAX_BATCH_COMBINED_BYTES = 2_000_000  # 2 MB combined content
 
 
 def read_repo_files(
@@ -516,7 +522,9 @@ def read_repo_files(
         start_line = int(req.get("start_line", 1) or 1)
         end_line = int(req.get("end_line", 0) or 0)
         try:
-            item = read_repo_file(repo_root, path, start_line=start_line, end_line=end_line)
+            item = read_repo_file(
+                repo_root, path, start_line=start_line, end_line=end_line
+            )
             combined_bytes += len(item.get("content", "").encode("utf-8"))
             if combined_bytes > MAX_BATCH_COMBINED_BYTES:
                 truncated_batch = True
@@ -555,6 +563,7 @@ def read_repo_files(
 # ---------------------------------------------------------------------------
 # git_log
 # ---------------------------------------------------------------------------
+
 
 def git_log(
     repo_root: Path,

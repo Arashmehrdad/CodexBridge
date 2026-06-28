@@ -70,4 +70,11 @@ def generate_supervisor_report(run: SupervisorRun) -> SupervisorReport:
         question_for_chatgpt=run.question_for_chatgpt,
         config=ReturnLoopConfig(max_resume_prompt_bytes=20000, max_report_bytes=100000),
     )
-    return SupervisorReport(supervisor_id=run.supervisor_id, report_path=report_path, resume_prompt_path=resume_path, pulse_manifest_path=resume_path.parent / "pulse_manifest.json" if manifest else None)
+    return SupervisorReport(
+        supervisor_id=run.supervisor_id,
+        report_path=report_path,
+        resume_prompt_path=resume_path,
+        pulse_manifest_path=resume_path.parent / "pulse_manifest.json"
+        if manifest
+        else None,
+    )

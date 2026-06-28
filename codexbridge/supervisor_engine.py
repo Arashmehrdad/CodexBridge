@@ -23,20 +23,23 @@ ACTIVE_STATES = {"queued", "running"}
 
 
 class ChildJobBackend(Protocol):
-    def start_plan(self, repo_name: str, task: str, constraints: str) -> dict[str, Any]:
-        ...
+    def start_plan(
+        self, repo_name: str, task: str, constraints: str
+    ) -> dict[str, Any]: ...
 
-    def start_implementation(self, repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict[str, Any]:
-        ...
+    def start_implementation(
+        self,
+        repo_name: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+    ) -> dict[str, Any]: ...
 
-    def get_status(self, run_id: str) -> dict[str, Any]:
-        ...
+    def get_status(self, run_id: str) -> dict[str, Any]: ...
 
-    def get_result(self, run_id: str) -> dict[str, Any]:
-        ...
+    def get_result(self, run_id: str) -> dict[str, Any]: ...
 
-    def cancel(self, run_id: str) -> dict[str, Any]:
-        ...
+    def cancel(self, run_id: str) -> dict[str, Any]: ...
 
 
 class JobManagerChildBackend:
@@ -46,8 +49,16 @@ class JobManagerChildBackend:
     def start_plan(self, repo_name: str, task: str, constraints: str) -> dict[str, Any]:
         return self.manager.start_plan(repo_name, task, constraints)
 
-    def start_implementation(self, repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict[str, Any]:
-        return self.manager.start_implementation(repo_name, approved_plan, allowed_files, tests)
+    def start_implementation(
+        self,
+        repo_name: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+    ) -> dict[str, Any]:
+        return self.manager.start_implementation(
+            repo_name, approved_plan, allowed_files, tests
+        )
 
     def get_status(self, run_id: str) -> dict[str, Any]:
         return self.manager.get_status(run_id)
@@ -76,17 +87,35 @@ class FakeChildJobBackend:
         self.jobs: dict[str, FakeChildJob] = {}
 
     def start_plan(self, repo_name: str, task: str, constraints: str) -> dict[str, Any]:
-        return self._start("plan", {"repo_name": repo_name, "task": task, "constraints": constraints})
+        return self._start(
+            "plan", {"repo_name": repo_name, "task": task, "constraints": constraints}
+        )
 
-    def start_implementation(self, repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict[str, Any]:
+    def start_implementation(
+        self,
+        repo_name: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+    ) -> dict[str, Any]:
         return self._start(
             "implementation",
-            {"repo_name": repo_name, "approved_plan": approved_plan, "allowed_files": list(allowed_files), "tests": list(tests)},
+            {
+                "repo_name": repo_name,
+                "approved_plan": approved_plan,
+                "allowed_files": list(allowed_files),
+                "tests": list(tests),
+            },
         )
 
     def get_status(self, run_id: str) -> dict[str, Any]:
         job = self.get(run_id)
-        return {"run_id": run_id, "status": job.status, "summary": job.summary, "error": job.error}
+        return {
+            "run_id": run_id,
+            "status": job.status,
+            "summary": job.summary,
+            "error": job.error,
+        }
 
     def get_result(self, run_id: str) -> dict[str, Any]:
         job = self.get(run_id)
@@ -109,7 +138,13 @@ class FakeChildJobBackend:
             raise KeyError(f"Fake child job not found: {run_id}")
         return self.jobs[run_id]
 
-    def complete(self, run_id: str, *, summary: str = "completed", result: dict[str, Any] | None = None) -> FakeChildJob:
+    def complete(
+        self,
+        run_id: str,
+        *,
+        summary: str = "completed",
+        result: dict[str, Any] | None = None,
+    ) -> FakeChildJob:
         job = self.get(run_id)
         job.status = "completed"
         job.summary = summary
@@ -125,8 +160,12 @@ class FakeChildJobBackend:
 
     def _start(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._counter += 1
-        run_id = f"20260428T1200{self._counter:02d}Z_codex_{kind}_task_{self._counter:08x}"
-        self.jobs[run_id] = FakeChildJob(run_id=run_id, kind=kind, result={"payload": payload})
+        run_id = (
+            f"20260428T1200{self._counter:02d}Z_codex_{kind}_task_{self._counter:08x}"
+        )
+        self.jobs[run_id] = FakeChildJob(
+            run_id=run_id, kind=kind, result={"payload": payload}
+        )
         return {
             "run_id": run_id,
             "accepted": True,
@@ -144,7 +183,13 @@ FakeJobBackend = FakeChildJobBackend
 
 
 class SupervisorEngine:
-    def __init__(self, store: SupervisorStore, jobs: ChildJobBackend, autonomy_profile: Any | None = None, profile_name: str = "balanced"):
+    def __init__(
+        self,
+        store: SupervisorStore,
+        jobs: ChildJobBackend,
+        autonomy_profile: Any | None = None,
+        profile_name: str = "balanced",
+    ):
         self.store = store
         self.jobs = jobs
         self.autonomy_profile = autonomy_profile or BalancedAutonomyProfile()
@@ -204,7 +249,13 @@ class SupervisorEngine:
             return self._advance_implementation(supervisor)
         raise ValueError(f"Unsupported supervisor status: {status}")
 
-    def approve_plan(self, supervisor_id: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict[str, Any]:
+    def approve_plan(
+        self,
+        supervisor_id: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+    ) -> dict[str, Any]:
         supervisor = self.store.get_supervisor(supervisor_id)
         if supervisor["status"] != "needs_input":
             raise ValueError("Plan approval is only valid from needs_input")
@@ -224,7 +275,12 @@ class SupervisorEngine:
         )
         self._record_policy(metadata, "implementation", policy_result)
         if not policy_result.allowed:
-            return self._hard_stop(supervisor, metadata, stage="implementation_policy", policy_result=policy_result)
+            return self._hard_stop(
+                supervisor,
+                metadata,
+                stage="implementation_policy",
+                policy_result=policy_result,
+            )
 
         lock = self.store.acquire_repo_lock(
             supervisor["repo_name"],
@@ -232,8 +288,13 @@ class SupervisorEngine:
             reason="supervisor implementation",
         )
         if lock is None:
-            metadata["blocked"] = {"reason": "repo_write_lock_unavailable", "at": utc_now()}
-            updated = self.store.update_supervisor(supervisor_id, metadata_json=metadata)
+            metadata["blocked"] = {
+                "reason": "repo_write_lock_unavailable",
+                "at": utc_now(),
+            }
+            updated = self.store.update_supervisor(
+                supervisor_id, metadata_json=metadata
+            )
             self.store.append_event(
                 supervisor_id,
                 level="warning",
@@ -249,7 +310,10 @@ class SupervisorEngine:
                 kind="blocked_by_lock",
                 title="CodexBridge supervisor blocked",
                 message="Implementation is blocked by an active repo write lock.",
-                payload={"repo_name": supervisor["repo_name"], "reason": "repo_write_lock_unavailable"},
+                payload={
+                    "repo_name": supervisor["repo_name"],
+                    "reason": "repo_write_lock_unavailable",
+                },
                 dedupe_key="blocked_by_lock",
             )
             return updated
@@ -257,10 +321,14 @@ class SupervisorEngine:
         metadata["implementation_lock"] = lock
         metadata["blocked"] = None
         try:
-            response = self.jobs.start_implementation(supervisor["repo_name"], approved_plan, allowed_files, tests)
+            response = self.jobs.start_implementation(
+                supervisor["repo_name"], approved_plan, allowed_files, tests
+            )
             run_id = self._accepted_run_id(response)
             metadata["active_child"] = {"run_id": run_id, "kind": "implementation"}
-            updated = self.store.update_supervisor(supervisor_id, status="implementing", metadata_json=metadata)
+            updated = self.store.update_supervisor(
+                supervisor_id, status="implementing", metadata_json=metadata
+            )
             self.store.add_run_link(supervisor_id, run_id, "implementation")
             self.store.append_event(
                 supervisor_id,
@@ -319,12 +387,20 @@ class SupervisorEngine:
         metadata = dict(supervisor["metadata"])
         plan = metadata["plan"]
         decision = decide_plan_task(plan["task"], plan.get("constraints", ""))
-        policy_result = evaluate_plan_profile(decision, self.autonomy_profile, self.profile_name)
+        policy_result = evaluate_plan_profile(
+            decision, self.autonomy_profile, self.profile_name
+        )
         self._record_policy(metadata, "plan", policy_result)
         if not policy_result.allowed:
-            return self._hard_stop(supervisor, metadata, stage="plan_policy", policy_result=policy_result)
+            return self._hard_stop(
+                supervisor, metadata, stage="plan_policy", policy_result=policy_result
+            )
 
-        response = self.jobs.start_plan(supervisor["repo_name"], metadata["plan"]["task"], metadata["plan"].get("constraints", ""))
+        response = self.jobs.start_plan(
+            supervisor["repo_name"],
+            metadata["plan"]["task"],
+            metadata["plan"].get("constraints", ""),
+        )
         run_id = self._accepted_run_id(response)
         metadata["active_child"] = {"run_id": run_id, "kind": "plan"}
         updated = self.store.update_supervisor(
@@ -351,7 +427,11 @@ class SupervisorEngine:
             return supervisor
         if status == "failed":
             result = self.jobs.get_result(run_id)
-            return self._fail(supervisor, result.get("error") or result.get("summary") or "Plan child run failed", metadata=metadata)
+            return self._fail(
+                supervisor,
+                result.get("error") or result.get("summary") or "Plan child run failed",
+                metadata=metadata,
+            )
         if status == "cancelled":
             return self._cancel_from_child(supervisor, metadata, run_id)
         if status != "completed":
@@ -387,7 +467,9 @@ class SupervisorEngine:
             self._release_implementation_lock(metadata)
             return self._fail(
                 supervisor,
-                result.get("error") or result.get("summary") or "Implementation child run failed",
+                result.get("error")
+                or result.get("summary")
+                or "Implementation child run failed",
                 metadata=metadata,
             )
         if status == "cancelled":
@@ -426,7 +508,13 @@ class SupervisorEngine:
         )
         return updated
 
-    def _fail(self, supervisor: dict[str, Any], error: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _fail(
+        self,
+        supervisor: dict[str, Any],
+        error: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         metadata = dict(metadata or supervisor["metadata"])
         metadata["active_child"] = None
         updated = self.store.update_supervisor(
@@ -457,13 +545,22 @@ class SupervisorEngine:
         )
         return updated
 
-    def _record_policy(self, metadata: dict[str, Any], phase: str, policy_result) -> None:
+    def _record_policy(
+        self, metadata: dict[str, Any], phase: str, policy_result
+    ) -> None:
         policy = dict(metadata.get("policy") or {})
         policy["profile"] = policy_result.profile_snapshot
         policy[phase] = policy_result.hard_stop["decision"]
         metadata["policy"] = policy
 
-    def _hard_stop(self, supervisor: dict[str, Any], metadata: dict[str, Any], *, stage: str, policy_result) -> dict[str, Any]:
+    def _hard_stop(
+        self,
+        supervisor: dict[str, Any],
+        metadata: dict[str, Any],
+        *,
+        stage: str,
+        policy_result,
+    ) -> dict[str, Any]:
         hard_stop = dict(policy_result.hard_stop)
         hard_stop["stage"] = stage
         hard_stop["at"] = utc_now()
@@ -475,7 +572,8 @@ class SupervisorEngine:
             policy_tier=policy_result.decision.tier,
             risk_level=policy_result.decision.risk_level,
             requires_human=policy_result.decision.requires_human,
-            summary=policy_result.decision.reason or "Supervisor hard-stop requires input",
+            summary=policy_result.decision.reason
+            or "Supervisor hard-stop requires input",
             metadata_json=metadata,
         )
         self._write_resume_prompt(updated)
@@ -498,7 +596,9 @@ class SupervisorEngine:
         )
         return updated
 
-    def _cancel_from_child(self, supervisor: dict[str, Any], metadata: dict[str, Any], run_id: str) -> dict[str, Any]:
+    def _cancel_from_child(
+        self, supervisor: dict[str, Any], metadata: dict[str, Any], run_id: str
+    ) -> dict[str, Any]:
         metadata["active_child"] = None
         updated = self.store.update_supervisor(
             supervisor["supervisor_id"],
@@ -557,7 +657,9 @@ class SupervisorEngine:
 
     def _write_resume_prompt(self, supervisor: dict[str, Any]) -> None:
         enriched = dict(supervisor)
-        enriched.setdefault("run_links", self.store.list_run_links(supervisor["supervisor_id"]))
+        enriched.setdefault(
+            "run_links", self.store.list_run_links(supervisor["supervisor_id"])
+        )
         write_resume_prompt(self.store.runs_dir, enriched)
 
     def _release_implementation_lock(self, metadata: dict[str, Any]) -> None:
@@ -574,5 +676,7 @@ class SupervisorEngine:
     def _active_run_id(self, metadata: dict[str, Any], *, expected_kind: str) -> str:
         active_child = metadata.get("active_child") or {}
         if active_child.get("kind") != expected_kind or not active_child.get("run_id"):
-            raise ValueError(f"Supervisor is missing active {expected_kind} run metadata")
+            raise ValueError(
+                f"Supervisor is missing active {expected_kind} run metadata"
+            )
         return str(active_child["run_id"])

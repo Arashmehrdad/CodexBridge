@@ -6,7 +6,9 @@ from codexbridge.config import AppConfig, DashboardConfig, RepoConfig
 
 
 def test_dashboard_config_defaults_are_read_only(tmp_path: Path) -> None:
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
 
     assert isinstance(config.dashboard, DashboardConfig)
     assert config.dashboard.dashboard_enabled is True

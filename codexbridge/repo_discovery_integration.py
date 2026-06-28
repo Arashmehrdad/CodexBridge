@@ -60,7 +60,9 @@ def _max_depth() -> int:
     return min(max(value, 1), 8)
 
 
-def resolve_repo_with_discovery(config: config_module.AppConfig, repo_name: str) -> Path:
+def resolve_repo_with_discovery(
+    config: config_module.AppConfig, repo_name: str
+) -> Path:
     """Resolve explicit repositories first, then rescan trusted parent roots."""
     try:
         return _ORIGINAL_RESOLVE_REPO(config, repo_name)

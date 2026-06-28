@@ -22,12 +22,20 @@ def validate_patch(
     settings = config or LocalCodingConfig()
     blocked: list[str] = []
     repo = Path(repo_path).resolve()
-    target = (repo / target_file).resolve() if not Path(target_file).is_absolute() else Path(target_file).resolve()
+    target = (
+        (repo / target_file).resolve()
+        if not Path(target_file).is_absolute()
+        else Path(target_file).resolve()
+    )
     try:
         target.relative_to(repo)
     except ValueError:
         blocked.append("path_outside_repo")
-    relative = target.relative_to(repo).as_posix() if not blocked else Path(target_file).as_posix()
+    relative = (
+        target.relative_to(repo).as_posix()
+        if not blocked
+        else Path(target_file).as_posix()
+    )
     if ".." in Path(target_file).parts:
         blocked.append("path_traversal_blocked")
     if target.exists() and target.is_symlink():
@@ -45,14 +53,23 @@ def validate_patch(
         blocked.append("path_not_allowlisted")
     if target.suffix.lower() not in settings.local_coding_allowed_extensions:
         blocked.append("extension_not_allowlisted")
-    if settings.local_coding_block_source_code and target.suffix.lower() in SOURCE_EXTENSIONS:
+    if (
+        settings.local_coding_block_source_code
+        and target.suffix.lower() in SOURCE_EXTENSIONS
+    ):
         blocked.append("source_code_blocked")
     if settings.local_coding_block_tests and _looks_like_test_path(relative):
         blocked.append("test_file_blocked")
     if "\x00" in original:
         blocked.append("binary_file_blocked")
-    changed_bytes = abs(len(updated.encode("utf-8")) - len(original.encode("utf-8"))) + len(diff.encode("utf-8"))
-    changed_lines = sum(1 for line in diff.splitlines() if line.startswith(("+", "-")) and not line.startswith(("+++", "---")))
+    changed_bytes = abs(
+        len(updated.encode("utf-8")) - len(original.encode("utf-8"))
+    ) + len(diff.encode("utf-8"))
+    changed_lines = sum(
+        1
+        for line in diff.splitlines()
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
+    )
     if changed_bytes > settings.local_coding_max_patch_bytes:
         blocked.append("patch_too_large")
     if changed_lines > settings.local_coding_max_changed_lines:
@@ -60,11 +77,22 @@ def validate_patch(
     sensitivity = detect_sensitivity(updated)
     if sensitivity and settings.local_coding_block_sensitive:
         blocked.append("secret_like_content")
-    return LocalPatchValidationResult(valid=not blocked, blocked_reasons=sorted(set(blocked)), changed_lines=changed_lines, changed_bytes=changed_bytes, sensitivity_flags=sensitivity)
+    return LocalPatchValidationResult(
+        valid=not blocked,
+        blocked_reasons=sorted(set(blocked)),
+        changed_lines=changed_lines,
+        changed_bytes=changed_bytes,
+        sensitivity_flags=sensitivity,
+    )
 
 
 def _path_allowed(relative: str, globs: list[str]) -> bool:
-    return any(fnmatch(relative, pattern) or Path(relative).match(pattern) or _double_star_one_level(relative, pattern) for pattern in globs)
+    return any(
+        fnmatch(relative, pattern)
+        or Path(relative).match(pattern)
+        or _double_star_one_level(relative, pattern)
+        for pattern in globs
+    )
 
 
 def _double_star_one_level(relative: str, pattern: str) -> bool:

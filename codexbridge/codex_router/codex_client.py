@@ -10,8 +10,7 @@ from .models import CodexEscalationStatus, CodexInvocationRequest, CodexInvocati
 
 
 class CodexClient(Protocol):
-    def invoke(self, request: CodexInvocationRequest) -> CodexInvocationResult:
-        ...
+    def invoke(self, request: CodexInvocationRequest) -> CodexInvocationResult: ...
 
 
 class NoopCodexClient:
@@ -30,7 +29,11 @@ class ExistingCodexRunnerClient:
     def invoke(self, request: CodexInvocationRequest) -> CodexInvocationResult:
         packet = request.packet
         if packet.repo_path is None or packet.repo_name is None:
-            return CodexInvocationResult(status=CodexEscalationStatus.FAILED, invoked=False, error="repo_name and repo_path are required")
+            return CodexInvocationResult(
+                status=CodexEscalationStatus.FAILED,
+                invoked=False,
+                error="repo_name and repo_path are required",
+            )
         result = CodexRunner(self.config).implement_task(
             packet.repo_name,
             Path(packet.repo_path),
@@ -39,7 +42,9 @@ class ExistingCodexRunnerClient:
             packet.validation_commands,
         )
         return CodexInvocationResult(
-            status=CodexEscalationStatus.COMPLETED if result.get("exit_code") == 0 else CodexEscalationStatus.FAILED,
+            status=CodexEscalationStatus.COMPLETED
+            if result.get("exit_code") == 0
+            else CodexEscalationStatus.FAILED,
             invoked=True,
             summary=result.get("summary", ""),
             metadata=result,

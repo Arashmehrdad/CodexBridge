@@ -10,7 +10,12 @@ from typing import Any, Callable
 from codexbridge.run_store import utc_now
 
 from .audit import create_audit_event
-from .models import LocalModelMessage, LocalModelRequest, LocalModelResult, LocalModelStatus
+from .models import (
+    LocalModelMessage,
+    LocalModelRequest,
+    LocalModelResult,
+    LocalModelStatus,
+)
 
 
 Transport = Callable[[urllib.request.Request, int], Any]
@@ -49,10 +54,17 @@ class OllamaChatAdapter:
             task_type=task_type,
             model=model or self.model,
             base_url=self.base_url,
-            messages=[message if isinstance(message, LocalModelMessage) else LocalModelMessage(**message) for message in messages],
+            messages=[
+                message
+                if isinstance(message, LocalModelMessage)
+                else LocalModelMessage(**message)
+                for message in messages
+            ],
             temperature=self.temperature if temperature is None else temperature,
             max_tokens=self.max_tokens if max_tokens is None else max_tokens,
-            timeout_seconds=self.timeout_seconds if timeout_seconds is None else timeout_seconds,
+            timeout_seconds=self.timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds,
             response_format={"type": "json_object"} if json_mode else None,
             json_mode=json_mode,
         )
@@ -62,7 +74,9 @@ class OllamaChatAdapter:
         kwargs["json_mode"] = True
         return self.call(**kwargs)
 
-    def _send(self, request: LocalModelRequest, *, parse_json: bool) -> LocalModelResult:
+    def _send(
+        self, request: LocalModelRequest, *, parse_json: bool
+    ) -> LocalModelResult:
         created_at = utc_now()
         started = time.monotonic()
         audit_started = create_audit_event(
@@ -94,11 +108,15 @@ class OllamaChatAdapter:
         error = ""
         try:
             response = self.transport(http_request, request.timeout_seconds)
-            status_code = int(getattr(response, "status", getattr(response, "code", 200)))
+            status_code = int(
+                getattr(response, "status", getattr(response, "code", 200))
+            )
             raw_body = response.read().decode("utf-8")
             if status_code < 200 or status_code >= 300:
                 status = LocalModelStatus.FAILED
-                error = f"Local model HTTP status {status_code}: {_safe_error(raw_body)}"
+                error = (
+                    f"Local model HTTP status {status_code}: {_safe_error(raw_body)}"
+                )
             else:
                 payload = json.loads(raw_body)
                 content = str(payload["choices"][0]["message"]["content"])
@@ -113,7 +131,9 @@ class OllamaChatAdapter:
             error = f"Local model HTTP status {exc.code}: {_safe_error(_read_error_body(exc))}"
         except (urllib.error.URLError, ConnectionError, OSError) as exc:
             reason = getattr(exc, "reason", None)
-            if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
+            if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(
+                reason, (TimeoutError, socket.timeout)
+            ):
                 status = LocalModelStatus.TIMEOUT
             else:
                 status = LocalModelStatus.UNAVAILABLE
@@ -130,9 +150,16 @@ class OllamaChatAdapter:
             task_id=request.request_id,
             action="local_model_request_completed",
             message=f"Local model request completed with status: {status.value}",
-            metadata={"model": request.model, "task_type": request.task_type, "duration_seconds": duration, "status": status.value},
+            metadata={
+                "model": request.model,
+                "task_type": request.task_type,
+                "duration_seconds": duration,
+                "status": status.value,
+            },
         )
-        audit_event_id = audit_completed.event_id if audit_started else audit_completed.event_id
+        audit_event_id = (
+            audit_completed.event_id if audit_started else audit_completed.event_id
+        )
         return LocalModelResult(
             request_id=request.request_id,
             task_type=request.task_type,

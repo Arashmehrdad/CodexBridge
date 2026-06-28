@@ -76,7 +76,9 @@ def test_stale_configured_path_falls_back_to_path(monkeypatch, tmp_path: Path) -
     assert runner._resolve_codex_executable() == str(fallback)
 
 
-def test_missing_explicit_path_reports_checked_fallbacks(monkeypatch, tmp_path: Path) -> None:
+def test_missing_explicit_path_reports_checked_fallbacks(
+    monkeypatch, tmp_path: Path
+) -> None:
     stale = tmp_path / "old" / "codex.exe"
     monkeypatch.setattr(
         "codexbridge.runner._codex_executable_candidates",
@@ -104,8 +106,12 @@ def test_model_flag_is_included_only_when_configured(tmp_path: Path) -> None:
     help_text = "--sandbox"
     with_model = make_runner(tmp_path, model="gpt-5.4")
     without_model = make_runner(tmp_path)
-    assert "-m" in with_model._codex_exec_args("codex.exe", "read-only", help_text, prompt)
-    assert "-m" not in without_model._codex_exec_args("codex.exe", "read-only", help_text, prompt)
+    assert "-m" in with_model._codex_exec_args(
+        "codex.exe", "read-only", help_text, prompt
+    )
+    assert "-m" not in without_model._codex_exec_args(
+        "codex.exe", "read-only", help_text, prompt
+    )
 
 
 def test_unsupported_approval_flag_is_omitted(tmp_path: Path) -> None:
@@ -117,34 +123,45 @@ def test_unsupported_approval_flag_is_omitted(tmp_path: Path) -> None:
 
 def test_supported_approval_flag_is_included(tmp_path: Path) -> None:
     runner = make_runner(tmp_path)
-    args = runner._codex_exec_args("codex.exe", "read-only", "--sandbox\n--approval-policy", "plan")
+    args = runner._codex_exec_args(
+        "codex.exe", "read-only", "--sandbox\n--approval-policy", "plan"
+    )
     assert "--approval-policy" in args
     assert "never" in args
 
 
 def test_windows_sandbox_override_is_included_when_configured(tmp_path: Path) -> None:
     runner = make_runner(tmp_path, windows_sandbox="unelevated")
-    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "implement")
+    args = runner._codex_exec_args(
+        "codex.exe", "workspace-write", "--sandbox", "implement"
+    )
     assert "-c" in args
     assert 'windows.sandbox="unelevated"' in args
 
 
 def test_private_desktop_override_is_included_when_configured(tmp_path: Path) -> None:
     runner = make_runner(tmp_path, sandbox_private_desktop=False)
-    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "implement")
+    args = runner._codex_exec_args(
+        "codex.exe", "workspace-write", "--sandbox", "implement"
+    )
     assert "windows.sandbox_private_desktop=false" in args
 
 
 def test_safe_command_args_redacts_prompt(tmp_path: Path) -> None:
     runner = make_runner(tmp_path)
-    args = runner._codex_exec_args("codex.exe", "workspace-write", "--sandbox", "secret prompt")
+    args = runner._codex_exec_args(
+        "codex.exe", "workspace-write", "--sandbox", "secret prompt"
+    )
     from codexbridge.runner import _safe_command_args
+
     assert _safe_command_args(args)[-1] == "<prompt>"
 
 
 def test_launch_diagnostics_include_executable_and_cwd(tmp_path: Path) -> None:
     runner = make_runner(tmp_path)
-    diagnostics = runner._subprocess_diagnostics(["codex", "exec"], tmp_path, PermissionError("denied"))
+    diagnostics = runner._subprocess_diagnostics(
+        ["codex", "exec"], tmp_path, PermissionError("denied")
+    )
     data = json.loads(diagnostics)
     assert data["executable_attempted"] == "codex"
     assert data["cwd"] == str(tmp_path)

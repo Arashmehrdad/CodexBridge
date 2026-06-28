@@ -14,7 +14,15 @@ from codexbridge.dashboard import get_dashboard_summary
 
 from .audit import create_audit_event
 from .local_model import LocalModelClient
-from .models import CommandRunStatus, LocalAgentResult, LocalAgentTask, LocalAgentTaskInput, LocalAgentTaskType, LocalModelStatus, TaskStatus
+from .models import (
+    CommandRunStatus,
+    LocalAgentResult,
+    LocalAgentTask,
+    LocalAgentTaskInput,
+    LocalAgentTaskType,
+    LocalModelStatus,
+    TaskStatus,
+)
 from .policies import apply_policy
 from .runner import LocalAgentCommandRunner
 
@@ -22,9 +30,32 @@ from .runner import LocalAgentCommandRunner
 def classify_task(objective: str) -> LocalAgentTaskType:
     text = objective.lower()
 
-    if _contains_any(text, ("secret", "credential", "api key", "token", "password", "delete volume", "drop database", "rm -rf", "wipe")):
+    if _contains_any(
+        text,
+        (
+            "secret",
+            "credential",
+            "api key",
+            "token",
+            "password",
+            "delete volume",
+            "drop database",
+            "rm -rf",
+            "wipe",
+        ),
+    ):
         return LocalAgentTaskType.RISKY_ACTION
-    if _contains_any(text, ("production deploy", "deploy to production", "public release", "push main", "push to main", "force push")):
+    if _contains_any(
+        text,
+        (
+            "production deploy",
+            "deploy to production",
+            "public release",
+            "push main",
+            "push to main",
+            "force push",
+        ),
+    ):
         return LocalAgentTaskType.RISKY_ACTION
     if _policy_action_for_objective(objective)[0] is not None:
         return LocalAgentTaskType.POLICY
@@ -36,7 +67,19 @@ def classify_task(objective: str) -> LocalAgentTaskType:
         return LocalAgentTaskType.LOCAL_CODING
     if _dashboard_action_for_objective(objective)[0] is not None:
         return LocalAgentTaskType.DASHBOARD
-    if _contains_any(text, ("fix", "bug", "edit", "refactor", "create module", "implement", "change source", "modify code")):
+    if _contains_any(
+        text,
+        (
+            "fix",
+            "bug",
+            "edit",
+            "refactor",
+            "create module",
+            "implement",
+            "change source",
+            "modify code",
+        ),
+    ):
         return LocalAgentTaskType.SOURCE_EDIT
     if _job_action_for_objective(text)[0] is not None:
         return LocalAgentTaskType.LONG_RUN_JOB
@@ -46,13 +89,27 @@ def classify_task(objective: str) -> LocalAgentTaskType:
         return LocalAgentTaskType.LOCAL_MODEL_REASONING
     if _contains_any(text, ("run tests", "pytest", "test suite")):
         return LocalAgentTaskType.RUN_TESTS
-    if _contains_any(text, ("run checks", "lint", "typecheck", "type check", "mypy", "ruff")):
+    if _contains_any(
+        text, ("run checks", "lint", "typecheck", "type check", "mypy", "ruff")
+    ):
         return LocalAgentTaskType.RUN_CHECKS
-    if _contains_any(text, ("list tests", "what tests exist", "show tests", "find tests")):
+    if _contains_any(
+        text, ("list tests", "what tests exist", "show tests", "find tests")
+    ):
         return LocalAgentTaskType.LIST_TESTS
     if _contains_any(text, ("list files", "show files", "find files")):
         return LocalAgentTaskType.LIST_FILES
-    if _contains_any(text, ("inspect repo", "inspect project", "repo inspection", "project inspection", "look at repo", "look at project")):
+    if _contains_any(
+        text,
+        (
+            "inspect repo",
+            "inspect project",
+            "repo inspection",
+            "project inspection",
+            "look at repo",
+            "look at project",
+        ),
+    ):
         return LocalAgentTaskType.REPO_INSPECTION
     if _contains_any(text, ("run ", "command", "check ")):
         return LocalAgentTaskType.RISKY_ACTION
@@ -82,7 +139,9 @@ class LocalAgentOrchestrator:
         self.local_coding_manager = local_coding_manager
         self.dashboard_runs_dir = dashboard_runs_dir
 
-    def handle_task(self, task_input: LocalAgentTaskInput | dict | str) -> LocalAgentResult:
+    def handle_task(
+        self, task_input: LocalAgentTaskInput | dict | str
+    ) -> LocalAgentResult:
         normalized = self._normalize_input(task_input)
         task_type = classify_task(normalized.objective)
         task = LocalAgentTask(
@@ -112,12 +171,26 @@ class LocalAgentOrchestrator:
                 permission_tier=decision.permission_tier,
             )
         local_model_method = _local_model_task_for_objective(task.objective)
-        if local_model_method is not None and decision.accepted and task.task_type == LocalAgentTaskType.LOCAL_MODEL_REASONING:
-            local_model_result = getattr(self.local_model, local_model_method)(task.objective)
+        if (
+            local_model_method is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.LOCAL_MODEL_REASONING
+        ):
+            local_model_result = getattr(self.local_model, local_model_method)(
+                task.objective
+            )
         job_action, job_value = _job_action_for_objective(task.objective)
-        if job_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.LONG_RUN_JOB:
+        if (
+            job_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.LONG_RUN_JOB
+        ):
             if job_action == "start":
-                job_result = self.job_manager.start_job(profile_id=job_value, repo_name=task.repo_name, repo_path=task.repo_path)
+                job_result = self.job_manager.start_job(
+                    profile_id=job_value,
+                    repo_name=task.repo_name,
+                    repo_path=task.repo_path,
+                )
             elif job_action == "status":
                 job_result = self.job_manager.get_status(job_value)
             elif job_action == "cancel":
@@ -125,23 +198,65 @@ class LocalAgentOrchestrator:
             elif job_action == "report":
                 job_result = self.job_manager.generate_report(job_value)
         memory_action, memory_value = _memory_action_for_objective(task.objective)
-        if memory_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.MEMORY:
-            memory_result = self._handle_memory_action(memory_action, memory_value, task)
+        if (
+            memory_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.MEMORY
+        ):
+            memory_result = self._handle_memory_action(
+                memory_action, memory_value, task
+            )
         policy_action, policy_value = _policy_action_for_objective(task.objective)
-        if policy_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.POLICY:
-            policy_result = self._handle_policy_action(policy_action, policy_value, task)
+        if (
+            policy_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.POLICY
+        ):
+            policy_result = self._handle_policy_action(
+                policy_action, policy_value, task
+            )
         codex_action, codex_value = _codex_router_action_for_objective(task.objective)
-        if codex_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.CODEX_ROUTER:
-            codex_router_result = self._handle_codex_router_action(codex_action, codex_value, task)
-        supervisor_action, supervisor_value = _supervisor_action_for_objective(task.objective)
-        if supervisor_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.SUPERVISOR:
-            supervisor_result = self._handle_supervisor_action(supervisor_action, supervisor_value, task)
-        local_coding_action, local_coding_value = _local_coding_action_for_objective(task.objective)
-        if local_coding_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.LOCAL_CODING:
-            local_coding_result = self._handle_local_coding_action(local_coding_action, local_coding_value, task)
-        dashboard_action, dashboard_value = _dashboard_action_for_objective(task.objective)
-        if dashboard_action is not None and decision.accepted and task.task_type == LocalAgentTaskType.DASHBOARD:
-            dashboard_result = self._handle_dashboard_action(dashboard_action, dashboard_value)
+        if (
+            codex_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.CODEX_ROUTER
+        ):
+            codex_router_result = self._handle_codex_router_action(
+                codex_action, codex_value, task
+            )
+        supervisor_action, supervisor_value = _supervisor_action_for_objective(
+            task.objective
+        )
+        if (
+            supervisor_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.SUPERVISOR
+        ):
+            supervisor_result = self._handle_supervisor_action(
+                supervisor_action, supervisor_value, task
+            )
+        local_coding_action, local_coding_value = _local_coding_action_for_objective(
+            task.objective
+        )
+        if (
+            local_coding_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.LOCAL_CODING
+        ):
+            local_coding_result = self._handle_local_coding_action(
+                local_coding_action, local_coding_value, task
+            )
+        dashboard_action, dashboard_value = _dashboard_action_for_objective(
+            task.objective
+        )
+        if (
+            dashboard_action is not None
+            and decision.accepted
+            and task.task_type == LocalAgentTaskType.DASHBOARD
+        ):
+            dashboard_result = self._handle_dashboard_action(
+                dashboard_action, dashboard_value
+            )
         audit_event = create_audit_event(
             task_id=task.task_id,
             action="classified",
@@ -151,7 +266,8 @@ class LocalAgentOrchestrator:
                 "routing_decision": decision.routing_decision.value,
                 "permission_tier": decision.permission_tier.value,
                 "risk_level": decision.risk_level.value,
-                "commands_executed": command_result is not None and command_result.status
+                "commands_executed": command_result is not None
+                and command_result.status
                 not in {
                     CommandRunStatus.BLOCKED,
                     CommandRunStatus.PROFILE_MISSING,
@@ -161,8 +277,11 @@ class LocalAgentOrchestrator:
                 "codex_called": False,
                 "command_id": command_id,
                 "command_run_id": command_result.run_id if command_result else None,
-                "local_model_called": local_model_result is not None and local_model_result.status != LocalModelStatus.BLOCKED,
-                "local_model_request_id": local_model_result.request_id if local_model_result else None,
+                "local_model_called": local_model_result is not None
+                and local_model_result.status != LocalModelStatus.BLOCKED,
+                "local_model_request_id": local_model_result.request_id
+                if local_model_result
+                else None,
                 "job_action": job_action,
                 "job_value": job_value,
                 "job_manager_called": job_result is not None,
@@ -188,11 +307,20 @@ class LocalAgentOrchestrator:
             CommandRunStatus.REPO_MISSING,
         }:
             status = TaskStatus.BLOCKED
-        if local_model_result and local_model_result.status in {LocalModelStatus.BLOCKED, LocalModelStatus.UNAVAILABLE, LocalModelStatus.TIMEOUT}:
+        if local_model_result and local_model_result.status in {
+            LocalModelStatus.BLOCKED,
+            LocalModelStatus.UNAVAILABLE,
+            LocalModelStatus.TIMEOUT,
+        }:
             status = TaskStatus.BLOCKED
         if job_result is not None:
             job_status = getattr(getattr(job_result, "job", job_result), "status", None)
-            if job_status in {JobStatus.BLOCKED, JobStatus.PROFILE_MISSING, JobStatus.PERMISSION_DENIED, JobStatus.REPO_MISSING}:
+            if job_status in {
+                JobStatus.BLOCKED,
+                JobStatus.PROFILE_MISSING,
+                JobStatus.PERMISSION_DENIED,
+                JobStatus.REPO_MISSING,
+            }:
                 status = TaskStatus.BLOCKED
         result_error = ""
         if command_result and command_result.error:
@@ -210,8 +338,12 @@ class LocalAgentOrchestrator:
             risk_level=decision.risk_level,
             status=status,
             summary=_summary_for(task.task_type, decision.reason),
-            message=local_model_result.content if local_model_result and local_model_result.content else decision.reason,
-            errors=[] if decision.accepted and not result_error else [result_error or decision.reason],
+            message=local_model_result.content
+            if local_model_result and local_model_result.content
+            else decision.reason,
+            errors=[]
+            if decision.accepted and not result_error
+            else [result_error or decision.reason],
             audit_event=audit_event,
             audit_metadata=audit_event.metadata,
             command_result=command_result,
@@ -225,7 +357,9 @@ class LocalAgentOrchestrator:
             dashboard_result=dashboard_result,
         )
 
-    def _normalize_input(self, task_input: LocalAgentTaskInput | dict | str) -> LocalAgentTaskInput:
+    def _normalize_input(
+        self, task_input: LocalAgentTaskInput | dict | str
+    ) -> LocalAgentTaskInput:
         if isinstance(task_input, LocalAgentTaskInput):
             return task_input
         if isinstance(task_input, str):
@@ -235,11 +369,17 @@ class LocalAgentOrchestrator:
     def _handle_memory_action(self, action: str, value: str, task: LocalAgentTask):
         repository = self.memory_repository or ProjectMemoryRepository()
         if action == "remember_fact":
-            return repository.remember_project_fact(value, repo_name=task.repo_name, repo_path=task.repo_path).to_dict()
+            return repository.remember_project_fact(
+                value, repo_name=task.repo_name, repo_path=task.repo_path
+            ).to_dict()
         if action == "remember_decision":
-            return repository.remember_decision(value, repo_name=task.repo_name, repo_path=task.repo_path).to_dict()
+            return repository.remember_decision(
+                value, repo_name=task.repo_name, repo_path=task.repo_path
+            ).to_dict()
         if action == "remember_validation_recipe":
-            return repository.remember_validation_recipe(value, repo_name=task.repo_name).to_dict()
+            return repository.remember_validation_recipe(
+                value, repo_name=task.repo_name
+            ).to_dict()
         if action == "search":
             return repository.search(value).model_dump(mode="json")
         if action == "latest_job":
@@ -252,7 +392,9 @@ class LocalAgentOrchestrator:
             record = repository.continue_last_task()
             return record.to_dict() if record else None
         if action == "import_runs":
-            return import_runs(repository, repository.store.db_path.parent.parent).model_dump(mode="json")
+            return import_runs(
+                repository, repository.store.db_path.parent.parent
+            ).model_dump(mode="json")
         return None
 
     def _handle_policy_action(self, action: str, value: str, task: LocalAgentTask):
@@ -267,16 +409,25 @@ class LocalAgentOrchestrator:
                 )
             ).to_dict()
         if action == "list_pending":
-            return [item.model_dump(mode="json") for item in engine.approval_store.list_pending()]
+            return [
+                item.model_dump(mode="json")
+                for item in engine.approval_store.list_pending()
+            ]
         if action == "show":
             return engine.approval_store.get(value).model_dump(mode="json")
         if action == "approve_chatgpt":
-            return engine.approval_store.record_decision(value, decided_by="chatgpt", approved=True).model_dump(mode="json")
+            return engine.approval_store.record_decision(
+                value, decided_by="chatgpt", approved=True
+            ).model_dump(mode="json")
         if action == "deny":
-            return engine.approval_store.record_decision(value, decided_by="chatgpt", approved=False).model_dump(mode="json")
+            return engine.approval_store.record_decision(
+                value, decided_by="chatgpt", approved=False
+            ).model_dump(mode="json")
         return None
 
-    def _handle_codex_router_action(self, action: str, value: str, task: LocalAgentTask):
+    def _handle_codex_router_action(
+        self, action: str, value: str, task: LocalAgentTask
+    ):
         router = self.codex_router or CodexEscalationRouter()
         if action in {"prepare", "escalate", "route", "explain"}:
             return router.route_escalation(
@@ -291,34 +442,49 @@ class LocalAgentOrchestrator:
         return None
 
     def _handle_supervisor_action(self, action: str, value: str, task: LocalAgentTask):
-        manager = self.supervisor_manager or LocalSupervisorManager(supervisors_dir=Path.cwd() / "runs" / "supervisors")
+        manager = self.supervisor_manager or LocalSupervisorManager(
+            supervisors_dir=Path.cwd() / "runs" / "supervisors"
+        )
         if action == "start":
             return manager.start_supervised_task(
-                SupervisorTaskRequest(objective=value, repo_name=task.repo_name, repo_path=task.repo_path)
+                SupervisorTaskRequest(
+                    objective=value, repo_name=task.repo_name, repo_path=task.repo_path
+                )
             ).model_dump(mode="json", exclude_none=True)
         if action == "show":
             return manager.get_status(value).model_dump(mode="json", exclude_none=True)
         if action == "list":
-            return [run.model_dump(mode="json", exclude_none=True) for run in manager.list_runs()]
+            return [
+                run.model_dump(mode="json", exclude_none=True)
+                for run in manager.list_runs()
+            ]
         if action == "cancel":
             return manager.cancel(value).model_dump(mode="json", exclude_none=True)
         if action == "resume":
             return manager.resume(value).model_dump(mode="json", exclude_none=True)
         if action == "report":
-            return manager.generate_report(value).model_dump(mode="json", exclude_none=True)
+            return manager.generate_report(value).model_dump(
+                mode="json", exclude_none=True
+            )
         return None
 
-    def _handle_local_coding_action(self, action: str, value: str, task: LocalAgentTask):
+    def _handle_local_coding_action(
+        self, action: str, value: str, task: LocalAgentTask
+    ):
         manager = self.local_coding_manager or LocalCodingManager()
         if action == "prepare":
             repo_path = task.repo_path or Path.cwd()
             return manager.prepare_local_edit(
-                LocalCodingRequest(objective=value, repo_name=task.repo_name, repo_path=repo_path)
+                LocalCodingRequest(
+                    objective=value, repo_name=task.repo_name, repo_path=repo_path
+                )
             ).model_dump(mode="json", exclude_none=True)
         if action in {"preview", "show"}:
             return manager.get(value).model_dump(mode="json", exclude_none=True)
         if action == "list":
-            return [run.model_dump(mode="json", exclude_none=True) for run in manager.list()]
+            return [
+                run.model_dump(mode="json", exclude_none=True) for run in manager.list()
+            ]
         if action == "apply":
             edit = manager.get(value)
             if hasattr(edit, "approval_request_id"):
@@ -326,9 +492,13 @@ class LocalAgentOrchestrator:
             else:
                 data = edit.model_dump(mode="json", exclude_none=True)
                 approval_request_id = data.get("approval_request_id", "")
-            return manager.apply_local_edit(value, approval_request_id).model_dump(mode="json", exclude_none=True)
+            return manager.apply_local_edit(value, approval_request_id).model_dump(
+                mode="json", exclude_none=True
+            )
         if action == "rollback":
-            return manager.rollback_local_edit(value).model_dump(mode="json", exclude_none=True)
+            return manager.rollback_local_edit(value).model_dump(
+                mode="json", exclude_none=True
+            )
         if action == "cancel":
             return manager.cancel(value).model_dump(mode="json", exclude_none=True)
         return None
@@ -351,30 +521,52 @@ def _summary_for(task_type: LocalAgentTaskType, reason: str) -> str:
     return f"{task_type.value} classified. {reason}"
 
 
-def _command_id_for_objective(objective: str, task_type: LocalAgentTaskType) -> str | None:
+def _command_id_for_objective(
+    objective: str, task_type: LocalAgentTaskType
+) -> str | None:
     text = objective.lower()
     if _contains_any(text, ("git status", "inspect git status")):
         return "git_status"
     if "pip check" in text:
         return "pip_check"
-    if task_type == LocalAgentTaskType.RUN_TESTS and _contains_any(text, ("run tests", "run pytest", "pytest", "test suite")):
+    if task_type == LocalAgentTaskType.RUN_TESTS and _contains_any(
+        text, ("run tests", "run pytest", "pytest", "test suite")
+    ):
         return "pytest"
     return None
 
 
 def _local_model_task_for_objective(objective: str) -> str | None:
     text = objective.lower()
-    if _contains_any(text, ("summarize this pytest output", "summarise this pytest output", "summarize this log", "summarise this log")):
+    if _contains_any(
+        text,
+        (
+            "summarize this pytest output",
+            "summarise this pytest output",
+            "summarize this log",
+            "summarise this log",
+        ),
+    ):
         return "summarize_log"
     if _contains_any(text, ("classify this error", "classify error")):
         return "classify_error"
     if _contains_any(text, ("compress this context", "compress context")):
         return "compress_context"
-    if _contains_any(text, ("explain this failure", "explain this test failure", "explain test failure")):
+    if _contains_any(
+        text,
+        ("explain this failure", "explain this test failure", "explain test failure"),
+    ):
         return "explain_test_failure"
     if _contains_any(text, ("draft a codex prompt", "draft codex prompt")):
         return "draft_codex_prompt"
-    if _contains_any(text, ("decide whether this needs codex", "decide if this needs codex", "whether codex needed")):
+    if _contains_any(
+        text,
+        (
+            "decide whether this needs codex",
+            "decide if this needs codex",
+            "whether codex needed",
+        ),
+    ):
         return "decide_whether_codex_needed"
     return None
 
@@ -495,7 +687,11 @@ def _local_coding_action_for_objective(objective: str) -> tuple[str | None, str]
 
 def _dashboard_action_for_objective(objective: str) -> tuple[str | None, str]:
     lowered = objective.strip().lower()
-    if lowered in {"dashboard summary", "show dashboard summary", "list dashboard items"}:
+    if lowered in {
+        "dashboard summary",
+        "show dashboard summary",
+        "list dashboard items",
+    }:
         return "summary" if lowered != "list dashboard items" else "list", ""
     if lowered == "dashboard health":
         return "health", ""

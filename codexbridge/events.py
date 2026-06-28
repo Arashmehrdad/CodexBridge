@@ -22,7 +22,9 @@ def redact_and_truncate(value: Any, limit: int = MAX_TEXT_LENGTH) -> Any:
     if isinstance(value, list):
         return [redact_and_truncate(item, limit) for item in value]
     if isinstance(value, dict):
-        return {str(key): redact_and_truncate(item, limit) for key, item in value.items()}
+        return {
+            str(key): redact_and_truncate(item, limit) for key, item in value.items()
+        }
     return value
 
 
@@ -47,7 +49,9 @@ class ArtifactWriter:
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
     def write_json(self, name: str, data: dict[str, Any]) -> None:
-        (self.run_dir / name).write_text(json.dumps(redact_and_truncate(data), indent=2), encoding="utf-8")
+        (self.run_dir / name).write_text(
+            json.dumps(redact_and_truncate(data), indent=2), encoding="utf-8"
+        )
 
     def write_text(self, name: str, text: str) -> None:
         (self.run_dir / name).write_text(redact_and_truncate(text), encoding="utf-8")

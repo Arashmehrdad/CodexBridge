@@ -36,9 +36,17 @@ class JobManager:
         if not decision.accepted:
             return decision.to_start_response(status="refused")
         input_data = {"repo_name": repo_name, "task": task, "constraints": constraints}
-        return self._create_and_launch("codex_plan_task", repo_name, input_data, decision)
+        return self._create_and_launch(
+            "codex_plan_task", repo_name, input_data, decision
+        )
 
-    def start_implementation(self, repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict:
+    def start_implementation(
+        self,
+        repo_name: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+    ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         validate_repo_relative_paths(repo_root, allowed_files)
         for test in tests:
@@ -52,9 +60,13 @@ class JobManager:
             "allowed_files": allowed_files,
             "tests": tests,
         }
-        return self._create_and_launch("codex_implement_task", repo_name, input_data, decision)
+        return self._create_and_launch(
+            "codex_implement_task", repo_name, input_data, decision
+        )
 
-    def _create_and_launch(self, tool: str, repo_name: str, input_data: dict, decision) -> dict:
+    def _create_and_launch(
+        self, tool: str, repo_name: str, input_data: dict, decision
+    ) -> dict:
         if self.config_path is None:
             return {
                 "run_id": None,
@@ -81,7 +93,13 @@ class JobManager:
             risk_level=decision.risk_level,
             requires_human=decision.requires_human,
         )
-        event = self.store.append_event(run_id, level="info", stage="queued", message="Run queued", data={"tool": tool})
+        event = self.store.append_event(
+            run_id,
+            level="info",
+            stage="queued",
+            message="Run queued",
+            data={"tool": tool},
+        )
         artifacts.append_event(event)
         command = [
             sys.executable,
@@ -101,7 +119,13 @@ class JobManager:
             close_fds=os.name != "nt",
         )
         self.store.update_run(run_id, worker_pid=process.pid)
-        event = self.store.append_event(run_id, level="info", stage="worker", message="Worker process started", data={"worker_pid": process.pid})
+        event = self.store.append_event(
+            run_id,
+            level="info",
+            stage="worker",
+            message="Worker process started",
+            data={"worker_pid": process.pid},
+        )
         artifacts.append_event(event)
         return decision.to_start_response(run_id=run_id, status="queued")
 
@@ -139,10 +163,18 @@ class JobManager:
             }
         )
 
-    def list_runs(self, repo_name: str | None = None, status: str | None = None, limit: int = 20) -> list[dict]:
-        return redact_and_truncate(self.store.list_runs(repo_name=repo_name or None, status=status or None, limit=limit))
+    def list_runs(
+        self, repo_name: str | None = None, status: str | None = None, limit: int = 20
+    ) -> list[dict]:
+        return redact_and_truncate(
+            self.store.list_runs(
+                repo_name=repo_name or None, status=status or None, limit=limit
+            )
+        )
 
-    def latest_result(self, repo_name: str | None = None, tool: str | None = None) -> dict:
+    def latest_result(
+        self, repo_name: str | None = None, tool: str | None = None
+    ) -> dict:
         run = self.store.latest_run(repo_name=repo_name or None, tool=tool or None)
         return self.get_result(run["run_id"])
 
@@ -150,20 +182,46 @@ class JobManager:
         validate_run_id(run_id)
         run = self.store.get_run(run_id)
         if run["status"] in {"completed", "failed", "cancelled", "needs_input"}:
-            return {"run_id": run_id, "status": run["status"], "cancelled": False, "reason": "Run is already terminal"}
+            return {
+                "run_id": run_id,
+                "status": run["status"],
+                "cancelled": False,
+                "reason": "Run is already terminal",
+            }
         worker_pid = run.get("worker_pid")
         terminated = False
         if worker_pid:
             try:
                 if os.name == "nt":
-                    subprocess.run(["taskkill", "/PID", str(worker_pid), "/T", "/F"], text=True, capture_output=True, timeout=10)
+                    subprocess.run(
+                        ["taskkill", "/PID", str(worker_pid), "/T", "/F"],
+                        text=True,
+                        capture_output=True,
+                        timeout=10,
+                    )
                 else:
                     os.kill(int(worker_pid), 15)
                 terminated = True
             except Exception:
                 terminated = False
         ended_at = datetime.now(timezone.utc).isoformat()
-        self.store.update_run(run_id, status="cancelled", ended_at=ended_at, error="Run cancelled by request")
-        event = self.store.append_event(run_id, level="warning", stage="cancel", message="Run cancellation requested", data={"terminated": terminated})
+        self.store.update_run(
+            run_id,
+            status="cancelled",
+            ended_at=ended_at,
+            error="Run cancelled by request",
+        )
+        event = self.store.append_event(
+            run_id,
+            level="warning",
+            stage="cancel",
+            message="Run cancellation requested",
+            data={"terminated": terminated},
+        )
         ArtifactWriter(Path(run["run_dir"])).append_event(event)
-        return {"run_id": run_id, "status": "cancelled", "cancelled": True, "terminated": terminated}
+        return {
+            "run_id": run_id,
+            "status": "cancelled",
+            "cancelled": True,
+            "terminated": terminated,
+        }

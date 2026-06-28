@@ -59,7 +59,9 @@ def _codex_executable_candidates(executable: str) -> list[str]:
 
     base_name = configured.name or "codex"
     suffix = Path(base_name).suffix.lower()
-    command_stem = Path(base_name).stem if suffix in {".cmd", ".exe", ".bat"} else base_name
+    command_stem = (
+        Path(base_name).stem if suffix in {".cmd", ".exe", ".bat"} else base_name
+    )
 
     command_names: list[str] = []
     if not explicit_path:
@@ -101,7 +103,9 @@ class CodexRunner:
 
     def create_run_dir(self, tool: str) -> Path:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        run_dir = self.config.resolve_runs_dir() / f"{timestamp}_{tool}_{uuid4().hex[:8]}"
+        run_dir = (
+            self.config.resolve_runs_dir() / f"{timestamp}_{tool}_{uuid4().hex[:8]}"
+        )
         run_dir.mkdir(parents=True, exist_ok=False)
         return run_dir
 
@@ -136,11 +140,17 @@ class CodexRunner:
                 f"Configured Codex executable is unavailable: {configured}. "
                 f"No launchable fallback was found. Checked: {checked_text}"
             )
-        raise FileNotFoundError(f"Codex executable not found: {executable}. Checked: {checked_text}")
+        raise FileNotFoundError(
+            f"Codex executable not found: {executable}. Checked: {checked_text}"
+        )
 
-    def _subprocess_diagnostics(self, args: list[str], cwd: Path, exc: BaseException) -> str:
+    def _subprocess_diagnostics(
+        self, args: list[str], cwd: Path, exc: BaseException
+    ) -> str:
         attempted = args[0] if args else self.config.codex.executable
-        resolved = attempted if Path(attempted).is_absolute() else shutil.which(attempted)
+        resolved = (
+            attempted if Path(attempted).is_absolute() else shutil.which(attempted)
+        )
         details = {
             "executable_attempted": attempted,
             "resolved_path": resolved,
@@ -152,7 +162,9 @@ class CodexRunner:
         }
         return json.dumps(details, indent=2)
 
-    def _run_subprocess(self, args: list[str], cwd: Path, *, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
+    def _run_subprocess(
+        self, args: list[str], cwd: Path, *, timeout: int | None = None
+    ) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 args,
@@ -170,7 +182,9 @@ class CodexRunner:
         result = self._run_subprocess([executable, "exec", "--help"], Path.cwd())
         return f"{result.stdout}\n{result.stderr}"
 
-    def _codex_exec_args(self, executable: str, sandbox: str, help_text: str, prompt: str) -> list[str]:
+    def _codex_exec_args(
+        self, executable: str, sandbox: str, help_text: str, prompt: str
+    ) -> list[str]:
         args = [executable, "exec"]
         if "--sandbox" in help_text:
             args.extend(["--sandbox", sandbox])
@@ -182,7 +196,9 @@ class CodexRunner:
             args.extend(["-c", f'windows.sandbox="{windows_sandbox}"'])
 
         if self.config.codex.sandbox_private_desktop is not None:
-            private_desktop = "true" if self.config.codex.sandbox_private_desktop else "false"
+            private_desktop = (
+                "true" if self.config.codex.sandbox_private_desktop else "false"
+            )
             args.extend(["-c", f"windows.sandbox_private_desktop={private_desktop}"])
 
         model = self.config.codex.model.strip()
@@ -207,19 +223,29 @@ class CodexRunner:
         stderr: str,
         result: dict,
     ) -> None:
-        (run_dir / "input.json").write_text(json.dumps(input_data, indent=2), encoding="utf-8")
+        (run_dir / "input.json").write_text(
+            json.dumps(input_data, indent=2), encoding="utf-8"
+        )
         (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
         (run_dir / "stdout.txt").write_text(stdout, encoding="utf-8")
         (run_dir / "stderr.txt").write_text(stderr, encoding="utf-8")
-        (run_dir / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        (run_dir / "result.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
 
-    def _run_codex(self, repo_root: Path, sandbox: str, prompt: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def _run_codex(
+        self, repo_root: Path, sandbox: str, prompt: str
+    ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         executable = self._resolve_codex_executable()
         help_text = self._codex_exec_help(executable)
         args = self._codex_exec_args(executable, sandbox, help_text, prompt)
-        return self._run_subprocess(args, repo_root, timeout=self.config.codex.default_timeout_seconds), args
+        return self._run_subprocess(
+            args, repo_root, timeout=self.config.codex.default_timeout_seconds
+        ), args
 
-    def plan_task(self, repo_name: str, repo_root: Path, task: str, constraints: str | None = None) -> dict:
+    def plan_task(
+        self, repo_name: str, repo_root: Path, task: str, constraints: str | None = None
+    ) -> dict:
         prompt = build_plan_prompt(repo_name, task, constraints)
         run_dir = self.create_run_dir("codex_plan_task")
         started_at = _utc_now()
@@ -227,30 +253,64 @@ class CodexRunner:
         before_status = git_tools.git_status(repo_root)
         try:
             completed, _codex_args = self._run_codex(repo_root, "read-only", prompt)
-            stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
+            stdout, stderr, exit_code = (
+                completed.stdout,
+                completed.stderr,
+                completed.returncode,
+            )
         except subprocess.TimeoutExpired as exc:
-            stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
+            stdout, stderr, exit_code = (
+                exc.stdout or "",
+                exc.stderr or "Codex run timed out",
+                124,
+            )
         except Exception as exc:
             mismatch = str(exc)
-            result = self._base_result(run_dir, "codex_plan_task", repo_name, started_at, 1)
-            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI launch failed"], "safety_failure": True})
-            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
+            result = self._base_result(
+                run_dir, "codex_plan_task", repo_name, started_at, 1
+            )
+            result.update(
+                {
+                    "summary": mismatch,
+                    "remaining_risks": ["Codex CLI launch failed"],
+                    "safety_failure": True,
+                }
+            )
+            self._write_artifacts(
+                run_dir,
+                input_data=input_data,
+                prompt=prompt,
+                stdout="",
+                stderr=mismatch,
+                result=result,
+            )
             return result
 
         after_status = git_tools.git_status(repo_root)
         safety_failure = before_status != after_status
-        result = self._base_result(run_dir, "codex_plan_task", repo_name, started_at, exit_code)
+        result = self._base_result(
+            run_dir, "codex_plan_task", repo_name, started_at, exit_code
+        )
         result.update(
             {
                 "summary": (stdout or "").strip() or (stderr or "").strip(),
-                "remaining_risks": ["Plan mode changed git status"] if safety_failure else [],
+                "remaining_risks": ["Plan mode changed git status"]
+                if safety_failure
+                else [],
                 "safety_failure": safety_failure,
                 "changed_files": git_tools.changed_files(repo_root),
                 "git_status": after_status,
                 "diff_stat": git_tools.diff_stat(repo_root),
             }
         )
-        self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout=stdout, stderr=stderr, result=result)
+        self._write_artifacts(
+            run_dir,
+            input_data=input_data,
+            prompt=prompt,
+            stdout=stdout,
+            stderr=stderr,
+            result=result,
+        )
         return result
 
     def implement_task(
@@ -265,7 +325,9 @@ class CodexRunner:
         for test in tests:
             reject_destructive_command(test)
 
-        prompt = build_implementation_prompt(repo_name, approved_plan, allowed_files, tests)
+        prompt = build_implementation_prompt(
+            repo_name, approved_plan, allowed_files, tests
+        )
         run_dir = self.create_run_dir("codex_implement_task")
         started_at = _utc_now()
         input_data = {
@@ -276,15 +338,40 @@ class CodexRunner:
         }
         codex_args: list[str] = []
         try:
-            completed, codex_args = self._run_codex(repo_root, "workspace-write", prompt)
-            stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
+            completed, codex_args = self._run_codex(
+                repo_root, "workspace-write", prompt
+            )
+            stdout, stderr, exit_code = (
+                completed.stdout,
+                completed.stderr,
+                completed.returncode,
+            )
         except subprocess.TimeoutExpired as exc:
-            stdout, stderr, exit_code = exc.stdout or "", exc.stderr or "Codex run timed out", 124
+            stdout, stderr, exit_code = (
+                exc.stdout or "",
+                exc.stderr or "Codex run timed out",
+                124,
+            )
         except Exception as exc:
             mismatch = str(exc)
-            result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, 1)
-            result.update({"summary": mismatch, "remaining_risks": ["Codex CLI launch failed"], "safety_failure": True})
-            self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout="", stderr=mismatch, result=result)
+            result = self._base_result(
+                run_dir, "codex_implement_task", repo_name, started_at, 1
+            )
+            result.update(
+                {
+                    "summary": mismatch,
+                    "remaining_risks": ["Codex CLI launch failed"],
+                    "safety_failure": True,
+                }
+            )
+            self._write_artifacts(
+                run_dir,
+                input_data=input_data,
+                prompt=prompt,
+                stdout="",
+                stderr=mismatch,
+                result=result,
+            )
             return result
 
         changed = git_tools.changed_files(repo_root)
@@ -301,7 +388,9 @@ class CodexRunner:
         if shell_spawn_failure:
             risks.append("Codex shell spawn failed during Windows sandbox setup")
 
-        result = self._base_result(run_dir, "codex_implement_task", repo_name, started_at, exit_code)
+        result = self._base_result(
+            run_dir, "codex_implement_task", repo_name, started_at, exit_code
+        )
         result.update(
             {
                 "summary": (stdout or "").strip() or (stderr or "").strip(),
@@ -322,10 +411,19 @@ class CodexRunner:
                 "shell_spawn_failure": shell_spawn_failure,
             }
         )
-        self._write_artifacts(run_dir, input_data=input_data, prompt=prompt, stdout=stdout, stderr=stderr, result=result)
+        self._write_artifacts(
+            run_dir,
+            input_data=input_data,
+            prompt=prompt,
+            stdout=stdout,
+            stderr=stderr,
+            result=result,
+        )
         return result
 
-    def _base_result(self, run_dir: Path, tool: str, repo_name: str, started_at: str, exit_code: int) -> dict:
+    def _base_result(
+        self, run_dir: Path, tool: str, repo_name: str, started_at: str, exit_code: int
+    ) -> dict:
         return {
             "run_id": run_dir.name,
             "run_dir": str(run_dir),
@@ -346,7 +444,11 @@ class CodexRunner:
 
 
 def latest_run_result(runs_dir: Path) -> dict:
-    candidates = sorted(runs_dir.glob("*/result.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    candidates = sorted(
+        runs_dir.glob("*/result.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     if not candidates:
         raise FileNotFoundError("No run results found")
     return json.loads(candidates[0].read_text(encoding="utf-8"))

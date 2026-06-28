@@ -101,11 +101,15 @@ class DashboardSummary(BaseModel):
     jobs: list[DashboardJobSummary] = Field(default_factory=list)
     supervisors: list[DashboardSupervisorSummary] = Field(default_factory=list)
     approvals: list[DashboardApprovalSummary] = Field(default_factory=list)
-    codex_escalations: list[DashboardCodexEscalationSummary] = Field(default_factory=list)
+    codex_escalations: list[DashboardCodexEscalationSummary] = Field(
+        default_factory=list
+    )
     return_loop: list[DashboardReturnLoopSummary] = Field(default_factory=list)
     local_coding: list[DashboardLocalCodingSummary] = Field(default_factory=list)
     memory: DashboardMemorySummary = Field(default_factory=DashboardMemorySummary)
-    repo_status: DashboardRepoStatusSummary = Field(default_factory=DashboardRepoStatusSummary)
+    repo_status: DashboardRepoStatusSummary = Field(
+        default_factory=DashboardRepoStatusSummary
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude_none=True)

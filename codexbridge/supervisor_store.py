@@ -143,12 +143,24 @@ class SupervisorStore:
                 )
                 """
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisors_created_at ON supervisors(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisors_repo_status ON supervisors(repo_name, status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_events_supervisor ON supervisor_events(supervisor_id, id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_run_links_supervisor ON supervisor_run_links(supervisor_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_write_locks_repo ON repo_write_locks(repo_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_supervisor_notifications_supervisor ON supervisor_notifications(supervisor_id, id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_supervisors_created_at ON supervisors(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_supervisors_repo_status ON supervisors(repo_name, status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_supervisor_events_supervisor ON supervisor_events(supervisor_id, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_supervisor_run_links_supervisor ON supervisor_run_links(supervisor_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_repo_write_locks_repo ON repo_write_locks(repo_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_supervisor_notifications_supervisor ON supervisor_notifications(supervisor_id, id)"
+            )
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -194,7 +206,9 @@ class SupervisorStore:
     def get_supervisor(self, supervisor_id: str) -> dict[str, Any]:
         validate_supervisor_id(supervisor_id)
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM supervisors WHERE supervisor_id = ?", (supervisor_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM supervisors WHERE supervisor_id = ?", (supervisor_id,)
+            ).fetchone()
         if row is None:
             raise KeyError(f"Supervisor not found: {supervisor_id}")
         return self._row_to_supervisor(row)
@@ -220,15 +234,21 @@ class SupervisorStore:
         normalized = dict(fields)
         if "requires_human" in normalized:
             normalized["requires_human"] = int(bool(normalized["requires_human"]))
-        if "metadata_json" in normalized and not isinstance(normalized["metadata_json"], str):
+        if "metadata_json" in normalized and not isinstance(
+            normalized["metadata_json"], str
+        ):
             normalized["metadata_json"] = dumps(normalized["metadata_json"])
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), supervisor_id]
         with self.connect() as conn:
-            conn.execute(f"UPDATE supervisors SET {assignments} WHERE supervisor_id = ?", params)
+            conn.execute(
+                f"UPDATE supervisors SET {assignments} WHERE supervisor_id = ?", params
+            )
         return self.get_supervisor(supervisor_id)
 
-    def list_supervisors(self, repo_name: str | None = None, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def list_supervisors(
+        self, repo_name: str | None = None, status: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 100))
         where: list[str] = []
         params: list[Any] = []
@@ -272,7 +292,14 @@ class SupervisorStore:
                 INSERT INTO supervisor_events (supervisor_id, timestamp, level, stage, message, data_json)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (supervisor_id, event["timestamp"], level, stage, message, dumps(event["data"])),
+                (
+                    supervisor_id,
+                    event["timestamp"],
+                    level,
+                    stage,
+                    message,
+                    dumps(event["data"]),
+                ),
             )
         return event
 
@@ -293,7 +320,9 @@ class SupervisorStore:
             ).fetchall()
         return [self._row_to_event(row) for row in rows]
 
-    def add_run_link(self, supervisor_id: str, run_id: str, link_type: str = "child") -> dict[str, Any]:
+    def add_run_link(
+        self, supervisor_id: str, run_id: str, link_type: str = "child"
+    ) -> dict[str, Any]:
         validate_supervisor_id(supervisor_id)
         created_at = utc_now()
         with self.connect() as conn:
@@ -304,7 +333,13 @@ class SupervisorStore:
                 """,
                 (supervisor_id, run_id, link_type, created_at),
             )
-        return {"id": cursor.lastrowid, "supervisor_id": supervisor_id, "run_id": run_id, "link_type": link_type, "created_at": created_at}
+        return {
+            "id": cursor.lastrowid,
+            "supervisor_id": supervisor_id,
+            "run_id": run_id,
+            "link_type": link_type,
+            "created_at": created_at,
+        }
 
     def list_run_links(self, supervisor_id: str) -> list[dict[str, Any]]:
         validate_supervisor_id(supervisor_id)
@@ -334,7 +369,10 @@ class SupervisorStore:
         now = utc_now()
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM repo_write_locks WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,))
+            conn.execute(
+                "DELETE FROM repo_write_locks WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            )
             active = conn.execute(
                 """
                 SELECT * FROM repo_write_locks
@@ -358,7 +396,9 @@ class SupervisorStore:
     def release_repo_lock(self, lock_id: str) -> bool:
         validate_lock_id(lock_id)
         with self.connect() as conn:
-            cursor = conn.execute("DELETE FROM repo_write_locks WHERE lock_id = ?", (lock_id,))
+            cursor = conn.execute(
+                "DELETE FROM repo_write_locks WHERE lock_id = ?", (lock_id,)
+            )
         return int(cursor.rowcount) > 0
 
     def get_repo_lock(self, repo_name: str) -> dict[str, Any] | None:
@@ -400,7 +440,17 @@ class SupervisorStore:
                     title, message, payload_json, dedupe_key
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (supervisor_id, created_at, event_stage, event_level, kind, safe_title, safe_message, dumps(safe_payload), dedupe_key),
+                (
+                    supervisor_id,
+                    created_at,
+                    event_stage,
+                    event_level,
+                    kind,
+                    safe_title,
+                    safe_message,
+                    dumps(safe_payload),
+                    dedupe_key,
+                ),
             )
             row = conn.execute(
                 """
@@ -410,12 +460,17 @@ class SupervisorStore:
                 (supervisor_id, dedupe_key),
             ).fetchone()
         if row is None:
-            raise KeyError(f"Notification not found after insert: {supervisor_id} {dedupe_key}")
+            raise KeyError(
+                f"Notification not found after insert: {supervisor_id} {dedupe_key}"
+            )
         return self._row_to_notification(row)
 
     def get_notification(self, notification_id: int) -> dict[str, Any]:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM supervisor_notifications WHERE id = ?", (notification_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM supervisor_notifications WHERE id = ?",
+                (notification_id,),
+            ).fetchone()
         if row is None:
             raise KeyError(f"Notification not found: {notification_id}")
         return self._row_to_notification(row)
@@ -454,7 +509,9 @@ class SupervisorStore:
         increment_attempts: bool = True,
     ) -> dict[str, Any]:
         last_attempt_at = utc_now()
-        attempts_sql = "delivery_attempts + 1" if increment_attempts else "delivery_attempts"
+        attempts_sql = (
+            "delivery_attempts + 1" if increment_attempts else "delivery_attempts"
+        )
         with self.connect() as conn:
             conn.execute(
                 f"""

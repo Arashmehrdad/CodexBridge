@@ -13,6 +13,7 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .config import AppConfig, load_config, resolve_repo
+from .git_tools import CommitMetadataError
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import diff_stat, git_status, inspect_status
 from .git_tools import git_diff as _git_diff_raw
@@ -31,9 +32,24 @@ from .local_agent.ollama_adapter import OllamaChatAdapter
 mcp = FastMCP("CodexBridge")
 _config: AppConfig | None = None
 _config_path: Path | None = None
-READ_ONLY_ANNOTATIONS = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
-WRITE_ANNOTATIONS = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
-CODEX_WRITE_ANNOTATIONS = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True}
+READ_ONLY_ANNOTATIONS = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+WRITE_ANNOTATIONS = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": False,
+}
+CODEX_WRITE_ANNOTATIONS = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
 GENERIC_OBJECT_OUTPUT = {
     "type": "object",
     "additionalProperties": True,
@@ -61,8 +77,14 @@ RUN_LIST_OUTPUT = {
     "additionalProperties": True,
     "properties": {
         "ok": {"type": "boolean"},
-        "runs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "result": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "runs": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "result": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
         "error": {"type": "string"},
     },
 }
@@ -73,8 +95,14 @@ EVENT_LIST_OUTPUT = {
         "ok": {"type": "boolean"},
         "run_id": {"type": "string"},
         "supervisor_id": {"type": "string"},
-        "events": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "notifications": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "events": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "notifications": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
         "error": {"type": "string"},
     },
 }
@@ -131,7 +159,10 @@ CODEX_IMPLEMENT_OUTPUT = {
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "changed_files": {"type": "array", "items": {"type": "string"}},
-        "tests": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "tests": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
         "result": {"type": "object", "additionalProperties": True},
         "error": {"type": "string"},
     },
@@ -142,9 +173,16 @@ COMMIT_OUTPUT = {
     "properties": {
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
-        "commit_sha": {"type": "string"},
-        "files": {"type": "array", "items": {"type": "string"}},
-        "message": {"type": "string"},
+        "files_validated": {"type": "boolean"},
+        "commit_hash": {"type": "string"},
+        "remaining_dirty_files": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "git_status": {"type": "string"},
+        "blocked_field": {"type": "string"},
+        "reason_code": {"type": "string"},
+        "reason": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -410,7 +448,17 @@ LOCAL_MODEL_HEALTH_OUTPUT = {
     "additionalProperties": True,
     "properties": {
         "ok": {"type": "boolean"},
-        "status": {"type": "string", "enum": ["ok", "disabled", "unavailable", "timeout", "failed", "model_missing"]},
+        "status": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "disabled",
+                "unavailable",
+                "timeout",
+                "failed",
+                "model_missing",
+            ],
+        },
         "enabled": {"type": "boolean"},
         "base_url": {"type": "string"},
         "model": {"type": "string"},
@@ -444,7 +492,9 @@ def _normalize_text_lines(value: object) -> list[str]:
     return [line for line in (part.strip() for part in value.splitlines()) if line]
 
 
-def _wrap_item_list(key: str, owner_id_key: str, owner_id: str, items: list[dict]) -> dict:
+def _wrap_item_list(
+    key: str, owner_id_key: str, owner_id: str, items: list[dict]
+) -> dict:
     return _StructuredListResult(
         key,
         {
@@ -460,7 +510,9 @@ def _local_model_urlopen(request: urllib.request.Request, timeout_seconds: int) 
     return urllib.request.urlopen(request, timeout=timeout_seconds)
 
 
-def _local_model_transport(request: urllib.request.Request, timeout_seconds: int) -> Any:
+def _local_model_transport(
+    request: urllib.request.Request, timeout_seconds: int
+) -> Any:
     return urllib.request.urlopen(request, timeout=timeout_seconds)
 
 
@@ -484,6 +536,7 @@ def _extract_model_ids(payload: dict[str, Any]) -> list[str]:
         if isinstance(item, dict) and isinstance(item.get("id"), str):
             ids.append(item["id"])
     return ids
+
 
 try:
     from starlette.requests import Request
@@ -542,7 +595,10 @@ def inspect_repo_status(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=CODEX_PLAN_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
+@mcp.tool(
+    output_schema=CODEX_PLAN_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
 def codex_plan_task(repo_name: str, task: str, constraints: str = "") -> dict:
     """Read-only: ask Codex to inspect only and return a plan. Must not edit files."""
     config = get_config()
@@ -551,11 +607,15 @@ def codex_plan_task(repo_name: str, task: str, constraints: str = "") -> dict:
 
 
 @mcp.tool(output_schema=CODEX_IMPLEMENT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
-def codex_implement_task(repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict:
+def codex_implement_task(
+    repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
+) -> dict:
     """Write tool: ask Codex to implement only the approved plan and avoid unrelated files."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    return CodexRunner(config).implement_task(repo_name, repo_root, approved_plan, allowed_files, tests)
+    return CodexRunner(config).implement_task(
+        repo_name, repo_root, approved_plan, allowed_files, tests
+    )
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -581,11 +641,40 @@ def git_diff_summary(repo_name: str) -> dict:
 
 
 @mcp.tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def commit_selected_files(repo_name: str, files: list[str], title: str, description: str = "") -> dict:
-    """Write tool: stage and commit only the provided files. Never pushes."""
+def commit_selected_files(
+    repo_name: str,
+    files: list[str],
+    title: str,
+    description: str = "",
+) -> dict:
+    """Stage and commit only validated repository files.
+
+    The title and description are inert Git metadata passed as argv values;
+    they are never executed. This tool never pushes.
+    """
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    return commit_files(repo_root, files, title, description)
+
+    try:
+        result = commit_files(
+            repo_root,
+            files,
+            title,
+            description,
+        )
+    except CommitMetadataError as exc:
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "files_validated": exc.files_validated,
+            "blocked_field": exc.field,
+            "reason_code": exc.reason_code,
+            "reason": exc.reason,
+            "error": exc.reason,
+        }
+
+    result["repo_name"] = repo_name
+    return result
 
 
 @mcp.tool(output_schema=SELF_CHECK_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -623,26 +712,39 @@ def local_model_health() -> dict:
     try:
         models_request = urllib.request.Request(f"{base_url}/models", method="GET")
         models_response = _local_model_urlopen(models_request, config.timeout_seconds)
-        status_code = int(getattr(models_response, "status", getattr(models_response, "code", 200)))
+        status_code = int(
+            getattr(models_response, "status", getattr(models_response, "code", 200))
+        )
         raw_body = models_response.read().decode("utf-8")
         if status_code < 200 or status_code >= 300:
             result["status"] = "failed"
-            result["error"] = f"Local model /models HTTP status {status_code}: {_safe_local_model_error(raw_body)}"
+            result["error"] = (
+                f"Local model /models HTTP status {status_code}: {_safe_local_model_error(raw_body)}"
+            )
             return _finish_local_model_health(result, started)
         model_ids = _extract_model_ids(json.loads(raw_body))
         result["models_endpoint_reachable"] = True
         result["configured_model_available"] = config.model in model_ids
         if not result["configured_model_available"]:
             result["status"] = "model_missing"
-            result["error"] = f"Configured local model is not listed by /models: {config.model}"
+            result["error"] = (
+                f"Configured local model is not listed by /models: {config.model}"
+            )
             return _finish_local_model_health(result, started)
     except urllib.error.HTTPError as exc:
         result["status"] = "failed"
-        result["error"] = f"Local model /models HTTP status {exc.code}: {_safe_local_model_error(_read_http_error(exc))}"
+        result["error"] = (
+            f"Local model /models HTTP status {exc.code}: {_safe_local_model_error(_read_http_error(exc))}"
+        )
         return _finish_local_model_health(result, started)
     except (urllib.error.URLError, ConnectionError, OSError) as exc:
         reason = getattr(exc, "reason", None)
-        result["status"] = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)) else "unavailable"
+        result["status"] = (
+            "timeout"
+            if isinstance(exc, (TimeoutError, socket.timeout))
+            or isinstance(reason, (TimeoutError, socket.timeout))
+            else "unavailable"
+        )
         result["error"] = _safe_local_model_error(exc)
         return _finish_local_model_health(result, started)
     except TimeoutError as exc:
@@ -664,7 +766,10 @@ def local_model_health() -> dict:
     ).call(
         task_type="local_model_health",
         messages=[
-            {"role": "system", "content": "You are a health check endpoint. Reply with OK."},
+            {
+                "role": "system",
+                "content": "You are a health check endpoint. Reply with OK.",
+            },
             {"role": "user", "content": "Reply with OK."},
         ],
         max_tokens=min(config.max_tokens, 16),
@@ -682,7 +787,10 @@ def local_model_health() -> dict:
         result["error"] = smoke.error
     else:
         result["status"] = "failed"
-        result["error"] = smoke.error or f"Local model smoke prompt failed with status: {smoke.status.value}"
+        result["error"] = (
+            smoke.error
+            or f"Local model smoke prompt failed with status: {smoke.status.value}"
+        )
     return _finish_local_model_health(result, started)
 
 
@@ -691,16 +799,25 @@ def _finish_local_model_health(result: dict, started: float) -> dict:
     return result
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
-def start_codex_plan_task_async(repo_name: str, task: str, constraints: str = "") -> dict:
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def start_codex_plan_task_async(
+    repo_name: str, task: str, constraints: str = ""
+) -> dict:
     """Read-only async tool: queue a plan-only Codex job and return a durable run_id immediately."""
     return get_job_manager().start_plan(repo_name, task, constraints)
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
-def start_codex_implement_task_async(repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]) -> dict:
+def start_codex_implement_task_async(
+    repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
+) -> dict:
     """Write async tool: queue an approved implementation Codex job and return a durable run_id immediately."""
-    return get_job_manager().start_implementation(repo_name, approved_plan, allowed_files, tests)
+    return get_job_manager().start_implementation(
+        repo_name, approved_plan, allowed_files, tests
+    )
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -712,7 +829,9 @@ def get_run_status(run_id: str) -> dict:
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_events(run_id: str, limit: int = 50) -> dict:
     """Read-only: return recent timeline events for an async run."""
-    return _wrap_item_list("events", "run_id", run_id, get_job_manager().get_events(run_id, limit))
+    return _wrap_item_list(
+        "events", "run_id", run_id, get_job_manager().get_events(run_id, limit)
+    )
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -726,7 +845,9 @@ def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
     """Read-only: list recent async runs with optional repo/status filters."""
     return {
         "ok": True,
-        "runs": get_job_manager().list_runs(repo_name=repo_name or None, status=status or None, limit=limit),
+        "runs": get_job_manager().list_runs(
+            repo_name=repo_name or None, status=status or None, limit=limit
+        ),
         "error": "",
     }
 
@@ -747,7 +868,9 @@ def start_supervised_recovery_task(
     autonomy_profile: str = "balanced",
 ) -> dict:
     """Write tool: create a supervisor and advance it one safe step."""
-    return get_supervisor_service().start_supervised_recovery_task(repo_name, objective, task, constraints, source_run_id or None, autonomy_profile)
+    return get_supervisor_service().start_supervised_recovery_task(
+        repo_name, objective, task, constraints, source_run_id or None, autonomy_profile
+    )
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -759,7 +882,12 @@ def get_supervisor_status(supervisor_id: str) -> dict:
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_events(supervisor_id: str, limit: int = 50) -> dict:
     """Read-only: return ordered supervisor events."""
-    return _wrap_item_list("events", "supervisor_id", supervisor_id, get_supervisor_service().get_events(supervisor_id, limit))
+    return _wrap_item_list(
+        "events",
+        "supervisor_id",
+        supervisor_id,
+        get_supervisor_service().get_events(supervisor_id, limit),
+    )
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -787,13 +915,17 @@ def cancel_supervisor(supervisor_id: str) -> dict:
 
 
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_supervisor_notifications(supervisor_id: str, delivery_status: str = "", limit: int = 50) -> dict:
+def get_supervisor_notifications(
+    supervisor_id: str, delivery_status: str = "", limit: int = 50
+) -> dict:
     """Read-only: return persisted supervisor notification rows."""
     return _wrap_item_list(
         "notifications",
         "supervisor_id",
         supervisor_id,
-        get_supervisor_service().get_notifications(supervisor_id, delivery_status or None, limit),
+        get_supervisor_service().get_notifications(
+            supervisor_id, delivery_status or None, limit
+        ),
     )
 
 
@@ -804,21 +936,29 @@ def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
 
 
 @mcp.tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_repo_files(repo_name: str, directory: str = "", max_results: int = 500) -> dict:
+def list_repo_files(
+    repo_name: str, directory: str = "", max_results: int = 500
+) -> dict:
     """Read-only: list files in a repository directory. Returns repo-relative POSIX paths only."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    result = _repo_reader.list_repo_files(repo_root, directory=directory, max_results=max_results)
+    result = _repo_reader.list_repo_files(
+        repo_root, directory=directory, max_results=max_results
+    )
     result["repo_name"] = repo_name
     return result
 
 
 @mcp.tool(output_schema=READ_REPO_FILE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def read_repo_file(repo_name: str, path: str, start_line: int = 1, end_line: int = 0) -> dict:
+def read_repo_file(
+    repo_name: str, path: str, start_line: int = 1, end_line: int = 0
+) -> dict:
     """Read-only: read a text file from a repository. Rejects binary files, caps output, and redacts secrets."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    result = _repo_reader.read_repo_file(repo_root, path, start_line=start_line, end_line=end_line)
+    result = _repo_reader.read_repo_file(
+        repo_root, path, start_line=start_line, end_line=end_line
+    )
     result["repo_name"] = repo_name
     return result
 
@@ -845,7 +985,9 @@ def search_repo_text(
     return result
 
 
-@mcp.tool(output_schema=RECENTLY_MODIFIED_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@mcp.tool(
+    output_schema=RECENTLY_MODIFIED_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS
+)
 def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
     """Read-only: list files sorted by filesystem mtime, newest first. Reflects unsaved changes immediately."""
     config = get_config()
@@ -893,7 +1035,9 @@ def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> d
     """Write tool: apply a patch previously validated by preview_repo_patch. Rechecks all hashes before writing."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.apply_repo_patch(repo_root, operations, patch_id, _get_runs_dir())
+    result = _repo_writer.apply_repo_patch(
+        repo_root, operations, patch_id, _get_runs_dir()
+    )
     result["repo_name"] = repo_name
     return result
 
@@ -913,7 +1057,9 @@ def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
     """Write tool: delete a file after verifying its SHA-256. Saves rollback content."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.delete_repo_file(repo_root, path, expected_sha256, _get_runs_dir())
+    result = _repo_writer.delete_repo_file(
+        repo_root, path, expected_sha256, _get_runs_dir()
+    )
     result["repo_name"] = repo_name
     return result
 
@@ -983,7 +1129,11 @@ def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
 def create_git_branch(repo_name: str, branch_name: str) -> dict:
     """Write tool: create a new local git branch. Rejects protected names and existing branches."""
     import re as _re
-    from .repo_writer import _PROTECTED_BRANCHES, _PROTECTED_BRANCH_PREFIXES, _BRANCH_NAME_RE
+    from .repo_writer import (
+        _PROTECTED_BRANCHES,
+        _PROTECTED_BRANCH_PREFIXES,
+        _BRANCH_NAME_RE,
+    )
 
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
@@ -1012,6 +1162,7 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
                 "error": f"Branch name matches protected prefix '{prefix}': {branch_name!r}",
             }
     from .git_tools import git_branch_list
+
     existing = git_branch_list(repo_root)
     if branch_name in existing:
         return {
@@ -1023,7 +1174,12 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
     try:
         _git_create_branch(repo_root, branch_name)
     except ValueError as exc:
-        return {"ok": False, "repo_name": repo_name, "branch_name": branch_name, "error": str(exc)}
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "branch_name": branch_name,
+            "error": str(exc),
+        }
 
     return {"ok": True, "repo_name": repo_name, "branch_name": branch_name, "error": ""}
 
@@ -1031,7 +1187,11 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the CodexBridge MCP server.")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
-    parser.add_argument("--transport", choices=["http", "streamable-http", "stdio", "sse"], default="http")
+    parser.add_argument(
+        "--transport",
+        choices=["http", "streamable-http", "stdio", "sse"],
+        default="http",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--path", default="/mcp")

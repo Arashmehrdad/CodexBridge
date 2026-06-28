@@ -14,11 +14,18 @@ from codexbridge.return_loop.pulse_contract import (
 from codexbridge.run_store import utc_now
 
 
-def write_report_set(root: Path, source_status: str = "completed", resume: str = "safe resume", report: str = "safe report") -> Path:
+def write_report_set(
+    root: Path,
+    source_status: str = "completed",
+    resume: str = "safe resume",
+    report: str = "safe report",
+) -> Path:
     root.mkdir(parents=True)
     (root / "resume_prompt.txt").write_text(resume, encoding="utf-8")
     (root / "job_report.md").write_text(report, encoding="utf-8")
-    (root / "result.json").write_text(json.dumps({"status": source_status}), encoding="utf-8")
+    (root / "result.json").write_text(
+        json.dumps({"status": source_status}), encoding="utf-8"
+    )
     manifest = build_report_manifest(
         artifact_type="combined",
         artifact_id=root.name,
@@ -34,7 +41,9 @@ def write_report_set(root: Path, source_status: str = "completed", resume: str =
     return root / "pulse_manifest.json"
 
 
-def test_manifest_includes_required_paths_hashes_and_ready_status(tmp_path: Path) -> None:
+def test_manifest_includes_required_paths_hashes_and_ready_status(
+    tmp_path: Path,
+) -> None:
     manifest_path = write_report_set(tmp_path / "runs" / "jobs" / "job1")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -88,7 +97,9 @@ def test_manifest_blocks_too_large_resume_prompt(tmp_path: Path) -> None:
 
 
 def test_manifest_blocks_sensitive_content(tmp_path: Path) -> None:
-    manifest_path = write_report_set(tmp_path / "runs" / "jobs" / "job4", resume="contains API key")
+    manifest_path = write_report_set(
+        tmp_path / "runs" / "jobs" / "job4", resume="contains API key"
+    )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert payload["status"] == "sensitive"
@@ -96,7 +107,9 @@ def test_manifest_blocks_sensitive_content(tmp_path: Path) -> None:
     assert "API_KEY" in payload["sensitivity_flags"]
 
 
-def test_discover_ready_reports_returns_only_ready_unsent_reports(tmp_path: Path) -> None:
+def test_discover_ready_reports_returns_only_ready_unsent_reports(
+    tmp_path: Path,
+) -> None:
     runs = tmp_path / "runs"
     ready_path = write_report_set(runs / "jobs" / "job_ready")
     write_report_set(runs / "jobs" / "job_sensitive", resume="secret token")
@@ -110,10 +123,17 @@ def test_discover_ready_reports_returns_only_ready_unsent_reports(tmp_path: Path
     assert [report.artifact_id for report in reports] == ["supervisor_ready"]
 
 
-def test_mark_sent_by_external_pulsesender_updates_manifest_atomically(tmp_path: Path) -> None:
+def test_mark_sent_by_external_pulsesender_updates_manifest_atomically(
+    tmp_path: Path,
+) -> None:
     manifest_path = write_report_set(tmp_path / "runs" / "jobs" / "job5")
 
-    manifest = mark_sent_by_external_pulsesender(manifest_path, "2026-05-11T00:00:00+00:00", sender_id="pulse", delivery_hash="abc")
+    manifest = mark_sent_by_external_pulsesender(
+        manifest_path,
+        "2026-05-11T00:00:00+00:00",
+        sender_id="pulse",
+        delivery_hash="abc",
+    )
 
     assert manifest.status == ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER
     assert manifest.ready is False

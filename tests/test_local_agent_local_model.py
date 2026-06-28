@@ -5,7 +5,12 @@ from pathlib import Path
 from codexbridge.config import LocalModelConfig
 from codexbridge.local_agent import LocalAgentOrchestrator
 from codexbridge.local_agent.local_model import LocalModelClient
-from codexbridge.local_agent.models import LocalAgentTaskType, LocalModelResult, LocalModelStatus, RoutingDecision
+from codexbridge.local_agent.models import (
+    LocalAgentTaskType,
+    LocalModelResult,
+    LocalModelStatus,
+    RoutingDecision,
+)
 from codexbridge.run_store import utc_now
 
 
@@ -40,7 +45,12 @@ def _result(task_type: str, content: str, parsed_json=None) -> LocalModelResult:
 
 
 def enabled_client(adapter: FakeAdapter) -> LocalModelClient:
-    return LocalModelClient(config=LocalModelConfig(enabled=True, model="fake", timeout_seconds=5, max_tokens=128), adapter=adapter)
+    return LocalModelClient(
+        config=LocalModelConfig(
+            enabled=True, model="fake", timeout_seconds=5, max_tokens=128
+        ),
+        adapter=adapter,
+    )
 
 
 def test_summarize_log_uses_adapter() -> None:
@@ -91,7 +101,9 @@ def test_json_helper_returns_parsed_json() -> None:
 
 
 def test_disabled_local_model_returns_blocked() -> None:
-    result = LocalModelClient(config=LocalModelConfig(enabled=False), adapter=FakeAdapter()).summarize_log("log")
+    result = LocalModelClient(
+        config=LocalModelConfig(enabled=False), adapter=FakeAdapter()
+    ).summarize_log("log")
 
     assert result.status == LocalModelStatus.BLOCKED
     assert "disabled" in result.error
@@ -99,7 +111,9 @@ def test_disabled_local_model_returns_blocked() -> None:
 
 def test_orchestrator_routes_summarize_pytest_output_when_enabled() -> None:
     adapter = FakeAdapter()
-    result = LocalAgentOrchestrator(local_model=enabled_client(adapter)).handle_task("summarize this pytest output: failed")
+    result = LocalAgentOrchestrator(local_model=enabled_client(adapter)).handle_task(
+        "summarize this pytest output: failed"
+    )
 
     assert result.task_type == LocalAgentTaskType.LOCAL_MODEL_REASONING
     assert result.routing_decision == RoutingDecision.LOCAL_ONLY
@@ -110,7 +124,9 @@ def test_orchestrator_routes_summarize_pytest_output_when_enabled() -> None:
 
 def test_orchestrator_does_not_route_edit_tasks_to_local_model() -> None:
     adapter = FakeAdapter()
-    result = LocalAgentOrchestrator(local_model=enabled_client(adapter)).handle_task("fix this bug in the runner")
+    result = LocalAgentOrchestrator(local_model=enabled_client(adapter)).handle_task(
+        "fix this bug in the runner"
+    )
 
     assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
     assert result.local_model_result is None

@@ -28,7 +28,9 @@ def test_atomic_json_write_is_parseable(tmp_path: Path) -> None:
     assert json.loads(path.read_text(encoding="utf-8")) == {"a": 1, "b": 2}
 
 
-def test_atomic_write_failure_does_not_create_partial_final_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_atomic_write_failure_does_not_create_partial_final_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     path = tmp_path / "report.md"
 
     def fail_write(temp_path: Path, data: bytes) -> None:

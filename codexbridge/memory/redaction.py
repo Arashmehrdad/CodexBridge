@@ -19,7 +19,11 @@ SENSITIVE_MARKERS = (
 
 def detect_sensitivity(text: str) -> list[str]:
     lowered = text.lower()
-    return [marker.upper().replace(" ", "_").replace(":", "") for marker in SENSITIVE_MARKERS if marker in lowered]
+    return [
+        marker.upper().replace(" ", "_").replace(":", "")
+        for marker in SENSITIVE_MARKERS
+        if marker in lowered
+    ]
 
 
 def redact_sensitive_text(text: str) -> str:
@@ -34,5 +38,10 @@ def redact_sensitive_text(text: str) -> str:
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
     ]
     for pattern in patterns:
-        redacted = re.sub(pattern, lambda match: match.group(1) + "[REDACTED]", redacted, flags=re.DOTALL)
+        redacted = re.sub(
+            pattern,
+            lambda match: match.group(1) + "[REDACTED]",
+            redacted,
+            flags=re.DOTALL,
+        )
     return redacted

@@ -48,8 +48,16 @@ class JobWorker:
         self.run_id = run_id
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
 
-    def event(self, level: str, stage: str, message: str, data: dict | None = None) -> None:
-        event = self.store.append_event(self.run_id, level=level, stage=stage, message=message, data=redact_and_truncate(data or {}))
+    def event(
+        self, level: str, stage: str, message: str, data: dict | None = None
+    ) -> None:
+        event = self.store.append_event(
+            self.run_id,
+            level=level,
+            stage=stage,
+            message=message,
+            data=redact_and_truncate(data or {}),
+        )
         self.artifacts.append_event(event)
 
     def execute(self) -> int:
@@ -58,12 +66,20 @@ class JobWorker:
         self.event("info", "worker", "Worker started")
         try:
             result = self._execute_inner(started_at)
-            status = "failed" if result.get("safety_failure") or result.get("exit_code", 1) != 0 else "completed"
+            status = (
+                "failed"
+                if result.get("safety_failure") or result.get("exit_code", 1) != 0
+                else "completed"
+            )
             ended_at = result["ended_at"]
             self.artifacts.write_json("result.json", result)
             current = self.store.get_run(self.run_id)
             if current["status"] == "cancelled":
-                self.event("warning", "cancel", "Worker finished after cancellation; preserving cancelled status")
+                self.event(
+                    "warning",
+                    "cancel",
+                    "Worker finished after cancellation; preserving cancelled status",
+                )
                 return int(result.get("exit_code") or 0)
             self.store.update_run(
                 self.run_id,
@@ -76,7 +92,12 @@ class JobWorker:
                 safety_failure=result.get("safety_failure", False),
                 result_json=result,
             )
-            self.event("info" if status == "completed" else "error", "result", f"Run {status}", {"exit_code": result.get("exit_code")})
+            self.event(
+                "info" if status == "completed" else "error",
+                "result",
+                f"Run {status}",
+                {"exit_code": result.get("exit_code")},
+            )
             return int(result.get("exit_code") or 0)
         except Exception as exc:
             ended_at = _utc_now()
@@ -103,10 +124,14 @@ class JobWorker:
         tool = self.run["tool"]
 
         if tool == "codex_plan_task":
-            decision = decide_plan_task(input_data["task"], input_data.get("constraints"))
+            decision = decide_plan_task(
+                input_data["task"], input_data.get("constraints")
+            )
             if not decision.accepted:
                 raise ValueError(decision.reason)
-            prompt = build_plan_prompt(repo_name, input_data["task"], input_data.get("constraints", ""))
+            prompt = build_plan_prompt(
+                repo_name, input_data["task"], input_data.get("constraints", "")
+            )
             sandbox = "read-only"
             tests: list[str] = []
             allowed_files: list[str] = []
@@ -116,10 +141,14 @@ class JobWorker:
             validate_repo_relative_paths(repo_root, allowed_files)
             for test in tests:
                 reject_destructive_command(test)
-            decision = decide_implementation_task(input_data["approved_plan"], allowed_files, tests)
+            decision = decide_implementation_task(
+                input_data["approved_plan"], allowed_files, tests
+            )
             if not decision.accepted:
                 raise ValueError(decision.reason)
-            prompt = build_implementation_prompt(repo_name, input_data["approved_plan"], allowed_files, tests)
+            prompt = build_implementation_prompt(
+                repo_name, input_data["approved_plan"], allowed_files, tests
+            )
             sandbox = "workspace-write"
         else:
             raise ValueError(f"Unsupported async tool: {tool}")
@@ -143,12 +172,31 @@ class JobWorker:
             stderr=subprocess.PIPE,
         )
         self.store.update_run(self.run_id, pid=process.pid)
-        self.event("info", "codex", "Codex process spawned", {"pid": process.pid, "command": _safe_command_args(args)})
+        self.event(
+            "info",
+            "codex",
+            "Codex process spawned",
+            {"pid": process.pid, "command": _safe_command_args(args)},
+        )
 
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
-        stdout_thread = threading.Thread(target=_stream_pipe, args=(process.stdout, Path(self.run["run_dir"]) / "stdout.txt", stdout_parts))
-        stderr_thread = threading.Thread(target=_stream_pipe, args=(process.stderr, Path(self.run["run_dir"]) / "stderr.txt", stderr_parts))
+        stdout_thread = threading.Thread(
+            target=_stream_pipe,
+            args=(
+                process.stdout,
+                Path(self.run["run_dir"]) / "stdout.txt",
+                stdout_parts,
+            ),
+        )
+        stderr_thread = threading.Thread(
+            target=_stream_pipe,
+            args=(
+                process.stderr,
+                Path(self.run["run_dir"]) / "stderr.txt",
+                stderr_parts,
+            ),
+        )
         stdout_thread.start()
         stderr_thread.start()
         try:
@@ -156,7 +204,12 @@ class JobWorker:
         except subprocess.TimeoutExpired:
             process.kill()
             exit_code = 124
-            self.event("error", "codex", "Codex process timed out and was killed", {"pid": process.pid})
+            self.event(
+                "error",
+                "codex",
+                "Codex process timed out and was killed",
+                {"pid": process.pid},
+            )
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
 

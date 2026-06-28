@@ -13,10 +13,11 @@ def test_plan_prompt_includes_no_edit_delete_commit_push_rules() -> None:
 
 
 def test_implementation_prompt_includes_allowed_files_and_no_push_rules() -> None:
-    prompt = build_implementation_prompt("repo", "approved", ["a.py"], ["python -m pytest"])
+    prompt = build_implementation_prompt(
+        "repo", "approved", ["a.py"], ["python -m pytest"]
+    )
     assert "a.py" in prompt
     assert "python -m pytest" in prompt
     assert "Do not push" in prompt
     assert "Do not commit" in prompt
     assert "Touch only allowed_files" in prompt
-

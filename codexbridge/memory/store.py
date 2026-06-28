@@ -39,11 +39,15 @@ class ProjectMemoryStore:
     def init_db(self) -> None:
         with self.connect() as conn:
             initialize_schema(conn)
-            self._append_event(conn, None, "memory_store_initialized", "Memory store initialized", {})
+            self._append_event(
+                conn, None, "memory_store_initialized", "Memory store initialized", {}
+            )
 
     def schema_version(self) -> int:
         with self.connect() as conn:
-            row = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1").fetchone()
+            row = conn.execute(
+                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+            ).fetchone()
         return int(row["version"])
 
     def create(self, record: MemoryRecord) -> MemoryRecord:
@@ -61,11 +65,24 @@ class ProjectMemoryStore:
             record.content = redact_sensitive_text(record.content)
         record.sensitivity_flags = flags
         record.content_sha256 = _sha256(record.content)
-        record.audit_event_id = record.audit_event_id or create_audit_event(task_id=record.memory_id, action="memory_record_created", message="Memory record created").event_id
+        record.audit_event_id = (
+            record.audit_event_id
+            or create_audit_event(
+                task_id=record.memory_id,
+                action="memory_record_created",
+                message="Memory record created",
+            ).event_id
+        )
         with self.connect() as conn:
             existing = self._find_duplicate(conn, record)
             if existing:
-                self._append_event(conn, existing, "memory_import_skipped_duplicate", "Duplicate memory skipped", {"source_kind": record.source_kind, "source_id": record.source_id})
+                self._append_event(
+                    conn,
+                    existing,
+                    "memory_import_skipped_duplicate",
+                    "Duplicate memory skipped",
+                    {"source_kind": record.source_kind, "source_id": record.source_id},
+                )
                 return self.get(existing)
             with conn:
                 conn.execute(
@@ -80,15 +97,29 @@ class ProjectMemoryStore:
                     self._record_params(record),
                 )
                 self._replace_tags(conn, record)
-                self._append_event(conn, record.memory_id, "memory_record_created", "Memory record created", {"memory_type": record.memory_type.value})
+                self._append_event(
+                    conn,
+                    record.memory_id,
+                    "memory_record_created",
+                    "Memory record created",
+                    {"memory_type": record.memory_type.value},
+                )
         return record
 
     def get(self, memory_id: str) -> MemoryRecord:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM memory_records WHERE memory_id = ?", (memory_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM memory_records WHERE memory_id = ?", (memory_id,)
+            ).fetchone()
             if row is None:
                 raise KeyError(f"Memory not found: {memory_id}")
-            tags = [item["tag"] for item in conn.execute("SELECT tag FROM memory_tags WHERE memory_id = ? ORDER BY tag", (memory_id,))]
+            tags = [
+                item["tag"]
+                for item in conn.execute(
+                    "SELECT tag FROM memory_tags WHERE memory_id = ? ORDER BY tag",
+                    (memory_id,),
+                )
+            ]
         return self._row_to_record(row, tags)
 
     def update(self, memory_id: str, **fields: Any) -> MemoryRecord:
@@ -97,7 +128,13 @@ class ProjectMemoryStore:
             setattr(record, key, value)
         record.updated_at = utc_now()
         record.content = _bounded(record.content, self.max_content_bytes)
-        flags = sorted(set(detect_sensitivity("\n".join([record.title, record.summary, record.content]))))
+        flags = sorted(
+            set(
+                detect_sensitivity(
+                    "\n".join([record.title, record.summary, record.content])
+                )
+            )
+        )
         if flags and self.block_sensitive:
             raise ValueError(f"Sensitive memory content blocked: {flags}")
         record.sensitivity_flags = flags
@@ -110,16 +147,34 @@ class ProjectMemoryStore:
                     updated_at=?, expires_at=?, supersedes_memory_id=?, metadata_json=?, sensitivity_flags_json=?,
                     content_sha256=?, audit_event_id=?, archived=?
                 """
-                conn.execute(f"UPDATE memory_records SET {assignments} WHERE memory_id=?", (*self._record_params(record)[1:], memory_id))
+                conn.execute(
+                    f"UPDATE memory_records SET {assignments} WHERE memory_id=?",
+                    (*self._record_params(record)[1:], memory_id),
+                )
                 self._replace_tags(conn, record)
-                self._append_event(conn, memory_id, "memory_record_updated", "Memory record updated", {})
+                self._append_event(
+                    conn,
+                    memory_id,
+                    "memory_record_updated",
+                    "Memory record updated",
+                    {},
+                )
         return record
 
     def archive(self, memory_id: str) -> MemoryRecord:
         with self.connect() as conn:
             with conn:
-                conn.execute("UPDATE memory_records SET archived = 1, updated_at = ? WHERE memory_id = ?", (utc_now(), memory_id))
-                self._append_event(conn, memory_id, "memory_record_archived", "Memory record archived", {})
+                conn.execute(
+                    "UPDATE memory_records SET archived = 1, updated_at = ? WHERE memory_id = ?",
+                    (utc_now(), memory_id),
+                )
+                self._append_event(
+                    conn,
+                    memory_id,
+                    "memory_record_archived",
+                    "Memory record archived",
+                    {},
+                )
         return self.get(memory_id)
 
     def list_records(
@@ -144,7 +199,11 @@ class ProjectMemoryStore:
             params.append(repo_name)
         if memory_type:
             where.append("r.memory_type = ?")
-            params.append(memory_type.value if isinstance(memory_type, MemoryType) else str(memory_type))
+            params.append(
+                memory_type.value
+                if isinstance(memory_type, MemoryType)
+                else str(memory_type)
+            )
         join = ""
         if tag:
             join = "JOIN memory_tags t ON r.memory_id = t.memory_id"
@@ -168,7 +227,13 @@ class ProjectMemoryStore:
             [pattern, pattern, pattern, pattern, max(1, min(limit, 200))],
         )
         with self.connect() as conn:
-            self._append_event(conn, None, "memory_search_performed", "Memory search performed", {"query": query, "count": len(records)})
+            self._append_event(
+                conn,
+                None,
+                "memory_search_performed",
+                "Memory search performed",
+                {"query": query, "count": len(records)},
+            )
         return MemorySearchResult(records=records, query=query, total=len(records))
 
     def recent(self, *, limit: int = 20) -> list[MemoryRecord]:
@@ -179,28 +244,54 @@ class ProjectMemoryStore:
         return records[0] if records else None
 
     def validation_recipes(self, repo_name: str | None = None) -> list[MemoryRecord]:
-        return [record for record in self.list_records(repo_name=repo_name, tag="validation_recipe", limit=100)]
+        return [
+            record
+            for record in self.list_records(
+                repo_name=repo_name, tag="validation_recipe", limit=100
+            )
+        ]
 
     def known_commands(self, repo_name: str | None = None) -> list[MemoryRecord]:
-        return [record for record in self.list_records(repo_name=repo_name, tag="known_command", limit=100)]
+        return [
+            record
+            for record in self.list_records(
+                repo_name=repo_name, tag="known_command", limit=100
+            )
+        ]
 
     def architecture_notes(self, repo_name: str | None = None) -> list[MemoryRecord]:
-        return [record for record in self.list_records(repo_name=repo_name, tag="architecture", limit=100)]
+        return [
+            record
+            for record in self.list_records(
+                repo_name=repo_name, tag="architecture", limit=100
+            )
+        ]
 
     def _fetch_records(self, sql: str, params: list[Any]) -> list[MemoryRecord]:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
             tags_by_id = {
-                row["memory_id"]: [item["tag"] for item in conn.execute("SELECT tag FROM memory_tags WHERE memory_id = ? ORDER BY tag", (row["memory_id"],))]
+                row["memory_id"]: [
+                    item["tag"]
+                    for item in conn.execute(
+                        "SELECT tag FROM memory_tags WHERE memory_id = ? ORDER BY tag",
+                        (row["memory_id"],),
+                    )
+                ]
                 for row in rows
             }
         return [self._row_to_record(row, tags_by_id[row["memory_id"]]) for row in rows]
 
     def _replace_tags(self, conn: sqlite3.Connection, record: MemoryRecord) -> None:
         conn.execute("DELETE FROM memory_tags WHERE memory_id = ?", (record.memory_id,))
-        conn.executemany("INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)", [(record.memory_id, tag) for tag in sorted(set(record.tags))])
+        conn.executemany(
+            "INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)",
+            [(record.memory_id, tag) for tag in sorted(set(record.tags))],
+        )
 
-    def _find_duplicate(self, conn: sqlite3.Connection, record: MemoryRecord) -> str | None:
+    def _find_duplicate(
+        self, conn: sqlite3.Connection, record: MemoryRecord
+    ) -> str | None:
         if record.source_kind and record.source_id:
             row = conn.execute(
                 "SELECT memory_id FROM memory_records WHERE source_kind = ? AND source_id = ? AND archived = 0 LIMIT 1",
@@ -214,10 +305,23 @@ class ProjectMemoryStore:
         ).fetchone()
         return str(row["memory_id"]) if row else None
 
-    def _append_event(self, conn: sqlite3.Connection, memory_id: str | None, event_type: str, message: str, data: dict[str, Any]) -> None:
+    def _append_event(
+        self,
+        conn: sqlite3.Connection,
+        memory_id: str | None,
+        event_type: str,
+        message: str,
+        data: dict[str, Any],
+    ) -> None:
         conn.execute(
             "INSERT INTO memory_events (memory_id, timestamp, event_type, message, data_json) VALUES (?, ?, ?, ?, ?)",
-            (memory_id, utc_now(), event_type, message, json.dumps(data, sort_keys=True)),
+            (
+                memory_id,
+                utc_now(),
+                event_type,
+                message,
+                json.dumps(data, sort_keys=True),
+            ),
         )
 
     def _record_params(self, record: MemoryRecord) -> tuple[Any, ...]:
@@ -260,7 +364,9 @@ class ProjectMemoryStore:
             source_kind=row["source_kind"],
             source_id=row["source_id"],
             source_path=Path(row["source_path"]) if row["source_path"] else None,
-            artifact_paths=[Path(path) for path in json.loads(row["artifact_paths_json"] or "[]")],
+            artifact_paths=[
+                Path(path) for path in json.loads(row["artifact_paths_json"] or "[]")
+            ],
             confidence=float(row["confidence"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],

@@ -44,7 +44,9 @@ def build_implementation_prompt(
     tests: Iterable[str],
 ) -> str:
     allowed = "\n".join(f"- {path}" for path in allowed_files) or "- No files approved"
-    tests_text = "\n".join(f"- {command}" for command in tests) or "- No explicit tests provided"
+    tests_text = (
+        "\n".join(f"- {command}" for command in tests) or "- No explicit tests provided"
+    )
     return f"""You are Codex running through CodexBridge in IMPLEMENTATION mode.
 
 Repository name: {repo_name}
@@ -82,4 +84,3 @@ Return:
 Raw result:
 {raw_result}
 """
-

@@ -69,19 +69,49 @@ REALISTIC_ACTION_OUTPUTS = {
         "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
         "changed_files": ["codexbridge/server.py"],
     },
-    "codex_plan_task": {"ok": True, "repo_name": "repo", "plan": "1. Inspect\n2. Patch\n", "result": {"summary": "narrow plan"}, "error": ""},
+    "codex_plan_task": {
+        "ok": True,
+        "repo_name": "repo",
+        "plan": "1. Inspect\n2. Patch\n",
+        "result": {"summary": "narrow plan"},
+        "error": "",
+    },
     "codex_implement_task": {
         "ok": True,
         "repo_name": "repo",
-        "changed_files": ["codexbridge/server.py", "tests/test_mcp_action_discovery.py"],
+        "changed_files": [
+            "codexbridge/server.py",
+            "tests/test_mcp_action_discovery.py",
+        ],
         "tests": [{"command": "python -m pytest -q", "exit_code": 0}],
         "result": {"summary": "applied"},
         "error": "",
     },
-    "get_latest_run_result": {"ok": True, "run_id": "run_1", "status": "completed", "repo_name": "repo", "result": {"summary": "done"}, "error": ""},
-    "git_diff_summary": {"git_status": "## main\n M codexbridge/server.py\n", "diff_stat": " 1 file changed\n"},
-    "commit_selected_files": {"ok": True, "repo_name": "repo", "commit_sha": "abc123", "files": ["codexbridge/server.py"], "message": "hotfix", "error": ""},
-    "run_local_self_check": {"ok": True, "checks": {"pytest": {"ok": True}, "pip_check": {"ok": True}}, "error": ""},
+    "get_latest_run_result": {
+        "ok": True,
+        "run_id": "run_1",
+        "status": "completed",
+        "repo_name": "repo",
+        "result": {"summary": "done"},
+        "error": "",
+    },
+    "git_diff_summary": {
+        "git_status": "## main\n M codexbridge/server.py\n",
+        "diff_stat": " 1 file changed\n",
+    },
+    "commit_selected_files": {
+        "ok": True,
+        "repo_name": "repo",
+        "commit_sha": "abc123",
+        "files": ["codexbridge/server.py"],
+        "message": "hotfix",
+        "error": "",
+    },
+    "run_local_self_check": {
+        "ok": True,
+        "checks": {"pytest": {"ok": True}, "pip_check": {"ok": True}},
+        "error": "",
+    },
     "local_model_health": {
         "ok": True,
         "status": "ok",
@@ -96,20 +126,103 @@ REALISTIC_ACTION_OUTPUTS = {
         "error": "",
         "audit_event_id": "audit_1",
     },
-    "start_codex_plan_task_async": {"ok": True, "run_id": "run_2", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
-    "start_codex_implement_task_async": {"ok": True, "run_id": "run_3", "status": "queued", "repo_name": "repo", "result": {}, "error": ""},
-    "get_run_status": {"ok": True, "run_id": "run_2", "status": "running", "repo_name": "repo", "result": {}, "error": ""},
-    "get_run_events": {"ok": True, "run_id": "run_2", "events": [{"stage": "queued", "message": "Run queued"}], "error": ""},
-    "get_run_result": {"ok": True, "run_id": "run_2", "status": "completed", "repo_name": "repo", "result": {"summary": "done"}, "error": ""},
-    "list_runs": {"ok": True, "runs": [{"run_id": "run_1", "status": "completed", "repo_name": "repo"}], "error": ""},
-    "cancel_run": {"run_id": "run_2", "status": "cancelled", "cancelled": True, "terminated": True},
-    "start_supervised_recovery_task": {"ok": True, "supervisor_id": "sup_1", "status": "queued", "result": {"summary": "queued"}, "error": ""},
-    "get_supervisor_status": {"ok": True, "supervisor_id": "sup_1", "status": "needs_input", "result": {"summary": "waiting"}, "error": ""},
-    "get_supervisor_events": {"ok": True, "supervisor_id": "sup_1", "events": [{"stage": "planning", "message": "tick"}], "error": ""},
-    "get_supervisor_result": {"ok": True, "supervisor_id": "sup_1", "status": "completed", "result": {"summary": "done"}, "error": ""},
-    "resume_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "queued", "result": {"summary": "resumed"}, "error": ""},
-    "pause_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "paused", "result": {"summary": "paused"}, "error": ""},
-    "cancel_supervisor": {"ok": True, "supervisor_id": "sup_1", "status": "cancelled", "result": {"summary": "cancelled"}, "error": ""},
+    "start_codex_plan_task_async": {
+        "ok": True,
+        "run_id": "run_2",
+        "status": "queued",
+        "repo_name": "repo",
+        "result": {},
+        "error": "",
+    },
+    "start_codex_implement_task_async": {
+        "ok": True,
+        "run_id": "run_3",
+        "status": "queued",
+        "repo_name": "repo",
+        "result": {},
+        "error": "",
+    },
+    "get_run_status": {
+        "ok": True,
+        "run_id": "run_2",
+        "status": "running",
+        "repo_name": "repo",
+        "result": {},
+        "error": "",
+    },
+    "get_run_events": {
+        "ok": True,
+        "run_id": "run_2",
+        "events": [{"stage": "queued", "message": "Run queued"}],
+        "error": "",
+    },
+    "get_run_result": {
+        "ok": True,
+        "run_id": "run_2",
+        "status": "completed",
+        "repo_name": "repo",
+        "result": {"summary": "done"},
+        "error": "",
+    },
+    "list_runs": {
+        "ok": True,
+        "runs": [{"run_id": "run_1", "status": "completed", "repo_name": "repo"}],
+        "error": "",
+    },
+    "cancel_run": {
+        "run_id": "run_2",
+        "status": "cancelled",
+        "cancelled": True,
+        "terminated": True,
+    },
+    "start_supervised_recovery_task": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "queued",
+        "result": {"summary": "queued"},
+        "error": "",
+    },
+    "get_supervisor_status": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "needs_input",
+        "result": {"summary": "waiting"},
+        "error": "",
+    },
+    "get_supervisor_events": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "events": [{"stage": "planning", "message": "tick"}],
+        "error": "",
+    },
+    "get_supervisor_result": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "completed",
+        "result": {"summary": "done"},
+        "error": "",
+    },
+    "resume_supervisor": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "queued",
+        "result": {"summary": "resumed"},
+        "error": "",
+    },
+    "pause_supervisor": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "paused",
+        "result": {"summary": "paused"},
+        "error": "",
+    },
+    "cancel_supervisor": {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "status": "cancelled",
+        "result": {"summary": "cancelled"},
+        "error": "",
+    },
     "get_supervisor_notifications": {
         "ok": True,
         "supervisor_id": "sup_1",
@@ -153,7 +266,13 @@ REALISTIC_ACTION_OUTPUTS = {
         "query": "def main",
         "directory": "",
         "case_sensitive": False,
-        "hits": [{"path": "codexbridge/server.py", "line": 10, "snippet": "def main() -> None:"}],
+        "hits": [
+            {
+                "path": "codexbridge/server.py",
+                "line": 10,
+                "snippet": "def main() -> None:",
+            }
+        ],
         "count": 1,
         "truncated": False,
         "max_results": 50,
@@ -251,7 +370,15 @@ REALISTIC_ACTION_OUTPUTS = {
     "git_log": {
         "ok": True,
         "repo_name": "repo",
-        "commits": [{"sha": "a" * 40, "author_name": "Dev", "author_email": "d@example.com", "date": "2026-06-24", "subject": "fix: patch"}],
+        "commits": [
+            {
+                "sha": "a" * 40,
+                "author_name": "Dev",
+                "author_email": "d@example.com",
+                "date": "2026-06-24",
+                "subject": "fix: patch",
+            }
+        ],
         "count": 1,
         "path": "",
         "error": "",
@@ -259,7 +386,9 @@ REALISTIC_ACTION_OUTPUTS = {
     "read_repo_files": {
         "ok": True,
         "repo_name": "repo",
-        "results": [{"ok": True, "path": "README.md", "content": "# hi\n", "error": ""}],
+        "results": [
+            {"ok": True, "path": "README.md", "content": "# hi\n", "error": ""}
+        ],
         "count": 1,
         "truncated_batch": False,
         "error": "",
@@ -392,10 +521,18 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
 
 
 def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> None:
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "run_self_check", lambda **kwargs: {"ok": True, "checks": {}, "error": ""})
-    action = {item["name"]: item for item in discovered_actions()}["run_local_self_check"]
+    monkeypatch.setattr(
+        server,
+        "run_self_check",
+        lambda **kwargs: {"ok": True, "checks": {}, "error": ""},
+    )
+    action = {item["name"]: item for item in discovered_actions()}[
+        "run_local_self_check"
+    ]
 
     result = server.run_local_self_check()
 
@@ -403,9 +540,17 @@ def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> No
 
 
 def test_local_model_health_disabled_does_not_call_http(monkeypatch, tmp_path) -> None:
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "_local_model_urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no HTTP call expected")))
+    monkeypatch.setattr(
+        server,
+        "_local_model_urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("no HTTP call expected")
+        ),
+    )
     action = {item["name"]: item for item in discovered_actions()}["local_model_health"]
 
     result = server.local_model_health()
@@ -416,7 +561,9 @@ def test_local_model_health_disabled_does_not_call_http(monkeypatch, tmp_path) -
     validate(instance=result, schema=action["outputSchema"])
 
 
-def test_local_model_health_success_uses_models_and_tiny_completion(monkeypatch, tmp_path) -> None:
+def test_local_model_health_success_uses_models_and_tiny_completion(
+    monkeypatch, tmp_path
+) -> None:
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
@@ -455,14 +602,22 @@ def test_local_model_health_success_uses_models_and_tiny_completion(monkeypatch,
     validate(instance=result, schema=action["outputSchema"])
 
 
-def test_local_model_health_connection_failure_returns_unavailable(monkeypatch, tmp_path) -> None:
+def test_local_model_health_connection_failure_returns_unavailable(
+    monkeypatch, tmp_path
+) -> None:
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
         local_model=LocalModelConfig(enabled=True),
     )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError("refused")))
+    monkeypatch.setattr(
+        server,
+        "_local_model_urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            urllib.error.URLError("refused")
+        ),
+    )
 
     result = server.local_model_health()
 
@@ -478,7 +633,13 @@ def test_local_model_health_timeout_returns_timeout(monkeypatch, tmp_path) -> No
         local_model=LocalModelConfig(enabled=True),
     )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError(socket.timeout("timed out"))))
+    monkeypatch.setattr(
+        server,
+        "_local_model_urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            urllib.error.URLError(socket.timeout("timed out"))
+        ),
+    )
 
     result = server.local_model_health()
 
@@ -486,15 +647,27 @@ def test_local_model_health_timeout_returns_timeout(monkeypatch, tmp_path) -> No
     assert result["ok"] is False
 
 
-def test_local_model_health_model_missing_does_not_run_completion(monkeypatch, tmp_path) -> None:
+def test_local_model_health_model_missing_does_not_run_completion(
+    monkeypatch, tmp_path
+) -> None:
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
         local_model=LocalModelConfig(enabled=True, model="missing-model"),
     )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: FakeResponse({"data": [{"id": "llama3.2"}]}))
-    monkeypatch.setattr(server, "_local_model_transport", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("completion should not run")))
+    monkeypatch.setattr(
+        server,
+        "_local_model_urlopen",
+        lambda request, timeout: FakeResponse({"data": [{"id": "llama3.2"}]}),
+    )
+    monkeypatch.setattr(
+        server,
+        "_local_model_transport",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("completion should not run")
+        ),
+    )
 
     result = server.local_model_health()
 
@@ -503,14 +676,20 @@ def test_local_model_health_model_missing_does_not_run_completion(monkeypatch, t
     assert result["completion_succeeded"] is False
 
 
-def test_local_model_health_malformed_models_response_returns_failed(monkeypatch, tmp_path) -> None:
+def test_local_model_health_malformed_models_response_returns_failed(
+    monkeypatch, tmp_path
+) -> None:
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
         local_model=LocalModelConfig(enabled=True),
     )
     server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(server, "_local_model_urlopen", lambda request, timeout: FakeResponse({"models": ["llama3.2"]}))
+    monkeypatch.setattr(
+        server,
+        "_local_model_urlopen",
+        lambda request, timeout: FakeResponse({"models": ["llama3.2"]}),
+    )
 
     result = server.local_model_health()
 
@@ -522,7 +701,13 @@ def test_local_model_health_malformed_models_response_returns_failed(monkeypatch
 def test_list_runs_output_matches_schema(monkeypatch) -> None:
     class FakeJobManager:
         def list_runs(self, repo_name=None, status=None, limit=20):
-            return [{"run_id": "run_1", "status": "completed", "repo_name": repo_name or "repo"}]
+            return [
+                {
+                    "run_id": "run_1",
+                    "status": "completed",
+                    "repo_name": repo_name or "repo",
+                }
+            ]
 
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
     action = {item["name"]: item for item in discovered_actions()}["list_runs"]
@@ -549,7 +734,9 @@ def test_run_status_events_result_and_supervisor_schemas_are_present() -> None:
 
 def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     server.set_config(config, tmp_path / "config.yaml")
     monkeypatch.setattr(
         server,
@@ -562,7 +749,9 @@ def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -
             "changed_files": ["codexbridge/server.py"],
         },
     )
-    action = {item["name"]: item for item in discovered_actions()}["inspect_repo_status"]
+    action = {item["name"]: item for item in discovered_actions()}[
+        "inspect_repo_status"
+    ]
 
     result = server.inspect_repo_status("repo")
 
@@ -583,10 +772,14 @@ def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
         def get_notifications(self, supervisor_id, delivery_status=None, limit=50):
             return [{"id": 1, "delivery_status": "pending"}]
 
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     server.set_config(config, tmp_path / "config.yaml")
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
-    monkeypatch.setattr(server, "get_supervisor_service", lambda: FakeSupervisorService())
+    monkeypatch.setattr(
+        server, "get_supervisor_service", lambda: FakeSupervisorService()
+    )
     actions = {item["name"]: item for item in discovered_actions()}
 
     run_events = server.get_run_events("run_1")
@@ -597,5 +790,11 @@ def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
     assert supervisor_events["supervisor_id"] == "sup_1"
     assert notifications["supervisor_id"] == "sup_1"
     validate(instance=run_events, schema=actions["get_run_events"]["outputSchema"])
-    validate(instance=supervisor_events, schema=actions["get_supervisor_events"]["outputSchema"])
-    validate(instance=notifications, schema=actions["get_supervisor_notifications"]["outputSchema"])
+    validate(
+        instance=supervisor_events,
+        schema=actions["get_supervisor_events"]["outputSchema"],
+    )
+    validate(
+        instance=notifications,
+        schema=actions["get_supervisor_notifications"]["outputSchema"],
+    )

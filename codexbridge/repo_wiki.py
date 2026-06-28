@@ -88,7 +88,9 @@ _TEXT_SUFFIXES = {
     ".c",
     ".h",
 }
-_IMPORT_RE = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE)
+_IMPORT_RE = re.compile(
+    r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE
+)
 _JS_IMPORT_RE = re.compile(r"(?:from\s+|require\s*\(\s*)['\"]([^'\"]+)['\"]")
 _JS_SYMBOL_RE = re.compile(
     r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)",
@@ -178,7 +180,9 @@ class RepoWikiService:
             "scan_truncated": truncated,
             "source_files": source_files,
         }
-        _atomic_write(self.manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        _atomic_write(
+            self.manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        )
         return {
             "ok": True,
             "repo_name": self.repo_name,
@@ -224,7 +228,9 @@ class RepoWikiService:
         if not self.wiki_root.exists():
             return hits
         for path in sorted(self.wiki_root.glob("*.md")):
-            for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
                 if needle in line.casefold():
                     hits.append(
                         {
@@ -250,13 +256,17 @@ class RepoWikiService:
     def _scan_source_files(self) -> tuple[list[dict[str, Any]], bool]:
         records: list[dict[str, Any]] = []
         truncated = False
-        for root, dirnames, filenames in os.walk(self.repo_root, topdown=True, followlinks=False):
+        for root, dirnames, filenames in os.walk(
+            self.repo_root, topdown=True, followlinks=False
+        ):
             root_path = Path(root)
             dirnames[:] = sorted(
                 name
                 for name in dirnames
                 if name not in _BLOCKED_DIRS
-                and not (root_path == self.repo_root / ".codexbridge" and name == "wiki")
+                and not (
+                    root_path == self.repo_root / ".codexbridge" and name == "wiki"
+                )
                 and not (root_path / name).is_symlink()
             )
             for filename in sorted(filenames):
@@ -288,7 +298,9 @@ class RepoWikiService:
         lowered_name = path.name.lower()
         if lowered_name in _BLOCKED_FILES or path.suffix.lower() in _BLOCKED_SUFFIXES:
             return False
-        lowered_parts = {part.lower() for part in path.relative_to(self.repo_root).parts}
+        lowered_parts = {
+            part.lower() for part in path.relative_to(self.repo_root).parts
+        }
         if lowered_parts & _BLOCKED_DIRS:
             return False
         if any(part in {"secrets", "credentials"} for part in lowered_parts):
@@ -339,8 +351,12 @@ class RepoWikiService:
                 modules.append(self._analyse_javascript(path, text))
 
         return {
-            "language_counts": dict(sorted(language_counts.items(), key=lambda item: (-item[1], item[0]))),
-            "top_level": dict(sorted(top_level.items(), key=lambda item: (-item[1], item[0]))),
+            "language_counts": dict(
+                sorted(language_counts.items(), key=lambda item: (-item[1], item[0]))
+            ),
+            "top_level": dict(
+                sorted(top_level.items(), key=lambda item: (-item[1], item[0]))
+            ),
             "important_files": important,
             "project_types": project_types,
             "modules": sorted(modules, key=lambda item: item["path"]),
@@ -385,14 +401,21 @@ class RepoWikiService:
         return {
             "path": path,
             "module": path,
-            "kind": "javascript" if Path(path).suffix.lower() in {".js", ".jsx"} else "typescript",
+            "kind": "javascript"
+            if Path(path).suffix.lower() in {".js", ".jsx"}
+            else "typescript",
             "summary": "",
             "classes": [],
             "functions": symbols[:80],
             "imports": imports[:100],
         }
 
-    def _render_overview(self, source_files: list[dict[str, Any]], analysis: dict[str, Any], truncated: bool) -> str:
+    def _render_overview(
+        self,
+        source_files: list[dict[str, Any]],
+        analysis: dict[str, Any],
+        truncated: bool,
+    ) -> str:
         lines = [
             f"# {self.repo_name} repository wiki",
             "",
@@ -415,7 +438,17 @@ class RepoWikiService:
         lines.extend(["", "## Important files", ""])
         for path in analysis["important_files"][:80]:
             lines.append(f"- `{path}`")
-        lines.extend(["", "## Wiki pages", "", "- [Architecture](architecture.md)", "- [Modules](modules.md)", "- [Validation](validation.md)", ""])
+        lines.extend(
+            [
+                "",
+                "## Wiki pages",
+                "",
+                "- [Architecture](architecture.md)",
+                "- [Modules](modules.md)",
+                "- [Validation](validation.md)",
+                "",
+            ]
+        )
         return "\n".join(lines)
 
     def _render_architecture(self, analysis: dict[str, Any]) -> str:
@@ -433,7 +466,9 @@ class RepoWikiService:
         edges = analysis["dependency_edges"][:120]
         if edges:
             for source, target in edges:
-                lines.append(f"    {self._mermaid_id(source)}[{source}] --> {self._mermaid_id(target)}[{target}]")
+                lines.append(
+                    f"    {self._mermaid_id(source)}[{source}] --> {self._mermaid_id(target)}[{target}]"
+                )
         else:
             lines.append("    repo[Repository] --> modules[Modules]")
         lines.extend(["```", "", "## Architectural module summary", ""])
@@ -461,16 +496,33 @@ class RepoWikiService:
                 lines.append(f"- Functions/symbols: {', '.join(module['functions'])}")
             lines.append("")
         if len(analysis["modules"]) > 400:
-            lines.extend([f"_Module list truncated: {len(analysis['modules']) - 400} additional modules._", ""])
+            lines.extend(
+                [
+                    f"_Module list truncated: {len(analysis['modules']) - 400} additional modules._",
+                    "",
+                ]
+            )
         return "\n".join(lines)
 
-    def _render_validation(self, source_files: list[dict[str, Any]], analysis: dict[str, Any]) -> str:
+    def _render_validation(
+        self, source_files: list[dict[str, Any]], analysis: dict[str, Any]
+    ) -> str:
         path_set = {item["path"] for item in source_files}
         commands: list[str] = []
-        if "pyproject.toml" in path_set or "pytest.ini" in path_set or "tox.ini" in path_set:
+        if (
+            "pyproject.toml" in path_set
+            or "pytest.ini" in path_set
+            or "tox.ini" in path_set
+        ):
             commands.append("python -m pytest -q")
-        if "pyproject.toml" in path_set or "ruff.toml" in path_set or ".ruff.toml" in path_set:
-            commands.extend(["python -m ruff format --check .", "python -m ruff check ."])
+        if (
+            "pyproject.toml" in path_set
+            or "ruff.toml" in path_set
+            or ".ruff.toml" in path_set
+        ):
+            commands.extend(
+                ["python -m ruff format --check .", "python -m ruff check ."]
+            )
         if "mypy.ini" in path_set or "pyproject.toml" in path_set:
             commands.append("python -m mypy .")
         if "package.json" in path_set:
@@ -489,7 +541,9 @@ class RepoWikiService:
             "## Detected project types",
             "",
         ]
-        lines.extend(f"- {item}" for item in analysis["project_types"] or ["unclassified"])
+        lines.extend(
+            f"- {item}" for item in analysis["project_types"] or ["unclassified"]
+        )
         lines.extend(["", "## Suggested checks", ""])
         lines.extend(f"- `{command}`" for command in unique_commands)
         lines.extend(["", "## Relevant configuration", ""])
@@ -554,7 +608,11 @@ class RepoWikiService:
     @staticmethod
     def _project_types(paths: set[str]) -> list[str]:
         types: list[str] = []
-        if "pyproject.toml" in paths or "requirements.txt" in paths or any(path.endswith(".py") for path in paths):
+        if (
+            "pyproject.toml" in paths
+            or "requirements.txt" in paths
+            or any(path.endswith(".py") for path in paths)
+        ):
             types.append("Python")
         if "package.json" in paths:
             types.append("Node.js")
@@ -562,7 +620,11 @@ class RepoWikiService:
             types.append("Rust")
         if "go.mod" in paths:
             types.append("Go")
-        if any(Path(path).name == "Dockerfile" for path in paths) or "docker-compose.yml" in paths or "compose.yaml" in paths:
+        if (
+            any(Path(path).name == "Dockerfile" for path in paths)
+            or "docker-compose.yml" in paths
+            or "compose.yaml" in paths
+        ):
             types.append("Containerized")
         return types
 
@@ -582,7 +644,11 @@ class RepoWikiService:
             "src/main.rs",
             "cmd/main.go",
         }
-        result = [path for path in sorted(paths) if path in conventional or Path(path).name in {"__main__.py", "main.go"}]
+        result = [
+            path
+            for path in sorted(paths)
+            if path in conventional or Path(path).name in {"__main__.py", "main.go"}
+        ]
         return result[:50]
 
     @staticmethod

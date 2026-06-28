@@ -34,7 +34,11 @@ def file_size(path: Path | None) -> int:
 
 def sensitivity_flags_for_text(text: str) -> list[str]:
     lowered = text.lower()
-    return [marker.upper().replace(" ", "_").replace(":", "") for marker in SENSITIVE_MARKERS if marker in lowered]
+    return [
+        marker.upper().replace(" ", "_").replace(":", "")
+        for marker in SENSITIVE_MARKERS
+        if marker in lowered
+    ]
 
 
 def read_stable_bytes(path: Path, *, require_stable: bool = True) -> tuple[bytes, bool]:
@@ -44,5 +48,9 @@ def read_stable_bytes(path: Path, *, require_stable: bool = True) -> tuple[bytes
     first_stat = path.stat()
     second = path.read_bytes()
     second_stat = path.stat()
-    stable = first == second and first_stat.st_size == second_stat.st_size and first_stat.st_mtime_ns == second_stat.st_mtime_ns
+    stable = (
+        first == second
+        and first_stat.st_size == second_stat.st_size
+        and first_stat.st_mtime_ns == second_stat.st_mtime_ns
+    )
     return second, stable

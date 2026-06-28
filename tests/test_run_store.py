@@ -37,8 +37,19 @@ def test_run_store_create_list_get_latest_and_reload(tmp_path: Path) -> None:
 
 def test_run_store_updates_status_and_result(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
-    store.create_run(run_id=RUN_ID, repo_name="sample", tool="codex_plan_task", run_dir=tmp_path / "runs" / RUN_ID, input_data={})
-    updated = store.update_run(RUN_ID, status="completed", result_json={"summary": "done"}, safety_failure=False)
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="codex_plan_task",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    updated = store.update_run(
+        RUN_ID,
+        status="completed",
+        result_json={"summary": "done"},
+        safety_failure=False,
+    )
     assert updated["status"] == "completed"
     assert updated["result"]["summary"] == "done"
 

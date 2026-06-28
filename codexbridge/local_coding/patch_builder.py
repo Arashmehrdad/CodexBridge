@@ -7,7 +7,9 @@ from typing import Any
 from .models import LocalPatchOperation, LocalPatchOperationType
 
 
-def apply_operations_to_text(original: str, operations: list[LocalPatchOperation]) -> str:
+def apply_operations_to_text(
+    original: str, operations: list[LocalPatchOperation]
+) -> str:
     text = original
     for operation in operations:
         if operation.operation_type == LocalPatchOperationType.EXACT_TEXT_REPLACE:
@@ -35,7 +37,9 @@ def apply_operations_to_text(original: str, operations: list[LocalPatchOperation
     return text
 
 
-def parse_objective_patch(objective: str, repo_path: Path) -> tuple[Path | None, list[LocalPatchOperation]]:
+def parse_objective_patch(
+    objective: str, repo_path: Path
+) -> tuple[Path | None, list[LocalPatchOperation]]:
     # Compact explicit syntax for local-agent routing:
     # prepare local edit: replace README.md :: old text => new text
     text = objective.strip()
@@ -54,7 +58,13 @@ def parse_objective_patch(objective: str, repo_path: Path) -> tuple[Path | None,
     if text.lower().startswith("append ") and " :: " in text:
         path_part, line = text[len("append ") :].split(" :: ", 1)
         target = Path(path_part.strip())
-        return target, [LocalPatchOperation(operation_type=LocalPatchOperationType.APPEND_LINE, target_file=target, new_text=line.strip())]
+        return target, [
+            LocalPatchOperation(
+                operation_type=LocalPatchOperationType.APPEND_LINE,
+                target_file=target,
+                new_text=line.strip(),
+            )
+        ]
     return None, []
 
 

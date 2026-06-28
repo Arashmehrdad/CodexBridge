@@ -3,6 +3,7 @@ Tests for codexbridge/command_profiles.py.
 Covers blocked-pattern rejection, unknown IDs, built-in profiles,
 repo-level overrides, repository virtual environments, and shell=False execution.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,10 +26,43 @@ from codexbridge.command_profiles import (
 # resolve_command_profile
 # ---------------------------------------------------------------------------
 
+
 def test_resolve_known_builtin() -> None:
     spec = resolve_command_profile("pytest")
     assert spec.command_id == "pytest"
     assert "pytest" in spec.argv
+
+
+def test_ruff_format_has_matching_write_profile() -> None:
+    check = resolve_command_profile("ruff_format_check")
+    formatter = resolve_command_profile("ruff_format")
+
+    assert check.argv == ["python", "-m", "ruff", "format", "--check", "."]
+    assert check.writes_files is False
+    assert formatter.argv == ["python", "-m", "ruff", "format", "."]
+    assert formatter.writes_files is True
+
+
+def test_git_status_is_read_only() -> None:
+    status = resolve_command_profile("git_status")
+
+    assert status.argv == ["git", "status", "--short", "--branch"]
+    assert status.timeout_seconds == 30
+    assert status.description == "Read repository branch and working-tree status"
+    assert status.writes_files is False
+
+
+def test_existing_builtin_profile_ids_remain_unchanged() -> None:
+    assert set(BUILTIN_PROFILES) == {
+        "pytest",
+        "ruff_check",
+        "ruff_format_check",
+        "ruff_format",
+        "mypy",
+        "pip_check",
+        "git_status",
+        "git_diff_check",
+    }
 
 
 def test_resolve_unknown_id_raises() -> None:
@@ -62,23 +96,27 @@ def test_repo_override_unknown_id_falls_through_to_builtin() -> None:
 # CommandProfileSpec.validate – blocked patterns
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("argv", [
-    ["pip install requests"],
-    ["npm install express"],
-    ["cmd.exe", "/c", "dir"],
-    ["powershell", "-Command", "Get-Process"],
-    ["Invoke-Expression", "something"],
-    ["rm -rf /"],
-    ["ssh", "user@host"],
-    ["curl", "https://example.com"],
-    ["wget", "https://example.com/file"],
-    ["echo", "a; rm -rf /"],
-    ["echo", "a && b"],
-    ["echo", "a || b"],
-    ["echo", "a | b"],
-    ["echo", "`rm -rf /`"],
-    ["echo", "$(whoami)"],
-])
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["pip install requests"],
+        ["npm install express"],
+        ["cmd.exe", "/c", "dir"],
+        ["powershell", "-Command", "Get-Process"],
+        ["Invoke-Expression", "something"],
+        ["rm -rf /"],
+        ["ssh", "user@host"],
+        ["curl", "https://example.com"],
+        ["wget", "https://example.com/file"],
+        ["echo", "a; rm -rf /"],
+        ["echo", "a && b"],
+        ["echo", "a || b"],
+        ["echo", "a | b"],
+        ["echo", "`rm -rf /`"],
+        ["echo", "$(whoami)"],
+    ],
+)
 def test_blocked_argv_patterns(argv: list[str]) -> None:
     spec = CommandProfileSpec(command_id="test_cmd", argv=argv)
     with pytest.raises(ValueError, match="Blocked pattern"):
@@ -104,6 +142,7 @@ def test_valid_custom_profile() -> None:
 # Built-in profiles self-validate
 # ---------------------------------------------------------------------------
 
+
 def test_all_builtin_profiles_validate() -> None:
     for name, spec in BUILTIN_PROFILES.items():
         spec.validate()
@@ -113,6 +152,7 @@ def test_all_builtin_profiles_validate() -> None:
 # ---------------------------------------------------------------------------
 # Repository virtual-environment resolution
 # ---------------------------------------------------------------------------
+
 
 def _create_repo_python(repo_root: Path) -> tuple[Path, Path]:
     relative = (
@@ -157,7 +197,9 @@ def test_run_command_uses_repo_virtualenv(tmp_path: Path, monkeypatch) -> None:
     assert captured["kwargs"]["cwd"] == tmp_path
     assert captured["kwargs"]["shell"] is False
     assert captured["kwargs"]["env"]["VIRTUAL_ENV"] == str(expected_venv)
-    assert captured["kwargs"]["env"]["PATH"].split(os.pathsep)[0] == str(expected_python.parent)
+    assert captured["kwargs"]["env"]["PATH"].split(os.pathsep)[0] == str(
+        expected_python.parent
+    )
     assert result["argv"][0] == str(expected_python)
     assert set(result) == {
         "ok",
@@ -199,6 +241,7 @@ def test_repo_virtualenv_path_supports_bare_tools(tmp_path: Path, monkeypatch) -
 # ---------------------------------------------------------------------------
 # run_command_profile – shell=False execution
 # ---------------------------------------------------------------------------
+
 
 def test_run_command_success(tmp_path: Path) -> None:
     spec = CommandProfileSpec(

@@ -7,7 +7,9 @@ from codexbridge.return_loop.atomic_writer import atomic_write_json, atomic_writ
 from .models import CodexEscalationPacket, CodexInvocationResult, CodexPacketArtifact
 
 
-def write_packet_artifacts(packet_dir: Path, packet: CodexEscalationPacket, prompt: str) -> CodexPacketArtifact:
+def write_packet_artifacts(
+    packet_dir: Path, packet: CodexEscalationPacket, prompt: str
+) -> CodexPacketArtifact:
     target = packet_dir / packet.escalation_id
     target.mkdir(parents=True, exist_ok=True)
     packet_path = target / "packet.json"
@@ -20,7 +22,9 @@ def write_packet_artifacts(packet_dir: Path, packet: CodexEscalationPacket, prom
         manifest_path,
         {
             "escalation_id": packet.escalation_id,
-            "relevant_files": [item.model_dump(mode="json") for item in packet.relevant_files],
+            "relevant_files": [
+                item.model_dump(mode="json") for item in packet.relevant_files
+            ],
             "source_artifacts": [str(path) for path in packet.source_artifacts],
         },
     )
@@ -36,7 +40,9 @@ def write_packet_artifacts(packet_dir: Path, packet: CodexEscalationPacket, prom
     )
 
 
-def write_invocation_artifacts(artifacts: CodexPacketArtifact, invocation: dict, result: CodexInvocationResult) -> CodexPacketArtifact:
+def write_invocation_artifacts(
+    artifacts: CodexPacketArtifact, invocation: dict, result: CodexInvocationResult
+) -> CodexPacketArtifact:
     invocation_path = artifacts.packet_dir / "codex_invocation.json"
     result_path = artifacts.packet_dir / "codex_result.json"
     atomic_write_json(invocation_path, invocation)

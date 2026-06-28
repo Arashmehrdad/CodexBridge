@@ -15,7 +15,9 @@ RUN_ID = "20260428T120000Z_codex_plan_task_abcdef12"
 
 
 class StubSupervisorService(SupervisorService):
-    def __init__(self, config: AppConfig, config_path: Path | None, jobs: FakeChildJobBackend):
+    def __init__(
+        self, config: AppConfig, config_path: Path | None, jobs: FakeChildJobBackend
+    ):
         super().__init__(config, config_path)
         self.jobs = jobs
 
@@ -28,12 +30,18 @@ def make_git_repo(path: Path) -> None:
     (path / ".git").mkdir()
 
 
-def make_service(tmp_path: Path) -> tuple[StubSupervisorService, FakeChildJobBackend, AppConfig]:
+def make_service(
+    tmp_path: Path,
+) -> tuple[StubSupervisorService, FakeChildJobBackend, AppConfig]:
     repo = tmp_path / "repo"
     make_git_repo(repo)
     config_path = tmp_path / "config.yaml"
     config_path.write_text("repos: {}\n", encoding="utf-8")
-    config = AppConfig(repos={"codexbridge": RepoConfig(path=str(repo))}, runs_dir=str(tmp_path / "runs"), config_dir=tmp_path)
+    config = AppConfig(
+        repos={"codexbridge": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        config_dir=tmp_path,
+    )
     jobs = FakeChildJobBackend()
     return StubSupervisorService(config, config_path, jobs), jobs, config
 
@@ -54,7 +62,9 @@ def active_run_id(supervisor: dict) -> str:
 
 
 def needs_input(service: StubSupervisorService, jobs: FakeChildJobBackend) -> dict:
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task")
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
     jobs.complete(active_run_id(supervisor), summary="plan", result={"plan": "ok"})
     return service.resume(supervisor["supervisor_id"])
 
@@ -73,10 +83,14 @@ def supervisor_metadata() -> dict:
     }
 
 
-def test_start_supervised_recovery_task_starts_and_links_source_run(tmp_path: Path) -> None:
+def test_start_supervised_recovery_task_starts_and_links_source_run(
+    tmp_path: Path,
+) -> None:
     service, jobs, config = make_service(tmp_path)
     create_source_run(config)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task", source_run_id=RUN_ID)
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task", source_run_id=RUN_ID
+    )
     assert supervisor["status"] == "planning"
     assert supervisor["run_links"][0]["link_type"] == "source"
     assert supervisor["run_links"][1]["link_type"] == "plan"
@@ -93,18 +107,24 @@ def test_source_run_must_match_repo(tmp_path: Path) -> None:
         input_data={},
     )
     with pytest.raises(ValueError, match="source_run_id"):
-        service.start_supervised_recovery_task("codexbridge", "objective", "task", source_run_id=RUN_ID)
+        service.start_supervised_recovery_task(
+            "codexbridge", "objective", "task", source_run_id=RUN_ID
+        )
 
 
 def test_unknown_autonomy_profile_rejected(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     with pytest.raises(ValueError, match="Unknown autonomy_profile"):
-        service.start_supervised_recovery_task("codexbridge", "objective", "task", autonomy_profile="missing")
+        service.start_supervised_recovery_task(
+            "codexbridge", "objective", "task", autonomy_profile="missing"
+        )
 
 
 def test_get_status_enriches_supervisor(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task")
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
     status = service.get_status(supervisor["supervisor_id"])
     assert status["run_links"]
     assert status["resume_prompt_path"].endswith("resume_prompt.txt")
@@ -114,7 +134,9 @@ def test_get_status_enriches_supervisor(tmp_path: Path) -> None:
 
 def test_get_events_returns_limited_ordered_events(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task")
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
     events = service.get_events(supervisor["supervisor_id"], limit=1)
     assert len(events) == 1
     assert events[0]["stage"] == "planning"
@@ -126,7 +148,10 @@ def test_get_result_surfaces_plan_and_implementation_results(tmp_path: Path) -> 
     implementing = service.store.update_supervisor(
         current["supervisor_id"],
         status="completed",
-        metadata_json={**current["metadata"], "implementation_result": {"summary": "done"}},
+        metadata_json={
+            **current["metadata"],
+            "implementation_result": {"summary": "done"},
+        },
     )
     result = service.get_result(implementing["supervisor_id"])
     assert result["plan_result"]["plan"] == "ok"
@@ -146,11 +171,17 @@ def test_get_resume_prompt_existing_and_missing(tmp_path: Path) -> None:
 
 def test_get_notifications_filters_status_and_limit(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "use login credentials")
-    notes = service.get_notifications(supervisor["supervisor_id"], delivery_status="pending", limit=1)
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "use login credentials"
+    )
+    notes = service.get_notifications(
+        supervisor["supervisor_id"], delivery_status="pending", limit=1
+    )
     assert len(notes) == 1
     with pytest.raises(ValueError, match="Invalid delivery_status"):
-        service.get_notifications(supervisor["supervisor_id"], delivery_status="unknown")
+        service.get_notifications(
+            supervisor["supervisor_id"], delivery_status="unknown"
+        )
 
 
 def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
@@ -165,9 +196,13 @@ def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
     assert len(jobs.jobs) == 1
 
 
-def test_resume_planning_and_implementing_advance_after_child_completion(tmp_path: Path) -> None:
+def test_resume_planning_and_implementing_advance_after_child_completion(
+    tmp_path: Path,
+) -> None:
     service, jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task")
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
     jobs.complete(active_run_id(supervisor), summary="plan")
     current = service.resume(supervisor["supervisor_id"])
     assert current["status"] == "needs_input"
@@ -175,7 +210,9 @@ def test_resume_planning_and_implementing_advance_after_child_completion(tmp_pat
     from codexbridge.supervisor_engine import SupervisorEngine
 
     engine = SupervisorEngine(service.store, jobs)
-    implementing = engine.approve_plan(current["supervisor_id"], "approved", ["README.md"], [])
+    implementing = engine.approve_plan(
+        current["supervisor_id"], "approved", ["README.md"], []
+    )
     jobs.complete(active_run_id(implementing), summary="done")
     completed = service.resume(current["supervisor_id"])
     assert completed["status"] == "completed"
@@ -183,7 +220,9 @@ def test_resume_planning_and_implementing_advance_after_child_completion(tmp_pat
 
 def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
-    created = service.store.create_supervisor(repo_name="codexbridge", objective="objective", metadata=supervisor_metadata())
+    created = service.store.create_supervisor(
+        repo_name="codexbridge", objective="objective", metadata=supervisor_metadata()
+    )
     paused = service.pause(created["supervisor_id"])
     assert paused["status"] == "paused"
     resumed = service.resume(created["supervisor_id"])
@@ -195,7 +234,9 @@ def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> Non
 
 def test_cancel_supervisor_delegates_engine_cancel(tmp_path: Path) -> None:
     service, jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task("codexbridge", "objective", "task")
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
     cancelled = service.cancel(supervisor["supervisor_id"])
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(supervisor)).cancel_requested is True

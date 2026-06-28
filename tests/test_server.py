@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from codexbridge.git_tools import CommitMetadataError
 from codexbridge.server import parse_args
 import codexbridge.server as server
 
@@ -62,21 +63,76 @@ class FakeSupervisorService:
         return {"tool": "cancel"}
 
     def get_notifications(self, supervisor_id, delivery_status, limit):
-        return [{"tool": "notifications", "delivery_status": delivery_status, "limit": limit}]
+        return [
+            {
+                "tool": "notifications",
+                "delivery_status": delivery_status,
+                "limit": limit,
+            }
+        ]
 
     def get_resume_prompt(self, supervisor_id):
         return {"tool": "prompt"}
 
 
 def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
-    monkeypatch.setattr(server, "get_supervisor_service", lambda: FakeSupervisorService())
+    monkeypatch.setattr(
+        server, "get_supervisor_service", lambda: FakeSupervisorService()
+    )
     supervisor_id = "20260428T120000Z_supervisor_abcdef12"
-    assert server.start_supervised_recovery_task("repo", "objective", "task")["tool"] == "start"
+    assert (
+        server.start_supervised_recovery_task("repo", "objective", "task")["tool"]
+        == "start"
+    )
     assert server.get_supervisor_status(supervisor_id)["tool"] == "status"
     assert server.get_supervisor_events(supervisor_id, 5)[0]["limit"] == 5
     assert server.get_supervisor_result(supervisor_id)["tool"] == "result"
     assert server.resume_supervisor(supervisor_id)["tool"] == "resume"
     assert server.pause_supervisor(supervisor_id)["tool"] == "pause"
     assert server.cancel_supervisor(supervisor_id)["tool"] == "cancel"
-    assert server.get_supervisor_notifications(supervisor_id, "pending", 3)[0]["delivery_status"] == "pending"
+    assert (
+        server.get_supervisor_notifications(supervisor_id, "pending", 3)[0][
+            "delivery_status"
+        ]
+        == "pending"
+    )
     assert server.get_supervisor_resume_prompt(supervisor_id)["tool"] == "prompt"
+
+
+def test_commit_tool_returns_structured_metadata_rejection(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "resolve_repo",
+        lambda _config, _repo_name: tmp_path,
+    )
+
+    def reject_metadata(*_args, **_kwargs):
+        raise CommitMetadataError(
+            "description",
+            "too_long",
+            "Commit description exceeds the configured limit",
+            files_validated=True,
+        )
+
+    monkeypatch.setattr(server, "commit_files", reject_metadata)
+
+    result = server.commit_selected_files(
+        "repo",
+        ["safe.txt"],
+        "fix: metadata handling",
+        "ordinary description",
+    )
+
+    assert result == {
+        "ok": False,
+        "repo_name": "repo",
+        "files_validated": True,
+        "blocked_field": "description",
+        "reason_code": "too_long",
+        "reason": "Commit description exceeds the configured limit",
+        "error": "Commit description exceeds the configured limit",
+    }

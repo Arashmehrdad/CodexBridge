@@ -40,7 +40,9 @@ class PermissionTier(str, Enum):
     LONG_RUNNING_NON_DESTRUCTIVE_JOB = "long_running_non_destructive_job"
     WRITE_PREVIEW_DRY_RUN = "write_preview_dry_run"
     WRITE_APPLY_DELEGATED_APPROVAL = "write_apply_under_delegated_approval"
-    COMMIT_PRIVATE_BRANCH_PUSH_DELEGATED_APPROVAL = "commit_private_branch_push_under_delegated_approval"
+    COMMIT_PRIVATE_BRANCH_PUSH_DELEGATED_APPROVAL = (
+        "commit_private_branch_push_under_delegated_approval"
+    )
     HUMAN_ONLY_RISKY_ACTION = "human_only_risky_action"
 
 

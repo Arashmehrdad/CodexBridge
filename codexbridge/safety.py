@@ -19,12 +19,17 @@ DESTRUCTIVE_PATTERNS = [
 
 SECRET_FILE_PATTERNS = [
     re.compile(r"(^|[\\/])\.env(\.|$|[\\/])?", re.IGNORECASE),
-    re.compile(r"(secret|secrets|credential|credentials|token|apikey|api_key|private[_-]?key)", re.IGNORECASE),
+    re.compile(
+        r"(secret|secrets|credential|credentials|token|apikey|api_key|private[_-]?key)",
+        re.IGNORECASE,
+    ),
     re.compile(r"\.(pem|key|p12|pfx)$", re.IGNORECASE),
 ]
 
 SECRET_VALUE_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]\s*['\"]?[^'\"\s]+"),
+    re.compile(
+        r"(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]\s*['\"]?[^'\"\s]+"
+    ),
     re.compile(r"(?i)(bearer)\s+[a-z0-9._\-]+"),
 ]
 
@@ -46,7 +51,9 @@ def validate_repo_relative_path(repo_root: Path, relative_path: str) -> Path:
     raw = relative_path.replace("\\", "/")
     win = PureWindowsPath(relative_path)
     if win.is_absolute() or win.drive or raw.startswith("//"):
-        raise ValueError(f"Absolute, drive, and UNC paths are not allowed: {relative_path}")
+        raise ValueError(
+            f"Absolute, drive, and UNC paths are not allowed: {relative_path}"
+        )
     if Path(relative_path).is_absolute():
         raise ValueError(f"Absolute paths are not allowed: {relative_path}")
     if contains_wildcard(relative_path):
@@ -82,5 +89,12 @@ def reject_secret_like_file(path: str) -> None:
 def redact_secret_values(text: str) -> str:
     redacted = text
     for pattern in SECRET_VALUE_PATTERNS:
-        redacted = pattern.sub(lambda match: match.group(0).split(match.group(1), 1)[0] + match.group(1) + "=[REDACTED]", redacted)
+        redacted = pattern.sub(
+            lambda match: (
+                match.group(0).split(match.group(1), 1)[0]
+                + match.group(1)
+                + "=[REDACTED]"
+            ),
+            redacted,
+        )
     return redacted

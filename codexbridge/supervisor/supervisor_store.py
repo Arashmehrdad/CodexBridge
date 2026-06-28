@@ -20,11 +20,15 @@ class LocalSupervisorStore:
     def create(self, run: SupervisorRun) -> SupervisorRun:
         self.run_dir(run.supervisor_id).mkdir(parents=True, exist_ok=True)
         self.write(run)
-        self.append_event(run.supervisor_id, stage="created", message="Supervisor created")
+        self.append_event(
+            run.supervisor_id, stage="created", message="Supervisor created"
+        )
         return run
 
     def write(self, run: SupervisorRun) -> SupervisorRun:
-        atomic_write_json(self.run_dir(run.supervisor_id) / "result.json", run.to_dict())
+        atomic_write_json(
+            self.run_dir(run.supervisor_id) / "result.json", run.to_dict()
+        )
         return run
 
     def get(self, supervisor_id: str) -> SupervisorRun:
@@ -37,7 +41,9 @@ class LocalSupervisorStore:
         runs = []
         for path in self.supervisors_dir.glob("*/result.json"):
             try:
-                runs.append(SupervisorRun.model_validate_json(path.read_text(encoding="utf-8")))
+                runs.append(
+                    SupervisorRun.model_validate_json(path.read_text(encoding="utf-8"))
+                )
             except Exception:
                 continue
         runs.sort(key=lambda item: item.created_at, reverse=True)
@@ -49,15 +55,36 @@ class LocalSupervisorStore:
             setattr(run, key, value)
         self.write(run)
         if "status" in fields:
-            self.append_event(supervisor_id, stage=str(run.status.value), message=f"Supervisor status: {run.status.value}")
+            self.append_event(
+                supervisor_id,
+                stage=str(run.status.value),
+                message=f"Supervisor status: {run.status.value}",
+            )
         return run
 
-    def append_event(self, supervisor_id: str, *, stage: str, message: str, level: str = "info", data: dict | None = None) -> SupervisorEvent:
-        event = SupervisorEvent(timestamp=utc_now(), supervisor_id=supervisor_id, level=level, stage=stage, message=message, data=data or {})
+    def append_event(
+        self,
+        supervisor_id: str,
+        *,
+        stage: str,
+        message: str,
+        level: str = "info",
+        data: dict | None = None,
+    ) -> SupervisorEvent:
+        event = SupervisorEvent(
+            timestamp=utc_now(),
+            supervisor_id=supervisor_id,
+            level=level,
+            stage=stage,
+            message=message,
+            data=data or {},
+        )
         path = self.run_dir(supervisor_id) / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event.model_dump(mode="json"), sort_keys=True) + "\n")
+            handle.write(
+                json.dumps(event.model_dump(mode="json"), sort_keys=True) + "\n"
+            )
         return event
 
     def events(self, supervisor_id: str, limit: int = 50) -> list[SupervisorEvent]:
@@ -65,4 +92,6 @@ class LocalSupervisorStore:
         if not path.exists():
             return []
         lines = path.read_text(encoding="utf-8").splitlines()[-limit:]
-        return [SupervisorEvent.model_validate_json(line) for line in lines if line.strip()]
+        return [
+            SupervisorEvent.model_validate_json(line) for line in lines if line.strip()
+        ]

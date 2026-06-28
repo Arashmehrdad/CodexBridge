@@ -24,11 +24,15 @@ def fake_popen(argv, **kwargs):
     return FakeProcess()
 
 
-def test_orchestrator_routes_explicit_long_job_start_status_and_cancel(tmp_path: Path) -> None:
+def test_orchestrator_routes_explicit_long_job_start_status_and_cancel(
+    tmp_path: Path,
+) -> None:
     manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=fake_popen)
     orchestrator = LocalAgentOrchestrator(job_manager=manager)
 
-    start = orchestrator.handle_task({"objective": "start long job profile dummy_success", "repo_path": tmp_path})
+    start = orchestrator.handle_task(
+        {"objective": "start long job profile dummy_success", "repo_path": tmp_path}
+    )
     job_id = start.job_result.job.job_id
     status = orchestrator.handle_task(f"check job status {job_id}")
     cancel = orchestrator.handle_task(f"cancel job {job_id}")
@@ -44,9 +48,13 @@ def test_orchestrator_routes_explicit_long_job_start_status_and_cancel(tmp_path:
 def test_orchestrator_routes_generate_job_report(tmp_path: Path) -> None:
     manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=fake_popen)
     orchestrator = LocalAgentOrchestrator(job_manager=manager)
-    start = orchestrator.handle_task({"objective": "start long job profile dummy_success", "repo_path": tmp_path})
+    start = orchestrator.handle_task(
+        {"objective": "start long job profile dummy_success", "repo_path": tmp_path}
+    )
 
-    report = orchestrator.handle_task(f"generate job report {start.job_result.job.job_id}")
+    report = orchestrator.handle_task(
+        f"generate job report {start.job_result.job.job_id}"
+    )
 
     assert report.job_result.report_path.exists()
     assert report.job_result.resume_prompt_path.exists()
@@ -54,7 +62,9 @@ def test_orchestrator_routes_generate_job_report(tmp_path: Path) -> None:
 
 def test_orchestrator_does_not_route_edit_tasks_to_job_manager(tmp_path: Path) -> None:
     manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=fake_popen)
-    result = LocalAgentOrchestrator(job_manager=manager).handle_task("fix and refactor the long job manager")
+    result = LocalAgentOrchestrator(job_manager=manager).handle_task(
+        "fix and refactor the long job manager"
+    )
 
     assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
     assert result.job_result is None

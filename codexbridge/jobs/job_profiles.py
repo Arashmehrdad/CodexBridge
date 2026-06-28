@@ -21,7 +21,11 @@ BUILTIN_JOB_PROFILES: MappingProxyType[str, JobProfile] = MappingProxyType(
         ),
         "dummy_failure": JobProfile(
             profile_id="dummy_failure",
-            argv=[sys.executable, "-c", "import sys; print('dummy failure', file=sys.stderr); sys.exit(2)"],
+            argv=[
+                sys.executable,
+                "-c",
+                "import sys; print('dummy failure', file=sys.stderr); sys.exit(2)",
+            ],
             permission_tier=PermissionTier.LONG_RUNNING_NON_DESTRUCTIVE_JOB,
             timeout_seconds=30,
             allowed_artifact_globs=[],

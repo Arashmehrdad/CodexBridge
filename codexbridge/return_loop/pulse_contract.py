@@ -8,7 +8,13 @@ from codexbridge.run_store import utc_now
 
 from .atomic_writer import atomic_write_json
 from .models import ReportManifest, ReportReadinessResult, ReturnLoopStatus
-from .report_manifest import file_sha256, file_size, read_stable_bytes, sensitivity_flags_for_text, sha256_bytes
+from .report_manifest import (
+    file_sha256,
+    file_size,
+    read_stable_bytes,
+    sensitivity_flags_for_text,
+    sha256_bytes,
+)
 
 READY_SOURCE_STATUSES = {
     "completed",
@@ -117,13 +123,34 @@ def build_report_manifest(
     return manifest
 
 
-def check_report_readiness(manifest_path: Path, *, config: ReturnLoopConfig | None = None) -> ReportReadinessResult:
+def check_report_readiness(
+    manifest_path: Path, *, config: ReturnLoopConfig | None = None
+) -> ReportReadinessResult:
     if not manifest_path.exists():
-        return ReportReadinessResult(manifest_path=manifest_path, status=ReturnLoopStatus.INVALID, ready=False, blocked_reason="Manifest is missing.")
-    manifest = ReportManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    if manifest.status == ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER or manifest.delivered:
-        return ReportReadinessResult(manifest_path=manifest_path, status=manifest.status, ready=False, blocked_reason="Already delivered.", manifest=manifest)
-    settings = config or ReturnLoopConfig(max_resume_prompt_bytes=manifest.max_content_bytes, max_report_bytes=manifest.max_report_bytes)
+        return ReportReadinessResult(
+            manifest_path=manifest_path,
+            status=ReturnLoopStatus.INVALID,
+            ready=False,
+            blocked_reason="Manifest is missing.",
+        )
+    manifest = ReportManifest.model_validate_json(
+        manifest_path.read_text(encoding="utf-8")
+    )
+    if (
+        manifest.status == ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER
+        or manifest.delivered
+    ):
+        return ReportReadinessResult(
+            manifest_path=manifest_path,
+            status=manifest.status,
+            ready=False,
+            blocked_reason="Already delivered.",
+            manifest=manifest,
+        )
+    settings = config or ReturnLoopConfig(
+        max_resume_prompt_bytes=manifest.max_content_bytes,
+        max_report_bytes=manifest.max_report_bytes,
+    )
     status, blocked_reason, sensitivity_flags, hashes, sizes = _evaluate_files(
         report_path=manifest.report_path,
         resume_prompt_path=manifest.resume_prompt_path,
@@ -143,7 +170,14 @@ def check_report_readiness(manifest_path: Path, *, config: ReturnLoopConfig | No
     manifest.report_bytes = sizes.get("report", 0)
     manifest.result_bytes = sizes.get("result", 0)
     atomic_write_json(manifest_path, manifest.to_dict())
-    return ReportReadinessResult(manifest_path=manifest_path, status=status, ready=manifest.ready, blocked_reason=blocked_reason, sensitivity_flags=sensitivity_flags, manifest=manifest)
+    return ReportReadinessResult(
+        manifest_path=manifest_path,
+        status=status,
+        ready=manifest.ready,
+        blocked_reason=blocked_reason,
+        sensitivity_flags=sensitivity_flags,
+        manifest=manifest,
+    )
 
 
 def mark_sent_by_external_pulsesender(
@@ -153,7 +187,9 @@ def mark_sent_by_external_pulsesender(
     sender_id: str | None = None,
     delivery_hash: str | None = None,
 ) -> ReportManifest:
-    manifest = ReportManifest.model_validate_json(Path(manifest_path).read_text(encoding="utf-8"))
+    manifest = ReportManifest.model_validate_json(
+        Path(manifest_path).read_text(encoding="utf-8")
+    )
     manifest.status = ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER
     manifest.ready = False
     manifest.delivered = True
@@ -172,8 +208,14 @@ def discover_ready_reports(runs_dir: Path) -> list[ReportManifest]:
         if not root.exists():
             continue
         for manifest_path in root.glob("*/pulse_manifest.json"):
-            manifest = ReportManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-            if manifest.ready and manifest.status == ReturnLoopStatus.READY and not manifest.delivered:
+            manifest = ReportManifest.model_validate_json(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            if (
+                manifest.ready
+                and manifest.status == ReturnLoopStatus.READY
+                and not manifest.delivered
+            ):
                 manifests.append(manifest)
     manifests.sort(key=lambda item: (item.created_at, item.artifact_id))
     return manifests
@@ -187,12 +229,28 @@ def _evaluate_files(
     source_status: str,
     settings: ReturnLoopConfig,
 ) -> tuple[ReturnLoopStatus, str, list[str], dict[str, str], dict[str, int]]:
-    required = [("resume prompt", resume_prompt_path), ("report", report_path), ("result json", result_json_path)]
+    required = [
+        ("resume prompt", resume_prompt_path),
+        ("report", report_path),
+        ("result json", result_json_path),
+    ]
     missing = [name for name, path in required if path is None or not path.exists()]
     if missing:
-        return ReturnLoopStatus.INVALID, f"Missing required files: {', '.join(missing)}", [], {}, {}
+        return (
+            ReturnLoopStatus.INVALID,
+            f"Missing required files: {', '.join(missing)}",
+            [],
+            {},
+            {},
+        )
     if source_status not in READY_SOURCE_STATUSES:
-        return ReturnLoopStatus.BLOCKED, f"Source status is not ready: {source_status}", [], {}, {}
+        return (
+            ReturnLoopStatus.BLOCKED,
+            f"Source status is not ready: {source_status}",
+            [],
+            {},
+            {},
+        )
 
     sizes = {
         "content": file_size(resume_prompt_path),
@@ -200,18 +258,42 @@ def _evaluate_files(
         "result": file_size(result_json_path),
     }
     if sizes["content"] > settings.max_resume_prompt_bytes:
-        return ReturnLoopStatus.TOO_LARGE, "Resume prompt exceeds max bytes.", [], {}, sizes
+        return (
+            ReturnLoopStatus.TOO_LARGE,
+            "Resume prompt exceeds max bytes.",
+            [],
+            {},
+            sizes,
+        )
     if sizes["report"] > settings.max_report_bytes:
         return ReturnLoopStatus.TOO_LARGE, "Report exceeds max bytes.", [], {}, sizes
 
     try:
-        resume_bytes, resume_stable = read_stable_bytes(resume_prompt_path, require_stable=settings.require_stable_file_check)
-        report_bytes, report_stable = read_stable_bytes(report_path, require_stable=settings.require_stable_file_check)
-        result_bytes, result_stable = read_stable_bytes(result_json_path, require_stable=settings.require_stable_file_check)
+        resume_bytes, resume_stable = read_stable_bytes(
+            resume_prompt_path, require_stable=settings.require_stable_file_check
+        )
+        report_bytes, report_stable = read_stable_bytes(
+            report_path, require_stable=settings.require_stable_file_check
+        )
+        result_bytes, result_stable = read_stable_bytes(
+            result_json_path, require_stable=settings.require_stable_file_check
+        )
     except OSError as exc:
-        return ReturnLoopStatus.INVALID, f"Could not read required files: {exc}", [], {}, sizes
+        return (
+            ReturnLoopStatus.INVALID,
+            f"Could not read required files: {exc}",
+            [],
+            {},
+            sizes,
+        )
     if not (resume_stable and report_stable and result_stable):
-        return ReturnLoopStatus.STALE, "Required files were not stable across reads.", [], {}, sizes
+        return (
+            ReturnLoopStatus.STALE,
+            "Required files were not stable across reads.",
+            [],
+            {},
+            sizes,
+        )
 
     text = "\n".join(
         [
@@ -221,7 +303,13 @@ def _evaluate_files(
     )
     sensitivity_flags = sensitivity_flags_for_text(text)
     if sensitivity_flags:
-        return ReturnLoopStatus.SENSITIVE, "Sensitive marker detected in report or resume prompt.", sensitivity_flags, {}, sizes
+        return (
+            ReturnLoopStatus.SENSITIVE,
+            "Sensitive marker detected in report or resume prompt.",
+            sensitivity_flags,
+            {},
+            sizes,
+        )
 
     hashes = {
         "content": sha256_bytes(resume_bytes),

@@ -17,7 +17,9 @@ from .models import CommandRunResult, CommandRunStatus, PermissionTier
 class LocalAgentCommandRunner:
     def __init__(self, config: AppConfig | None = None, runs_dir: Path | None = None):
         self.config = config
-        self.runs_dir = (runs_dir or (config.resolve_runs_dir() if config else Path.cwd() / "runs")).resolve()
+        self.runs_dir = (
+            runs_dir or (config.resolve_runs_dir() if config else Path.cwd() / "runs")
+        ).resolve()
 
     def run_project_command(
         self,
@@ -37,7 +39,11 @@ class LocalAgentCommandRunner:
             task_id=run_id,
             action="command_requested",
             message=f"Command requested: {command_id}",
-            metadata={"command_id": command_id, "repo_name": repo_name, "repo_path": str(repo_path) if repo_path else None},
+            metadata={
+                "command_id": command_id,
+                "repo_name": repo_name,
+                "repo_path": str(repo_path) if repo_path else None,
+            },
         )
         self._append_audit(run_dir, audit_requested.model_dump(mode="json"))
 
@@ -71,7 +77,11 @@ class LocalAgentCommandRunner:
                 error="Command profile arguments are not supported yet.",
             )
 
-        requested_tier = PermissionTier(permission_tier) if permission_tier is not None else profile.permission_tier
+        requested_tier = (
+            PermissionTier(permission_tier)
+            if permission_tier is not None
+            else profile.permission_tier
+        )
         if requested_tier != profile.permission_tier:
             return self._blocked_result(
                 run_dir=run_dir,
@@ -87,7 +97,11 @@ class LocalAgentCommandRunner:
                 error=f"Permission tier mismatch: requested {requested_tier.value}, profile requires {profile.permission_tier.value}",
             )
 
-        effective_timeout = timeout_seconds if timeout_seconds is not None else profile.default_timeout_seconds
+        effective_timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else profile.default_timeout_seconds
+        )
         if effective_timeout > profile.default_timeout_seconds:
             return self._blocked_result(
                 run_dir=run_dir,
@@ -103,7 +117,9 @@ class LocalAgentCommandRunner:
                 error="Requested timeout exceeds command profile maximum.",
             )
 
-        working_directory, repo_error = self._resolve_working_directory(repo_name, repo_path)
+        working_directory, repo_error = self._resolve_working_directory(
+            repo_name, repo_path
+        )
         if repo_error:
             return self._blocked_result(
                 run_dir=run_dir,
@@ -125,7 +141,10 @@ class LocalAgentCommandRunner:
                 task_id=run_id,
                 action="command_allowed",
                 message=f"Command allowed: {command_id}",
-                metadata={"command_id": command_id, "permission_tier": profile.permission_tier.value},
+                metadata={
+                    "command_id": command_id,
+                    "permission_tier": profile.permission_tier.value,
+                },
             ).model_dump(mode="json"),
         )
         started = time.monotonic()
@@ -182,12 +201,19 @@ class LocalAgentCommandRunner:
                 task_id=run_id,
                 action="command_completed",
                 message=f"Command completed with status: {status.value}",
-                metadata={"command_id": command_id, "status": status.value, "exit_code": exit_code, "timed_out": timed_out},
+                metadata={
+                    "command_id": command_id,
+                    "status": status.value,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                },
             ).model_dump(mode="json"),
         )
         return result
 
-    def _resolve_working_directory(self, repo_name: str | None, repo_path: str | Path | None) -> tuple[Path | None, str]:
+    def _resolve_working_directory(
+        self, repo_name: str | None, repo_path: str | Path | None
+    ) -> tuple[Path | None, str]:
         if repo_name:
             if self.config is None:
                 return None, "repo_name requires an AppConfig for resolution."
@@ -249,13 +275,17 @@ class LocalAgentCommandRunner:
         )
         return result
 
-    def _write_artifacts(self, result: CommandRunResult, stdout: str, stderr: str) -> None:
+    def _write_artifacts(
+        self, result: CommandRunResult, stdout: str, stderr: str
+    ) -> None:
         assert result.stdout_path is not None
         assert result.stderr_path is not None
         assert result.result_path is not None
         result.stdout_path.write_text(stdout, encoding="utf-8")
         result.stderr_path.write_text(stderr, encoding="utf-8")
-        result.result_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        result.result_path.write_text(
+            result.model_dump_json(indent=2), encoding="utf-8"
+        )
 
     def _append_audit(self, run_dir: Path, event: dict) -> None:
         append_jsonl(run_dir / "events.jsonl", event)
@@ -272,7 +302,9 @@ def run_project_command(
     config: AppConfig | None = None,
     runs_dir: Path | None = None,
 ) -> CommandRunResult:
-    return LocalAgentCommandRunner(config=config, runs_dir=runs_dir).run_project_command(
+    return LocalAgentCommandRunner(
+        config=config, runs_dir=runs_dir
+    ).run_project_command(
         command_id=command_id,
         repo_name=repo_name,
         repo_path=repo_path,

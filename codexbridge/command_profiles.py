@@ -9,6 +9,7 @@ Rules:
 - Per-repo overrides may be supplied in config.yaml under repos.<name>.command_profiles.
 - Project commands prefer the target repository's local virtual environment.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,8 +23,8 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Limits
 # ---------------------------------------------------------------------------
-MAX_OUTPUT_BYTES = 100_000   # cap combined stdout+stderr
-DEFAULT_TIMEOUT = 120        # seconds
+MAX_OUTPUT_BYTES = 100_000  # cap combined stdout+stderr
+DEFAULT_TIMEOUT = 120  # seconds
 
 # ---------------------------------------------------------------------------
 # Blocked patterns that must never appear in any argv element
@@ -45,9 +46,9 @@ _BLOCKED_ARGV_PATTERNS = [
     re.compile(r"\bssh\b", re.IGNORECASE),
     re.compile(r"\bcurl\b", re.IGNORECASE),
     re.compile(r"\bwget\b", re.IGNORECASE),
-    re.compile(r";|&&|\|\||\|", re.IGNORECASE),   # shell chaining / piping
-    re.compile(r"`"),                               # backtick execution
-    re.compile(r"\$\("),                            # command substitution
+    re.compile(r";|&&|\|\||\|", re.IGNORECASE),  # shell chaining / piping
+    re.compile(r"`"),  # backtick execution
+    re.compile(r"\$\("),  # command substitution
 ]
 
 # Valid command_id format
@@ -61,6 +62,7 @@ class CommandProfileSpec:
     argv: list[str]
     timeout_seconds: int = DEFAULT_TIMEOUT
     description: str = ""
+    writes_files: bool = False
 
     def validate(self) -> None:
         if not self.command_id or not _COMMAND_ID_RE.match(self.command_id):
@@ -97,6 +99,13 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         timeout_seconds=60,
         description="Run ruff format check (no changes written)",
     ),
+    "ruff_format": CommandProfileSpec(
+        command_id="ruff_format",
+        argv=["python", "-m", "ruff", "format", "."],
+        timeout_seconds=60,
+        description="Apply Ruff formatting",
+        writes_files=True,
+    ),
     "mypy": CommandProfileSpec(
         command_id="mypy",
         argv=["python", "-m", "mypy", "."],
@@ -108,6 +117,13 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         argv=["python", "-m", "pip", "check"],
         timeout_seconds=60,
         description="Verify no broken package requirements",
+    ),
+    "git_status": CommandProfileSpec(
+        command_id="git_status",
+        argv=["git", "status", "--short", "--branch"],
+        timeout_seconds=30,
+        description="Read repository branch and working-tree status",
+        writes_files=False,
     ),
     "git_diff_check": CommandProfileSpec(
         command_id="git_diff_check",
@@ -123,7 +139,9 @@ def _parse_repo_profile(raw: dict[str, Any]) -> CommandProfileSpec:
     command_id = str(raw.get("command_id", ""))
     argv = raw.get("argv")
     if not isinstance(argv, list) or not argv:
-        raise ValueError(f"Repo command profile '{command_id}' must have a non-empty argv list")
+        raise ValueError(
+            f"Repo command profile '{command_id}' must have a non-empty argv list"
+        )
     timeout = int(raw.get("timeout_seconds", DEFAULT_TIMEOUT))
     description = str(raw.get("description", ""))
     spec = CommandProfileSpec(
@@ -159,8 +177,7 @@ def resolve_command_profile(
     if profile is None:
         allowed = sorted(BUILTIN_PROFILES.keys())
         raise ValueError(
-            f"Unknown command_id: {command_id!r}. "
-            f"Allowed built-ins: {allowed}"
+            f"Unknown command_id: {command_id!r}. Allowed built-ins: {allowed}"
         )
     return profile
 
@@ -168,6 +185,7 @@ def resolve_command_profile(
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
+
 
 def _virtualenv_candidates(cwd: Path) -> tuple[tuple[str, ...], ...]:
     """Return platform-preferred repository-local Python candidates."""
@@ -256,8 +274,16 @@ def run_command_profile(
         stderr = completed.stderr or ""
         exit_code = completed.returncode
     except subprocess.TimeoutExpired as exc:
-        stdout = (exc.stdout or b"").decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = (exc.stderr or b"").decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        stdout = (
+            (exc.stdout or b"").decode("utf-8", errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
+        stderr = (
+            (exc.stderr or b"").decode("utf-8", errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
         exit_code = 124
         timed_out = True
     except (OSError, PermissionError) as exc:
@@ -293,7 +319,7 @@ def run_command_profile(
         "stdout": stdout,
         "stderr": stderr,
         "output_truncated": output_truncated,
-        "error": f"Timed out after {profile.timeout_seconds}s" if timed_out else (
-            stderr.strip()[:300] if exit_code != 0 else ""
-        ),
+        "error": f"Timed out after {profile.timeout_seconds}s"
+        if timed_out
+        else (stderr.strip()[:300] if exit_code != 0 else ""),
     }

@@ -75,7 +75,9 @@ def _wait_for_endpoint(url: str, timeout_seconds: float = 10.0) -> dict:
     return last
 
 
-def _start_server_probe(config_path: Path, host: str, port: int, path: str, cwd: Path) -> dict:
+def _start_server_probe(
+    config_path: Path, host: str, port: int, path: str, cwd: Path
+) -> dict:
     command = [
         sys.executable,
         "-m",
@@ -91,7 +93,9 @@ def _start_server_probe(config_path: Path, host: str, port: int, path: str, cwd:
         "--path",
         path,
     ]
-    process = subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     url = f"http://{host}:{port}{path}"
     try:
         readiness = _wait_for_endpoint(url)
@@ -139,26 +143,43 @@ def run_self_check(
             config = load_config(config_path or "config.yaml")
             checks["config"] = {"ok": True, "path": str(config_path)}
         except Exception as exc:
-            checks["config"] = {"ok": False, "path": str(config_path), "error": str(exc)}
+            checks["config"] = {
+                "ok": False,
+                "path": str(config_path),
+                "error": str(exc),
+            }
     else:
-        checks["config"] = {"ok": True, "path": str(config_path) if config_path else None}
+        checks["config"] = {
+            "ok": True,
+            "path": str(config_path) if config_path else None,
+        }
 
     checks["pip_check"] = _run([sys.executable, "-m", "pip", "check"], root)
     checks["git_status"] = _run(["git", "status", "--short", "--branch"], root)
     if not (root / ".git").exists() and not checks["git_status"]["ok"]:
         checks["git_status"]["ok"] = True
-        checks["git_status"]["warning"] = "CodexBridge workspace is not a git repo; target repos are validated from config."
+        checks["git_status"]["warning"] = (
+            "CodexBridge workspace is not a git repo; target repos are validated from config."
+        )
     if run_tests:
-        checks["pytest"] = _run([sys.executable, "-m", "pytest", "-q"], root, timeout=300)
+        checks["pytest"] = _run(
+            [sys.executable, "-m", "pytest", "-q"], root, timeout=300
+        )
 
     try:
         store = RunStore(config.resolve_runs_dir() if config else root / "runs")
-        checks["run_store"] = {"ok": store.journal_mode() == "wal", "db_path": str(store.db_path), "journal_mode": store.journal_mode()}
+        checks["run_store"] = {
+            "ok": store.journal_mode() == "wal",
+            "db_path": str(store.db_path),
+            "journal_mode": store.journal_mode(),
+        }
     except Exception as exc:
         checks["run_store"] = {"ok": False, "error": str(exc)}
 
     try:
-        supervisor_store = SupervisorStore(config.resolve_runs_dir() if config else root / "runs")
+        supervisor_store = SupervisorStore(
+            config.resolve_runs_dir() if config else root / "runs"
+        )
         required_tables = {
             "supervisors",
             "supervisor_events",
@@ -169,7 +190,9 @@ def run_self_check(
         with supervisor_store.connect() as conn:
             existing_tables = {
                 row[0]
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
             }
         missing_tables = sorted(required_tables - existing_tables)
         journal_mode = supervisor_store.journal_mode()
@@ -202,11 +225,16 @@ def run_self_check(
         checks["supervisor_resume_prompts"] = {
             "ok": config.resolve_runs_dir().exists(),
             "root": str(supervisor_prompt_root),
-            "pattern": str(supervisor_prompt_root / "<supervisor_id>" / "resume_prompt.txt"),
+            "pattern": str(
+                supervisor_prompt_root / "<supervisor_id>" / "resume_prompt.txt"
+            ),
         }
     else:
         checks["supervisor_config"] = {"ok": False, "error": "config unavailable"}
-        checks["supervisor_resume_prompts"] = {"ok": False, "error": "config unavailable"}
+        checks["supervisor_resume_prompts"] = {
+            "ok": False,
+            "error": "config unavailable",
+        }
 
     if run_live_server:
         if config_path is None:
@@ -223,7 +251,9 @@ def run_self_check(
             }
         else:
             port = live_port or _free_port(live_host)
-            checks["transport"] = _start_server_probe(Path(config_path).resolve(), live_host, port, live_path, root)
+            checks["transport"] = _start_server_probe(
+                Path(config_path).resolve(), live_host, port, live_path, root
+            )
     else:
         checks["transport"] = {"ok": True, "transport_ready": None, "skipped": True}
 

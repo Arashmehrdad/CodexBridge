@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from codexbridge.config import LocalCodingConfig
-from codexbridge.local_agent.models import CommandRunResult, CommandRunStatus, PermissionTier
+from codexbridge.local_agent.models import (
+    CommandRunResult,
+    CommandRunStatus,
+    PermissionTier,
+)
 from codexbridge.local_coding import (
     LocalCodingManager,
     LocalCodingRequest,
@@ -21,7 +25,9 @@ class FakeCommandRunner:
         self.status = status
         self.calls: list[str] = []
 
-    def run_project_command(self, *, command_id: str, repo_name=None, repo_path=None, **kwargs):
+    def run_project_command(
+        self, *, command_id: str, repo_name=None, repo_path=None, **kwargs
+    ):
         self.calls.append(command_id)
         return CommandRunResult(
             run_id=f"run_{command_id}",
@@ -44,7 +50,9 @@ class FakeCommandRunner:
         )
 
 
-def make_manager(tmp_path: Path, repo: Path, *, apply_enabled: bool = False, runner=None) -> LocalCodingManager:
+def make_manager(
+    tmp_path: Path, repo: Path, *, apply_enabled: bool = False, runner=None
+) -> LocalCodingManager:
     return LocalCodingManager(
         runs_dir=tmp_path / "runs" / "local_coding",
         config=LocalCodingConfig(local_coding_apply_enabled=apply_enabled),
@@ -53,7 +61,9 @@ def make_manager(tmp_path: Path, repo: Path, *, apply_enabled: bool = False, run
     )
 
 
-def replace_request(repo: Path, edit_id: str = "local_edit_readme") -> LocalCodingRequest:
+def replace_request(
+    repo: Path, edit_id: str = "local_edit_readme"
+) -> LocalCodingRequest:
     return LocalCodingRequest(
         edit_id=edit_id,
         objective="fix typo in README",
@@ -71,7 +81,9 @@ def replace_request(repo: Path, edit_id: str = "local_edit_readme") -> LocalCodi
     )
 
 
-def test_eligible_readme_typo_creates_preview_without_modifying_file(tmp_path: Path) -> None:
+def test_eligible_readme_typo_creates_preview_without_modifying_file(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     readme = repo / "README.md"
@@ -133,7 +145,9 @@ def test_docs_line_update_and_json_metadata_preview(tmp_path: Path) -> None:
     assert json_preview.status == LocalCodingStatus.APPROVAL_REQUIRED
 
 
-def test_source_test_multifile_large_huge_path_and_secret_blocks(tmp_path: Path) -> None:
+def test_source_test_multifile_large_huge_path_and_secret_blocks(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     (repo / "tests").mkdir(parents=True)
     (repo / "app.py").write_text("helo\n", encoding="utf-8")
@@ -159,33 +173,72 @@ def test_source_test_multifile_large_huge_path_and_secret_blocks(tmp_path: Path)
             )
         )
 
-    assert preview("local_edit_source", "fix typo in docs", "app.py").status == LocalCodingStatus.BLOCKED
-    assert preview("local_edit_test", "fix typo in docs", "tests/test_app.py").status == LocalCodingStatus.BLOCKED
-    assert preview("local_edit_path", "fix typo in README", "../README.md").status == LocalCodingStatus.BLOCKED
-    assert preview("local_edit_secret", "fix typo in README", "README.md", "password=abc").status == LocalCodingStatus.BLOCKED
-    assert manager.prepare_local_edit(
-        LocalCodingRequest(
-            edit_id="local_edit_large",
-            objective="update one README line",
-            repo_path=repo,
-            operations=[LocalPatchOperation(operation_type=LocalPatchOperationType.APPEND_LINE, target_file=Path("README.md"), new_text="x" * 5000)],
-        )
-    ).status == LocalCodingStatus.BLOCKED
-    assert manager.prepare_local_edit(
-        LocalCodingRequest(
-            edit_id="local_edit_multifile",
-            objective="update docs line",
-            repo_path=repo,
-            operations=[
-                LocalPatchOperation(operation_type=LocalPatchOperationType.APPEND_LINE, target_file=Path("README.md"), new_text="a"),
-                LocalPatchOperation(operation_type=LocalPatchOperationType.APPEND_LINE, target_file=Path("docs/missing.md"), new_text="b"),
-            ],
-        )
-    ).status == LocalCodingStatus.BLOCKED
-    assert preview("local_edit_huge", "fix typo in README", "huge.md").status == LocalCodingStatus.BLOCKED
+    assert (
+        preview("local_edit_source", "fix typo in docs", "app.py").status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        preview("local_edit_test", "fix typo in docs", "tests/test_app.py").status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        preview("local_edit_path", "fix typo in README", "../README.md").status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        preview(
+            "local_edit_secret", "fix typo in README", "README.md", "password=abc"
+        ).status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        manager.prepare_local_edit(
+            LocalCodingRequest(
+                edit_id="local_edit_large",
+                objective="update one README line",
+                repo_path=repo,
+                operations=[
+                    LocalPatchOperation(
+                        operation_type=LocalPatchOperationType.APPEND_LINE,
+                        target_file=Path("README.md"),
+                        new_text="x" * 5000,
+                    )
+                ],
+            )
+        ).status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        manager.prepare_local_edit(
+            LocalCodingRequest(
+                edit_id="local_edit_multifile",
+                objective="update docs line",
+                repo_path=repo,
+                operations=[
+                    LocalPatchOperation(
+                        operation_type=LocalPatchOperationType.APPEND_LINE,
+                        target_file=Path("README.md"),
+                        new_text="a",
+                    ),
+                    LocalPatchOperation(
+                        operation_type=LocalPatchOperationType.APPEND_LINE,
+                        target_file=Path("docs/missing.md"),
+                        new_text="b",
+                    ),
+                ],
+            )
+        ).status
+        == LocalCodingStatus.BLOCKED
+    )
+    assert (
+        preview("local_edit_huge", "fix typo in README", "huge.md").status
+        == LocalCodingStatus.BLOCKED
+    )
 
 
-def test_apply_requires_chatgpt_approval_and_rollback_restores_content(tmp_path: Path) -> None:
+def test_apply_requires_chatgpt_approval_and_rollback_restores_content(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     readme = repo / "README.md"
@@ -193,24 +246,35 @@ def test_apply_requires_chatgpt_approval_and_rollback_restores_content(tmp_path:
     manager = make_manager(tmp_path, repo, apply_enabled=True)
     preview = manager.prepare_local_edit(replace_request(repo))
 
-    blocked = manager.apply_local_edit("local_edit_readme", preview.approval_request_path.stem if preview.approval_request_path else "")
+    blocked = manager.apply_local_edit(
+        "local_edit_readme",
+        preview.approval_request_path.stem if preview.approval_request_path else "",
+    )
     assert blocked.status == LocalCodingStatus.BLOCKED
     approval_id = manager.get("local_edit_readme").approval_request_id
     assert approval_id is not None
-    manager.policy_engine.approval_store.record_decision(approval_id, decided_by="chatgpt", approved=True)
+    manager.policy_engine.approval_store.record_decision(
+        approval_id, decided_by="chatgpt", approved=True
+    )
 
     applied = manager.apply_local_edit("local_edit_readme", approval_id)
     assert applied.status == LocalCodingStatus.VALIDATION_PASSED
     assert readme.read_text(encoding="utf-8") == "hello world\n"
-    assert (tmp_path / "runs" / "local_coding" / "local_edit_readme" / "apply_result.json").exists()
-    assert (tmp_path / "runs" / "local_coding" / "local_edit_readme" / "rollback.patch").exists()
+    assert (
+        tmp_path / "runs" / "local_coding" / "local_edit_readme" / "apply_result.json"
+    ).exists()
+    assert (
+        tmp_path / "runs" / "local_coding" / "local_edit_readme" / "rollback.patch"
+    ).exists()
 
     rolled_back = manager.rollback_local_edit("local_edit_readme")
     assert rolled_back.status == LocalCodingStatus.ROLLED_BACK
     assert readme.read_text(encoding="utf-8") == "helo world\n"
 
 
-def test_apply_rechecks_original_hash_and_unknown_validation_is_blocked(tmp_path: Path) -> None:
+def test_apply_rechecks_original_hash_and_unknown_validation_is_blocked(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     readme = repo / "README.md"
@@ -219,7 +283,9 @@ def test_apply_rechecks_original_hash_and_unknown_validation_is_blocked(tmp_path
     manager.prepare_local_edit(replace_request(repo, "local_edit_hash"))
     approval_id = manager.get("local_edit_hash").approval_request_id
     assert approval_id is not None
-    manager.policy_engine.approval_store.record_decision(approval_id, decided_by="chatgpt", approved=True)
+    manager.policy_engine.approval_store.record_decision(
+        approval_id, decided_by="chatgpt", approved=True
+    )
     readme.write_text("changed elsewhere\n", encoding="utf-8")
 
     result = manager.apply_local_edit("local_edit_hash", approval_id)
@@ -239,7 +305,9 @@ def test_apply_rechecks_original_hash_and_unknown_validation_is_blocked(tmp_path
     )
     approval_id = manager.get("local_edit_unknown_validation").approval_request_id
     assert approval_id is not None
-    manager.policy_engine.approval_store.record_decision(approval_id, decided_by="chatgpt", approved=True)
+    manager.policy_engine.approval_store.record_decision(
+        approval_id, decided_by="chatgpt", approved=True
+    )
     result = manager.apply_local_edit("local_edit_unknown_validation", approval_id)
     assert result.status == LocalCodingStatus.VALIDATION_FAILED
     assert result.validation_results[0]["status"] == "blocked"
@@ -257,7 +325,9 @@ def test_rollback_cannot_affect_unmanaged_edit(tmp_path: Path) -> None:
 def test_fake_local_model_can_draft_tiny_patch_when_enabled(tmp_path: Path) -> None:
     class FakeLocalModel:
         def draft_local_edit(self, objective: str):
-            return type("Proposal", (), {"operations": replace_request(repo).operations})()
+            return type(
+                "Proposal", (), {"operations": replace_request(repo).operations}
+            )()
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -270,10 +340,16 @@ def test_fake_local_model_can_draft_tiny_patch_when_enabled(tmp_path: Path) -> N
         local_model=FakeLocalModel(),
     )
 
-    preview = manager.prepare_local_edit(LocalCodingRequest(edit_id="local_edit_model", objective="fix typo in README", repo_path=repo))
+    preview = manager.prepare_local_edit(
+        LocalCodingRequest(
+            edit_id="local_edit_model", objective="fix typo in README", repo_path=repo
+        )
+    )
 
     assert preview.status == LocalCodingStatus.APPROVAL_REQUIRED
-    assert (tmp_path / "runs" / "local_coding" / "local_edit_model" / "proposal.json").exists()
+    assert (
+        tmp_path / "runs" / "local_coding" / "local_edit_model" / "proposal.json"
+    ).exists()
 
 
 def test_unavailable_local_model_does_not_fail_explicit_patch(tmp_path: Path) -> None:
@@ -297,7 +373,9 @@ def test_unavailable_local_model_does_not_fail_explicit_patch(tmp_path: Path) ->
     assert preview.status == LocalCodingStatus.APPROVAL_REQUIRED
 
 
-def test_local_coding_package_introduces_no_codex_pulsesender_browser_or_subprocess_imports() -> None:
+def test_local_coding_package_introduces_no_codex_pulsesender_browser_or_subprocess_imports() -> (
+    None
+):
     package = Path("codexbridge/local_coding")
     text = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
     assert "PulseSender" not in text

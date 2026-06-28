@@ -36,7 +36,9 @@ def test_discovery_respects_depth_and_git_requirement(tmp_path: Path) -> None:
 def test_new_sibling_repo_is_discovered_without_reload(tmp_path: Path) -> None:
     root = tmp_path / "Github"
     known = make_git_repo(root / "Known")
-    config = AppConfig(repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path
+    )
 
     new_repo = make_git_repo(root / "SeedMind")
 
@@ -48,7 +50,9 @@ def test_folder_name_is_accepted_as_alias(tmp_path: Path) -> None:
     root = tmp_path / "Github"
     known = make_git_repo(root / "Known")
     repo = make_git_repo(root / "AI-Voice-Lead-Agent")
-    config = AppConfig(repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path
+    )
 
     assert resolve_repo(config, "AI-Voice-Lead-Agent") == repo.resolve()
 
@@ -57,23 +61,31 @@ def test_explicit_repo_keeps_priority(tmp_path: Path) -> None:
     root = tmp_path / "Github"
     explicit = make_git_repo(root / "ExplicitSeedMind")
     make_git_repo(root / "seedmind")
-    config = AppConfig(repos={"seedmind": RepoConfig(path=str(explicit))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"seedmind": RepoConfig(path=str(explicit))}, config_dir=tmp_path
+    )
 
     assert resolve_repo(config, "seedmind") == explicit.resolve()
 
 
-def test_discovery_can_be_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_discovery_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     root = tmp_path / "Github"
     known = make_git_repo(root / "Known")
     make_git_repo(root / "SeedMind")
-    config = AppConfig(repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path
+    )
     monkeypatch.setenv("CODEXBRIDGE_AUTO_DISCOVER_REPOS", "0")
 
     with pytest.raises(ValueError, match="Unknown repo_name"):
         resolve_repo(config, "seedmind")
 
 
-def test_environment_root_allows_empty_static_repo_map(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_environment_root_allows_empty_static_repo_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     root = tmp_path / "Github"
     repo = make_git_repo(root / "SeedMind")
     config = AppConfig(repos={}, config_dir=tmp_path)

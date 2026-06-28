@@ -36,7 +36,9 @@ class PolicyDecision:
     estimated_duration_minutes: int = 10
     recommended_check_after_minutes: int = 2
 
-    def to_start_response(self, run_id: str | None = None, status: str = "queued") -> dict:
+    def to_start_response(
+        self, run_id: str | None = None, status: str = "queued"
+    ) -> dict:
         return {
             "run_id": run_id,
             "accepted": self.accepted,
@@ -91,11 +93,15 @@ def profile_snapshot(profile: AutonomyProfile, name: str = "balanced") -> dict:
         "stop_on_requires_human": bool(profile.stop_on_requires_human),
         "max_plan_tier": int(profile.max_plan_tier),
         "max_implementation_tier": int(profile.max_implementation_tier),
-        "require_tests_for_non_docs_changes": bool(profile.require_tests_for_non_docs_changes),
+        "require_tests_for_non_docs_changes": bool(
+            profile.require_tests_for_non_docs_changes
+        ),
     }
 
 
-def evaluate_plan_profile(decision: PolicyDecision, profile: AutonomyProfile, profile_name: str = "balanced") -> ProfilePolicyResult:
+def evaluate_plan_profile(
+    decision: PolicyDecision, profile: AutonomyProfile, profile_name: str = "balanced"
+) -> ProfilePolicyResult:
     reasons = []
     if not decision.accepted:
         reasons.append("policy_rejected")
@@ -121,12 +127,21 @@ def evaluate_implementation_profile(
         reasons.append("requires_human")
     if decision.tier > profile.max_implementation_tier:
         reasons.append("implementation_tier_exceeds_profile")
-    if profile.require_tests_for_non_docs_changes and not _looks_docs_only(allowed_files) and not tests:
+    if (
+        profile.require_tests_for_non_docs_changes
+        and not _looks_docs_only(allowed_files)
+        and not tests
+    ):
         reasons.append("tests_required_for_non_docs_changes")
     return _profile_result(decision, profile, profile_name, reasons)
 
 
-def _profile_result(decision: PolicyDecision, profile: AutonomyProfile, profile_name: str, reasons: list[str]) -> ProfilePolicyResult:
+def _profile_result(
+    decision: PolicyDecision,
+    profile: AutonomyProfile,
+    profile_name: str,
+    reasons: list[str],
+) -> ProfilePolicyResult:
     snapshot = profile_snapshot(profile, profile_name)
     hard_stop = {
         "blocked": bool(reasons),
@@ -140,26 +155,70 @@ def _profile_result(decision: PolicyDecision, profile: AutonomyProfile, profile_
         },
         "profile": snapshot,
     }
-    return ProfilePolicyResult(decision=decision, allowed=not reasons, hard_stop=hard_stop, profile_snapshot=snapshot)
+    return ProfilePolicyResult(
+        decision=decision,
+        allowed=not reasons,
+        hard_stop=hard_stop,
+        profile_snapshot=snapshot,
+    )
 
 
 def decide_plan_task(task: str, constraints: str | None = None) -> PolicyDecision:
     text = f"{task}\n{constraints or ''}".lower()
-    if any(word in text for word in ("credential", "login", "secret", "token", "force push", "delete volume")):
-        return PolicyDecision(False, 3, "high", True, "Plan request appears to require human-only action")
+    if any(
+        word in text
+        for word in (
+            "credential",
+            "login",
+            "secret",
+            "token",
+            "force push",
+            "delete volume",
+        )
+    ):
+        return PolicyDecision(
+            False, 3, "high", True, "Plan request appears to require human-only action"
+        )
     return PolicyDecision(True, 1, "low", False, "Plan-only jobs are auto-approved")
 
 
-def decide_implementation_task(approved_plan: str, allowed_files: list[str], tests: list[str]) -> PolicyDecision:
+def decide_implementation_task(
+    approved_plan: str, allowed_files: list[str], tests: list[str]
+) -> PolicyDecision:
     text = f"{approved_plan}\n{' '.join(tests)}".lower()
-    if any(word in text for word in ("force push", "credential", "browser login", "secret", "delete volume")):
-        return PolicyDecision(False, 3, "high", True, "Request appears to require human-only action")
+    if any(
+        word in text
+        for word in (
+            "force push",
+            "credential",
+            "browser login",
+            "secret",
+            "delete volume",
+        )
+    ):
+        return PolicyDecision(
+            False, 3, "high", True, "Request appears to require human-only action"
+        )
     secret_files = [path for path in allowed_files if is_secret_like_file(path)]
     if secret_files:
-        return PolicyDecision(False, 3, "high", True, f"Secret-like files are not allowed: {secret_files}")
+        return PolicyDecision(
+            False, 3, "high", True, f"Secret-like files are not allowed: {secret_files}"
+        )
     if _looks_docs_only(allowed_files):
-        return PolicyDecision(True, 1, "low", False, "Docs-only allowed-file implementation is auto-approved")
-    return PolicyDecision(True, 2, "medium", False, "Normal implementation requires ChatGPT approval before start")
+        return PolicyDecision(
+            True,
+            1,
+            "low",
+            False,
+            "Docs-only allowed-file implementation is auto-approved",
+        )
+    return PolicyDecision(
+        True,
+        2,
+        "medium",
+        False,
+        "Normal implementation requires ChatGPT approval before start",
+    )
 
 
 __all__ = [

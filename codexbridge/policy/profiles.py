@@ -50,7 +50,9 @@ BUILTIN_AUTONOMY_PROFILES = MappingProxyType(
 
 
 def get_autonomy_profile(name: str) -> AutonomyProfileModel:
-    return BUILTIN_AUTONOMY_PROFILES.get(name, BUILTIN_AUTONOMY_PROFILES["chatgpt_delegated"])
+    return BUILTIN_AUTONOMY_PROFILES.get(
+        name, BUILTIN_AUTONOMY_PROFILES["chatgpt_delegated"]
+    )
 
 
 def list_autonomy_profiles() -> dict[str, AutonomyProfileModel]:

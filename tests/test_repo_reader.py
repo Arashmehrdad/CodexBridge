@@ -4,6 +4,7 @@ Tests for codexbridge/repo_reader.py.
 All tests use tmp_path; no real repos are touched.
 No CodexRunner, Gemini, Ollama, or local-model calls are made.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,6 +26,7 @@ from codexbridge.repo_reader import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_repo(tmp_path: Path) -> Path:
     """Create a minimal fake repo with a .git marker."""
     (tmp_path / ".git").mkdir()
@@ -40,6 +42,7 @@ def write(path: Path, content: str = "hello\n") -> Path:
 # ---------------------------------------------------------------------------
 # resolve_repo / unknown repo (server-level)
 # ---------------------------------------------------------------------------
+
 
 def test_unknown_repo_raises_in_server(tmp_path: Path) -> None:
     """Server calls resolve_repo before reaching repo_reader; confirm it raises."""
@@ -60,6 +63,7 @@ def test_unknown_repo_raises_in_server(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Path rejection – absolute, UNC, drive, wildcard, traversal
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "bad_path",
@@ -97,6 +101,7 @@ def test_list_repo_files_rejects_bad_directory(tmp_path: Path, bad_path: str) ->
 # ---------------------------------------------------------------------------
 # Symlink escape – file symlink
 # ---------------------------------------------------------------------------
+
 
 def test_read_repo_file_rejects_symlink_to_outside(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -145,6 +150,7 @@ def test_list_repo_files_skips_symlinked_directory(tmp_path: Path) -> None:
 # Exclusions – blocked names
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "blocked",
     [
@@ -170,7 +176,9 @@ def test_list_repo_files_excludes_blocked_names(tmp_path: Path, blocked: str) ->
     "ext_file",
     ["build.pyc", "module.pyo", "cert.pem", "id_rsa.key", "store.p12", "bundle.pfx"],
 )
-def test_list_repo_files_excludes_blocked_extensions(tmp_path: Path, ext_file: str) -> None:
+def test_list_repo_files_excludes_blocked_extensions(
+    tmp_path: Path, ext_file: str
+) -> None:
     repo = make_repo(tmp_path)
     write(repo / ext_file, "data")
     result = list_repo_files(repo)
@@ -180,6 +188,7 @@ def test_list_repo_files_excludes_blocked_extensions(tmp_path: Path, ext_file: s
 # ---------------------------------------------------------------------------
 # .env exceptions – only .env.example/.env.sample/.env.template are allowed
 # ---------------------------------------------------------------------------
+
 
 def test_real_env_file_is_excluded(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -203,6 +212,7 @@ def test_allowed_env_templates_are_included(tmp_path: Path, allowed_env: str) ->
 # Binary file rejection
 # ---------------------------------------------------------------------------
 
+
 def test_read_repo_file_rejects_binary(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     binary = repo / "image.png"
@@ -225,6 +235,7 @@ def test_search_repo_text_skips_binary_files(tmp_path: Path) -> None:
 # Oversized file rejection
 # ---------------------------------------------------------------------------
 
+
 def test_read_repo_file_rejects_oversized(tmp_path: Path, monkeypatch) -> None:
     repo = make_repo(tmp_path)
     big = repo / "big.txt"
@@ -238,6 +249,7 @@ def test_read_repo_file_rejects_oversized(tmp_path: Path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Line-range reading
 # ---------------------------------------------------------------------------
+
 
 def test_read_repo_file_line_range(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -269,6 +281,7 @@ def test_read_repo_file_start_line_equals_total(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Search limits and redacted snippets
 # ---------------------------------------------------------------------------
+
 
 def test_search_repo_text_respects_max_results(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -323,6 +336,7 @@ def test_search_repo_text_empty_query_raises(tmp_path: Path) -> None:
 # Modification-time ordering
 # ---------------------------------------------------------------------------
 
+
 def test_get_recently_modified_files_newest_first(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     old = repo / "old.txt"
@@ -359,6 +373,7 @@ def test_get_recently_modified_files_includes_mtime(tmp_path: Path) -> None:
 # No absolute path leakage
 # ---------------------------------------------------------------------------
 
+
 def test_list_repo_files_returns_posix_relative_paths(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     (repo / "subdir").mkdir()
@@ -391,7 +406,10 @@ def test_search_repo_text_no_absolute_path_in_hits(tmp_path: Path) -> None:
 # Proof that no CodexRunner or local model is called
 # ---------------------------------------------------------------------------
 
-def test_list_repo_files_does_not_call_codex_runner(tmp_path: Path, monkeypatch) -> None:
+
+def test_list_repo_files_does_not_call_codex_runner(
+    tmp_path: Path, monkeypatch
+) -> None:
     """list_repo_files must never instantiate or call CodexRunner."""
     import codexbridge.runner as runner_mod
 
@@ -425,14 +443,18 @@ def test_read_repo_file_does_not_import_ollama(tmp_path: Path) -> None:
             import_names.extend(alias.name for alias in node.names)
     for name in import_names:
         assert "ollama" not in name.lower(), f"Found ollama import: {name}"
-        assert "codex_runner" not in name.lower() and "runner" not in name.lower() or "repo_reader" in name.lower(), \
-            f"Unexpected runner import: {name}"
+        assert (
+            "codex_runner" not in name.lower()
+            and "runner" not in name.lower()
+            or "repo_reader" in name.lower()
+        ), f"Unexpected runner import: {name}"
         assert "gemini" not in name.lower(), f"Found gemini import: {name}"
 
 
 # ---------------------------------------------------------------------------
 # Server-level integration smoke tests
 # ---------------------------------------------------------------------------
+
 
 def test_server_list_repo_files_tool(tmp_path: Path, monkeypatch) -> None:
     import codexbridge.server as server

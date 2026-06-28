@@ -74,7 +74,9 @@ class CodexRouterConfig(BaseModel):
     codex_router_max_context_bytes: int = Field(default=60000, ge=1000, le=1000000)
     codex_router_max_file_bytes: int = Field(default=20000, ge=1, le=500000)
     codex_router_max_log_bytes: int = Field(default=12000, ge=1, le=500000)
-    codex_router_default_validation_commands: list[str] = Field(default_factory=lambda: ["pytest", "pip_check"])
+    codex_router_default_validation_commands: list[str] = Field(
+        default_factory=lambda: ["pytest", "pip_check"]
+    )
     codex_router_packet_dir: str | None = None
     codex_router_use_local_model_summary: bool = True
     codex_router_redact_sensitive: bool = True
@@ -85,7 +87,9 @@ class CodexRouterConfig(BaseModel):
 class LocalSupervisorConfig(BaseModel):
     supervisor_enabled: bool = True
     supervisor_runs_dir: str | None = None
-    supervisor_default_validation_commands: list[str] = Field(default_factory=lambda: ["git_status", "pytest", "pip_check"])
+    supervisor_default_validation_commands: list[str] = Field(
+        default_factory=lambda: ["git_status", "pytest", "pip_check"]
+    )
     supervisor_max_retries: int = 0
     supervisor_use_local_model_plan: bool = True
     supervisor_use_memory_context: bool = True
@@ -102,8 +106,18 @@ class LocalCodingConfig(BaseModel):
     local_coding_preview_enabled: bool = True
     local_coding_apply_enabled: bool = False
     local_coding_runs_dir: str | None = None
-    local_coding_allowed_path_globs: list[str] = Field(default_factory=lambda: ["README.md", "README.*", "docs/**/*.md", "AGENTS.md", "PLANS.md"])
-    local_coding_allowed_extensions: list[str] = Field(default_factory=lambda: [".md", ".txt", ".json"])
+    local_coding_allowed_path_globs: list[str] = Field(
+        default_factory=lambda: [
+            "README.md",
+            "README.*",
+            "docs/**/*.md",
+            "AGENTS.md",
+            "PLANS.md",
+        ]
+    )
+    local_coding_allowed_extensions: list[str] = Field(
+        default_factory=lambda: [".md", ".txt", ".json"]
+    )
     local_coding_block_source_code: bool = True
     local_coding_block_tests: bool = True
     local_coding_max_file_bytes: int = Field(default=20000, ge=1, le=1000000)
@@ -112,7 +126,9 @@ class LocalCodingConfig(BaseModel):
     local_coding_max_operations: int = Field(default=3, ge=1, le=100)
     local_coding_require_approval: bool = True
     local_coding_auto_rollback_on_validation_failure: bool = False
-    local_coding_default_validation_commands: list[str] = Field(default_factory=lambda: ["git_status"])
+    local_coding_default_validation_commands: list[str] = Field(
+        default_factory=lambda: ["git_status"]
+    )
     local_coding_use_local_model: bool = False
     local_coding_block_sensitive: bool = True
     local_coding_redact_sensitive: bool = True
@@ -156,9 +172,15 @@ class SupervisorWindowsToastNotificationSinkConfig(BaseModel):
 class SupervisorNotificationsConfig(BaseModel):
     enabled: bool = True
     max_payload_chars: int = Field(default=4000, ge=200, le=20000)
-    file: SupervisorFileNotificationSinkConfig = Field(default_factory=SupervisorFileNotificationSinkConfig)
-    webhook: SupervisorWebhookNotificationSinkConfig = Field(default_factory=SupervisorWebhookNotificationSinkConfig)
-    windows_toast: SupervisorWindowsToastNotificationSinkConfig = Field(default_factory=SupervisorWindowsToastNotificationSinkConfig)
+    file: SupervisorFileNotificationSinkConfig = Field(
+        default_factory=SupervisorFileNotificationSinkConfig
+    )
+    webhook: SupervisorWebhookNotificationSinkConfig = Field(
+        default_factory=SupervisorWebhookNotificationSinkConfig
+    )
+    windows_toast: SupervisorWindowsToastNotificationSinkConfig = Field(
+        default_factory=SupervisorWindowsToastNotificationSinkConfig
+    )
 
 
 class SupervisorsConfig(BaseModel):
@@ -166,15 +188,21 @@ class SupervisorsConfig(BaseModel):
     autonomy_profiles: Dict[str, SupervisorAutonomyProfile] = Field(
         default_factory=lambda: {
             "balanced": SupervisorAutonomyProfile(),
-            "conservative": SupervisorAutonomyProfile(max_implementation_tier=1, require_tests_for_non_docs_changes=True),
+            "conservative": SupervisorAutonomyProfile(
+                max_implementation_tier=1, require_tests_for_non_docs_changes=True
+            ),
         }
     )
-    notifications: SupervisorNotificationsConfig = Field(default_factory=SupervisorNotificationsConfig)
+    notifications: SupervisorNotificationsConfig = Field(
+        default_factory=SupervisorNotificationsConfig
+    )
 
     @model_validator(mode="after")
     def validate_default_profile(self) -> "SupervisorsConfig":
         if self.default_autonomy_profile not in self.autonomy_profiles:
-            raise ValueError(f"Unknown default_autonomy_profile: {self.default_autonomy_profile}")
+            raise ValueError(
+                f"Unknown default_autonomy_profile: {self.default_autonomy_profile}"
+            )
         return self
 
     def effective_profile(self) -> SupervisorAutonomyProfile:
@@ -191,7 +219,9 @@ class AppConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
     codex_router: CodexRouterConfig = Field(default_factory=CodexRouterConfig)
-    local_supervisor: LocalSupervisorConfig = Field(default_factory=LocalSupervisorConfig)
+    local_supervisor: LocalSupervisorConfig = Field(
+        default_factory=LocalSupervisorConfig
+    )
     local_coding: LocalCodingConfig = Field(default_factory=LocalCodingConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     supervisors: SupervisorsConfig = Field(default_factory=SupervisorsConfig)
@@ -252,7 +282,9 @@ class AppConfig(BaseModel):
         return self.resolve_runs_dir()
 
 
-def load_config(path: str | Path = "config.yaml", *, validate_repos: bool = True) -> AppConfig:
+def load_config(
+    path: str | Path = "config.yaml", *, validate_repos: bool = True
+) -> AppConfig:
     config_path = Path(path).resolve()
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -266,7 +298,9 @@ def load_config(path: str | Path = "config.yaml", *, validate_repos: bool = True
             if not repo_path.exists():
                 raise ValueError(f"Repo '{name}' path does not exist: {repo_path}")
             if not (repo_path / ".git").exists():
-                raise ValueError(f"Repo '{name}' path does not contain .git: {repo_path}")
+                raise ValueError(
+                    f"Repo '{name}' path does not contain .git: {repo_path}"
+                )
 
     return config
 

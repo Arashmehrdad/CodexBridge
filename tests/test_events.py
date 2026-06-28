@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.events import ArtifactWriter, append_jsonl, read_jsonl, redact_and_truncate, truncate_text
+from codexbridge.events import (
+    ArtifactWriter,
+    append_jsonl,
+    read_jsonl,
+    redact_and_truncate,
+    truncate_text,
+)
 
 
 def test_event_jsonl_round_trip_and_limit(tmp_path: Path) -> None:

@@ -20,4 +20,3 @@ class GeminiSummarizer:
         for source_file in source_files or []:
             reject_secret_like_file(source_file)
         return redact_secret_values(text)
-

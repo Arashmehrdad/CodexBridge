@@ -10,7 +10,11 @@ from .ollama_adapter import OllamaChatAdapter, Transport
 
 
 class LocalModelClient:
-    def __init__(self, config: LocalModelConfig | None = None, adapter: OllamaChatAdapter | None = None):
+    def __init__(
+        self,
+        config: LocalModelConfig | None = None,
+        adapter: OllamaChatAdapter | None = None,
+    ):
         self.config = config or LocalModelConfig()
         self.adapter = adapter or OllamaChatAdapter(
             base_url=self.config.base_url,
@@ -21,7 +25,9 @@ class LocalModelClient:
         )
 
     @classmethod
-    def enabled_with_transport(cls, *, config: LocalModelConfig | None = None, transport: Transport) -> "LocalModelClient":
+    def enabled_with_transport(
+        cls, *, config: LocalModelConfig | None = None, transport: Transport
+    ) -> "LocalModelClient":
         effective = config or LocalModelConfig(enabled=True)
         adapter = OllamaChatAdapter(
             base_url=effective.base_url,
@@ -34,16 +40,36 @@ class LocalModelClient:
         return cls(config=effective, adapter=adapter)
 
     def summarize_log(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call("summarize_log", "Summarize this log output for an engineer. Focus on failures and next checks.", text, **overrides)
+        return self._call(
+            "summarize_log",
+            "Summarize this log output for an engineer. Focus on failures and next checks.",
+            text,
+            **overrides,
+        )
 
     def classify_error(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call("classify_error", "Classify this error. Return the likely category, cause, and useful next diagnostic step.", text, **overrides)
+        return self._call(
+            "classify_error",
+            "Classify this error. Return the likely category, cause, and useful next diagnostic step.",
+            text,
+            **overrides,
+        )
 
     def compress_context(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call("compress_context", "Compress this context while preserving facts, constraints, commands run, and open questions.", text, **overrides)
+        return self._call(
+            "compress_context",
+            "Compress this context while preserving facts, constraints, commands run, and open questions.",
+            text,
+            **overrides,
+        )
 
     def explain_test_failure(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call("explain_test_failure", "Explain this test failure concisely. Include likely cause and next local check.", text, **overrides)
+        return self._call(
+            "explain_test_failure",
+            "Explain this test failure concisely. Include likely cause and next local check.",
+            text,
+            **overrides,
+        )
 
     def draft_codex_prompt(self, context: str, **overrides: Any) -> LocalModelResult:
         return self._call(
@@ -53,7 +79,9 @@ class LocalModelClient:
             **overrides,
         )
 
-    def decide_whether_codex_needed(self, context: str, **overrides: Any) -> LocalModelResult:
+    def decide_whether_codex_needed(
+        self, context: str, **overrides: Any
+    ) -> LocalModelResult:
         return self._call(
             "decide_whether_codex_needed",
             "Decide whether this task likely needs Codex later. Return reasoning only; do not route or execute anything.",
@@ -62,23 +90,43 @@ class LocalModelClient:
         )
 
     def summarize_log_json(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call_json("summarize_log", "Return JSON with keys summary, likely_cause, next_steps.", text, **overrides)
+        return self._call_json(
+            "summarize_log",
+            "Return JSON with keys summary, likely_cause, next_steps.",
+            text,
+            **overrides,
+        )
 
     def classify_error_json(self, text: str, **overrides: Any) -> LocalModelResult:
-        return self._call_json("classify_error", "Return JSON with keys category, likely_cause, next_step.", text, **overrides)
+        return self._call_json(
+            "classify_error",
+            "Return JSON with keys category, likely_cause, next_step.",
+            text,
+            **overrides,
+        )
 
-    def call_json(self, *, task_type: str, system_prompt: str, text: str, **overrides: Any) -> LocalModelResult:
+    def call_json(
+        self, *, task_type: str, system_prompt: str, text: str, **overrides: Any
+    ) -> LocalModelResult:
         return self._call_json(task_type, system_prompt, text, **overrides)
 
-    def _call(self, task_type: str, system_prompt: str, text: str, **overrides: Any) -> LocalModelResult:
+    def _call(
+        self, task_type: str, system_prompt: str, text: str, **overrides: Any
+    ) -> LocalModelResult:
         if not self.config.enabled:
             return _blocked_result(task_type, self.config, "Local model is disabled.")
-        return self.adapter.call(task_type=task_type, messages=_messages(system_prompt, text), **overrides)
+        return self.adapter.call(
+            task_type=task_type, messages=_messages(system_prompt, text), **overrides
+        )
 
-    def _call_json(self, task_type: str, system_prompt: str, text: str, **overrides: Any) -> LocalModelResult:
+    def _call_json(
+        self, task_type: str, system_prompt: str, text: str, **overrides: Any
+    ) -> LocalModelResult:
         if not self.config.enabled:
             return _blocked_result(task_type, self.config, "Local model is disabled.")
-        return self.adapter.call_json(task_type=task_type, messages=_messages(system_prompt, text), **overrides)
+        return self.adapter.call_json(
+            task_type=task_type, messages=_messages(system_prompt, text), **overrides
+        )
 
 
 def _messages(system_prompt: str, text: str) -> list[dict[str, str]]:
@@ -88,7 +136,9 @@ def _messages(system_prompt: str, text: str) -> list[dict[str, str]]:
     ]
 
 
-def _blocked_result(task_type: str, config: LocalModelConfig, error: str) -> LocalModelResult:
+def _blocked_result(
+    task_type: str, config: LocalModelConfig, error: str
+) -> LocalModelResult:
     return LocalModelResult(
         request_id=f"local_model_blocked_{task_type}",
         task_type=task_type,

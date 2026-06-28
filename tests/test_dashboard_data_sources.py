@@ -28,14 +28,76 @@ def test_dashboard_summary_empty_runs_dir(tmp_path: Path) -> None:
 
 def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    write_json(runs / "local_agent" / "commands" / "cmd1" / "result.json", {"run_id": "cmd1", "command_id": "git_status", "status": "success", "created_at": "2026-01-01T00:00:00Z", "argv": ["git", "status"], "exit_code": 0})
-    write_json(runs / "jobs" / "job1" / "result.json", {"job_id": "job1", "status": "completed", "job_profile": "dummy_success", "created_at": "2026-01-02T00:00:00Z"})
-    write_json(runs / "supervisors" / "sup1" / "result.json", {"supervisor_id": "sup1", "status": "completed", "objective": "inspect", "created_at": "2026-01-03T00:00:00Z", "codex_invoked": False})
-    write_json(runs / "approvals" / "approval1.json", {"approval_request_id": "approval1", "status": "pending", "required_approver": "chatgpt", "action_type": "local_coding_apply", "created_at": "2026-01-04T00:00:00Z"})
-    write_json(runs / "codex_escalations" / "codex1" / "packet.json", {"escalation_id": "codex1", "objective": "fix failing test", "created_at": "2026-01-05T00:00:00Z"})
-    write_json(runs / "jobs" / "job1" / "pulse_manifest.json", {"artifact_id": "job1", "status": "ready", "ready": True, "delivered": False, "created_at": "2026-01-06T00:00:00Z", "updated_at": "2026-01-06T00:00:00Z"})
+    write_json(
+        runs / "local_agent" / "commands" / "cmd1" / "result.json",
+        {
+            "run_id": "cmd1",
+            "command_id": "git_status",
+            "status": "success",
+            "created_at": "2026-01-01T00:00:00Z",
+            "argv": ["git", "status"],
+            "exit_code": 0,
+        },
+    )
+    write_json(
+        runs / "jobs" / "job1" / "result.json",
+        {
+            "job_id": "job1",
+            "status": "completed",
+            "job_profile": "dummy_success",
+            "created_at": "2026-01-02T00:00:00Z",
+        },
+    )
+    write_json(
+        runs / "supervisors" / "sup1" / "result.json",
+        {
+            "supervisor_id": "sup1",
+            "status": "completed",
+            "objective": "inspect",
+            "created_at": "2026-01-03T00:00:00Z",
+            "codex_invoked": False,
+        },
+    )
+    write_json(
+        runs / "approvals" / "approval1.json",
+        {
+            "approval_request_id": "approval1",
+            "status": "pending",
+            "required_approver": "chatgpt",
+            "action_type": "local_coding_apply",
+            "created_at": "2026-01-04T00:00:00Z",
+        },
+    )
+    write_json(
+        runs / "codex_escalations" / "codex1" / "packet.json",
+        {
+            "escalation_id": "codex1",
+            "objective": "fix failing test",
+            "created_at": "2026-01-05T00:00:00Z",
+        },
+    )
+    write_json(
+        runs / "jobs" / "job1" / "pulse_manifest.json",
+        {
+            "artifact_id": "job1",
+            "status": "ready",
+            "ready": True,
+            "delivered": False,
+            "created_at": "2026-01-06T00:00:00Z",
+            "updated_at": "2026-01-06T00:00:00Z",
+        },
+    )
     write_json(runs / "jobs" / "job1" / "pulse_delivery_ack.json", {"ack": True})
-    write_json(runs / "local_coding" / "edit1" / "proposal.json", {"edit_id": "edit1", "status": "approval_required", "objective": "fix typo in README", "target_file": "README.md", "created_at": "2026-01-07T00:00:00Z"})
+    write_json(
+        runs / "local_coding" / "edit1" / "proposal.json",
+        {
+            "edit_id": "edit1",
+            "status": "approval_required",
+            "objective": "fix typo in README",
+            "target_file": "README.md",
+            "created_at": "2026-01-07T00:00:00Z",
+        },
+    )
 
     summary = get_dashboard_summary(runs, include_memory=False)
 
@@ -49,7 +111,9 @@ def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
     assert summary.repo_status.latest_git_status_artifact is not None
 
 
-def test_dashboard_collects_current_root_runs_without_result_json(tmp_path: Path) -> None:
+def test_dashboard_collects_current_root_runs_without_result_json(
+    tmp_path: Path,
+) -> None:
     runs = tmp_path / "runs"
     run_id = "20260512T181658Z_codex_plan_task_660e6d2c"
     write_json(
@@ -62,8 +126,16 @@ def test_dashboard_collects_current_root_runs_without_result_json(tmp_path: Path
     write_jsonl(
         runs / run_id / "events.jsonl",
         [
-            {"stage": "queued", "timestamp": "2026-05-12T18:16:58+00:00", "message": "Run queued"},
-            {"stage": "codex", "timestamp": "2026-05-12T18:16:59+00:00", "message": "Codex process spawned"},
+            {
+                "stage": "queued",
+                "timestamp": "2026-05-12T18:16:58+00:00",
+                "message": "Run queued",
+            },
+            {
+                "stage": "codex",
+                "timestamp": "2026-05-12T18:16:59+00:00",
+                "message": "Codex process spawned",
+            },
         ],
     )
 
@@ -78,14 +150,31 @@ def test_dashboard_collects_current_root_runs_without_result_json(tmp_path: Path
 
 def test_dashboard_malformed_large_sensitive_and_limit_handling(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    write_json(runs / "local_agent" / "commands" / "cmd1" / "result.json", {"run_id": "cmd1", "command_id": "pytest", "status": "failed", "error": "password=abc123", "created_at": "2026-01-01T00:00:00Z"})
+    write_json(
+        runs / "local_agent" / "commands" / "cmd1" / "result.json",
+        {
+            "run_id": "cmd1",
+            "command_id": "pytest",
+            "status": "failed",
+            "error": "password=abc123",
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+    )
     (runs / "jobs" / "bad").mkdir(parents=True)
     (runs / "jobs" / "bad" / "result.json").write_text("{bad", encoding="utf-8")
     write_json(runs / "jobs" / "huge" / "result.json", {"blob": "x" * 1000})
-    write_json(runs / "jobs" / "job1" / "result.json", {"job_id": "job1", "status": "completed", "created_at": "2026-01-02T00:00:00Z"})
-    write_json(runs / "jobs" / "job2" / "result.json", {"job_id": "job2", "status": "completed", "created_at": "2026-01-03T00:00:00Z"})
+    write_json(
+        runs / "jobs" / "job1" / "result.json",
+        {"job_id": "job1", "status": "completed", "created_at": "2026-01-02T00:00:00Z"},
+    )
+    write_json(
+        runs / "jobs" / "job2" / "result.json",
+        {"job_id": "job2", "status": "completed", "created_at": "2026-01-03T00:00:00Z"},
+    )
 
-    summary = get_dashboard_summary(runs, limit=1, max_file_bytes=300, include_memory=False)
+    summary = get_dashboard_summary(
+        runs, limit=1, max_file_bytes=300, include_memory=False
+    )
 
     assert len(summary.jobs) == 1
     assert "malformed_json" in " ".join(summary.health.errors)
@@ -96,8 +185,12 @@ def test_dashboard_malformed_large_sensitive_and_limit_handling(tmp_path: Path) 
 
 def test_dashboard_memory_overview_with_temporary_store(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    repository = ProjectMemoryRepository(db_path=runs / "memory" / "project_memory.sqlite3")
-    repository.remember_project_fact("Validation recipe lives in README", repo_name="repo")
+    repository = ProjectMemoryRepository(
+        db_path=runs / "memory" / "project_memory.sqlite3"
+    )
+    repository.remember_project_fact(
+        "Validation recipe lives in README", repo_name="repo"
+    )
 
     summary = get_dashboard_summary(runs, memory_repository=repository)
 
@@ -109,7 +202,10 @@ def test_dashboard_collectors_stay_under_runs_dir(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     outside = tmp_path / "outside"
     write_json(outside / "result.json", {"run_id": "outside"})
-    write_json(runs / "jobs" / "job1" / "result.json", {"job_id": "job1", "status": "completed"})
+    write_json(
+        runs / "jobs" / "job1" / "result.json",
+        {"job_id": "job1", "status": "completed"},
+    )
 
     summary = get_dashboard_summary(runs, include_memory=False)
 

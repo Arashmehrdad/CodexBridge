@@ -19,13 +19,25 @@ from .risk_classifier import RiskClassifier
 
 
 class PolicyEngine:
-    def __init__(self, *, config: AutonomyConfig | None = None, approvals_dir: Path | None = None, risk_classifier: RiskClassifier | None = None):
+    def __init__(
+        self,
+        *,
+        config: AutonomyConfig | None = None,
+        approvals_dir: Path | None = None,
+        risk_classifier: RiskClassifier | None = None,
+    ):
         self.config = config or AutonomyConfig()
-        self.approval_store = ApprovalStore(approvals_dir or Path.cwd() / "runs" / "approvals")
+        self.approval_store = ApprovalStore(
+            approvals_dir or Path.cwd() / "runs" / "approvals"
+        )
         self.risk_classifier = risk_classifier or RiskClassifier()
 
     def evaluate(self, request: PolicyEvaluationRequest) -> PolicyEvaluationResult:
-        audit = policy_audit_event("policy_evaluation_requested", "Policy evaluation requested", {"request_id": request.request_id, "action_type": request.action_type})
+        audit = policy_audit_event(
+            "policy_evaluation_requested",
+            "Policy evaluation requested",
+            {"request_id": request.request_id, "action_type": request.action_type},
+        )
         classification = self.risk_classifier.classify(request)
         profile_name = request.autonomy_profile or self.config.autonomy_default_profile
         profile = get_autonomy_profile(profile_name)
@@ -49,7 +61,10 @@ class PolicyEngine:
             decision = PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
             approval_required = True
             chatgpt_allowed = True
-        elif classification.permission_tier in profile.human_approval_tiers or human_required:
+        elif (
+            classification.permission_tier in profile.human_approval_tiers
+            or human_required
+        ):
             decision = PolicyDecisionValue.NEEDS_HUMAN_APPROVAL
             approval_required = True
             human_required = True
@@ -58,7 +73,10 @@ class PolicyEngine:
             blocked = True
             reasons.append("tier_not_allowed_by_profile")
 
-        if classification.permission_tier == CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION:
+        if (
+            classification.permission_tier
+            == CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION
+        ):
             human_required = True
             approval_required = True
             if decision != PolicyDecisionValue.BLOCKED:
@@ -103,9 +121,18 @@ class PolicyEngine:
             created_at=utc_now(),
         )
 
-    def _repo_allowed(self, request: PolicyEvaluationRequest, tier: CanonicalPermissionTier) -> bool:
-        if tier in {CanonicalPermissionTier.T0_READ_ONLY, CanonicalPermissionTier.T1_SAFE_LOCAL_TEST, CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB}:
+    def _repo_allowed(
+        self, request: PolicyEvaluationRequest, tier: CanonicalPermissionTier
+    ) -> bool:
+        if tier in {
+            CanonicalPermissionTier.T0_READ_ONLY,
+            CanonicalPermissionTier.T1_SAFE_LOCAL_TEST,
+            CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
+        }:
             return True
         if not self.config.autonomy_whitelisted_repos:
             return True
-        return bool(request.repo_name and request.repo_name in self.config.autonomy_whitelisted_repos)
+        return bool(
+            request.repo_name
+            and request.repo_name in self.config.autonomy_whitelisted_repos
+        )

@@ -24,8 +24,14 @@ def utc_now() -> str:
 
 def validate_chat_url(chat_url: str) -> str:
     parsed = urlparse(chat_url)
-    if parsed.scheme != "https" or parsed.netloc != "chatgpt.com" or not parsed.path.startswith("/c/"):
-        raise ValueError("chat_url must be a real ChatGPT chat URL like https://chatgpt.com/c/...")
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "chatgpt.com"
+        or not parsed.path.startswith("/c/")
+    ):
+        raise ValueError(
+            "chat_url must be a real ChatGPT chat URL like https://chatgpt.com/c/..."
+        )
     return chat_url
 
 
@@ -45,14 +51,20 @@ def supervisor_prompt_path(runs_dir: Path, supervisor_id: str) -> Path:
     return runs_dir / "supervisors" / supervisor_id / "resume_prompt.txt"
 
 
-def build_prompt(*, runs_dir: Path, supervisor_id: str, status: str, override_prompt: str = "") -> str:
+def build_prompt(
+    *, runs_dir: Path, supervisor_id: str, status: str, override_prompt: str = ""
+) -> str:
     validate_supervisor_id(supervisor_id)
     if override_prompt:
         return str(redact_and_truncate(override_prompt, limit=DEFAULT_PROMPT_LIMIT))
 
     path = supervisor_prompt_path(runs_dir, supervisor_id)
     if path.exists():
-        return str(redact_and_truncate(path.read_text(encoding="utf-8"), limit=DEFAULT_PROMPT_LIMIT))
+        return str(
+            redact_and_truncate(
+                path.read_text(encoding="utf-8"), limit=DEFAULT_PROMPT_LIMIT
+            )
+        )
 
     fallback = (
         "CodexBridge supervisor handoff.\n"
@@ -97,7 +109,9 @@ def _fill_chatgpt_composer(page: Any, prompt: str) -> None:
             locator.click()
             locator.fill(prompt)
             return
-        except Exception as exc:  # pragma: no cover - exercised only with a real browser
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - exercised only with a real browser
             last_error = exc
     raise RuntimeError(f"Unable to find ChatGPT composer: {last_error}")
 
@@ -115,18 +129,26 @@ def _click_chatgpt_send(page: Any) -> None:
             locator.wait_for(state="visible", timeout=15000)
             locator.click()
             return
-        except Exception as exc:  # pragma: no cover - exercised only with a real browser
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - exercised only with a real browser
             last_error = exc
     raise RuntimeError(f"Unable to find ChatGPT send button: {last_error}")
 
 
-def send_prompt_via_cdp(*, cdp_url: str, chat_url: str, prompt: str, close_tab: bool = False) -> None:
+def send_prompt_via_cdp(
+    *, cdp_url: str, chat_url: str, prompt: str, close_tab: bool = False
+) -> None:
     validate_local_cdp_url(cdp_url)
     validate_chat_url(chat_url)
     try:
         from playwright.sync_api import sync_playwright
-    except ImportError as exc:  # pragma: no cover - depends on local optional dependency
-        raise RuntimeError('Playwright is required for send mode. Install with: python -m pip install "playwright"') from exc
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - depends on local optional dependency
+        raise RuntimeError(
+            'Playwright is required for send mode. Install with: python -m pip install "playwright"'
+        ) from exc
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(cdp_url)
@@ -165,18 +187,31 @@ def run_once(
     supervisor = load_supervisor(store, supervisor_id)
     status = str(supervisor["status"])
     if not is_handoff_status(status):
-        event = safe_log_event(supervisor_id=supervisor_id, status=status, success=False, log_file=log_file)
+        event = safe_log_event(
+            supervisor_id=supervisor_id, status=status, success=False, log_file=log_file
+        )
         return {**event, "sent": False, "reason": "status is not a handoff state"}
 
-    prompt = build_prompt(runs_dir=runs_dir, supervisor_id=supervisor_id, status=status, override_prompt=override_prompt)
+    prompt = build_prompt(
+        runs_dir=runs_dir,
+        supervisor_id=supervisor_id,
+        status=status,
+        override_prompt=override_prompt,
+    )
     if not dry_run:
-        send_prompt_via_cdp(cdp_url=cdp_url, chat_url=chat_url, prompt=prompt, close_tab=close_tab)
-    event = safe_log_event(supervisor_id=supervisor_id, status=status, success=True, log_file=log_file)
+        send_prompt_via_cdp(
+            cdp_url=cdp_url, chat_url=chat_url, prompt=prompt, close_tab=close_tab
+        )
+    event = safe_log_event(
+        supervisor_id=supervisor_id, status=status, success=True, log_file=log_file
+    )
     return {**event, "sent": not dry_run, "dry_run": dry_run}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Send a local browser pulse for a CodexBridge supervisor handoff.")
+    parser = argparse.ArgumentParser(
+        description="Send a local browser pulse for a CodexBridge supervisor handoff."
+    )
     parser.add_argument("--runs-dir", default="runs")
     parser.add_argument("--supervisor-id", required=True)
     parser.add_argument("--chat-url", required=True)
@@ -196,7 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     runs_dir = Path(args.runs_dir).resolve()
     store = SupervisorStore(runs_dir)
-    log_file = Path(args.log_file).resolve() if args.log_file else runs_dir / "browser_pulse_sender.jsonl"
+    log_file = (
+        Path(args.log_file).resolve()
+        if args.log_file
+        else runs_dir / "browser_pulse_sender.jsonl"
+    )
 
     while True:
         try:
@@ -212,8 +251,16 @@ def main(argv: list[str] | None = None) -> int:
                 log_file=log_file,
             )
         except Exception as exc:
-            safe_log_event(supervisor_id=args.supervisor_id, status="unknown", success=False, log_file=log_file)
-            print(json.dumps({"success": False, "error": str(exc)}, sort_keys=True), file=sys.stderr)
+            safe_log_event(
+                supervisor_id=args.supervisor_id,
+                status="unknown",
+                success=False,
+                log_file=log_file,
+            )
+            print(
+                json.dumps({"success": False, "error": str(exc)}, sort_keys=True),
+                file=sys.stderr,
+            )
             return 1
 
         print(json.dumps(result, sort_keys=True))

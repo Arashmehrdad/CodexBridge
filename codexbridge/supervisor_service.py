@@ -41,9 +41,13 @@ class SupervisorService:
             if source["repo_name"] != repo_name:
                 raise ValueError("source_run_id must belong to repo_name")
         engine = self._engine(autonomy_profile)
-        supervisor = engine.create_plan_supervisor(repo_name=repo_name, objective=objective, task=task, constraints=constraints)
+        supervisor = engine.create_plan_supervisor(
+            repo_name=repo_name, objective=objective, task=task, constraints=constraints
+        )
         if source_run_id:
-            self.store.add_run_link(supervisor["supervisor_id"], source_run_id, "source")
+            self.store.add_run_link(
+                supervisor["supervisor_id"], source_run_id, "source"
+            )
         return self.enrich_supervisor(engine.tick(supervisor["supervisor_id"]))
 
     def get_status(self, supervisor_id: str) -> dict[str, Any]:
@@ -51,7 +55,9 @@ class SupervisorService:
 
     def get_events(self, supervisor_id: str, limit: int = 50) -> list[dict[str, Any]]:
         validate_supervisor_id(supervisor_id)
-        return redact_and_truncate(self.store.get_events(supervisor_id, self._limit(limit)))
+        return redact_and_truncate(
+            self.store.get_events(supervisor_id, self._limit(limit))
+        )
 
     def get_result(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self.enrich_supervisor(self._get(supervisor_id))
@@ -78,40 +84,76 @@ class SupervisorService:
         if status == "paused":
             previous = metadata.get("paused_from")
             if previous not in {"queued", "needs_input"}:
-                raise ValueError("Paused supervisor is missing a valid paused_from state")
+                raise ValueError(
+                    "Paused supervisor is missing a valid paused_from state"
+                )
             metadata["paused_from"] = None
-            supervisor = self.store.update_supervisor(supervisor_id, status=previous, metadata_json=metadata)
+            supervisor = self.store.update_supervisor(
+                supervisor_id, status=previous, metadata_json=metadata
+            )
             status = supervisor["status"]
         if status in {"queued", "planning", "implementing"}:
-            return self.enrich_supervisor(self._engine_from_supervisor(supervisor).tick(supervisor_id))
+            return self.enrich_supervisor(
+                self._engine_from_supervisor(supervisor).tick(supervisor_id)
+            )
         return self.enrich_supervisor(supervisor)
 
     def pause(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self._get(supervisor_id)
         if supervisor["status"] not in {"queued", "needs_input"}:
-            raise ValueError("pause_supervisor is only supported from queued or needs_input")
+            raise ValueError(
+                "pause_supervisor is only supported from queued or needs_input"
+            )
         metadata = dict(supervisor.get("metadata") or {})
         metadata["paused_from"] = supervisor["status"]
-        paused = self.store.update_supervisor(supervisor_id, status="paused", metadata_json=metadata)
-        self.store.append_event(supervisor_id, level="info", stage="paused", message="Supervisor paused", data={"from": metadata["paused_from"]})
+        paused = self.store.update_supervisor(
+            supervisor_id, status="paused", metadata_json=metadata
+        )
+        self.store.append_event(
+            supervisor_id,
+            level="info",
+            stage="paused",
+            message="Supervisor paused",
+            data={"from": metadata["paused_from"]},
+        )
         return self.enrich_supervisor(paused)
 
     def cancel(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self._get(supervisor_id)
-        return self.enrich_supervisor(self._engine_from_supervisor(supervisor).cancel(supervisor_id))
+        return self.enrich_supervisor(
+            self._engine_from_supervisor(supervisor).cancel(supervisor_id)
+        )
 
-    def get_notifications(self, supervisor_id: str, delivery_status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    def get_notifications(
+        self, supervisor_id: str, delivery_status: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         validate_supervisor_id(supervisor_id)
         if delivery_status and delivery_status not in DELIVERY_STATUSES:
             raise ValueError(f"Invalid delivery_status: {delivery_status}")
-        return redact_and_truncate(self.store.list_notifications(supervisor_id, delivery_status, self._limit(limit)))
+        return redact_and_truncate(
+            self.store.list_notifications(
+                supervisor_id, delivery_status, self._limit(limit)
+            )
+        )
 
     def get_resume_prompt(self, supervisor_id: str) -> dict[str, Any]:
         validate_supervisor_id(supervisor_id)
         path = supervisor_prompt_path(self.config.resolve_runs_dir(), supervisor_id)
         if not path.exists():
-            return {"supervisor_id": supervisor_id, "exists": False, "path": str(path), "content": ""}
-        return redact_and_truncate({"supervisor_id": supervisor_id, "exists": True, "path": str(path), "content": path.read_text(encoding="utf-8")})
+            return {
+                "supervisor_id": supervisor_id,
+                "exists": False,
+                "path": str(path),
+                "content": "",
+            }
+        return redact_and_truncate(
+            {
+                "supervisor_id": supervisor_id,
+                "exists": True,
+                "path": str(path),
+                "content": path.read_text(encoding="utf-8"),
+            }
+        )
 
     def enrich_supervisor(self, supervisor: dict[str, Any]) -> dict[str, Any]:
         enriched = dict(supervisor)
@@ -120,10 +162,16 @@ class SupervisorService:
         active_child = (supervisor.get("metadata") or {}).get("active_child") or {}
         run_id = active_child.get("run_id")
         enriched["active_child_status"] = self._active_child_status(run_id)
-        path = supervisor_prompt_path(self.config.resolve_runs_dir(), supervisor["supervisor_id"])
+        path = supervisor_prompt_path(
+            self.config.resolve_runs_dir(), supervisor["supervisor_id"]
+        )
         enriched["resume_prompt_path"] = str(path)
         enriched["resume_prompt_exists"] = path.exists()
-        enriched["pending_notifications"] = len(self.store.list_notifications(supervisor["supervisor_id"], delivery_status="pending", limit=500))
+        enriched["pending_notifications"] = len(
+            self.store.list_notifications(
+                supervisor["supervisor_id"], delivery_status="pending", limit=500
+            )
+        )
         return redact_and_truncate(enriched)
 
     def _get(self, supervisor_id: str) -> dict[str, Any]:
@@ -132,10 +180,17 @@ class SupervisorService:
 
     def _engine(self, autonomy_profile: str) -> SupervisorEngine:
         profile = self.config.supervisors.autonomy_profiles[autonomy_profile]
-        return SupervisorEngine(self.store, self.child_backend(), autonomy_profile=profile, profile_name=autonomy_profile)
+        return SupervisorEngine(
+            self.store,
+            self.child_backend(),
+            autonomy_profile=profile,
+            profile_name=autonomy_profile,
+        )
 
     def _engine_from_supervisor(self, supervisor: dict[str, Any]) -> SupervisorEngine:
-        profile_name = (supervisor.get("metadata") or {}).get("policy", {}).get("profile", {}).get("name") or self.config.supervisors.default_autonomy_profile
+        profile_name = (supervisor.get("metadata") or {}).get("policy", {}).get(
+            "profile", {}
+        ).get("name") or self.config.supervisors.default_autonomy_profile
         self._validate_autonomy_profile(profile_name)
         return self._engine(profile_name)
 

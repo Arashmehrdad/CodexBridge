@@ -52,7 +52,9 @@ def test_all_tool_output_properties_have_schemas() -> None:
             assert "type" in property_schema, name
 
 
-def test_tools_resolve_config_from_active_mcp_module(tmp_path: Path, monkeypatch) -> None:
+def test_tools_resolve_config_from_active_mcp_module(
+    tmp_path: Path, monkeypatch
+) -> None:
     repo = tmp_path / "SeedMind"
     repo.mkdir()
     (repo / ".git").mkdir()

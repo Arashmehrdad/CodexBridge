@@ -38,6 +38,8 @@ def test_latest_decision_is_repository_scoped(tmp_path: Path) -> None:
     alpha = memory.remember_decision("Alpha decision", repo_name="alpha")
     beta = memory.remember_decision("Beta decision", repo_name="beta")
 
-    assert memory.latest_decision_summary(repo_name="alpha").memory_id == alpha.memory_id
+    assert (
+        memory.latest_decision_summary(repo_name="alpha").memory_id == alpha.memory_id
+    )
     assert memory.latest_decision_summary(repo_name="beta").memory_id == beta.memory_id
     assert memory.continue_last_task(repo_name="alpha").memory_id == alpha.memory_id

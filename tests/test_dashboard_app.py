@@ -19,8 +19,15 @@ def write_json(path: Path, data: dict) -> None:
 
 
 def make_app(tmp_path: Path):
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, runs_dir=str(tmp_path / "runs"), config_dir=tmp_path)
-    write_json(tmp_path / "runs" / "local_agent" / "commands" / "cmd1" / "result.json", {"run_id": "cmd1", "command_id": "git_status", "status": "success"})
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        runs_dir=str(tmp_path / "runs"),
+        config_dir=tmp_path,
+    )
+    write_json(
+        tmp_path / "runs" / "local_agent" / "commands" / "cmd1" / "result.json",
+        {"run_id": "cmd1", "command_id": "git_status", "status": "success"},
+    )
     return create_dashboard_app(config)
 
 
@@ -61,7 +68,9 @@ def test_dashboard_api_routes_are_read_only(tmp_path: Path) -> None:
         assert not (getattr(route, "methods", set()) & mutating_methods)
 
 
-def test_dashboard_package_introduces_no_pulsesender_browser_codex_or_subprocess_calls() -> None:
+def test_dashboard_package_introduces_no_pulsesender_browser_codex_or_subprocess_calls() -> (
+    None
+):
     package = Path("codexbridge/dashboard")
     text = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
     assert "import PulseSender" not in text

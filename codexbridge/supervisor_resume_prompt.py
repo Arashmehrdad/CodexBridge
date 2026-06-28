@@ -7,7 +7,13 @@ from typing import Any
 from .events import redact_and_truncate, truncate_text
 
 
-ARTIFACT_NAMES = ["prompt.txt", "result.json", "events.jsonl", "stdout.txt", "stderr.txt"]
+ARTIFACT_NAMES = [
+    "prompt.txt",
+    "result.json",
+    "events.jsonl",
+    "stdout.txt",
+    "stderr.txt",
+]
 PROMPT_LIMIT = 20000
 PULSESENDER_DELIVERY_NOTE = (
     "If this prompt arrived automatically, it was likely delivered by the local PulseSender watcher. "
@@ -19,7 +25,9 @@ def supervisor_prompt_path(runs_dir: Path, supervisor_id: str) -> Path:
     return runs_dir / "supervisors" / supervisor_id / "resume_prompt.txt"
 
 
-def write_resume_prompt(runs_dir: Path, supervisor: dict[str, Any], child_run_base_dir: Path | None = None) -> Path:
+def write_resume_prompt(
+    runs_dir: Path, supervisor: dict[str, Any], child_run_base_dir: Path | None = None
+) -> Path:
     path = supervisor_prompt_path(runs_dir, supervisor["supervisor_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     prompt = build_resume_prompt(supervisor, child_run_base_dir or runs_dir)
@@ -45,7 +53,15 @@ def build_resume_prompt(supervisor: dict[str, Any], child_run_base_dir: Path) ->
         "",
         "Current Context:",
     ]
-    for key in ("plan", "approval", "blocked", "hard_stop", "plan_result", "implementation_result", "cancelled_child"):
+    for key in (
+        "plan",
+        "approval",
+        "blocked",
+        "hard_stop",
+        "plan_result",
+        "implementation_result",
+        "cancelled_child",
+    ):
         if metadata.get(key) not in (None, "", {}, []):
             lines.append(f"- {key}: {_json_preview(metadata[key])}")
 
@@ -56,11 +72,15 @@ def build_resume_prompt(supervisor: dict[str, Any], child_run_base_dir: Path) ->
             role = str(link.get("link_type", "child"))
             lines.append(f"- {role}: {run_id}")
             for artifact in ARTIFACT_NAMES:
-                lines.append(f"  - {artifact}: {child_run_base_dir / run_id / artifact}")
+                lines.append(
+                    f"  - {artifact}: {child_run_base_dir / run_id / artifact}"
+                )
     else:
         lines.append("- none")
 
-    lines.extend(["", "Next Action Guidance:", _next_action_guidance(safe), "", "Hard Rules:"])
+    lines.extend(
+        ["", "Next Action Guidance:", _next_action_guidance(safe), "", "Hard Rules:"]
+    )
     lines.extend(
         [
             "- no destructive operations",
@@ -74,11 +94,17 @@ def build_resume_prompt(supervisor: dict[str, Any], child_run_base_dir: Path) ->
 
 
 def _one_line(value: Any) -> str:
-    return str(redact_and_truncate(value, limit=1000)).replace("\r", " ").replace("\n", " ")[:1000]
+    return (
+        str(redact_and_truncate(value, limit=1000))
+        .replace("\r", " ")
+        .replace("\n", " ")[:1000]
+    )
 
 
 def _json_preview(value: Any) -> str:
-    return truncate_text(json.dumps(redact_and_truncate(value, limit=2000), sort_keys=True), 2000)
+    return truncate_text(
+        json.dumps(redact_and_truncate(value, limit=2000), sort_keys=True), 2000
+    )
 
 
 def _next_action_guidance(supervisor: dict[str, Any]) -> str:
@@ -96,4 +122,6 @@ def _next_action_guidance(supervisor: dict[str, Any]) -> str:
         return "Confirm cancellation was intended before starting any new supervisor or child run."
     if status == "completed":
         return "Review the final result and repository status before any commit or push approval."
-    return "Inspect supervisor metadata and linked artifacts before taking further action."
+    return (
+        "Inspect supervisor metadata and linked artifacts before taking further action."
+    )

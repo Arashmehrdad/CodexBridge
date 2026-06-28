@@ -10,12 +10,16 @@ from typing import Any, Callable
 from .events import redact_and_truncate
 
 
-def sanitize_notification(notification: dict[str, Any], max_payload_chars: int = 4000) -> dict[str, Any]:
+def sanitize_notification(
+    notification: dict[str, Any], max_payload_chars: int = 4000
+) -> dict[str, Any]:
     return redact_and_truncate(notification, limit=max_payload_chars)
 
 
 class FileNotificationSink:
-    def __init__(self, path: str | Path, *, enabled: bool = False, max_payload_chars: int = 4000):
+    def __init__(
+        self, path: str | Path, *, enabled: bool = False, max_payload_chars: int = 4000
+    ):
         self.path = Path(path) if path else None
         self.enabled = enabled
         self.max_payload_chars = max_payload_chars
@@ -24,7 +28,11 @@ class FileNotificationSink:
         if not self.enabled:
             return {"sent": False, "status": "disabled", "error": ""}
         if self.path is None:
-            return {"sent": False, "status": "failed", "error": "file sink path is required"}
+            return {
+                "sent": False,
+                "status": "failed",
+                "error": "file sink path is required",
+            }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = sanitize_notification(notification, self.max_payload_chars)
         with self.path.open("a", encoding="utf-8") as handle:
@@ -52,16 +60,32 @@ class WebhookNotificationSink:
         if not self.enabled:
             return {"sent": False, "status": "disabled", "error": ""}
         if not self.url_env:
-            return {"sent": False, "status": "failed", "error": "webhook url_env is required"}
+            return {
+                "sent": False,
+                "status": "failed",
+                "error": "webhook url_env is required",
+            }
         url = os.environ.get(self.url_env)
         if not url:
-            return {"sent": False, "status": "failed", "error": "webhook URL environment variable is not set"}
-        body = json.dumps(sanitize_notification(notification, self.max_payload_chars)).encode("utf-8")
-        request = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+            return {
+                "sent": False,
+                "status": "failed",
+                "error": "webhook URL environment variable is not set",
+            }
+        body = json.dumps(
+            sanitize_notification(notification, self.max_payload_chars)
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            url, data=body, method="POST", headers={"Content-Type": "application/json"}
+        )
         with self.transport(request, timeout=self.timeout_seconds) as response:
             status = getattr(response, "status", 200)
         if int(status) >= 400:
-            return {"sent": False, "status": "failed", "error": f"webhook returned HTTP {status}"}
+            return {
+                "sent": False,
+                "status": "failed",
+                "error": f"webhook returned HTTP {status}",
+            }
         return {"sent": True, "status": "delivered", "error": ""}
 
 
@@ -81,11 +105,20 @@ class WindowsToastNotificationSink:
             f"[void](New-BurntToastNotification -Text '{title}', '{message}')"
         )
         try:
-            completed = subprocess.run(["powershell", "-NoProfile", "-Command", script], text=True, capture_output=True, timeout=5)
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                text=True,
+                capture_output=True,
+                timeout=5,
+            )
         except Exception as exc:
             return {"sent": False, "status": "failed", "error": str(exc)}
         if completed.returncode != 0:
-            return {"sent": False, "status": "failed", "error": (completed.stderr or completed.stdout).strip()}
+            return {
+                "sent": False,
+                "status": "failed",
+                "error": (completed.stderr or completed.stdout).strip(),
+            }
         return {"sent": True, "status": "delivered", "error": ""}
 
 
@@ -113,6 +146,10 @@ class NotificationDispatcher:
             except Exception as exc:
                 errors.append(str(exc))
         if delivered:
-            return self.store.update_notification_delivery(notification["id"], delivery_status="delivered", last_error="")
+            return self.store.update_notification_delivery(
+                notification["id"], delivery_status="delivered", last_error=""
+            )
         status = "failed" if errors else "pending"
-        return self.store.update_notification_delivery(notification["id"], delivery_status=status, last_error="; ".join(errors))
+        return self.store.update_notification_delivery(
+            notification["id"], delivery_status=status, last_error="; ".join(errors)
+        )

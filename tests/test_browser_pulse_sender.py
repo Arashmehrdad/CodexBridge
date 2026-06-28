@@ -8,7 +8,9 @@ import pytest
 from codexbridge.supervisor_store import SupervisorStore
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "browser_pulse_sender.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "browser_pulse_sender.py"
+)
 LAUNCHER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "start_chrome_cdp.ps1"
 SPEC = importlib.util.spec_from_file_location("browser_pulse_sender", SCRIPT_PATH)
 assert SPEC and SPEC.loader
@@ -17,7 +19,10 @@ SPEC.loader.exec_module(browser_pulse_sender)
 
 
 def test_validate_chat_url_requires_real_chatgpt_conversation_url() -> None:
-    assert browser_pulse_sender.validate_chat_url("https://chatgpt.com/c/abc123") == "https://chatgpt.com/c/abc123"
+    assert (
+        browser_pulse_sender.validate_chat_url("https://chatgpt.com/c/abc123")
+        == "https://chatgpt.com/c/abc123"
+    )
     with pytest.raises(ValueError):
         browser_pulse_sender.validate_chat_url("https://chatgpt.com/")
     with pytest.raises(ValueError):
@@ -25,8 +30,14 @@ def test_validate_chat_url_requires_real_chatgpt_conversation_url() -> None:
 
 
 def test_validate_cdp_url_is_local_only() -> None:
-    assert browser_pulse_sender.validate_local_cdp_url("http://127.0.0.1:9222") == "http://127.0.0.1:9222"
-    assert browser_pulse_sender.validate_local_cdp_url("http://localhost:9222") == "http://localhost:9222"
+    assert (
+        browser_pulse_sender.validate_local_cdp_url("http://127.0.0.1:9222")
+        == "http://127.0.0.1:9222"
+    )
+    assert (
+        browser_pulse_sender.validate_local_cdp_url("http://localhost:9222")
+        == "http://localhost:9222"
+    )
     with pytest.raises(ValueError):
         browser_pulse_sender.validate_local_cdp_url("https://127.0.0.1:9222")
     with pytest.raises(ValueError):
@@ -35,8 +46,12 @@ def test_validate_cdp_url_is_local_only() -> None:
 
 def test_build_prompt_uses_resume_prompt_and_redacts(tmp_path: Path) -> None:
     store = SupervisorStore(tmp_path)
-    supervisor = store.create_supervisor(repo_name="sample", objective="Test", status="needs_input")
-    prompt_path = tmp_path / "supervisors" / supervisor["supervisor_id"] / "resume_prompt.txt"
+    supervisor = store.create_supervisor(
+        repo_name="sample", objective="Test", status="needs_input"
+    )
+    prompt_path = (
+        tmp_path / "supervisors" / supervisor["supervisor_id"] / "resume_prompt.txt"
+    )
     prompt_path.parent.mkdir(parents=True)
     prompt_path.write_text("Use token=super-secret-value", encoding="utf-8")
 
@@ -52,7 +67,9 @@ def test_build_prompt_uses_resume_prompt_and_redacts(tmp_path: Path) -> None:
 
 def test_run_once_dry_run_logs_safe_fields_only(tmp_path: Path) -> None:
     store = SupervisorStore(tmp_path)
-    supervisor = store.create_supervisor(repo_name="sample", objective="Test", status="completed")
+    supervisor = store.create_supervisor(
+        repo_name="sample", objective="Test", status="completed"
+    )
     log_file = tmp_path / "pulse.jsonl"
 
     result = browser_pulse_sender.run_once(
@@ -75,7 +92,9 @@ def test_run_once_dry_run_logs_safe_fields_only(tmp_path: Path) -> None:
 
 def test_run_once_refuses_non_handoff_status(tmp_path: Path) -> None:
     store = SupervisorStore(tmp_path)
-    supervisor = store.create_supervisor(repo_name="sample", objective="Test", status="planning")
+    supervisor = store.create_supervisor(
+        repo_name="sample", objective="Test", status="planning"
+    )
 
     result = browser_pulse_sender.run_once(
         store=store,
@@ -101,5 +120,8 @@ def test_cdp_launcher_documents_verified_dedicated_profile_flow() -> None:
     assert "--new-window" in launcher
     assert "--user-data-dir=$UserDataDir" in launcher
     assert "http://127.0.0.1:$Port/json/version" in launcher
-    assert "Modern Chrome/Edge builds may refuse remote debugging on the default profile" in launcher
+    assert (
+        "Modern Chrome/Edge builds may refuse remote debugging on the default profile"
+        in launcher
+    )
     assert "RemoteDebuggingAllowed" in launcher

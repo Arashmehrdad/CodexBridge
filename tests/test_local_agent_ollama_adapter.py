@@ -44,7 +44,9 @@ def test_adapter_builds_openai_compatible_request() -> None:
     assert captured["timeout"] == 30
     assert captured["method"] == "POST"
     assert captured["body"]["model"] == "llama3.2"
-    assert captured["body"]["messages"] == [{"role": "user", "content": "pytest output"}]
+    assert captured["body"]["messages"] == [
+        {"role": "user", "content": "pytest output"}
+    ]
     assert captured["body"]["stream"] is False
     assert result.status == LocalModelStatus.SUCCESS
     assert result.content == "summary"
@@ -60,7 +62,9 @@ def test_connection_failure_returns_unavailable() -> None:
     def transport(request: urllib.request.Request, timeout: int) -> FakeResponse:
         raise urllib.error.URLError("connection refused")
 
-    result = OllamaChatAdapter(transport=transport).call(task_type="classify_error", messages=[{"role": "user", "content": "err"}])
+    result = OllamaChatAdapter(transport=transport).call(
+        task_type="classify_error", messages=[{"role": "user", "content": "err"}]
+    )
 
     assert result.status == LocalModelStatus.UNAVAILABLE
     assert result.error
@@ -70,13 +74,17 @@ def test_timeout_returns_timeout() -> None:
     def transport(request: urllib.request.Request, timeout: int) -> FakeResponse:
         raise urllib.error.URLError(socket.timeout("timed out"))
 
-    result = OllamaChatAdapter(transport=transport).call(task_type="classify_error", messages=[{"role": "user", "content": "err"}])
+    result = OllamaChatAdapter(transport=transport).call(
+        task_type="classify_error", messages=[{"role": "user", "content": "err"}]
+    )
 
     assert result.status == LocalModelStatus.TIMEOUT
 
 
 def test_non_2xx_response_returns_failed() -> None:
-    result = OllamaChatAdapter(transport=lambda request, timeout: FakeResponse("bad gateway", status=502)).call(
+    result = OllamaChatAdapter(
+        transport=lambda request, timeout: FakeResponse("bad gateway", status=502)
+    ).call(
         task_type="summarize_log",
         messages=[{"role": "user", "content": "log"}],
     )
@@ -86,7 +94,9 @@ def test_non_2xx_response_returns_failed() -> None:
 
 
 def test_malformed_response_returns_failed() -> None:
-    result = OllamaChatAdapter(transport=lambda request, timeout: FakeResponse({"choices": []})).call(
+    result = OllamaChatAdapter(
+        transport=lambda request, timeout: FakeResponse({"choices": []})
+    ).call(
         task_type="summarize_log",
         messages=[{"role": "user", "content": "log"}],
     )
@@ -113,7 +123,9 @@ def test_json_mode_success_returns_parsed_json() -> None:
 
 
 def test_json_mode_invalid_json_returns_invalid_json() -> None:
-    result = OllamaChatAdapter(transport=lambda request, timeout: FakeResponse(success_payload("not json"))).call_json(
+    result = OllamaChatAdapter(
+        transport=lambda request, timeout: FakeResponse(success_payload("not json"))
+    ).call_json(
         task_type="classify_error",
         messages=[{"role": "user", "content": "failure"}],
     )

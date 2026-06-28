@@ -56,7 +56,15 @@ WIKI_PAGE_OUTPUT = {
         "truncated": {"type": "boolean"},
         "error": {"type": "string"},
     },
-    "required": ["ok", "repo_name", "page", "content", "size_bytes", "truncated", "error"],
+    "required": [
+        "ok",
+        "repo_name",
+        "page",
+        "content",
+        "size_bytes",
+        "truncated",
+        "error",
+    ],
 }
 KNOWLEDGE_SEARCH_OUTPUT = {
     "type": "object",
@@ -92,7 +100,14 @@ KNOWLEDGE_SEARCH_OUTPUT = {
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "repo_name": {"type": "string"},
                 },
-                "required": ["memory_id", "memory_type", "title", "summary", "tags", "repo_name"],
+                "required": [
+                    "memory_id",
+                    "memory_type",
+                    "title",
+                    "summary",
+                    "tags",
+                    "repo_name",
+                ],
             },
         },
         "error": {"type": "string"},
@@ -111,7 +126,15 @@ MEMORY_WRITE_OUTPUT = {
         "summary": {"type": "string"},
         "error": {"type": "string"},
     },
-    "required": ["ok", "repo_name", "memory_id", "memory_type", "title", "summary", "error"],
+    "required": [
+        "ok",
+        "repo_name",
+        "memory_id",
+        "memory_type",
+        "title",
+        "summary",
+        "error",
+    ],
 }
 
 
@@ -140,7 +163,9 @@ def _active_server_config(mcp: Any):
         setattr(mcp, "_codexbridge_runtime_config", config)
         return config
 
-    raise RuntimeError("CodexBridge config has not been loaded in the active MCP process")
+    raise RuntimeError(
+        "CodexBridge config has not been loaded in the active MCP process"
+    )
 
 
 def _runtime_context(mcp: Any, repo_name: str):
@@ -218,7 +243,9 @@ def register_knowledge_tools(mcp: Any) -> None:
         try:
             config, repo_root = _runtime_context(mcp, repo_name)
             maximum = max(1, min(limit, 50))
-            wiki_hits = RepoWikiService(repo_root, repo_name).search(query, limit=maximum)
+            wiki_hits = RepoWikiService(repo_root, repo_name).search(
+                query, limit=maximum
+            )
             memory = ProjectMemoryRepository(config=config)
             result = memory.search(
                 query,

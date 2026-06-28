@@ -20,7 +20,9 @@ class ImportResult(BaseModel):
     memory_ids: list[str] = Field(default_factory=list)
 
 
-def import_command_result(repo: ProjectMemoryRepository, result_json_path: Path) -> ImportResult:
+def import_command_result(
+    repo: ProjectMemoryRepository, result_json_path: Path
+) -> ImportResult:
     path = Path(result_json_path)
     if not path.exists():
         return ImportResult(skipped_missing=1)
@@ -46,13 +48,30 @@ def import_command_result(repo: ProjectMemoryRepository, result_json_path: Path)
             source_kind="command_result",
             source_id=str(data.get("run_id") or path),
             source_path=path,
-            artifact_paths=_paths([data.get("stdout_path"), data.get("stderr_path"), data.get("result_path")]),
-            metadata={key: data.get(key) for key in ("run_id", "command_id", "status", "exit_code", "duration_seconds")},
+            artifact_paths=_paths(
+                [
+                    data.get("stdout_path"),
+                    data.get("stderr_path"),
+                    data.get("result_path"),
+                ]
+            ),
+            metadata={
+                key: data.get(key)
+                for key in (
+                    "run_id",
+                    "command_id",
+                    "status",
+                    "exit_code",
+                    "duration_seconds",
+                )
+            },
         ),
     )
 
 
-def import_job_result(repo: ProjectMemoryRepository, result_json_path: Path) -> ImportResult:
+def import_job_result(
+    repo: ProjectMemoryRepository, result_json_path: Path
+) -> ImportResult:
     path = Path(result_json_path)
     if not path.exists():
         return ImportResult(skipped_missing=1)
@@ -84,7 +103,17 @@ def import_job_result(repo: ProjectMemoryRepository, result_json_path: Path) -> 
             source_kind="job_result",
             source_id=job_id,
             source_path=path,
-            artifact_paths=[item for item in [path, report_path, resume_path, manifest_path, *_paths(data.get("artifact_paths", []))] if item.exists()],
+            artifact_paths=[
+                item
+                for item in [
+                    path,
+                    report_path,
+                    resume_path,
+                    manifest_path,
+                    *_paths(data.get("artifact_paths", [])),
+                ]
+                if item.exists()
+            ],
             metadata={
                 "job_id": job_id,
                 "job_profile": data.get("job_profile"),
@@ -98,7 +127,9 @@ def import_job_result(repo: ProjectMemoryRepository, result_json_path: Path) -> 
     )
 
 
-def import_pulse_manifest(repo: ProjectMemoryRepository, manifest_path: Path) -> ImportResult:
+def import_pulse_manifest(
+    repo: ProjectMemoryRepository, manifest_path: Path
+) -> ImportResult:
     path = Path(manifest_path)
     if not path.exists():
         return ImportResult(skipped_missing=1)
@@ -115,8 +146,23 @@ def import_pulse_manifest(repo: ProjectMemoryRepository, manifest_path: Path) ->
             source_kind="pulse_manifest",
             source_id=str(data.get("artifact_id") or path),
             source_path=path,
-            artifact_paths=_paths([data.get("report_path"), data.get("resume_prompt_path"), data.get("result_json_path")]),
-            metadata={key: data.get(key) for key in ("artifact_id", "status", "ready", "source_kind", "source_status")},
+            artifact_paths=_paths(
+                [
+                    data.get("report_path"),
+                    data.get("resume_prompt_path"),
+                    data.get("result_json_path"),
+                ]
+            ),
+            metadata={
+                key: data.get(key)
+                for key in (
+                    "artifact_id",
+                    "status",
+                    "ready",
+                    "source_kind",
+                    "source_status",
+                )
+            },
         ),
     )
 
@@ -142,9 +188,13 @@ def import_agents_md(repo: ProjectMemoryRepository, agents_path: Path) -> Import
     )
 
 
-def import_runs(repo: ProjectMemoryRepository, runs_dir: Path, *, max_files: int = 200) -> ImportResult:
+def import_runs(
+    repo: ProjectMemoryRepository, runs_dir: Path, *, max_files: int = 200
+) -> ImportResult:
     result = ImportResult()
-    files = list((Path(runs_dir) / "local_agent" / "commands").glob("*/result.json"))[:max_files]
+    files = list((Path(runs_dir) / "local_agent" / "commands").glob("*/result.json"))[
+        :max_files
+    ]
     files += list((Path(runs_dir) / "jobs").glob("*/result.json"))[:max_files]
     for manifest in discover_ready_reports(Path(runs_dir))[:max_files]:
         files.append(manifest.resume_prompt_path.parent / "pulse_manifest.json")
@@ -166,7 +216,10 @@ def import_runs(repo: ProjectMemoryRepository, runs_dir: Path, *, max_files: int
 def _create_safe(repo: ProjectMemoryRepository, record: MemoryRecord) -> ImportResult:
     if detect_sensitivity("\n".join([record.title, record.summary, record.content])):
         return ImportResult(skipped_sensitive=1)
-    before = {item.memory_id for item in repo.store.list_records(include_archived=True, limit=500)}
+    before = {
+        item.memory_id
+        for item in repo.store.list_records(include_archived=True, limit=500)
+    }
     created = repo.store.create(record)
     if created.memory_id in before:
         return ImportResult(skipped_duplicate=1, memory_ids=[created.memory_id])

@@ -2,6 +2,7 @@
 Tests for codexbridge/repo_writer.py and related server tools.
 No CodexRunner, Gemini, Ollama, or local-model calls are made.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -29,6 +30,7 @@ from codexbridge.repo_writer import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_repo(tmp_path: Path) -> Path:
     (tmp_path / ".git").mkdir()
     return tmp_path
@@ -52,13 +54,20 @@ def sha256_file(path: Path) -> str:
 # preview_repo_patch – success
 # ---------------------------------------------------------------------------
 
+
 def test_preview_returns_patch_id_and_diff(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "hello.py", "def greet():\n    return 'hello'\n")
     sha = sha256_file(repo / "hello.py")
-    ops = [{"path": "hello.py", "expected_sha256": sha,
-            "old_text": "return 'hello'", "new_text": "return 'hi'"}]
+    ops = [
+        {
+            "path": "hello.py",
+            "expected_sha256": sha,
+            "old_text": "return 'hello'",
+            "new_text": "return 'hi'",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is True
     assert result["patch_id"]
@@ -74,8 +83,14 @@ def test_preview_makes_no_changes(tmp_path: Path) -> None:
     write_file(repo / "src.py", "x = 1\n")
     sha = sha256_file(repo / "src.py")
     original = (repo / "src.py").read_text(encoding="utf-8")
-    ops = [{"path": "src.py", "expected_sha256": sha,
-            "old_text": "x = 1", "new_text": "x = 2"}]
+    ops = [
+        {
+            "path": "src.py",
+            "expected_sha256": sha,
+            "old_text": "x = 1",
+            "new_text": "x = 2",
+        }
+    ]
     preview_repo_patch(repo, ops, runs)
     assert (repo / "src.py").read_text(encoding="utf-8") == original
 
@@ -85,8 +100,14 @@ def test_preview_stores_manifest(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "a.py", "a = 1\n")
     sha = sha256_file(repo / "a.py")
-    ops = [{"path": "a.py", "expected_sha256": sha,
-            "old_text": "a = 1", "new_text": "a = 99"}]
+    ops = [
+        {
+            "path": "a.py",
+            "expected_sha256": sha,
+            "old_text": "a = 1",
+            "new_text": "a = 99",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     patch_dir = runs / "managed_patches" / result["patch_id"]
     assert (patch_dir / "manifest.json").exists()
@@ -96,12 +117,19 @@ def test_preview_stores_manifest(tmp_path: Path) -> None:
 # preview_repo_patch – rejection cases
 # ---------------------------------------------------------------------------
 
+
 def test_preview_rejects_stale_sha256(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "b.py", "b = 1\n")
-    ops = [{"path": "b.py", "expected_sha256": "a" * 64,
-            "old_text": "b = 1", "new_text": "b = 2"}]
+    ops = [
+        {
+            "path": "b.py",
+            "expected_sha256": "a" * 64,
+            "old_text": "b = 1",
+            "new_text": "b = 2",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
     assert result["validation_errors"]
@@ -112,8 +140,14 @@ def test_preview_rejects_missing_old_text(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "c.py", "c = 1\n")
     sha = sha256_file(repo / "c.py")
-    ops = [{"path": "c.py", "expected_sha256": sha,
-            "old_text": "DOES_NOT_EXIST", "new_text": "c = 2"}]
+    ops = [
+        {
+            "path": "c.py",
+            "expected_sha256": sha,
+            "old_text": "DOES_NOT_EXIST",
+            "new_text": "c = 2",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
     assert any("not found" in e for e in result["validation_errors"])
@@ -124,8 +158,14 @@ def test_preview_rejects_ambiguous_old_text(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "d.py", "x = 1\nx = 1\n")
     sha = sha256_file(repo / "d.py")
-    ops = [{"path": "d.py", "expected_sha256": sha,
-            "old_text": "x = 1", "new_text": "x = 9"}]
+    ops = [
+        {
+            "path": "d.py",
+            "expected_sha256": sha,
+            "old_text": "x = 1",
+            "new_text": "x = 9",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
     assert any("times" in e for e in result["validation_errors"])
@@ -137,8 +177,18 @@ def test_preview_rejects_duplicate_paths(tmp_path: Path) -> None:
     write_file(repo / "e.py", "e = 1\n")
     sha = sha256_file(repo / "e.py")
     ops = [
-        {"path": "e.py", "expected_sha256": sha, "old_text": "e = 1", "new_text": "e = 2"},
-        {"path": "e.py", "expected_sha256": sha, "old_text": "e = 1", "new_text": "e = 3"},
+        {
+            "path": "e.py",
+            "expected_sha256": sha,
+            "old_text": "e = 1",
+            "new_text": "e = 2",
+        },
+        {
+            "path": "e.py",
+            "expected_sha256": sha,
+            "old_text": "e = 1",
+            "new_text": "e = 3",
+        },
     ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
@@ -148,8 +198,14 @@ def test_preview_rejects_duplicate_paths(tmp_path: Path) -> None:
 def test_preview_rejects_absolute_path(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
-    ops = [{"path": str(tmp_path / "secret.py"), "expected_sha256": "x" * 64,
-            "old_text": "a", "new_text": "b"}]
+    ops = [
+        {
+            "path": str(tmp_path / "secret.py"),
+            "expected_sha256": "x" * 64,
+            "old_text": "a",
+            "new_text": "b",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -157,8 +213,14 @@ def test_preview_rejects_absolute_path(tmp_path: Path) -> None:
 def test_preview_rejects_traversal_path(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
-    ops = [{"path": "../outside.py", "expected_sha256": "x" * 64,
-            "old_text": "a", "new_text": "b"}]
+    ops = [
+        {
+            "path": "../outside.py",
+            "expected_sha256": "x" * 64,
+            "old_text": "a",
+            "new_text": "b",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -168,8 +230,14 @@ def test_preview_rejects_blocked_extension(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "cert.pem", "-----BEGIN CERTIFICATE-----\n")
     sha = sha256_file(repo / "cert.pem")
-    ops = [{"path": "cert.pem", "expected_sha256": sha,
-            "old_text": "BEGIN", "new_text": "END"}]
+    ops = [
+        {
+            "path": "cert.pem",
+            "expected_sha256": sha,
+            "old_text": "BEGIN",
+            "new_text": "END",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -180,7 +248,9 @@ def test_preview_rejects_bak_and_tmp(tmp_path: Path) -> None:
     for name in ["file.bak", "file.tmp"]:
         write_file(repo / name, "data\n")
         sha = sha256_file(repo / name)
-        ops = [{"path": name, "expected_sha256": sha, "old_text": "data", "new_text": "x"}]
+        ops = [
+            {"path": name, "expected_sha256": sha, "old_text": "data", "new_text": "x"}
+        ]
         result = preview_repo_patch(repo, ops, runs)
         assert result["ok"] is False, f"Expected rejection of {name}"
 
@@ -188,8 +258,14 @@ def test_preview_rejects_bak_and_tmp(tmp_path: Path) -> None:
 def test_preview_rejects_venv_path(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
-    ops = [{"path": ".venv/lib/site.py", "expected_sha256": "x" * 64,
-            "old_text": "x", "new_text": "y"}]
+    ops = [
+        {
+            "path": ".venv/lib/site.py",
+            "expected_sha256": "x" * 64,
+            "old_text": "x",
+            "new_text": "y",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -197,8 +273,14 @@ def test_preview_rejects_venv_path(tmp_path: Path) -> None:
 def test_preview_rejects_git_path(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
-    ops = [{"path": ".git/config", "expected_sha256": "x" * 64,
-            "old_text": "x", "new_text": "y"}]
+    ops = [
+        {
+            "path": ".git/config",
+            "expected_sha256": "x" * 64,
+            "old_text": "x",
+            "new_text": "y",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -207,13 +289,20 @@ def test_preview_rejects_git_path(tmp_path: Path) -> None:
 # apply_repo_patch – success and stale-hash rejection
 # ---------------------------------------------------------------------------
 
+
 def test_apply_writes_file(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "apply.py", "x = 1\n")
     sha = sha256_file(repo / "apply.py")
-    ops = [{"path": "apply.py", "expected_sha256": sha,
-            "old_text": "x = 1", "new_text": "x = 99"}]
+    ops = [
+        {
+            "path": "apply.py",
+            "expected_sha256": sha,
+            "old_text": "x = 1",
+            "new_text": "x = 99",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     assert preview["ok"] is True
     result = apply_repo_patch(repo, ops, preview["patch_id"], runs)
@@ -227,8 +316,14 @@ def test_apply_returns_sha256_of_result(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "f.py", "v = 1\n")
     sha = sha256_file(repo / "f.py")
-    ops = [{"path": "f.py", "expected_sha256": sha,
-            "old_text": "v = 1", "new_text": "v = 7"}]
+    ops = [
+        {
+            "path": "f.py",
+            "expected_sha256": sha,
+            "old_text": "v = 1",
+            "new_text": "v = 7",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     result = apply_repo_patch(repo, ops, preview["patch_id"], runs)
     assert result["results"][0]["sha256"] == sha256_file(repo / "f.py")
@@ -239,8 +334,14 @@ def test_apply_rejects_unknown_patch_id(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "g.py", "g = 1\n")
     sha = sha256_file(repo / "g.py")
-    ops = [{"path": "g.py", "expected_sha256": sha,
-            "old_text": "g = 1", "new_text": "g = 2"}]
+    ops = [
+        {
+            "path": "g.py",
+            "expected_sha256": sha,
+            "old_text": "g = 1",
+            "new_text": "g = 2",
+        }
+    ]
     with pytest.raises(ValueError, match="Unknown patch_id"):
         apply_repo_patch(repo, ops, "20260624T000000Z_patch_deadbeef", runs)
 
@@ -250,8 +351,14 @@ def test_apply_rejects_stale_file_between_preview_and_apply(tmp_path: Path) -> N
     runs = tmp_path / "runs"
     write_file(repo / "h.py", "h = 1\n")
     sha = sha256_file(repo / "h.py")
-    ops = [{"path": "h.py", "expected_sha256": sha,
-            "old_text": "h = 1", "new_text": "h = 2"}]
+    ops = [
+        {
+            "path": "h.py",
+            "expected_sha256": sha,
+            "old_text": "h = 1",
+            "new_text": "h = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     # Mutate file between preview and apply
     (repo / "h.py").write_text("h = 999\n", encoding="utf-8")
@@ -264,8 +371,14 @@ def test_apply_rejects_already_applied(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "i.py", "i = 1\n")
     sha = sha256_file(repo / "i.py")
-    ops = [{"path": "i.py", "expected_sha256": sha,
-            "old_text": "i = 1", "new_text": "i = 2"}]
+    ops = [
+        {
+            "path": "i.py",
+            "expected_sha256": sha,
+            "old_text": "i = 1",
+            "new_text": "i = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     apply_repo_patch(repo, ops, preview["patch_id"], runs)
     with pytest.raises(ValueError, match="already been applied"):
@@ -276,6 +389,7 @@ def test_apply_rejects_already_applied(tmp_path: Path) -> None:
 # Atomic multi-file rollback after partial failure
 # ---------------------------------------------------------------------------
 
+
 def test_apply_rolls_back_on_partial_failure(tmp_path: Path, monkeypatch) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
@@ -284,8 +398,18 @@ def test_apply_rolls_back_on_partial_failure(tmp_path: Path, monkeypatch) -> Non
     sha1 = sha256_file(repo / "r1.py")
     sha2 = sha256_file(repo / "r2.py")
     ops = [
-        {"path": "r1.py", "expected_sha256": sha1, "old_text": "r = 1", "new_text": "r = 9"},
-        {"path": "r2.py", "expected_sha256": sha2, "old_text": "s = 1", "new_text": "s = 9"},
+        {
+            "path": "r1.py",
+            "expected_sha256": sha1,
+            "old_text": "r = 1",
+            "new_text": "r = 9",
+        },
+        {
+            "path": "r2.py",
+            "expected_sha256": sha2,
+            "old_text": "s = 1",
+            "new_text": "s = 9",
+        },
     ]
     preview = preview_repo_patch(repo, ops, runs)
 
@@ -310,13 +434,20 @@ def test_apply_rolls_back_on_partial_failure(tmp_path: Path, monkeypatch) -> Non
 # revert_managed_patch
 # ---------------------------------------------------------------------------
 
+
 def test_revert_restores_original(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "rev.py", "v = 1\n")
     sha = sha256_file(repo / "rev.py")
-    ops = [{"path": "rev.py", "expected_sha256": sha,
-            "old_text": "v = 1", "new_text": "v = 2"}]
+    ops = [
+        {
+            "path": "rev.py",
+            "expected_sha256": sha,
+            "old_text": "v = 1",
+            "new_text": "v = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     apply_repo_patch(repo, ops, preview["patch_id"], runs)
     assert (repo / "rev.py").read_text(encoding="utf-8") == "v = 2\n"
@@ -330,8 +461,14 @@ def test_revert_rejects_non_applied_patch(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "nop.py", "n = 1\n")
     sha = sha256_file(repo / "nop.py")
-    ops = [{"path": "nop.py", "expected_sha256": sha,
-            "old_text": "n = 1", "new_text": "n = 2"}]
+    ops = [
+        {
+            "path": "nop.py",
+            "expected_sha256": sha,
+            "old_text": "n = 1",
+            "new_text": "n = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     with pytest.raises(ValueError, match="not in 'applied'"):
         revert_managed_patch(repo, preview["patch_id"], runs)
@@ -342,8 +479,14 @@ def test_revert_rejects_modified_file(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "mod.py", "m = 1\n")
     sha = sha256_file(repo / "mod.py")
-    ops = [{"path": "mod.py", "expected_sha256": sha,
-            "old_text": "m = 1", "new_text": "m = 2"}]
+    ops = [
+        {
+            "path": "mod.py",
+            "expected_sha256": sha,
+            "old_text": "m = 1",
+            "new_text": "m = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     apply_repo_patch(repo, ops, preview["patch_id"], runs)
     (repo / "mod.py").write_text("m = 999\n", encoding="utf-8")
@@ -354,6 +497,7 @@ def test_revert_rejects_modified_file(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # create_repo_file
 # ---------------------------------------------------------------------------
+
 
 def test_create_repo_file_succeeds(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -406,6 +550,7 @@ def test_create_repo_file_rejects_oversized(tmp_path: Path, monkeypatch) -> None
 # delete_repo_file
 # ---------------------------------------------------------------------------
 
+
 def test_delete_repo_file_succeeds(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
@@ -438,6 +583,7 @@ def test_delete_repo_file_saves_rollback(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # move_repo_file
 # ---------------------------------------------------------------------------
+
 
 def test_move_repo_file_succeeds(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
@@ -481,6 +627,7 @@ def test_move_repo_file_rejects_traversal_destination(tmp_path: Path) -> None:
 # Symlink and junction escape
 # ---------------------------------------------------------------------------
 
+
 def test_preview_rejects_symlink_file(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
@@ -492,8 +639,14 @@ def test_preview_rejects_symlink_file(tmp_path: Path) -> None:
     except OSError:
         pytest.skip("Symlinks unavailable")
     sha = sha256_file(outside)
-    ops = [{"path": "link.py", "expected_sha256": sha,
-            "old_text": "secret", "new_text": "changed"}]
+    ops = [
+        {
+            "path": "link.py",
+            "expected_sha256": sha,
+            "old_text": "secret",
+            "new_text": "changed",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -502,12 +655,19 @@ def test_preview_rejects_symlink_file(tmp_path: Path) -> None:
 # Sensitive file rejection
 # ---------------------------------------------------------------------------
 
+
 def test_preview_rejects_env_file(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / ".env", "SECRET=abc\n")
-    ops = [{"path": ".env", "expected_sha256": "x" * 64,
-            "old_text": "abc", "new_text": "xyz"}]
+    ops = [
+        {
+            "path": ".env",
+            "expected_sha256": "x" * 64,
+            "old_text": "abc",
+            "new_text": "xyz",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
 
@@ -528,13 +688,20 @@ def test_create_rejects_desktop_ini(tmp_path: Path) -> None:
 # No absolute path leakage
 # ---------------------------------------------------------------------------
 
+
 def test_preview_result_no_absolute_path(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "leak.py", "z = 1\n")
     sha = sha256_file(repo / "leak.py")
-    ops = [{"path": "leak.py", "expected_sha256": sha,
-            "old_text": "z = 1", "new_text": "z = 2"}]
+    ops = [
+        {
+            "path": "leak.py",
+            "expected_sha256": sha,
+            "old_text": "z = 1",
+            "new_text": "z = 2",
+        }
+    ]
     result = preview_repo_patch(repo, ops, runs)
     result_str = json.dumps(result)
     assert str(tmp_path) not in result_str
@@ -545,8 +712,14 @@ def test_apply_result_no_absolute_path(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "no_leak.py", "w = 1\n")
     sha = sha256_file(repo / "no_leak.py")
-    ops = [{"path": "no_leak.py", "expected_sha256": sha,
-            "old_text": "w = 1", "new_text": "w = 2"}]
+    ops = [
+        {
+            "path": "no_leak.py",
+            "expected_sha256": sha,
+            "old_text": "w = 1",
+            "new_text": "w = 2",
+        }
+    ]
     preview = preview_repo_patch(repo, ops, runs)
     result = apply_repo_patch(repo, ops, preview["patch_id"], runs)
     result_str = json.dumps(result)
@@ -557,8 +730,10 @@ def test_apply_result_no_absolute_path(tmp_path: Path) -> None:
 # No CodexRunner or local model invocation
 # ---------------------------------------------------------------------------
 
+
 def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
     import ast, codexbridge.repo_writer as rw_mod
+
     source = Path(rw_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     imports: list[str] = []
@@ -569,8 +744,9 @@ def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
             imports.append(node.module or "")
             imports.extend(a.name for a in node.names)
     for name in imports:
-        assert "runner" not in name.lower() or "repo_writer" in name.lower(), \
+        assert "runner" not in name.lower() or "repo_writer" in name.lower(), (
             f"Unexpected runner import: {name}"
+        )
         assert "ollama" not in name.lower(), f"ollama import: {name}"
         assert "gemini" not in name.lower(), f"gemini import: {name}"
 
@@ -578,6 +754,7 @@ def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Server-level integration: preview_repo_patch and apply_repo_patch via server
 # ---------------------------------------------------------------------------
+
 
 def test_server_preview_and_apply(tmp_path: Path) -> None:
     import codexbridge.server as server
@@ -593,8 +770,14 @@ def test_server_preview_and_apply(tmp_path: Path) -> None:
     )
     server.set_config(config, tmp_path / "config.yaml")
 
-    ops = [{"path": "target.py", "expected_sha256": sha,
-            "old_text": "x = 0", "new_text": "x = 1"}]
+    ops = [
+        {
+            "path": "target.py",
+            "expected_sha256": sha,
+            "old_text": "x = 0",
+            "new_text": "x = 1",
+        }
+    ]
     preview = server.preview_repo_patch("repo", ops)
     assert preview["ok"] is True
     assert preview["patch_id"]
@@ -620,7 +803,9 @@ def test_server_create_and_delete_file(tmp_path: Path) -> None:
     assert create_result["ok"] is True
     assert (tmp_path / "brand_new.py").exists()
 
-    del_result = server.delete_repo_file("repo", "brand_new.py", create_result["sha256"])
+    del_result = server.delete_repo_file(
+        "repo", "brand_new.py", create_result["sha256"]
+    )
     assert del_result["ok"] is True
     assert not (tmp_path / "brand_new.py").exists()
 

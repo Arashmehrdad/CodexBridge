@@ -4,10 +4,12 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
-from .safety import validate_repo_relative_path
+from .safety import SECRET_VALUE_PATTERNS, validate_repo_relative_path
 
 
-def _run_git(repo_root: Path, args: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    repo_root: Path, args: list[str], *, check: bool = False
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
         cwd=repo_root,
@@ -127,21 +129,121 @@ def create_branch(repo_root: Path, branch_name: str) -> dict:
     """
     result = _run_git(repo_root, ["branch", "--", branch_name])
     if result.returncode != 0:
-        raise ValueError(
-            f"git branch failed: {result.stderr.strip()}"
-        )
+        raise ValueError(f"git branch failed: {result.stderr.strip()}")
     return {"ok": True, "branch_name": branch_name, "error": ""}
 
 
-def commit_selected_files(repo_root: Path, files: Iterable[str], title: str, description: str = "") -> dict:
+MAX_COMMIT_TITLE_LENGTH = 200
+MAX_COMMIT_DESCRIPTION_LENGTH = 10_000
+
+
+class CommitMetadataError(ValueError):
+    """Structured validation error for inert Git commit metadata."""
+
+    def __init__(
+        self,
+        field: str,
+        reason_code: str,
+        reason: str,
+        *,
+        files_validated: bool,
+    ) -> None:
+        super().__init__(reason)
+        self.field = field
+        self.reason_code = reason_code
+        self.reason = reason
+        self.files_validated = files_validated
+
+
+def _validate_commit_metadata(
+    title: str,
+    description: str,
+    *,
+    files_validated: bool,
+) -> None:
+    if not title or not title.strip():
+        raise CommitMetadataError(
+            "title",
+            "empty",
+            "Commit title must not be empty",
+            files_validated=files_validated,
+        )
+
+    if len(title) > MAX_COMMIT_TITLE_LENGTH:
+        raise CommitMetadataError(
+            "title",
+            "too_long",
+            f"Commit title exceeds {MAX_COMMIT_TITLE_LENGTH} characters",
+            files_validated=files_validated,
+        )
+
+    if "\n" in title or "\r" in title:
+        raise CommitMetadataError(
+            "title",
+            "multiline",
+            "Commit title must be a single line",
+            files_validated=files_validated,
+        )
+
+    if any(ord(character) < 32 for character in title):
+        raise CommitMetadataError(
+            "title",
+            "control_character",
+            "Commit title contains a control character",
+            files_validated=files_validated,
+        )
+
+    if len(description) > MAX_COMMIT_DESCRIPTION_LENGTH:
+        raise CommitMetadataError(
+            "description",
+            "too_long",
+            (f"Commit description exceeds {MAX_COMMIT_DESCRIPTION_LENGTH} characters"),
+            files_validated=files_validated,
+        )
+
+    if any(
+        ord(character) < 32 and character not in "\t\n\r" for character in description
+    ):
+        raise CommitMetadataError(
+            "description",
+            "control_character",
+            "Commit description contains a control character",
+            files_validated=files_validated,
+        )
+
+    for field, value in (
+        ("title", title),
+        ("description", description),
+    ):
+        if any(pattern.search(value) for pattern in SECRET_VALUE_PATTERNS):
+            raise CommitMetadataError(
+                field,
+                "secret_value",
+                f"Commit {field} appears to contain a secret value",
+                files_validated=files_validated,
+            )
+
+
+def commit_selected_files(
+    repo_root: Path,
+    files: Iterable[str],
+    title: str,
+    description: str = "",
+) -> dict:
     selected = list(files)
     if not selected:
         raise ValueError("files must not be empty")
-    if not title or not title.strip():
-        raise ValueError("title must not be empty")
 
+    # Validate repository scope before inspecting commit metadata.
     for file_name in selected:
         validate_repo_relative_path(repo_root, file_name)
+
+    description = description or ""
+    _validate_commit_metadata(
+        title,
+        description,
+        files_validated=True,
+    )
 
     changed = set(changed_files(repo_root))
     missing = [file_name for file_name in selected if file_name not in changed]
@@ -149,9 +251,24 @@ def commit_selected_files(repo_root: Path, files: Iterable[str], title: str, des
         raise ValueError(f"Files are not currently changed: {missing}")
 
     _run_git(repo_root, ["add", "--", *selected], check=True)
-    _run_git(repo_root, ["commit", "-m", title, "-m", description or ""], check=True)
-    commit_hash = _run_git(repo_root, ["rev-parse", "HEAD"], check=True).stdout.strip()
+
+    # Title and description are passed as argv values with shell=False.
+    # They are inert Git metadata and are never executed.
+    _run_git(
+        repo_root,
+        ["commit", "-m", title, "-m", description],
+        check=True,
+    )
+
+    commit_hash = _run_git(
+        repo_root,
+        ["rev-parse", "HEAD"],
+        check=True,
+    ).stdout.strip()
+
     return {
+        "ok": True,
+        "files_validated": True,
         "commit_hash": commit_hash,
         "remaining_dirty_files": changed_files(repo_root),
         "git_status": git_status(repo_root),

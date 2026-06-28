@@ -23,12 +23,19 @@ class JobStore:
         result.stdout_path.touch(exist_ok=True)
         result.stderr_path.touch(exist_ok=True)
         self.write_result(result)
-        self.append_event(result.job_id, stage="created", message="Job created", data={"status": result.status.value})
+        self.append_event(
+            result.job_id,
+            stage="created",
+            message="Job created",
+            data={"status": result.status.value},
+        )
         return result
 
     def write_result(self, result: JobResult) -> JobResult:
         result.result_json_path.parent.mkdir(parents=True, exist_ok=True)
-        result.result_json_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        result.result_json_path.write_text(
+            result.model_dump_json(indent=2), encoding="utf-8"
+        )
         return result
 
     def get_job(self, job_id: str) -> JobResult:
@@ -41,13 +48,25 @@ class JobStore:
         jobs: list[JobResult] = []
         for result_path in self.jobs_dir.glob("*/result.json"):
             try:
-                jobs.append(JobResult.model_validate_json(result_path.read_text(encoding="utf-8")))
+                jobs.append(
+                    JobResult.model_validate_json(
+                        result_path.read_text(encoding="utf-8")
+                    )
+                )
             except Exception:
                 continue
         jobs.sort(key=lambda job: job.created_at, reverse=True)
         return jobs[: max(1, min(limit, 100))]
 
-    def append_event(self, job_id: str, *, stage: str, message: str, level: str = "info", data: dict | None = None) -> JobEvent:
+    def append_event(
+        self,
+        job_id: str,
+        *,
+        stage: str,
+        message: str,
+        level: str = "info",
+        data: dict | None = None,
+    ) -> JobEvent:
         event = JobEvent(
             event_id=f"job_event_{uuid4().hex}",
             job_id=job_id,
@@ -57,11 +76,16 @@ class JobStore:
             message=message,
             data=data or {},
         )
-        append_jsonl(self.job_dir(job_id) / "events.jsonl", event.model_dump(mode="json"))
+        append_jsonl(
+            self.job_dir(job_id) / "events.jsonl", event.model_dump(mode="json")
+        )
         return event
 
     def get_events(self, job_id: str, limit: int = 50) -> list[JobEvent]:
-        return [JobEvent.model_validate(event) for event in read_jsonl(self.job_dir(job_id) / "events.jsonl", limit)]
+        return [
+            JobEvent.model_validate(event)
+            for event in read_jsonl(self.job_dir(job_id) / "events.jsonl", limit)
+        ]
 
     def update_status(
         self,
@@ -93,5 +117,10 @@ class JobStore:
         if next_recommended_action:
             result.next_recommended_action = next_recommended_action
         self.write_result(result)
-        self.append_event(job_id, stage=status.value, message=f"Job status updated: {status.value}", data={"status": status.value})
+        self.append_event(
+            job_id,
+            stage=status.value,
+            message=f"Job status updated: {status.value}",
+            data={"status": status.value},
+        )
         return result

@@ -5,15 +5,31 @@ from pathlib import Path
 
 from codexbridge.config import AppConfig, MemoryConfig
 
-from .models import MemoryRecord, MemorySearchResult, MemoryType, RepoProfileMemory, ValidationRecipeMemory
+from .models import (
+    MemoryRecord,
+    MemorySearchResult,
+    MemoryType,
+    RepoProfileMemory,
+    ValidationRecipeMemory,
+)
 from .store import ProjectMemoryStore
 
 
 class ProjectMemoryRepository:
-    def __init__(self, *, config: AppConfig | None = None, db_path: Path | None = None, memory_config: MemoryConfig | None = None):
+    def __init__(
+        self,
+        *,
+        config: AppConfig | None = None,
+        db_path: Path | None = None,
+        memory_config: MemoryConfig | None = None,
+    ):
         settings = memory_config or (config.memory if config else MemoryConfig())
         if db_path is None:
-            db_path = config.resolve_memory_db_path() if config else Path.cwd() / "runs" / "memory" / "project_memory.sqlite3"
+            db_path = (
+                config.resolve_memory_db_path()
+                if config
+                else Path.cwd() / "runs" / "memory" / "project_memory.sqlite3"
+            )
         self.store = ProjectMemoryStore(
             db_path,
             max_content_bytes=settings.memory_max_content_bytes,
@@ -21,7 +37,9 @@ class ProjectMemoryRepository:
             block_sensitive=settings.memory_block_sensitive,
         )
 
-    def remember_project_fact(self, fact: str, *, repo_name: str | None = None, repo_path: Path | None = None) -> MemoryRecord:
+    def remember_project_fact(
+        self, fact: str, *, repo_name: str | None = None, repo_path: Path | None = None
+    ) -> MemoryRecord:
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.STATIC,
@@ -35,7 +53,14 @@ class ProjectMemoryRepository:
             )
         )
 
-    def remember_decision(self, decision: str, *, repo_name: str | None = None, repo_path: Path | None = None, accepted_by: str | None = None) -> MemoryRecord:
+    def remember_decision(
+        self,
+        decision: str,
+        *,
+        repo_name: str | None = None,
+        repo_path: Path | None = None,
+        accepted_by: str | None = None,
+    ) -> MemoryRecord:
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.DECISION,
@@ -50,7 +75,9 @@ class ProjectMemoryRepository:
             )
         )
 
-    def remember_validation_recipe(self, recipe: str, *, repo_name: str | None = None) -> MemoryRecord:
+    def remember_validation_recipe(
+        self, recipe: str, *, repo_name: str | None = None
+    ) -> MemoryRecord:
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.STATIC,
@@ -79,8 +106,13 @@ class ProjectMemoryRepository:
             )
         )
 
-    def remember_validation_recipe_model(self, recipe: ValidationRecipeMemory) -> MemoryRecord:
-        return self.remember_validation_recipe("\n".join(recipe.commands) + ("\n" + recipe.notes if recipe.notes else ""), repo_name=recipe.repo_name)
+    def remember_validation_recipe_model(
+        self, recipe: ValidationRecipeMemory
+    ) -> MemoryRecord:
+        return self.remember_validation_recipe(
+            "\n".join(recipe.commands) + ("\n" + recipe.notes if recipe.notes else ""),
+            repo_name=recipe.repo_name,
+        )
 
     def search(
         self,
@@ -114,7 +146,11 @@ class ProjectMemoryRepository:
         )
         if include_global:
             for record in self.store.list_records(limit=500):
-                if record.repo_name is None and record.project_key in {None, "", "codexbridge"}:
+                if record.repo_name is None and record.project_key in {
+                    None,
+                    "",
+                    "codexbridge",
+                }:
                     candidates.append(record)
 
         seen: set[str] = set()
@@ -138,20 +174,36 @@ class ProjectMemoryRepository:
                     break
         return MemorySearchResult(records=matches, query=query, total=len(matches))
 
-    def latest_job_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
-        return self._latest_by_type(MemoryType.JOB, repo_name=repo_name, project_key=project_key)
+    def latest_job_summary(
+        self, *, repo_name: str | None = None, project_key: str | None = None
+    ) -> MemoryRecord | None:
+        return self._latest_by_type(
+            MemoryType.JOB, repo_name=repo_name, project_key=project_key
+        )
 
-    def latest_run_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
-        return self._latest_by_type(MemoryType.RUN, repo_name=repo_name, project_key=project_key)
+    def latest_run_summary(
+        self, *, repo_name: str | None = None, project_key: str | None = None
+    ) -> MemoryRecord | None:
+        return self._latest_by_type(
+            MemoryType.RUN, repo_name=repo_name, project_key=project_key
+        )
 
-    def latest_decision_summary(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
-        return self._latest_by_type(MemoryType.DECISION, repo_name=repo_name, project_key=project_key)
+    def latest_decision_summary(
+        self, *, repo_name: str | None = None, project_key: str | None = None
+    ) -> MemoryRecord | None:
+        return self._latest_by_type(
+            MemoryType.DECISION, repo_name=repo_name, project_key=project_key
+        )
 
-    def continue_last_task(self, *, repo_name: str | None = None, project_key: str | None = None) -> MemoryRecord | None:
+    def continue_last_task(
+        self, *, repo_name: str | None = None, project_key: str | None = None
+    ) -> MemoryRecord | None:
         return (
             self.latest_job_summary(repo_name=repo_name, project_key=project_key)
             or self.latest_run_summary(repo_name=repo_name, project_key=project_key)
-            or self.latest_decision_summary(repo_name=repo_name, project_key=project_key)
+            or self.latest_decision_summary(
+                repo_name=repo_name, project_key=project_key
+            )
         )
 
     def _latest_by_type(

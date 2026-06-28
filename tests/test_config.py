@@ -6,7 +6,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from codexbridge.config import AppConfig, LocalModelConfig, RepoConfig, SupervisorAutonomyProfile, SupervisorsConfig, load_config, resolve_repo
+from codexbridge.config import (
+    AppConfig,
+    LocalModelConfig,
+    RepoConfig,
+    SupervisorAutonomyProfile,
+    SupervisorsConfig,
+    load_config,
+    resolve_repo,
+)
 
 
 def init_repo(path: Path) -> None:
@@ -23,7 +31,9 @@ def test_config_example_loads_without_repo_validation() -> None:
 
 
 def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
-    config = AppConfig(repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().stop_on_requires_human is True
     assert config.supervisors.notifications.enabled is True
@@ -36,17 +46,29 @@ def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
     assert config.return_loop.return_loop_enabled is True
     assert config.return_loop.conversation_target == "codexbridge_gpt"
     assert config.memory.memory_enabled is True
-    assert config.resolve_memory_db_path() == tmp_path / "runs" / "memory" / "project_memory.sqlite3"
+    assert (
+        config.resolve_memory_db_path()
+        == tmp_path / "runs" / "memory" / "project_memory.sqlite3"
+    )
     assert config.autonomy.autonomy_enabled is True
     assert config.autonomy.autonomy_default_profile == "chatgpt_delegated"
     assert config.resolve_approval_store_path() == tmp_path / "runs" / "approvals"
     assert config.codex_router.codex_router_enabled is True
     assert config.codex_router.codex_router_invoke_enabled is False
-    assert config.resolve_codex_router_packet_dir() == tmp_path / "runs" / "codex_escalations"
+    assert (
+        config.resolve_codex_router_packet_dir()
+        == tmp_path / "runs" / "codex_escalations"
+    )
 
 
 def test_local_model_config_defaults_and_overrides() -> None:
-    config = LocalModelConfig(enabled=True, model="qwen2.5-coder", timeout_seconds=10, temperature=0.0, max_tokens=512)
+    config = LocalModelConfig(
+        enabled=True,
+        model="qwen2.5-coder",
+        timeout_seconds=10,
+        temperature=0.0,
+        max_tokens=512,
+    )
 
     assert config.enabled is True
     assert config.base_url == "http://localhost:11434/v1"
@@ -60,7 +82,9 @@ def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
         supervisors=SupervisorsConfig(
             default_autonomy_profile="custom",
             autonomy_profiles={
-                "custom": SupervisorAutonomyProfile(max_plan_tier=1, max_implementation_tier=1),
+                "custom": SupervisorAutonomyProfile(
+                    max_plan_tier=1, max_implementation_tier=1
+                ),
             },
         ),
         config_dir=tmp_path,
@@ -70,7 +94,10 @@ def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
 
 def test_unknown_default_supervisor_profile_rejected() -> None:
     with pytest.raises(ValidationError):
-        SupervisorsConfig(default_autonomy_profile="missing", autonomy_profiles={"balanced": SupervisorAutonomyProfile()})
+        SupervisorsConfig(
+            default_autonomy_profile="missing",
+            autonomy_profiles={"balanced": SupervisorAutonomyProfile()},
+        )
 
 
 def test_invalid_supervisor_profile_values_rejected() -> None:
@@ -90,7 +117,10 @@ def test_unknown_repo_rejected(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
     config_file = tmp_path / "config.yaml"
-    config_file.write_text(f"repos:\n  sample:\n    path: '{repo.as_posix()}'\nruns_dir: runs\n", encoding="utf-8")
+    config_file.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\nruns_dir: runs\n",
+        encoding="utf-8",
+    )
     config = load_config(config_file)
     with pytest.raises(ValueError, match="Unknown repo_name"):
         resolve_repo(config, "missing")
@@ -107,6 +137,8 @@ def test_repo_must_contain_git(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     config_file = tmp_path / "config.yaml"
-    config_file.write_text(f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n", encoding="utf-8")
+    config_file.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n", encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="does not contain .git"):
         load_config(config_file)

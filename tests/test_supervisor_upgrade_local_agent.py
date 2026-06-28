@@ -10,22 +10,58 @@ class FakeSupervisorManager:
 
     def start_supervised_task(self, request: SupervisorTaskRequest):
         self.started.append(request)
-        return _Dumpable({"run": {"supervisor_id": request.supervisor_id, "status": SupervisorStatus.COMPLETED.value}})
+        return _Dumpable(
+            {
+                "run": {
+                    "supervisor_id": request.supervisor_id,
+                    "status": SupervisorStatus.COMPLETED.value,
+                }
+            }
+        )
 
     def get_status(self, supervisor_id: str):
-        return _Dumpable({"run": {"supervisor_id": supervisor_id, "status": SupervisorStatus.COMPLETED.value}, "events": []})
+        return _Dumpable(
+            {
+                "run": {
+                    "supervisor_id": supervisor_id,
+                    "status": SupervisorStatus.COMPLETED.value,
+                },
+                "events": [],
+            }
+        )
 
     def list_runs(self):
-        return [_Dumpable({"supervisor_id": "supervisor_1", "status": SupervisorStatus.COMPLETED.value})]
+        return [
+            _Dumpable(
+                {
+                    "supervisor_id": "supervisor_1",
+                    "status": SupervisorStatus.COMPLETED.value,
+                }
+            )
+        ]
 
     def cancel(self, supervisor_id: str):
-        return _Dumpable({"run": {"supervisor_id": supervisor_id, "status": SupervisorStatus.CANCELLED.value}})
+        return _Dumpable(
+            {
+                "run": {
+                    "supervisor_id": supervisor_id,
+                    "status": SupervisorStatus.CANCELLED.value,
+                }
+            }
+        )
 
     def resume(self, supervisor_id: str):
         return self.get_status(supervisor_id)
 
     def generate_report(self, supervisor_id: str):
-        return _Dumpable({"run": {"supervisor_id": supervisor_id, "status": SupervisorStatus.REPORTED.value}})
+        return _Dumpable(
+            {
+                "run": {
+                    "supervisor_id": supervisor_id,
+                    "status": SupervisorStatus.REPORTED.value,
+                }
+            }
+        )
 
 
 class _Dumpable:
@@ -64,4 +100,6 @@ def test_local_agent_lists_supervisors_read_only() -> None:
     result = orchestrator.handle_task("list supervisors")
 
     assert result.task_type == LocalAgentTaskType.SUPERVISOR
-    assert result.supervisor_result == [{"supervisor_id": "supervisor_1", "status": "completed"}]
+    assert result.supervisor_result == [
+        {"supervisor_id": "supervisor_1", "status": "completed"}
+    ]

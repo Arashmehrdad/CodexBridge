@@ -21,4 +21,8 @@ def unified_diff(original: str, updated: str, path: Path) -> str:
 
 
 def changed_line_count(diff: str) -> int:
-    return sum(1 for line in diff.splitlines() if line.startswith(("+", "-")) and not line.startswith(("+++", "---")))
+    return sum(
+        1
+        for line in diff.splitlines()
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
+    )

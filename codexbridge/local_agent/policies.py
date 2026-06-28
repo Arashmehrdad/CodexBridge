@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from .models import LocalAgentTaskType, PermissionTier, RiskLevel, RoutingDecision, TaskStatus
+from .models import (
+    LocalAgentTaskType,
+    PermissionTier,
+    RiskLevel,
+    RoutingDecision,
+    TaskStatus,
+)
 
 
 class PolicyDecision(BaseModel):

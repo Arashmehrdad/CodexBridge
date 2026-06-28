@@ -74,10 +74,20 @@ def generate_job_report(result: JobResult) -> JobReport:
     )
     return JobReport(
         job_id=result.job_id,
-        status=JobStatus.REPORTED if result.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMEOUT, JobStatus.CANCELLED} else result.status,
+        status=JobStatus.REPORTED
+        if result.status
+        in {
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.TIMEOUT,
+            JobStatus.CANCELLED,
+        }
+        else result.status,
         report_path=report_path,
         resume_prompt_path=resume_prompt_path,
-        manifest_path=resume_prompt_path.parent / "pulse_manifest.json" if manifest else None,
+        manifest_path=resume_prompt_path.parent / "pulse_manifest.json"
+        if manifest
+        else None,
         summary=summary,
         question_for_chatgpt=question,
     )

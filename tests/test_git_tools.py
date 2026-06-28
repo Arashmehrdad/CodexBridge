@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.git_tools import changed_files, commit_selected_files, inspect_status
+from codexbridge.git_tools import (
+    CommitMetadataError,
+    changed_files,
+    commit_selected_files,
+    inspect_status,
+)
 
 
 def run(command: list[str], cwd: Path) -> None:
@@ -39,7 +44,9 @@ def test_selected_file_commit_commits_only_selected_files(repo: Path) -> None:
     assert "one.txt" not in result["remaining_dirty_files"]
 
 
-def test_selected_file_commit_accepts_files_inside_untracked_directory(repo: Path) -> None:
+def test_selected_file_commit_accepts_files_inside_untracked_directory(
+    repo: Path,
+) -> None:
     wiki = repo / ".codexbridge" / "wiki"
     wiki.mkdir(parents=True)
     (wiki / "overview.md").write_text("# Overview\n", encoding="utf-8")
@@ -61,9 +68,7 @@ def test_selected_file_commit_accepts_files_inside_untracked_directory(repo: Pat
 
 def test_selected_file_commit_accepts_unignored_wiki_files(repo: Path) -> None:
     (repo / ".gitignore").write_text(
-        ".codexbridge/*\n"
-        "!.codexbridge/wiki/\n"
-        "!.codexbridge/wiki/**\n",
+        ".codexbridge/*\n!.codexbridge/wiki/\n!.codexbridge/wiki/**\n",
         encoding="utf-8",
     )
     wiki = repo / ".codexbridge" / "wiki"
@@ -79,7 +84,9 @@ def test_selected_file_commit_accepts_unignored_wiki_files(repo: Path) -> None:
         (repo / relative).write_text(content, encoding="utf-8")
 
     selected = [".gitignore", *files]
-    result = commit_selected_files(repo, selected, "docs: add generated repository wiki")
+    result = commit_selected_files(
+        repo, selected, "docs: add generated repository wiki"
+    )
 
     assert result["commit_hash"]
     assert result["remaining_dirty_files"] == []
@@ -103,3 +110,73 @@ def test_commit_refuses_unchanged_file(repo: Path) -> None:
 def test_changed_files_reports_modified(repo: Path) -> None:
     (repo / "base.txt").write_text("updated\n", encoding="utf-8")
     assert "base.txt" in changed_files(repo)
+
+
+def test_commit_accepts_long_ordinary_technical_description(
+    repo: Path,
+) -> None:
+    (repo / "technical.txt").write_text(
+        "technical change\n",
+        encoding="utf-8",
+    )
+    description = (
+        "Validated repository paths and updated command capability coverage. "
+        "The change adds structured diagnostics for commit metadata while "
+        "preserving staging scope, shell-free execution, branch behaviour, "
+        "and the rule that this operation never pushes.\n"
+    ) * 20
+
+    result = commit_selected_files(
+        repo,
+        ["technical.txt"],
+        "fix: improve commit metadata diagnostics",
+        description,
+    )
+
+    assert result["ok"] is True
+    assert result["files_validated"] is True
+    assert result["commit_hash"]
+
+
+def test_commit_metadata_error_identifies_rejected_field(
+    repo: Path,
+) -> None:
+    (repo / "metadata.txt").write_text(
+        "metadata\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CommitMetadataError) as caught:
+        commit_selected_files(
+            repo,
+            ["metadata.txt"],
+            "invalid\nmultiline title",
+            "ordinary description",
+        )
+
+    error = caught.value
+    assert error.field == "title"
+    assert error.reason_code == "multiline"
+    assert error.files_validated is True
+
+
+def test_commit_metadata_rejects_secret_value_without_echoing_it(
+    repo: Path,
+) -> None:
+    (repo / "secret-check.txt").write_text(
+        "safe file\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CommitMetadataError) as caught:
+        commit_selected_files(
+            repo,
+            ["secret-check.txt"],
+            "test: metadata validation",
+            "api_key=example-sensitive-value",
+        )
+
+    error = caught.value
+    assert error.field == "description"
+    assert error.reason_code == "secret_value"
+    assert "example-sensitive-value" not in str(error)

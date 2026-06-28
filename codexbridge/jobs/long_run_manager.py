@@ -18,9 +18,16 @@ from .models import JobCancelResult, JobResult, JobStatus, JobStatusResult
 
 
 class LongRunJobManager:
-    def __init__(self, config: AppConfig | None = None, runs_dir: Path | None = None, popen_factory=None):
+    def __init__(
+        self,
+        config: AppConfig | None = None,
+        runs_dir: Path | None = None,
+        popen_factory=None,
+    ):
         self.config = config
-        self.runs_dir = (runs_dir or (config.resolve_runs_dir() if config else Path.cwd() / "runs")).resolve()
+        self.runs_dir = (
+            runs_dir or (config.resolve_runs_dir() if config else Path.cwd() / "runs")
+        ).resolve()
         self.store = JobStore(self.runs_dir)
         self.processes: dict[str, object] = {}
         self.popen_factory = popen_factory or subprocess.Popen
@@ -38,20 +45,77 @@ class LongRunJobManager:
         job_id = f"{created_at.replace('-', '').replace(':', '').split('.')[0]}_job_{uuid4().hex[:8]}"
         job_dir = self.store.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-        audit = create_audit_event(task_id=job_id, action="job_requested", message=f"Job requested: {profile_id}", metadata={"profile_id": profile_id})
+        audit = create_audit_event(
+            task_id=job_id,
+            action="job_requested",
+            message=f"Job requested: {profile_id}",
+            metadata={"profile_id": profile_id},
+        )
         profile = get_job_profile(profile_id)
         if profile is None:
-            return self._blocked(job_id, profile_id, repo_name, repo_path, JobStatus.PROFILE_MISSING, "Unknown job profile", created_at, audit.event_id)
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.PROFILE_MISSING,
+                "Unknown job profile",
+                created_at,
+                audit.event_id,
+            )
         if not profile.enabled:
-            return self._blocked(job_id, profile_id, repo_name, repo_path, JobStatus.BLOCKED, "Job profile is disabled", created_at, audit.event_id, argv=profile.argv)
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.BLOCKED,
+                "Job profile is disabled",
+                created_at,
+                audit.event_id,
+                argv=profile.argv,
+            )
         if _looks_shell_like(profile_id):
-            return self._blocked(job_id, profile_id, repo_name, repo_path, JobStatus.BLOCKED, "Shell-like job profile IDs are not allowed", created_at, audit.event_id)
-        effective_timeout = timeout_seconds if timeout_seconds is not None else profile.timeout_seconds
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.BLOCKED,
+                "Shell-like job profile IDs are not allowed",
+                created_at,
+                audit.event_id,
+            )
+        effective_timeout = (
+            timeout_seconds if timeout_seconds is not None else profile.timeout_seconds
+        )
         if effective_timeout > profile.timeout_seconds:
-            return self._blocked(job_id, profile_id, repo_name, repo_path, JobStatus.PERMISSION_DENIED, "Requested timeout exceeds job profile maximum", created_at, audit.event_id, argv=profile.argv)
-        working_directory, repo_error = self._resolve_working_directory(repo_name, repo_path)
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.PERMISSION_DENIED,
+                "Requested timeout exceeds job profile maximum",
+                created_at,
+                audit.event_id,
+                argv=profile.argv,
+            )
+        working_directory, repo_error = self._resolve_working_directory(
+            repo_name, repo_path
+        )
         if repo_error:
-            return self._blocked(job_id, profile_id, repo_name, repo_path, JobStatus.REPO_MISSING, repo_error, created_at, audit.event_id, argv=profile.argv)
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.REPO_MISSING,
+                repo_error,
+                created_at,
+                audit.event_id,
+                argv=profile.argv,
+            )
 
         result = self._new_result(
             job_id=job_id,
@@ -67,7 +131,12 @@ class LongRunJobManager:
             working_directory=working_directory,
         )
         self.store.create_job(result)
-        self.store.append_event(job_id, stage="job_allowed", message="Job profile allowed", data={"profile_id": profile_id})
+        self.store.append_event(
+            job_id,
+            stage="job_allowed",
+            message="Job profile allowed",
+            data={"profile_id": profile_id},
+        )
         stdout_handle = result.stdout_path.open("w", encoding="utf-8")
         stderr_handle = result.stderr_path.open("w", encoding="utf-8")
         try:
@@ -82,7 +151,14 @@ class LongRunJobManager:
         except Exception as exc:
             stdout_handle.close()
             stderr_handle.close()
-            failed = self.store.update_status(job_id, JobStatus.FAILED, ended_at=utc_now(), error=str(exc), failure_summary=str(exc), next_recommended_action="Review job profile command availability.")
+            failed = self.store.update_status(
+                job_id,
+                JobStatus.FAILED,
+                ended_at=utc_now(),
+                error=str(exc),
+                failure_summary=str(exc),
+                next_recommended_action="Review job profile command availability.",
+            )
             return JobStatusResult(job=failed, events=self.store.get_events(job_id))
         setattr(process, "_codexbridge_stdout_handle", stdout_handle)
         setattr(process, "_codexbridge_stderr_handle", stderr_handle)
@@ -92,7 +168,12 @@ class LongRunJobManager:
         result.started_at = utc_now()
         result.pid = getattr(process, "pid", None)
         self.store.write_result(result)
-        self.store.append_event(job_id, stage="job_started", message="Job started", data={"pid": result.pid, "profile_id": profile_id})
+        self.store.append_event(
+            job_id,
+            stage="job_started",
+            message="Job started",
+            data={"pid": result.pid, "profile_id": profile_id},
+        )
         return JobStatusResult(job=result, events=self.store.get_events(job_id))
 
     def get_status(self, job_id: str) -> JobStatusResult:
@@ -113,7 +194,11 @@ class LongRunJobManager:
     def cancel_job(self, job_id: str) -> JobCancelResult:
         job = self.store.get_job(job_id)
         process = self.processes.get(job_id)
-        audit = create_audit_event(task_id=job_id, action="job_cancel_requested", message="Job cancellation requested")
+        audit = create_audit_event(
+            task_id=job_id,
+            action="job_cancel_requested",
+            message="Job cancellation requested",
+        )
         if process is not None and job.status == JobStatus.RUNNING:
             try:
                 process.terminate()
@@ -129,17 +214,31 @@ class LongRunJobManager:
         )
         generate_job_report(updated)
         self.store.append_event(job_id, stage="job_cancelled", message="Job cancelled")
-        self.store.append_event(job_id, stage="report_generated", message="Job report generated")
+        self.store.append_event(
+            job_id, stage="report_generated", message="Job report generated"
+        )
         self.processes.pop(job_id, None)
-        return JobCancelResult(job_id=job_id, status=JobStatus.CANCELLED, message="Job cancelled", audit_event_id=audit.event_id)
+        return JobCancelResult(
+            job_id=job_id,
+            status=JobStatus.CANCELLED,
+            message="Job cancelled",
+            audit_event_id=audit.event_id,
+        )
 
     def generate_report(self, job_id: str):
         job = self.store.get_job(job_id)
         report = generate_job_report(job)
-        self.store.append_event(job_id, stage="report_generated", message="Job report generated", data=report.model_dump(mode="json"))
+        self.store.append_event(
+            job_id,
+            stage="report_generated",
+            message="Job report generated",
+            data=report.model_dump(mode="json"),
+        )
         return report
 
-    def _resolve_working_directory(self, repo_name: str | None, repo_path: str | Path | None) -> tuple[Path | None, str]:
+    def _resolve_working_directory(
+        self, repo_name: str | None, repo_path: str | Path | None
+    ) -> tuple[Path | None, str]:
         if repo_name:
             if self.config is None:
                 return None, "repo_name requires an AppConfig for resolution."
@@ -154,7 +253,18 @@ class LongRunJobManager:
             return path, ""
         return Path.cwd().resolve(), ""
 
-    def _blocked(self, job_id, profile_id, repo_name, repo_path, status, error, created_at, audit_event_id, argv=None) -> JobStatusResult:
+    def _blocked(
+        self,
+        job_id,
+        profile_id,
+        repo_name,
+        repo_path,
+        status,
+        error,
+        created_at,
+        audit_event_id,
+        argv=None,
+    ) -> JobStatusResult:
         result = self._new_result(
             job_id=job_id,
             profile_id=profile_id,
@@ -172,7 +282,13 @@ class LongRunJobManager:
             next_recommended_action="Use an enabled allowlisted job profile.",
         )
         self.store.create_job(result)
-        self.store.append_event(job_id, stage="job_blocked", message=error, level="warning", data={"status": status.value, "profile_id": profile_id})
+        self.store.append_event(
+            job_id,
+            stage="job_blocked",
+            message=error,
+            level="warning",
+            data={"status": status.value, "profile_id": profile_id},
+        )
         return JobStatusResult(job=result, events=self.store.get_events(job_id))
 
     def _new_result(

@@ -86,9 +86,15 @@ class RunStore:
                 )
                 """
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_repo_status ON runs(repo_name, status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_repo_status ON runs(repo_name, status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, id)"
+            )
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -133,12 +139,16 @@ class RunStore:
     def get_run(self, run_id: str) -> dict[str, Any]:
         validate_run_id(run_id)
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
         return self._row_to_run(row)
 
-    def list_runs(self, repo_name: str | None = None, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def list_runs(
+        self, repo_name: str | None = None, status: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 100))
         where: list[str] = []
         params: list[Any] = []
@@ -157,7 +167,9 @@ class RunStore:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_run(row) for row in rows]
 
-    def latest_run(self, repo_name: str | None = None, tool: str | None = None) -> dict[str, Any]:
+    def latest_run(
+        self, repo_name: str | None = None, tool: str | None = None
+    ) -> dict[str, Any]:
         where: list[str] = []
         params: list[Any] = []
         if repo_name:
@@ -187,7 +199,9 @@ class RunStore:
             normalized["safety_failure"] = int(bool(normalized["safety_failure"]))
         if "input_json" in normalized and not isinstance(normalized["input_json"], str):
             normalized["input_json"] = dumps(normalized["input_json"])
-        if "result_json" in normalized and not isinstance(normalized["result_json"], str):
+        if "result_json" in normalized and not isinstance(
+            normalized["result_json"], str
+        ):
             normalized["result_json"] = dumps(normalized["result_json"])
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), run_id]
@@ -220,7 +234,14 @@ class RunStore:
                 INSERT INTO events (run_id, timestamp, level, stage, message, data_json)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, event["timestamp"], level, stage, message, dumps(event["data"])),
+                (
+                    run_id,
+                    event["timestamp"],
+                    level,
+                    stage,
+                    message,
+                    dumps(event["data"]),
+                ),
             )
         return event
 
