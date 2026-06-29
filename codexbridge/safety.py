@@ -13,7 +13,7 @@ DESTRUCTIVE_PATTERNS = [
     re.compile(r"\brm\s+-rf\b", re.IGNORECASE),
     re.compile(r"\bdel\s+/s\b", re.IGNORECASE),
     re.compile(r"\brmdir\s+/s\b", re.IGNORECASE),
-    re.compile(r"\bformat\b", re.IGNORECASE),
+    re.compile(r"\bformat(?:\.com)?\s+(?:[a-z]:|/fs:)", re.IGNORECASE),
     re.compile(r"\bdiskpart\b", re.IGNORECASE),
 ]
 
@@ -35,6 +35,13 @@ SECRET_VALUE_PATTERNS = [
 
 
 def reject_destructive_command(command: str) -> None:
+    ruff_format = re.search(r"\bruff\s+format\b", command, re.IGNORECASE)
+    ruff_format_check = re.search(
+        r"\bruff\s+format\s+--check(?:\s|$)", command, re.IGNORECASE
+    )
+    if ruff_format and not ruff_format_check:
+        raise ValueError(f"Write-capable formatter is not allowed: {command}")
+
     for pattern in DESTRUCTIVE_PATTERNS:
         if pattern.search(command):
             raise ValueError(f"Destructive command is not allowed: {command}")

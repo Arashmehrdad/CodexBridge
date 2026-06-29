@@ -61,12 +61,17 @@ def test_outside_repo_symlink_escape_rejected_where_practical(tmp_path: Path) ->
         "del /s *.txt",
         "rmdir /s build",
         "format C:",
+        ".venv\\Scripts\\python.exe -m ruff format .",
         "diskpart",
     ],
 )
 def test_destructive_command_patterns_rejected(command: str) -> None:
     with pytest.raises(ValueError):
         reject_destructive_command(command)
+
+
+def test_ruff_format_check_is_allowed() -> None:
+    reject_destructive_command(".venv\\Scripts\\python.exe -m ruff format --check .")
 
 
 def test_secret_like_files_rejected_for_gemini() -> None:

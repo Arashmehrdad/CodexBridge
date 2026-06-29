@@ -26,6 +26,8 @@ Hard rules:
 - Do not commit.
 - Do not push.
 - Do not touch unrelated dirty files.
+- The task above is complete and ready for planning. Do not ask the user to send the actual task.
+- If planning is impossible, state the blocker explicitly instead of returning a placeholder response.
 
 Return a structured implementation plan with:
 - summary
@@ -34,6 +36,7 @@ Return a structured implementation plan with:
 - risks
 - tests
 - approval question
+- final line: PLAN_STATUS: ready or PLAN_STATUS: blocked
 """
 
 
@@ -61,14 +64,19 @@ Tests to run:
 {tests_text}
 
 Hard rules:
-- Implement only the approved_plan.
-- Touch only allowed_files unless impossible.
-- If another file must change, stop and explain why.
+- Implement only the approved_plan. Do not broaden, reinterpret, or replace its scope.
+- The allowed_files list is an exclusive write allowlist.
+- Do not create, edit, move, or delete any file outside allowed_files, including temporary or diagnostic files at the repository root.
+- If any required write is outside allowed_files or any allowed path is not writable, stop immediately and report a blocker. Do not create a fallback document or alternative implementation.
 - Do not commit.
 - Do not push.
 - Do not touch unrelated dirty files.
 - Run only provided tests unless the approved plan clearly requires normal project verification.
 - Report changed files, tests run, exit code, final summary, and remaining risks.
+- End with exactly these machine-readable lines:
+  FINAL_STATUS: completed|blocked|failed
+  PLAN_CONFORMANCE: yes|no
+  BLOCKERS: none or a concise blocker description
 """
 
 

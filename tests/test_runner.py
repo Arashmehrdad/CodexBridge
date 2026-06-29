@@ -139,6 +139,36 @@ def test_windows_sandbox_override_is_included_when_configured(tmp_path: Path) ->
     assert 'windows.sandbox="unelevated"' in args
 
 
+def test_workspace_write_adds_allowed_directories(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path)
+    writable_dirs = [tmp_path / "docs", tmp_path / "src"]
+
+    args = runner._codex_exec_args(
+        "codex.exe",
+        "workspace-write",
+        "--sandbox\n--add-dir",
+        "implement",
+        writable_dirs=writable_dirs,
+    )
+
+    assert args.count("--add-dir") == 2
+    assert str(writable_dirs[0]) in args
+    assert str(writable_dirs[1]) in args
+
+
+def test_workspace_write_requires_add_dir_support(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path)
+
+    with pytest.raises(ValueError, match="--add-dir"):
+        runner._codex_exec_args(
+            "codex.exe",
+            "workspace-write",
+            "--sandbox",
+            "implement",
+            writable_dirs=[tmp_path / "docs"],
+        )
+
+
 def test_private_desktop_override_is_included_when_configured(tmp_path: Path) -> None:
     runner = make_runner(tmp_path, sandbox_private_desktop=False)
     args = runner._codex_exec_args(

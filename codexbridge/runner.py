@@ -11,6 +11,14 @@ from uuid import uuid4
 from . import git_tools
 from .config import AppConfig
 from .prompts import build_implementation_prompt, build_plan_prompt
+from .run_guards import (
+    allowed_write_directories,
+    assess_implementation_output,
+    assess_plan_output,
+    changed_workspace_paths,
+    out_of_scope_workspace_changes,
+    snapshot_workspace,
+)
 from .safety import reject_destructive_command, validate_repo_relative_paths
 
 
@@ -183,13 +191,24 @@ class CodexRunner:
         return f"{result.stdout}\n{result.stderr}"
 
     def _codex_exec_args(
-        self, executable: str, sandbox: str, help_text: str, prompt: str
+        self,
+        executable: str,
+        sandbox: str,
+        help_text: str,
+        prompt: str,
+        writable_dirs: list[Path] | None = None,
     ) -> list[str]:
         args = [executable, "exec"]
         if "--sandbox" in help_text:
             args.extend(["--sandbox", sandbox])
         else:
             raise ValueError("Codex exec missing required --sandbox support")
+
+        if sandbox == "workspace-write" and writable_dirs:
+            if "--add-dir" not in help_text:
+                raise ValueError("Codex exec missing required --add-dir support")
+            for directory in writable_dirs:
+                args.extend(["--add-dir", str(directory)])
 
         windows_sandbox = self.config.codex.windows_sandbox.strip()
         if windows_sandbox:
@@ -234,11 +253,17 @@ class CodexRunner:
         )
 
     def _run_codex(
-        self, repo_root: Path, sandbox: str, prompt: str
+        self,
+        repo_root: Path,
+        sandbox: str,
+        prompt: str,
+        writable_dirs: list[Path] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         executable = self._resolve_codex_executable()
         help_text = self._codex_exec_help(executable)
-        args = self._codex_exec_args(executable, sandbox, help_text, prompt)
+        args = self._codex_exec_args(
+            executable, sandbox, help_text, prompt, writable_dirs=writable_dirs
+        )
         return self._run_subprocess(
             args, repo_root, timeout=self.config.codex.default_timeout_seconds
         ), args
@@ -287,16 +312,27 @@ class CodexRunner:
             return result
 
         after_status = git_tools.git_status(repo_root)
+        summary = (stdout or "").strip() or (stderr or "").strip()
+        outcome = assess_plan_output(summary)
         safety_failure = before_status != after_status
+        plan_risks = (
+            (["Plan mode changed git status"] if safety_failure else [])
+            + outcome.blockers
+            + (["Codex exited nonzero"] if exit_code != 0 else [])
+        )
         result = self._base_result(
             run_dir, "codex_plan_task", repo_name, started_at, exit_code
         )
         result.update(
             {
                 "summary": (stdout or "").strip() or (stderr or "").strip(),
-                "remaining_risks": ["Plan mode changed git status"]
-                if safety_failure
-                else [],
+                "status": "failed"
+                if safety_failure or outcome.blocked or exit_code != 0
+                else "completed",
+                "blocked": outcome.blocked,
+                "blockers": outcome.blockers,
+                "error": "; ".join(outcome.blockers),
+                "remaining_risks": plan_risks,
                 "safety_failure": safety_failure,
                 "changed_files": git_tools.changed_files(repo_root),
                 "git_status": after_status,
@@ -325,6 +361,9 @@ class CodexRunner:
         for test in tests:
             reject_destructive_command(test)
 
+        writable_dirs = allowed_write_directories(repo_root, allowed_files)
+        workspace_before = snapshot_workspace(repo_root)
+
         prompt = build_implementation_prompt(
             repo_name, approved_plan, allowed_files, tests
         )
@@ -339,7 +378,10 @@ class CodexRunner:
         codex_args: list[str] = []
         try:
             completed, codex_args = self._run_codex(
-                repo_root, "workspace-write", prompt
+                repo_root,
+                "workspace-write",
+                prompt,
+                writable_dirs=writable_dirs,
             )
             stdout, stderr, exit_code = (
                 completed.stdout,
@@ -374,11 +416,21 @@ class CodexRunner:
             )
             return result
 
+        summary = (stdout or "").strip() or (stderr or "").strip()
+        outcome = assess_implementation_output(summary)
+        workspace_after = snapshot_workspace(repo_root)
+        workspace_changes = changed_workspace_paths(workspace_before, workspace_after)
+        workspace_violations = out_of_scope_workspace_changes(
+            workspace_before, workspace_after, allowed_files
+        )
         changed = git_tools.changed_files(repo_root)
         allowed = set(allowed_files)
-        violations = [path for path in changed if path not in allowed]
+        violations = sorted(
+            {path for path in changed if path not in allowed}
+            | set(workspace_violations)
+        )
         safety_failure = bool(violations)
-        risks = []
+        risks: list[str] = list(outcome.blockers)
         if violations:
             risks.append(f"Changed files outside allowed_files: {violations}")
         if exit_code != 0:
@@ -395,8 +447,18 @@ class CodexRunner:
             {
                 "summary": (stdout or "").strip() or (stderr or "").strip(),
                 "remaining_risks": risks,
+                "status": "failed"
+                if safety_failure or outcome.blocked or exit_code != 0
+                else "completed",
+                "blocked": outcome.blocked,
+                "blockers": outcome.blockers,
+                "plan_conformance": outcome.plan_conformance,
+                "error": "; ".join(outcome.blockers),
                 "safety_failure": safety_failure,
                 "changed_files": changed,
+                "workspace_changes": workspace_changes,
+                "out_of_scope_workspace_changes": workspace_violations,
+                "writable_directories": [str(path) for path in writable_dirs],
                 "git_status": git_tools.git_status(repo_root),
                 "diff_stat": git_tools.diff_stat(repo_root),
                 "tests_run": tests,
