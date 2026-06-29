@@ -99,6 +99,23 @@ def test_read_and_search_wiki(tmp_path: Path) -> None:
     )
 
 
+def test_search_normalizes_punctuation_and_reads_nested_pages(tmp_path: Path) -> None:
+    _make_python_repo(tmp_path)
+    service = RepoWikiService(tmp_path, "demo")
+    service.refresh()
+    nested = service.wiki_root / "guides" / "knowledge.md"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(
+        "Repository-scoped curiosity_scoring guidance.\n", encoding="utf-8"
+    )
+
+    repository_hits = service.search("repository scoped", limit=10)
+    curiosity_hits = service.search("curiosity scoring", limit=10)
+
+    assert any(hit["page"] == "guides/knowledge.md" for hit in repository_hits)
+    assert any(hit["page"] == "guides/knowledge.md" for hit in curiosity_hits)
+
+
 def test_read_page_rejects_traversal(tmp_path: Path) -> None:
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")

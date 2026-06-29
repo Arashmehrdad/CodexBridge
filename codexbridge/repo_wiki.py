@@ -98,6 +98,11 @@ _JS_SYMBOL_RE = re.compile(
 )
 
 
+def _normalize_search_text(value: str) -> str:
+    """Normalize punctuation and spacing for deterministic wiki search."""
+    return " ".join(re.findall(r"[^\W_]+", value.casefold(), flags=re.UNICODE))
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -220,22 +225,23 @@ class RepoWikiService:
         }
 
     def search(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        needle = query.strip().casefold()
+        raw_query = query.strip()
+        needle = _normalize_search_text(raw_query)
         if not needle:
             raise ValueError("query must not be empty")
         hits: list[dict[str, Any]] = []
         maximum = max(1, min(limit, 100))
         if not self.wiki_root.exists():
             return hits
-        for path in sorted(self.wiki_root.glob("*.md")):
+        for path in sorted(self.wiki_root.rglob("*.md")):
             for line_number, line in enumerate(
                 path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
             ):
-                if needle in line.casefold():
+                if needle in _normalize_search_text(line):
                     hits.append(
                         {
                             "source": "wiki",
-                            "page": path.name,
+                            "page": path.relative_to(self.wiki_root).as_posix(),
                             "line": line_number,
                             "snippet": line.strip()[:500],
                         }

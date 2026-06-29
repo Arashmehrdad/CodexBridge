@@ -171,7 +171,45 @@ def test_preview_rejects_ambiguous_old_text(tmp_path: Path) -> None:
     assert any("times" in e for e in result["validation_errors"])
 
 
-def test_preview_rejects_duplicate_paths(tmp_path: Path) -> None:
+def test_preview_and_apply_compose_non_overlapping_same_file_edits(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    original = "alpha = 1\nmiddle = 2\nomega = 3\n"
+    write_file(repo / "composed.py", original)
+    sha = sha256_file(repo / "composed.py")
+    ops = [
+        {
+            "path": "composed.py",
+            "expected_sha256": sha,
+            "old_text": "alpha = 1",
+            "new_text": "alpha = 10",
+        },
+        {
+            "path": "composed.py",
+            "expected_sha256": sha,
+            "old_text": "omega = 3",
+            "new_text": "omega = 30",
+        },
+    ]
+
+    preview = preview_repo_patch(repo, ops, runs)
+
+    assert preview["ok"] is True
+    assert preview["changed_files"] == ["composed.py"]
+    assert "alpha = 10" in preview["diff"]
+    assert "omega = 30" in preview["diff"]
+
+    applied = apply_repo_patch(repo, ops, preview["patch_id"], runs)
+
+    assert applied["changed_files"] == ["composed.py"]
+    assert (repo / "composed.py").read_text(encoding="utf-8") == (
+        "alpha = 10\nmiddle = 2\nomega = 30\n"
+    )
+
+
+def test_preview_rejects_overlapping_same_file_edits(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "e.py", "e = 1\n")
@@ -192,7 +230,7 @@ def test_preview_rejects_duplicate_paths(tmp_path: Path) -> None:
     ]
     result = preview_repo_patch(repo, ops, runs)
     assert result["ok"] is False
-    assert any("duplicate" in e.lower() for e in result["validation_errors"])
+    assert any("overlaps" in e.lower() for e in result["validation_errors"])
 
 
 def test_preview_rejects_absolute_path(tmp_path: Path) -> None:

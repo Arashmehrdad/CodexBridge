@@ -74,3 +74,43 @@ def test_tools_resolve_config_from_active_mcp_module(
     assert result["status"] == "generated"
     assert (repo / ".codexbridge" / "wiki" / "overview.md").is_file()
     assert getattr(mcp, "_codexbridge_runtime_config") is config
+
+
+def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = tmp_path / "SeedMind"
+    module = repo / "src" / "seedmind" / "knowledge.py"
+    module.parent.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    module.write_text(
+        '"""Repository scoped project knowledge helper."""\n',
+        encoding="utf-8",
+    )
+
+    config = AppConfig(
+        repos={"seedmind": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        config_dir=tmp_path,
+    )
+    mcp = FakeMCP()
+    runtime_module = ModuleType("codexbridge_test_combined_knowledge_server")
+    runtime_module.mcp = mcp
+    runtime_module.get_config = lambda: config
+    monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
+    register_knowledge_tools(mcp)
+
+    refresh = mcp.tools["refresh_repo_wiki"]["function"]("seedmind")
+    remembered = mcp.tools["remember_repo_decision"]["function"](
+        "seedmind",
+        "SeedMind project knowledge must remain repository-scoped.",
+    )
+    result = mcp.tools["search_repo_knowledge"]["function"](
+        "seedmind", "repository-scoped"
+    )
+
+    assert refresh["ok"] is True
+    assert remembered["ok"] is True
+    assert result["ok"] is True
+    assert any("Repository scoped" in hit["snippet"] for hit in result["wiki_hits"])
+    assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])

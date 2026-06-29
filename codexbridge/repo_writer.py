@@ -152,141 +152,198 @@ def _validate_operations(
     *,
     for_apply: bool = False,
 ) -> tuple[list[dict], list[str]]:
-    """
-    Validate a list of patch operations.
+    """Validate and compose patch operations into one final edit per file.
 
-    Returns (validated_ops, errors).
-    validated_ops contains enriched dicts with resolved paths and computed
-    diff strings.
-    errors is a list of human-readable problem strings.
+    Multiple operations may target the same file when each ``old_text`` occurs
+    exactly once in the original file and their source ranges do not overlap.
+    Every operation is checked against the original file hash. The final
+    validated result contains one atomic write per changed file so a later edit
+    cannot overwrite an earlier same-file edit.
     """
-    errors: list[str] = []
-
+    del for_apply
     if not operations or not isinstance(operations, list):
         return [], ["operations must be a non-empty list"]
 
-    if len(operations) > MAX_PATCH_FILES:
+    errors: list[str] = []
+    requested_paths = {
+        str(op.get("path", ""))
+        for op in operations
+        if isinstance(op, dict) and op.get("path")
+    }
+    if len(requested_paths) > MAX_PATCH_FILES:
         errors.append(
-            f"Patch exceeds {MAX_PATCH_FILES} file limit ({len(operations)} ops)"
+            f"Patch exceeds {MAX_PATCH_FILES} file limit ({len(requested_paths)} files)"
         )
 
-    seen_paths: set[str] = set()
-    validated: list[dict] = []
-    total_changed_lines = 0
-    total_changed_bytes = 0
+    states: dict[str, dict[str, Any]] = {}
+    path_order: list[str] = []
+    invalid_paths: set[str] = set()
 
     for idx, op in enumerate(operations):
-        op_errors: list[str] = []
+        if not isinstance(op, dict):
+            errors.append(f"op[{idx}]: operation must be an object")
+            continue
+
         path_str = op.get("path", "")
         old_text = op.get("old_text")
         new_text = op.get("new_text")
         expected_sha = op.get("expected_sha256", "")
 
-        # Path checks
-        if not path_str:
+        if not path_str or not isinstance(path_str, str):
             errors.append(f"op[{idx}]: path is required")
             continue
-        if path_str in seen_paths:
-            errors.append(f"op[{idx}]: duplicate path '{path_str}'")
-            continue
-        seen_paths.add(path_str)
-
-        try:
-            absolute = _resolve_and_validate_write(repo_root, path_str)
-        except ValueError as exc:
-            errors.append(f"op[{idx}]: {exc}")
-            continue
-
-        # old_text / new_text checks
         if old_text is None or not isinstance(old_text, str):
-            op_errors.append(f"op[{idx}]: old_text is required and must be a string")
+            errors.append(f"op[{idx}]: old_text is required and must be a string")
+            invalid_paths.add(path_str)
+            continue
         if new_text is None or not isinstance(new_text, str):
-            op_errors.append(f"op[{idx}]: new_text is required and must be a string")
-
-        if op_errors:
-            errors.extend(op_errors)
+            errors.append(f"op[{idx}]: new_text is required and must be a string")
+            invalid_paths.add(path_str)
             continue
 
-        # File must exist for patch (not for create)
-        if not absolute.exists():
-            errors.append(f"op[{idx}]: file does not exist: {path_str}")
-            continue
-        if absolute.is_dir():
-            errors.append(f"op[{idx}]: path is a directory: {path_str}")
-            continue
-        if absolute.is_symlink():
-            errors.append(f"op[{idx}]: symlinks are not allowed: {path_str}")
-            continue
-        if _is_binary(absolute):
-            errors.append(f"op[{idx}]: binary files are not supported: {path_str}")
-            continue
+        state = states.get(path_str)
+        if state is None:
+            try:
+                absolute = _resolve_and_validate_write(repo_root, path_str)
+            except ValueError as exc:
+                errors.append(f"op[{idx}]: {exc}")
+                invalid_paths.add(path_str)
+                continue
 
-        # Read current content
-        try:
-            current_bytes = absolute.read_bytes()
-            current_text = current_bytes.decode("utf-8", errors="replace")
-        except OSError as exc:
-            errors.append(f"op[{idx}]: cannot read file: {exc}")
-            continue
+            if not absolute.exists():
+                errors.append(f"op[{idx}]: file does not exist: {path_str}")
+                invalid_paths.add(path_str)
+                continue
+            if absolute.is_dir():
+                errors.append(f"op[{idx}]: path is a directory: {path_str}")
+                invalid_paths.add(path_str)
+                continue
+            if absolute.is_symlink():
+                errors.append(f"op[{idx}]: symlinks are not allowed: {path_str}")
+                invalid_paths.add(path_str)
+                continue
+            if _is_binary(absolute):
+                errors.append(f"op[{idx}]: binary files are not supported: {path_str}")
+                invalid_paths.add(path_str)
+                continue
 
-        # Hash check
-        current_sha = hashlib.sha256(current_bytes).hexdigest()
+            try:
+                current_bytes = absolute.read_bytes()
+                current_text = current_bytes.decode("utf-8", errors="replace")
+            except OSError as exc:
+                errors.append(f"op[{idx}]: cannot read file: {exc}")
+                invalid_paths.add(path_str)
+                continue
+
+            state = {
+                "path": path_str,
+                "absolute": absolute,
+                "current_bytes": current_bytes,
+                "current_content": current_text,
+                "current_sha256": hashlib.sha256(current_bytes).hexdigest(),
+                "edits": [],
+            }
+            states[path_str] = state
+            path_order.append(path_str)
+
+        current_sha = state["current_sha256"]
         if expected_sha and current_sha != expected_sha:
             errors.append(
                 f"op[{idx}]: stale hash for '{path_str}': "
                 f"expected {expected_sha[:12]}… got {current_sha[:12]}…"
             )
+            invalid_paths.add(path_str)
             continue
 
-        # old_text must appear exactly once
-        occurrences = current_text.count(old_text)  # type: ignore[arg-type]
+        current_text = state["current_content"]
+        occurrences = current_text.count(old_text)
         if occurrences == 0:
             errors.append(f"op[{idx}]: old_text not found in '{path_str}'")
+            invalid_paths.add(path_str)
             continue
         if occurrences > 1:
             errors.append(
                 f"op[{idx}]: old_text appears {occurrences} times in '{path_str}'; "
                 "must be unique"
             )
+            invalid_paths.add(path_str)
             continue
 
-        # Build new content and diff
-        new_content = current_text.replace(old_text, new_text, 1)  # type: ignore[arg-type]
+        start = current_text.index(old_text)
+        end = start + len(old_text)
+        overlap = next(
+            (
+                edit
+                for edit in state["edits"]
+                if start < edit["end"] and edit["start"] < end
+            ),
+            None,
+        )
+        if overlap is not None:
+            errors.append(
+                f"op[{idx}]: edit overlaps op[{overlap['index']}] in '{path_str}'"
+            )
+            invalid_paths.add(path_str)
+            continue
+
+        state["edits"].append(
+            {
+                "index": idx,
+                "start": start,
+                "end": end,
+                "old_text": old_text,
+                "new_text": new_text,
+            }
+        )
+
+    validated: list[dict] = []
+    total_changed_lines = 0
+    total_changed_bytes = 0
+    for path_str in path_order:
+        if path_str in invalid_paths:
+            continue
+        state = states[path_str]
+        current_text = state["current_content"]
+        new_content = current_text
+        for edit in sorted(
+            state["edits"], key=lambda item: item["start"], reverse=True
+        ):
+            new_content = (
+                new_content[: edit["start"]]
+                + edit["new_text"]
+                + new_content[edit["end"] :]
+            )
+
         diff = _unified_diff_for_op(current_text, new_content, path_str)
         changed_lines = _count_changed_lines(diff)
-        changed_bytes = abs(len(new_content.encode("utf-8")) - len(current_bytes))
-
+        changed_bytes = abs(
+            len(new_content.encode("utf-8")) - len(state["current_bytes"])
+        )
         total_changed_lines += changed_lines
         total_changed_bytes += changed_bytes
-
         validated.append(
             {
                 "path": path_str,
-                "absolute": absolute,
-                "current_sha256": current_sha,
+                "absolute": state["absolute"],
+                "current_sha256": state["current_sha256"],
                 "current_content": current_text,
-                "old_text": old_text,
-                "new_text": new_text,
                 "new_content": new_content,
                 "diff": diff,
                 "changed_lines": changed_lines,
                 "changed_bytes": changed_bytes,
+                "operation_count": len(state["edits"]),
             }
         )
 
     if total_changed_lines > MAX_PATCH_LINES:
         errors.append(
-            f"Patch exceeds {MAX_PATCH_LINES} changed-line limit ({total_changed_lines} lines)"
+            f"Patch exceeds {MAX_PATCH_LINES} changed-line limit "
+            f"({total_changed_lines} lines)"
         )
     if total_changed_bytes > MAX_PATCH_BYTES:
         errors.append(f"Patch exceeds {MAX_PATCH_BYTES // 1024} KB changed-byte limit")
 
     return validated, errors
-
-
-# ---------------------------------------------------------------------------
-# preview_repo_patch
-# ---------------------------------------------------------------------------
 
 
 def preview_repo_patch(
