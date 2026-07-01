@@ -26,6 +26,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "local_model_health",
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
+    "start_project_command_async",
     "get_run_status",
     "get_run_events",
     "get_run_result",
@@ -139,6 +140,15 @@ REALISTIC_ACTION_OUTPUTS = {
         "run_id": "run_3",
         "status": "queued",
         "repo_name": "repo",
+        "result": {},
+        "error": "",
+    },
+    "start_project_command_async": {
+        "ok": True,
+        "run_id": "run_4",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "pytest",
         "result": {},
         "error": "",
     },
@@ -355,17 +365,19 @@ REALISTIC_ACTION_OUTPUTS = {
         "error": "",
     },
     "run_project_command": {
-        "ok": True,
+        "ok": False,
         "repo_name": "repo",
         "command_id": "pytest",
         "argv": ["python", "-m", "pytest", "-q"],
-        "exit_code": 0,
+        "exit_code": 2,
         "timed_out": False,
-        "duration_seconds": 1.5,
-        "stdout": "1 passed\n",
+        "duration_seconds": 0.0,
+        "stdout": "",
         "stderr": "",
         "output_truncated": False,
-        "error": "",
+        "status": "async_required",
+        "async_required": True,
+        "error": "Use start_project_command_async.",
     },
     "git_log": {
         "ok": True,
@@ -464,6 +476,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "codex_implement_task",
         "commit_selected_files",
         "start_codex_implement_task_async",
+        "start_project_command_async",
         "cancel_run",
         "start_supervised_recovery_task",
         "resume_supervisor",
@@ -696,6 +709,48 @@ def test_local_model_health_malformed_models_response_returns_failed(
     assert result["status"] == "failed"
     assert result["ok"] is False
     assert result["completion_succeeded"] is False
+
+
+def test_sync_pytest_requires_durable_async_execution(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "run_command_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("sync pytest must not launch")
+        ),
+    )
+
+    result = server.run_project_command("repo", "pytest")
+
+    assert result["ok"] is False
+    assert result["status"] == "async_required"
+    assert result["async_required"] is True
+    assert "start_project_command_async" in result["error"]
+
+
+def test_start_project_command_async_delegates_to_job_manager(monkeypatch) -> None:
+    class FakeJobManager:
+        def start_project_command(self, repo_name, command_id):
+            return {
+                "run_id": "run_4",
+                "accepted": True,
+                "status": "queued",
+                "repo_name": repo_name,
+                "command_id": command_id,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
+
+    result = server.start_project_command_async("repo", "pytest")
+
+    assert result["accepted"] is True
+    assert result["run_id"] == "run_4"
+    assert result["command_id"] == "pytest"
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:

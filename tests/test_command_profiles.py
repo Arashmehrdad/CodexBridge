@@ -31,6 +31,8 @@ def test_resolve_known_builtin() -> None:
     spec = resolve_command_profile("pytest")
     assert spec.command_id == "pytest"
     assert "pytest" in spec.argv
+    assert spec.async_only is True
+    assert spec.timeout_seconds == 600
 
 
 def test_ruff_format_has_matching_write_profile() -> None:
@@ -81,6 +83,21 @@ def test_repo_override_shadows_builtin() -> None:
     ]
     spec = resolve_command_profile("pytest", repo_profiles)
     assert "-x" in spec.argv
+
+
+def test_repo_pytest_override_inherits_async_only_default() -> None:
+    repo_profiles = [
+        {
+            "command_id": "pytest",
+            "argv": ["python", "-m", "pytest", "tests/unit", "-q"],
+        },
+    ]
+
+    spec = resolve_command_profile("pytest", repo_profiles)
+
+    assert spec.async_only is True
+    assert spec.timeout_seconds == 600
+    assert spec.description == "Run pytest in quiet mode as a durable async command"
 
 
 def test_repo_override_unknown_id_falls_through_to_builtin() -> None:
@@ -213,6 +230,29 @@ def test_run_command_uses_repo_virtualenv(tmp_path: Path, monkeypatch) -> None:
         "output_truncated",
         "error",
     }
+
+
+def test_run_command_merges_explicit_environment(tmp_path: Path, monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["env"] = kwargs["env"]
+        return SimpleNamespace(stdout="ok\n", stderr="", returncode=0)
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    spec = CommandProfileSpec(
+        command_id="env_check",
+        argv=["python", "-c", "print('ok')"],
+        timeout_seconds=10,
+    )
+
+    result = run_command_profile(
+        spec, tmp_path, extra_env={"TMP": "isolated", "CUSTOM_FLAG": "yes"}
+    )
+
+    assert result["ok"] is True
+    assert captured["env"]["TMP"] == "isolated"
+    assert captured["env"]["CUSTOM_FLAG"] == "yes"
 
 
 def test_repo_virtualenv_path_supports_bare_tools(tmp_path: Path, monkeypatch) -> None:

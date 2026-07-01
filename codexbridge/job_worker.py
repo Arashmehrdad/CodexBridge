@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import git_tools
+from .command_profiles import resolve_command_profile, run_command_profile
 from .config import load_config, resolve_repo
 from .events import ArtifactWriter, redact_and_truncate
 from .policy import decide_implementation_task, decide_plan_task
@@ -136,6 +138,11 @@ class JobWorker:
         repo_name = input_data["repo_name"]
         repo_root = resolve_repo(self.config, repo_name)
         tool = self.run["tool"]
+
+        if tool == "project_command":
+            return self._execute_project_command(
+                started_at, repo_name, repo_root, input_data
+            )
 
         if tool == "codex_plan_task":
             decision = decide_plan_task(
@@ -315,6 +322,113 @@ class JobWorker:
             "safety_failure": safety_failure,
             "codex_exit_code": exit_code,
             "codex_command_args": _safe_command_args(args),
+        }
+
+    def _execute_project_command(
+        self,
+        started_at: str,
+        repo_name: str,
+        repo_root: Path,
+        input_data: dict,
+    ) -> dict:
+        command_id = str(input_data["command_id"])
+        repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
+        profile = resolve_command_profile(command_id, repo_profiles)
+        run_dir = Path(self.run["run_dir"])
+        temp_root = run_dir / "tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        extra_env = {
+            "TMP": str(temp_root),
+            "TEMP": str(temp_root),
+            "TMPDIR": str(temp_root),
+        }
+        pytest_temp = run_dir / "pytest-tmp"
+        if command_id == "pytest" or "pytest" in profile.argv:
+            pytest_temp.mkdir(parents=True, exist_ok=True)
+            existing_addopts = os.environ.get("PYTEST_ADDOPTS", "").strip()
+            basetemp = f'--basetemp="{pytest_temp.as_posix()}"'
+            extra_env["PYTEST_ADDOPTS"] = " ".join(
+                value for value in (existing_addopts, basetemp) if value
+            )
+
+        git_before = git_tools.git_status(repo_root)
+        diff_before = git_tools.diff_stat(repo_root)
+        self.artifacts.write_text("git_before.txt", git_before)
+        self.event(
+            "info",
+            "command",
+            "Starting allowlisted project command",
+            {
+                "command_id": command_id,
+                "timeout_seconds": profile.timeout_seconds,
+                "temporary_directory": str(temp_root),
+            },
+        )
+        command_result = run_command_profile(profile, repo_root, extra_env=extra_env)
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+
+        git_after = git_tools.git_status(repo_root)
+        diff_after = git_tools.diff_stat(repo_root)
+        changed = git_tools.changed_files(repo_root)
+        self.artifacts.write_text("git_after.txt", git_after)
+        self.artifacts.write_text("diff_stat.txt", diff_after)
+
+        safety_failure = bool(
+            not profile.writes_files
+            and (git_before != git_after or diff_before != diff_after)
+        )
+        risks: list[str] = []
+        if safety_failure:
+            risks.append("Read-only command changed repository state")
+        if command_result.get("timed_out"):
+            risks.append(
+                "Project command timed out; inspect saved output before retrying"
+            )
+
+        output_summary = (stdout or stderr).strip()
+        summary = (
+            output_summary[-4000:]
+            if output_summary
+            else (
+                f"Project command {command_id} completed with exit code "
+                f"{command_result.get('exit_code')}"
+            )
+        )
+        errors = [str(command_result.get("error", "")).strip()]
+        if safety_failure:
+            errors.append("Read-only command changed repository state")
+        error = "; ".join(item for item in errors if item)
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": repo_name,
+            "tool": "project_command",
+            "command_id": command_id,
+            "status": "completed"
+            if command_result.get("ok") and not safety_failure
+            else "failed",
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": changed,
+            "git_status": git_after,
+            "diff_stat": diff_after,
+            "tests_run": [command_id],
+            "test_results": output_summary,
+            "summary": summary,
+            "remaining_risks": risks,
+            "error": error,
+            "safety_failure": safety_failure,
+            "timed_out": bool(command_result.get("timed_out")),
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "temporary_directory": str(temp_root),
+            "pytest_basetemp": str(pytest_temp) if pytest_temp.exists() else "",
+            "command_result": command_result,
         }
 
     def _error_result(self, started_at: str, ended_at: str, exc: Exception) -> dict:

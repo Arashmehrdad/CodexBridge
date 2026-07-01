@@ -820,6 +820,12 @@ def start_codex_implement_task_async(
     )
 
 
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_project_command_async(repo_name: str, command_id: str) -> dict:
+    """Write async tool: queue an allowlisted project command and return a durable run_id immediately."""
+    return get_job_manager().start_project_command(repo_name, command_id)
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
     """Read-only: return durable status metadata for a queued/running/completed async run."""
@@ -1098,6 +1104,25 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
     repo_root = resolve_repo(config, repo_name)
     repo_profiles = list(config.repos[repo_name].command_profiles or [])
     profile = resolve_command_profile(command_id, repo_profiles)
+    if profile.async_only:
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "command_id": command_id,
+            "argv": list(profile.argv),
+            "exit_code": 2,
+            "timed_out": False,
+            "duration_seconds": 0.0,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "status": "async_required",
+            "async_required": True,
+            "error": (
+                f"Command '{command_id}' is configured for durable async "
+                "execution. Use start_project_command_async."
+            ),
+        }
     result = run_command_profile(profile, repo_root)
     result["repo_name"] = repo_name
     return result

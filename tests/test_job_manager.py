@@ -52,6 +52,22 @@ def test_start_async_implementation_validates_files(
     assert manager.get_status(response["run_id"])["tool"] == "codex_implement_task"
 
 
+def test_start_async_project_command_creates_durable_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_project_command("sample", "pytest")
+
+    assert response["accepted"] is True
+    assert response["repo_name"] == "sample"
+    assert response["command_id"] == "pytest"
+    assert response["run_id"]
+    status = manager.get_status(response["run_id"])
+    assert status["tool"] == "project_command"
+    assert status["input"]["command_id"] == "pytest"
+
+
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     monkeypatch.setattr(

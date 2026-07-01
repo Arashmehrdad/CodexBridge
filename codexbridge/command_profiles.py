@@ -63,6 +63,7 @@ class CommandProfileSpec:
     timeout_seconds: int = DEFAULT_TIMEOUT
     description: str = ""
     writes_files: bool = False
+    async_only: bool = False
 
     def validate(self) -> None:
         if not self.command_id or not _COMMAND_ID_RE.match(self.command_id):
@@ -84,8 +85,9 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
     "pytest": CommandProfileSpec(
         command_id="pytest",
         argv=["python", "-m", "pytest", "-q"],
-        timeout_seconds=120,
-        description="Run pytest in quiet mode",
+        timeout_seconds=600,
+        description="Run pytest in quiet mode as a durable async command",
+        async_only=True,
     ),
     "ruff_check": CommandProfileSpec(
         command_id="ruff_check",
@@ -142,13 +144,31 @@ def _parse_repo_profile(raw: dict[str, Any]) -> CommandProfileSpec:
         raise ValueError(
             f"Repo command profile '{command_id}' must have a non-empty argv list"
         )
-    timeout = int(raw.get("timeout_seconds", DEFAULT_TIMEOUT))
-    description = str(raw.get("description", ""))
+    builtin = BUILTIN_PROFILES.get(command_id)
+    timeout = int(
+        raw.get(
+            "timeout_seconds",
+            builtin.timeout_seconds if builtin is not None else DEFAULT_TIMEOUT,
+        )
+    )
+    description = str(
+        raw.get("description", builtin.description if builtin is not None else "")
+    )
+    async_only = bool(
+        raw.get("async_only", builtin.async_only if builtin is not None else False)
+    )
     spec = CommandProfileSpec(
         command_id=command_id,
         argv=[str(a) for a in argv],
         timeout_seconds=timeout,
         description=description,
+        writes_files=bool(
+            raw.get(
+                "writes_files",
+                builtin.writes_files if builtin is not None else False,
+            )
+        ),
+        async_only=async_only,
     )
     spec.validate()
     return spec
@@ -250,12 +270,16 @@ def prepare_repo_execution(
 def run_command_profile(
     profile: CommandProfileSpec,
     cwd: Path,
+    *,
+    extra_env: dict[str, str] | None = None,
 ) -> dict:
     """
     Execute *profile* in *cwd* with shell=False.
     Returns a structured result with stdout, stderr, exit_code, duration, and truncation flag.
     """
     argv, env, _, _ = prepare_repo_execution(profile, cwd)
+    if extra_env:
+        env.update({str(key): str(value) for key, value in extra_env.items()})
     started = time.monotonic()
     timed_out = False
     try:

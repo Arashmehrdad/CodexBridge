@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .command_profiles import resolve_command_profile
 from .config import AppConfig, resolve_repo
 from .events import ArtifactWriter, redact_and_truncate
-from .policy import decide_implementation_task, decide_plan_task
+from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .run_store import RunStore, validate_run_id
 from .safety import reject_destructive_command, validate_repo_relative_paths
 
@@ -63,6 +64,30 @@ class JobManager:
         return self._create_and_launch(
             "codex_implement_task", repo_name, input_data, decision
         )
+
+    def start_project_command(self, repo_name: str, command_id: str) -> dict:
+        resolve_repo(self.config, repo_name)
+        repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
+        profile = resolve_command_profile(command_id, repo_profiles)
+        estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=1,
+            risk_level="low" if not profile.writes_files else "medium",
+            requires_human=False,
+            reason="Allowlisted project command is approved for durable async execution",
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        response = self._create_and_launch(
+            "project_command",
+            repo_name,
+            {"repo_name": repo_name, "command_id": command_id},
+            decision,
+        )
+        response["repo_name"] = repo_name
+        response["command_id"] = command_id
+        return response
 
     def _create_and_launch(
         self, tool: str, repo_name: str, input_data: dict, decision
