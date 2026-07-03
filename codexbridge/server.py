@@ -1036,6 +1036,30 @@ def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
     return result
 
 
+@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
+    """Read-only: validate a repo file creation, persist an opaque local payload, and return a patch_id with preview diff."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.preview_repo_file_creation(
+        repo_root, path, content, _get_runs_dir()
+    )
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -> dict:
+    """Read-only: validate a repo file removal and return a patch_id with preview diff. Stores no source payload."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.preview_repo_file_removal(
+        repo_root, path, expected_sha256, _get_runs_dir()
+    )
+    result["repo_name"] = repo_name
+    return result
+
+
 @mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> dict:
     """Write tool: apply a patch previously validated by preview_repo_patch. Rechecks all hashes before writing."""
@@ -1043,6 +1067,18 @@ def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> d
     repo_root = resolve_repo(config, repo_name)
     result = _repo_writer.apply_repo_patch(
         repo_root, operations, patch_id, _get_runs_dir()
+    )
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def apply_previewed_repo_change(repo_name: str, patch_id: str) -> dict:
+    """Write tool: apply a previewed repository change using only the opaque local preview bundle identified by patch_id."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _repo_writer.apply_previewed_repo_change(
+        repo_root, patch_id, _get_runs_dir()
     )
     result["repo_name"] = repo_name
     return result

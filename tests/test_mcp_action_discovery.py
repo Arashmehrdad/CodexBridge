@@ -50,7 +50,10 @@ EXPECTED_EXPOSED_ACTIONS = {
     "repo_git_diff",
     # controlled local coding tools
     "preview_repo_patch",
+    "preview_repo_file_creation",
+    "preview_repo_file_removal",
     "apply_repo_patch",
+    "apply_previewed_repo_change",
     "create_repo_file",
     "delete_repo_file",
     "move_repo_file",
@@ -324,12 +327,45 @@ REALISTIC_ACTION_OUTPUTS = {
         "validation_errors": [],
         "error": "",
     },
+    "preview_repo_file_creation": {
+        "ok": True,
+        "patch_id": "20260624T120000Z_patch_abcd1234",
+        "repo_name": "repo",
+        "diff": "--- a/docs/new.py\n+++ b/docs/new.py\n@@ -0,0 +1 @@\n+print('hi')\n",
+        "changed_files": ["docs/new.py"],
+        "changed_lines": 1,
+        "changed_bytes": 12,
+        "git_head": "b" * 40,
+        "validation_errors": [],
+        "error": "",
+    },
+    "preview_repo_file_removal": {
+        "ok": True,
+        "patch_id": "20260624T120000Z_patch_abcd1234",
+        "repo_name": "repo",
+        "diff": "--- a/docs/old.py\n+++ b/docs/old.py\n@@ -1 +0,0 @@\n-print('bye')\n",
+        "changed_files": ["docs/old.py"],
+        "changed_lines": 1,
+        "changed_bytes": 13,
+        "git_head": "b" * 40,
+        "validation_errors": [],
+        "error": "",
+    },
     "apply_repo_patch": {
         "ok": True,
         "patch_id": "20260624T120000Z_patch_abcd1234",
         "repo_name": "repo",
         "changed_files": ["README.md"],
         "results": [{"path": "README.md", "sha256": "a" * 64}],
+        "git_head": "b" * 40,
+        "error": "",
+    },
+    "apply_previewed_repo_change": {
+        "ok": True,
+        "patch_id": "20260624T120000Z_patch_abcd1234",
+        "repo_name": "repo",
+        "changed_files": ["docs/new.py"],
+        "results": [{"path": "docs/new.py", "sha256": "a" * 64}],
         "git_head": "b" * 40,
         "error": "",
     },
@@ -484,6 +520,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "cancel_supervisor",
         # controlled local coding tools
         "apply_repo_patch",
+        "apply_previewed_repo_change",
         "create_repo_file",
         "delete_repo_file",
         "move_repo_file",
@@ -498,6 +535,15 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
             assert annotations["destructiveHint"] is False
         else:
             assert annotations["readOnlyHint"] is True
+
+
+def test_apply_previewed_repo_change_schema_is_opaque() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+    schema = actions["apply_previewed_repo_change"]["inputSchema"]
+    properties = schema["properties"]
+
+    assert set(properties) == {"repo_name", "patch_id"}
+    assert set(schema.get("required", [])) == {"repo_name", "patch_id"}
 
 
 def test_currently_exposed_batch_actions_are_discoverable() -> None:

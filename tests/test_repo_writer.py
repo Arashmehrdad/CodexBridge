@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -16,7 +17,10 @@ import pytest
 from codexbridge import repo_writer as rw
 from codexbridge.repo_writer import (
     preview_repo_patch,
+    preview_repo_file_creation,
+    preview_repo_file_removal,
     apply_repo_patch,
+    apply_previewed_repo_change,
     revert_managed_patch,
     create_repo_file,
     delete_repo_file,
@@ -32,6 +36,7 @@ from codexbridge.repo_writer import (
 
 
 def make_repo(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / ".git").mkdir()
     return tmp_path
 
@@ -46,8 +51,55 @@ def sha256_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 def sha256_file(path: Path) -> str:
     return _sha256_file(path)
+
+
+def init_git_repo(path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "CodexBridge Tests"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+
+
+def commit_all(path: Path, message: str) -> None:
+    subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_atomic_write_bytes_cleans_up_temp_file_on_replace_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "atomic.txt"
+
+    def fail_replace(src, dst):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(rw.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        rw._atomic_write_bytes(target, b"payload", ".codexbridge_test_tmp")
+
+    assert not target.exists()
+    assert list(tmp_path.glob("*.codexbridge_test_tmp")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +163,34 @@ def test_preview_stores_manifest(tmp_path: Path) -> None:
     result = preview_repo_patch(repo, ops, runs)
     patch_dir = runs / "managed_patches" / result["patch_id"]
     assert (patch_dir / "manifest.json").exists()
+
+
+def test_preview_stores_opaque_modify_payload_and_repo_fingerprint(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "script.py", "print('hello')\n")
+    sha = sha256_file(repo / "script.py")
+    ops = [
+        {
+            "path": "script.py",
+            "expected_sha256": sha,
+            "old_text": "print('hello')",
+            "new_text": "print('updated')",
+        }
+    ]
+
+    result = preview_repo_patch(repo, ops, runs)
+    patch_dir = runs / "managed_patches" / result["patch_id"]
+    manifest = json.loads((patch_dir / "manifest.json").read_text(encoding="utf-8"))
+    payload_bytes = (patch_dir / "payload_0.bin").read_bytes()
+
+    assert manifest["repo_root"] == ""
+    assert manifest["repo_fingerprint"]
+    assert manifest["operations"][0]["payload_file"] == "payload_0.bin"
+    assert manifest["operations"][0]["payload_sha256"] == sha256_bytes(payload_bytes)
+    assert payload_bytes.decode("utf-8").replace("\r\n", "\n") == "print('updated')\n"
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +503,450 @@ def test_apply_rejects_already_applied(tmp_path: Path) -> None:
         apply_repo_patch(repo, ops, preview["patch_id"], runs)
 
 
+def test_apply_previewed_repo_change_applies_modify_without_operations(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "opaque.py", "print('before')\n")
+    sha = sha256_file(repo / "opaque.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "opaque.py",
+                "expected_sha256": sha,
+                "old_text": "print('before')",
+                "new_text": "print('after')",
+            }
+        ],
+        runs,
+    )
+
+    result = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert (repo / "opaque.py").read_text(encoding="utf-8") == "print('after')\n"
+    assert result["changed_files"] == ["opaque.py"]
+
+
+def test_apply_previewed_repo_change_rejects_invalid_patch_id(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    with pytest.raises(ValueError, match="Invalid patch_id"):
+        apply_previewed_repo_change(repo, "../escape", runs)
+
+
+def test_apply_previewed_repo_change_rejects_missing_payload(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "missing.py", "x = 1\n")
+    sha = sha256_file(repo / "missing.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "missing.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    (patch_dir / "payload_0.bin").unlink()
+
+    with pytest.raises(ValueError, match="missing the opaque payload"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_tampered_payload(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "tamper.py", "x = 1\n")
+    sha = sha256_file(repo / "tamper.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "tamper.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    (patch_dir / "payload_0.bin").write_text("x = 999\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="payload verification failed"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_payload_filename_traversal(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "traversal.py", "x = 1\n")
+    sha = sha256_file(repo / "traversal.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "traversal.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["operations"][0]["payload_file"] = "../payload_0.bin"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Payload filename mismatch"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_payload_symlink(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "symlink_payload.py", "x = 1\n")
+    sha = sha256_file(repo / "symlink_payload.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "symlink_payload.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    payload_path = patch_dir / "payload_0.bin"
+    replacement = tmp_path / "external_payload.bin"
+    replacement.write_bytes(b"x = 2\n")
+    try:
+        payload_path.unlink()
+    except PermissionError:
+        pytest.skip("Symlink replacement unavailable")
+    try:
+        payload_path.symlink_to(replacement)
+    except OSError:
+        pytest.skip("Symlinks unavailable")
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_preserves_exact_payload_bytes(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    preview = preview_repo_file_creation(repo, "exact.py", "line1\nline2\n", runs)
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload_bytes = b"line1\r\nline2\r\n"
+    (patch_dir / "payload_0.bin").write_bytes(payload_bytes)
+    manifest["operations"][0]["payload_sha256"] = sha256_bytes(payload_bytes)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    result = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert (repo / "exact.py").read_bytes() == payload_bytes
+    assert (repo / "exact.py").read_text(encoding="utf-8") == "line1\nline2\n"
+
+
+def test_apply_previewed_repo_change_rejects_repo_fingerprint_mismatch(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path / "repo_a")
+    other_repo = make_repo(tmp_path / "repo_b")
+    runs = tmp_path / "runs"
+    write_file(repo / "cross.py", "x = 1\n")
+    sha = sha256_file(repo / "cross.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "cross.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+
+    with pytest.raises(ValueError, match="does not belong to the requested repository"):
+        apply_previewed_repo_change(other_repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_stale_file_state(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "stale_apply.py", "x = 1\n")
+    sha = sha256_file(repo / "stale_apply.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "stale_apply.py",
+                "expected_sha256": sha,
+                "old_text": "x = 1",
+                "new_text": "x = 2",
+            }
+        ],
+        runs,
+    )
+    write_file(repo / "stale_apply.py", "x = 777\n")
+
+    with pytest.raises(ValueError, match="changed since preview"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_legacy_preview_without_bundle(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    patch_id = "20260624T120000Z_patch_abcd1234"
+    patch_dir = runs / "managed_patches" / patch_id
+    patch_dir.mkdir(parents=True)
+    (patch_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "patch_id": patch_id,
+                "status": "preview_ok",
+                "operations": [{"path": "legacy.py"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="opaque preview bundle"):
+        apply_previewed_repo_change(repo, patch_id, runs)
+
+
+def test_apply_previewed_repo_change_rejects_too_many_manifest_operations(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    preview = preview_repo_file_creation(repo, "overflow.py", "value = 1\n", runs)
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["operations"] = manifest["operations"] * (rw.MAX_PATCH_FILES + 1)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="file limit"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_duplicate_manifest_paths(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    preview = preview_repo_file_creation(repo, "dup.py", "value = 1\n", runs)
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["operations"].append(dict(manifest["operations"][0]))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate paths"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_changed_git_head_for_modify(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    init_git_repo(repo)
+    write_file(repo / "head.py", "value = 1\n")
+    commit_all(repo, "initial")
+    runs = tmp_path / "runs"
+    sha = sha256_file(repo / "head.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "head.py",
+                "expected_sha256": sha,
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    write_file(repo / "other.txt", "touch\n")
+    commit_all(repo, "advance head")
+
+    with pytest.raises(ValueError, match="Git HEAD has changed since preview"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_preview_and_apply_creation_then_revert(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+
+    preview = preview_repo_file_creation(
+        repo, "pkg/generated.py", "print('generated')\n", runs
+    )
+    assert preview["ok"] is True
+
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert (repo / "pkg" / "generated.py").read_text(encoding="utf-8") == (
+        "print('generated')\n"
+    )
+
+    reverted = revert_managed_patch(repo, preview["patch_id"], runs)
+    assert reverted["ok"] is True
+    assert not (repo / "pkg" / "generated.py").exists()
+
+
+def test_preview_and_apply_removal_then_revert(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "old.py", "print('old')\n")
+    sha = sha256_file(repo / "old.py")
+
+    preview = preview_repo_file_removal(repo, "old.py", sha, runs)
+    assert preview["ok"] is True
+
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert not (repo / "old.py").exists()
+
+    reverted = revert_managed_patch(repo, preview["patch_id"], runs)
+    assert reverted["ok"] is True
+    assert (repo / "old.py").read_text(encoding="utf-8") == "print('old')\n"
+
+
+def test_preview_file_removal_rejects_stale_hash(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "stale_remove.py", "data\n")
+
+    result = preview_repo_file_removal(repo, "stale_remove.py", "a" * 64, runs)
+
+    assert result["ok"] is False
+    assert result["validation_errors"]
+
+
+def test_preview_two_line_removal_counts_two_changed_lines(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "two_line_remove.py", "alpha\nbeta\n")
+    sha = sha256_file(repo / "two_line_remove.py")
+
+    preview = preview_repo_file_removal(repo, "two_line_remove.py", sha, runs)
+
+    assert preview["ok"] is True
+    assert preview["changed_lines"] == 2
+
+
+def test_apply_previewed_repo_change_recomputes_remove_changed_lines(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "tampered_remove.py", "alpha\nbeta\n")
+    sha = sha256_file(repo / "tampered_remove.py")
+    preview = preview_repo_file_removal(repo, "tampered_remove.py", sha, runs)
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["operations"][0]["changed_lines"] = 0
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    monkeypatch.setattr(rw, "MAX_PATCH_LINES", 1)
+
+    with pytest.raises(ValueError, match="changed-line limit"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_apply_repo_patch_accepts_legacy_new_content_sha256_preview(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "legacy_hash.py", "value = 1\n")
+    sha = sha256_file(repo / "legacy_hash.py")
+    ops = [
+        {
+            "path": "legacy_hash.py",
+            "expected_sha256": sha,
+            "old_text": "value = 1",
+            "new_text": "value = 2",
+        }
+    ]
+
+    preview = preview_repo_patch(repo, ops, runs)
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    legacy_sha = manifest["operations"][0].pop("payload_sha256")
+    manifest["operations"][0]["new_content_sha256"] = legacy_sha
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    result = apply_repo_patch(repo, ops, preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert (repo / "legacy_hash.py").read_text(encoding="utf-8") == "value = 2\n"
+
+
+def test_revert_created_file_rejects_if_current_hash_changed(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    preview = preview_repo_file_creation(repo, "newer.py", "x = 1\n", runs)
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    write_file(repo / "newer.py", "x = 99\n")
+
+    with pytest.raises(ValueError, match="modified since the patch was applied"):
+        revert_managed_patch(repo, preview["patch_id"], runs)
+
+
+def test_revert_removed_file_rejects_if_path_recreated(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "gone.py", "gone\n")
+    sha = sha256_file(repo / "gone.py")
+    preview = preview_repo_file_removal(repo, "gone.py", sha, runs)
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    write_file(repo / "gone.py", "replacement\n")
+
+    with pytest.raises(ValueError, match="now exists on disk"):
+        revert_managed_patch(repo, preview["patch_id"], runs)
+
+
+def test_apply_previewed_repo_change_rejects_already_reverted_patch(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    preview = preview_repo_file_creation(repo, "done.py", "x = 1\n", runs)
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    revert_managed_patch(repo, preview["patch_id"], runs)
+
+    with pytest.raises(ValueError, match="has been reverted"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
 # ---------------------------------------------------------------------------
 # Atomic multi-file rollback after partial failure
 # ---------------------------------------------------------------------------
@@ -468,6 +992,68 @@ def test_apply_rolls_back_on_partial_failure(tmp_path: Path, monkeypatch) -> Non
     assert (repo / "r1.py").read_text(encoding="utf-8") == "r = 1\n"
 
 
+def test_apply_previewed_repo_change_rolls_back_if_manifest_write_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "modify.py", "before\n")
+    write_file(repo / "remove.py", "delete me\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "modify.py",
+                "expected_sha256": sha256_file(repo / "modify.py"),
+                "old_text": "before",
+                "new_text": "after",
+            }
+        ],
+        runs,
+    )
+    create_preview = preview_repo_file_creation(repo, "create.py", "created\n", runs)
+    remove_preview = preview_repo_file_removal(
+        repo, "remove.py", sha256_file(repo / "remove.py"), runs
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    create_patch_dir = runs / "managed_patches" / create_preview["patch_id"]
+    remove_patch_dir = runs / "managed_patches" / remove_preview["patch_id"]
+
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    create_manifest = json.loads(
+        (create_patch_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    remove_manifest = json.loads(
+        (remove_patch_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    create_op = dict(create_manifest["operations"][0])
+    create_op["payload_file"] = "payload_1.bin"
+    manifest["operations"].extend([create_op, remove_manifest["operations"][0]])
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (patch_dir / "payload_1.bin").write_bytes(
+        (create_patch_dir / "payload_0.bin").read_bytes()
+    )
+
+    original_atomic_write_text = rw._atomic_write_text
+
+    def fail_manifest_write(path: Path, text: str, suffix: str) -> None:
+        if path.name == "manifest.json":
+            raise OSError("manifest update failed")
+        original_atomic_write_text(path, text, suffix)
+
+    monkeypatch.setattr(rw, "_atomic_write_text", fail_manifest_write)
+
+    with pytest.raises(RuntimeError, match="partial rollback"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    assert (repo / "modify.py").read_text(encoding="utf-8") == "before\n"
+    assert not (repo / "create.py").exists()
+    assert (repo / "remove.py").read_text(encoding="utf-8") == "delete me\n"
+    final_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert final_manifest["status"] == "preview_ok"
+
+
 # ---------------------------------------------------------------------------
 # revert_managed_patch
 # ---------------------------------------------------------------------------
@@ -492,6 +1078,101 @@ def test_revert_restores_original(tmp_path: Path) -> None:
     result = revert_managed_patch(repo, preview["patch_id"], runs)
     assert result["ok"] is True
     assert (repo / "rev.py").read_text(encoding="utf-8") == "v = 1\n"
+
+
+def test_apply_repo_patch_preserves_legacy_response_shape_and_supports_revert(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "legacy.py", "value = 1\n")
+    sha = sha256_file(repo / "legacy.py")
+    ops = [
+        {
+            "path": "legacy.py",
+            "expected_sha256": sha,
+            "old_text": "value = 1",
+            "new_text": "value = 2",
+        }
+    ]
+
+    preview = preview_repo_patch(repo, ops, runs)
+    applied = apply_repo_patch(repo, ops, preview["patch_id"], runs)
+    manifest = json.loads(
+        (runs / "managed_patches" / preview["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(applied["results"][0]) == {"path", "sha256"}
+    assert manifest["applied_results"][0]["action"] == "modify"
+    assert manifest["applied_results"][0]["rollback_file"] == "legacy.py"
+
+    reverted = revert_managed_patch(repo, preview["patch_id"], runs)
+
+    assert reverted["ok"] is True
+    assert (repo / "legacy.py").read_text(encoding="utf-8") == "value = 1\n"
+
+
+def test_revert_managed_patch_supports_legacy_manifest_without_rollback_metadata(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "legacy_fallback.py", "value = 1\n")
+    sha = sha256_file(repo / "legacy_fallback.py")
+    ops = [
+        {
+            "path": "legacy_fallback.py",
+            "expected_sha256": sha,
+            "old_text": "value = 1",
+            "new_text": "value = 2",
+        }
+    ]
+
+    preview = preview_repo_patch(repo, ops, runs)
+    apply_repo_patch(repo, ops, preview["patch_id"], runs)
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["applied_results"] = [
+        {"path": item["path"], "sha256": item["sha256"]}
+        for item in manifest["applied_results"]
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    reverted = revert_managed_patch(repo, preview["patch_id"], runs)
+
+    assert reverted["ok"] is True
+    assert (repo / "legacy_fallback.py").read_text(encoding="utf-8") == "value = 1\n"
+
+
+def test_revert_managed_patch_rejects_tampered_rollback_filename(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "rollback.py", "value = 1\n")
+    sha = sha256_file(repo / "rollback.py")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "rollback.py",
+                "expected_sha256": sha,
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["applied_results"][0]["rollback_file"] = "../rollback_0.bin"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Rollback filename mismatch"):
+        revert_managed_patch(repo, preview["patch_id"], runs)
 
 
 def test_revert_rejects_non_applied_patch(tmp_path: Path) -> None:
@@ -659,6 +1340,33 @@ def test_move_repo_file_rejects_traversal_destination(tmp_path: Path) -> None:
     sha = sha256_file(repo / "c.py")
     with pytest.raises(ValueError):
         move_repo_file(repo, "c.py", "../escape.py", sha, runs)
+
+
+def test_apply_repo_patch_rejects_preview_payload_mismatch(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "mismatch.py", "value = 1\n")
+    sha = sha256_file(repo / "mismatch.py")
+    preview_ops = [
+        {
+            "path": "mismatch.py",
+            "expected_sha256": sha,
+            "old_text": "value = 1",
+            "new_text": "value = 2",
+        }
+    ]
+    preview = preview_repo_patch(repo, preview_ops, runs)
+    apply_ops = [
+        {
+            "path": "mismatch.py",
+            "expected_sha256": sha,
+            "old_text": "value = 1",
+            "new_text": "value = 999",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="does not match the previewed payload"):
+        apply_repo_patch(repo, apply_ops, preview["patch_id"], runs)
 
 
 # ---------------------------------------------------------------------------
@@ -846,6 +1554,42 @@ def test_server_create_and_delete_file(tmp_path: Path) -> None:
     )
     assert del_result["ok"] is True
     assert not (tmp_path / "brand_new.py").exists()
+
+
+def test_server_preview_creation_removal_and_apply_previewed_change(
+    tmp_path: Path,
+) -> None:
+    import codexbridge.server as server
+    from codexbridge.config import AppConfig, RepoConfig
+
+    (tmp_path / ".git").mkdir()
+    write_file(tmp_path / "remove_me.py", "print('bye')\n")
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        runs_dir=str(tmp_path / "runs"),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+
+    create_preview = server.preview_repo_file_creation(
+        "repo", "created.py", "print('hi')\n"
+    )
+    assert create_preview["ok"] is True
+    create_result = server.apply_previewed_repo_change(
+        "repo", create_preview["patch_id"]
+    )
+    assert create_result["ok"] is True
+    assert (tmp_path / "created.py").exists()
+
+    remove_preview = server.preview_repo_file_removal(
+        "repo", "remove_me.py", sha256_file(tmp_path / "remove_me.py")
+    )
+    assert remove_preview["ok"] is True
+    remove_result = server.apply_previewed_repo_change(
+        "repo", remove_preview["patch_id"]
+    )
+    assert remove_result["ok"] is True
+    assert not (tmp_path / "remove_me.py").exists()
 
 
 def test_server_move_file(tmp_path: Path) -> None:

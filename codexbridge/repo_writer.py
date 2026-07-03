@@ -19,20 +19,15 @@ import os
 import re
 import shutil
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from .repo_reader import (
-    _path_is_allowed,
     _is_binary,
     _resolve_and_validate,
-    _posix_relative,
-    MAX_FILE_BYTES,
 )
-from .safety import validate_repo_relative_path
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +72,9 @@ def _make_patch_id() -> str:
     return f"{ts}_patch_{uuid4().hex[:8]}"
 
 
+_PATCH_ID_RE = re.compile(r"^\d{8}T\d{6}Z_patch_[0-9a-f]{8}$")
+
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -87,6 +85,47 @@ def _sha256_file(path: Path) -> str:
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _repo_fingerprint(repo_root: Path) -> str:
+    resolved = repo_root.resolve()
+    normalized = os.path.normcase(os.path.normpath(str(resolved)))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _resolve_managed_patch_dir(runs_dir: Path, patch_id: str) -> Path:
+    if not _PATCH_ID_RE.fullmatch(patch_id):
+        raise ValueError(f"Invalid patch_id: {patch_id!r}")
+    base_dir = (runs_dir / MANAGED_PATCHES_DIR).resolve()
+    patch_dir = (base_dir / patch_id).resolve()
+    patch_dir.relative_to(base_dir)
+    return patch_dir
+
+
+def _atomic_write_bytes(path: Path, data: bytes, suffix: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=path.parent,
+        delete=False,
+        suffix=suffix,
+    ) as tf:
+        tf.write(data)
+        tmp_path = Path(tf.name)
+    try:
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink()
+
+
+def _atomic_write_text(path: Path, text: str, suffix: str) -> None:
+    _atomic_write_bytes(path, text.encode("utf-8"), suffix)
 
 
 def _resolve_and_validate_write(repo_root: Path, relative_path: str) -> Path:
@@ -123,7 +162,7 @@ def _unified_diff_for_op(old_text: str, new_text: str, path: str) -> str:
         new_lines,
         fromfile=f"a/{path}",
         tofile=f"b/{path}",
-        lineterm="",
+        lineterm="\n",
     )
     return "".join(diff_lines)
 
@@ -139,6 +178,210 @@ def _git_head(repo_root: Path) -> str:
         text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _validate_create_target(
+    repo_root: Path, path: str, content: str
+) -> tuple[Path, int]:
+    absolute = _resolve_and_validate_write(repo_root, path)
+    if absolute.exists():
+        raise ValueError(f"File already exists: {path}")
+
+    parent = absolute.parent
+    try:
+        parent.relative_to(repo_root)
+    except ValueError:
+        raise ValueError(f"Parent directory is outside the repository: {path}")
+
+    size_bytes = len(content.encode("utf-8"))
+    if size_bytes > MAX_CREATE_BYTES:
+        raise ValueError(
+            f"Content exceeds {MAX_CREATE_BYTES // 1024} KB limit for create_repo_file"
+        )
+
+    return absolute, size_bytes
+
+
+def _validate_remove_target(
+    repo_root: Path, path: str, expected_sha256: str
+) -> tuple[Path, bytes, str]:
+    absolute = _resolve_and_validate_write(repo_root, path)
+    if not absolute.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    if absolute.is_dir():
+        raise ValueError(f"Directory deletion is not allowed: {path}")
+    if absolute.is_symlink():
+        raise ValueError(f"Symlinks are not allowed: {path}")
+
+    current_bytes = absolute.read_bytes()
+    current_sha = hashlib.sha256(current_bytes).hexdigest()
+    if current_sha != expected_sha256:
+        raise ValueError(
+            f"Stale hash for '{path}': "
+            f"expected {expected_sha256[:12]}… got {current_sha[:12]}…"
+        )
+    return absolute, current_bytes, current_sha
+
+
+def _payload_file_name(index: int) -> str:
+    return f"payload_{index}.bin"
+
+
+def _rollback_file_name(index: int) -> str:
+    return f"rollback_{index}.bin"
+
+
+def _legacy_rollback_file_name(path: str) -> str:
+    return path.replace("/", "__").replace("\\", "__")
+
+
+def _resolve_bundle_file(
+    base_dir: Path,
+    filename: str,
+    expected_name: str,
+    *,
+    kind: str,
+) -> Path:
+    if filename != expected_name:
+        raise ValueError(
+            f"{kind.capitalize()} filename mismatch: expected '{expected_name}'"
+        )
+
+    candidate = base_dir / filename
+    if not candidate.exists():
+        if kind == "payload":
+            raise ValueError(f"Patch bundle is missing the opaque payload: {filename}")
+        raise ValueError(f"Missing {kind} file: {filename}")
+    if candidate.is_symlink():
+        raise ValueError(f"{kind.capitalize()} file must not be a symlink: {filename}")
+    if not candidate.is_file():
+        raise ValueError(f"{kind.capitalize()} file is not a regular file: {filename}")
+
+    resolved_base = base_dir.resolve()
+    resolved_candidate = candidate.resolve()
+    try:
+        resolved_candidate.relative_to(resolved_base)
+    except ValueError as exc:
+        raise ValueError(f"Invalid {kind} path: {filename!r}") from exc
+
+    return resolved_candidate
+
+
+def _preview_payload_sha(op: dict[str, Any]) -> str:
+    payload_sha = op.get("payload_sha256", "")
+    if isinstance(payload_sha, str) and payload_sha:
+        return payload_sha
+    legacy_sha = op.get("new_content_sha256", "")
+    if isinstance(legacy_sha, str):
+        return legacy_sha
+    return ""
+
+
+def _remove_change_stats(
+    path: str, absolute: Path, current_bytes: bytes
+) -> tuple[int, int]:
+    if _is_binary(absolute):
+        diff_text = (
+            f"--- a/{path}\n+++ b/{path}\n@@ -1 +0,0 @@\n-[binary content omitted]\n"
+        )
+    else:
+        current_text = current_bytes.decode("utf-8", errors="replace")
+        diff_text = _unified_diff_for_op(current_text, "", path)
+    return _count_changed_lines(diff_text), len(current_bytes)
+
+
+def _rollback_applied_preview_ops(
+    repo_root: Path,
+    rollback_dir: Path,
+    applied_results: list[dict[str, Any]],
+) -> None:
+    for index in range(len(applied_results) - 1, -1, -1):
+        applied = applied_results[index]
+        absolute = _resolve_and_validate_write(repo_root, applied["path"])
+        if applied["action"] == "create":
+            if absolute.exists():
+                absolute.unlink()
+            continue
+
+        rollback_file = applied.get("rollback_file", "")
+        rollback_path = _resolve_bundle_file(
+            rollback_dir,
+            rollback_file,
+            _rollback_file_name(index),
+            kind="rollback",
+        )
+        rollback_bytes = rollback_path.read_bytes()
+        _atomic_write_bytes(
+            absolute,
+            rollback_bytes,
+            ".codexbridge_apply_rollback_tmp",
+        )
+
+
+def _write_preview_bundle(
+    repo_root: Path,
+    runs_dir: Path,
+    patch_id: str,
+    operations: list[dict[str, Any]],
+    diff_text: str,
+    *,
+    git_head: str,
+    errors: list[str],
+) -> Path:
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
+    patch_dir.mkdir(parents=True, exist_ok=True)
+    for index, op in enumerate(operations):
+        payload_text = op.get("payload_text")
+        if payload_text is None:
+            continue
+        payload_bytes = payload_text.encode("utf-8")
+        _atomic_write_bytes(
+            patch_dir / _payload_file_name(index),
+            payload_bytes,
+            ".codexbridge_payload_tmp",
+        )
+
+    manifest = {
+        "patch_id": patch_id,
+        "bundle_version": 2,
+        "created_at": _utc_now(),
+        "repo_root": "",
+        "repo_fingerprint": _repo_fingerprint(repo_root),
+        "git_head_at_preview": git_head,
+        "status": "preview_failed" if errors else "preview_ok",
+        "operations": [],
+        "errors": errors,
+    }
+    for index, op in enumerate(operations):
+        entry = {
+            "index": index,
+            "action": op["action"],
+            "path": op["path"],
+            "current_sha256": op.get("current_sha256", ""),
+            "payload_file": "",
+            "payload_sha256": "",
+            "changed_lines": op["changed_lines"],
+            "changed_bytes": op["changed_bytes"],
+        }
+        payload_text = op.get("payload_text")
+        if payload_text is not None:
+            payload_bytes = payload_text.encode("utf-8")
+            entry["payload_file"] = _payload_file_name(index)
+            entry["payload_sha256"] = _sha256_bytes(payload_bytes)
+        manifest["operations"].append(entry)
+
+    _atomic_write_text(
+        patch_dir / "manifest.json",
+        json.dumps(manifest, indent=2),
+        ".codexbridge_manifest_tmp",
+    )
+    if diff_text:
+        _atomic_write_text(
+            patch_dir / "preview.diff",
+            diff_text,
+            ".codexbridge_diff_tmp",
+        )
+    return patch_dir
 
 
 # ---------------------------------------------------------------------------
@@ -363,41 +606,33 @@ def preview_repo_patch(
     changed_files: list[str] = []
     total_changed_lines = 0
     total_changed_bytes = 0
+    bundle_operations: list[dict[str, Any]] = []
 
     for op in validated:
         combined_diff += op["diff"]
         changed_files.append(op["path"])
         total_changed_lines += op["changed_lines"]
         total_changed_bytes += op["changed_bytes"]
-
-    # Always store the preview (even if there are errors) so the patch_id is
-    # discoverable, but mark it invalid when errors are present.
-    patch_dir = runs_dir / MANAGED_PATCHES_DIR / patch_id
-    patch_dir.mkdir(parents=True, exist_ok=True)
-
-    manifest = {
-        "patch_id": patch_id,
-        "created_at": _utc_now(),
-        "repo_root": "",  # never store the absolute root
-        "git_head_at_preview": head,
-        "status": "preview_failed" if errors else "preview_ok",
-        "operations": [
+        bundle_operations.append(
             {
+                "action": "modify",
                 "path": op["path"],
                 "current_sha256": op["current_sha256"],
-                "new_content_sha256": _sha256_text(op["new_content"]),
+                "payload_text": op["new_content"],
                 "changed_lines": op["changed_lines"],
                 "changed_bytes": op["changed_bytes"],
             }
-            for op in validated
-        ],
-        "errors": errors,
-    }
-    (patch_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+
+    _write_preview_bundle(
+        repo_root,
+        runs_dir,
+        patch_id,
+        bundle_operations,
+        combined_diff,
+        git_head=head,
+        errors=errors,
     )
-    if combined_diff:
-        (patch_dir / "preview.diff").write_text(combined_diff, encoding="utf-8")
 
     return {
         "ok": not bool(errors),
@@ -410,6 +645,124 @@ def preview_repo_patch(
         "git_head": head,
         "validation_errors": errors,
         "error": "; ".join(errors) if errors else "",
+    }
+
+
+def preview_repo_file_creation(
+    repo_root: Path, path: str, content: str, runs_dir: Path
+) -> dict:
+    patch_id = _make_patch_id()
+    head = _git_head(repo_root)
+
+    changed_files = [path]
+    validation_errors: list[str] = []
+    diff_text = ""
+    size_bytes = 0
+
+    try:
+        _, size_bytes = _validate_create_target(repo_root, path, content)
+        diff_text = _unified_diff_for_op("", content, path)
+        changed_lines = _count_changed_lines(diff_text)
+        bundle_operations = [
+            {
+                "action": "create",
+                "path": path,
+                "current_sha256": "",
+                "payload_text": content,
+                "changed_lines": changed_lines,
+                "changed_bytes": size_bytes,
+            }
+        ]
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        validation_errors = [str(exc)]
+        changed_lines = 0
+        bundle_operations = []
+
+    _write_preview_bundle(
+        repo_root,
+        runs_dir,
+        patch_id,
+        bundle_operations,
+        diff_text,
+        git_head=head,
+        errors=validation_errors,
+    )
+
+    return {
+        "ok": not bool(validation_errors),
+        "patch_id": patch_id,
+        "repo_name": "",
+        "diff": diff_text,
+        "changed_files": changed_files if not validation_errors else [],
+        "changed_lines": changed_lines,
+        "changed_bytes": size_bytes if not validation_errors else 0,
+        "git_head": head,
+        "validation_errors": validation_errors,
+        "error": "; ".join(validation_errors) if validation_errors else "",
+    }
+
+
+def preview_repo_file_removal(
+    repo_root: Path, path: str, expected_sha256: str, runs_dir: Path
+) -> dict:
+    patch_id = _make_patch_id()
+    head = _git_head(repo_root)
+
+    diff_text = ""
+    validation_errors: list[str] = []
+    changed_bytes = 0
+    changed_lines = 0
+
+    try:
+        absolute, current_bytes, current_sha = _validate_remove_target(
+            repo_root, path, expected_sha256
+        )
+        if _is_binary(absolute):
+            diff_text = (
+                f"--- a/{path}\n"
+                f"+++ b/{path}\n"
+                "@@ -1 +0,0 @@\n"
+                "-[binary content omitted]\n"
+            )
+        else:
+            current_text = current_bytes.decode("utf-8", errors="replace")
+            diff_text = _unified_diff_for_op(current_text, "", path)
+        changed_lines = _count_changed_lines(diff_text)
+        changed_bytes = len(current_bytes)
+        bundle_operations = [
+            {
+                "action": "remove",
+                "path": path,
+                "current_sha256": current_sha,
+                "changed_lines": changed_lines,
+                "changed_bytes": changed_bytes,
+            }
+        ]
+    except (OSError, ValueError, FileNotFoundError) as exc:
+        validation_errors = [str(exc)]
+        bundle_operations = []
+
+    _write_preview_bundle(
+        repo_root,
+        runs_dir,
+        patch_id,
+        bundle_operations,
+        diff_text,
+        git_head=head,
+        errors=validation_errors,
+    )
+
+    return {
+        "ok": not bool(validation_errors),
+        "patch_id": patch_id,
+        "repo_name": "",
+        "diff": diff_text,
+        "changed_files": [path] if not validation_errors else [],
+        "changed_lines": changed_lines,
+        "changed_bytes": changed_bytes,
+        "git_head": head,
+        "validation_errors": validation_errors,
+        "error": "; ".join(validation_errors) if validation_errors else "",
     }
 
 
@@ -430,7 +783,7 @@ def apply_repo_patch(
     Rechecks everything before touching any file.  Applies atomically via
     a write-to-temp-then-rename pattern.  Saves originals for rollback.
     """
-    patch_dir = runs_dir / MANAGED_PATCHES_DIR / patch_id
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
     if not patch_dir.exists():
         raise ValueError(f"Unknown patch_id: {patch_id}")
 
@@ -472,14 +825,24 @@ def apply_repo_patch(
             raise ValueError(
                 f"File '{op['path']}' has changed since preview (hash mismatch)"
             )
+        expected_payload_sha = _preview_payload_sha(m)
+        if not expected_payload_sha:
+            raise ValueError(
+                f"Patch {patch_id} is missing opaque payload metadata for '{op['path']}'"
+            )
+        if _sha256_text(op["new_content"]) != expected_payload_sha:
+            raise ValueError(
+                f"Operation for '{op['path']}' does not match the previewed payload"
+            )
 
     # Save originals for rollback
     rollback_dir = patch_dir / "rollback"
     rollback_dir.mkdir(exist_ok=True)
+    rollback_files: dict[str, str] = {}
     for op in validated:
-        rollback_file = rollback_dir / (
-            op["path"].replace("/", "__").replace("\\", "__")
-        )
+        rollback_name = _legacy_rollback_file_name(op["path"])
+        rollback_files[op["path"]] = rollback_name
+        rollback_file = rollback_dir / rollback_name
         rollback_file.write_bytes(op["current_content"].encode("utf-8"))
 
     # Write all files atomically (temp → rename)
@@ -488,19 +851,11 @@ def apply_repo_patch(
         for op in validated:
             absolute: Path = op["absolute"]
             new_content: str = op["new_content"]
-            # Write to temp file in same directory, then atomically replace
-            parent = absolute.parent
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                newline="",
-                dir=parent,
-                delete=False,
-                suffix=".codexbridge_tmp",
-            ) as tf:
-                tf.write(new_content)
-                tmp_path = Path(tf.name)
-            os.replace(tmp_path, absolute)
+            _atomic_write_bytes(
+                absolute,
+                new_content.encode("utf-8"),
+                ".codexbridge_tmp",
+            )
             new_sha = _sha256_file(absolute)
             written.append({"path": op["path"], "sha256": new_sha})
     except Exception as exc:
@@ -521,7 +876,15 @@ def apply_repo_patch(
     manifest["status"] = "applied"
     manifest["applied_at"] = _utc_now()
     manifest["applied_git_head"] = current_head
-    manifest["applied_results"] = written
+    manifest["applied_results"] = [
+        {
+            "action": "modify",
+            "path": item["path"],
+            "sha256": item["sha256"],
+            "rollback_file": rollback_files[item["path"]],
+        }
+        for item in written
+    ]
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     return {
@@ -530,6 +893,257 @@ def apply_repo_patch(
         "repo_name": "",
         "changed_files": [w["path"] for w in written],
         "results": written,
+        "git_head": current_head,
+        "error": "",
+    }
+
+
+def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) -> dict:
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
+    if not patch_dir.exists():
+        raise ValueError(f"Unknown patch_id: {patch_id}")
+
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    status = manifest.get("status")
+    if status == "applied":
+        raise ValueError(f"Patch {patch_id} has already been applied")
+    if status == "reverted":
+        raise ValueError(f"Patch {patch_id} has been reverted")
+    if status == "preview_failed":
+        raise ValueError(
+            f"Patch {patch_id} preview had validation errors; cannot apply"
+        )
+    if manifest.get("bundle_version") != 2:
+        raise ValueError(f"Patch {patch_id} does not include an opaque preview bundle")
+
+    expected_repo_fingerprint = manifest.get("repo_fingerprint", "")
+    if not expected_repo_fingerprint:
+        raise ValueError(f"Patch {patch_id} is missing repository binding metadata")
+    current_repo_fingerprint = _repo_fingerprint(repo_root)
+    if current_repo_fingerprint != expected_repo_fingerprint:
+        raise ValueError(
+            f"Patch {patch_id} does not belong to the requested repository"
+        )
+
+    manifest_ops = manifest.get("operations", [])
+    if not isinstance(manifest_ops, list) or not manifest_ops:
+        raise ValueError(f"Patch {patch_id} does not include any previewed operations")
+    if len(manifest_ops) > MAX_PATCH_FILES:
+        raise ValueError(
+            f"Patch exceeds {MAX_PATCH_FILES} file limit ({len(manifest_ops)} files)"
+        )
+
+    manifest_paths: set[str] = set()
+    resolved_ops: list[tuple[dict[str, Any], Path]] = []
+    for op in manifest_ops:
+        action = op.get("action")
+        path_str = op.get("path", "")
+        if action not in {"modify", "create", "remove"} or not isinstance(
+            path_str, str
+        ):
+            raise ValueError(f"Patch {patch_id} has an invalid operation entry")
+        absolute = _resolve_and_validate_write(repo_root, path_str)
+        normalized_path = os.path.normcase(os.path.normpath(str(absolute.resolve())))
+        if normalized_path in manifest_paths:
+            raise ValueError(f"Patch {patch_id} includes duplicate paths: {path_str}")
+        manifest_paths.add(normalized_path)
+        resolved_ops.append((op, absolute))
+
+    current_head = _git_head(repo_root)
+    preview_head = manifest.get("git_head_at_preview", "")
+    requires_head_match = any(
+        op.get("action") in {"modify", "remove"} for op in manifest_ops
+    )
+    if (
+        requires_head_match
+        and preview_head
+        and current_head
+        and current_head != preview_head
+    ):
+        raise ValueError(
+            f"Git HEAD has changed since preview "
+            f"(preview: {preview_head[:12]}, current: {current_head[:12]})"
+        )
+
+    prepared_ops: list[dict[str, Any]] = []
+    total_changed_lines = 0
+    total_changed_bytes = 0
+    for index, (op, absolute) in enumerate(resolved_ops):
+        action = op["action"]
+        path_str = op["path"]
+        if action == "modify":
+            if not absolute.exists():
+                raise ValueError(f"File does not exist: {path_str}")
+            if absolute.is_dir():
+                raise ValueError(f"Path is a directory: {path_str}")
+            if absolute.is_symlink():
+                raise ValueError(f"Symlinks are not allowed: {path_str}")
+            if _is_binary(absolute):
+                raise ValueError(f"Binary files are not supported: {path_str}")
+            current_bytes = absolute.read_bytes()
+            current_sha = hashlib.sha256(current_bytes).hexdigest()
+            if current_sha != op.get("current_sha256", ""):
+                raise ValueError(
+                    f"File '{path_str}' has changed since preview (hash mismatch)"
+                )
+            payload_file = op.get("payload_file", "")
+            payload_sha = _preview_payload_sha(op)
+            if not payload_file or not payload_sha:
+                raise ValueError(
+                    f"Patch {patch_id} is missing opaque payload metadata for '{path_str}'"
+                )
+            payload_path = _resolve_bundle_file(
+                patch_dir,
+                payload_file,
+                _payload_file_name(index),
+                kind="payload",
+            )
+            payload_bytes = payload_path.read_bytes()
+            if _sha256_bytes(payload_bytes) != payload_sha:
+                raise ValueError(
+                    f"Patch {patch_id} payload verification failed for '{path_str}'"
+                )
+            payload_text = payload_bytes.decode("utf-8")
+            diff_text = _unified_diff_for_op(
+                current_bytes.decode("utf-8", errors="replace"), payload_text, path_str
+            )
+            changed_lines = _count_changed_lines(diff_text)
+            changed_bytes = abs(len(payload_bytes) - len(current_bytes))
+            prepared_ops.append(
+                {
+                    "action": action,
+                    "path": path_str,
+                    "absolute": absolute,
+                    "payload_bytes": payload_bytes,
+                    "rollback_bytes": current_bytes,
+                }
+            )
+        elif action == "create":
+            payload_file = op.get("payload_file", "")
+            payload_sha = _preview_payload_sha(op)
+            if not payload_file or not payload_sha:
+                raise ValueError(
+                    f"Patch {patch_id} is missing opaque payload metadata for '{path_str}'"
+                )
+            payload_path = _resolve_bundle_file(
+                patch_dir,
+                payload_file,
+                _payload_file_name(index),
+                kind="payload",
+            )
+            payload_bytes = payload_path.read_bytes()
+            if _sha256_bytes(payload_bytes) != payload_sha:
+                raise ValueError(
+                    f"Patch {patch_id} payload verification failed for '{path_str}'"
+                )
+            payload_text = payload_bytes.decode("utf-8")
+            _, size_bytes = _validate_create_target(repo_root, path_str, payload_text)
+            diff_text = _unified_diff_for_op("", payload_text, path_str)
+            changed_lines = _count_changed_lines(diff_text)
+            changed_bytes = size_bytes
+            prepared_ops.append(
+                {
+                    "action": action,
+                    "path": path_str,
+                    "absolute": absolute,
+                    "payload_bytes": payload_bytes,
+                    "rollback_bytes": None,
+                }
+            )
+        else:
+            _, current_bytes, _ = _validate_remove_target(
+                repo_root, path_str, op.get("current_sha256", "")
+            )
+            changed_lines, changed_bytes = _remove_change_stats(
+                path_str, absolute, current_bytes
+            )
+            prepared_ops.append(
+                {
+                    "action": action,
+                    "path": path_str,
+                    "absolute": absolute,
+                    "payload_bytes": None,
+                    "rollback_bytes": current_bytes,
+                }
+            )
+
+        total_changed_lines += int(changed_lines)
+        total_changed_bytes += int(changed_bytes)
+
+    if total_changed_lines > MAX_PATCH_LINES:
+        raise ValueError(
+            f"Patch exceeds {MAX_PATCH_LINES} changed-line limit "
+            f"({total_changed_lines} lines)"
+        )
+    if total_changed_bytes > MAX_PATCH_BYTES:
+        raise ValueError(
+            f"Patch exceeds {MAX_PATCH_BYTES // 1024} KB changed-byte limit"
+        )
+
+    rollback_dir = patch_dir / "rollback"
+    rollback_dir.mkdir(exist_ok=True)
+    applied_results: list[dict[str, Any]] = []
+    try:
+        for index, op in enumerate(prepared_ops):
+            rollback_bytes = op["rollback_bytes"]
+            rollback_file = ""
+            if rollback_bytes is not None:
+                rollback_file = _rollback_file_name(index)
+                _atomic_write_bytes(
+                    rollback_dir / rollback_file,
+                    rollback_bytes,
+                    ".codexbridge_rollback_tmp",
+                )
+
+            absolute = op["absolute"]
+            if op["action"] in {"modify", "create"}:
+                payload_bytes = op["payload_bytes"]
+                result_sha = _sha256_bytes(payload_bytes)
+                _atomic_write_bytes(
+                    absolute,
+                    payload_bytes,
+                    ".codexbridge_apply_tmp",
+                )
+            else:
+                absolute.unlink()
+                result_sha = ""
+
+            applied_results.append(
+                {
+                    "action": op["action"],
+                    "path": op["path"],
+                    "sha256": result_sha,
+                    "rollback_file": rollback_file,
+                }
+            )
+
+        manifest["status"] = "applied"
+        manifest["applied_at"] = _utc_now()
+        manifest["applied_git_head"] = current_head
+        manifest["applied_results"] = applied_results
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".codexbridge_manifest_tmp",
+        )
+    except Exception as exc:
+        try:
+            _rollback_applied_preview_ops(repo_root, rollback_dir, applied_results)
+        except Exception:
+            pass
+        raise RuntimeError(f"Apply failed (partial rollback attempted): {exc}") from exc
+
+    return {
+        "ok": True,
+        "patch_id": patch_id,
+        "repo_name": "",
+        "changed_files": [result["path"] for result in applied_results],
+        "results": [
+            {"path": result["path"], "sha256": result["sha256"]}
+            for result in applied_results
+        ],
         "git_head": current_head,
         "error": "",
     }
@@ -546,7 +1160,7 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
     Verifies current hashes match applied-result hashes before reverting.
     Never uses git reset, git checkout, or shell commands.
     """
-    patch_dir = runs_dir / MANAGED_PATCHES_DIR / patch_id
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
     if not patch_dir.exists():
         raise ValueError(f"Unknown patch_id: {patch_id}")
 
@@ -558,14 +1172,24 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
             f"Patch {patch_id} is not in 'applied' state (status: {manifest.get('status')})"
         )
 
-    applied_results = {
-        r["path"]: r["sha256"] for r in manifest.get("applied_results", [])
-    }
+    applied_results = manifest.get("applied_results", [])
+    if not isinstance(applied_results, list) or not applied_results:
+        raise ValueError(f"Patch {patch_id} is missing applied result metadata")
     rollback_dir = patch_dir / "rollback"
 
-    # Verify current hashes match applied hashes before reverting
-    for path_str, expected_sha in applied_results.items():
-        absolute = repo_root / path_str
+    for result in applied_results:
+        action = result.get("action", "modify")
+        path_str = result["path"]
+        absolute = _resolve_and_validate_write(repo_root, path_str)
+        expected_sha = result.get("sha256", "")
+
+        if action == "remove":
+            if absolute.exists():
+                raise ValueError(
+                    f"Cannot revert: removed file '{path_str}' now exists on disk"
+                )
+            continue
+
         if not absolute.exists():
             raise ValueError(
                 f"Cannot revert: file '{path_str}' no longer exists on disk"
@@ -580,24 +1204,42 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
     # Apply rollback content atomically
     reverted: list[str] = []
     try:
-        for path_str in applied_results:
-            absolute = repo_root / path_str
-            rollback_file = rollback_dir / (
-                path_str.replace("/", "__").replace("\\", "__")
+        for index in range(len(applied_results) - 1, -1, -1):
+            result = applied_results[index]
+            action = result.get("action", "modify")
+            path_str = result["path"]
+            absolute = _resolve_and_validate_write(repo_root, path_str)
+
+            if action == "create":
+                absolute.unlink()
+                reverted.append(path_str)
+                continue
+
+            rollback_file = result.get("rollback_file", "")
+            if not rollback_file:
+                rollback_file = _legacy_rollback_file_name(path_str)
+            indexed_name = _rollback_file_name(index)
+            legacy_name = _legacy_rollback_file_name(path_str)
+            if rollback_file == indexed_name:
+                expected_name = indexed_name
+            elif rollback_file == legacy_name:
+                expected_name = legacy_name
+            else:
+                expected_name = (
+                    indexed_name if result.get("rollback_file") else legacy_name
+                )
+            rollback_path = _resolve_bundle_file(
+                rollback_dir,
+                rollback_file,
+                expected_name,
+                kind="rollback",
             )
-            if not rollback_file.exists():
-                raise ValueError(f"Rollback content missing for '{path_str}'")
-            original = rollback_file.read_bytes()
-            parent = absolute.parent
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                dir=parent,
-                delete=False,
-                suffix=".codexbridge_revert_tmp",
-            ) as tf:
-                tf.write(original)
-                tmp_path = Path(tf.name)
-            os.replace(tmp_path, absolute)
+            original = rollback_path.read_bytes()
+            _atomic_write_bytes(
+                absolute,
+                original,
+                ".codexbridge_revert_tmp",
+            )
             reverted.append(path_str)
     except Exception as exc:
         raise RuntimeError(f"Revert failed after partial write: {exc}") from exc
@@ -625,35 +1267,8 @@ def create_repo_file(repo_root: Path, path: str, content: str) -> dict:
     Create a new file at *path* with *content*.
     Rejects existing files. Creates parent directories only inside the repo.
     """
-    absolute = _resolve_and_validate_write(repo_root, path)
-
-    if absolute.exists():
-        raise ValueError(f"File already exists: {path}")
-
-    # Ensure parent is inside the repo
-    parent = absolute.parent
-    try:
-        parent.relative_to(repo_root)
-    except ValueError:
-        raise ValueError(f"Parent directory is outside the repository: {path}")
-
-    if len(content.encode("utf-8")) > MAX_CREATE_BYTES:
-        raise ValueError(
-            f"Content exceeds {MAX_CREATE_BYTES // 1024} KB limit for create_repo_file"
-        )
-
-    parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        newline="",
-        dir=parent,
-        delete=False,
-        suffix=".codexbridge_create_tmp",
-    ) as tf:
-        tf.write(content)
-        tmp_path = Path(tf.name)
-    os.replace(tmp_path, absolute)
+    absolute, size_bytes = _validate_create_target(repo_root, path, content)
+    _atomic_write_text(absolute, content, ".codexbridge_create_tmp")
     sha = _sha256_file(absolute)
 
     return {
@@ -661,7 +1276,7 @@ def create_repo_file(repo_root: Path, path: str, content: str) -> dict:
         "repo_name": "",
         "path": path,
         "sha256": sha,
-        "size_bytes": len(content.encode("utf-8")),
+        "size_bytes": size_bytes,
         "error": "",
     }
 
@@ -681,28 +1296,16 @@ def delete_repo_file(
     Delete a file after verifying expected_sha256.
     Saves rollback content so the deletion can be undone if needed.
     """
-    absolute = _resolve_and_validate_write(repo_root, path)
-
-    if not absolute.exists():
-        raise FileNotFoundError(f"File not found: {path}")
-    if absolute.is_dir():
-        raise ValueError(f"Directory deletion is not allowed: {path}")
-    if absolute.is_symlink():
-        raise ValueError(f"Symlinks are not allowed: {path}")
-
-    current_sha = _sha256_file(absolute)
-    if current_sha != expected_sha256:
-        raise ValueError(
-            f"Stale hash for '{path}': "
-            f"expected {expected_sha256[:12]}… got {current_sha[:12]}…"
-        )
+    absolute, current_bytes, current_sha = _validate_remove_target(
+        repo_root, path, expected_sha256
+    )
 
     # Save rollback copy
     del_id = _make_patch_id().replace("_patch_", "_delete_")
     del_dir = runs_dir / MANAGED_PATCHES_DIR / del_id
     del_dir.mkdir(parents=True, exist_ok=True)
     rollback_file = del_dir / "original_content.txt"
-    rollback_file.write_bytes(absolute.read_bytes())
+    rollback_file.write_bytes(current_bytes)
     manifest = {
         "patch_id": del_id,
         "operation": "delete",
