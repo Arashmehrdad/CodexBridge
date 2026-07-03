@@ -98,6 +98,8 @@ Helper script:
 
 A plain `GET` returning HTTP `406 Not Acceptable` is only route readiness for the MCP endpoint. It means the route is mounted, not that a full MCP client handshake has completed.
 
+If you publish the local MCP route through a tunnel, keep the `/mcp` suffix in the connector URL, for example `https://example-tunnel.trycloudflare.com/mcp` or `https://example.ngrok-free.app/mcp`.
+
 After server code changes, `config.yaml` changes, or MCP tool-surface changes, restart the server and then refresh or reconnect the ChatGPT connector so it picks up the current endpoint and tool definitions.
 
 ## Recommended Workflow
@@ -112,6 +114,8 @@ Use the bridge in this order:
 6. Use `commit_selected_files` only after explicit approval.
 
 Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform. A developer may still push locally with Git outside the bridge workflow.
+
+The human is not expected to run setup or routine repository validation during the normal bridge workflow.
 
 ## Repository Inspection
 
@@ -162,7 +166,10 @@ Command execution rules:
 - New project-specific commands are registered once under `repos.<name>.command_profiles` in `config.yaml`.
 - `run_project_command(repo_name, command_id)` is for short profiles only.
 - Full `pytest` is configured async-only and must use `start_project_command_async`, then `get_run_status` and `get_run_result`.
+- `start_pytest_path_async(repo_name, path)` is the dedicated scoped pytest entrypoint for one validated repo-relative directory or `.py` file target, with optional `::` node selectors.
+- Scoped pytest accepts no arbitrary flags, command strings, environment overrides, or extra argv. CodexBridge validates and normalizes the target before queueing and again in the worker.
 - Async `pytest` runs get per-run temp directories, isolated `--basetemp`, and persisted `stdout.txt` / `stderr.txt` artifacts under the run directory.
+- Read-only command profiles intentionally fail if they change tracked or untracked repository state. If a test command must generate repository artifacts, register a separate profile with `writes_files: true` or change the tests so they stop writing into the repository.
 - Host capabilities such as CUDA are available only if the server account, driver, project environment, and command profile already support them. CodexBridge does not install CUDA, Python packages, or project dependencies.
 
 If a long command times out in synchronous mode, retrying it synchronously is not the correct recovery path. Register or use the durable async profile and recover through the run tools instead.
@@ -203,6 +210,7 @@ Durable async runs cover:
 - `start_codex_plan_task_async`
 - `start_codex_implement_task_async`
 - `start_project_command_async`
+- `start_pytest_path_async`
 
 Read and control them with:
 
@@ -220,6 +228,15 @@ Workflow:
 4. Read the final structured payload with `get_run_result(run_id)`.
 5. If the original caller loses the ID, recover it with `list_runs(...)`.
 6. If a run must stop, use `cancel_run(run_id)`.
+
+Scoped pytest example:
+
+1. Call `start_pytest_path_async("codexbridge", "tests/test_job_worker.py::test_project_command_worker_rebuilds_scoped_pytest_profile")`.
+2. Save the returned `run_id`.
+3. Poll `get_run_status(run_id)` until the status is terminal.
+4. Read `get_run_result(run_id)` for the final `path`, argv, exit code, and saved output summary.
+
+If OpenAI safety blocks a tool call before CodexBridge returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 
 Async state is durable across process restarts because run metadata is stored in `runs/codexbridge.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
 
@@ -242,15 +259,15 @@ Typical use:
 1. Start a supervisor with `start_supervised_recovery_task(...)`.
 2. Inspect it with `get_supervisor_status(...)`.
 3. Review durable events and linked child runs.
-4. Advance exactly one safe step with `resume_supervisor(...)`.
+4. Use `resume_supervisor(supervisor_id)` to advance exactly one safe step.
 
 Current limits are intentional:
 
 - There is no background scheduler yet.
 - There is no approve-plan MCP tool yet.
-- `pause_supervisor` works only from `queued` or `needs_input`.
-- Notification sinks are configurable but disabled by default in most setups.
-- Resume prompts point to saved artifacts instead of embedding large raw logs.
+- Use `pause_supervisor(supervisor_id)` only when the supervisor is `queued` or `needs_input`.
+- Resume prompts are written to `runs/supervisors/<supervisor_id>/resume_prompt.txt` and point to saved artifacts instead of embedding large raw logs.
+- Notification sinks are disabled by default.
 
 ## Local Browser Pulse Sender
 
@@ -301,3 +318,5 @@ For a documentation-only update, the required check is:
 ```powershell
 git diff --check
 ```
+
+Codex runs these checks and reports the results.

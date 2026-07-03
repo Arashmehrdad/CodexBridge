@@ -15,10 +15,13 @@ import pytest
 import codexbridge.command_profiles as cp
 from codexbridge.command_profiles import (
     BUILTIN_PROFILES,
+    PYTEST_PATH_COMMAND_ID,
     CommandProfileSpec,
+    build_pytest_path_profile,
     find_repo_python,
     resolve_command_profile,
     run_command_profile,
+    validate_and_normalize_pytest_target,
 )
 
 
@@ -65,6 +68,125 @@ def test_existing_builtin_profile_ids_remain_unchanged() -> None:
         "git_status",
         "git_diff_check",
     }
+
+
+def test_build_pytest_path_profile_for_directory(tmp_path: Path) -> None:
+    target_dir = tmp_path / "tests" / "unit"
+    target_dir.mkdir(parents=True)
+
+    profile = build_pytest_path_profile(tmp_path, "tests/unit")
+
+    assert profile.command_id == PYTEST_PATH_COMMAND_ID
+    assert profile.argv == ["python", "-m", "pytest", "-q", "tests/unit"]
+    assert profile.timeout_seconds == 600
+    assert profile.async_only is True
+    assert profile.writes_files is False
+
+
+def test_build_pytest_path_profile_for_python_file(tmp_path: Path) -> None:
+    target_file = tmp_path / "tests" / "test_api.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    profile = build_pytest_path_profile(tmp_path, "tests/test_api.py")
+
+    assert profile.argv == ["python", "-m", "pytest", "-q", "tests/test_api.py"]
+
+
+def test_pytest_target_normalizes_node_selector_and_windows_separators(
+    tmp_path: Path,
+) -> None:
+    target_file = tmp_path / "tests" / "test_api.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    normalized = validate_and_normalize_pytest_target(
+        tmp_path, r"tests\test_api.py::TestThing::test_ok"
+    )
+
+    assert normalized == "tests/test_api.py::TestThing::test_ok"
+
+
+@pytest.mark.parametrize(
+    ("target", "error"),
+    [
+        ("", "must not be empty"),
+        ("   ", "must not be empty"),
+        ("../tests/test_api.py", "must not contain traversal segments"),
+        ("tests/../test_api.py", "must not contain traversal segments"),
+        ("/tmp/test_api.py", "must be repository-relative"),
+        (r"C:\repo\tests\test_api.py", "must not include a drive prefix"),
+        (r"\\server\share\tests\test_api.py", "must be repository-relative"),
+        ("tests/*.py", "must not contain wildcards"),
+        ("-k smoke", "must not start with an option"),
+        ("missing/test_api.py", "does not exist"),
+        ("docs/readme.md", "must be a .py file"),
+        ("tests/test_api.py\x00", "contains control characters"),
+    ],
+)
+def test_pytest_target_rejects_invalid_inputs(
+    tmp_path: Path, target: str, error: str
+) -> None:
+    target_file = tmp_path / "tests" / "test_api.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    docs_file = tmp_path / "docs" / "readme.md"
+    docs_file.parent.mkdir(parents=True)
+    docs_file.write_text("# hi\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=error):
+        validate_and_normalize_pytest_target(tmp_path, target)
+
+
+def test_pytest_target_rejects_non_file_non_directory(tmp_path: Path) -> None:
+    special_path = tmp_path / "tests" / "special"
+    special_path.parent.mkdir(parents=True)
+    special_path.write_text("", encoding="utf-8")
+
+    original_exists = Path.exists
+    original_is_dir = Path.is_dir
+    original_is_file = Path.is_file
+
+    def fake_exists(self: Path) -> bool:
+        if self == special_path:
+            return True
+        return original_exists(self)
+
+    def fake_is_dir(self: Path) -> bool:
+        if self == special_path:
+            return False
+        return original_is_dir(self)
+
+    def fake_is_file(self: Path) -> bool:
+        if self == special_path:
+            return False
+        return original_is_file(self)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "is_dir", fake_is_dir)
+    monkeypatch.setattr(Path, "is_file", fake_is_file)
+    try:
+        with pytest.raises(ValueError, match="must be a file or directory"):
+            validate_and_normalize_pytest_target(tmp_path, "tests/special")
+    finally:
+        monkeypatch.undo()
+
+
+def test_pytest_target_rejects_symlink_when_supported(tmp_path: Path) -> None:
+    target_file = tmp_path / "tests" / "test_api.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    link_path = tmp_path / "tests" / "linked_test.py"
+    try:
+        link_path.symlink_to(target_file)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlink creation is not supported in this environment")
+
+    with pytest.raises(
+        ValueError, match="must not traverse symlinks or reparse points"
+    ):
+        validate_and_normalize_pytest_target(tmp_path, "tests/linked_test.py")
 
 
 def test_resolve_unknown_id_raises() -> None:

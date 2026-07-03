@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Sequence
 
 from . import git_tools
-from .command_profiles import resolve_command_profile, run_command_profile
+from .command_profiles import (
+    PYTEST_PATH_COMMAND_ID,
+    build_pytest_path_profile,
+    resolve_command_profile,
+    run_command_profile,
+)
 from .config import load_config, resolve_repo
 from .events import ArtifactWriter, redact_and_truncate
 from .policy import decide_implementation_task, decide_plan_task
@@ -332,8 +337,15 @@ class JobWorker:
         input_data: dict,
     ) -> dict:
         command_id = str(input_data["command_id"])
-        repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
-        profile = resolve_command_profile(command_id, repo_profiles)
+        normalized_target = ""
+        if command_id == PYTEST_PATH_COMMAND_ID:
+            normalized_target = build_pytest_path_profile(
+                repo_root, str(input_data["path"])
+            ).argv[-1]
+            profile = build_pytest_path_profile(repo_root, normalized_target)
+        else:
+            repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
+            profile = resolve_command_profile(command_id, repo_profiles)
         run_dir = Path(self.run["run_dir"])
         temp_root = run_dir / "tmp"
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -343,7 +355,7 @@ class JobWorker:
             "TMPDIR": str(temp_root),
         }
         pytest_temp = run_dir / "pytest-tmp"
-        if command_id == "pytest" or "pytest" in profile.argv:
+        if command_id in {"pytest", PYTEST_PATH_COMMAND_ID} or "pytest" in profile.argv:
             pytest_temp.mkdir(parents=True, exist_ok=True)
             existing_addopts = os.environ.get("PYTEST_ADDOPTS", "").strip()
             basetemp = f'--basetemp="{pytest_temp.as_posix()}"'
@@ -362,6 +374,7 @@ class JobWorker:
                 "command_id": command_id,
                 "timeout_seconds": profile.timeout_seconds,
                 "temporary_directory": str(temp_root),
+                "path": normalized_target,
             },
         )
         command_result = run_command_profile(profile, repo_root, extra_env=extra_env)
@@ -402,11 +415,15 @@ class JobWorker:
             errors.append("Read-only command changed repository state")
         error = "; ".join(item for item in errors if item)
         ended_at = _utc_now()
+        tests_run = (
+            [f"{command_id}:{normalized_target}"] if normalized_target else [command_id]
+        )
         return {
             "run_id": self.run_id,
             "repo_name": repo_name,
             "tool": "project_command",
             "command_id": command_id,
+            "path": normalized_target,
             "status": "completed"
             if command_result.get("ok") and not safety_failure
             else "failed",
@@ -417,7 +434,7 @@ class JobWorker:
             "changed_files": changed,
             "git_status": git_after,
             "diff_stat": diff_after,
-            "tests_run": [command_id],
+            "tests_run": tests_run,
             "test_results": output_summary,
             "summary": summary,
             "remaining_risks": risks,

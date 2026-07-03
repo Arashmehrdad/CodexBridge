@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -54,6 +56,10 @@ _BLOCKED_ARGV_PATTERNS = [
 # Valid command_id format
 _COMMAND_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 _PYTHON_LAUNCHERS = frozenset({"python", "python.exe", "python3", "python3.exe"})
+PYTEST_PATH_COMMAND_ID = "pytest_path"
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_PATH_WILDCARD_RE = re.compile(r"[*?\[\]]")
 
 
 @dataclass
@@ -134,6 +140,84 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         description="Check for whitespace errors in git diff",
     ),
 }
+
+
+def _is_symlink_or_reparse_point(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        file_attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(file_attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def validate_and_normalize_pytest_target(repo_root: Path, target: str) -> str:
+    """Validate one repo-relative pytest path target and return POSIX form."""
+    raw_target = str(target)
+    if not raw_target.strip():
+        raise ValueError("Pytest path target must not be empty")
+    if _CONTROL_CHAR_RE.search(raw_target):
+        raise ValueError("Pytest path target contains control characters")
+
+    path_part, separator, selector = raw_target.partition("::")
+    normalized_path = path_part.strip().replace("\\", "/")
+    if not normalized_path:
+        raise ValueError("Pytest path target must include a repository path")
+    if normalized_path.startswith("-"):
+        raise ValueError("Pytest path target must not start with an option")
+    if normalized_path.startswith(("/", "//")) or raw_target.startswith(("\\\\", "//")):
+        raise ValueError("Pytest path target must be repository-relative")
+    if _WINDOWS_DRIVE_RE.match(normalized_path):
+        raise ValueError("Pytest path target must not include a drive prefix")
+    if _PATH_WILDCARD_RE.search(normalized_path):
+        raise ValueError("Pytest path target must not contain wildcards")
+
+    parts = PurePosixPath(normalized_path).parts
+    if not parts:
+        raise ValueError("Pytest path target must include a repository path")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Pytest path target must not contain traversal segments")
+
+    repo_root = repo_root.resolve()
+    candidate = repo_root.joinpath(*parts)
+    current = repo_root
+    for part in parts:
+        current = current / part
+        if _is_symlink_or_reparse_point(current):
+            raise ValueError(
+                "Pytest path target must not traverse symlinks or reparse points"
+            )
+
+    if not candidate.exists():
+        raise ValueError("Pytest path target does not exist")
+    if candidate.is_dir():
+        normalized = candidate.relative_to(repo_root).as_posix()
+    elif candidate.is_file():
+        if candidate.suffix != ".py":
+            raise ValueError("Pytest path target file must be a .py file")
+        normalized = candidate.relative_to(repo_root).as_posix()
+    else:
+        raise ValueError("Pytest path target must be a file or directory")
+
+    if not normalized:
+        raise ValueError("Pytest path target must not resolve to the repository root")
+    selector_suffix = f"{separator}{selector}" if separator else ""
+    return f"{normalized}{selector_suffix}"
+
+
+def build_pytest_path_profile(repo_root: Path, target: str) -> CommandProfileSpec:
+    normalized_target = validate_and_normalize_pytest_target(repo_root, target)
+    profile = CommandProfileSpec(
+        command_id=PYTEST_PATH_COMMAND_ID,
+        argv=["python", "-m", "pytest", "-q", normalized_target],
+        timeout_seconds=600,
+        description="Run pytest in quiet mode for one validated repo-relative path",
+        async_only=True,
+        writes_files=False,
+    )
+    profile.validate()
+    return profile
 
 
 def _parse_repo_profile(raw: dict[str, Any]) -> CommandProfileSpec:

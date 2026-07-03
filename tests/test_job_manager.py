@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from codexbridge.config import AppConfig, RepoConfig
@@ -66,6 +67,33 @@ def test_start_async_project_command_creates_durable_run(
     status = manager.get_status(response["run_id"])
     assert status["tool"] == "project_command"
     assert status["input"]["command_id"] == "pytest"
+
+
+def test_start_pytest_path_persists_normalized_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    target_file = tmp_path / "repo" / "tests" / "test_api.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    response = manager.start_pytest_path("sample", r"tests\test_api.py::test_ok")
+
+    assert response["accepted"] is True
+    assert response["repo_name"] == "sample"
+    assert response["command_id"] == "pytest_path"
+    assert response["path"] == "tests/test_api.py::test_ok"
+    status = manager.get_status(response["run_id"])
+    assert status["tool"] == "project_command"
+    assert status["input"]["command_id"] == "pytest_path"
+    assert status["input"]["path"] == "tests/test_api.py::test_ok"
+    input_data = json.loads(
+        (tmp_path / "runs" / response["run_id"] / "input.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert input_data["command_id"] == "pytest_path"
+    assert input_data["path"] == "tests/test_api.py::test_ok"
 
 
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:

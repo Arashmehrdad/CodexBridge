@@ -27,6 +27,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
     "start_project_command_async",
+    "start_pytest_path_async",
     "get_run_status",
     "get_run_events",
     "get_run_result",
@@ -152,6 +153,16 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "queued",
         "repo_name": "repo",
         "command_id": "pytest",
+        "result": {},
+        "error": "",
+    },
+    "start_pytest_path_async": {
+        "ok": True,
+        "run_id": "run_5",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "pytest_path",
+        "path": "tests/test_api.py::test_ok",
         "result": {},
         "error": "",
     },
@@ -513,6 +524,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "commit_selected_files",
         "start_codex_implement_task_async",
         "start_project_command_async",
+        "start_pytest_path_async",
         "cancel_run",
         "start_supervised_recovery_task",
         "resume_supervisor",
@@ -554,6 +566,7 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "get_supervisor_status" in actions
     assert "run_local_self_check" in actions
     assert "local_model_health" in actions
+    assert "start_pytest_path_async" in actions
     assert "pytest" not in actions
     assert "pip_check" not in actions
     assert "dashboard_summary" not in actions
@@ -797,6 +810,38 @@ def test_start_project_command_async_delegates_to_job_manager(monkeypatch) -> No
     assert result["accepted"] is True
     assert result["run_id"] == "run_4"
     assert result["command_id"] == "pytest"
+
+
+def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
+    class FakeJobManager:
+        def start_pytest_path(self, repo_name, path):
+            return {
+                "run_id": "run_5",
+                "accepted": True,
+                "status": "queued",
+                "repo_name": repo_name,
+                "command_id": "pytest_path",
+                "path": path,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
+
+    result = server.start_pytest_path_async("repo", "tests/test_api.py::test_ok")
+
+    assert result["accepted"] is True
+    assert result["run_id"] == "run_5"
+    assert result["command_id"] == "pytest_path"
+    assert result["path"] == "tests/test_api.py::test_ok"
+
+
+def test_start_pytest_path_async_schema_is_exact() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+    schema = actions["start_pytest_path_async"]["inputSchema"]
+    properties = schema["properties"]
+
+    assert set(properties) == {"repo_name", "path"}
+    assert set(schema.get("required", [])) == {"repo_name", "path"}
+    assert actions["start_pytest_path_async"]["annotations"]["readOnlyHint"] is False
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:

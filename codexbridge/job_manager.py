@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .command_profiles import resolve_command_profile
+from .command_profiles import (
+    PYTEST_PATH_COMMAND_ID,
+    build_pytest_path_profile,
+    resolve_command_profile,
+)
 from .config import AppConfig, resolve_repo
 from .events import ArtifactWriter, redact_and_truncate
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
@@ -87,6 +91,36 @@ class JobManager:
         )
         response["repo_name"] = repo_name
         response["command_id"] = command_id
+        return response
+
+    def start_pytest_path(self, repo_name: str, path: str) -> dict:
+        repo_root = resolve_repo(self.config, repo_name)
+        profile = build_pytest_path_profile(repo_root, path)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=1,
+            risk_level="low",
+            requires_human=False,
+            reason="Allowlisted scoped pytest command is approved for durable async execution",
+            estimated_duration_minutes=max(1, (profile.timeout_seconds + 59) // 60),
+            recommended_check_after_minutes=min(
+                2, max(1, (profile.timeout_seconds + 59) // 60)
+            ),
+        )
+        normalized_target = profile.argv[-1]
+        response = self._create_and_launch(
+            "project_command",
+            repo_name,
+            {
+                "repo_name": repo_name,
+                "command_id": PYTEST_PATH_COMMAND_ID,
+                "path": normalized_target,
+            },
+            decision,
+        )
+        response["repo_name"] = repo_name
+        response["command_id"] = PYTEST_PATH_COMMAND_ID
+        response["path"] = normalized_target
         return response
 
     def _create_and_launch(

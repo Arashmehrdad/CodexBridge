@@ -826,6 +826,12 @@ def start_project_command_async(repo_name: str, command_id: str) -> dict:
     return get_job_manager().start_project_command(repo_name, command_id)
 
 
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_pytest_path_async(repo_name: str, path: str) -> dict:
+    """Write async tool: queue scoped pytest for one validated repo-relative target and return a durable run_id immediately."""
+    return get_job_manager().start_pytest_path(repo_name, path)
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
     """Read-only: return durable status metadata for a queued/running/completed async run."""
