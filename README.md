@@ -1,40 +1,29 @@
 # CodexBridge
 
-CodexBridge is a local Windows 11 MCP bridge that lets ChatGPT hand compact implementation work to Codex CLI inside whitelisted repositories.
+CodexBridge is a Windows-first local FastMCP bridge between ChatGPT, whitelisted Git repositories, Codex CLI, allowlisted host commands, Git, repository knowledge, and durable run artifacts. It keeps repository inspection separate from write operations, validates every repo by name from `config.yaml`, and records durable run state under `runs/`.
 
-Architecture:
+## Architecture
 
 ```text
-ChatGPT app
+ChatGPT
   -> MCP connector
-  -> CodexBridge FastMCP server
-  -> repo whitelist lookup
-  -> Codex CLI / Git CLI
-  -> runs/ artifacts
-  -> structured result back to ChatGPT
+  -> CodexBridge FastMCP server (HTTP /mcp)
+     -> repo whitelist + repo-relative path validation
+     -> repository read tools
+     -> repository write/preview tools
+     -> Codex plan/implement runner
+     -> allowlisted command profiles
+     -> repository wiki + decision memory
+     -> durable async run store + artifacts
+     -> supervisors
+  -> whitelisted Git repositories
+  -> Codex CLI / Git / local Python environments
+  -> structured results back to ChatGPT
 ```
 
-ChatGPT acts as the strategist, researcher, and roadmap writer. Codex acts as the planner, implementer, and test runner. The bridge separates read-only tools from write tools, records every Codex run, supports durable supervisor workflows for multi-step recovery tasks, and never pushes automatically.
+The bridge is designed so ChatGPT can inspect first, plan safely, execute narrow approved changes, recover durable async runs, and use repository-scoped knowledge without exposing arbitrary filesystem access.
 
-## Human Involvement Policy
-
-CodexBridge exists to reduce human involvement. The human is not expected to run setup, tests, server checks, connector readiness checks, `git status`, or tunnel checks by hand.
-
-Codex should run non-destructive local checks and report results. The human only approves:
-
-- plans
-- commits
-- pushes
-- unsafe external actions
-- ChatGPT connector UI approval that cannot be automated safely
-
-## Batch Execution Policy
-
-Codex plans work in small batches. After the human approves the batch plan, Codex implements all approved batches sequentially in one run and stops only for a blocker or safety issue.
-
-Each batch reports changed files, checks run, results, and remaining risks.
-
-## Windows Setup Reference
+## Setup
 
 ```powershell
 cd D:\Github\CodexBridge
@@ -45,144 +34,232 @@ pip install -e ".[dev]"
 copy config.example.yaml config.yaml
 ```
 
-These commands are documented for transparency. Codex should run required local setup and validation when asked to verify the bridge.
+`pyproject.toml` defines the editable install and `dev` extras. `config.yaml` must list only approved repositories. Every `repos.<name>.path` must exist and must contain a `.git` directory or server startup/config loading will fail.
 
-`config.yaml` must point only to approved repositories, and every repo path must exist and contain a `.git` directory.
-
-Example:
+Current config example:
 
 ```yaml
 repos:
   stream_alpha:
     path: "D:/Github/Stream_Alpha"
     default_tests:
-      - "python -m pytest"
+      - "python -m pytest -q"
+      - "python -m pip check"
+    command_profiles:
+      - command_id: "pytest"
+        argv: ["python", "-m", "pytest", "tests/unit", "-q"]
+        timeout_seconds: 600
+        description: "Run the unit test subset"
+        writes_files: false
+        async_only: true
 runs_dir: "runs"
 codex:
   executable: "codex"
+  model: ""
+  windows_sandbox: ""
+  sandbox_private_desktop: null
   default_timeout_seconds: 1800
 gemini:
   enabled: false
+supervisors:
+  default_autonomy_profile: "balanced"
+  autonomy_profiles:
+    balanced:
+      stop_on_requires_human: true
+      max_plan_tier: 1
+      max_implementation_tier: 2
+      require_tests_for_non_docs_changes: false
 ```
 
-## Autonomous Verification
+`repos.<name>.command_profiles` is optional. Do not add unsupported keys and do not assume arbitrary shell text is accepted; command registration is by `command_id` plus `argv`.
 
-```powershell
-python -m codexbridge.self_check --config config.yaml --path /mcp
-python -m pytest -q
-python -m pip check
-```
+## Startup
 
-Codex runs these checks and reports the results.
-
-## Start The MCP Server
+Direct server start:
 
 ```powershell
 python -m codexbridge.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp
 ```
 
-Readiness checks may see HTTP `406 Not Acceptable` from a plain `GET /mcp`. That is acceptable as route-mounted evidence only because MCP Streamable HTTP expects protocol-specific headers; it is not full protocol success.
+That default route serves at `http://127.0.0.1:8000/mcp`.
 
-## Expose To ChatGPT
-
-Cloudflare Tunnel:
+Helper script:
 
 ```powershell
-cloudflared tunnel --url http://localhost:8000
+.\scripts\start_codexbridge_mcp.ps1
 ```
 
-Point the ChatGPT connector to the HTTPS tunnel URL ending in `/mcp`, for example:
+`scripts/start_codexbridge_mcp.ps1` can:
 
-```text
-https://example-tunnel.trycloudflare.com/mcp
-```
+- check the local MCP endpoint
+- start the FastMCP server if it is not ready
+- optionally check/start the configured Cloudflare tunnel unless `-NoTunnel` is used
+- write service logs under `runs\service_logs`
 
-ngrok:
+A plain `GET` returning HTTP `406 Not Acceptable` is only route readiness for the MCP endpoint. It means the route is mounted, not that a full MCP client handshake has completed.
 
-```powershell
-ngrok http 8000
-```
+After server code changes, `config.yaml` changes, or MCP tool-surface changes, restart the server and then refresh or reconnect the ChatGPT connector so it picks up the current endpoint and tool definitions.
 
-Point the ChatGPT connector to the HTTPS ngrok URL ending in `/mcp`, for example:
+## Recommended Workflow
 
-```text
-https://example.ngrok-free.app/mcp
-```
+Use the bridge in this order:
 
-Tunnel URLs expose local tooling. Only use them after configuring the repo whitelist and confirming that no secrets are exposed in prompts, logs, or summaries. Actual ChatGPT connector approval/login remains a human approval step.
+1. Inspect first with repository read/search tools.
+2. Plan with `codex_plan_task` or `start_codex_plan_task_async`.
+3. Approve the plan outside the bridge.
+4. Implement with `codex_implement_task` or `start_codex_implement_task_async` only after approval and only with an exclusive `allowed_files` list.
+5. Inspect the resulting diff with `repo_git_diff`, `git_diff_summary`, or `repo_git_status`.
+6. Use `commit_selected_files` only after explicit approval.
 
-## ChatGPT Connector Notes
+Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform. A developer may still push locally with Git outside the bridge workflow.
 
-Configure the ChatGPT MCP connector to point at the local or tunneled CodexBridge MCP endpoint. Use only repo names from `config.yaml`; never send filesystem paths.
+## Repository Inspection
 
-Recommended workflow:
+These MCP tools are available for safe repository inspection:
 
-1. Call `inspect_repo_status(repo_name)`.
-2. Call `codex_plan_task(repo_name, task, constraints)`.
-3. Review and approve the returned plan.
-4. Call `codex_implement_task(repo_name, approved_plan, allowed_files, tests)`.
-5. Review `git_diff_summary(repo_name)`.
-6. Commit selected files with `commit_selected_files(...)` only after explicit approval.
+- `list_repo_files`
+- `read_repo_file`
+- `read_repo_files`
+- `search_repo_text`
+- `get_recently_modified_files`
+- `repo_git_status`
+- `repo_git_diff`
+- `git_log`
+- `inspect_repo_status`
+- `git_diff_summary`
 
-`push_current_branch` is intentionally not implemented in the MVP.
+Calls use `repo_name` from `config.yaml` plus repo-relative paths such as `src/app.py`. They do not accept arbitrary filesystem paths. Read tools block paths like `.git`, real `.env` files, virtualenv directories, symlinks/junction escapes, many secret-like files, and they redact obvious secret values from returned text.
+
+## Repository Knowledge
+
+Repository knowledge is exposed through:
+
+- `refresh_repo_wiki`
+- `read_repo_wiki`
+- `search_repo_knowledge`
+- `remember_repo_decision`
+
+`refresh_repo_wiki` generates or incrementally refreshes wiki pages under `.codexbridge/wiki` inside the target repository. `read_repo_wiki` reads a generated page such as `overview.md`. `search_repo_knowledge` searches both the generated wiki and repository-scoped decision memory in one call. `remember_repo_decision` stores a repository-scoped decision record by default so later planning and recovery runs can reuse the context.
+
+## Allowlisted Project Commands
+
+Built-in command profiles:
+
+- `pytest`
+- `ruff_check`
+- `ruff_format_check`
+- `ruff_format`
+- `mypy`
+- `pip_check`
+- `git_status`
+- `git_diff_check`
+
+Command execution rules:
+
+- Commands run from validated profiles only.
+- Commands execute with `argv` arrays and `shell=False`.
+- When possible, the target repository's `.venv` or `venv` Python interpreter is preferred automatically.
+- New project-specific commands are registered once under `repos.<name>.command_profiles` in `config.yaml`.
+- `run_project_command(repo_name, command_id)` is for short profiles only.
+- Full `pytest` is configured async-only and must use `start_project_command_async`, then `get_run_status` and `get_run_result`.
+- Async `pytest` runs get per-run temp directories, isolated `--basetemp`, and persisted `stdout.txt` / `stderr.txt` artifacts under the run directory.
+- Host capabilities such as CUDA are available only if the server account, driver, project environment, and command profile already support them. CodexBridge does not install CUDA, Python packages, or project dependencies.
+
+If a long command times out in synchronous mode, retrying it synchronously is not the correct recovery path. Register or use the durable async profile and recover through the run tools instead.
+
+## Safe Repository Changes
+
+Preview-first write tools:
+
+- `preview_repo_patch`
+- `preview_repo_file_creation`
+- `preview_repo_file_removal`
+- `apply_previewed_repo_change`
+- `revert_managed_patch`
+
+Direct compatibility tools:
+
+- `apply_repo_patch`
+- `create_repo_file`
+- `delete_repo_file`
+- `move_repo_file`
+
+Current behavior:
+
+- `preview_repo_patch` is read-only and supports multiple non-overlapping edits to the same file, then composes them into one atomic file result.
+- `preview_repo_file_creation` and `preview_repo_file_removal` are read-only previews and never change the working tree.
+- `apply_previewed_repo_change` accepts only `repo_name` and `patch_id`. It reads executable-looking content from the local opaque preview bundle instead of resending content in the write request.
+- Opaque preview bundles are repository-bound and validate payload hashes, current file hashes, Git `HEAD` where applicable, path limits, duplicate paths, symlinks, file/byte/line limits, and patch state before writing.
+- Preview/apply supports `modify`, `create`, and `remove`.
+- `revert_managed_patch` uses saved rollback data and stale-state protection instead of `git reset` or `git checkout`.
+- `commit_selected_files` stages and commits only explicitly listed changed files. Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform, while a developer may still push locally with Git outside the bridge workflow.
+
+The older direct write tools remain available for compatibility and direct operations, but the preview/apply flow is the safer default.
 
 ## Async Run Workflow
 
-CodexBridge v2 adds durable async run tools for longer jobs:
+Durable async runs cover:
 
-1. Call `start_codex_plan_task_async(...)` or `start_codex_implement_task_async(...)`.
-2. Save the returned `run_id`.
-3. Poll `get_run_status(run_id)` and `get_run_events(run_id)`.
-4. Fetch the final result with `get_run_result(run_id)`.
+- `start_codex_plan_task_async`
+- `start_codex_implement_task_async`
+- `start_project_command_async`
 
-If you lose the original `run_id`, use `list_runs(...)` to recover recent runs. If a queued or running job needs to be stopped, use `cancel_run(run_id)`.
+Read and control them with:
 
-Runs are indexed in `runs/codexbridge.sqlite3` using SQLite WAL mode and write artifacts under `runs/<run_id>/`. Plain synchronous tools remain available for short tasks.
+- `get_run_status`
+- `get_run_events`
+- `get_run_result`
+- `list_runs`
+- `cancel_run`
+
+Workflow:
+
+1. Start the async job and save the returned `run_id`.
+2. Poll `get_run_status(run_id)` until the run is terminal.
+3. Use `get_run_events(run_id)` for timeline updates when needed.
+4. Read the final structured payload with `get_run_result(run_id)`.
+5. If the original caller loses the ID, recover it with `list_runs(...)`.
+6. If a run must stop, use `cancel_run(run_id)`.
+
+Async state is durable across process restarts because run metadata is stored in `runs/codexbridge.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
 
 ## Supervisor Workflow
 
-CodexBridge v3 adds supervisor tools for staged recovery work that may span multiple Codex child runs. Supervisors are durable records in the local SQLite store, with events, run links, notifications, and a canonical resume prompt.
+Supervisor tools remain available for staged recovery work:
 
-Typical flow:
+- `start_supervised_recovery_task`
+- `get_supervisor_status`
+- `get_supervisor_events`
+- `get_supervisor_result`
+- `resume_supervisor`
+- `pause_supervisor`
+- `cancel_supervisor`
+- `get_supervisor_notifications`
+- `get_supervisor_resume_prompt`
 
-1. Call `start_supervised_recovery_task(repo_name, objective, task, constraints="", source_run_id=None, autonomy_profile="balanced")` to create a supervisor and advance one safe step.
-2. Call `get_supervisor_status(supervisor_id)` to inspect enriched status, including child run links, active child status, resume prompt info, and pending notification count.
-3. Call `get_supervisor_events(supervisor_id)` to review ordered supervisor events.
-4. Call `get_supervisor_result(supervisor_id)` to read plan and implementation result metadata.
-5. Call `resume_supervisor(supervisor_id)` to advance exactly one safe step.
-6. Call `pause_supervisor(supervisor_id)` only when the supervisor is `queued` or `needs_input`.
-7. Call `cancel_supervisor(supervisor_id)` to cancel the supervisor and active child if present.
-8. Call `get_supervisor_notifications(supervisor_id, delivery_status=None)` to read durable notification outbox rows.
-9. Call `get_supervisor_resume_prompt(supervisor_id)` to read `runs/supervisors/<supervisor_id>/resume_prompt.txt`.
+Typical use:
 
-Current supervisor limits are intentional:
+1. Start a supervisor with `start_supervised_recovery_task(...)`.
+2. Inspect it with `get_supervisor_status(...)`.
+3. Review durable events and linked child runs.
+4. Advance exactly one safe step with `resume_supervisor(...)`.
 
-- There is no background scheduler yet; ChatGPT or the operator advances work by calling `resume_supervisor`.
+Current limits are intentional:
+
+- There is no background scheduler yet.
 - There is no approve-plan MCP tool yet.
-- There is no active-child pause yet; pause is limited to `queued` and `needs_input`.
-- Notification sinks are disabled by default.
-- Resume prompts reference child artifacts such as `prompt.txt`, `result.json`, `events.jsonl`, `stdout.txt`, and `stderr.txt` instead of embedding raw logs.
+- `pause_supervisor` works only from `queued` or `needs_input`.
+- Notification sinks are configurable but disabled by default in most setups.
+- Resume prompts point to saved artifacts instead of embedding large raw logs.
 
 ## Local Browser Pulse Sender
 
-`scripts/browser_pulse_sender.py` is a standalone local-only helper for supervisor handoff states. It is not part of the MCP server and does not change supervisor behavior. It connects to an existing Chrome or Edge session through local CDP at `http://127.0.0.1:9222`, opens a real ChatGPT chat URL like `https://chatgpt.com/c/...`, sends a sanitized resume prompt, and optionally closes the tab.
+`scripts/browser_pulse_sender.py` remains a standalone local helper for supervisor handoff states. It is not part of the MCP server and does not modify supervisor behavior. It connects to an existing Chrome or Edge session through local CDP at `http://127.0.0.1:9222`, opens a real ChatGPT chat URL, sends a sanitized resume prompt, and can optionally close the tab.
 
-Path A, recommended: start a dedicated pulse browser profile so the normal browser does not need to be closed. This profile is separate from the normal browser profile, so sign in to ChatGPT in it once before expecting send mode to work.
+Recommended browser-launch path:
 
 ```powershell
 .\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -UserDataDir "D:\Github\CodexBridge\.pulse-chrome-profile" -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
-```
-
-Path B: use the existing normal browser profile. Close all browser windows first, or explicitly stop only the selected browser before relaunching it with CDP:
-
-```powershell
-.\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -KillExisting -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
-```
-
-The launcher verifies CDP with:
-
-```powershell
-curl.exe http://127.0.0.1:9222/json/version
 ```
 
 Dry-run smoke test:
@@ -197,4 +274,30 @@ Send mode:
 python .\scripts\browser_pulse_sender.py --runs-dir runs --supervisor-id <supervisor_id> --chat-url https://chatgpt.com/c/<chat_id> --prompt "Browser pulse smoke test. Reply only: pulse received." --send --once --close-tab
 ```
 
-The pulse sender requires a real ChatGPT chat URL and uses the user's already-authenticated browser session. It does not read, export, print, or store cookies, passwords, tokens, or browser profile data. Its log records only `supervisor_id`, status, timestamp, and success/failure.
+Current limitations remain explicit:
+
+- It requires a real ChatGPT chat URL.
+- It depends on the user's already-authenticated browser session.
+- It does not export or store cookies, passwords, or tokens.
+- It is local-only helper automation, not an MCP tool.
+
+## Safety Model
+
+CodexBridge's practical safety boundary is:
+
+- repository whitelist enforcement by `repo_name`
+- repo-relative path validation for reads and writes
+- `shell=False` execution for allowlisted command profiles
+- capped command and read outputs
+- secret redaction on repository reads and many returned summaries
+- pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform, while a developer may still push locally with Git outside the bridge workflow
+- explicit approval before using `commit_selected_files`
+- rollback artifacts for managed repository changes
+
+## Validation
+
+For a documentation-only update, the required check is:
+
+```powershell
+git diff --check
+```
