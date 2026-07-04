@@ -113,7 +113,13 @@ Use the bridge in this order:
 5. Inspect the resulting diff with `repo_git_diff`, `git_diff_summary`, or `repo_git_status`.
 6. Use `commit_selected_files` only after explicit approval.
 
+## OpenAI Platform Limitations
+
 Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform. A developer may still push locally with Git outside the bridge workflow.
+
+OpenAI safety checks may also intermittently block an otherwise valid MCP tool call before it reaches CodexBridge. Because the request never arrives at the server, CodexBridge cannot inspect, log, retry, or bypass that block. When no CodexBridge response or `run_id` was returned, one identical retry may be appropriate. Once a `run_id` exists, do not repeat the start action; poll the existing run instead.
+
+These are limitations of the current ChatGPT/OpenAI tool path, not CodexBridge product policies.
 
 The human is not expected to run setup or routine repository validation during the normal bridge workflow.
 
