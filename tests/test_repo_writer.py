@@ -1472,6 +1472,111 @@ def test_apply_result_no_absolute_path(tmp_path: Path) -> None:
     assert str(tmp_path) not in result_str
 
 
+def test_preview_supports_line_range_replacement(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "ranges.py", "one\nold\nthree\n")
+    sha = sha256_file(repo / "ranges.py")
+
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "ranges.py",
+                "expected_sha256": sha,
+                "type": "replace_lines",
+                "start_line": 2,
+                "end_line": 2,
+                "new_text": "new\n",
+            }
+        ],
+        runs,
+    )
+
+    assert preview["ok"] is True
+    applied = apply_repo_patch(
+        repo,
+        [
+            {
+                "path": "ranges.py",
+                "expected_sha256": sha,
+                "type": "replace_lines",
+                "start_line": 2,
+                "end_line": 2,
+                "new_text": "new\n",
+            }
+        ],
+        preview["patch_id"],
+        runs,
+    )
+    assert applied["ok"] is True
+    assert (repo / "ranges.py").read_text(encoding="utf-8") == "one\nnew\nthree\n"
+
+
+def test_preview_supports_unified_diff_and_crlf_matching(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    path = repo / "windows.py"
+    path.write_bytes(b"alpha\r\nbeta\r\n")
+    sha = sha256_file(path)
+    diff = (
+        "--- a/windows.py\n+++ b/windows.py\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n"
+    )
+
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "windows.py",
+                "expected_sha256": sha,
+                "type": "unified_diff",
+                "diff": diff,
+            }
+        ],
+        runs,
+    )
+
+    assert preview["ok"] is True
+    apply_repo_patch(
+        repo,
+        [
+            {
+                "path": "windows.py",
+                "expected_sha256": sha,
+                "type": "unified_diff",
+                "diff": diff,
+            }
+        ],
+        preview["patch_id"],
+        runs,
+    )
+    assert path.read_bytes() == b"alpha\r\ngamma\r\n"
+
+
+def test_preview_supports_python_ast_top_level_replacement(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    write_file(repo / "ast_mod.py", "def old():\n    return 1\n")
+    sha = sha256_file(repo / "ast_mod.py")
+    operation = {
+        "path": "ast_mod.py",
+        "expected_sha256": sha,
+        "type": "python_ast",
+        "target_type": "function",
+        "target_name": "old",
+        "new_text": "def old():\n    return 2\n",
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+    assert preview["ok"] is True
+    result = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
+    assert result["phases"]
+    assert result["introduced_changes"] == ["ast_mod.py"]
+    assert (repo / "ast_mod.py").read_text(
+        encoding="utf-8"
+    ) == "def old():\n    return 2\n"
+
+
 # ---------------------------------------------------------------------------
 # No CodexRunner or local model invocation
 # ---------------------------------------------------------------------------

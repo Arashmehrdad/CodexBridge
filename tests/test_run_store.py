@@ -54,6 +54,29 @@ def test_run_store_updates_status_and_result(tmp_path: Path) -> None:
     assert updated["result"]["summary"] == "done"
 
 
+def test_run_store_tracks_progress_metadata(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+
+    updated = store.set_progress(
+        RUN_ID,
+        phase="apply",
+        progress={"current_phase": "apply", "percent": 50},
+        elapsed_seconds=1.25,
+    )
+
+    assert updated["current_phase"] == "apply"
+    assert updated["elapsed_seconds"] == 1.25
+    assert updated["progress"]["percent"] == 50
+    assert updated["heartbeat_at"]
+
+
 def test_invalid_run_id_rejected() -> None:
     with pytest.raises(ValueError):
         validate_run_id("../bad")

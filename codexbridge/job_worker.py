@@ -10,13 +10,22 @@ from typing import Sequence
 
 from . import git_tools
 from .command_profiles import (
+    BASH_N_PATH_COMMAND_ID,
+    GIT_READONLY_COMMAND_ID,
+    JSON_VALIDATE_PATH_COMMAND_ID,
     PYTEST_PATH_COMMAND_ID,
+    PY_COMPILE_PATH_COMMAND_ID,
+    build_bash_n_path_profile,
+    build_git_readonly_profile,
+    build_json_validate_path_profile,
+    build_py_compile_path_profile,
     build_pytest_path_profile,
     resolve_command_profile,
     run_command_profile,
 )
-from .config import load_config, resolve_repo
+from .config import load_config, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter, redact_and_truncate
+from .operation_locks import OperationLockStore
 from .policy import decide_implementation_task, decide_plan_task
 from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import RunStore
@@ -25,6 +34,7 @@ from .run_guards import (
     assess_implementation_output,
     assess_plan_output,
     changed_workspace_paths,
+    classify_git_attribution,
     out_of_scope_workspace_changes,
     snapshot_workspace,
 )
@@ -58,6 +68,7 @@ class JobWorker:
         self.config_path = config_path
         self.config = load_config(config_path)
         self.store = RunStore(self.config.resolve_runs_dir())
+        self.locks = OperationLockStore(self.config.resolve_runs_dir())
         self.run = self.store.get_run(run_id)
         self.run_id = run_id
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
@@ -65,6 +76,12 @@ class JobWorker:
     def event(
         self, level: str, stage: str, message: str, data: dict | None = None
     ) -> None:
+        self.store.set_progress(
+            self.run_id,
+            phase=stage,
+            progress=data or {},
+        )
+        self.locks.heartbeat(self.run["repo_name"], self.run_id)
         event = self.store.append_event(
             self.run_id,
             level=level,
@@ -138,6 +155,8 @@ class JobWorker:
             )
             self.event("error", "result", "Run failed", {"error": str(exc)})
             return 1
+        finally:
+            self.locks.release(self.run["repo_name"], self.run_id)
 
     def _execute_inner(self, started_at: str) -> dict:
         input_data = self.run["input"]
@@ -191,6 +210,7 @@ class JobWorker:
         )
         ignored_run_roots = [Path(self.run["run_dir"])]
         workspace_before = snapshot_workspace(repo_root, ignored_run_roots)
+        dirty_before = git_tools.changed_files(repo_root)
         git_before = git_tools.git_status(repo_root)
         self.artifacts.write_text("git_before.txt", git_before)
         self.artifacts.write_text("prompt.txt", prompt)
@@ -272,7 +292,10 @@ class JobWorker:
         )
         git_after = git_tools.git_status(repo_root)
         diff_stat = git_tools.diff_stat(repo_root)
-        changed = git_tools.changed_files(repo_root)
+        changed_after = git_tools.changed_files(repo_root)
+        introduced_changes, preserved_preexisting_changes = classify_git_attribution(
+            changed_after, workspace_before, workspace_after, dirty_before
+        )
         self.artifacts.write_text("git_after.txt", git_after)
         self.artifacts.write_text("diff_stat.txt", diff_stat)
 
@@ -287,7 +310,7 @@ class JobWorker:
             assert outcome is not None
             risks.extend(outcome.blockers)
             violations = sorted(
-                {path for path in changed if path not in set(allowed_files)}
+                {path for path in introduced_changes if path not in set(allowed_files)}
                 | set(workspace_violations)
             )
             if violations:
@@ -315,7 +338,9 @@ class JobWorker:
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),
-            "changed_files": changed,
+            "changed_files": introduced_changes,
+            "introduced_changes": introduced_changes,
+            "preserved_preexisting_changes": preserved_preexisting_changes,
             "workspace_changes": workspace_changes,
             "out_of_scope_workspace_changes": workspace_violations,
             "writable_directories": [str(path) for path in writable_dirs],
@@ -411,8 +436,27 @@ class JobWorker:
                 repo_root, str(input_data["path"])
             ).argv[-1]
             profile = build_pytest_path_profile(repo_root, normalized_target)
+        elif command_id == PY_COMPILE_PATH_COMMAND_ID:
+            normalized_target = build_py_compile_path_profile(
+                repo_root, str(input_data["path"])
+            ).argv[-1]
+            profile = build_py_compile_path_profile(repo_root, normalized_target)
+        elif command_id == BASH_N_PATH_COMMAND_ID:
+            normalized_target = build_bash_n_path_profile(
+                repo_root, str(input_data["path"])
+            ).argv[-1]
+            profile = build_bash_n_path_profile(repo_root, normalized_target)
+        elif command_id == JSON_VALIDATE_PATH_COMMAND_ID:
+            normalized_target = build_json_validate_path_profile(
+                repo_root, str(input_data["path"])
+            ).argv[-1]
+            profile = build_json_validate_path_profile(repo_root, normalized_target)
+        elif command_id == GIT_READONLY_COMMAND_ID:
+            normalized_target = str(input_data.get("operation", ""))
+            profile = build_git_readonly_profile(normalized_target)
         else:
-            repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
+            _, repo_config = resolve_repo_config(self.config, repo_name)
+            repo_profiles = list(repo_config.command_profiles or [])
             profile = resolve_command_profile(command_id, repo_profiles)
         run_dir = Path(self.run["run_dir"])
         temp_root = run_dir / "tmp"
@@ -433,6 +477,8 @@ class JobWorker:
 
         git_before = git_tools.git_status(repo_root)
         diff_before = git_tools.diff_stat(repo_root)
+        dirty_before = git_tools.changed_files(repo_root)
+        workspace_before = snapshot_workspace(repo_root, [run_dir])
         self.artifacts.write_text("git_before.txt", git_before)
         self.event(
             "info",
@@ -453,7 +499,11 @@ class JobWorker:
 
         git_after = git_tools.git_status(repo_root)
         diff_after = git_tools.diff_stat(repo_root)
-        changed = git_tools.changed_files(repo_root)
+        changed_after = git_tools.changed_files(repo_root)
+        workspace_after = snapshot_workspace(repo_root, [run_dir])
+        introduced_changes, preserved_preexisting_changes = classify_git_attribution(
+            changed_after, workspace_before, workspace_after, dirty_before
+        )
         self.artifacts.write_text("git_after.txt", git_after)
         self.artifacts.write_text("diff_stat.txt", diff_after)
 
@@ -499,7 +549,9 @@ class JobWorker:
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),
-            "changed_files": changed,
+            "changed_files": introduced_changes,
+            "introduced_changes": introduced_changes,
+            "preserved_preexisting_changes": preserved_preexisting_changes,
             "git_status": git_after,
             "diff_stat": diff_after,
             "tests_run": tests_run,

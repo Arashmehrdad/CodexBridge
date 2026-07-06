@@ -5,10 +5,13 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
+
+from .return_loop.atomic_writer import atomic_write_text
 
 WIKI_VERSION = 1
 MAX_SOURCE_FILES = 2_000
@@ -17,6 +20,7 @@ MAX_WIKI_READ_BYTES = 150_000
 
 _BLOCKED_DIRS = {
     ".git",
+    ".pulse-chrome-profile",
     ".venv",
     "venv",
     "node_modules",
@@ -111,13 +115,6 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(content, encoding="utf-8", newline="\n")
-    os.replace(temporary, path)
-
-
 def _safe_relative_page(page: str) -> PurePosixPath:
     normalized = page.replace("\\", "/").strip()
     candidate = PurePosixPath(normalized)
@@ -131,11 +128,20 @@ def _safe_relative_page(page: str) -> PurePosixPath:
 class RepoWikiService:
     """Generate and query a deterministic, repository-local knowledge wiki."""
 
-    def __init__(self, repo_root: Path, repo_name: str):
+    def __init__(
+        self,
+        repo_root: Path,
+        repo_name: str,
+        *,
+        wiki_exclusions: Iterable[str] = (),
+    ):
         self.repo_root = Path(repo_root).resolve()
         self.repo_name = repo_name
         self.wiki_root = self.repo_root / ".codexbridge" / "wiki"
         self.manifest_path = self.wiki_root / "manifest.json"
+        self.wiki_exclusions = {
+            item.replace("\\", "/").strip("/") for item in wiki_exclusions
+        }
 
     def refresh(self, *, force: bool = False) -> dict[str, Any]:
         source_files, truncated = self._scan_source_files()
@@ -173,7 +179,7 @@ class RepoWikiService:
             "validation.md": self._render_validation(source_files, analysis),
         }
         for relative, content in pages.items():
-            _atomic_write(self.wiki_root / relative, content)
+            atomic_write_text(self.wiki_root / relative, content)
 
         manifest = {
             "version": WIKI_VERSION,
@@ -185,7 +191,7 @@ class RepoWikiService:
             "scan_truncated": truncated,
             "source_files": source_files,
         }
-        _atomic_write(
+        atomic_write_text(
             self.manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         )
         return {
@@ -262,41 +268,109 @@ class RepoWikiService:
     def _scan_source_files(self) -> tuple[list[dict[str, Any]], bool]:
         records: list[dict[str, Any]] = []
         truncated = False
-        for root, dirnames, filenames in os.walk(
-            self.repo_root, topdown=True, followlinks=False
-        ):
-            root_path = Path(root)
-            dirnames[:] = sorted(
+        for relative in self._list_source_candidates():
+            if len(records) >= MAX_SOURCE_FILES:
+                truncated = True
+                return records, truncated
+            path = self.repo_root / relative
+            if not self._is_source_candidate(path):
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if len(data) > MAX_SOURCE_FILE_BYTES or b"\x00" in data[:8192]:
+                continue
+            records.append(
+                {
+                    "path": relative,
+                    "sha256": _sha256_bytes(data),
+                    "size_bytes": len(data),
+                }
+            )
+        return records, truncated
+
+    def _list_source_candidates(self) -> list[str]:
+        candidates = self._git_list_source_candidates()
+        if candidates is not None:
+            return candidates
+        return self._filesystem_list_source_candidates()
+
+    def _git_list_source_candidates(self) -> list[str] | None:
+        result = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            return None
+        seen: set[str] = set()
+        paths: list[str] = []
+        for raw in result.stdout.splitlines():
+            normalized = raw.strip().replace("\\", "/")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            if self._is_excluded_relative_path(normalized):
+                continue
+            paths.append(normalized)
+        return sorted(paths)
+
+    def _filesystem_list_source_candidates(self) -> list[str]:
+        seen: set[str] = set()
+        paths: list[str] = []
+        for current_root, dirnames, filenames in os.walk(self.repo_root, topdown=True):
+            current_path = Path(current_root)
+            relative_dir = current_path.relative_to(self.repo_root)
+            relative_dir_str = relative_dir.as_posix() if relative_dir.parts else ""
+            dirnames[:] = [
                 name
                 for name in dirnames
-                if name not in _BLOCKED_DIRS
-                and not (
-                    root_path == self.repo_root / ".codexbridge" and name == "wiki"
-                )
-                and not (root_path / name).is_symlink()
-            )
-            for filename in sorted(filenames):
-                if len(records) >= MAX_SOURCE_FILES:
-                    truncated = True
-                    return records, truncated
-                path = root_path / filename
-                if not self._is_source_candidate(path):
+                if not self._should_skip_walk_dir(relative_dir_str, name)
+            ]
+            for filename in filenames:
+                relative = (
+                    f"{relative_dir_str}/{filename}" if relative_dir_str else filename
+                ).replace("\\", "/")
+                if relative in seen or self._is_excluded_relative_path(relative):
                     continue
-                try:
-                    data = path.read_bytes()
-                except OSError:
-                    continue
-                if len(data) > MAX_SOURCE_FILE_BYTES or b"\x00" in data[:8192]:
-                    continue
-                relative = path.relative_to(self.repo_root).as_posix()
-                records.append(
-                    {
-                        "path": relative,
-                        "sha256": _sha256_bytes(data),
-                        "size_bytes": len(data),
-                    }
-                )
-        return records, truncated
+                seen.add(relative)
+                paths.append(relative)
+        return sorted(paths)
+
+    def _should_skip_walk_dir(self, relative_dir: str, name: str) -> bool:
+        candidate = f"{relative_dir}/{name}" if relative_dir else name
+        lowered = name.lower()
+        if lowered in _BLOCKED_DIRS:
+            return True
+        if lowered.endswith(".egg-info"):
+            return True
+        return self._is_excluded_relative_path(candidate)
+
+    def _is_excluded_relative_path(self, relative: str) -> bool:
+        parts = relative.split("/")
+        lowered_parts = {part.lower() for part in parts}
+        if lowered_parts & _BLOCKED_DIRS:
+            return True
+        if any(part.lower().endswith(".egg-info") for part in parts):
+            return True
+        if relative.startswith(".codexbridge/wiki/"):
+            return True
+        if relative in self.wiki_exclusions:
+            return True
+        return any(
+            relative == prefix or relative.startswith(f"{prefix}/")
+            for prefix in self.wiki_exclusions
+        )
 
     def _is_source_candidate(self, path: Path) -> bool:
         if path.is_symlink() or not path.is_file():

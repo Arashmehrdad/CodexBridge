@@ -43,3 +43,27 @@ def test_atomic_write_failure_does_not_create_partial_final_file(
 
     assert not path.exists()
     assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_atomic_write_retries_permission_error_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "retry.txt"
+    attempts = {"count": 0}
+    original_replace = atomic_writer.os.replace
+
+    def flaky_replace(src, dst):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            error = PermissionError("busy")
+            error.winerror = 5
+            raise error
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(atomic_writer.os, "replace", flaky_replace)
+
+    result = atomic_write_text(path, "eventual")
+
+    assert result.replaced is True
+    assert path.read_text(encoding="utf-8") == "eventual"
+    assert attempts["count"] == 3

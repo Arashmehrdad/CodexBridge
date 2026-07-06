@@ -8,8 +8,12 @@ import pytest
 from codexbridge.git_tools import (
     CommitMetadataError,
     changed_files,
+    commit_all_changes,
     commit_selected_files,
+    dry_run_stage_manifest,
     inspect_status,
+    stage_all,
+    unstage_all,
 )
 
 
@@ -180,3 +184,27 @@ def test_commit_metadata_rejects_secret_value_without_echoing_it(
     assert error.field == "description"
     assert error.reason_code == "secret_value"
     assert "example-sensitive-value" not in str(error)
+
+
+def test_stage_manifest_stage_all_and_unstage_all(repo: Path) -> None:
+    (repo / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    (repo / "new.txt").write_text("new\n", encoding="utf-8")
+
+    manifest = dry_run_stage_manifest(repo)
+    assert "tracked.txt" in manifest["unstaged"] or "new.txt" in manifest["untracked"]
+
+    staged = stage_all(repo)
+    assert "tracked.txt" in staged["after"]["staged"]
+    assert "new.txt" in staged["after"]["staged"]
+
+    unstaged = unstage_all(repo)
+    assert "tracked.txt" in unstaged["after"]["unstaged"]
+
+
+def test_commit_all_changes_stages_deleted_files(repo: Path) -> None:
+    (repo / "base.txt").unlink()
+
+    result = commit_all_changes(repo, "chore: remove base")
+
+    assert result["ok"] is True
+    assert result["commit_hash"]

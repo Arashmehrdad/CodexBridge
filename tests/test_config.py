@@ -15,6 +15,7 @@ from codexbridge.config import (
     SupervisorAutonomyProfile,
     SupervisorsConfig,
     load_config,
+    resolve_repo_config,
     resolve_repo,
 )
 
@@ -158,3 +159,17 @@ def test_repo_must_contain_git(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="does not contain .git"):
         load_config(config_file)
+
+
+def test_resolve_repo_config_accepts_case_insensitive_name(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    config = AppConfig(
+        repos={"codexbridge": RepoConfig(path=str(repo))}, config_dir=tmp_path
+    )
+
+    resolved_name, resolved_repo = resolve_repo_config(config, "CodexBridge")
+
+    assert resolved_name == "codexbridge"
+    assert resolved_repo.path == str(repo)
+    assert resolve_repo(config, "CodexBridge") == repo.resolve()

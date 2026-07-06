@@ -57,9 +57,22 @@ _BLOCKED_ARGV_PATTERNS = [
 _COMMAND_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 _PYTHON_LAUNCHERS = frozenset({"python", "python.exe", "python3", "python3.exe"})
 PYTEST_PATH_COMMAND_ID = "pytest_path"
+PY_COMPILE_PATH_COMMAND_ID = "py_compile_path"
+BASH_N_PATH_COMMAND_ID = "bash_n_path"
+JSON_VALIDATE_PATH_COMMAND_ID = "json_validate_path"
+GIT_READONLY_COMMAND_ID = "git_readonly"
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _PATH_WILDCARD_RE = re.compile(r"[*?\[\]]")
+_JSON_SUFFIXES = frozenset({".json"})
+_BASH_SUFFIXES = frozenset({".sh", ".bash"})
+_PYTHON_SUFFIXES = frozenset({".py"})
+_GIT_READONLY_OPERATIONS: dict[str, list[str]] = {
+    "status": ["git", "status", "--short", "--branch"],
+    "diff_check": ["git", "diff", "--check"],
+    "diff_name_only": ["git", "diff", "--name-only"],
+    "ls_files": ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+}
 
 
 @dataclass
@@ -138,6 +151,12 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         argv=["git", "diff", "--check"],
         timeout_seconds=30,
         description="Check for whitespace errors in git diff",
+    ),
+    GIT_READONLY_COMMAND_ID: CommandProfileSpec(
+        command_id=GIT_READONLY_COMMAND_ID,
+        argv=list(_GIT_READONLY_OPERATIONS["status"]),
+        timeout_seconds=30,
+        description="Run one fixed read-only git operation",
     ),
 }
 
@@ -220,6 +239,103 @@ def build_pytest_path_profile(repo_root: Path, target: str) -> CommandProfileSpe
     return profile
 
 
+def validate_repo_relative_command_path(
+    repo_root: Path, target: str, *, allowed_suffixes: set[str] | frozenset[str]
+) -> str:
+    raw_target = str(target)
+    if not raw_target.strip():
+        raise ValueError("Validated path target must not be empty")
+    if _CONTROL_CHAR_RE.search(raw_target):
+        raise ValueError("Validated path target contains control characters")
+    normalized_path = raw_target.strip().replace("\\", "/")
+    if normalized_path.startswith("-"):
+        raise ValueError("Validated path target must not start with an option")
+    if normalized_path.startswith(("/", "//")) or raw_target.startswith(("\\\\", "//")):
+        raise ValueError("Validated path target must be repository-relative")
+    if _WINDOWS_DRIVE_RE.match(normalized_path):
+        raise ValueError("Validated path target must not include a drive prefix")
+    if _PATH_WILDCARD_RE.search(normalized_path):
+        raise ValueError("Validated path target must not contain wildcards")
+    parts = PurePosixPath(normalized_path).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Validated path target must not contain traversal segments")
+    repo_root = repo_root.resolve()
+    candidate = repo_root.joinpath(*parts)
+    current = repo_root
+    for part in parts:
+        current = current / part
+        if _is_symlink_or_reparse_point(current):
+            raise ValueError(
+                "Validated path target must not traverse symlinks or reparse points"
+            )
+    if not candidate.exists() or not candidate.is_file():
+        raise ValueError("Validated path target must be an existing file")
+    if candidate.suffix.lower() not in allowed_suffixes:
+        allowed_text = ", ".join(sorted(allowed_suffixes))
+        raise ValueError(f"Validated path target must use one of: {allowed_text}")
+    return candidate.relative_to(repo_root).as_posix()
+
+
+def build_py_compile_path_profile(repo_root: Path, target: str) -> CommandProfileSpec:
+    normalized = validate_repo_relative_command_path(
+        repo_root, target, allowed_suffixes=_PYTHON_SUFFIXES
+    )
+    profile = CommandProfileSpec(
+        command_id=PY_COMPILE_PATH_COMMAND_ID,
+        argv=["python", "-m", "py_compile", normalized],
+        timeout_seconds=120,
+        description="Compile one validated Python file without executing it",
+    )
+    profile.validate()
+    return profile
+
+
+def build_bash_n_path_profile(repo_root: Path, target: str) -> CommandProfileSpec:
+    normalized = validate_repo_relative_command_path(
+        repo_root, target, allowed_suffixes=_BASH_SUFFIXES
+    )
+    profile = CommandProfileSpec(
+        command_id=BASH_N_PATH_COMMAND_ID,
+        argv=["bash", "-n", normalized],
+        timeout_seconds=120,
+        description="Run bash -n on one validated shell script",
+    )
+    profile.validate()
+    return profile
+
+
+def build_json_validate_path_profile(
+    repo_root: Path, target: str
+) -> CommandProfileSpec:
+    normalized = validate_repo_relative_command_path(
+        repo_root, target, allowed_suffixes=_JSON_SUFFIXES
+    )
+    profile = CommandProfileSpec(
+        command_id=JSON_VALIDATE_PATH_COMMAND_ID,
+        argv=["python", "-m", "json.tool", normalized],
+        timeout_seconds=120,
+        description="Validate one repository JSON file",
+    )
+    profile.validate()
+    return profile
+
+
+def build_git_readonly_profile(operation: str) -> CommandProfileSpec:
+    argv = _GIT_READONLY_OPERATIONS.get(str(operation))
+    if argv is None:
+        raise ValueError(
+            f"Unsupported git read-only operation: {operation!r}. Allowed: {sorted(_GIT_READONLY_OPERATIONS)}"
+        )
+    profile = CommandProfileSpec(
+        command_id=GIT_READONLY_COMMAND_ID,
+        argv=list(argv),
+        timeout_seconds=30,
+        description="Run one fixed read-only git operation",
+    )
+    profile.validate()
+    return profile
+
+
 def _parse_repo_profile(raw: dict[str, Any]) -> CommandProfileSpec:
     """Parse a repo-level command profile override from config.yaml."""
     command_id = str(raw.get("command_id", ""))
@@ -296,10 +412,12 @@ def _virtualenv_candidates(cwd: Path) -> tuple[tuple[str, ...], ...]:
     windows = (
         (".venv", "Scripts", "python.exe"),
         ("venv", "Scripts", "python.exe"),
+        ("venv312", "Scripts", "python.exe"),
     )
     posix = (
         (".venv", "bin", "python"),
         ("venv", "bin", "python"),
+        ("venv312", "bin", "python"),
     )
     return windows + posix if os.name == "nt" else posix + windows
 
@@ -313,6 +431,16 @@ def find_repo_python(cwd: Path) -> tuple[Path | None, Path | None]:
     normal POSIX virtual environments remain supported.
     """
     repo_root = cwd.resolve()
+    for env_name in ("VIRTUAL_ENV", "CONDA_PREFIX"):
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        candidate_root = Path(value)
+        interpreter = _interpreter_in_env(candidate_root)
+        if interpreter is None:
+            continue
+        if _is_within_repo(candidate_root, repo_root):
+            return interpreter.absolute(), candidate_root.absolute()
     for relative_parts in _virtualenv_candidates(repo_root):
         candidate = repo_root.joinpath(*relative_parts)
         try:
@@ -321,6 +449,28 @@ def find_repo_python(cwd: Path) -> tuple[Path | None, Path | None]:
         except OSError:
             continue
     return None, None
+
+
+def _interpreter_in_env(env_root: Path) -> Path | None:
+    candidates = (
+        env_root / "Scripts" / "python.exe",
+        env_root / "bin" / "python",
+    )
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _is_within_repo(candidate_root: Path, repo_root: Path) -> bool:
+    try:
+        candidate_root.resolve().relative_to(repo_root.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def prepare_repo_execution(

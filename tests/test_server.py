@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.git_tools import CommitMetadataError
 from codexbridge.server import parse_args
 import codexbridge.server as server
@@ -136,3 +137,73 @@ def test_commit_tool_returns_structured_metadata_rejection(
         "reason": "Commit description exceeds the configured limit",
         "error": "Commit description exceeds the configured limit",
     }
+
+
+def test_reload_service_delegates_and_refreshes_config(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("repos: {}\n", encoding="utf-8")
+    refreshed = {"done": False}
+
+    monkeypatch.setattr(server, "get_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        server,
+        "_reload_service",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "reloaded": ["config"],
+            "requested_modules": ["config"],
+            "resolved_modules": [],
+            "restart_required": [],
+            "message": "",
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "apply_reloaded_config",
+        lambda path: refreshed.update(done=path == config_path) or object(),
+    )
+    monkeypatch.setattr(server, "set_config", lambda *_args, **_kwargs: None)
+
+    result = server.reload_service(["config"])
+
+    assert result["ok"] is True
+    assert refreshed["done"] is True
+
+
+def test_run_project_command_accepts_case_insensitive_repo_name(
+    monkeypatch, tmp_path
+) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={
+            "codexbridge": RepoConfig(
+                path=str(tmp_path),
+                command_profiles=[
+                    {"command_id": "custom", "argv": ["python", "-c", "print(1)"]}
+                ],
+            )
+        },
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "run_command_profile",
+        lambda profile, repo_root: {
+            "ok": True,
+            "command_id": profile.command_id,
+            "argv": list(profile.argv),
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+
+    result = server.run_project_command("CodexBridge", "custom")
+
+    assert result["ok"] is True
+    assert result["repo_name"] == "CodexBridge"

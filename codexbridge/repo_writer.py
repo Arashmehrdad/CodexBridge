@@ -18,7 +18,6 @@ import json
 import os
 import re
 import shutil
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,12 @@ from uuid import uuid4
 from .repo_reader import (
     _is_binary,
     _resolve_and_validate,
+)
+from .return_loop.atomic_writer import _atomic_write_bytes as _shared_atomic_write_bytes
+from .transactions import (
+    TransactionContext,
+    build_transaction_result,
+    rollback_transaction,
 )
 
 
@@ -107,21 +112,8 @@ def _resolve_managed_patch_dir(runs_dir: Path, patch_id: str) -> Path:
 
 
 def _atomic_write_bytes(path: Path, data: bytes, suffix: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path: Path | None = None
-    with tempfile.NamedTemporaryFile(
-        mode="wb",
-        dir=path.parent,
-        delete=False,
-        suffix=suffix,
-    ) as tf:
-        tf.write(data)
-        tmp_path = Path(tf.name)
-    try:
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path is not None and tmp_path.exists():
-            tmp_path.unlink()
+    del suffix
+    _shared_atomic_write_bytes(path, data)
 
 
 def _atomic_write_text(path: Path, text: str, suffix: str) -> None:
@@ -165,6 +157,21 @@ def _unified_diff_for_op(old_text: str, new_text: str, path: str) -> str:
         lineterm="\n",
     )
     return "".join(diff_lines)
+
+
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _dominant_newline(text: str) -> str:
+    crlf = text.count("\r\n")
+    lf = _normalize_newlines(text).count("\n")
+    return "\r\n" if crlf and crlf >= max(1, lf - crlf) else "\n"
+
+
+def _restore_newlines(text: str, newline: str) -> str:
+    normalized = _normalize_newlines(text)
+    return normalized if newline == "\n" else normalized.replace("\n", newline)
 
 
 def _git_head(repo_root: Path) -> str:
@@ -384,6 +391,181 @@ def _write_preview_bundle(
     return patch_dir
 
 
+def _apply_exact_text_operation(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    old_text = op.get("old_text")
+    new_text = op.get("new_text")
+    if old_text is None or not isinstance(old_text, str):
+        raise ValueError(f"op[{idx}]: old_text is required and must be a string")
+    if new_text is None or not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+    normalized_old = _normalize_newlines(old_text)
+    normalized_new = _normalize_newlines(new_text)
+    occurrences = content.count(normalized_old)
+    if occurrences == 0:
+        raise ValueError(f"op[{idx}]: old_text not found in '{path_str}'")
+    if occurrences > 1:
+        raise ValueError(
+            f"op[{idx}]: old_text appears {occurrences} times in '{path_str}'; must be unique"
+        )
+    return content.replace(normalized_old, normalized_new, 1)
+
+
+def _apply_line_range_operation(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    start_line = int(op.get("start_line", 0))
+    end_line = int(op.get("end_line", 0))
+    new_text = op.get("new_text")
+    if start_line < 1 or end_line < start_line:
+        raise ValueError(f"op[{idx}]: invalid line range for '{path_str}'")
+    if not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+    lines = content.splitlines(keepends=True)
+    replacement = _normalize_newlines(new_text)
+    replacement_lines = replacement.splitlines(keepends=True)
+    if replacement and not replacement.endswith("\n"):
+        replacement_lines[-1] = replacement_lines[-1]
+    return "".join(lines[: start_line - 1] + replacement_lines + lines[end_line:])
+
+
+def _parse_unified_hunks(diff_text: str) -> list[tuple[int, list[str]]]:
+    hunks: list[tuple[int, list[str]]] = []
+    current_start = 0
+    current_lines: list[str] = []
+    header_re = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+    for line in diff_text.splitlines():
+        if line.startswith("@@"):
+            if current_lines:
+                hunks.append((current_start, current_lines))
+            match = header_re.match(line)
+            if not match:
+                raise ValueError("Invalid unified diff hunk header")
+            current_start = int(match.group(1))
+            current_lines = []
+            continue
+        if line.startswith(("---", "+++")):
+            continue
+        current_lines.append(line)
+    if current_lines:
+        hunks.append((current_start, current_lines))
+    return hunks
+
+
+def _apply_unified_diff_operation(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    diff_text = op.get("diff") or op.get("unified_diff")
+    if not isinstance(diff_text, str) or not diff_text.strip():
+        raise ValueError(f"op[{idx}]: unified diff text is required for '{path_str}'")
+    lines = content.splitlines(keepends=False)
+    offset = 0
+    for start_line, hunk_lines in _parse_unified_hunks(_normalize_newlines(diff_text)):
+        pointer = max(0, start_line - 1 + offset)
+        rebuilt: list[str] = []
+        for line in hunk_lines:
+            if not line:
+                marker = " "
+                text = ""
+            else:
+                marker = line[0]
+                text = line[1:]
+            if marker == " ":
+                if pointer >= len(lines) or lines[pointer] != text:
+                    raise ValueError(
+                        f"op[{idx}]: unified diff context mismatch in '{path_str}'"
+                    )
+                rebuilt.append(lines[pointer])
+                pointer += 1
+            elif marker == "-":
+                if pointer >= len(lines) or lines[pointer] != text:
+                    raise ValueError(
+                        f"op[{idx}]: unified diff removal mismatch in '{path_str}'"
+                    )
+                pointer += 1
+            elif marker == "+":
+                rebuilt.append(text)
+            else:
+                raise ValueError(f"op[{idx}]: unsupported diff line in '{path_str}'")
+        hunk_start = max(0, start_line - 1 + offset)
+        consumed = pointer - hunk_start
+        lines[hunk_start:pointer] = rebuilt
+        offset += len(rebuilt) - consumed
+    return "\n".join(lines) + ("\n" if content.endswith("\n") or lines else "")
+
+
+def _node_source_segment(text: str, node: Any) -> str:
+    lines = text.splitlines(keepends=True)
+    start = getattr(node, "lineno", 1) - 1
+    end = getattr(node, "end_lineno", getattr(node, "lineno", 1))
+    return "".join(lines[start:end])
+
+
+def _apply_python_ast_operation(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    import ast
+
+    target_type = str(op.get("target_type", "")).strip()
+    target_name = str(op.get("target_name", "")).strip()
+    new_text = op.get("new_text")
+    insert_if_missing = bool(op.get("insert_if_missing"))
+    if target_type not in {"function", "class", "import"}:
+        raise ValueError(
+            f"op[{idx}]: unsupported python_ast target_type for '{path_str}'"
+        )
+    if not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+    tree = ast.parse(content or "\n")
+    lines = content.splitlines(keepends=True)
+    replacement = _normalize_newlines(new_text)
+    for node in tree.body:
+        if (
+            target_type == "function"
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == target_name
+        ):
+            start = node.lineno - 1
+            end = node.end_lineno
+            return "".join(lines[:start] + [replacement] + lines[end:])
+        if (
+            target_type == "class"
+            and isinstance(node, ast.ClassDef)
+            and node.name == target_name
+        ):
+            start = node.lineno - 1
+            end = node.end_lineno
+            return "".join(lines[:start] + [replacement] + lines[end:])
+        if target_type == "import" and isinstance(node, (ast.Import, ast.ImportFrom)):
+            segment = _normalize_newlines(_node_source_segment(content, node)).strip()
+            if segment == target_name:
+                start = node.lineno - 1
+                end = node.end_lineno
+                return "".join(lines[:start] + [replacement] + lines[end:])
+    if not insert_if_missing:
+        raise ValueError(f"op[{idx}]: python_ast target not found in '{path_str}'")
+    insertion = replacement if replacement.endswith("\n") else f"{replacement}\n"
+    if target_type == "import":
+        return f"{insertion}{content}"
+    return content + ("" if content.endswith("\n") or not content else "\n") + insertion
+
+
+def _apply_operation_to_content(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    operation_type = str(op.get("type") or op.get("operation") or "exact_text").strip()
+    if operation_type in {"exact_text", "replace_exact", "modify", ""}:
+        return _apply_exact_text_operation(content, op, path_str, idx)
+    if operation_type in {"replace_lines", "line_range"}:
+        return _apply_line_range_operation(content, op, path_str, idx)
+    if operation_type in {"unified_diff", "apply_unified_diff"}:
+        return _apply_unified_diff_operation(content, op, path_str, idx)
+    if operation_type in {"python_ast", "ast_python"}:
+        return _apply_python_ast_operation(content, op, path_str, idx)
+    raise ValueError(f"op[{idx}]: unsupported operation type '{operation_type}'")
+
+
 # ---------------------------------------------------------------------------
 # Patch validation (shared by preview and apply)
 # ---------------------------------------------------------------------------
@@ -420,7 +602,6 @@ def _validate_operations(
 
     states: dict[str, dict[str, Any]] = {}
     path_order: list[str] = []
-    invalid_paths: set[str] = set()
 
     for idx, op in enumerate(operations):
         if not isinstance(op, dict):
@@ -428,20 +609,10 @@ def _validate_operations(
             continue
 
         path_str = op.get("path", "")
-        old_text = op.get("old_text")
-        new_text = op.get("new_text")
         expected_sha = op.get("expected_sha256", "")
 
         if not path_str or not isinstance(path_str, str):
             errors.append(f"op[{idx}]: path is required")
-            continue
-        if old_text is None or not isinstance(old_text, str):
-            errors.append(f"op[{idx}]: old_text is required and must be a string")
-            invalid_paths.add(path_str)
-            continue
-        if new_text is None or not isinstance(new_text, str):
-            errors.append(f"op[{idx}]: new_text is required and must be a string")
-            invalid_paths.add(path_str)
             continue
 
         state = states.get(path_str)
@@ -450,24 +621,19 @@ def _validate_operations(
                 absolute = _resolve_and_validate_write(repo_root, path_str)
             except ValueError as exc:
                 errors.append(f"op[{idx}]: {exc}")
-                invalid_paths.add(path_str)
                 continue
 
             if not absolute.exists():
                 errors.append(f"op[{idx}]: file does not exist: {path_str}")
-                invalid_paths.add(path_str)
                 continue
             if absolute.is_dir():
                 errors.append(f"op[{idx}]: path is a directory: {path_str}")
-                invalid_paths.add(path_str)
                 continue
             if absolute.is_symlink():
                 errors.append(f"op[{idx}]: symlinks are not allowed: {path_str}")
-                invalid_paths.add(path_str)
                 continue
             if _is_binary(absolute):
                 errors.append(f"op[{idx}]: binary files are not supported: {path_str}")
-                invalid_paths.add(path_str)
                 continue
 
             try:
@@ -475,7 +641,6 @@ def _validate_operations(
                 current_text = current_bytes.decode("utf-8", errors="replace")
             except OSError as exc:
                 errors.append(f"op[{idx}]: cannot read file: {exc}")
-                invalid_paths.add(path_str)
                 continue
 
             state = {
@@ -483,8 +648,11 @@ def _validate_operations(
                 "absolute": absolute,
                 "current_bytes": current_bytes,
                 "current_content": current_text,
+                "working_content": _normalize_newlines(current_text),
+                "dominant_newline": _dominant_newline(current_text),
                 "current_sha256": hashlib.sha256(current_bytes).hexdigest(),
-                "edits": [],
+                "validation_results": [],
+                "applied_exact_old_texts": {},
             }
             states[path_str] = state
             path_order.append(path_str)
@@ -495,68 +663,64 @@ def _validate_operations(
                 f"op[{idx}]: stale hash for '{path_str}': "
                 f"expected {expected_sha[:12]}… got {current_sha[:12]}…"
             )
-            invalid_paths.add(path_str)
             continue
-
-        current_text = state["current_content"]
-        occurrences = current_text.count(old_text)
-        if occurrences == 0:
-            errors.append(f"op[{idx}]: old_text not found in '{path_str}'")
-            invalid_paths.add(path_str)
-            continue
-        if occurrences > 1:
-            errors.append(
-                f"op[{idx}]: old_text appears {occurrences} times in '{path_str}'; "
-                "must be unique"
+        try:
+            state["working_content"] = _apply_operation_to_content(
+                state["working_content"], op, path_str, idx
             )
-            invalid_paths.add(path_str)
-            continue
-
-        start = current_text.index(old_text)
-        end = start + len(old_text)
-        overlap = next(
-            (
-                edit
-                for edit in state["edits"]
-                if start < edit["end"] and edit["start"] < end
-            ),
-            None,
-        )
-        if overlap is not None:
-            errors.append(
-                f"op[{idx}]: edit overlaps op[{overlap['index']}] in '{path_str}'"
+            operation_type = str(op.get("type") or op.get("operation") or "exact_text")
+            if operation_type in {"exact_text", "replace_exact", "modify", ""}:
+                old_text = _normalize_newlines(str(op.get("old_text", "")))
+                state["applied_exact_old_texts"][old_text] = idx
+            state["validation_results"].append(
+                {
+                    "index": idx,
+                    "path": path_str,
+                    "type": operation_type,
+                    "ok": True,
+                }
             )
-            invalid_paths.add(path_str)
+        except ValueError as exc:
+            operation_type = str(op.get("type") or op.get("operation") or "exact_text")
+            if operation_type in {
+                "exact_text",
+                "replace_exact",
+                "modify",
+                "",
+            } and "old_text not found" in str(exc):
+                old_text = _normalize_newlines(str(op.get("old_text", "")))
+                prior = state["applied_exact_old_texts"].get(old_text)
+                if prior is not None:
+                    message = f"op[{idx}]: edit overlaps op[{prior}] in '{path_str}'"
+                else:
+                    message = str(exc)
+            else:
+                message = str(exc)
+            errors.append(message)
+            state["validation_results"].append(
+                {
+                    "index": idx,
+                    "path": path_str,
+                    "type": operation_type,
+                    "ok": False,
+                    "error": message,
+                }
+            )
             continue
-
-        state["edits"].append(
-            {
-                "index": idx,
-                "start": start,
-                "end": end,
-                "old_text": old_text,
-                "new_text": new_text,
-            }
-        )
 
     validated: list[dict] = []
     total_changed_lines = 0
     total_changed_bytes = 0
     for path_str in path_order:
-        if path_str in invalid_paths:
-            continue
         state = states[path_str]
         current_text = state["current_content"]
-        new_content = current_text
-        for edit in sorted(
-            state["edits"], key=lambda item: item["start"], reverse=True
+        if not state["validation_results"] or not all(
+            item.get("ok") for item in state["validation_results"]
         ):
-            new_content = (
-                new_content[: edit["start"]]
-                + edit["new_text"]
-                + new_content[edit["end"] :]
-            )
-
+            continue
+        new_content = _restore_newlines(
+            state["working_content"], state["dominant_newline"]
+        )
         diff = _unified_diff_for_op(current_text, new_content, path_str)
         changed_lines = _count_changed_lines(diff)
         changed_bytes = abs(
@@ -574,7 +738,8 @@ def _validate_operations(
                 "diff": diff,
                 "changed_lines": changed_lines,
                 "changed_bytes": changed_bytes,
-                "operation_count": len(state["edits"]),
+                "operation_count": len(state["validation_results"]),
+                "validation_results": list(state["validation_results"]),
             }
         )
 
@@ -812,6 +977,14 @@ def apply_repo_patch(
     validated, errors = _validate_operations(repo_root, operations, for_apply=True)
     if errors:
         raise ValueError(f"Re-validation failed: {'; '.join(errors)}")
+    transaction = TransactionContext(
+        repo_root,
+        [op["path"] for op in validated],
+    )
+    transaction.set_phase("preflight", {"patch_id": patch_id})
+    transaction.validation_results = [
+        item for op in validated for item in op.get("validation_results", [])
+    ]
 
     # Cross-check validated ops against the manifest
     manifest_ops = {op["path"]: op for op in manifest.get("operations", [])}
@@ -838,7 +1011,9 @@ def apply_repo_patch(
     # Save originals for rollback
     rollback_dir = patch_dir / "rollback"
     rollback_dir.mkdir(exist_ok=True)
+    transaction.register_temp_artifact(rollback_dir)
     rollback_files: dict[str, str] = {}
+    transaction.set_phase("snapshot", {"touched_files": len(validated)})
     for op in validated:
         rollback_name = _legacy_rollback_file_name(op["path"])
         rollback_files[op["path"]] = rollback_name
@@ -848,6 +1023,7 @@ def apply_repo_patch(
     # Write all files atomically (temp → rename)
     written: list[dict] = []
     try:
+        transaction.set_phase("apply", {"touched_files": len(validated)})
         for op in validated:
             absolute: Path = op["absolute"]
             new_content: str = op["new_content"]
@@ -858,21 +1034,17 @@ def apply_repo_patch(
             )
             new_sha = _sha256_file(absolute)
             written.append({"path": op["path"], "sha256": new_sha})
+        transaction.set_phase("validate", {"written_files": len(written)})
     except Exception as exc:
-        # Attempt to rollback already-written files
-        for w in written:
-            rollback_content_path = rollback_dir / (
-                w["path"].replace("/", "__").replace("\\", "__")
-            )
-            if rollback_content_path.exists():
-                try:
-                    abs_p = repo_root / w["path"]
-                    abs_p.write_bytes(rollback_content_path.read_bytes())
-                except Exception:
-                    pass
+        rollback_transaction(
+            transaction,
+            write_bytes=lambda path, data: _atomic_write_bytes(path, data, ".rollback"),
+            unlink_path=lambda path: path.unlink(),
+        )
         raise RuntimeError(f"Apply failed (partial rollback attempted): {exc}") from exc
 
     # Update manifest
+    transaction.set_phase("commit", {"written_files": len(written)})
     manifest["status"] = "applied"
     manifest["applied_at"] = _utc_now()
     manifest["applied_git_head"] = current_head
@@ -887,7 +1059,7 @@ def apply_repo_patch(
     ]
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    return {
+    result = {
         "ok": True,
         "patch_id": patch_id,
         "repo_name": "",
@@ -896,6 +1068,8 @@ def apply_repo_patch(
         "git_head": current_head,
         "error": "",
     }
+    result.update(build_transaction_result(transaction))
+    return result
 
 
 def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) -> dict:
@@ -1082,10 +1256,17 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
             f"Patch exceeds {MAX_PATCH_BYTES // 1024} KB changed-byte limit"
         )
 
+    transaction = TransactionContext(
+        repo_root,
+        [op["path"] for op in prepared_ops],
+    )
+    transaction.set_phase("preflight", {"patch_id": patch_id})
     rollback_dir = patch_dir / "rollback"
     rollback_dir.mkdir(exist_ok=True)
+    transaction.register_temp_artifact(rollback_dir)
     applied_results: list[dict[str, Any]] = []
     try:
+        transaction.set_phase("snapshot", {"touched_files": len(prepared_ops)})
         for index, op in enumerate(prepared_ops):
             rollback_bytes = op["rollback_bytes"]
             rollback_file = ""
@@ -1098,6 +1279,7 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
                 )
 
             absolute = op["absolute"]
+            transaction.set_phase("apply", {"path": op["path"], "index": index})
             if op["action"] in {"modify", "create"}:
                 payload_bytes = op["payload_bytes"]
                 result_sha = _sha256_bytes(payload_bytes)
@@ -1119,6 +1301,7 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
                 }
             )
 
+        transaction.set_phase("validate", {"written_files": len(applied_results)})
         manifest["status"] = "applied"
         manifest["applied_at"] = _utc_now()
         manifest["applied_git_head"] = current_head
@@ -1131,11 +1314,19 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
     except Exception as exc:
         try:
             _rollback_applied_preview_ops(repo_root, rollback_dir, applied_results)
+            rollback_transaction(
+                transaction,
+                write_bytes=lambda path, data: _atomic_write_bytes(
+                    path, data, ".rollback"
+                ),
+                unlink_path=lambda path: path.unlink(),
+            )
         except Exception:
             pass
         raise RuntimeError(f"Apply failed (partial rollback attempted): {exc}") from exc
 
-    return {
+    transaction.set_phase("commit", {"written_files": len(applied_results)})
+    result = {
         "ok": True,
         "patch_id": patch_id,
         "repo_name": "",
@@ -1147,6 +1338,8 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
         "git_head": current_head,
         "error": "",
     }
+    result.update(build_transaction_result(transaction))
+    return result
 
 
 # ---------------------------------------------------------------------------

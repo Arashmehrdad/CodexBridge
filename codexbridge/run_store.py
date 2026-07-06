@@ -67,6 +67,10 @@ class RunStore:
                     summary TEXT NOT NULL DEFAULT '',
                     error TEXT NOT NULL DEFAULT '',
                     safety_failure INTEGER NOT NULL DEFAULT 0,
+                    current_phase TEXT NOT NULL DEFAULT '',
+                    elapsed_seconds REAL NOT NULL DEFAULT 0,
+                    heartbeat_at TEXT,
+                    progress_json TEXT NOT NULL DEFAULT '{}',
                     input_json TEXT NOT NULL DEFAULT '{}',
                     result_json TEXT NOT NULL DEFAULT '{}'
                 )
@@ -95,6 +99,16 @@ class RunStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, id)"
             )
+            self._ensure_column(
+                conn, "runs", "current_phase", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(
+                conn, "runs", "elapsed_seconds", "REAL NOT NULL DEFAULT 0"
+            )
+            self._ensure_column(conn, "runs", "heartbeat_at", "TEXT")
+            self._ensure_column(
+                conn, "runs", "progress_json", "TEXT NOT NULL DEFAULT '{}'"
+            )
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -119,8 +133,8 @@ class RunStore:
                 """
                 INSERT INTO runs (
                     run_id, repo_name, tool, status, risk_level, requires_human,
-                    created_at, run_dir, input_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, run_dir, current_phase, heartbeat_at, input_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -131,6 +145,8 @@ class RunStore:
                     int(requires_human),
                     created_at,
                     str(run_dir),
+                    "queued",
+                    created_at,
                     dumps(input_data),
                 ),
             )
@@ -203,6 +219,10 @@ class RunStore:
             normalized["result_json"], str
         ):
             normalized["result_json"] = dumps(normalized["result_json"])
+        if "progress_json" in normalized and not isinstance(
+            normalized["progress_json"], str
+        ):
+            normalized["progress_json"] = dumps(normalized["progress_json"])
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), run_id]
         with self.connect() as conn:
@@ -228,6 +248,11 @@ class RunStore:
             "message": message,
             "data": data or {},
         }
+        self.update_run(
+            run_id,
+            heartbeat_at=event["timestamp"],
+            current_phase=stage,
+        )
         with self.connect() as conn:
             conn.execute(
                 """
@@ -272,11 +297,40 @@ class RunStore:
             )
         return int(cursor.rowcount)
 
+    def set_progress(
+        self,
+        run_id: str,
+        *,
+        phase: str,
+        progress: dict[str, Any] | None = None,
+        elapsed_seconds: float | None = None,
+        heartbeat_at: str | None = None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "current_phase": phase,
+            "heartbeat_at": heartbeat_at or utc_now(),
+            "progress_json": progress or {},
+        }
+        if elapsed_seconds is not None:
+            fields["elapsed_seconds"] = elapsed_seconds
+        return self.update_run(run_id, **fields)
+
+    @staticmethod
+    def _ensure_column(
+        conn: sqlite3.Connection, table: str, column: str, definition: str
+    ) -> None:
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def _row_to_run(self, row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         result["requires_human"] = bool(result["requires_human"])
         result["safety_failure"] = bool(result["safety_failure"])
         result["input"] = loads(result.pop("input_json"))
+        result["progress"] = loads(result.pop("progress_json"))
         result["result"] = loads(result.pop("result_json"))
         return result
 

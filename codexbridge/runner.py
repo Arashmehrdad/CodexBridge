@@ -16,6 +16,7 @@ from .run_guards import (
     assess_implementation_output,
     assess_plan_output,
     changed_workspace_paths,
+    classify_git_attribution,
     out_of_scope_workspace_changes,
     snapshot_workspace,
 )
@@ -54,6 +55,17 @@ def _append_candidate(candidates: list[str], value: str | Path | None) -> None:
     text = str(value)
     if text and text not in candidates:
         candidates.append(text)
+
+
+def _codex_child_env() -> dict[str, str]:
+    blocked_prefixes = ("MCP_", "OPENAI_MCP_", "CHATGPT_MCP_", "FASTMCP_")
+    env = {}
+    for key, value in os.environ.items():
+        if key.startswith(blocked_prefixes):
+            continue
+        env[key] = value
+    env["CODEXBRIDGE_CONNECTOR_ISOLATION"] = "enabled"
+    return env
 
 
 def _codex_executable_candidates(executable: str) -> list[str]:
@@ -177,6 +189,7 @@ class CodexRunner:
             return subprocess.run(
                 args,
                 cwd=cwd,
+                env=_codex_child_env(),
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -363,6 +376,7 @@ class CodexRunner:
 
         writable_dirs = allowed_write_directories(repo_root, allowed_files)
         workspace_before = snapshot_workspace(repo_root)
+        dirty_before = git_tools.changed_files(repo_root)
 
         prompt = build_implementation_prompt(
             repo_name, approved_plan, allowed_files, tests
@@ -423,10 +437,13 @@ class CodexRunner:
         workspace_violations = out_of_scope_workspace_changes(
             workspace_before, workspace_after, allowed_files
         )
-        changed = git_tools.changed_files(repo_root)
+        changed_after = git_tools.changed_files(repo_root)
+        introduced_changes, preserved_preexisting_changes = classify_git_attribution(
+            changed_after, workspace_before, workspace_after, dirty_before
+        )
         allowed = set(allowed_files)
         violations = sorted(
-            {path for path in changed if path not in allowed}
+            {path for path in introduced_changes if path not in allowed}
             | set(workspace_violations)
         )
         safety_failure = bool(violations)
@@ -455,7 +472,9 @@ class CodexRunner:
                 "plan_conformance": outcome.plan_conformance,
                 "error": "; ".join(outcome.blockers),
                 "safety_failure": safety_failure,
-                "changed_files": changed,
+                "changed_files": introduced_changes,
+                "introduced_changes": introduced_changes,
+                "preserved_preexisting_changes": preserved_preexisting_changes,
                 "workspace_changes": workspace_changes,
                 "out_of_scope_workspace_changes": workspace_violations,
                 "writable_directories": [str(path) for path in writable_dirs],
@@ -471,6 +490,10 @@ class CodexRunner:
                 "codex_stdout_excerpt": (stdout or "")[:4000],
                 "codex_stderr_excerpt": (stderr or "")[:4000],
                 "shell_spawn_failure": shell_spawn_failure,
+                "connector_isolation_note": (
+                    "CodexBridge stripped child-process MCP connector variables where it controls the subprocess environment. "
+                    "Pre-dispatch connector errors on the OpenAI side remain outside CodexBridge control."
+                ),
             }
         )
         self._write_artifacts(

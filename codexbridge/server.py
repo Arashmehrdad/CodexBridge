@@ -12,17 +12,26 @@ from typing import Sequence
 
 from fastmcp import FastMCP
 
-from .config import AppConfig, load_config, resolve_repo
+from .config import AppConfig, load_config, resolve_repo, resolve_repo_config
 from .git_tools import CommitMetadataError
+from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
+from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
 from .git_tools import diff_stat, git_status, inspect_status
 from .git_tools import git_diff as _git_diff_raw
 from .git_tools import create_branch as _git_create_branch
+from .git_tools import stage_all as _stage_all
+from .git_tools import unstage_all as _unstage_all
 from .job_manager import JobManager
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
-from .command_profiles import resolve_command_profile, run_command_profile
+from .command_profiles import (
+    build_git_readonly_profile,
+    resolve_command_profile,
+    run_command_profile,
+)
 from .runner import CodexRunner, latest_run_result as latest_artifact_result
+from .service_reload import apply_reloaded_config, reload_service as _reload_service
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
@@ -679,6 +688,57 @@ def commit_selected_files(
     return result
 
 
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def dry_run_stage_manifest(repo_name: str) -> dict:
+    """Read-only: preview which files would be staged without changing git state."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _dry_run_stage_manifest(repo_root)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def stage_all(repo_name: str) -> dict:
+    """Write tool: stage all repository changes and return before/after manifest details."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _stage_all(repo_root)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def unstage_all(repo_name: str) -> dict:
+    """Write tool: unstage all currently staged changes and return before/after manifest details."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    result = _unstage_all(repo_root)
+    result["repo_name"] = repo_name
+    return result
+
+
+@mcp.tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def commit_all_changes(repo_name: str, title: str, description: str = "") -> dict:
+    """Write tool: stage and commit all current repository changes with validated metadata. Never pushes."""
+    config = get_config()
+    repo_root = resolve_repo(config, repo_name)
+    try:
+        result = _commit_all_changes(repo_root, title, description)
+    except CommitMetadataError as exc:
+        return {
+            "ok": False,
+            "repo_name": repo_name,
+            "files_validated": exc.files_validated,
+            "blocked_field": exc.field,
+            "reason_code": exc.reason_code,
+            "reason": exc.reason,
+            "error": exc.reason,
+        }
+    result["repo_name"] = repo_name
+    return result
+
+
 @mcp.tool(output_schema=SELF_CHECK_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_local_self_check() -> dict:
     """Read-only: run local setup, test, git, and MCP transport readiness checks."""
@@ -858,6 +918,31 @@ def start_pytest_path_async(repo_name: str, path: str) -> dict:
     return get_job_manager().start_pytest_path(repo_name, path)
 
 
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_py_compile_path_async(repo_name: str, path: str) -> dict:
+    """Write async tool: queue py_compile validation for one validated repo-relative Python target."""
+    return get_job_manager().start_py_compile_path(repo_name, path)
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_bash_n_path_async(repo_name: str, path: str) -> dict:
+    """Write async tool: queue bash -n validation for one validated repo-relative shell target."""
+    return get_job_manager().start_bash_n_path(repo_name, path)
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_json_validation_path_async(repo_name: str, path: str) -> dict:
+    """Write async tool: queue JSON syntax validation for one validated repo-relative target."""
+    return get_job_manager().start_json_validation_path(repo_name, path)
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_git_readonly_async(repo_name: str, operation: str) -> dict:
+    """Write async tool: queue one allowlisted read-only git inspection operation and return a durable run_id."""
+    build_git_readonly_profile(operation)
+    return get_job_manager().start_git_readonly(repo_name, operation)
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
     """Read-only: return durable status metadata for a queued/running/completed async run."""
@@ -894,6 +979,15 @@ def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
 def cancel_run(run_id: str) -> dict:
     """Write tool: request cancellation of a running async job without deleting artifacts."""
     return get_job_manager().cancel_run(run_id)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def reload_service(modules: list[str] = []) -> dict:
+    """Write tool: reload supported CodexBridge modules and refresh in-memory config when possible."""
+    result = _reload_service(get_config_path(), modules=modules)
+    if result["ok"] and get_config_path() is not None:
+        set_config(apply_reloaded_config(get_config_path()), get_config_path())
+    return result
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -1170,7 +1264,8 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
     """Write tool: run an allowlisted project command by command_id. Uses subprocess with shell=False."""
     config = get_config()
     repo_root = resolve_repo(config, repo_name)
-    repo_profiles = list(config.repos[repo_name].command_profiles or [])
+    _, repo_config = resolve_repo_config(config, repo_name)
+    repo_profiles = list(repo_config.command_profiles or [])
     profile = resolve_command_profile(command_id, repo_profiles)
     if profile.async_only:
         return {

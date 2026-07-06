@@ -8,12 +8,21 @@ from pathlib import Path
 from uuid import uuid4
 
 from .command_profiles import (
+    BASH_N_PATH_COMMAND_ID,
+    GIT_READONLY_COMMAND_ID,
+    JSON_VALIDATE_PATH_COMMAND_ID,
     PYTEST_PATH_COMMAND_ID,
+    PY_COMPILE_PATH_COMMAND_ID,
+    build_bash_n_path_profile,
+    build_git_readonly_profile,
+    build_json_validate_path_profile,
+    build_py_compile_path_profile,
     build_pytest_path_profile,
     resolve_command_profile,
 )
-from .config import AppConfig, resolve_repo
+from .config import AppConfig, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter, redact_and_truncate
+from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .run_store import RunStore, validate_run_id
 from .safety import reject_destructive_command, validate_repo_relative_paths
@@ -31,9 +40,11 @@ class JobManager:
         self.config = config
         self.config_path = config_path
         self.store = RunStore(config.resolve_runs_dir())
+        self.locks = OperationLockStore(config.resolve_runs_dir())
 
     def reconcile_startup(self) -> int:
         stale = self.store.mark_stale_running()
+        self.locks.recover_stale()
         return stale
 
     def start_plan(self, repo_name: str, task: str, constraints: str = "") -> dict:
@@ -72,7 +83,8 @@ class JobManager:
 
     def start_project_command(self, repo_name: str, command_id: str) -> dict:
         resolve_repo(self.config, repo_name)
-        repo_profiles = list(self.config.repos[repo_name].command_profiles or [])
+        _, repo_config = resolve_repo_config(self.config, repo_name)
+        repo_profiles = list(repo_config.command_profiles or [])
         profile = resolve_command_profile(command_id, repo_profiles)
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
@@ -124,6 +136,66 @@ class JobManager:
         response["path"] = normalized_target
         return response
 
+    def start_py_compile_path(self, repo_name: str, path: str) -> dict:
+        repo_root = resolve_repo(self.config, repo_name)
+        profile = build_py_compile_path_profile(repo_root, path)
+        return self._start_validated_path_command(
+            repo_name,
+            command_id=PY_COMPILE_PATH_COMMAND_ID,
+            normalized_target=profile.argv[-1],
+            timeout_seconds=profile.timeout_seconds,
+            reason="Allowlisted py_compile path validation is approved for durable async execution",
+        )
+
+    def start_bash_n_path(self, repo_name: str, path: str) -> dict:
+        repo_root = resolve_repo(self.config, repo_name)
+        profile = build_bash_n_path_profile(repo_root, path)
+        return self._start_validated_path_command(
+            repo_name,
+            command_id=BASH_N_PATH_COMMAND_ID,
+            normalized_target=profile.argv[-1],
+            timeout_seconds=profile.timeout_seconds,
+            reason="Allowlisted bash -n path validation is approved for durable async execution",
+        )
+
+    def start_json_validation_path(self, repo_name: str, path: str) -> dict:
+        repo_root = resolve_repo(self.config, repo_name)
+        profile = build_json_validate_path_profile(repo_root, path)
+        return self._start_validated_path_command(
+            repo_name,
+            command_id=JSON_VALIDATE_PATH_COMMAND_ID,
+            normalized_target=profile.argv[-1],
+            timeout_seconds=profile.timeout_seconds,
+            reason="Allowlisted JSON validation path is approved for durable async execution",
+        )
+
+    def start_git_readonly(self, repo_name: str, operation: str) -> dict:
+        resolve_repo(self.config, repo_name)
+        profile = build_git_readonly_profile(operation)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=1,
+            risk_level="low",
+            requires_human=False,
+            reason="Allowlisted read-only git operation is approved for durable async execution",
+            estimated_duration_minutes=max(1, (profile.timeout_seconds + 59) // 60),
+            recommended_check_after_minutes=1,
+        )
+        response = self._create_and_launch(
+            "project_command",
+            repo_name,
+            {
+                "repo_name": repo_name,
+                "command_id": GIT_READONLY_COMMAND_ID,
+                "operation": operation,
+            },
+            decision,
+        )
+        response["repo_name"] = repo_name
+        response["command_id"] = GIT_READONLY_COMMAND_ID
+        response["operation"] = operation
+        return response
+
     def start_ssh_command(self, host_id: str, command_id: str) -> dict:
         _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
@@ -163,6 +235,25 @@ class JobManager:
             }
 
         run_id = make_run_id(tool)
+        acquisition = self.locks.acquire(
+            repo_name=repo_name,
+            tool=tool,
+            normalized_input=input_data,
+            run_id=run_id,
+            owner_pid=os.getpid(),
+        )
+        if not acquisition.acquired:
+            return {
+                "run_id": None,
+                "accepted": False,
+                "status": "refused",
+                "estimated_duration_minutes": 0,
+                "recommended_check_after_minutes": 0,
+                "risk_level": decision.risk_level,
+                "requires_human": False,
+                "reason": acquisition.reason,
+                "duplicate": acquisition.duplicate,
+            }
         run_dir = self.config.resolve_runs_dir() / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
         artifacts = ArtifactWriter(run_dir)
@@ -202,6 +293,7 @@ class JobManager:
             close_fds=os.name != "nt",
         )
         self.store.update_run(run_id, worker_pid=process.pid)
+        self.locks.heartbeat(repo_name, run_id)
         event = self.store.append_event(
             run_id,
             level="info",
@@ -211,6 +303,41 @@ class JobManager:
         )
         artifacts.append_event(event)
         return decision.to_start_response(run_id=run_id, status="queued")
+
+    def _start_validated_path_command(
+        self,
+        repo_name: str,
+        *,
+        command_id: str,
+        normalized_target: str,
+        timeout_seconds: int,
+        reason: str,
+    ) -> dict:
+        decision = PolicyDecision(
+            accepted=True,
+            tier=1,
+            risk_level="low",
+            requires_human=False,
+            reason=reason,
+            estimated_duration_minutes=max(1, (timeout_seconds + 59) // 60),
+            recommended_check_after_minutes=min(
+                2, max(1, (timeout_seconds + 59) // 60)
+            ),
+        )
+        response = self._create_and_launch(
+            "project_command",
+            repo_name,
+            {
+                "repo_name": repo_name,
+                "command_id": command_id,
+                "path": normalized_target,
+            },
+            decision,
+        )
+        response["repo_name"] = repo_name
+        response["command_id"] = command_id
+        response["path"] = normalized_target
+        return response
 
     def get_status(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)
@@ -294,6 +421,7 @@ class JobManager:
             ended_at=ended_at,
             error="Run cancelled by request",
         )
+        self.locks.release(run["repo_name"], run_id)
         event = self.store.append_event(
             run_id,
             level="warning",

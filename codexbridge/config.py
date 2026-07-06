@@ -11,6 +11,7 @@ class RepoConfig(BaseModel):
     path: str
     default_tests: List[str] = Field(default_factory=list)
     command_profiles: List[Dict] = Field(default_factory=list)
+    wiki_exclude_paths: List[str] = Field(default_factory=list)
 
 
 class SSHCommandProfileConfig(BaseModel):
@@ -335,11 +336,21 @@ def load_config(
 
 
 def resolve_repo(config: AppConfig, repo_name: str) -> Path:
-    if repo_name not in config.repos:
-        raise ValueError(f"Unknown repo_name: {repo_name}")
-    repo_path = Path(config.repos[repo_name].path).resolve()
+    _, repo = resolve_repo_config(config, repo_name)
+    repo_path = Path(repo.path).resolve()
     if not repo_path.exists():
         raise ValueError(f"Repo path does not exist: {repo_path}")
     if not (repo_path / ".git").exists():
         raise ValueError(f"Repo path does not contain .git: {repo_path}")
     return repo_path
+
+
+def resolve_repo_config(config: AppConfig, repo_name: str) -> tuple[str, RepoConfig]:
+    if repo_name in config.repos:
+        return repo_name, config.repos[repo_name]
+
+    folded_lookup = {name.casefold(): name for name in config.repos}
+    matched_name = folded_lookup.get(repo_name.casefold())
+    if matched_name is None:
+        raise ValueError(f"Unknown repo_name: {repo_name}")
+    return matched_name, config.repos[matched_name]

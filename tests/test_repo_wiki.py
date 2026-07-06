@@ -1,11 +1,28 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from codexbridge.repo_wiki import RepoWikiService
+
+
+def _init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "CodexBridge Tests"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
 
 
 def _make_python_repo(root: Path) -> None:
@@ -37,9 +54,18 @@ def _make_python_repo(root: Path) -> None:
     (root / ".env").write_text("API_KEY=do-not-index\n", encoding="utf-8")
     (root / "secrets").mkdir()
     (root / "secrets" / "token.txt").write_text("do-not-index\n", encoding="utf-8")
+    (root / ".pulse-chrome-profile").mkdir()
+    (root / ".pulse-chrome-profile" / "extension.js").write_text(
+        "console.log('do-not-index');\n", encoding="utf-8"
+    )
+    (root / "demo.egg-info").mkdir()
+    (root / "demo.egg-info" / "SOURCES.txt").write_text(
+        "do-not-index\n", encoding="utf-8"
+    )
 
 
 def test_refresh_generates_repository_wiki(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")
 
@@ -62,10 +88,13 @@ def test_refresh_generates_repository_wiki(tmp_path: Path) -> None:
     indexed_paths = {item["path"] for item in manifest["source_files"]}
     assert ".env" not in indexed_paths
     assert "secrets/token.txt" not in indexed_paths
+    assert ".pulse-chrome-profile/extension.js" not in indexed_paths
+    assert "demo.egg-info/SOURCES.txt" not in indexed_paths
     assert "src/demo/service.py" in indexed_paths
 
 
 def test_refresh_is_incremental_and_detects_changes(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")
 
@@ -85,6 +114,7 @@ def test_refresh_is_incremental_and_detects_changes(tmp_path: Path) -> None:
 
 
 def test_read_and_search_wiki(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")
     service.refresh()
@@ -100,6 +130,7 @@ def test_read_and_search_wiki(tmp_path: Path) -> None:
 
 
 def test_search_normalizes_punctuation_and_reads_nested_pages(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")
     service.refresh()
@@ -117,9 +148,57 @@ def test_search_normalizes_punctuation_and_reads_nested_pages(tmp_path: Path) ->
 
 
 def test_read_page_rejects_traversal(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
     _make_python_repo(tmp_path)
     service = RepoWikiService(tmp_path, "demo")
     service.refresh()
 
     with pytest.raises(ValueError, match="Invalid wiki page"):
         service.read_page("../README.md")
+
+
+def test_refresh_applies_custom_wiki_exclusions(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _make_python_repo(tmp_path)
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "draft.md").write_text("skip me\n", encoding="utf-8")
+    service = RepoWikiService(tmp_path, "demo", wiki_exclusions=["notes"])
+
+    service.refresh()
+
+    manifest = json.loads(
+        (tmp_path / ".codexbridge" / "wiki" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    indexed_paths = {item["path"] for item in manifest["source_files"]}
+    assert "notes/draft.md" not in indexed_paths
+
+
+def test_refresh_falls_back_to_filesystem_when_git_discovery_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / ".git").mkdir()
+    _make_python_repo(tmp_path)
+    service = RepoWikiService(tmp_path, "demo")
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 128, "", "not a git repo"
+        ),
+    )
+
+    result = service.refresh()
+
+    assert result["ok"] is True
+    manifest = json.loads(
+        (tmp_path / ".codexbridge" / "wiki" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    indexed_paths = {item["path"] for item in manifest["source_files"]}
+    assert "src/demo/service.py" in indexed_paths
+    assert ".pulse-chrome-profile/extension.js" not in indexed_paths
+    assert "demo.egg-info/SOURCES.txt" not in indexed_paths

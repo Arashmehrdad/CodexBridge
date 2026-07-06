@@ -273,3 +273,79 @@ def commit_selected_files(
         "remaining_dirty_files": changed_files(repo_root),
         "git_status": git_status(repo_root),
     }
+
+
+def dry_run_stage_manifest(repo_root: Path) -> dict:
+    output = _run_git(
+        repo_root,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+        check=True,
+    ).stdout
+    staged: list[str] = []
+    unstaged: list[str] = []
+    untracked: list[str] = []
+    deleted: list[str] = []
+    for line in output.splitlines():
+        if len(line) < 4:
+            continue
+        x_status = line[0]
+        y_status = line[1]
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if x_status != " ":
+            staged.append(path)
+        if y_status != " ":
+            unstaged.append(path)
+        if x_status == "?" and y_status == "?":
+            untracked.append(path)
+        if "D" in {x_status, y_status}:
+            deleted.append(path)
+    return {
+        "ok": True,
+        "staged": sorted(set(staged)),
+        "unstaged": sorted(set(unstaged)),
+        "untracked": sorted(set(untracked)),
+        "deleted": sorted(set(deleted)),
+        "git_status": git_status(repo_root),
+    }
+
+
+def stage_all(repo_root: Path) -> dict:
+    before = dry_run_stage_manifest(repo_root)
+    _run_git(repo_root, ["add", "-A"], check=True)
+    after = dry_run_stage_manifest(repo_root)
+    return {
+        "ok": True,
+        "before": before,
+        "after": after,
+        "git_status": git_status(repo_root),
+    }
+
+
+def unstage_all(repo_root: Path) -> dict:
+    before = dry_run_stage_manifest(repo_root)
+    _run_git(repo_root, ["reset", "HEAD", "--", "."], check=True)
+    after = dry_run_stage_manifest(repo_root)
+    return {
+        "ok": True,
+        "before": before,
+        "after": after,
+        "git_status": git_status(repo_root),
+    }
+
+
+def commit_all_changes(repo_root: Path, title: str, description: str = "") -> dict:
+    _validate_commit_metadata(title, description or "", files_validated=False)
+    manifest_before = dry_run_stage_manifest(repo_root)
+    _run_git(repo_root, ["add", "-A"], check=True)
+    _run_git(repo_root, ["commit", "-m", title, "-m", description or ""], check=True)
+    commit_hash = _run_git(repo_root, ["rev-parse", "HEAD"], check=True).stdout.strip()
+    return {
+        "ok": True,
+        "files_validated": False,
+        "commit_hash": commit_hash,
+        "stage_manifest_before": manifest_before,
+        "remaining_dirty_files": changed_files(repo_root),
+        "git_status": git_status(repo_root),
+    }

@@ -216,3 +216,27 @@ def test_subprocess_capture_uses_utf8_replace(monkeypatch, tmp_path: Path) -> No
     runner._run_subprocess(["codex", "exec"], tmp_path)
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+
+
+def test_subprocess_env_isolates_unrelated_connector_variables(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
+    monkeypatch.setenv("MCP_FAKE_CONNECTOR", "1")
+    runner = make_runner(tmp_path)
+    runner._run_subprocess(["codex", "exec"], tmp_path)
+
+    assert "MCP_FAKE_CONNECTOR" not in captured["env"]
+    assert captured["env"]["CODEXBRIDGE_CONNECTOR_ISOLATION"] == "enabled"

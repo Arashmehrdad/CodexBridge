@@ -149,3 +149,41 @@ def test_reconcile_startup_marks_running_failed(tmp_path: Path, monkeypatch) -> 
     manager.store.update_run(response["run_id"], status="running")
     assert manager.reconcile_startup() == 1
     assert manager.get_status(response["run_id"])["status"] == "failed"
+
+
+def test_start_async_duplicate_project_command_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    first = manager.start_project_command("sample", "pytest")
+    second = manager.start_project_command("sample", "pytest")
+
+    assert first["accepted"] is True
+    assert second["accepted"] is False
+    assert second["duplicate"] is True
+
+
+def test_start_json_validation_path_persists_normalized_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    target_file = tmp_path / "repo" / "data" / "config.json"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text('{"ok": true}\n', encoding="utf-8")
+
+    response = manager.start_json_validation_path("sample", r"data\config.json")
+
+    assert response["accepted"] is True
+    assert response["path"] == "data/config.json"
+
+
+def test_start_project_command_accepts_case_insensitive_repo_name(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_project_command("Sample", "pytest")
+
+    assert response["accepted"] is True
+    assert response["repo_name"] == "Sample"

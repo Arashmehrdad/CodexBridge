@@ -14,13 +14,22 @@ import pytest
 
 import codexbridge.command_profiles as cp
 from codexbridge.command_profiles import (
+    BASH_N_PATH_COMMAND_ID,
     BUILTIN_PROFILES,
+    GIT_READONLY_COMMAND_ID,
+    JSON_VALIDATE_PATH_COMMAND_ID,
     PYTEST_PATH_COMMAND_ID,
+    PY_COMPILE_PATH_COMMAND_ID,
     CommandProfileSpec,
+    build_bash_n_path_profile,
+    build_git_readonly_profile,
+    build_json_validate_path_profile,
+    build_py_compile_path_profile,
     build_pytest_path_profile,
     find_repo_python,
     resolve_command_profile,
     run_command_profile,
+    validate_repo_relative_command_path,
     validate_and_normalize_pytest_target,
 )
 
@@ -67,6 +76,7 @@ def test_existing_builtin_profile_ids_remain_unchanged() -> None:
         "pip_check",
         "git_status",
         "git_diff_check",
+        "git_readonly",
     }
 
 
@@ -91,6 +101,51 @@ def test_build_pytest_path_profile_for_python_file(tmp_path: Path) -> None:
     profile = build_pytest_path_profile(tmp_path, "tests/test_api.py")
 
     assert profile.argv == ["python", "-m", "pytest", "-q", "tests/test_api.py"]
+
+
+def test_build_py_compile_path_profile(tmp_path: Path) -> None:
+    target_file = tmp_path / "pkg" / "module.py"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("x = 1\n", encoding="utf-8")
+
+    profile = build_py_compile_path_profile(tmp_path, "pkg/module.py")
+
+    assert profile.command_id == PY_COMPILE_PATH_COMMAND_ID
+    assert profile.argv == ["python", "-m", "py_compile", "pkg/module.py"]
+
+
+def test_build_bash_n_path_profile(tmp_path: Path) -> None:
+    target_file = tmp_path / "scripts" / "check.sh"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("echo ok\n", encoding="utf-8")
+
+    profile = build_bash_n_path_profile(tmp_path, "scripts/check.sh")
+
+    assert profile.command_id == BASH_N_PATH_COMMAND_ID
+    assert profile.argv == ["bash", "-n", "scripts/check.sh"]
+
+
+def test_build_json_validate_path_profile(tmp_path: Path) -> None:
+    target_file = tmp_path / "data" / "config.json"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text('{"ok": true}\n', encoding="utf-8")
+
+    profile = build_json_validate_path_profile(tmp_path, "data/config.json")
+
+    assert profile.command_id == JSON_VALIDATE_PATH_COMMAND_ID
+    assert profile.argv == ["python", "-m", "json.tool", "data/config.json"]
+
+
+def test_build_git_readonly_profile_uses_fixed_enum() -> None:
+    profile = build_git_readonly_profile("ls_files")
+    assert profile.command_id == GIT_READONLY_COMMAND_ID
+    assert profile.argv == [
+        "git",
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+    ]
 
 
 def test_pytest_target_normalizes_node_selector_and_windows_separators(
@@ -136,6 +191,19 @@ def test_pytest_target_rejects_invalid_inputs(
 
     with pytest.raises(ValueError, match=error):
         validate_and_normalize_pytest_target(tmp_path, target)
+
+
+def test_validate_repo_relative_command_path_rejects_wrong_suffix(
+    tmp_path: Path,
+) -> None:
+    target_file = tmp_path / "docs" / "readme.md"
+    target_file.parent.mkdir(parents=True)
+    target_file.write_text("# hi\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must use one of"):
+        validate_repo_relative_command_path(
+            tmp_path, "docs/readme.md", allowed_suffixes={".json"}
+        )
 
 
 def test_pytest_target_rejects_non_file_non_directory(tmp_path: Path) -> None:
@@ -307,6 +375,37 @@ def _create_repo_python(repo_root: Path) -> tuple[Path, Path]:
 
 def test_find_repo_python_prefers_local_virtualenv(tmp_path: Path) -> None:
     expected_python, expected_venv = _create_repo_python(tmp_path)
+
+    python_executable, virtual_env = find_repo_python(tmp_path)
+
+    assert python_executable == expected_python
+    assert virtual_env == expected_venv
+
+
+def test_find_repo_python_accepts_active_virtual_env_inside_repo(
+    tmp_path: Path, monkeypatch
+) -> None:
+    expected_python, expected_venv = _create_repo_python(tmp_path)
+    monkeypatch.setenv("VIRTUAL_ENV", str(expected_venv))
+
+    python_executable, virtual_env = find_repo_python(tmp_path)
+
+    assert python_executable == expected_python
+    assert virtual_env == expected_venv
+
+
+def test_find_repo_python_ignores_active_virtual_env_outside_repo(
+    tmp_path: Path, monkeypatch
+) -> None:
+    outside_env = tmp_path.parent / "external-env"
+    if os.name == "nt":
+        interpreter = outside_env / "Scripts" / "python.exe"
+    else:
+        interpreter = outside_env / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_text("", encoding="utf-8")
+    expected_python, expected_venv = _create_repo_python(tmp_path)
+    monkeypatch.setenv("VIRTUAL_ENV", str(outside_env))
 
     python_executable, virtual_env = find_repo_python(tmp_path)
 

@@ -31,11 +31,16 @@ EXPECTED_EXPOSED_ACTIONS = {
     "start_codex_implement_task_async",
     "start_project_command_async",
     "start_pytest_path_async",
+    "start_py_compile_path_async",
+    "start_bash_n_path_async",
+    "start_json_validation_path_async",
+    "start_git_readonly_async",
     "get_run_status",
     "get_run_events",
     "get_run_result",
     "list_runs",
     "cancel_run",
+    "reload_service",
     "start_supervised_recovery_task",
     "get_supervisor_status",
     "get_supervisor_events",
@@ -66,6 +71,10 @@ EXPECTED_EXPOSED_ACTIONS = {
     "git_log",
     "read_repo_files",
     "create_git_branch",
+    "dry_run_stage_manifest",
+    "stage_all",
+    "unstage_all",
+    "commit_all_changes",
 }
 REALISTIC_ACTION_OUTPUTS = {
     "inspect_repo_status": {
@@ -113,6 +122,42 @@ REALISTIC_ACTION_OUTPUTS = {
         "commit_sha": "abc123",
         "files": ["codexbridge/server.py"],
         "message": "hotfix",
+        "error": "",
+    },
+    "dry_run_stage_manifest": {
+        "ok": True,
+        "repo_name": "repo",
+        "status": "preview",
+        "error": "",
+        "staged_files": ["codexbridge/server.py"],
+        "unstaged_files": ["tests/test_server.py"],
+    },
+    "stage_all": {
+        "ok": True,
+        "repo_name": "repo",
+        "status": "staged",
+        "error": "",
+        "before": {"staged_files": []},
+        "after": {"staged_files": ["codexbridge/server.py"]},
+    },
+    "unstage_all": {
+        "ok": True,
+        "repo_name": "repo",
+        "status": "unstaged",
+        "error": "",
+        "before": {"staged_files": ["codexbridge/server.py"]},
+        "after": {"staged_files": []},
+    },
+    "commit_all_changes": {
+        "ok": True,
+        "repo_name": "repo",
+        "files_validated": True,
+        "commit_hash": "a" * 40,
+        "remaining_dirty_files": [],
+        "git_status": "",
+        "blocked_field": "",
+        "reason_code": "",
+        "reason": "",
         "error": "",
     },
     "run_local_self_check": {
@@ -206,6 +251,45 @@ REALISTIC_ACTION_OUTPUTS = {
         "result": {},
         "error": "",
     },
+    "start_py_compile_path_async": {
+        "ok": True,
+        "run_id": "run_6",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "py_compile_path",
+        "path": "codexbridge/server.py",
+        "result": {},
+        "error": "",
+    },
+    "start_bash_n_path_async": {
+        "ok": True,
+        "run_id": "run_7",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "bash_n_path",
+        "path": "scripts/check.sh",
+        "result": {},
+        "error": "",
+    },
+    "start_json_validation_path_async": {
+        "ok": True,
+        "run_id": "run_8",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "json_validation_path",
+        "path": "config/settings.json",
+        "result": {},
+        "error": "",
+    },
+    "start_git_readonly_async": {
+        "ok": True,
+        "run_id": "run_9",
+        "status": "queued",
+        "repo_name": "repo",
+        "command_id": "git_readonly",
+        "result": {},
+        "error": "",
+    },
     "get_run_status": {
         "ok": True,
         "run_id": "run_2",
@@ -238,6 +322,12 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "cancelled",
         "cancelled": True,
         "terminated": True,
+    },
+    "reload_service": {
+        "ok": True,
+        "status": "reloaded",
+        "message": "",
+        "error": "",
     },
     "start_supervised_recovery_task": {
         "ok": True,
@@ -565,8 +655,13 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_codex_implement_task_async",
         "start_project_command_async",
         "start_pytest_path_async",
+        "start_py_compile_path_async",
+        "start_bash_n_path_async",
+        "start_json_validation_path_async",
+        "start_git_readonly_async",
         "start_ssh_command_async",
         "cancel_run",
+        "reload_service",
         "start_supervised_recovery_task",
         "resume_supervisor",
         "pause_supervisor",
@@ -580,6 +675,9 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "revert_managed_patch",
         "run_project_command",
         "create_git_branch",
+        "stage_all",
+        "unstage_all",
+        "commit_all_changes",
     }
     for name, action in actions.items():
         annotations = action["annotations"]
@@ -608,6 +706,15 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "run_local_self_check" in actions
     assert "local_model_health" in actions
     assert "start_pytest_path_async" in actions
+    assert "start_py_compile_path_async" in actions
+    assert "start_bash_n_path_async" in actions
+    assert "start_json_validation_path_async" in actions
+    assert "start_git_readonly_async" in actions
+    assert "reload_service" in actions
+    assert "dry_run_stage_manifest" in actions
+    assert "stage_all" in actions
+    assert "unstage_all" in actions
+    assert "commit_all_changes" in actions
     assert "list_ssh_capabilities" in actions
     assert "ssh_host_health" in actions
     assert "start_ssh_command_async" in actions
@@ -886,6 +993,25 @@ def test_start_pytest_path_async_schema_is_exact() -> None:
     assert set(properties) == {"repo_name", "path"}
     assert set(schema.get("required", [])) == {"repo_name", "path"}
     assert actions["start_pytest_path_async"]["annotations"]["readOnlyHint"] is False
+
+
+def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+
+    for name in {
+        "start_py_compile_path_async",
+        "start_bash_n_path_async",
+        "start_json_validation_path_async",
+    }:
+        schema = actions[name]["inputSchema"]
+        assert set(schema["properties"]) == {"repo_name", "path"}
+        assert set(schema.get("required", [])) == {"repo_name", "path"}
+        assert actions[name]["annotations"]["readOnlyHint"] is False
+
+    git_schema = actions["start_git_readonly_async"]["inputSchema"]
+    assert set(git_schema["properties"]) == {"repo_name", "operation"}
+    assert set(git_schema.get("required", [])) == {"repo_name", "operation"}
+    assert actions["start_git_readonly_async"]["annotations"]["readOnlyHint"] is False
 
 
 def test_remote_capability_tools_delegate(monkeypatch) -> None:

@@ -201,7 +201,11 @@ def register_knowledge_tools(mcp: Any) -> None:
         """Generate or incrementally refresh the repository-local CodexBridge wiki."""
         try:
             _, repo_root = _runtime_context(mcp, repo_name)
-            return RepoWikiService(repo_root, repo_name).refresh(force=force)
+            service = RepoWikiService(repo_root, repo_name)
+            git_dir = repo_root / ".git"
+            if git_dir.is_dir() and not (git_dir / "HEAD").is_file():
+                service._git_list_source_candidates = lambda: None
+            return service.refresh(force=force)
         except Exception as exc:
             return {
                 "ok": False,

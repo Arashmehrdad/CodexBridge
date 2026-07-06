@@ -225,3 +225,133 @@ def test_project_command_worker_rebuilds_scoped_pytest_profile(
         "-q",
         "tests/test_api.py::test_ok",
     ]
+
+
+def test_project_command_worker_reports_only_introduced_changes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    existing = repo / "preexisting.txt"
+    existing.write_text("dirty\n", encoding="utf-8")
+    target = repo / "generated.txt"
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "repos:",
+                "  sample:",
+                f'    path: "{repo.as_posix()}"',
+                f'runs_dir: "{runs_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_id = "20260701T000001Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "git_status"},
+    )
+
+    def fake_run(profile, cwd, *, extra_env=None):
+        target.write_text("new\n", encoding="utf-8")
+        return {
+            "ok": True,
+            "command_id": "git_status",
+            "argv": list(profile.argv),
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 1.0,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.git_tools.git_status",
+        lambda _: " M preexisting.txt\n?? generated.txt\n",
+    )
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr(
+        "codexbridge.job_worker.git_tools.changed_files",
+        lambda _: ["preexisting.txt", "generated.txt"],
+    )
+
+    worker = JobWorker(config_path, run_id)
+    worker.execute()
+    result = store.get_run(run_id)["result"]
+
+    assert result["changed_files"] == ["generated.txt"]
+    assert result["preserved_preexisting_changes"] == ["preexisting.txt"]
+
+
+def test_project_command_worker_resolves_profiles_case_insensitively(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "repos:",
+                "  sample:",
+                f'    path: "{repo.as_posix()}"',
+                "    command_profiles:",
+                "      - command_id: custom",
+                '        argv: ["python", "-c", "print(1)"]',
+                f'runs_dir: "{runs_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_id = "20260701T000002Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="Sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "Sample", "command_id": "custom"},
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.run_command_profile",
+        lambda profile, cwd, *, extra_env=None: {
+            "ok": True,
+            "command_id": "custom",
+            "argv": list(profile.argv),
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+
+    worker = JobWorker(config_path, run_id)
+
+    assert worker.execute() == 0
+    result = store.get_run(run_id)["result"]
+    assert result["repo_name"] == "Sample"
+    assert result["command_id"] == "custom"

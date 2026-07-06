@@ -129,8 +129,41 @@ def out_of_scope_workspace_changes(
 ) -> list[str]:
     allowed = {Path(path).as_posix() for path in allowed_files}
     return [
-        path for path in changed_workspace_paths(before, after) if path not in allowed
+        path
+        for path in changed_workspace_paths(before, after)
+        if path not in allowed and not _is_allowed_temporary_sibling(path, allowed)
     ]
+
+
+def classify_git_attribution(
+    changed_after: Iterable[str],
+    workspace_before: WorkspaceSnapshot,
+    workspace_after: WorkspaceSnapshot,
+    dirty_before: Iterable[str],
+) -> tuple[list[str], list[str]]:
+    changed_set = {Path(path).as_posix() for path in changed_after}
+    dirty_before_set = {Path(path).as_posix() for path in dirty_before}
+    workspace_delta = set(changed_workspace_paths(workspace_before, workspace_after))
+    introduced = sorted(path for path in workspace_delta if path in changed_set)
+    preserved = sorted(
+        path
+        for path in dirty_before_set
+        if path in changed_set and path not in introduced
+    )
+    return introduced, preserved
+
+
+def _is_allowed_temporary_sibling(path: str, allowed: set[str]) -> bool:
+    candidate = Path(path)
+    if candidate.suffix.lower() != ".tmp":
+        return False
+    name = candidate.name
+    for allowed_path in allowed:
+        allowed_name = Path(allowed_path).name
+        if name.startswith(f".{allowed_name}.") or name == f".{allowed_name}.tmp":
+            if candidate.parent.as_posix() == Path(allowed_path).parent.as_posix():
+                return True
+    return False
 
 
 def assess_plan_output(summary: str) -> ImplementationOutcome:
