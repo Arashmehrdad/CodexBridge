@@ -13,6 +13,34 @@ class RepoConfig(BaseModel):
     command_profiles: List[Dict] = Field(default_factory=list)
 
 
+class SSHCommandProfileConfig(BaseModel):
+    command_id: str
+    argv: List[str] = Field(default_factory=list, min_length=1, max_length=64)
+    timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    description: str = ""
+    writes_remote: bool = False
+
+
+class SSHHostConfig(BaseModel):
+    ssh_alias: str
+    connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    command_profiles: List[SSHCommandProfileConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_command_ids(self) -> "SSHHostConfig":
+        command_ids = [profile.command_id for profile in self.command_profiles]
+        if len(command_ids) != len(set(command_ids)):
+            raise ValueError("SSH command_id values must be unique per host")
+        return self
+
+
+class SSHConfig(BaseModel):
+    enabled: bool = False
+    executable: str = "ssh"
+    max_output_bytes: int = Field(default=100000, ge=1024, le=5000000)
+    hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
+
+
 class CodexConfig(BaseModel):
     executable: str = "codex"
     model: str = ""
@@ -212,6 +240,7 @@ class SupervisorsConfig(BaseModel):
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
+    ssh: SSHConfig = Field(default_factory=SSHConfig)
     codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)

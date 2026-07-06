@@ -24,6 +24,9 @@ EXPECTED_EXPOSED_ACTIONS = {
     "commit_selected_files",
     "run_local_self_check",
     "local_model_health",
+    "list_ssh_capabilities",
+    "ssh_host_health",
+    "start_ssh_command_async",
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
     "start_project_command_async",
@@ -130,6 +133,43 @@ REALISTIC_ACTION_OUTPUTS = {
         "timeout_seconds": 30,
         "error": "",
         "audit_event_id": "audit_1",
+    },
+    "list_ssh_capabilities": {
+        "ok": True,
+        "enabled": True,
+        "hosts": [
+            {
+                "host_id": "my_vps",
+                "ssh_alias": "my-vps",
+                "commands": [
+                    {
+                        "command_id": "uptime",
+                        "description": "Show server uptime",
+                        "timeout_seconds": 30,
+                        "writes_remote": False,
+                    }
+                ],
+            }
+        ],
+        "error": "",
+    },
+    "ssh_host_health": {
+        "ok": True,
+        "status": "ok",
+        "host_id": "my_vps",
+        "ssh_alias": "my-vps",
+        "exit_code": 0,
+        "error": "",
+    },
+    "start_ssh_command_async": {
+        "ok": True,
+        "run_id": "run_remote",
+        "status": "queued",
+        "host_id": "my_vps",
+        "command_id": "uptime",
+        "writes_remote": False,
+        "result": {},
+        "error": "",
     },
     "start_codex_plan_task_async": {
         "ok": True,
@@ -525,6 +565,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_codex_implement_task_async",
         "start_project_command_async",
         "start_pytest_path_async",
+        "start_ssh_command_async",
         "cancel_run",
         "start_supervised_recovery_task",
         "resume_supervisor",
@@ -567,6 +608,9 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "run_local_self_check" in actions
     assert "local_model_health" in actions
     assert "start_pytest_path_async" in actions
+    assert "list_ssh_capabilities" in actions
+    assert "ssh_host_health" in actions
+    assert "start_ssh_command_async" in actions
     assert "pytest" not in actions
     assert "pip_check" not in actions
     assert "dashboard_summary" not in actions
@@ -842,6 +886,73 @@ def test_start_pytest_path_async_schema_is_exact() -> None:
     assert set(properties) == {"repo_name", "path"}
     assert set(schema.get("required", [])) == {"repo_name", "path"}
     assert actions["start_pytest_path_async"]["annotations"]["readOnlyHint"] is False
+
+
+def test_remote_capability_tools_delegate(monkeypatch) -> None:
+    config = object()
+    monkeypatch.setattr(server, "get_config", lambda: config)
+    monkeypatch.setattr(
+        server,
+        "_list_ssh_capabilities",
+        lambda received: {"ok": received is config, "enabled": True, "hosts": []},
+    )
+    monkeypatch.setattr(
+        server,
+        "_ssh_host_health",
+        lambda received, host_id: {
+            "ok": received is config,
+            "status": "ok",
+            "host_id": host_id,
+        },
+    )
+
+    listed = getattr(server, "list_ssh_capabilities")()
+    health = getattr(server, "ssh_host_health")("my_vps")
+
+    assert listed["ok"] is True
+    assert health == {"ok": True, "status": "ok", "host_id": "my_vps"}
+
+
+def test_start_remote_command_async_delegates(monkeypatch) -> None:
+    method_name = "start_ssh_command"
+
+    def start(self, host_id, command_id):
+        return {
+            "run_id": "run_remote",
+            "accepted": True,
+            "status": "queued",
+            "host_id": host_id,
+            "command_id": command_id,
+            "writes_remote": False,
+        }
+
+    fake_manager = type("FakeJobManager", (), {method_name: start})()
+    monkeypatch.setattr(server, "get_job_manager", lambda: fake_manager)
+
+    result = getattr(server, "start_ssh_command_async")("my_vps", "uptime")
+
+    assert result["accepted"] is True
+    assert result["run_id"] == "run_remote"
+    assert result["host_id"] == "my_vps"
+    assert result["command_id"] == "uptime"
+
+
+def test_remote_tool_input_schemas_are_exact() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+    list_name = "list_ssh_capabilities"
+    health_name = "ssh_host_health"
+    start_name = "start_ssh_command_async"
+
+    assert set(actions[list_name]["inputSchema"]["properties"]) == set()
+    assert set(actions[health_name]["inputSchema"]["properties"]) == {"host_id"}
+    assert set(actions[start_name]["inputSchema"]["properties"]) == {
+        "host_id",
+        "command_id",
+    }
+    assert set(actions[start_name]["inputSchema"].get("required", [])) == {
+        "host_id",
+        "command_id",
+    }
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:

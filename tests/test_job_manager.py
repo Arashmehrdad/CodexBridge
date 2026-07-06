@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.config import AppConfig, RepoConfig
+from codexbridge.config import (
+    AppConfig,
+    RepoConfig,
+    SSHCommandProfileConfig,
+    SSHConfig,
+    SSHHostConfig,
+)
 from codexbridge.job_manager import JobManager
 
 
@@ -24,6 +30,21 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(repo))},
         runs_dir=str(tmp_path / "runs"),
+        ssh=SSHConfig(
+            enabled=True,
+            hosts={
+                "my_vps": SSHHostConfig(
+                    ssh_alias="my-vps",
+                    command_profiles=[
+                        SSHCommandProfileConfig(
+                            command_id="uptime",
+                            argv=["uptime"],
+                            timeout_seconds=30,
+                        )
+                    ],
+                )
+            },
+        ),
         config_dir=tmp_path,
     )
     monkeypatch.setattr(
@@ -94,6 +115,21 @@ def test_start_pytest_path_persists_normalized_target(
     )
     assert input_data["command_id"] == "pytest_path"
     assert input_data["path"] == "tests/test_api.py::test_ok"
+
+
+def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_ssh_command("my_vps", "uptime")
+
+    assert response["accepted"] is True
+    assert response["host_id"] == "my_vps"
+    assert response["command_id"] == "uptime"
+    assert response["writes_remote"] is False
+    status = manager.get_status(response["run_id"])
+    assert status["repo_name"] == "ssh:my_vps"
+    assert status["tool"] == "ssh_command"
+    assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
 
 
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:

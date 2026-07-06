@@ -25,6 +25,8 @@ from .command_profiles import resolve_command_profile, run_command_profile
 from .runner import CodexRunner, latest_run_result as latest_artifact_result
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
+from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
+from .ssh_commands import ssh_host_health as _ssh_host_health
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 
@@ -797,6 +799,30 @@ def local_model_health() -> dict:
 def _finish_local_model_health(result: dict, started: float) -> dict:
     result["duration_seconds"] = time.monotonic() - started
     return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_ssh_capabilities() -> dict:
+    """Read-only: list configured SSH host IDs and allowlisted command metadata."""
+    return _list_ssh_capabilities(get_config())
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def ssh_host_health(host_id: str) -> dict:
+    """Read-only: test one configured SSH alias with a fixed non-interactive command."""
+    return _ssh_host_health(get_config(), host_id)
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_ssh_command_async(host_id: str, command_id: str) -> dict:
+    """Write async tool: queue one configured SSH command by host ID and command ID."""
+    return get_job_manager().start_ssh_command(host_id, command_id)
 
 
 @mcp.tool(

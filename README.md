@@ -13,6 +13,7 @@ ChatGPT
      -> repository write/preview tools
      -> Codex plan/implement runner
      -> allowlisted command profiles
+     -> allowlisted remote-server aliases and command profiles
      -> repository wiki + decision memory
      -> durable async run store + artifacts
      -> supervisors
@@ -180,6 +181,37 @@ Command execution rules:
 
 If a long command times out in synchronous mode, retrying it synchronously is not the correct recovery path. Register or use the durable async profile and recover through the run tools instead.
 
+## Allowlisted SSH Commands
+
+CodexBridge can use the local Windows OpenSSH client through a stable alias from `~/.ssh/config` or Tailscale MagicDNS. Changing public IP addresses therefore do not need to appear in CodexBridge configuration.
+
+```sshconfig
+Host my-vps
+    HostName server-name.tailnet-name.ts.net
+    User ubuntu
+    IdentityFile C:/Users/arash/.ssh/id_ed25519
+    IdentitiesOnly yes
+```
+
+```yaml
+ssh:
+  enabled: true
+  executable: "ssh"
+  hosts:
+    my_vps:
+      ssh_alias: "my-vps"
+      command_profiles:
+        - command_id: "uptime"
+          argv: ["uptime"]
+          timeout_seconds: 30
+          description: "Show server uptime"
+          writes_remote: false
+```
+
+Use `list_ssh_capabilities()` to inspect configured hosts and commands, `ssh_host_health(host_id)` for a fixed connectivity check, and `start_ssh_command_async(host_id, command_id)` to queue a durable remote command. Poll the returned `run_id` with the existing run tools.
+
+ChatGPT sends only `host_id` and `command_id`. Host resolution, usernames, and private keys stay in the local SSH configuration. CodexBridge uses `shell=False`, batch mode, strict host-key checking, disabled password authentication, disabled agent forwarding, and cleared forwarding. Arbitrary command text, interactive shells, uploads, downloads, tunnels, and port forwarding are not supported. `writes_remote` is risk metadata; CodexBridge cannot independently prove that a nominally read-only command made no remote changes or verify the final remote state after a write.
+
 ## Safe Repository Changes
 
 Preview-first write tools:
@@ -217,6 +249,7 @@ Durable async runs cover:
 - `start_codex_implement_task_async`
 - `start_project_command_async`
 - `start_pytest_path_async`
+- `start_ssh_command_async`
 
 Read and control them with:
 
@@ -311,6 +344,7 @@ CodexBridge's practical safety boundary is:
 - repository whitelist enforcement by `repo_name`
 - repo-relative path validation for reads and writes
 - `shell=False` execution for allowlisted command profiles
+- allowlisted SSH aliases and remote command IDs with strict non-interactive OpenSSH options
 - capped command and read outputs
 - secret redaction on repository reads and many returned summaries
 - pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform, while a developer may still push locally with Git outside the bridge workflow

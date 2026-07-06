@@ -3,6 +3,25 @@ repos:
     path: "D:/Github/Stream_Alpha"
     default_tests:
       - "python -m pytest"
+ssh:
+  enabled: false
+  executable: "ssh"
+  max_output_bytes: 100000
+  hosts:
+    my_vps:
+      ssh_alias: "my-vps"
+      connect_timeout_seconds: 10
+      command_profiles:
+        - command_id: "uptime"
+          argv: ["uptime"]
+          timeout_seconds: 30
+          description: "Show server uptime"
+          writes_remote: false
+        - command_id: "restart_app"
+          argv: ["sudo", "systemctl", "restart", "my-app"]
+          timeout_seconds: 60
+          description: "Restart the configured application service"
+          writes_remote: true
 runs_dir: "runs"
 codex:
   executable: "codex"

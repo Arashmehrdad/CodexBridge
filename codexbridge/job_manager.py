@@ -17,6 +17,7 @@ from .events import ArtifactWriter, redact_and_truncate
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .run_store import RunStore, validate_run_id
 from .safety import reject_destructive_command, validate_repo_relative_paths
+from .ssh_commands import resolve_ssh_command_profile
 
 
 def make_run_id(tool: str) -> str:
@@ -121,6 +122,29 @@ class JobManager:
         response["repo_name"] = repo_name
         response["command_id"] = PYTEST_PATH_COMMAND_ID
         response["path"] = normalized_target
+        return response
+
+    def start_ssh_command(self, host_id: str, command_id: str) -> dict:
+        _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
+        estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=2 if profile.writes_remote else 1,
+            risk_level="medium" if profile.writes_remote else "low",
+            requires_human=False,
+            reason="Allowlisted SSH command is approved for durable async execution",
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        response = self._create_and_launch(
+            "ssh_command",
+            f"ssh:{host_id}",
+            {"host_id": host_id, "command_id": command_id},
+            decision,
+        )
+        response["host_id"] = host_id
+        response["command_id"] = command_id
+        response["writes_remote"] = profile.writes_remote
         return response
 
     def _create_and_launch(

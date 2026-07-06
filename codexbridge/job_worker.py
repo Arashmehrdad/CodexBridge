@@ -30,6 +30,7 @@ from .run_guards import (
 )
 from .runner import CodexRunner, _safe_command_args
 from .safety import reject_destructive_command, validate_repo_relative_paths
+from .ssh_commands import run_ssh_command
 
 
 def _utc_now() -> str:
@@ -140,9 +141,13 @@ class JobWorker:
 
     def _execute_inner(self, started_at: str) -> dict:
         input_data = self.run["input"]
+        tool = self.run["tool"]
+
+        if tool == "ssh_command":
+            return self._execute_ssh_command(started_at, input_data)
+
         repo_name = input_data["repo_name"]
         repo_root = resolve_repo(self.config, repo_name)
-        tool = self.run["tool"]
 
         if tool == "project_command":
             return self._execute_project_command(
@@ -327,6 +332,69 @@ class JobWorker:
             "safety_failure": safety_failure,
             "codex_exit_code": exit_code,
             "codex_command_args": _safe_command_args(args),
+        }
+
+    def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
+        host_id = str(input_data["host_id"])
+        command_id = str(input_data["command_id"])
+        self.event(
+            "info",
+            "ssh",
+            "Starting allowlisted SSH command",
+            {"host_id": host_id, "command_id": command_id},
+        )
+        command_result = run_ssh_command(self.config, host_id, command_id)
+        safe_command_result = dict(redact_and_truncate(command_result))
+        command_result = safe_command_result
+        stdout = str(safe_command_result.get("stdout", ""))
+        stderr = str(safe_command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+
+        risks: list[str] = []
+        if command_result.get("timed_out"):
+            risks.append("SSH command timed out; inspect saved output before retrying")
+        if command_result.get("writes_remote"):
+            risks.append(
+                "CodexBridge cannot independently verify the resulting remote state"
+            )
+        output_summary = (stdout or stderr).strip()
+        summary = (
+            output_summary[-4000:]
+            if output_summary
+            else (
+                f"SSH command {command_id} completed with exit code "
+                f"{command_result.get('exit_code')}"
+            )
+        )
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "ssh_command",
+            "host_id": host_id,
+            "ssh_alias": str(command_result.get("ssh_alias", "")),
+            "command_id": command_id,
+            "writes_remote": bool(command_result.get("writes_remote")),
+            "remote_state_verified": False,
+            "status": "completed" if command_result.get("ok") else "failed",
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": output_summary,
+            "summary": summary,
+            "remaining_risks": risks,
+            "error": str(command_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": bool(command_result.get("timed_out")),
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
         }
 
     def _execute_project_command(

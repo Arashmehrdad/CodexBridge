@@ -10,6 +10,8 @@ from codexbridge.config import (
     AppConfig,
     LocalModelConfig,
     RepoConfig,
+    SSHCommandProfileConfig,
+    SSHHostConfig,
     SupervisorAutonomyProfile,
     SupervisorsConfig,
     load_config,
@@ -28,6 +30,11 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.codex.executable == "codex"
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().max_implementation_tier == 2
+    assert config.ssh.enabled is False
+    assert config.ssh.hosts["my_vps"].ssh_alias == "my-vps"
+    assert [
+        profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
+    ] == ["uptime", "restart_app"]
 
 
 def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
@@ -90,6 +97,15 @@ def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
         config_dir=tmp_path,
     )
     assert config.supervisors.effective_profile().max_implementation_tier == 1
+
+
+def test_ssh_host_rejects_duplicate_command_ids() -> None:
+    profile = SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+    with pytest.raises(ValidationError, match="unique"):
+        SSHHostConfig(
+            ssh_alias="my-vps",
+            command_profiles=[profile, profile.model_copy()],
+        )
 
 
 def test_unknown_default_supervisor_profile_rejected() -> None:
