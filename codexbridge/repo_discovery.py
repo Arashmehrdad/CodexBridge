@@ -178,7 +178,9 @@ def diagnose_repository_miss(
                 )
                 if child.name.casefold() in excluded:
                     if name_matches:
-                        return f"matching folder {child.name!r} is excluded from discovery"
+                        return (
+                            f"matching folder {child.name!r} is excluded from discovery"
+                        )
                     continue
                 try:
                     if child.is_symlink():
