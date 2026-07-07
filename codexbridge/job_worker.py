@@ -138,6 +138,20 @@ class JobWorker:
             progress_updates={"last_output_at": _utc_now()},
         )
 
+    def _finalize_commit(
+        self,
+        repo_root: Path,
+        changed_files: list[str],
+        *,
+        tool_name: str,
+    ) -> dict[str, object]:
+        return git_tools.finalize_explicit_changes(
+            repo_root,
+            changed_files,
+            tool_name=tool_name,
+            run_id=self.run_id,
+        )
+
     def execute(self) -> int:
         started_at = _utc_now()
         self._started_monotonic = time.monotonic()
@@ -448,6 +462,31 @@ class JobWorker:
         else:
             terminal_status = "completed"
 
+        commit_data = {
+            "commit_required": False,
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "commit_result": {
+                "ok": True,
+                "reason": "not_applicable",
+            },
+        }
+        if terminal_status == "completed" and tool == "codex_implement_task":
+            commit_data = self._finalize_commit(
+                repo_root,
+                introduced_changes,
+                tool_name=tool,
+            )
+            git_after = git_tools.git_status(repo_root)
+            diff_stat = git_tools.diff_stat(repo_root)
+            changed_after = git_tools.changed_files(repo_root)
+            if commit_data["commit_attempted"] and commit_data["commit_error"]:
+                terminal_status = "failed"
+                risks.append(
+                    f"Automatic commit finalization failed: {commit_data['commit_error']}"
+                )
+
         ended_at = _utc_now()
         return {
             "run_id": self.run_id,
@@ -483,6 +522,7 @@ class JobWorker:
             "managed_artifacts_cleaned": managed_artifacts_cleaned,
             "temporary_directory": str(temp_root),
             "error": "; ".join(blockers)
+            or commit_data["commit_error"]
             or (
                 "Approved plan was only partially verified"
                 if terminal_status == "partial"
@@ -491,6 +531,7 @@ class JobWorker:
             "safety_failure": safety_failure,
             "codex_exit_code": exit_code,
             "codex_command_args": _safe_command_args(args),
+            **commit_data,
         }
 
     def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
@@ -718,6 +759,34 @@ class JobWorker:
         if safety_failure:
             errors.append("Read-only command changed repository state")
         error = "; ".join(item for item in errors if item)
+        commit_data = {
+            "commit_required": False,
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "commit_result": {
+                "ok": True,
+                "reason": "not_applicable",
+            },
+        }
+        terminal_status = (
+            "completed" if command_result.get("ok") and not safety_failure else "failed"
+        )
+        if terminal_status == "completed" and profile.writes_files:
+            commit_data = self._finalize_commit(
+                repo_root,
+                introduced_changes,
+                tool_name="project_command",
+            )
+            git_after = git_tools.git_status(repo_root)
+            diff_after = git_tools.diff_stat(repo_root)
+            changed_after = git_tools.changed_files(repo_root)
+            if commit_data["commit_attempted"] and commit_data["commit_error"]:
+                terminal_status = "failed"
+                risks.append(
+                    f"Automatic commit finalization failed: {commit_data['commit_error']}"
+                )
+
         ended_at = _utc_now()
         tests_run = (
             [f"{command_id}:{normalized_target}"] if normalized_target else [command_id]
@@ -728,9 +797,7 @@ class JobWorker:
             "tool": "project_command",
             "command_id": command_id,
             "path": normalized_target,
-            "status": "completed"
-            if command_result.get("ok") and not safety_failure
-            else "failed",
+            "status": terminal_status,
             "exit_code": int(command_result.get("exit_code", 1)),
             "started_at": started_at,
             "ended_at": ended_at,
@@ -744,7 +811,7 @@ class JobWorker:
             "test_results": output_summary,
             "summary": summary,
             "remaining_risks": risks,
-            "error": error,
+            "error": commit_data["commit_error"] or error,
             "safety_failure": safety_failure,
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
@@ -752,6 +819,7 @@ class JobWorker:
             "temporary_directory": str(temp_root),
             "pytest_basetemp": str(pytest_temp) if pytest_temp.exists() else "",
             "command_result": command_result,
+            **commit_data,
         }
 
     def _error_result(self, started_at: str, ended_at: str, exc: Exception) -> dict:

@@ -1080,6 +1080,7 @@ def test_revert_restores_original(tmp_path: Path) -> None:
     assert (repo / "rev.py").read_text(encoding="utf-8") == "v = 2\n"
     result = revert_managed_patch(repo, preview["patch_id"], runs)
     assert result["ok"] is True
+    assert result["changed_files"] == ["rev.py"]
     assert (repo / "rev.py").read_text(encoding="utf-8") == "v = 1\n"
 
 
@@ -1226,6 +1227,7 @@ def test_create_repo_file_succeeds(tmp_path: Path) -> None:
     result = create_repo_file(repo, "new.py", "x = 1\n")
     assert result["ok"] is True
     assert (repo / "new.py").exists()
+    assert result["changed_files"] == ["new.py"]
     assert result["sha256"] == sha256_file(repo / "new.py")
 
 
@@ -1280,6 +1282,7 @@ def test_delete_repo_file_succeeds(tmp_path: Path) -> None:
     sha = sha256_file(repo / "del.py")
     result = delete_repo_file(repo, "del.py", sha, runs)
     assert result["ok"] is True
+    assert result["changed_files"] == ["del.py"]
     assert not (repo / "del.py").exists()
 
 
@@ -1314,6 +1317,7 @@ def test_move_repo_file_succeeds(tmp_path: Path) -> None:
     sha = sha256_file(repo / "src.py")
     result = move_repo_file(repo, "src.py", "dst.py", sha, runs)
     assert result["ok"] is True
+    assert result["changed_files"] == ["src.py", "dst.py"]
     assert not (repo / "src.py").exists()
     assert (repo / "dst.py").exists()
 

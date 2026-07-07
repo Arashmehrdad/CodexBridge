@@ -245,6 +245,77 @@ def test_run_project_command_accepts_case_insensitive_repo_name(
     assert result["requested_repo_name"] == "CodexBridge"
 
 
+def test_run_project_command_finalizes_write_profile_changes(
+    monkeypatch, tmp_path
+) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={
+            "repo": RepoConfig(
+                path=str(tmp_path),
+                command_profiles=[
+                    {
+                        "command_id": "generate",
+                        "argv": ["python", "-c", "print(1)"],
+                        "writes_files": True,
+                    }
+                ],
+            )
+        },
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    states = iter(
+        [
+            ["preexisting.txt"],
+            ["preexisting.txt", "generated.txt"],
+        ]
+    )
+    monkeypatch.setattr(server, "_changed_files", lambda _root: next(states))
+    monkeypatch.setattr(
+        server,
+        "run_command_profile",
+        lambda profile, repo_root: {
+            "ok": True,
+            "command_id": profile.command_id,
+            "argv": list(profile.argv),
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+    finalized: list[list[str]] = []
+    monkeypatch.setattr(
+        server,
+        "finalize_explicit_changes",
+        lambda repo_root, paths, *, tool_name, run_id="": (
+            finalized.append(list(paths))
+            or {
+                "commit_required": True,
+                "commit_attempted": True,
+                "commit_hash": "abc123",
+                "commit_error": "",
+                "commit_result": {"ok": True},
+            }
+        ),
+    )
+
+    result = server.run_project_command("repo", "generate")
+
+    assert result["ok"] is True
+    assert finalized == [["generated.txt"]]
+    assert result["commit_hash"] == "abc123"
+
+
 def test_preview_tools_preserve_canonical_repo_name(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
@@ -279,6 +350,195 @@ def test_preview_tools_preserve_canonical_repo_name(monkeypatch, tmp_path) -> No
 
     assert result["repo_name"] == "codexbridge"
     assert result["requested_repo_name"] == "CodexBridge"
+
+
+def test_direct_write_tools_finalize_commits(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        runs_dir=str(tmp_path / "runs"),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    monkeypatch.setattr(server, "_get_runs_dir", lambda: tmp_path / "runs")
+    finalized: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        server,
+        "finalize_explicit_changes",
+        lambda repo_root, paths, *, tool_name, run_id="": (
+            finalized.append((tool_name, list(paths)))
+            or {
+                "commit_required": True,
+                "commit_attempted": True,
+                "commit_hash": "a" * 40,
+                "commit_error": "",
+                "commit_result": {"ok": True},
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        server,
+        "_repo_writer",
+        type(
+            "Writer",
+            (),
+            {
+                "apply_repo_patch": staticmethod(
+                    lambda repo_root, operations, patch_id, runs_dir: {
+                        "ok": True,
+                        "patch_id": patch_id,
+                        "repo_name": "",
+                        "changed_files": ["patched.py"],
+                        "results": [{"path": "patched.py", "sha256": "a" * 64}],
+                        "git_head": "b" * 40,
+                        "error": "",
+                    }
+                ),
+                "apply_previewed_repo_change": staticmethod(
+                    lambda repo_root, patch_id, runs_dir: {
+                        "ok": True,
+                        "patch_id": patch_id,
+                        "repo_name": "",
+                        "changed_files": ["previewed.py"],
+                        "results": [{"path": "previewed.py", "sha256": "a" * 64}],
+                        "git_head": "b" * 40,
+                        "error": "",
+                    }
+                ),
+                "create_repo_file": staticmethod(
+                    lambda repo_root, path, content: {
+                        "ok": True,
+                        "repo_name": "",
+                        "path": path,
+                        "changed_files": [path],
+                        "sha256": "a" * 64,
+                        "size_bytes": len(content),
+                        "error": "",
+                    }
+                ),
+                "delete_repo_file": staticmethod(
+                    lambda repo_root, path, expected_sha256, runs_dir: {
+                        "ok": True,
+                        "repo_name": "",
+                        "path": path,
+                        "changed_files": [path],
+                        "rollback_id": "delete_1",
+                        "error": "",
+                    }
+                ),
+                "move_repo_file": staticmethod(
+                    lambda repo_root, source_path, destination_path, expected_sha256, runs_dir: {
+                        "ok": True,
+                        "repo_name": "",
+                        "source_path": source_path,
+                        "destination_path": destination_path,
+                        "changed_files": [source_path, destination_path],
+                        "sha256": "a" * 64,
+                        "rollback_id": "move_1",
+                        "error": "",
+                    }
+                ),
+                "revert_managed_patch": staticmethod(
+                    lambda repo_root, patch_id, runs_dir: {
+                        "ok": True,
+                        "patch_id": patch_id,
+                        "repo_name": "",
+                        "reverted_files": ["reverted.py"],
+                        "changed_files": ["reverted.py"],
+                        "error": "",
+                    }
+                ),
+                "_sha256_text": staticmethod(lambda content: "c" * 64),
+            },
+        ),
+    )
+
+    assert server.apply_repo_patch("repo", [], "patch_1")["commit_attempted"] is True
+    assert (
+        server.apply_previewed_repo_change("repo", "patch_2")["commit_attempted"]
+        is True
+    )
+    assert (
+        server.create_repo_file("repo", "new.py", "pass\n")["commit_attempted"] is True
+    )
+    assert (
+        server.delete_repo_file("repo", "old.py", "a" * 64)["commit_attempted"] is True
+    )
+    assert (
+        server.move_repo_file("repo", "src.py", "dst.py", "a" * 64)["commit_attempted"]
+        is True
+    )
+    assert server.revert_managed_patch("repo", "patch_3")["commit_attempted"] is True
+    assert finalized == [
+        ("apply_repo_patch", ["patched.py"]),
+        ("apply_previewed_repo_change", ["previewed.py"]),
+        ("create_repo_file", ["new.py"]),
+        ("delete_repo_file", ["old.py"]),
+        ("move_repo_file", ["src.py", "dst.py"]),
+        ("revert_managed_patch", ["reverted.py"]),
+    ]
+
+
+def test_direct_write_commit_failure_returns_commit_failed_status(
+    monkeypatch, tmp_path
+) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+        runs_dir=str(tmp_path / "runs"),
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    monkeypatch.setattr(
+        server,
+        "finalize_explicit_changes",
+        lambda repo_root, paths, *, tool_name, run_id="": {
+            "commit_required": True,
+            "commit_attempted": True,
+            "commit_hash": "",
+            "commit_error": "simulated commit failure",
+            "commit_result": {"ok": False},
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "_repo_writer",
+        type(
+            "Writer",
+            (),
+            {
+                "create_repo_file": staticmethod(
+                    lambda repo_root, path, content: {
+                        "ok": True,
+                        "repo_name": "",
+                        "path": path,
+                        "changed_files": [path],
+                        "sha256": "a" * 64,
+                        "size_bytes": len(content),
+                        "error": "",
+                    }
+                ),
+                "_sha256_text": staticmethod(lambda content: "c" * 64),
+            },
+        ),
+    )
+
+    result = server.create_repo_file("repo", "new.py", "pass\n")
+
+    assert result["ok"] is False
+    assert result["status"] == "commit_failed"
+    assert result["commit_error"] == "simulated commit failure"
+    assert result["path"] == "new.py"
 
 
 def test_dry_run_stage_manifest_accepts_include_ignored(monkeypatch, tmp_path) -> None:

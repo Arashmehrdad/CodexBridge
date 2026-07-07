@@ -1553,6 +1553,7 @@ def revert_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict
         "patch_id": patch_id,
         "repo_name": "",
         "reverted_files": reverted,
+        "changed_files": list(reverted),
         "error": "",
     }
 
@@ -1575,6 +1576,7 @@ def create_repo_file(repo_root: Path, path: str, content: str) -> dict:
         "ok": True,
         "repo_name": "",
         "path": path,
+        "changed_files": [path],
         "sha256": sha,
         "size_bytes": size_bytes,
         "error": "",
@@ -1624,6 +1626,7 @@ def delete_repo_file(
         "ok": True,
         "repo_name": "",
         "path": path,
+        "changed_files": [path],
         "rollback_id": del_id,
         "error": "",
     }
@@ -1700,6 +1703,7 @@ def move_repo_file(
         "repo_name": "",
         "source_path": source_path,
         "destination_path": destination_path,
+        "changed_files": [source_path, destination_path],
         "sha256": new_sha,
         "rollback_id": mv_id,
         "error": "",

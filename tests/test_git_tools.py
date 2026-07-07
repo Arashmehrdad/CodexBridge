@@ -15,6 +15,7 @@ from codexbridge.git_tools import (
     commit_selected_files,
     create_branch,
     dry_run_stage_manifest,
+    finalize_explicit_changes,
     inspect_commit_range,
     inspect_status,
     inspect_status_compact,
@@ -266,6 +267,135 @@ def test_commit_failure_restores_preexisting_index_and_reports_stderr(
     ).stdout.splitlines()
     assert staged == ["base.txt"]
     assert "selected.txt" in result["stage_manifest_after"]["untracked"]
+
+
+def test_finalize_explicit_changes_commits_only_requested_paths(repo: Path) -> None:
+    (repo / "selected.txt").write_text("selected\n", encoding="utf-8")
+    (repo / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+
+    result = finalize_explicit_changes(
+        repo,
+        ["selected.txt"],
+        tool_name="create_repo_file",
+        run_id="20260707T000000Z_run_deadbeef",
+    )
+
+    assert result["commit_required"] is True
+    assert result["commit_attempted"] is True
+    assert result["commit_hash"]
+    assert result["commit_error"] == ""
+    assert "selected.txt" not in result["commit_result"]["remaining_dirty_files"]
+    assert "unrelated.txt" in result["commit_result"]["remaining_dirty_files"]
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    assert "selected.txt" not in staged
+    git_temp_root = repo / ".git" / "codexbridge-tmp"
+    assert not git_temp_root.exists() or not any(git_temp_root.iterdir())
+
+
+def test_finalize_explicit_changes_stages_rename_source_and_destination(
+    repo: Path,
+) -> None:
+    (repo / "rename source.txt").write_text("before\n", encoding="utf-8")
+    run(["git", "add", "rename source.txt"], repo)
+    run(["git", "commit", "-m", "add rename source"], repo)
+    run(["git", "mv", "rename source.txt", "rename target.txt"], repo)
+
+    result = finalize_explicit_changes(
+        repo,
+        ["rename source.txt", "rename target.txt"],
+        tool_name="move_repo_file",
+    )
+
+    assert result["commit_hash"]
+    assert result["commit_result"]["remaining_dirty_files"] == []
+    name_status = subprocess.run(
+        ["git", "show", "--name-status", "--format=", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert "rename source.txt" in name_status
+    assert "rename target.txt" in name_status
+
+
+def test_finalize_explicit_changes_skips_empty_change_sets_without_commit(
+    repo: Path,
+) -> None:
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    result = finalize_explicit_changes(
+        repo,
+        ["base.txt"],
+        tool_name="apply_repo_patch",
+    )
+
+    after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    assert result["commit_required"] is False
+    assert result["commit_attempted"] is False
+    assert result["commit_hash"] == ""
+    assert after == before
+
+
+def test_finalize_explicit_changes_reports_commit_failure_and_never_pushes(
+    repo: Path, monkeypatch
+) -> None:
+    (repo / "selected.txt").write_text("selected\n", encoding="utf-8")
+    original_run_git = git_tools._run_git
+    seen_commands: list[list[str]] = []
+
+    def fail_commit(
+        repo_root: Path,
+        args: list[str],
+        *,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ):
+        seen_commands.append(list(args))
+        if args and args[0] == "commit":
+            raise GitCommandError(
+                {
+                    "argv": ["git", *args],
+                    "exit_code": 128,
+                    "stdout": "",
+                    "stderr": "simulated finalize failure",
+                    "duration_seconds": 0.01,
+                    "index_lock": {"exists": False, "path": ".git/index.lock"},
+                }
+            )
+        return original_run_git(repo_root, args, check=check, env=env)
+
+    monkeypatch.setattr(git_tools, "_run_git", fail_commit)
+
+    result = finalize_explicit_changes(
+        repo,
+        ["selected.txt"],
+        tool_name="apply_repo_patch",
+    )
+
+    assert result["commit_required"] is True
+    assert result["commit_attempted"] is True
+    assert result["commit_hash"] == ""
+    assert result["commit_error"] == "simulated finalize failure"
+    assert all(args[0] != "push" for args in seen_commands)
 
 
 def test_status_manifest_classifies_tool_owned_files(repo: Path) -> None:
