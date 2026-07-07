@@ -18,7 +18,6 @@ from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import (
     AppConfig,
     load_config,
-    resolve_repo,
     resolve_repo_config,
     resolve_repo_identity,
 )
@@ -27,6 +26,8 @@ from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
 from .git_tools import diff_stat, git_status, inspect_status
+from .git_tools import inspect_status_compact
+from .git_tools import inspect_commit_range as _inspect_commit_range
 from .git_tools import git_diff as _git_diff_raw
 from .git_tools import create_branch as _git_create_branch
 from .git_tools import stage_all as _stage_all
@@ -203,6 +204,45 @@ REPO_STATUS_OUTPUT = {
         "error": {"type": "string"},
     },
 }
+REPO_STATUS_COMPACT_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "branch": {"type": "string"},
+        "diff_stat": {"type": "string"},
+        "recent_commits": {"type": "array", "items": {"type": "string"}},
+        "complete_status_scan": {"type": "boolean"},
+        "total_status_entry_count": {"type": "integer"},
+        "returned_entry_count": {"type": "integer"},
+        "collapsed_tool_owned_count": {"type": "integer"},
+        "sampled_tool_owned_count": {"type": "integer"},
+        "unsampled_tool_owned_count": {"type": "integer"},
+        "files": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "tool_owned_summary": {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {
+                "total_bytes": {"type": "integer"},
+                "root_group_counts": {
+                    "type": "object",
+                    "additionalProperties": {"type": "integer"},
+                },
+                "sample": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+                "truncated": {"type": "boolean"},
+            },
+        },
+        "fallback_tool": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
 CODEX_PLAN_OUTPUT = {
     "type": "object",
     "additionalProperties": True,
@@ -347,6 +387,21 @@ REPO_GIT_DIFF_OUTPUT = {
         "repo_name": {"type": "string"},
         "path": {"type": "string"},
         "staged": {"type": "boolean"},
+        "diff": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "error": {"type": "string"},
+    },
+}
+COMMIT_RANGE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "base_commit": {"type": "string"},
+        "head_commit": {"type": "string"},
+        "name_status": {"type": "string"},
+        "diff_stat": {"type": "string"},
         "diff": {"type": "string"},
         "truncated": {"type": "boolean"},
         "error": {"type": "string"},
@@ -703,6 +758,24 @@ def inspect_repo_status(repo_name: str) -> dict:
     return result
 
 
+@mcp.tool(output_schema=REPO_STATUS_COMPACT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def inspect_repo_status_compact(repo_name: str) -> dict:
+    """Read-only: return a compact repository status with tool-owned changes summarized."""
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = dict(inspect_status_compact(repo_root))
+    result.pop("git_status", None)
+    result.pop("manifest", None)
+    result.pop("tool_owned", None)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    result["ok"] = True
+    result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
+    diff_stat = result.get("diff_stat")
+    result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
+    return result
+
+
 @mcp.tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
@@ -732,10 +805,16 @@ def codex_implement_task(
 def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
     """Read-only: return the most recent saved CodexBridge run result."""
     config = get_config()
+    requested_name = repo_name or None
     repo_name = repo_name or None
     tool = tool or None
     if repo_name or tool:
-        return get_job_manager().latest_result(repo_name=repo_name, tool=tool)
+        result = get_job_manager().latest_result(repo_name=repo_name, tool=tool)
+        canonical_name = result.get("repo_name")
+        if requested_name and canonical_name and requested_name != canonical_name:
+            result = dict(result)
+            result["requested_repo_name"] = requested_name
+        return result
     try:
         return get_job_manager().latest_result()
     except Exception:
@@ -803,10 +882,10 @@ def commit_selected_files(
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def dry_run_stage_manifest(repo_name: str) -> dict:
+def dry_run_stage_manifest(repo_name: str, include_ignored: bool = False) -> dict:
     """Read-only: preview which files would be staged without changing git state."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = _dry_run_stage_manifest(repo_root)
+    result = _dry_run_stage_manifest(repo_root, include_ignored=include_ignored)
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
@@ -1230,12 +1309,13 @@ def list_repo_files(
     repo_name: str, directory: str = "", max_results: int = 500
 ) -> dict:
     """Read-only: list files in a repository directory. Returns repo-relative POSIX paths only."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.list_repo_files(
         repo_root, directory=directory, max_results=max_results
     )
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1244,12 +1324,13 @@ def read_repo_file(
     repo_name: str, path: str, start_line: int = 1, end_line: int = 0
 ) -> dict:
     """Read-only: read a text file from a repository. Rejects binary files, caps output, and redacts secrets."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.read_repo_file(
         repo_root, path, start_line=start_line, end_line=end_line
     )
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1262,8 +1343,7 @@ def search_repo_text(
     case_sensitive: bool = False,
 ) -> dict:
     """Read-only: search for a literal string in repository text files. Returns path, line, and redacted snippets."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.search_repo_text(
         repo_root,
         query,
@@ -1271,7 +1351,9 @@ def search_repo_text(
         max_results=max_results,
         case_sensitive=case_sensitive,
     )
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1280,29 +1362,49 @@ def search_repo_text(
 )
 def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
     """Read-only: list files sorted by filesystem mtime, newest first. Reflects unsaved changes immediately."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.get_recently_modified_files(repo_root, limit=limit)
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
 @mcp.tool(output_schema=REPO_GIT_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_git_status(repo_name: str) -> dict:
     """Read-only: return raw git status --short --branch output for a whitelisted repository."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     status_text = git_status(repo_root)
-    return {"ok": True, "repo_name": repo_name, "status": status_text, "error": ""}
+    result = {
+        "ok": True,
+        "repo_name": canonical_name,
+        "status": status_text,
+        "error": "",
+    }
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
 
 
 @mcp.tool(output_schema=REPO_GIT_DIFF_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_git_diff(repo_name: str, path: str = "", staged: bool = False) -> dict:
     """Read-only: return git diff output, optionally scoped to one validated relative path or the staging area."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _git_diff_raw(repo_root, path=path, staged=staged)
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=COMMIT_RANGE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def inspect_commit_range(repo_name: str, base_commit: str, head_commit: str) -> dict:
+    """Read-only: inspect an exact commit range using only two full commit hashes."""
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = _inspect_commit_range(repo_root, base_commit, head_commit)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1313,34 +1415,37 @@ def _get_runs_dir() -> "Path":
 @mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
     """Read-only: validate patch operations and return a unified diff with a patch_id. Makes no changes."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.preview_repo_patch(repo_root, operations, _get_runs_dir())
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
 @mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
     """Read-only: validate a repo file creation, persist an opaque local payload, and return a patch_id with preview diff."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.preview_repo_file_creation(
         repo_root, path, content, _get_runs_dir()
     )
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
 @mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -> dict:
     """Read-only: validate a repo file removal and return a patch_id with preview diff. Stores no source payload."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.preview_repo_file_removal(
         repo_root, path, expected_sha256, _get_runs_dir()
     )
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1511,22 +1616,24 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
 @mcp.tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
     """Read-only: return structured git log entries, optionally scoped to a file path."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.git_log(repo_root, limit=limit, path=path)
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
 @mcp.tool(output_schema=READ_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
     """Read-only: read up to 20 files in one call. Each request has path, start_line, end_line."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.read_repo_files(repo_root, requests)
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
     for item in result.get("results", []):
-        item["repo_name"] = repo_name
+        item["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -1575,28 +1682,14 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
             "branch_name": branch_name,
             "error": f"Branch already exists: {branch_name!r}",
         }
-    try:
-        with repository_operation_lock(
-            config.resolve_runs_dir(),
-            repo_name=canonical_name,
-            tool="create_git_branch",
-            normalized_input={"branch_name": branch_name},
-        ):
-            _git_create_branch(repo_root, branch_name)
-    except ValueError as exc:
-        return {
-            "ok": False,
-            "repo_name": canonical_name,
-            "branch_name": branch_name,
-            "error": str(exc),
-        }
-
-    result = {
-        "ok": True,
-        "repo_name": canonical_name,
-        "branch_name": branch_name,
-        "error": "",
-    }
+    with repository_operation_lock(
+        config.resolve_runs_dir(),
+        repo_name=canonical_name,
+        tool="create_git_branch",
+        normalized_input={"branch_name": branch_name},
+    ):
+        result = _git_create_branch(repo_root, branch_name)
+    result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
     return result

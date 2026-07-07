@@ -135,11 +135,14 @@ These MCP tools are available for safe repository inspection:
 - `get_recently_modified_files`
 - `repo_git_status`
 - `repo_git_diff`
+- `inspect_commit_range`
 - `git_log`
 - `inspect_repo_status`
 - `git_diff_summary`
 
 Calls use `repo_name` from `config.yaml` plus repo-relative paths such as `src/app.py`. They do not accept arbitrary filesystem paths. Read tools block paths like `.git`, real `.env` files, virtualenv directories, symlinks/junction escapes, many secret-like files, and they redact obvious secret values from returned text.
+
+`inspect_commit_range` is a read-only exact-range helper. It accepts only two full 40-character commit hashes and returns bounded `--name-status`, `--stat`, and unified diff data without accepting flags, rev syntax, or paths.
 
 ## Repository Knowledge
 
@@ -150,7 +153,7 @@ Repository knowledge is exposed through:
 - `search_repo_knowledge`
 - `remember_repo_decision`
 
-`refresh_repo_wiki` generates or incrementally refreshes wiki pages under `.codexbridge/wiki` inside the target repository. `read_repo_wiki` reads a generated page such as `overview.md`. `search_repo_knowledge` searches both the generated wiki and repository-scoped decision memory in one call. `remember_repo_decision` stores a repository-scoped decision record by default so later planning and recovery runs can reuse the context.
+`refresh_repo_wiki` generates or incrementally refreshes wiki pages under `.codexbridge/wiki` inside the target repository. That directory is generated local knowledge, should stay ignored by Git, and existing generated pages are reused instead of being force-rewritten outside a refresh request. `read_repo_wiki` reads a generated page such as `overview.md`. `search_repo_knowledge` searches both the generated wiki and repository-scoped decision memory in one call. `remember_repo_decision` stores a repository-scoped decision record by default so later planning and recovery runs can reuse the context.
 
 ## Allowlisted Project Commands
 

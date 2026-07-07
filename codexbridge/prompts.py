@@ -45,10 +45,19 @@ def build_implementation_prompt(
     approved_plan: str,
     allowed_files: Iterable[str],
     tests: Iterable[str],
+    requirement_manifest: Iterable[dict[str, object]] = (),
 ) -> str:
     allowed = "\n".join(f"- {path}" for path in allowed_files) or "- No files approved"
     tests_text = (
         "\n".join(f"- {command}" for command in tests) or "- No explicit tests provided"
+    )
+    manifest_lines = (
+        "\n".join(
+            f"- {item['requirement_id']}: {item['text']}"
+            for item in requirement_manifest
+            if item.get("requirement_id") and item.get("text")
+        )
+        or "- No explicit requirement IDs were derived"
     )
     return f"""You are Codex running through CodexBridge in IMPLEMENTATION mode.
 
@@ -63,6 +72,9 @@ Allowed files:
 Tests to run:
 {tests_text}
 
+Requirement manifest:
+{manifest_lines}
+
 Hard rules:
 - Implement only the approved_plan. Do not broaden, reinterpret, or replace its scope.
 - The allowed_files list is an exclusive write allowlist.
@@ -76,6 +88,7 @@ Hard rules:
 - Report each mandatory plan item on its own line as either:
   COMPLETED_REQUIREMENT: <requirement>
   SKIPPED_REQUIREMENT: <requirement and reason>
+- Reconcile your reported requirement IDs against the requirement manifest above. Every manifest ID must be explicitly resolved.
 - End with these machine-readable lines:
   VALIDATION_STATUS: passed|failed|not_run|not_required
   FINAL_STATUS: completed|blocked|failed

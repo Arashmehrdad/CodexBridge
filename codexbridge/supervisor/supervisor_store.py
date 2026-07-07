@@ -6,7 +6,7 @@ from pathlib import Path
 from codexbridge.return_loop.atomic_writer import atomic_write_json
 from codexbridge.run_store import utc_now
 
-from .models import SupervisorEvent, SupervisorRun, SupervisorStatus
+from .models import SupervisorEvent, SupervisorRun
 
 
 class LocalSupervisorStore:

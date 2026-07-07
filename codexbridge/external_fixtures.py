@@ -92,8 +92,15 @@ def download_fixture(
     try:
         with opener(request, config.timeout_seconds) as response:
             content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > config.max_bytes:
-                raise ValueError("External fixture exceeds configured size limit")
+            if content_length:
+                try:
+                    declared_size = int(content_length)
+                except ValueError as exc:
+                    raise ValueError(
+                        "External fixture returned an invalid Content-Length"
+                    ) from exc
+                if declared_size > config.max_bytes:
+                    raise ValueError("External fixture exceeds configured size limit")
             with target.open("wb") as handle:
                 while True:
                     chunk = response.read(65536)

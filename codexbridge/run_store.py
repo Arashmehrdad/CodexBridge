@@ -176,7 +176,7 @@ class RunStore:
         where: list[str] = []
         params: list[Any] = []
         if repo_name:
-            where.append("repo_name = ?")
+            where.append("lower(repo_name) = lower(?)")
             params.append(repo_name)
         if status:
             where.append("status = ?")
@@ -196,7 +196,7 @@ class RunStore:
         where: list[str] = []
         params: list[Any] = []
         if repo_name:
-            where.append("repo_name = ?")
+            where.append("lower(repo_name) = lower(?)")
             params.append(repo_name)
         if tool:
             where.append("tool = ?")

@@ -7,7 +7,6 @@ from codexbridge.local_agent.models import LocalAgentTaskType, RoutingDecision
 from codexbridge.policy import PolicyEngine
 from codexbridge.policy.models import (
     CanonicalPermissionTier,
-    PolicyDecisionValue,
     PolicyEvaluationRequest,
 )
 

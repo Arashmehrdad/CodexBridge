@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from codexbridge.memory.repository import ProjectMemoryRepository
 from codexbridge.memory.redaction import detect_sensitivity, redact_sensitive_text

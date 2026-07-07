@@ -7,7 +7,6 @@ No CodexRunner, Gemini, Ollama, or local-model calls are made.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 

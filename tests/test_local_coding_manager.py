@@ -16,7 +16,6 @@ from codexbridge.local_coding import (
     LocalPatchOperationType,
 )
 from codexbridge.policy import PolicyEngine
-from codexbridge.policy.models import ApprovalStatus
 from codexbridge.run_store import utc_now
 
 

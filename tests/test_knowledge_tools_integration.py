@@ -50,6 +50,8 @@ def test_all_tool_output_properties_have_schemas() -> None:
         for name, property_schema in schema["properties"].items():
             assert property_schema is not None, name
             assert "type" in property_schema, name
+        for field in ("server_build_hash", "schema_hash", "capability_epoch"):
+            assert field in schema["properties"]
 
 
 def test_tools_resolve_config_from_active_mcp_module(
@@ -74,6 +76,9 @@ def test_tools_resolve_config_from_active_mcp_module(
     assert result["status"] == "generated"
     assert (repo / ".codexbridge" / "wiki" / "overview.md").is_file()
     assert getattr(mcp, "_codexbridge_runtime_config") is config
+    assert len(result["server_build_hash"]) == 64
+    assert len(result["schema_hash"]) == 64
+    assert result["capability_epoch"]
 
 
 def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
@@ -114,3 +119,5 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     assert result["ok"] is True
     assert any("Repository scoped" in hit["snippet"] for hit in result["wiki_hits"])
     assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])
+    assert len(result["server_build_hash"]) == 64
+    assert len(remembered["schema_hash"]) == 64

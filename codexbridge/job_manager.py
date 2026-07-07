@@ -25,6 +25,7 @@ from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
 from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
+from .run_guards import derive_requirement_manifest
 from .run_store import RunStore, validate_run_id
 from .safety import reject_destructive_command, validate_repo_relative_paths
 from .ssh_commands import resolve_ssh_command_profile
@@ -72,11 +73,13 @@ class JobManager:
         decision = decide_implementation_task(approved_plan, allowed_files, tests)
         if not decision.accepted:
             return decision.to_start_response(status="refused")
+        requirement_manifest = derive_requirement_manifest(approved_plan)
         input_data = {
             "repo_name": repo_name,
             "approved_plan": approved_plan,
             "allowed_files": allowed_files,
             "tests": tests,
+            "requirement_manifest": requirement_manifest,
         }
         return self._create_and_launch(
             "codex_implement_task", repo_name, input_data, decision
@@ -432,16 +435,27 @@ class JobManager:
     def list_runs(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20
     ) -> list[dict]:
+        canonical_repo_name = None
+        if repo_name:
+            canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
         return redact_and_truncate(
             self.store.list_runs(
-                repo_name=repo_name or None, status=status or None, limit=limit
+                repo_name=canonical_repo_name or repo_name or None,
+                status=status or None,
+                limit=limit,
             )
         )
 
     def latest_result(
         self, repo_name: str | None = None, tool: str | None = None
     ) -> dict:
-        run = self.store.latest_run(repo_name=repo_name or None, tool=tool or None)
+        canonical_repo_name = None
+        if repo_name:
+            canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
+        run = self.store.latest_run(
+            repo_name=canonical_repo_name or repo_name or None,
+            tool=tool or None,
+        )
         return self.get_result(run["run_id"])
 
     def cancel_run(self, run_id: str) -> dict:

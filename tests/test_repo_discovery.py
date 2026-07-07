@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, RepoConfig, resolve_repo
+from codexbridge.config import (
+    AppConfig,
+    RepoConfig,
+    resolve_repo,
+    resolve_repo_identity,
+)
 from codexbridge.repo_discovery import canonical_repo_name, discover_repositories
 
 
@@ -44,6 +49,23 @@ def test_new_sibling_repo_is_discovered_without_reload(tmp_path: Path) -> None:
 
     assert resolve_repo(config, "seedmind") == new_repo.resolve()
     assert "seedmind" in config.repos
+
+
+def test_direct_child_repo_identity_is_discovered_without_explicit_entry(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "Github"
+    known = make_git_repo(root / "Known")
+    wan_repo = make_git_repo(root / "Wan2.2")
+    config = AppConfig(
+        repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path
+    )
+
+    canonical_name, repo_path, repo_config = resolve_repo_identity(config, "Wan2.2")
+
+    assert canonical_name == "wan2_2"
+    assert repo_path == wan_repo.resolve()
+    assert Path(repo_config.path).resolve() == wan_repo.resolve()
 
 
 def test_folder_name_is_accepted_as_alias(tmp_path: Path) -> None:

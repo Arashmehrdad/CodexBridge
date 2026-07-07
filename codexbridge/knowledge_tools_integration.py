@@ -4,6 +4,8 @@ import sys
 from functools import wraps
 from typing import Any, Callable
 
+from .capabilities import capability_metadata
+
 
 READ_ONLY_ANNOTATIONS = {
     "readOnlyHint": True,
@@ -30,6 +32,9 @@ WIKI_REFRESH_OUTPUT = {
         "source_file_count": {"type": "integer"},
         "changed_source_files": {"type": "array", "items": {"type": "string"}},
         "scan_truncated": {"type": "boolean"},
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
     },
     "required": [
@@ -54,6 +59,9 @@ WIKI_PAGE_OUTPUT = {
         "content": {"type": "string"},
         "size_bytes": {"type": "integer"},
         "truncated": {"type": "boolean"},
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
     },
     "required": [
@@ -110,6 +118,9 @@ KNOWLEDGE_SEARCH_OUTPUT = {
                 ],
             },
         },
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
     },
     "required": ["ok", "repo_name", "query", "wiki_hits", "memory_hits", "error"],
@@ -124,6 +135,9 @@ MEMORY_WRITE_OUTPUT = {
         "memory_type": {"type": "string"},
         "title": {"type": "string"},
         "summary": {"type": "string"},
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
     },
     "required": [
@@ -188,6 +202,15 @@ def _memory_hit(record) -> dict[str, Any]:
     }
 
 
+def _with_capability_metadata(
+    result: dict[str, Any], schema: dict[str, Any]
+) -> dict[str, Any]:
+    enriched = dict(result)
+    for key, value in capability_metadata(schema).items():
+        enriched.setdefault(key, value)
+    return enriched
+
+
 def register_knowledge_tools(mcp: Any) -> None:
     """Register knowledge tools exactly once on a FastMCP instance."""
     if getattr(mcp, "_codexbridge_knowledge_tools_registered", False):
@@ -212,36 +235,47 @@ def register_knowledge_tools(mcp: Any) -> None:
                 git_dir = repo_root / ".git"
                 if git_dir.is_dir() and not (git_dir / "HEAD").is_file():
                     service._git_list_source_candidates = lambda: None
-                return service.refresh(force=force)
+                return _with_capability_metadata(
+                    service.refresh(force=force), WIKI_REFRESH_OUTPUT
+                )
         except Exception as exc:
-            return {
-                "ok": False,
-                "repo_name": repo_name,
-                "status": "failed",
-                "wiki_root": ".codexbridge/wiki",
-                "pages": [],
-                "source_file_count": 0,
-                "changed_source_files": [],
-                "scan_truncated": False,
-                "error": str(exc),
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": False,
+                    "repo_name": repo_name,
+                    "status": "failed",
+                    "wiki_root": ".codexbridge/wiki",
+                    "pages": [],
+                    "source_file_count": 0,
+                    "changed_source_files": [],
+                    "scan_truncated": False,
+                    "error": str(exc),
+                },
+                WIKI_REFRESH_OUTPUT,
+            )
 
     @mcp.tool(output_schema=WIKI_PAGE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def read_repo_wiki(repo_name: str, page: str = "overview.md") -> dict:
         """Read one generated repository wiki page by safe relative page name."""
         try:
             _, repo_root, canonical_name = _runtime_context(mcp, repo_name)
-            return RepoWikiService(repo_root, canonical_name).read_page(page)
+            return _with_capability_metadata(
+                RepoWikiService(repo_root, canonical_name).read_page(page),
+                WIKI_PAGE_OUTPUT,
+            )
         except Exception as exc:
-            return {
-                "ok": False,
-                "repo_name": repo_name,
-                "page": page,
-                "content": "",
-                "size_bytes": 0,
-                "truncated": False,
-                "error": str(exc),
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": False,
+                    "repo_name": repo_name,
+                    "page": page,
+                    "content": "",
+                    "size_bytes": 0,
+                    "truncated": False,
+                    "error": str(exc),
+                },
+                WIKI_PAGE_OUTPUT,
+            )
 
     @mcp.tool(output_schema=KNOWLEDGE_SEARCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def search_repo_knowledge(
@@ -265,23 +299,29 @@ def register_knowledge_tools(mcp: Any) -> None:
                 limit=maximum,
             )
             memory_hits = [_memory_hit(record) for record in result.records]
-            return {
-                "ok": True,
-                "repo_name": canonical_name,
-                "query": query,
-                "wiki_hits": wiki_hits,
-                "memory_hits": memory_hits,
-                "error": "",
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": True,
+                    "repo_name": canonical_name,
+                    "query": query,
+                    "wiki_hits": wiki_hits,
+                    "memory_hits": memory_hits,
+                    "error": "",
+                },
+                KNOWLEDGE_SEARCH_OUTPUT,
+            )
         except Exception as exc:
-            return {
-                "ok": False,
-                "repo_name": repo_name,
-                "query": query,
-                "wiki_hits": [],
-                "memory_hits": [],
-                "error": str(exc),
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": False,
+                    "repo_name": repo_name,
+                    "query": query,
+                    "wiki_hits": [],
+                    "memory_hits": [],
+                    "error": str(exc),
+                },
+                KNOWLEDGE_SEARCH_OUTPUT,
+            )
 
     @mcp.tool(output_schema=MEMORY_WRITE_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def remember_repo_decision(
@@ -301,25 +341,31 @@ def register_knowledge_tools(mcp: Any) -> None:
                 repo_path=repo_root,
                 accepted_by=accepted_by.strip() or None,
             )
-            return {
-                "ok": True,
-                "repo_name": canonical_name,
-                "memory_id": record.memory_id,
-                "memory_type": record.memory_type.value,
-                "title": record.title,
-                "summary": record.summary,
-                "error": "",
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": True,
+                    "repo_name": canonical_name,
+                    "memory_id": record.memory_id,
+                    "memory_type": record.memory_type.value,
+                    "title": record.title,
+                    "summary": record.summary,
+                    "error": "",
+                },
+                MEMORY_WRITE_OUTPUT,
+            )
         except Exception as exc:
-            return {
-                "ok": False,
-                "repo_name": repo_name,
-                "memory_id": "",
-                "memory_type": "",
-                "title": "",
-                "summary": "",
-                "error": str(exc),
-            }
+            return _with_capability_metadata(
+                {
+                    "ok": False,
+                    "repo_name": repo_name,
+                    "memory_id": "",
+                    "memory_type": "",
+                    "title": "",
+                    "summary": "",
+                    "error": str(exc),
+                },
+                MEMORY_WRITE_OUTPUT,
+            )
 
     setattr(mcp, "_codexbridge_knowledge_tools_registered", True)
 

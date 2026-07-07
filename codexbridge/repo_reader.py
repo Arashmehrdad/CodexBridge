@@ -12,9 +12,7 @@ import hashlib
 import os
 import re
 import subprocess
-import stat
-from pathlib import Path, PurePosixPath
-from typing import Iterable
+from pathlib import Path
 
 from .safety import validate_repo_relative_path, redact_secret_values
 

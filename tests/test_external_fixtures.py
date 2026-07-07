@@ -62,6 +62,38 @@ def test_fixture_policy_requires_enabled_https_allowlist() -> None:
         )
 
 
+def test_fixture_policy_rejects_userinfo_query_fragment_and_bad_digest() -> None:
+    digest = "a" * 64
+    with pytest.raises(ValueError, match="must not contain credentials"):
+        validate_fixture_request(
+            fixture_config(),
+            "https://user:pass@fixtures.example.com/data.json",
+            digest,
+            "json",
+        )
+    with pytest.raises(ValueError, match="query string"):
+        validate_fixture_request(
+            fixture_config(),
+            "https://fixtures.example.com/data.json?download=1",
+            digest,
+            "json",
+        )
+    with pytest.raises(ValueError, match="fragment"):
+        validate_fixture_request(
+            fixture_config(),
+            "https://fixtures.example.com/data.json#section",
+            digest,
+            "json",
+        )
+    with pytest.raises(ValueError, match="64 hexadecimal characters"):
+        validate_fixture_request(
+            fixture_config(),
+            "https://fixtures.example.com/data.json",
+            "bad-digest",
+            "json",
+        )
+
+
 def test_fixture_json_is_hash_verified_and_discarded(tmp_path: Path) -> None:
     payload = b'{"ok": true}\n'
     digest = hashlib.sha256(payload).hexdigest()

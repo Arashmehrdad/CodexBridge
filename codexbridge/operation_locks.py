@@ -146,7 +146,10 @@ class OperationLockStore:
         status = str(run["status"] or "")
         if status in TERMINAL_STATUSES:
             return True
-        owner_pid = row.get("owner_pid") or run["worker_pid"] or run["pid"]
+        if status == "running":
+            owner_pid = run["worker_pid"] or run["pid"] or row.get("owner_pid")
+        else:
+            owner_pid = row.get("owner_pid") or run["worker_pid"] or run["pid"]
         if owner_pid and not _pid_is_running(int(owner_pid)):
             return True
         return False

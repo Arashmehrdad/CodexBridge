@@ -32,6 +32,8 @@ _SKIPPED_REQUIREMENT_RE = re.compile(r"(?im)^SKIPPED_REQUIREMENT:\s*(.+?)\s*$")
 _VALIDATION_STATUS_RE = re.compile(
     r"(?im)^VALIDATION_STATUS:\s*(passed|failed|not_run|not_required)\s*$"
 )
+_FAILED_REQUIREMENT_RE = re.compile(r"(?im)^FAILED_REQUIREMENT:\s*(.+?)\s*$")
+_REQUIREMENT_ID_RE = re.compile(r"\bREQ-\d{3}\b")
 _PLAN_STATUS_RE = re.compile(r"(?im)^PLAN_STATUS:\s*(ready|blocked)\s*$")
 _PLAN_PLACEHOLDER_PATTERNS = (
     re.compile(r"\bsend\s+(?:me\s+)?the\s+actual\s+task\b", re.IGNORECASE),
@@ -60,6 +62,9 @@ class ImplementationOutcome:
     plan_conformance: bool | None
     completed_requirements: list[str] = field(default_factory=list)
     skipped_requirements: list[str] = field(default_factory=list)
+    failed_requirements: list[str] = field(default_factory=list)
+    missing_requirements: list[str] = field(default_factory=list)
+    mandatory_incomplete: list[str] = field(default_factory=list)
     validation_status: str | None = None
 
 
@@ -205,6 +210,13 @@ def assess_plan_output(summary: str) -> ImplementationOutcome:
 
 def assess_implementation_output(summary: str) -> ImplementationOutcome:
     """Classify blocker, conformance, requirement, and validation signals."""
+    return assess_implementation_output_against(summary, ())
+
+
+def assess_implementation_output_against(
+    summary: str, required_requirement_ids: Iterable[str]
+) -> ImplementationOutcome:
+    """Classify blocker, conformance, requirement, and validation signals."""
     text = summary or ""
     explicit_statuses = _EXPLICIT_STATUS_RE.findall(text)
     conformance_matches = _PLAN_CONFORMANCE_RE.findall(text)
@@ -217,8 +229,23 @@ def assess_implementation_output(summary: str) -> ImplementationOutcome:
     skipped_requirements = [
         item.strip() for item in _SKIPPED_REQUIREMENT_RE.findall(text)
     ]
+    failed_requirements = [
+        item.strip() for item in _FAILED_REQUIREMENT_RE.findall(text)
+    ]
     validation_matches = _VALIDATION_STATUS_RE.findall(text)
     validation_status = validation_matches[-1].lower() if validation_matches else None
+
+    completed_ids = _extract_requirement_ids(completed_requirements)
+    skipped_ids = _extract_requirement_ids(skipped_requirements)
+    failed_ids = _extract_requirement_ids(failed_requirements)
+    required_ids = _stable_requirement_ids(required_requirement_ids)
+    resolved_ids = completed_ids | skipped_ids | failed_ids
+    missing_requirements = [
+        req_id for req_id in required_ids if req_id not in resolved_ids
+    ]
+    mandatory_incomplete = _stable_requirement_ids(
+        [*skipped_ids, *failed_ids, *missing_requirements]
+    )
 
     blockers: list[str] = []
     if explicit_statuses and explicit_statuses[-1].lower() in {"blocked", "failed"}:
@@ -240,5 +267,44 @@ def assess_implementation_output(summary: str) -> ImplementationOutcome:
         plan_conformance=plan_conformance,
         completed_requirements=completed_requirements,
         skipped_requirements=skipped_requirements,
+        failed_requirements=failed_requirements,
+        missing_requirements=missing_requirements,
+        mandatory_incomplete=mandatory_incomplete,
         validation_status=validation_status,
     )
+
+
+def derive_requirement_manifest(approved_plan: str) -> list[dict[str, object]]:
+    manifest: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_line in approved_plan.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = _REQUIREMENT_ID_RE.search(line)
+        if not match:
+            continue
+        requirement_id = match.group(0)
+        if requirement_id in seen:
+            continue
+        seen.add(requirement_id)
+        manifest.append(
+            {
+                "requirement_id": requirement_id,
+                "text": line,
+                "mandatory": True,
+            }
+        )
+    return manifest
+
+
+def _extract_requirement_ids(items: Iterable[str]) -> set[str]:
+    found: set[str] = set()
+    for item in items:
+        for match in _REQUIREMENT_ID_RE.findall(item):
+            found.add(match)
+    return found
+
+
+def _stable_requirement_ids(items: Iterable[str]) -> list[str]:
+    return sorted({item for item in items if item})

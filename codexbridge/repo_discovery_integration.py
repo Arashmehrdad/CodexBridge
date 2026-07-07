@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from . import config as config_module
@@ -8,7 +9,7 @@ from .repo_discovery import canonical_repo_name, discover_repositories
 
 
 _ORIGINAL_RESOLVE_REPO = config_module.resolve_repo
-_INSTALLED = False
+_ORIGINAL_RESOLVE_REPO_IDENTITY = config_module.resolve_repo_identity
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off"}
 _DEFAULT_EXCLUDES = (".fallow", "secrets")
@@ -60,12 +61,11 @@ def _max_depth() -> int:
     return min(max(value, 1), 8)
 
 
-def resolve_repo_with_discovery(
+def _discover_repo_identity(
     config: config_module.AppConfig, repo_name: str
-) -> Path:
-    """Resolve explicit repositories first, then rescan trusted parent roots."""
+) -> tuple[str, Path, config_module.RepoConfig]:
     try:
-        return _ORIGINAL_RESOLVE_REPO(config, repo_name)
+        return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, repo_name)
     except ValueError as original_error:
         if not str(original_error).startswith("Unknown repo_name:"):
             raise
@@ -84,13 +84,38 @@ def resolve_repo_with_discovery(
         raise ValueError(f"Unknown repo_name: {repo_name}")
 
     config.repos[match.repo_name] = config_module.RepoConfig(path=str(match.path))
-    return _ORIGINAL_RESOLVE_REPO(config, match.repo_name)
+    return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, match.repo_name)
+
+
+def resolve_repo_identity_with_discovery(
+    config: config_module.AppConfig, repo_name: str
+) -> tuple[str, Path, config_module.RepoConfig]:
+    """Resolve explicit repositories first, then rescan trusted parent roots."""
+    return _discover_repo_identity(config, repo_name)
+
+
+def resolve_repo_with_discovery(
+    config: config_module.AppConfig, repo_name: str
+) -> Path:
+    _, repo_path, _ = resolve_repo_identity_with_discovery(config, repo_name)
+    return repo_path
+
+
+def _install_server_binding() -> None:
+    server_module = sys.modules.get("codexbridge.server")
+    if server_module is not None:
+        server_module.resolve_repo_identity = resolve_repo_identity_with_discovery
 
 
 def install_repo_discovery() -> None:
     """Install automatic discovery without changing the public config API."""
-    global _INSTALLED
-    if _INSTALLED:
-        return
+    global _ORIGINAL_RESOLVE_REPO
+    global _ORIGINAL_RESOLVE_REPO_IDENTITY
+    if config_module.resolve_repo is not resolve_repo_with_discovery:
+        _ORIGINAL_RESOLVE_REPO = config_module.resolve_repo
+    if config_module.resolve_repo_identity is not resolve_repo_identity_with_discovery:
+        _ORIGINAL_RESOLVE_REPO_IDENTITY = config_module.resolve_repo_identity
+
+    config_module.resolve_repo_identity = resolve_repo_identity_with_discovery
     config_module.resolve_repo = resolve_repo_with_discovery
-    _INSTALLED = True
+    _install_server_binding()

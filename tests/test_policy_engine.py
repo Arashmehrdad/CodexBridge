@@ -5,11 +5,7 @@ from pathlib import Path
 import pytest
 
 from codexbridge.policy import PolicyEngine, PolicyEvaluationRequest
-from codexbridge.policy.models import (
-    CanonicalPermissionTier,
-    PolicyDecisionValue,
-    RiskLevel,
-)
+from codexbridge.policy.models import CanonicalPermissionTier, PolicyDecisionValue
 
 
 def engine(tmp_path: Path) -> PolicyEngine:

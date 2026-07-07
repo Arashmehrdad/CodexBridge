@@ -18,6 +18,7 @@ ACTION_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 EXPECTED_EXPOSED_ACTIONS = {
     "list_capabilities",
     "inspect_repo_status",
+    "inspect_repo_status_compact",
     "codex_plan_task",
     "codex_implement_task",
     "get_latest_run_result",
@@ -59,6 +60,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "get_recently_modified_files",
     "repo_git_status",
     "repo_git_diff",
+    "inspect_commit_range",
     # controlled local coding tools
     "preview_repo_patch",
     "preview_repo_file_creation",
@@ -100,6 +102,46 @@ REALISTIC_ACTION_OUTPUTS = {
         "recent_commits": ["abc123 hotfix", "def456 previous change"],
         "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
         "changed_files": ["codexbridge/server.py"],
+    },
+    "inspect_repo_status_compact": {
+        "ok": True,
+        "repo_name": "repo",
+        "branch": "main",
+        "recent_commits": ["abc123 hotfix", "def456 previous change"],
+        "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
+        "complete_status_scan": True,
+        "total_status_entry_count": 2,
+        "returned_entry_count": 1,
+        "collapsed_tool_owned_count": 1,
+        "sampled_tool_owned_count": 1,
+        "unsampled_tool_owned_count": 0,
+        "files": [
+            {
+                "path": "codexbridge/server.py",
+                "size_bytes": 10,
+                "line_count": 1,
+                "tool_owned": False,
+                "index_status": "M",
+                "worktree_status": " ",
+            }
+        ],
+        "tool_owned_summary": {
+            "total_bytes": 4,
+            "root_group_counts": {".codex-tmp": 1},
+            "sample": [
+                {
+                    "path": ".codex-tmp/run.txt",
+                    "size_bytes": 4,
+                    "line_count": 1,
+                    "tool_owned": True,
+                    "index_status": "?",
+                    "worktree_status": "?",
+                }
+            ],
+            "truncated": False,
+        },
+        "fallback_tool": "inspect_repo_status",
+        "error": "",
     },
     "codex_plan_task": {
         "ok": True,
@@ -476,6 +518,17 @@ REALISTIC_ACTION_OUTPUTS = {
         "truncated": False,
         "error": "",
     },
+    "inspect_commit_range": {
+        "ok": True,
+        "repo_name": "repo",
+        "base_commit": "a" * 40,
+        "head_commit": "b" * 40,
+        "name_status": "M\tREADME.md\n",
+        "diff_stat": " README.md | 1 +\n",
+        "diff": "diff --git a/README.md b/README.md\n",
+        "truncated": False,
+        "error": "",
+    },
     # controlled local coding tools
     "preview_repo_patch": {
         "ok": True,
@@ -753,6 +806,7 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
     assert "git_diff_summary" in actions
+    assert "inspect_repo_status_compact" in actions
     assert "list_runs" in actions
     assert "get_supervisor_status" in actions
     assert "run_local_self_check" in actions
@@ -762,6 +816,7 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "start_bash_n_path_async" in actions
     assert "start_json_validation_path_async" in actions
     assert "start_git_readonly_async" in actions
+    assert "inspect_commit_range" in actions
     assert "reload_service" in actions
     assert "dry_run_stage_manifest" in actions
     assert "stage_all" in actions
@@ -1065,6 +1120,26 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
     assert set(git_schema.get("required", [])) == {"repo_name", "operation"}
     assert actions["start_git_readonly_async"]["annotations"]["readOnlyHint"] is False
 
+    commit_range_schema = actions["inspect_commit_range"]["inputSchema"]
+    assert set(commit_range_schema["properties"]) == {
+        "repo_name",
+        "base_commit",
+        "head_commit",
+    }
+    assert set(commit_range_schema.get("required", [])) == {
+        "repo_name",
+        "base_commit",
+        "head_commit",
+    }
+
+    manifest_schema = actions["dry_run_stage_manifest"]["inputSchema"]
+    assert set(manifest_schema["properties"]) == {"repo_name", "include_ignored"}
+    assert set(manifest_schema.get("required", [])) == {"repo_name"}
+
+    compact_status_schema = actions["inspect_repo_status_compact"]["inputSchema"]
+    assert set(compact_status_schema["properties"]) == {"repo_name"}
+    assert set(compact_status_schema.get("required", [])) == {"repo_name"}
+
 
 def test_remote_capability_tools_delegate(monkeypatch) -> None:
     config = object()
@@ -1197,6 +1272,68 @@ def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -
 
     assert result["recent_commits"] == ["abc123 first", "def456 second"]
     assert result["changed_files"] == ["codexbridge/server.py"]
+    validate(instance=result, schema=action["outputSchema"])
+
+
+def test_inspect_repo_status_compact_excludes_full_status_payload(
+    monkeypatch, tmp_path
+) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "inspect_status_compact",
+        lambda repo_root: {
+            "branch": "main",
+            "recent_commits": "abc123 first\n",
+            "diff_stat": " 1 file changed\n",
+            "complete_status_scan": True,
+            "total_status_entry_count": 2,
+            "returned_entry_count": 1,
+            "collapsed_tool_owned_count": 1,
+            "sampled_tool_owned_count": 1,
+            "unsampled_tool_owned_count": 0,
+            "files": [
+                {
+                    "path": "codexbridge/server.py",
+                    "size_bytes": 1,
+                    "line_count": 1,
+                    "tool_owned": False,
+                    "index_status": "M",
+                    "worktree_status": " ",
+                }
+            ],
+            "tool_owned_summary": {
+                "total_bytes": 4,
+                "root_group_counts": {".codex-tmp": 1},
+                "sample": [
+                    {
+                        "path": ".codex-tmp/run.txt",
+                        "size_bytes": 4,
+                        "line_count": 1,
+                        "tool_owned": True,
+                        "index_status": "?",
+                        "worktree_status": "?",
+                    }
+                ],
+                "truncated": False,
+            },
+            "fallback_tool": "inspect_repo_status",
+            "git_status": "## main\n M codexbridge/server.py\n",
+            "manifest": {"git_status": "## main\n M codexbridge/server.py\n"},
+        },
+    )
+    action = {item["name"]: item for item in discovered_actions()}[
+        "inspect_repo_status_compact"
+    ]
+
+    result = server.inspect_repo_status_compact("repo")
+
+    assert "git_status" not in result
+    assert "manifest" not in result
     validate(instance=result, schema=action["outputSchema"])
 
 

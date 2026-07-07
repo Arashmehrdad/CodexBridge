@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -12,8 +13,11 @@ from codexbridge.git_tools import (
     changed_files,
     commit_all_changes,
     commit_selected_files,
+    create_branch,
     dry_run_stage_manifest,
+    inspect_commit_range,
     inspect_status,
+    inspect_status_compact,
     stage_all,
     unstage_all,
 )
@@ -21,6 +25,19 @@ from codexbridge.git_tools import (
 
 def run(command: list[str], cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True, capture_output=True)
+
+
+def porcelain_v1_z(*entries: tuple[str, str, str] | tuple[str, str, str, str]) -> bytes:
+    payload = bytearray()
+    for entry in entries:
+        index_status, worktree_status, path, *rest = entry
+        payload.extend(f"{index_status}{worktree_status} ".encode("ascii"))
+        payload.extend(path.encode("utf-8"))
+        payload.append(0)
+        for extra_path in rest:
+            payload.extend(extra_path.encode("utf-8"))
+            payload.append(0)
+    return bytes(payload)
 
 
 @pytest.fixture()
@@ -265,3 +282,417 @@ def test_status_manifest_classifies_tool_owned_files(repo: Path) -> None:
     assert entry["tool_owned"] is True
     assert entry["size_bytes"] > 0
     assert entry["line_count"] == 2
+
+
+def test_inspect_status_compact_preserves_non_tool_owned_and_summarizes_tool_owned(
+    repo: Path,
+) -> None:
+    (repo / "alpha.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    (repo / "nested").mkdir()
+    (repo / "nested" / "beta.txt").write_text("beta\n", encoding="utf-8")
+    first_tool_owned = repo / ".codex-tmp" / "z-last.txt"
+    first_tool_owned.parent.mkdir()
+    first_tool_owned.write_bytes(b"z\n")
+    (repo / ".codex-tmp" / "a-first.txt").write_bytes(b"a\nb\nc\n")
+    (repo / ".ruff_cache").mkdir()
+    (repo / ".ruff_cache" / "cache.txt").write_bytes(b"cache")
+    (repo / ".pytest_cache").mkdir()
+    (repo / ".pytest_cache" / "state.txt").write_bytes(b"state\n")
+    (repo / ".codex-tmp" / "extra.txt").write_bytes(b"extra\n")
+
+    result = inspect_status_compact(repo)
+
+    assert result["complete_status_scan"] is True
+    assert result["fallback_tool"] == "inspect_repo_status"
+    assert "git_status" not in result
+    assert "manifest" not in result
+    assert [entry["path"] for entry in result["files"]] == [
+        "alpha.txt",
+        "nested/beta.txt",
+    ]
+    assert result["total_status_entry_count"] == 7
+    assert result["returned_entry_count"] == 2
+    assert result["collapsed_tool_owned_count"] == 5
+    assert result["sampled_tool_owned_count"] == 5
+    assert result["unsampled_tool_owned_count"] == 0
+    for entry in result["files"]:
+        assert entry["tool_owned"] is False
+        assert "index_status" in entry
+        assert "worktree_status" in entry
+    assert result["tool_owned_summary"] == {
+        "total_bytes": 25,
+        "root_group_counts": {
+            ".codex-tmp": 3,
+            ".pytest_cache": 1,
+            ".ruff_cache": 1,
+        },
+        "sample": [
+            {
+                "path": ".codex-tmp/a-first.txt",
+                "size_bytes": 6,
+                "line_count": 3,
+                "tool_owned": True,
+                "index_status": "?",
+                "worktree_status": "?",
+            },
+            {
+                "path": ".codex-tmp/extra.txt",
+                "size_bytes": 6,
+                "line_count": 1,
+                "tool_owned": True,
+                "index_status": "?",
+                "worktree_status": "?",
+            },
+            {
+                "path": ".codex-tmp/z-last.txt",
+                "size_bytes": 2,
+                "line_count": 1,
+                "tool_owned": True,
+                "index_status": "?",
+                "worktree_status": "?",
+            },
+            {
+                "path": ".pytest_cache/state.txt",
+                "size_bytes": 6,
+                "line_count": 1,
+                "tool_owned": True,
+                "index_status": "?",
+                "worktree_status": "?",
+            },
+            {
+                "path": ".ruff_cache/cache.txt",
+                "size_bytes": 5,
+                "line_count": 1,
+                "tool_owned": True,
+                "index_status": "?",
+                "worktree_status": "?",
+            },
+        ],
+        "truncated": False,
+    }
+
+
+def test_inspect_status_compact_truncates_sorted_tool_owned_sample(repo: Path) -> None:
+    tool_owned_names = ["b.txt", "f.txt", "d.txt", "a.txt", "e.txt", "c.txt"]
+    scratch_root = repo / ".codex-tmp"
+    scratch_root.mkdir()
+    for name in tool_owned_names:
+        (scratch_root / name).write_text(name + "\n", encoding="utf-8")
+
+    result = inspect_status_compact(repo)
+
+    assert result["collapsed_tool_owned_count"] == 6
+    assert result["sampled_tool_owned_count"] == 5
+    assert result["unsampled_tool_owned_count"] == 1
+    assert result["tool_owned_summary"]["truncated"] is True
+    assert [entry["path"] for entry in result["tool_owned_summary"]["sample"]] == [
+        ".codex-tmp/a.txt",
+        ".codex-tmp/b.txt",
+        ".codex-tmp/c.txt",
+        ".codex-tmp/d.txt",
+        ".codex-tmp/e.txt",
+    ]
+
+
+def test_inspect_status_compact_handles_spaces_and_renames(repo: Path) -> None:
+    old_name = repo / "old name.txt"
+    old_name.write_text("before\n", encoding="utf-8")
+    run(["git", "add", "old name.txt"], repo)
+    run(["git", "commit", "-m", "add old name"], repo)
+    renamed = "renamed file with spaces.txt"
+    ordinary = "plain file with spaces.txt"
+    run(["git", "mv", "old name.txt", renamed], repo)
+    (repo / ordinary).write_text("ordinary\n", encoding="utf-8")
+    tool_owned = repo / ".codex-tmp" / "scratch file with spaces.txt"
+    tool_owned.parent.mkdir()
+    tool_owned.write_bytes(b"tool owned\n")
+
+    result = inspect_status_compact(repo)
+
+    assert result["returned_entry_count"] == 2
+    assert result["collapsed_tool_owned_count"] == 1
+    assert [entry["path"] for entry in result["files"]] == [
+        ordinary,
+        renamed,
+    ]
+    renamed_entry = next(entry for entry in result["files"] if entry["path"] == renamed)
+    assert renamed_entry["index_status"] == "R"
+    assert renamed_entry["worktree_status"] == " "
+    assert renamed_entry["rename_source_path"] == "old name.txt"
+    assert result["tool_owned_summary"]["sample"] == [
+        {
+            "path": ".codex-tmp/scratch file with spaces.txt",
+            "size_bytes": len("tool owned\n".encode("utf-8")),
+            "line_count": 1,
+            "tool_owned": True,
+            "index_status": "?",
+            "worktree_status": "?",
+        }
+    ]
+
+
+def test_iter_porcelain_v1_z_entries_preserves_embedded_newlines(
+    repo: Path, monkeypatch
+) -> None:
+    original_run_git_bytes = git_tools._run_git_bytes
+    renamed = "renamed file\nwith newline.txt"
+    source = "old name\nwith newline.txt"
+    ordinary = "plain file with spaces.txt"
+    status_output = porcelain_v1_z(
+        ("R", " ", renamed, source),
+        ("?", "?", ordinary),
+    )
+
+    def fake_run_git_bytes(repo_root: Path, args: list[str], *, check: bool = False):
+        if args == ["status", "--porcelain=v1", "-z", "--untracked-files=all"]:
+            return subprocess.CompletedProcess(
+                ["git", *args], 0, stdout=status_output, stderr=b""
+            )
+        return original_run_git_bytes(repo_root, args, check=check)
+
+    monkeypatch.setattr(git_tools, "_run_git_bytes", fake_run_git_bytes)
+
+    assert git_tools._iter_porcelain_v1_z_entries(repo) == [
+        {
+            "index_status": "R",
+            "worktree_status": " ",
+            "path": renamed,
+            "rename_source_path": source,
+        },
+        {
+            "index_status": "?",
+            "worktree_status": "?",
+            "path": ordinary,
+        },
+    ]
+
+
+def test_inspect_status_compact_preserves_tool_owned_non_untracked_entries(
+    repo: Path, monkeypatch
+) -> None:
+    original_run_git_bytes = git_tools._run_git_bytes
+    line_count_requests: list[str] = []
+    status_output = porcelain_v1_z(
+        ("?", "?", ".codex-tmp/untracked.txt"),
+        ("M", " ", ".codex-tmp/staged.txt"),
+        (" ", "M", ".codex-tmp/modified.txt"),
+        ("D", " ", ".codex-tmp/deleted.txt"),
+        ("U", "U", ".codex-tmp/conflicted.txt"),
+        ("C", " ", ".codex-tmp/copied.txt", "original.txt"),
+        ("R", " ", ".codex-tmp/renamed.txt", "old.txt"),
+        ("?", "?", "src/app.py"),
+    )
+
+    def fake_run_git_bytes(repo_root: Path, args: list[str], *, check: bool = False):
+        if args == ["status", "--porcelain=v1", "-z", "--untracked-files=all"]:
+            return subprocess.CompletedProcess(
+                ["git", *args], 0, stdout=status_output, stderr=b""
+            )
+        return original_run_git_bytes(repo_root, args, check=check)
+
+    def fake_file_metadata(
+        repo_root: Path, path: str, *, include_line_count: bool = True
+    ) -> dict[str, object]:
+        if include_line_count:
+            line_count_requests.append(path)
+        return {
+            "path": path,
+            "size_bytes": len(path.encode("utf-8")),
+            "line_count": 1 if include_line_count else None,
+            "tool_owned": path.startswith(".codex-tmp/"),
+        }
+
+    monkeypatch.setattr(git_tools, "_run_git_bytes", fake_run_git_bytes)
+    monkeypatch.setattr(git_tools, "_file_metadata", fake_file_metadata)
+
+    result = inspect_status_compact(repo)
+
+    assert [entry["path"] for entry in result["files"]] == [
+        ".codex-tmp/conflicted.txt",
+        ".codex-tmp/copied.txt",
+        ".codex-tmp/deleted.txt",
+        ".codex-tmp/modified.txt",
+        ".codex-tmp/renamed.txt",
+        ".codex-tmp/staged.txt",
+        "src/app.py",
+    ]
+    assert result["total_status_entry_count"] == 8
+    assert result["returned_entry_count"] == 7
+    assert result["collapsed_tool_owned_count"] == 1
+    assert result["sampled_tool_owned_count"] == 1
+    assert result["unsampled_tool_owned_count"] == 0
+    assert result["tool_owned_summary"]["root_group_counts"] == {".codex-tmp": 1}
+    assert result["tool_owned_summary"]["sample"] == [
+        {
+            "path": ".codex-tmp/untracked.txt",
+            "size_bytes": len(".codex-tmp/untracked.txt".encode("utf-8")),
+            "line_count": 1,
+            "tool_owned": True,
+            "index_status": "?",
+            "worktree_status": "?",
+        }
+    ]
+    assert sorted(line_count_requests) == [
+        ".codex-tmp/conflicted.txt",
+        ".codex-tmp/copied.txt",
+        ".codex-tmp/deleted.txt",
+        ".codex-tmp/modified.txt",
+        ".codex-tmp/renamed.txt",
+        ".codex-tmp/staged.txt",
+        ".codex-tmp/untracked.txt",
+        "src/app.py",
+    ]
+    copied_entry = next(
+        entry for entry in result["files"] if entry["path"] == ".codex-tmp/copied.txt"
+    )
+    renamed_entry = next(
+        entry for entry in result["files"] if entry["path"] == ".codex-tmp/renamed.txt"
+    )
+    assert copied_entry["rename_source_path"] == "original.txt"
+    assert renamed_entry["rename_source_path"] == "old.txt"
+
+
+def test_inspect_status_compact_skips_line_counts_for_unsampled_collapsed_entries(
+    repo: Path, monkeypatch
+) -> None:
+    original_run_git_bytes = git_tools._run_git_bytes
+    line_count_requests: list[str] = []
+    collapsed_paths = [f".codex-tmp/{name}.txt" for name in "fedcba"]
+    status_output = porcelain_v1_z(*(("?", "?", path) for path in collapsed_paths))
+
+    def fake_run_git_bytes(repo_root: Path, args: list[str], *, check: bool = False):
+        if args == ["status", "--porcelain=v1", "-z", "--untracked-files=all"]:
+            return subprocess.CompletedProcess(
+                ["git", *args], 0, stdout=status_output, stderr=b""
+            )
+        return original_run_git_bytes(repo_root, args, check=check)
+
+    def fake_file_metadata(
+        repo_root: Path, path: str, *, include_line_count: bool = True
+    ) -> dict[str, object]:
+        if include_line_count:
+            line_count_requests.append(path)
+        return {
+            "path": path,
+            "size_bytes": 1,
+            "line_count": 1 if include_line_count else None,
+            "tool_owned": True,
+        }
+
+    monkeypatch.setattr(git_tools, "_run_git_bytes", fake_run_git_bytes)
+    monkeypatch.setattr(git_tools, "_file_metadata", fake_file_metadata)
+
+    result = inspect_status_compact(repo)
+
+    assert result["collapsed_tool_owned_count"] == 6
+    assert result["sampled_tool_owned_count"] == 5
+    assert result["unsampled_tool_owned_count"] == 1
+    assert [entry["path"] for entry in result["tool_owned_summary"]["sample"]] == [
+        ".codex-tmp/a.txt",
+        ".codex-tmp/b.txt",
+        ".codex-tmp/c.txt",
+        ".codex-tmp/d.txt",
+        ".codex-tmp/e.txt",
+    ]
+    assert sorted(line_count_requests) == [
+        ".codex-tmp/a.txt",
+        ".codex-tmp/b.txt",
+        ".codex-tmp/c.txt",
+        ".codex-tmp/d.txt",
+        ".codex-tmp/e.txt",
+    ]
+
+
+def test_inspect_status_compact_payload_is_small_and_preserves_meaningful_entries(
+    repo: Path,
+) -> None:
+    (repo / "base.txt").write_text("updated base\n", encoding="utf-8")
+    (repo / "alpha note.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    (repo / "rename source.txt").write_text("rename me\n", encoding="utf-8")
+    run(["git", "add", "rename source.txt"], repo)
+    run(["git", "commit", "-m", "add rename source"], repo)
+    run(["git", "mv", "rename source.txt", "rename target.txt"], repo)
+    nested = repo / "docs"
+    nested.mkdir()
+    (nested / "plain.py").write_text("print('ok')\n", encoding="utf-8")
+    scratch_root = repo / ".codex-tmp"
+    scratch_root.mkdir()
+    for index in range(240):
+        (scratch_root / f"batch-{index:03d}.txt").write_text(
+            f"payload {index}\n",
+            encoding="utf-8",
+        )
+
+    full = inspect_status(repo)
+    compact = inspect_status_compact(repo)
+    full_payload = json.dumps(full, sort_keys=True)
+    compact_payload = json.dumps(compact, sort_keys=True)
+
+    assert len(compact_payload) <= len(full_payload) * 0.25
+    assert compact["collapsed_tool_owned_count"] >= 200
+    assert compact["total_status_entry_count"] == len(full["manifest"]["files"])
+    assert {entry["path"] for entry in compact["files"]} == {
+        "alpha note.txt",
+        "base.txt",
+        "docs/plain.py",
+        "rename target.txt",
+    }
+    renamed_entry = next(
+        entry for entry in compact["files"] if entry["path"] == "rename target.txt"
+    )
+    assert renamed_entry["rename_source_path"] == "rename source.txt"
+
+
+def test_inspect_commit_range_requires_full_hashes_and_returns_diff(repo: Path) -> None:
+    first = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    (repo / "base.txt").write_text("updated\n", encoding="utf-8")
+    run(["git", "commit", "-am", "update base"], repo)
+    second = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    result = inspect_commit_range(repo, first, second)
+
+    assert result["ok"] is True
+    assert "base.txt" in result["name_status"]
+    assert "base.txt" in result["diff"]
+    with pytest.raises(ValueError, match="40-character"):
+        inspect_commit_range(repo, first[:8], second)
+
+
+def test_create_branch_failure_returns_structured_git_diagnostics(
+    repo: Path, monkeypatch
+) -> None:
+    original_run_git = git_tools._run_git
+
+    def fail_branch(repo_root: Path, args: list[str], *, check: bool = False):
+        if args[:1] == ["branch"] and check:
+            raise GitCommandError(
+                {
+                    "argv": ["git", *args],
+                    "exit_code": 128,
+                    "stdout": "",
+                    "stderr": "simulated branch failure",
+                    "duration_seconds": 0.01,
+                    "index_lock": {"exists": False, "path": ".git/index.lock"},
+                }
+            )
+        return original_run_git(repo_root, args, check=check)
+
+    monkeypatch.setattr(git_tools, "_run_git", fail_branch)
+
+    result = create_branch(repo, "feature/test")
+
+    assert result["ok"] is False
+    assert result["branch_name"] == "feature/test"
+    assert result["git_error"]["stderr"] == "simulated branch failure"

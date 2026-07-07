@@ -355,3 +355,117 @@ def test_project_command_worker_resolves_profiles_case_insensitively(
     result = store.get_run(run_id)["result"]
     assert result["repo_name"] == "Sample"
     assert result["command_id"] == "custom"
+
+
+def test_implementation_worker_requires_all_manifest_ids_to_finish_completed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "repos:",
+                "  sample:",
+                f'    path: "{repo.as_posix()}"',
+                f'runs_dir: "{runs_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_id = "20260701T000003Z_codex_implement_task_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="codex_implement_task",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "approved_plan": "REQ-001 one\nREQ-002 two",
+            "allowed_files": ["README.md"],
+            "tests": ["python -m pytest -q"],
+            "requirement_manifest": [
+                {"requirement_id": "REQ-001", "text": "REQ-001 one", "mandatory": True},
+                {"requirement_id": "REQ-002", "text": "REQ-002 two", "mandatory": True},
+            ],
+        },
+    )
+    worker = JobWorker(config_path, run_id)
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr(
+        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        lambda _repo_root, _before: [],
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        lambda self: "codex",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        lambda self, _executable: "",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._codex_exec_args",
+        lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
+            "codex"
+        ],
+    )
+
+    class FakePipe:
+        def readline(self) -> str:
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class FakeProcess:
+        pid = 123
+        stdout = FakePipe()
+        stderr = FakePipe()
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(
+        "codexbridge.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+    )
+    (run_dir / "stdout.txt").write_text(
+        "\n".join(
+            [
+                "COMPLETED_REQUIREMENT: REQ-001 one",
+                "VALIDATION_STATUS: passed",
+                "FINAL_STATUS: completed",
+                "PLAN_CONFORMANCE: yes",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker._stream_pipe",
+        lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
+            output_path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if output_path.exists()
+            else []
+        ),
+    )
+
+    assert worker.execute() == 0
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "partial"
+    assert persisted["result"]["missing_requirements"] == ["REQ-002"]
+    assert persisted["result"]["mandatory_incomplete"] == ["REQ-002"]

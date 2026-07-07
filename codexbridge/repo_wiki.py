@@ -6,7 +6,7 @@ import json
 import os
 import re
 import subprocess
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable

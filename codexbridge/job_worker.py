@@ -37,7 +37,7 @@ from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import RunStore
 from .run_guards import (
     allowed_write_directories,
-    assess_implementation_output,
+    assess_implementation_output_against,
     assess_plan_output,
     changed_workspace_paths,
     classify_git_attribution,
@@ -256,6 +256,7 @@ class JobWorker:
         elif tool == "codex_implement_task":
             allowed_files = list(input_data.get("allowed_files") or [])
             tests = list(input_data.get("tests") or [])
+            requirement_manifest = list(input_data.get("requirement_manifest") or [])
             validate_repo_relative_paths(repo_root, allowed_files)
             for test in tests:
                 reject_destructive_command(test)
@@ -265,7 +266,11 @@ class JobWorker:
             if not decision.accepted:
                 raise ValueError(decision.reason)
             prompt = build_implementation_prompt(
-                repo_name, input_data["approved_plan"], allowed_files, tests
+                repo_name,
+                input_data["approved_plan"],
+                allowed_files,
+                tests,
+                requirement_manifest=requirement_manifest,
             )
             sandbox = "workspace-write"
         else:
@@ -358,7 +363,14 @@ class JobWorker:
         stderr = "".join(stderr_parts)
         summary = (stdout or "").strip() or (stderr or "").strip()
         outcome = (
-            assess_implementation_output(summary)
+            assess_implementation_output_against(
+                summary,
+                [
+                    str(item.get("requirement_id", ""))
+                    for item in (input_data.get("requirement_manifest") or [])
+                    if isinstance(item, dict)
+                ],
+            )
             if tool == "codex_implement_task"
             else assess_plan_output(summary)
         )
@@ -411,6 +423,9 @@ class JobWorker:
         plan_conformance = outcome.plan_conformance if outcome else None
         completed_requirements = outcome.completed_requirements if outcome else []
         skipped_requirements = outcome.skipped_requirements if outcome else []
+        failed_requirements = outcome.failed_requirements if outcome else []
+        missing_requirements = outcome.missing_requirements if outcome else []
+        mandatory_incomplete = outcome.mandatory_incomplete if outcome else []
         validation_status = outcome.validation_status if outcome else None
         validation_confirmed = not tests or validation_status in {
             "passed",
@@ -420,7 +435,7 @@ class JobWorker:
             tool != "codex_implement_task"
             or (
                 plan_conformance is True
-                and not skipped_requirements
+                and not mandatory_incomplete
                 and validation_confirmed
             )
         )
@@ -461,6 +476,9 @@ class JobWorker:
             "requested_files": allowed_files,
             "completed_requirements": completed_requirements,
             "skipped_requirements": skipped_requirements,
+            "failed_requirements": failed_requirements,
+            "missing_requirements": missing_requirements,
+            "mandatory_incomplete": mandatory_incomplete,
             "validation_status": validation_status,
             "managed_artifacts_cleaned": managed_artifacts_cleaned,
             "temporary_directory": str(temp_root),

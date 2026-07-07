@@ -7,6 +7,7 @@ from typing import Iterable
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import AppConfig, load_config
+from .repo_discovery_integration import install_repo_discovery
 
 RELOADABLE_MODULES = {
     "codexbridge.capabilities",
@@ -72,9 +73,12 @@ def reload_service(
         if not restart_required
         else "One or more modules require process restart for safe activation.",
     }
+    install_repo_discovery()
     result.update(capability_metadata(PATCH_OPERATION_SCHEMA))
     return result
 
 
 def apply_reloaded_config(config_path: Path) -> AppConfig:
-    return load_config(config_path)
+    config = load_config(config_path)
+    install_repo_discovery()
+    return config

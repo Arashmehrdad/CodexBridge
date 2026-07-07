@@ -9,3 +9,4 @@ __pycache__/
 config.yaml
 runs/*
 !runs/.gitkeep
+.codexbridge/wiki/

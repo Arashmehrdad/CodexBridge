@@ -71,7 +71,36 @@ def test_start_async_implementation_validates_files(
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_implementation("sample", "edit docs", ["README.md"], [])
     assert response["accepted"] is True
-    assert manager.get_status(response["run_id"])["tool"] == "codex_implement_task"
+    status = manager.get_status(response["run_id"])
+    assert status["tool"] == "codex_implement_task"
+    assert status["input"]["requirement_manifest"] == []
+
+
+def test_start_async_implementation_persists_requirement_manifest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_implementation(
+        "sample",
+        "REQ-001 Independent requirement accounting\nREQ-002 Canonical repository identity",
+        ["README.md"],
+        [],
+    )
+
+    manifest = manager.get_status(response["run_id"])["input"]["requirement_manifest"]
+    assert manifest == [
+        {
+            "requirement_id": "REQ-001",
+            "text": "REQ-001 Independent requirement accounting",
+            "mandatory": True,
+        },
+        {
+            "requirement_id": "REQ-002",
+            "text": "REQ-002 Canonical repository identity",
+            "mandatory": True,
+        },
+    ]
 
 
 def test_start_async_project_command_creates_durable_run(
@@ -188,3 +217,22 @@ def test_start_project_command_accepts_case_insensitive_repo_name(
     assert response["accepted"] is True
     assert response["repo_name"] == "sample"
     assert response["requested_repo_name"] == "Sample"
+
+
+def test_list_runs_and_latest_result_use_canonical_repo_filters(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("Sample", "inspect docs")
+    run_id = response["run_id"]
+    manager.store.update_run(
+        run_id,
+        status="completed",
+        result_json={"run_id": run_id, "repo_name": "sample", "summary": "done"},
+    )
+
+    listed = manager.list_runs(repo_name="Sample")
+    latest = manager.latest_result(repo_name="Sample")
+
+    assert listed[0]["repo_name"] == "sample"
+    assert latest["repo_name"] == "sample"

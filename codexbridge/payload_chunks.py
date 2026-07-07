@@ -65,6 +65,8 @@ def assemble_payload(
                 raise ValueError("Invalid payload chunk metadata")
             filename = str(chunk.get("file", ""))
             expected_name = payload_chunk_file_name(index, chunk_index)
+            if filename != expected_name:
+                raise ValueError("Payload chunk order or filename mismatch")
             data = read_file(filename, expected_name)
             if len(data) != int(chunk.get("size_bytes", -1)):
                 raise ValueError("Payload chunk size mismatch")
@@ -76,6 +78,8 @@ def assemble_payload(
         filename = str(descriptor.get("payload_file", ""))
         if not filename:
             raise ValueError("Missing payload file metadata")
+        if filename != payload_file_name(index):
+            raise ValueError("Payload filename mismatch")
         payload = read_file(filename, payload_file_name(index))
 
     expected_sha = str(descriptor.get("payload_sha256", ""))

@@ -9,7 +9,6 @@ from codexbridge.codex_router.models import CodexEscalationStatus, CodexInvocati
 from codexbridge.config import CodexRouterConfig
 from codexbridge.memory.repository import ProjectMemoryRepository
 from codexbridge.policy import PolicyEngine
-from codexbridge.policy.models import CanonicalPermissionTier, PolicyEvaluationRequest
 
 
 def router(tmp_path: Path, **kwargs) -> CodexEscalationRouter:

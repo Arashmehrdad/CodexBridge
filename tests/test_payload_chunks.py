@@ -39,6 +39,33 @@ def test_payload_chunks_round_trip_and_detect_tampering() -> None:
         )
 
 
+def test_payload_chunks_reject_renamed_or_reordered_chunk_metadata() -> None:
+    data = (b"abc123" * ((PAYLOAD_CHUNK_BYTES // 6) + 10)) + b"tail"
+    descriptor, parts = build_payload_parts(4, data)
+    stored = dict(parts)
+
+    renamed = dict(descriptor)
+    renamed["payload_chunks"] = list(descriptor["payload_chunks"])
+    renamed["payload_chunks"][0] = dict(renamed["payload_chunks"][0], file="wrong.bin")
+    with pytest.raises(ValueError, match="filename"):
+        assemble_payload(
+            4,
+            renamed,
+            lambda filename, expected: (
+                stored[expected] if filename != expected else stored[filename]
+            ),
+        )
+
+    reordered = dict(descriptor)
+    reordered["payload_chunks"] = list(reversed(descriptor["payload_chunks"]))
+    with pytest.raises(ValueError, match="order"):
+        assemble_payload(
+            4,
+            reordered,
+            lambda filename, expected: stored.get(filename, b""),
+        )
+
+
 def test_large_preview_bundle_uses_chunks_and_applies(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

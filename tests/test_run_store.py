@@ -138,3 +138,17 @@ def test_run_store_heartbeat_merges_existing_progress(tmp_path: Path) -> None:
 def test_invalid_run_id_rejected() -> None:
     with pytest.raises(ValueError):
         validate_run_id("../bad")
+
+
+def test_run_store_repo_filters_are_case_insensitive(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="Sample",
+        tool="codex_plan_task",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+
+    assert store.list_runs(repo_name="sample")[0]["repo_name"] == "Sample"
+    assert store.latest_run(repo_name="sample")["repo_name"] == "Sample"
