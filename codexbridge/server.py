@@ -25,7 +25,9 @@ from .git_tools import CommitMetadataError
 from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
+from .git_tools import changed_files as _changed_files
 from .git_tools import diff_stat, git_status, inspect_status
+from .git_tools import finalize_explicit_changes
 from .git_tools import inspect_status_compact
 from .git_tools import inspect_commit_range as _inspect_commit_range
 from .git_tools import git_diff as _git_diff_raw
@@ -706,6 +708,8 @@ def _locked_repo_operation(
     tool: str,
     normalized_input: dict[str, Any],
     operation: Callable[[Path], dict[str, Any]],
+    *,
+    finalize_commit: bool = False,
 ) -> dict[str, Any]:
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     with repository_operation_lock(
@@ -715,6 +719,18 @@ def _locked_repo_operation(
         normalized_input=normalized_input,
     ):
         result = operation(repo_root)
+        if result.get("ok") and finalize_commit:
+            commit_data = finalize_explicit_changes(
+                repo_root,
+                result.get("changed_files") or [],
+                tool_name=tool,
+            )
+            result = dict(result)
+            result.update(commit_data)
+            if commit_data["commit_attempted"] and commit_data["commit_error"]:
+                result["ok"] = False
+                result["status"] = "commit_failed"
+                result["error"] = commit_data["commit_error"]
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
@@ -1496,6 +1512,7 @@ def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> d
         lambda repo_root: _repo_writer.apply_repo_patch(
             repo_root, operations, patch_id, _get_runs_dir()
         ),
+        finalize_commit=True,
     )
 
 
@@ -1509,6 +1526,7 @@ def apply_previewed_repo_change(repo_name: str, patch_id: str) -> dict:
         lambda repo_root: _repo_writer.apply_previewed_repo_change(
             repo_root, patch_id, _get_runs_dir()
         ),
+        finalize_commit=True,
     )
 
 
@@ -1520,6 +1538,7 @@ def create_repo_file(repo_name: str, path: str, content: str) -> dict:
         "create_repo_file",
         {"path": path, "content_sha256": _repo_writer._sha256_text(content)},
         lambda repo_root: _repo_writer.create_repo_file(repo_root, path, content),
+        finalize_commit=True,
     )
 
 
@@ -1533,6 +1552,7 @@ def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
         lambda repo_root: _repo_writer.delete_repo_file(
             repo_root, path, expected_sha256, _get_runs_dir()
         ),
+        finalize_commit=True,
     )
 
 
@@ -1559,6 +1579,7 @@ def move_repo_file(
             expected_sha256,
             _get_runs_dir(),
         ),
+        finalize_commit=True,
     )
 
 
@@ -1572,6 +1593,7 @@ def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
         lambda repo_root: _repo_writer.revert_managed_patch(
             repo_root, patch_id, _get_runs_dir()
         ),
+        finalize_commit=True,
     )
 
 
@@ -1605,11 +1627,22 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
         if requested_name != canonical_name:
             result["requested_repo_name"] = requested_name
         return result
+
+    def run_profile_with_attribution(root: Path) -> dict[str, Any]:
+        dirty_before = set(_changed_files(root))
+        result = dict(run_command_profile(profile, root))
+        dirty_after = _changed_files(root)
+        result["changed_files"] = [
+            path for path in dirty_after if path not in dirty_before
+        ]
+        return result
+
     return _locked_repo_operation(
         repo_name,
         "run_project_command",
         {"command_id": command_id},
-        lambda root: run_command_profile(profile, root),
+        run_profile_with_attribution,
+        finalize_commit=profile.writes_files,
     )
 
 

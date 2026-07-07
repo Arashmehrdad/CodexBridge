@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,13 +90,18 @@ def _index_lock_state(repo_root: Path) -> dict[str, Any]:
 
 
 def _run_git(
-    repo_root: Path, args: list[str], *, check: bool = False
+    repo_root: Path,
+    args: list[str],
+    *,
+    check: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = ["git", *args]
     started = time.monotonic()
     result = subprocess.run(
         argv,
         cwd=repo_root,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
@@ -440,6 +446,9 @@ def create_branch(repo_root: Path, branch_name: str) -> dict:
 
 MAX_COMMIT_TITLE_LENGTH = 200
 MAX_COMMIT_DESCRIPTION_LENGTH = 10_000
+AUTO_COMMIT_TITLE_LIMIT = 72
+CODEXBRIDGE_COMMITTER_NAME = "CodexBridge"
+CODEXBRIDGE_COMMITTER_EMAIL = "codexbridge@local.invalid"
 
 
 class CommitMetadataError(ValueError):
@@ -597,6 +606,213 @@ def _commit_failure(
             else "Inspect the Git index before retrying; automatic restoration failed."
         ),
         "error": str(exc),
+    }
+
+
+def _normalize_explicit_paths(paths: Iterable[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_path in paths:
+        normalized_path = Path(raw_path).as_posix()
+        if normalized_path in seen:
+            continue
+        seen.add(normalized_path)
+        normalized.append(normalized_path)
+    return normalized
+
+
+def _sanitize_commit_label(value: str, *, fallback: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]+", "-", value).strip(" .-")
+    return cleaned or fallback
+
+
+def _build_auto_commit_metadata(tool_name: str, run_id: str = "") -> tuple[str, str]:
+    safe_tool = _sanitize_commit_label(tool_name, fallback="write")
+    title = f"CodexBridge: {safe_tool}"
+    if len(title) > AUTO_COMMIT_TITLE_LIMIT:
+        suffix_limit = AUTO_COMMIT_TITLE_LIMIT - len("CodexBridge: ")
+        title = f"CodexBridge: {safe_tool[:suffix_limit].rstrip()}"
+
+    safe_run_id = _sanitize_commit_label(run_id, fallback="")
+    description = f"Run-ID: {safe_run_id}" if safe_run_id else ""
+    return title, description
+
+
+def _finalize_stage_paths(repo_root: Path, requested_paths: Iterable[str]) -> list[str]:
+    selected = set(_normalize_explicit_paths(requested_paths))
+    if not selected:
+        return []
+
+    stage_paths: list[str] = []
+    seen: set[str] = set()
+    for entry in _iter_porcelain_v1_z_entries(repo_root):
+        entry_path = entry["path"]
+        source_path = entry.get("rename_source_path", "")
+        if entry_path not in selected and source_path not in selected:
+            continue
+        for candidate in (entry_path, source_path):
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            stage_paths.append(candidate)
+    return stage_paths
+
+
+def finalize_explicit_changes(
+    repo_root: Path,
+    paths: Iterable[str],
+    *,
+    tool_name: str,
+    run_id: str = "",
+) -> dict[str, Any]:
+    selected = _normalize_explicit_paths(paths)
+    for file_name in selected:
+        validate_repo_relative_path(repo_root, file_name)
+
+    if not selected:
+        return {
+            "commit_required": False,
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "commit_result": {
+                "ok": True,
+                "reason": "no_paths",
+                "staged_paths": [],
+                "git_status": git_status(repo_root),
+                "remaining_dirty_files": changed_files(repo_root),
+            },
+        }
+
+    stage_paths = _finalize_stage_paths(repo_root, selected)
+    if not stage_paths:
+        return {
+            "commit_required": False,
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "commit_result": {
+                "ok": True,
+                "reason": "no_matching_changes",
+                "staged_paths": [],
+                "git_status": git_status(repo_root),
+                "remaining_dirty_files": changed_files(repo_root),
+            },
+        }
+
+    title, description = _build_auto_commit_metadata(tool_name, run_id)
+    _validate_commit_metadata(title, description, files_validated=True)
+    manifest_before = dry_run_stage_manifest(repo_root)
+    before_head = git_head(repo_root)
+    commit_env = os.environ.copy()
+    commit_env.update(
+        {
+            "GIT_AUTHOR_NAME": CODEXBRIDGE_COMMITTER_NAME,
+            "GIT_AUTHOR_EMAIL": CODEXBRIDGE_COMMITTER_EMAIL,
+            "GIT_COMMITTER_NAME": CODEXBRIDGE_COMMITTER_NAME,
+            "GIT_COMMITTER_EMAIL": CODEXBRIDGE_COMMITTER_EMAIL,
+        }
+    )
+
+    git_temp_root = _git_path(repo_root, "index").parent / "codexbridge-tmp"
+    git_temp_root.mkdir(parents=True, exist_ok=True)
+    commit_hash = ""
+    with tempfile.TemporaryDirectory(prefix="finalize-", dir=git_temp_root) as temp_dir:
+        temp_index = str(Path(temp_dir) / "index")
+        commit_env["GIT_INDEX_FILE"] = temp_index
+        try:
+            if before_head:
+                _run_git(repo_root, ["read-tree", "HEAD"], check=True, env=commit_env)
+            else:
+                _run_git(
+                    repo_root, ["read-tree", "--empty"], check=True, env=commit_env
+                )
+            _run_git(
+                repo_root,
+                ["add", "-A", "--", *stage_paths],
+                check=True,
+                env=commit_env,
+            )
+            staged_diff = _run_git(
+                repo_root,
+                ["diff", "--cached", "--name-only", "--", *stage_paths],
+                check=True,
+                env=commit_env,
+            ).stdout.splitlines()
+            if not staged_diff:
+                return {
+                    "commit_required": False,
+                    "commit_attempted": False,
+                    "commit_hash": "",
+                    "commit_error": "",
+                    "commit_result": {
+                        "ok": True,
+                        "reason": "no_staged_diff",
+                        "staged_paths": stage_paths,
+                        "git_status": git_status(repo_root),
+                        "remaining_dirty_files": changed_files(repo_root),
+                    },
+                }
+            _run_git(
+                repo_root,
+                ["commit", "-m", title, "-m", description],
+                check=True,
+                env=commit_env,
+            )
+            commit_hash = _run_git(
+                repo_root,
+                ["rev-parse", "HEAD"],
+                check=True,
+            ).stdout.strip()
+            # The commit was built with an isolated index so unrelated staged
+            # changes remain untouched. Synchronize only the committed paths in
+            # the real index with the new HEAD to avoid reporting them as dirty.
+            _run_git(
+                repo_root,
+                ["add", "-A", "--", *stage_paths],
+                check=True,
+            )
+        except GitCommandError as exc:
+            failure = {
+                "ok": False,
+                "files_validated": True,
+                "git_error": exc.diagnostics,
+                "error": str(exc),
+                "stage_manifest_before": manifest_before,
+                "stage_manifest_after": dry_run_stage_manifest(repo_root),
+                "remaining_dirty_files": changed_files(repo_root),
+                "git_status": git_status(repo_root),
+                "staged_paths": stage_paths,
+                "title": title,
+                "description": description,
+            }
+            return {
+                "commit_required": True,
+                "commit_attempted": True,
+                "commit_hash": commit_hash,
+                "commit_error": str(exc),
+                "commit_result": failure,
+            }
+
+    success = {
+        "ok": True,
+        "files_validated": True,
+        "commit_hash": commit_hash,
+        "stage_manifest_before": manifest_before,
+        "stage_manifest_after": dry_run_stage_manifest(repo_root),
+        "remaining_dirty_files": changed_files(repo_root),
+        "git_status": git_status(repo_root),
+        "staged_paths": stage_paths,
+        "title": title,
+        "description": description,
+        "error": "",
+    }
+    return {
+        "commit_required": True,
+        "commit_attempted": True,
+        "commit_hash": commit_hash,
+        "commit_error": "",
+        "commit_result": success,
     }
 
 
