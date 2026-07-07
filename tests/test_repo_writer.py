@@ -1644,7 +1644,7 @@ def test_server_preview_and_apply(tmp_path: Path) -> None:
     import codexbridge.server as server
     from codexbridge.config import AppConfig, RepoConfig
 
-    (tmp_path / ".git").mkdir()
+    init_git_repo(tmp_path)
     write_file(tmp_path / "target.py", "x = 0\n")
     sha = sha256_file(tmp_path / "target.py")
     config = AppConfig(
@@ -1675,7 +1675,7 @@ def test_server_create_and_delete_file(tmp_path: Path) -> None:
     import codexbridge.server as server
     from codexbridge.config import AppConfig, RepoConfig
 
-    (tmp_path / ".git").mkdir()
+    init_git_repo(tmp_path)
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
@@ -1700,7 +1700,7 @@ def test_server_preview_creation_removal_and_apply_previewed_change(
     import codexbridge.server as server
     from codexbridge.config import AppConfig, RepoConfig
 
-    (tmp_path / ".git").mkdir()
+    init_git_repo(tmp_path)
     write_file(tmp_path / "remove_me.py", "print('bye')\n")
     config = AppConfig(
         repos={"repo": RepoConfig(path=str(tmp_path))},
@@ -1734,7 +1734,7 @@ def test_server_move_file(tmp_path: Path) -> None:
     import codexbridge.server as server
     from codexbridge.config import AppConfig, RepoConfig
 
-    (tmp_path / ".git").mkdir()
+    init_git_repo(tmp_path)
     write_file(tmp_path / "old_name.py", "content\n")
     sha = sha256_file(tmp_path / "old_name.py")
     config = AppConfig(

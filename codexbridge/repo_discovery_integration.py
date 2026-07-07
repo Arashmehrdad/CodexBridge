@@ -5,7 +5,11 @@ import sys
 from pathlib import Path
 
 from . import config as config_module
-from .repo_discovery import canonical_repo_name, discover_repositories
+from .repo_discovery import (
+    canonical_repo_name,
+    diagnose_repository_miss,
+    discover_repository,
+)
 
 
 _ORIGINAL_RESOLVE_REPO = config_module.resolve_repo
@@ -72,19 +76,29 @@ def _discover_repo_identity(
         if not _discovery_enabled():
             raise
 
-    discovered = discover_repositories(
-        roots=_configured_roots(config),
-        max_depth=_max_depth(),
+    roots = _configured_roots(config)
+    max_depth = _max_depth()
+    exclude_names = _excluded_names()
+    match = discover_repository(
+        roots=roots,
+        requested_name=repo_name,
+        max_depth=max_depth,
         require_git=True,
-        exclude_names=_excluded_names(),
+        exclude_names=exclude_names,
     )
-    canonical_name = canonical_repo_name(repo_name)
-    match = discovered.get(repo_name) or discovered.get(canonical_name)
     if match is None:
-        raise ValueError(f"Unknown repo_name: {repo_name}")
+        detail = diagnose_repository_miss(
+            roots=roots,
+            requested_name=repo_name,
+            max_depth=max_depth,
+            exclude_names=exclude_names,
+        )
+        suffix = f" ({detail})" if detail else ""
+        raise ValueError(f"Unknown repo_name: {repo_name}{suffix}")
 
-    config.repos[match.repo_name] = config_module.RepoConfig(path=str(match.path))
-    return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, match.repo_name)
+    canonical_name = canonical_repo_name(match.folder_name)
+    config.repos[canonical_name] = config_module.RepoConfig(path=str(match.path))
+    return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, canonical_name)
 
 
 def resolve_repo_identity_with_discovery(

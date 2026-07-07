@@ -4,7 +4,7 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 _REPO_NAME_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
@@ -22,6 +22,97 @@ def canonical_repo_name(value: str) -> str:
     return _REPO_NAME_SEPARATOR_RE.sub("_", value.strip().lower()).strip("_")
 
 
+def iter_discovered_repositories(
+    *,
+    roots: Iterable[Path],
+    max_depth: int = 1,
+    require_git: bool = True,
+    exclude_names: Iterable[str] = (),
+) -> Iterator[DiscoveredRepo]:
+    """Yield eligible repositories beneath trusted roots in deterministic order."""
+    excluded = {name.casefold() for name in exclude_names}
+
+    for configured_root in roots:
+        try:
+            root = Path(configured_root).expanduser().resolve()
+        except OSError:
+            continue
+        if not root.exists() or not root.is_dir() or root.is_symlink():
+            continue
+
+        queue: deque[tuple[Path, int]] = deque([(root, 0)])
+        while queue:
+            parent, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
+
+            try:
+                children = sorted(
+                    parent.iterdir(),
+                    key=lambda child: (child.name.casefold(), child.name),
+                )
+            except OSError:
+                continue
+
+            for child in children:
+                if child.name.casefold() in excluded:
+                    continue
+                try:
+                    if child.is_symlink() or not child.is_dir():
+                        continue
+                except OSError:
+                    continue
+
+                child_depth = depth + 1
+                git_marker = child / ".git"
+                try:
+                    is_git_repo = git_marker.exists()
+                except OSError:
+                    is_git_repo = False
+
+                if is_git_repo or not require_git:
+                    repo_name = canonical_repo_name(child.name)
+                    if repo_name:
+                        yield DiscoveredRepo(
+                            repo_name=repo_name,
+                            folder_name=child.name,
+                            path=child.resolve(),
+                        )
+
+                # Do not scan inside an already discovered Git repository.
+                if is_git_repo:
+                    continue
+                if child_depth < max_depth:
+                    queue.append((child, child_depth))
+
+
+def discover_repository(
+    *,
+    roots: Iterable[Path],
+    requested_name: str,
+    max_depth: int = 1,
+    require_git: bool = True,
+    exclude_names: Iterable[str] = (),
+) -> DiscoveredRepo | None:
+    """Resolve an exact folder name first, then its canonical repository name."""
+    requested_folder = requested_name.strip().casefold()
+    requested_canonical = canonical_repo_name(requested_name)
+    canonical_match: DiscoveredRepo | None = None
+
+    for repository in iter_discovered_repositories(
+        roots=roots,
+        max_depth=max_depth,
+        require_git=require_git,
+        exclude_names=exclude_names,
+    ):
+        if repository.folder_name.casefold() == requested_folder:
+            return repository
+        if canonical_match is None and repository.repo_name == requested_canonical:
+            canonical_match = repository
+
+    return canonical_match
+
+
 def discover_repositories(
     *,
     roots: Iterable[Path],
@@ -36,11 +127,34 @@ def discover_repositories(
     repository is found, and keeps the first repository when normalized names
     collide.
     """
-    excluded = {name.casefold() for name in exclude_names}
     discovered: dict[str, DiscoveredRepo] = {}
+    for repository in iter_discovered_repositories(
+        roots=roots,
+        max_depth=max_depth,
+        require_git=require_git,
+        exclude_names=exclude_names,
+    ):
+        discovered.setdefault(repository.repo_name, repository)
+    return discovered
+
+
+def diagnose_repository_miss(
+    *,
+    roots: Iterable[Path],
+    requested_name: str,
+    max_depth: int = 1,
+    exclude_names: Iterable[str] = (),
+) -> str:
+    """Explain why a matching trusted-root path was not eligible for discovery."""
+    requested_folder = requested_name.strip().casefold()
+    requested_canonical = canonical_repo_name(requested_name)
+    excluded = {name.casefold() for name in exclude_names}
 
     for configured_root in roots:
-        root = Path(configured_root).expanduser().resolve()
+        try:
+            root = Path(configured_root).expanduser().resolve()
+        except OSError:
+            continue
         if not root.exists() or not root.is_dir() or root.is_symlink():
             continue
 
@@ -49,40 +163,56 @@ def discover_repositories(
             parent, depth = queue.popleft()
             if depth >= max_depth:
                 continue
-
             try:
                 children = sorted(
-                    (
-                        child
-                        for child in parent.iterdir()
-                        if child.is_dir() and not child.is_symlink()
-                    ),
+                    parent.iterdir(),
                     key=lambda child: (child.name.casefold(), child.name),
                 )
             except OSError:
                 continue
 
             for child in children:
+                name_matches = (
+                    child.name.casefold() == requested_folder
+                    or canonical_repo_name(child.name) == requested_canonical
+                )
                 if child.name.casefold() in excluded:
+                    if name_matches:
+                        return f"matching folder {child.name!r} is excluded from discovery"
+                    continue
+                try:
+                    if child.is_symlink():
+                        if name_matches:
+                            return f"matching folder {child.name!r} is a symlink"
+                        continue
+                    is_directory = child.is_dir()
+                except OSError:
+                    if name_matches:
+                        return f"matching path {child.name!r} could not be inspected"
+                    continue
+                if not is_directory:
+                    if name_matches:
+                        return f"matching path {child.name!r} is not a directory"
                     continue
 
                 child_depth = depth + 1
-                git_marker = child / ".git"
-                is_git_repo = git_marker.exists()
-
-                if is_git_repo or not require_git:
-                    repo_name = canonical_repo_name(child.name)
-                    if repo_name and repo_name not in discovered:
-                        discovered[repo_name] = DiscoveredRepo(
-                            repo_name=repo_name,
-                            folder_name=child.name,
-                            path=child.resolve(),
+                try:
+                    has_git_marker = (child / ".git").exists()
+                except OSError:
+                    has_git_marker = False
+                if name_matches:
+                    if not has_git_marker:
+                        return (
+                            f"matching folder {child.name!r} is not a Git repository root "
+                            "because .git is missing"
                         )
-
-                # Do not scan inside an already discovered Git repository.
-                if is_git_repo:
+                    return (
+                        f"matching Git repository {child.name!r} was found but could not "
+                        "be resolved"
+                    )
+                if has_git_marker:
                     continue
                 if child_depth < max_depth:
                     queue.append((child, child_depth))
 
-    return discovered
+    return ""

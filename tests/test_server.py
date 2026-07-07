@@ -190,19 +190,22 @@ def test_repo_context_discovers_direct_child_repo_without_explicit_entry(
     known = root / "Known"
     known.mkdir(parents=True)
     (known / ".git").mkdir()
-    wan_repo = root / "Wan2.2"
-    wan_repo.mkdir(parents=True)
-    (wan_repo / ".git").mkdir()
+    andia_repo = root / "Andia_Beauty"
+    andia_repo.mkdir(parents=True)
+    (andia_repo / ".git").mkdir()
     config = AppConfig(
         repos={"known": RepoConfig(path=str(known))}, config_dir=tmp_path
     )
     server.set_config(config, tmp_path / "config.yaml")
 
-    canonical_name, repo_root, requested_name = server._repo_context("Wan2.2")
+    canonical_name, repo_root, requested_name = server._repo_context("Andia_Beauty")
 
-    assert canonical_name == "wan2_2"
-    assert repo_root == wan_repo.resolve()
-    assert requested_name == "Wan2.2"
+    assert canonical_name == "andia_beauty"
+    assert repo_root == andia_repo.resolve()
+    assert requested_name == "Andia_Beauty"
+    canonical_context = server._repo_context("andia_beauty")
+    assert canonical_context[0] == canonical_name
+    assert canonical_context[1] == repo_root
 
 
 def test_run_project_command_accepts_case_insensitive_repo_name(
