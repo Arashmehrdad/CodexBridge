@@ -279,7 +279,7 @@ class JobManager:
 
         if self.config_path is None:
             return {
-                "run_id": None,
+                "run_id": "",
                 "accepted": False,
                 "status": "refused",
                 "estimated_duration_minutes": 0,
@@ -299,7 +299,7 @@ class JobManager:
         )
         if not acquisition.acquired:
             return {
-                "run_id": None,
+                "run_id": "",
                 "accepted": False,
                 "status": "refused",
                 "estimated_duration_minutes": 0,

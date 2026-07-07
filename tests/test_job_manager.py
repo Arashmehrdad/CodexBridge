@@ -190,7 +190,23 @@ def test_start_async_duplicate_project_command_is_rejected(
 
     assert first["accepted"] is True
     assert second["accepted"] is False
+    assert second["run_id"] == ""
+    assert second["reason"] == "duplicate active task"
     assert second["duplicate"] is True
+
+
+def test_start_async_without_config_path_returns_schema_safe_refusal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config_path = None
+
+    response = manager.start_project_command("sample", "pytest")
+
+    assert response["accepted"] is False
+    assert response["run_id"] == ""
+    assert response["status"] == "refused"
+    assert response["reason"] == "Async jobs require a config file path"
 
 
 def test_start_json_validation_path_persists_normalized_target(
