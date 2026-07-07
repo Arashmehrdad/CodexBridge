@@ -186,4 +186,5 @@ def test_start_project_command_accepts_case_insensitive_repo_name(
     response = manager.start_project_command("Sample", "pytest")
 
     assert response["accepted"] is True
-    assert response["repo_name"] == "Sample"
+    assert response["repo_name"] == "sample"
+    assert response["requested_repo_name"] == "Sample"

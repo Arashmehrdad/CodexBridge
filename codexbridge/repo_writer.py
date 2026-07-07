@@ -27,6 +27,7 @@ from .repo_reader import (
     _is_binary,
     _resolve_and_validate,
 )
+from .payload_chunks import assemble_payload, build_payload_parts
 from .return_loop.atomic_writer import _atomic_write_bytes as _shared_atomic_write_bytes
 from .transactions import (
     TransactionContext,
@@ -38,9 +39,9 @@ from .transactions import (
 # ---------------------------------------------------------------------------
 # Write-specific limits
 # ---------------------------------------------------------------------------
-MAX_PATCH_FILES = 10
-MAX_PATCH_LINES = 1_000
-MAX_PATCH_BYTES = 200 * 1024  # 200 KB total content change
+MAX_PATCH_FILES = 50
+MAX_PATCH_LINES = 10_000
+MAX_PATCH_BYTES = 2 * 1024 * 1024  # 2 MB total content change
 MAX_CREATE_BYTES = 200 * 1024  # 200 KB for create_repo_file
 MANAGED_PATCHES_DIR = "managed_patches"
 
@@ -284,6 +285,62 @@ def _preview_payload_sha(op: dict[str, Any]) -> str:
     return ""
 
 
+def get_patch_status(repo_root: Path, patch_id: str, runs_dir: Path) -> dict[str, Any]:
+    """Return repository-bound patch lifecycle state without modifying files."""
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
+    if not patch_dir.exists():
+        raise ValueError(f"Unknown patch_id: {patch_id}")
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_fingerprint = manifest.get("repo_fingerprint", "")
+    if expected_fingerprint and expected_fingerprint != _repo_fingerprint(repo_root):
+        raise ValueError(
+            f"Patch {patch_id} does not belong to the requested repository"
+        )
+    return {
+        "ok": True,
+        "patch_id": patch_id,
+        "status": str(manifest.get("status", "unknown")),
+        "created_at": str(manifest.get("created_at", "")),
+        "applied_at": str(manifest.get("applied_at", "")),
+        "reverted_at": str(manifest.get("reverted_at", "")),
+        "changed_files": [
+            str(item.get("path", ""))
+            for item in manifest.get("operations", [])
+            if item.get("path")
+        ],
+        "apply_result": dict(manifest.get("apply_result") or {}),
+        "errors": list(manifest.get("errors") or []),
+        "error": "",
+    }
+
+
+def _idempotent_apply_result(manifest: dict[str, Any], patch_id: str) -> dict[str, Any]:
+    result = dict(manifest.get("apply_result") or {})
+    if not result:
+        result = {
+            "ok": True,
+            "patch_id": patch_id,
+            "changed_files": [
+                str(item.get("path", ""))
+                for item in manifest.get("applied_results", [])
+                if item.get("path")
+            ],
+            "results": [
+                {
+                    "path": str(item.get("path", "")),
+                    "sha256": str(item.get("sha256", "")),
+                }
+                for item in manifest.get("applied_results", [])
+                if item.get("path")
+            ],
+            "git_head": str(manifest.get("applied_git_head", "")),
+            "error": "",
+        }
+    result["idempotent_replay"] = True
+    return result
+
+
 def _remove_change_stats(
     path: str, absolute: Path, current_bytes: bytes
 ) -> tuple[int, int]:
@@ -341,16 +398,17 @@ def _write_preview_bundle(
         payload_text = op.get("payload_text")
         if payload_text is None:
             continue
-        payload_bytes = payload_text.encode("utf-8")
-        _atomic_write_bytes(
-            patch_dir / _payload_file_name(index),
-            payload_bytes,
-            ".codexbridge_payload_tmp",
-        )
+        _, payload_parts = build_payload_parts(index, payload_text.encode("utf-8"))
+        for filename, payload_bytes in payload_parts:
+            _atomic_write_bytes(
+                patch_dir / filename,
+                payload_bytes,
+                ".codexbridge_payload_tmp",
+            )
 
     manifest = {
         "patch_id": patch_id,
-        "bundle_version": 2,
+        "bundle_version": 3,
         "created_at": _utc_now(),
         "repo_root": "",
         "repo_fingerprint": _repo_fingerprint(repo_root),
@@ -366,15 +424,16 @@ def _write_preview_bundle(
             "path": op["path"],
             "current_sha256": op.get("current_sha256", ""),
             "payload_file": "",
+            "payload_chunks": [],
             "payload_sha256": "",
+            "payload_size_bytes": 0,
             "changed_lines": op["changed_lines"],
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
         if payload_text is not None:
-            payload_bytes = payload_text.encode("utf-8")
-            entry["payload_file"] = _payload_file_name(index)
-            entry["payload_sha256"] = _sha256_bytes(payload_bytes)
+            descriptor, _ = build_payload_parts(index, payload_text.encode("utf-8"))
+            entry.update(descriptor)
         manifest["operations"].append(entry)
 
     _atomic_write_text(
@@ -956,7 +1015,7 @@ def apply_repo_patch(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     if manifest.get("status") == "applied":
-        raise ValueError(f"Patch {patch_id} has already been applied")
+        return _idempotent_apply_result(manifest, patch_id)
     if manifest.get("status") == "reverted":
         raise ValueError(f"Patch {patch_id} has been reverted")
     if manifest.get("status") == "preview_failed":
@@ -1022,6 +1081,16 @@ def apply_repo_patch(
 
     # Write all files atomically (temp → rename)
     written: list[dict] = []
+    manifest["status"] = "applying"
+    manifest["applying_at"] = _utc_now()
+    try:
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".codexbridge_manifest_tmp",
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Apply failed before writes: {exc}") from exc
     try:
         transaction.set_phase("apply", {"touched_files": len(validated)})
         for op in validated:
@@ -1036,10 +1105,18 @@ def apply_repo_patch(
             written.append({"path": op["path"], "sha256": new_sha})
         transaction.set_phase("validate", {"written_files": len(written)})
     except Exception as exc:
-        rollback_transaction(
+        rollback = rollback_transaction(
             transaction,
             write_bytes=lambda path, data: _atomic_write_bytes(path, data, ".rollback"),
             unlink_path=lambda path: path.unlink(),
+        )
+        manifest["status"] = "failed" if rollback.get("ok") else "rollback_failed"
+        manifest["failed_at"] = _utc_now()
+        manifest["errors"] = [str(exc), *list(rollback.get("errors") or [])]
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".codexbridge_manifest_tmp",
         )
         raise RuntimeError(f"Apply failed (partial rollback attempted): {exc}") from exc
 
@@ -1069,6 +1146,13 @@ def apply_repo_patch(
         "error": "",
     }
     result.update(build_transaction_result(transaction))
+    result["idempotent_replay"] = False
+    manifest["apply_result"] = result
+    _atomic_write_text(
+        manifest_path,
+        json.dumps(manifest, indent=2),
+        ".codexbridge_manifest_tmp",
+    )
     return result
 
 
@@ -1082,14 +1166,14 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
 
     status = manifest.get("status")
     if status == "applied":
-        raise ValueError(f"Patch {patch_id} has already been applied")
+        return _idempotent_apply_result(manifest, patch_id)
     if status == "reverted":
         raise ValueError(f"Patch {patch_id} has been reverted")
     if status == "preview_failed":
         raise ValueError(
             f"Patch {patch_id} preview had validation errors; cannot apply"
         )
-    if manifest.get("bundle_version") != 2:
+    if manifest.get("bundle_version") not in {2, 3}:
         raise ValueError(f"Patch {patch_id} does not include an opaque preview bundle")
 
     expected_repo_fingerprint = manifest.get("repo_fingerprint", "")
@@ -1162,23 +1246,21 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
                 raise ValueError(
                     f"File '{path_str}' has changed since preview (hash mismatch)"
                 )
-            payload_file = op.get("payload_file", "")
-            payload_sha = _preview_payload_sha(op)
-            if not payload_file or not payload_sha:
-                raise ValueError(
-                    f"Patch {patch_id} is missing opaque payload metadata for '{path_str}'"
+            try:
+                payload_bytes = assemble_payload(
+                    index,
+                    op,
+                    lambda filename, expected: _resolve_bundle_file(
+                        patch_dir,
+                        filename,
+                        expected,
+                        kind="payload",
+                    ).read_bytes(),
                 )
-            payload_path = _resolve_bundle_file(
-                patch_dir,
-                payload_file,
-                _payload_file_name(index),
-                kind="payload",
-            )
-            payload_bytes = payload_path.read_bytes()
-            if _sha256_bytes(payload_bytes) != payload_sha:
+            except ValueError as exc:
                 raise ValueError(
-                    f"Patch {patch_id} payload verification failed for '{path_str}'"
-                )
+                    f"Patch {patch_id} payload verification failed for '{path_str}': {exc}"
+                ) from exc
             payload_text = payload_bytes.decode("utf-8")
             diff_text = _unified_diff_for_op(
                 current_bytes.decode("utf-8", errors="replace"), payload_text, path_str
@@ -1195,23 +1277,21 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
                 }
             )
         elif action == "create":
-            payload_file = op.get("payload_file", "")
-            payload_sha = _preview_payload_sha(op)
-            if not payload_file or not payload_sha:
-                raise ValueError(
-                    f"Patch {patch_id} is missing opaque payload metadata for '{path_str}'"
+            try:
+                payload_bytes = assemble_payload(
+                    index,
+                    op,
+                    lambda filename, expected: _resolve_bundle_file(
+                        patch_dir,
+                        filename,
+                        expected,
+                        kind="payload",
+                    ).read_bytes(),
                 )
-            payload_path = _resolve_bundle_file(
-                patch_dir,
-                payload_file,
-                _payload_file_name(index),
-                kind="payload",
-            )
-            payload_bytes = payload_path.read_bytes()
-            if _sha256_bytes(payload_bytes) != payload_sha:
+            except ValueError as exc:
                 raise ValueError(
-                    f"Patch {patch_id} payload verification failed for '{path_str}'"
-                )
+                    f"Patch {patch_id} payload verification failed for '{path_str}': {exc}"
+                ) from exc
             payload_text = payload_bytes.decode("utf-8")
             _, size_bytes = _validate_create_target(repo_root, path_str, payload_text)
             diff_text = _unified_diff_for_op("", payload_text, path_str)
@@ -1265,6 +1345,16 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
     rollback_dir.mkdir(exist_ok=True)
     transaction.register_temp_artifact(rollback_dir)
     applied_results: list[dict[str, Any]] = []
+    manifest["status"] = "applying"
+    manifest["applying_at"] = _utc_now()
+    try:
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".codexbridge_manifest_tmp",
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Apply failed before writes: {exc}") from exc
     try:
         transaction.set_phase("snapshot", {"touched_files": len(prepared_ops)})
         for index, op in enumerate(prepared_ops):
@@ -1312,17 +1402,27 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
             ".codexbridge_manifest_tmp",
         )
     except Exception as exc:
+        rollback_errors: list[str] = []
         try:
             _rollback_applied_preview_ops(repo_root, rollback_dir, applied_results)
-            rollback_transaction(
+            rollback = rollback_transaction(
                 transaction,
                 write_bytes=lambda path, data: _atomic_write_bytes(
                     path, data, ".rollback"
                 ),
                 unlink_path=lambda path: path.unlink(),
             )
-        except Exception:
-            pass
+            rollback_errors.extend(list(rollback.get("errors") or []))
+        except Exception as rollback_exc:
+            rollback_errors.append(str(rollback_exc))
+        manifest["status"] = "rollback_failed" if rollback_errors else "failed"
+        manifest["failed_at"] = _utc_now()
+        manifest["errors"] = [str(exc), *rollback_errors]
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".codexbridge_manifest_tmp",
+        )
         raise RuntimeError(f"Apply failed (partial rollback attempted): {exc}") from exc
 
     transaction.set_phase("commit", {"written_files": len(applied_results)})
@@ -1339,6 +1439,13 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
         "error": "",
     }
     result.update(build_transaction_result(transaction))
+    result["idempotent_replay"] = False
+    manifest["apply_result"] = result
+    _atomic_write_text(
+        manifest_path,
+        json.dumps(manifest, indent=2),
+        ".codexbridge_manifest_tmp",
+    )
     return result
 
 

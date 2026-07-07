@@ -81,5 +81,5 @@ def test_explicit_status_and_plan_conformance_are_parsed() -> None:
 
     assert completed.blocked is False
     assert completed.plan_conformance is True
-    assert drifted.blocked is True
+    assert drifted.blocked is False
     assert drifted.plan_conformance is False

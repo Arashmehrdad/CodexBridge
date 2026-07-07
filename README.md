@@ -212,6 +212,12 @@ Use `list_ssh_capabilities()` to inspect configured hosts and commands, `ssh_hos
 
 ChatGPT sends only `host_id` and `command_id`. Host resolution, usernames, and private keys stay in the local SSH configuration. CodexBridge uses `shell=False`, batch mode, strict host-key checking, disabled password authentication, disabled agent forwarding, and cleared forwarding. Arbitrary command text, interactive shells, uploads, downloads, tunnels, and port forwarding are not supported. `writes_remote` is risk metadata; CodexBridge cannot independently prove that a nominally read-only command made no remote changes or verify the final remote state after a write.
 
+## Controlled External Fixtures
+
+External fixture validation is disabled by default. Configure `external_fixtures` with exact allowed HTTPS hosts, byte and time limits, then call `start_external_fixture_validation_async` with a SHA-256 and a validation mode.
+
+Fixtures are stored only in durable run storage, validated with `none`, `json`, `py_compile`, or `bash_n`, and discarded after the run. URLs containing authentication data, query parameters, fragments, or unapproved hosts are rejected.
+
 ## Safe Repository Changes
 
 Preview-first write tools:
@@ -220,6 +226,9 @@ Preview-first write tools:
 - `preview_repo_file_creation`
 - `preview_repo_file_removal`
 - `apply_previewed_repo_change`
+- `get_patch_status`
+- `preview_managed_artifact_cleanup`
+- `apply_managed_artifact_cleanup`
 - `revert_managed_patch`
 
 Direct compatibility tools:
@@ -233,13 +242,15 @@ Current behavior:
 
 - `preview_repo_patch` is read-only and supports multiple non-overlapping edits to the same file, then composes them into one atomic file result.
 - `preview_repo_file_creation` and `preview_repo_file_removal` are read-only previews and never change the working tree.
-- `apply_previewed_repo_change` accepts only `repo_name` and `patch_id`. It reads executable-looking content from the local opaque preview bundle instead of resending content in the write request.
-- Opaque preview bundles are repository-bound and validate payload hashes, current file hashes, Git `HEAD` where applicable, path limits, duplicate paths, symlinks, file/byte/line limits, and patch state before writing.
+- `apply_previewed_repo_change` accepts only `repo_name` and `patch_id`. It reads executable-looking content from the local opaque preview bundle instead of resending content in the write request, and successful retries return the original result idempotently.
+- Opaque preview bundles are repository-bound and validate payload hashes, current file hashes, Git `HEAD` where applicable, path limits, duplicate paths, symlinks, file/byte/line limits, and patch state before writing. Large payloads are split into hash-verified chunks and reassembled before apply.
 - Preview/apply supports `modify`, `create`, and `remove`.
 - `revert_managed_patch` uses saved rollback data and stale-state protection instead of `git reset` or `git checkout`.
 - `commit_selected_files` stages and commits only explicitly listed changed files. Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform, while a developer may still push locally with Git outside the bridge workflow.
 
 The older direct write tools remain available for compatibility and direct operations, but the preview/apply flow is the safer default.
+
+`list_capabilities` returns the live action schemas and typed patch-operation contract. Dictionary tool responses include `server_build_hash`, `schema_hash`, and `capability_epoch` so clients can detect stale server processes or schemas.
 
 ## Async Run Workflow
 
@@ -249,6 +260,7 @@ Durable async runs cover:
 - `start_codex_implement_task_async`
 - `start_project_command_async`
 - `start_pytest_path_async`
+- `start_external_fixture_validation_async`
 - `start_ssh_command_async`
 
 Read and control them with:

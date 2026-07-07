@@ -9,7 +9,14 @@ from typing import Any
 
 
 RUN_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_[a-z0-9_]+_[a-f0-9]{8}$")
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "needs_input"}
+TERMINAL_STATUSES = {
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+    "timed_out",
+    "needs_input",
+}
 
 
 def utc_now() -> str:
@@ -315,6 +322,23 @@ class RunStore:
             fields["elapsed_seconds"] = elapsed_seconds
         return self.update_run(run_id, **fields)
 
+    def heartbeat(
+        self,
+        run_id: str,
+        *,
+        elapsed_seconds: float,
+        progress_updates: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current = self.get_run(run_id)
+        progress = dict(current.get("progress") or {})
+        progress.update(progress_updates or {})
+        return self.set_progress(
+            run_id,
+            phase=str(current.get("current_phase") or "running"),
+            progress=progress,
+            elapsed_seconds=elapsed_seconds,
+        )
+
     @staticmethod
     def _ensure_column(
         conn: sqlite3.Connection, table: str, column: str, definition: str
@@ -332,6 +356,29 @@ class RunStore:
         result["input"] = loads(result.pop("input_json"))
         result["progress"] = loads(result.pop("progress_json"))
         result["result"] = loads(result.pop("result_json"))
+
+        now = datetime.now(timezone.utc)
+        started_at = result.get("started_at")
+        if started_at:
+            started = datetime.fromisoformat(str(started_at))
+            ended_at = result.get("ended_at")
+            ended = datetime.fromisoformat(str(ended_at)) if ended_at else now
+            dynamic_elapsed = max(0.0, (ended - started).total_seconds())
+            result["elapsed_seconds"] = round(
+                max(float(result.get("elapsed_seconds") or 0.0), dynamic_elapsed), 3
+            )
+
+        heartbeat_at = result.get("heartbeat_at")
+        heartbeat_age = None
+        if heartbeat_at:
+            heartbeat = datetime.fromisoformat(str(heartbeat_at))
+            heartbeat_age = round(max(0.0, (now - heartbeat).total_seconds()), 3)
+        result["heartbeat_age_seconds"] = heartbeat_age
+        result["worker_stale"] = bool(
+            result.get("status") == "running"
+            and heartbeat_age is not None
+            and heartbeat_age > 30.0
+        )
         return result
 
     def _row_to_event(self, row: sqlite3.Row) -> dict[str, Any]:

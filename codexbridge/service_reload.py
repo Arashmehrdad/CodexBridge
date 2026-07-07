@@ -5,12 +5,16 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import AppConfig, load_config
 
 RELOADABLE_MODULES = {
+    "codexbridge.capabilities",
     "codexbridge.command_profiles",
     "codexbridge.config",
     "codexbridge.git_tools",
+    "codexbridge.external_fixtures",
+    "codexbridge.managed_artifacts",
     "codexbridge.operation_locks",
     "codexbridge.prompts",
     "codexbridge.repo_wiki",
@@ -58,7 +62,7 @@ def reload_service(
             importlib.import_module(qualified)
         reloaded.append(qualified)
 
-    return {
+    result = {
         "ok": not restart_required,
         "reloaded": reloaded,
         "requested_modules": requested,
@@ -68,6 +72,8 @@ def reload_service(
         if not restart_required
         else "One or more modules require process restart for safe activation.",
     }
+    result.update(capability_metadata(PATCH_OPERATION_SCHEMA))
+    return result
 
 
 def apply_reloaded_config(config_path: Path) -> AppConfig:

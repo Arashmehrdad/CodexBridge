@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.git_tools import CommitMetadataError
 from codexbridge.server import parse_args
@@ -86,15 +88,15 @@ def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
         == "start"
     )
     assert server.get_supervisor_status(supervisor_id)["tool"] == "status"
-    assert server.get_supervisor_events(supervisor_id, 5)[0]["limit"] == 5
+    assert server.get_supervisor_events(supervisor_id, 5)["events"][0]["limit"] == 5
     assert server.get_supervisor_result(supervisor_id)["tool"] == "result"
     assert server.resume_supervisor(supervisor_id)["tool"] == "resume"
     assert server.pause_supervisor(supervisor_id)["tool"] == "pause"
     assert server.cancel_supervisor(supervisor_id)["tool"] == "cancel"
     assert (
-        server.get_supervisor_notifications(supervisor_id, "pending", 3)[0][
-            "delivery_status"
-        ]
+        server.get_supervisor_notifications(supervisor_id, "pending", 3)[
+            "notifications"
+        ][0]["delivery_status"]
         == "pending"
     )
     assert server.get_supervisor_resume_prompt(supervisor_id)["tool"] == "prompt"
@@ -104,11 +106,18 @@ def test_commit_tool_returns_structured_metadata_rejection(
     monkeypatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(server, "get_config", lambda: object())
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))})
+    config.config_dir = tmp_path
+    monkeypatch.setattr(server, "get_config", lambda: config)
     monkeypatch.setattr(
         server,
-        "resolve_repo",
-        lambda _config, _repo_name: tmp_path,
+        "_repo_context",
+        lambda _repo_name: ("repo", tmp_path, "repo"),
+    )
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
     )
 
     def reject_metadata(*_args, **_kwargs):
@@ -128,7 +137,7 @@ def test_commit_tool_returns_structured_metadata_rejection(
         "ordinary description",
     )
 
-    assert result == {
+    expected = {
         "ok": False,
         "repo_name": "repo",
         "files_validated": True,
@@ -137,6 +146,10 @@ def test_commit_tool_returns_structured_metadata_rejection(
         "reason": "Commit description exceeds the configured limit",
         "error": "Commit description exceeds the configured limit",
     }
+    assert {key: result[key] for key in expected} == expected
+    assert len(result["server_build_hash"]) == 64
+    assert len(result["schema_hash"]) == 64
+    assert result["capability_epoch"]
 
 
 def test_reload_service_delegates_and_refreshes_config(monkeypatch, tmp_path) -> None:
@@ -206,4 +219,5 @@ def test_run_project_command_accepts_case_insensitive_repo_name(
     result = server.run_project_command("CodexBridge", "custom")
 
     assert result["ok"] is True
-    assert result["repo_name"] == "CodexBridge"
+    assert result["repo_name"] == "codexbridge"
+    assert result["requested_repo_name"] == "CodexBridge"

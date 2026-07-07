@@ -4,9 +4,10 @@ import argparse
 import os
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from . import git_tools
 from .command_profiles import (
@@ -25,6 +26,11 @@ from .command_profiles import (
 )
 from .config import load_config, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter, redact_and_truncate
+from .external_fixtures import fetch_validate_and_discard
+from .managed_artifacts import (
+    cleanup_new_managed_artifacts,
+    snapshot_managed_artifacts,
+)
 from .operation_locks import OperationLockStore
 from .policy import decide_implementation_task, decide_plan_task
 from .prompts import build_implementation_prompt, build_plan_prompt
@@ -53,13 +59,21 @@ def _duration(started_at: str, ended_at: str) -> float:
     return round((ended - started).total_seconds(), 3)
 
 
-def _stream_pipe(pipe, output_path: Path, sink: list[str], limit: int = 40000) -> None:
+def _stream_pipe(
+    pipe,
+    output_path: Path,
+    sink: list[str],
+    limit: int = 40000,
+    on_output: Callable[[], None] | None = None,
+) -> None:
     with output_path.open("a", encoding="utf-8", errors="replace") as handle:
         for line in iter(pipe.readline, ""):
             handle.write(line)
             handle.flush()
             if sum(len(item) for item in sink) < limit:
                 sink.append(line)
+            if on_output is not None:
+                on_output()
     pipe.close()
 
 
@@ -72,6 +86,10 @@ class JobWorker:
         self.run = self.store.get_run(run_id)
         self.run_id = run_id
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
+        self._started_monotonic = 0.0
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
+        self._last_output_heartbeat = 0.0
 
     def event(
         self, level: str, stage: str, message: str, data: dict | None = None
@@ -80,6 +98,7 @@ class JobWorker:
             self.run_id,
             phase=stage,
             progress=data or {},
+            elapsed_seconds=self._elapsed_seconds(),
         )
         self.locks.heartbeat(self.run["repo_name"], self.run_id)
         event = self.store.append_event(
@@ -91,10 +110,45 @@ class JobWorker:
         )
         self.artifacts.append_event(event)
 
+    def _elapsed_seconds(self) -> float:
+        if not self._started_monotonic:
+            return 0.0
+        return round(max(0.0, time.monotonic() - self._started_monotonic), 3)
+
+    def _heartbeat_loop(self) -> None:
+        while not self._heartbeat_stop.wait(5.0):
+            try:
+                self.store.heartbeat(
+                    self.run_id,
+                    elapsed_seconds=self._elapsed_seconds(),
+                    progress_updates={"worker_pid": os.getpid()},
+                )
+                self.locks.heartbeat(self.run["repo_name"], self.run_id)
+            except Exception:
+                continue
+
+    def _note_output(self) -> None:
+        now = time.monotonic()
+        if now - self._last_output_heartbeat < 1.0:
+            return
+        self._last_output_heartbeat = now
+        self.store.heartbeat(
+            self.run_id,
+            elapsed_seconds=self._elapsed_seconds(),
+            progress_updates={"last_output_at": _utc_now()},
+        )
+
     def execute(self) -> int:
         started_at = _utc_now()
+        self._started_monotonic = time.monotonic()
         self.store.update_run(self.run_id, status="running", started_at=started_at)
         self.event("info", "worker", "Worker started")
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name=f"codexbridge-heartbeat-{self.run_id}",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
         try:
             result = self._execute_inner(started_at)
             status = str(
@@ -128,8 +182,15 @@ class JobWorker:
                 safety_failure=result.get("safety_failure", False),
                 result_json=result,
             )
+            level = (
+                "info"
+                if status == "completed"
+                else "warning"
+                if status == "partial"
+                else "error"
+            )
             self.event(
-                "info" if status == "completed" else "error",
+                level,
                 "result",
                 f"Run {status}",
                 {"exit_code": result.get("exit_code")},
@@ -156,6 +217,9 @@ class JobWorker:
             self.event("error", "result", "Run failed", {"error": str(exc)})
             return 1
         finally:
+            self._heartbeat_stop.set()
+            if self._heartbeat_thread is not None:
+                self._heartbeat_thread.join(timeout=2)
             self.locks.release(self.run["repo_name"], self.run_id)
 
     def _execute_inner(self, started_at: str) -> dict:
@@ -171,6 +235,10 @@ class JobWorker:
         if tool == "project_command":
             return self._execute_project_command(
                 started_at, repo_name, repo_root, input_data
+            )
+        if tool == "external_fixture_validation":
+            return self._execute_external_fixture_validation(
+                started_at, repo_name, input_data
             )
 
         if tool == "codex_plan_task":
@@ -208,7 +276,9 @@ class JobWorker:
             if tool == "codex_implement_task"
             else []
         )
-        ignored_run_roots = [Path(self.run["run_dir"])]
+        run_dir = Path(self.run["run_dir"])
+        ignored_run_roots = [self.config.resolve_runs_dir()]
+        managed_artifacts_before = snapshot_managed_artifacts(repo_root)
         workspace_before = snapshot_workspace(repo_root, ignored_run_roots)
         dirty_before = git_tools.changed_files(repo_root)
         git_before = git_tools.git_status(repo_root)
@@ -222,9 +292,16 @@ class JobWorker:
         args = runner._codex_exec_args(
             executable, sandbox, help_text, prompt, writable_dirs=writable_dirs
         )
+        temp_root = run_dir / "tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        process_env = os.environ.copy()
+        process_env.update(
+            {"TMP": str(temp_root), "TEMP": str(temp_root), "TMPDIR": str(temp_root)}
+        )
         process = subprocess.Popen(
             args,
             cwd=repo_root,
+            env=process_env,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -245,16 +322,20 @@ class JobWorker:
             target=_stream_pipe,
             args=(
                 process.stdout,
-                Path(self.run["run_dir"]) / "stdout.txt",
+                run_dir / "stdout.txt",
                 stdout_parts,
+                40000,
+                self._note_output,
             ),
         )
         stderr_thread = threading.Thread(
             target=_stream_pipe,
             args=(
                 process.stderr,
-                Path(self.run["run_dir"]) / "stderr.txt",
+                run_dir / "stderr.txt",
                 stderr_parts,
+                40000,
+                self._note_output,
             ),
         )
         stdout_thread.start()
@@ -280,6 +361,9 @@ class JobWorker:
             assess_implementation_output(summary)
             if tool == "codex_implement_task"
             else assess_plan_output(summary)
+        )
+        managed_artifacts_cleaned = cleanup_new_managed_artifacts(
+            repo_root, managed_artifacts_before
         )
         workspace_after = snapshot_workspace(repo_root, ignored_run_roots)
         workspace_changes = changed_workspace_paths(workspace_before, workspace_after)
@@ -325,15 +409,36 @@ class JobWorker:
         blocked = bool(outcome and outcome.blocked)
         blockers = outcome.blockers if outcome else []
         plan_conformance = outcome.plan_conformance if outcome else None
+        completed_requirements = outcome.completed_requirements if outcome else []
+        skipped_requirements = outcome.skipped_requirements if outcome else []
+        validation_status = outcome.validation_status if outcome else None
+        validation_confirmed = not tests or validation_status in {
+            "passed",
+            "not_required",
+        }
+        implementation_complete = bool(
+            tool != "codex_implement_task"
+            or (
+                plan_conformance is True
+                and not skipped_requirements
+                and validation_confirmed
+            )
+        )
+        if exit_code == 124:
+            terminal_status = "timed_out"
+        elif safety_failure or blocked or exit_code != 0:
+            terminal_status = "failed"
+        elif not implementation_complete:
+            terminal_status = "partial"
+        else:
+            terminal_status = "completed"
 
         ended_at = _utc_now()
         return {
             "run_id": self.run_id,
             "repo_name": repo_name,
             "tool": tool,
-            "status": "failed"
-            if safety_failure or blocked or exit_code != 0
-            else "completed",
+            "status": terminal_status,
             "exit_code": exit_code,
             "started_at": started_at,
             "ended_at": ended_at,
@@ -353,7 +458,18 @@ class JobWorker:
             "blocked": blocked,
             "blockers": blockers,
             "plan_conformance": plan_conformance,
-            "error": "; ".join(blockers),
+            "requested_files": allowed_files,
+            "completed_requirements": completed_requirements,
+            "skipped_requirements": skipped_requirements,
+            "validation_status": validation_status,
+            "managed_artifacts_cleaned": managed_artifacts_cleaned,
+            "temporary_directory": str(temp_root),
+            "error": "; ".join(blockers)
+            or (
+                "Approved plan was only partially verified"
+                if terminal_status == "partial"
+                else ""
+            ),
             "safety_failure": safety_failure,
             "codex_exit_code": exit_code,
             "codex_command_args": _safe_command_args(args),
@@ -422,6 +538,54 @@ class JobWorker:
             "command_result": command_result,
         }
 
+    def _execute_external_fixture_validation(
+        self,
+        started_at: str,
+        repo_name: str,
+        input_data: dict,
+    ) -> dict:
+        run_dir = Path(self.run["run_dir"])
+        self.event(
+            "info",
+            "external_fixture",
+            "Fetching hash-pinned external fixture",
+            {"validation": str(input_data.get("validation", "none"))},
+        )
+        fixture_result = fetch_validate_and_discard(
+            self.config.external_fixtures,
+            url=str(input_data["url"]),
+            expected_sha256=str(input_data["expected_sha256"]),
+            validation=str(input_data.get("validation", "none")),
+            run_dir=run_dir,
+        )
+        self.artifacts.write_json("external_fixture_result.json", fixture_result)
+        ended_at = _utc_now()
+        ok = bool(fixture_result.get("ok"))
+        return {
+            "run_id": self.run_id,
+            "repo_name": repo_name,
+            "tool": "external_fixture_validation",
+            "status": "completed" if ok else "failed",
+            "exit_code": 0 if ok else 1,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [str(input_data.get("validation", "none"))],
+            "test_results": fixture_result,
+            "summary": (
+                "External fixture hash verified, validated, and discarded"
+                if ok
+                else "External fixture validation failed and the fixture was discarded"
+            ),
+            "remaining_risks": [],
+            "error": str(fixture_result.get("error", "")),
+            "safety_failure": False,
+            "fixture": fixture_result,
+        }
+
     def _execute_project_command(
         self,
         started_at: str,
@@ -478,7 +642,9 @@ class JobWorker:
         git_before = git_tools.git_status(repo_root)
         diff_before = git_tools.diff_stat(repo_root)
         dirty_before = git_tools.changed_files(repo_root)
-        workspace_before = snapshot_workspace(repo_root, [run_dir])
+        workspace_before = snapshot_workspace(
+            repo_root, [self.config.resolve_runs_dir()]
+        )
         self.artifacts.write_text("git_before.txt", git_before)
         self.event(
             "info",
@@ -500,7 +666,9 @@ class JobWorker:
         git_after = git_tools.git_status(repo_root)
         diff_after = git_tools.diff_stat(repo_root)
         changed_after = git_tools.changed_files(repo_root)
-        workspace_after = snapshot_workspace(repo_root, [run_dir])
+        workspace_after = snapshot_workspace(
+            repo_root, [self.config.resolve_runs_dir()]
+        )
         introduced_changes, preserved_preexisting_changes = classify_git_attribution(
             changed_after, workspace_before, workspace_after, dirty_before
         )

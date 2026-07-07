@@ -16,6 +16,7 @@ import codexbridge.server as server
 
 ACTION_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 EXPECTED_EXPOSED_ACTIONS = {
+    "list_capabilities",
     "inspect_repo_status",
     "codex_plan_task",
     "codex_implement_task",
@@ -27,6 +28,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "list_ssh_capabilities",
     "ssh_host_health",
     "start_ssh_command_async",
+    "start_external_fixture_validation_async",
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
     "start_project_command_async",
@@ -61,6 +63,9 @@ EXPECTED_EXPOSED_ACTIONS = {
     "preview_repo_patch",
     "preview_repo_file_creation",
     "preview_repo_file_removal",
+    "get_patch_status",
+    "preview_managed_artifact_cleanup",
+    "apply_managed_artifact_cleanup",
     "apply_repo_patch",
     "apply_previewed_repo_change",
     "create_repo_file",
@@ -77,6 +82,16 @@ EXPECTED_EXPOSED_ACTIONS = {
     "commit_all_changes",
 }
 REALISTIC_ACTION_OUTPUTS = {
+    "list_capabilities": {
+        "ok": True,
+        "action_names": ["list_capabilities"],
+        "actions": [],
+        "patch_operation_schema": {"type": "object"},
+        "server_build_hash": "a" * 64,
+        "schema_hash": "b" * 64,
+        "capability_epoch": "aaaaaaaaaaaa-bbbbbbbbbbbb",
+        "error": "",
+    },
     "inspect_repo_status": {
         "ok": True,
         "repo_name": "repo",
@@ -88,20 +103,18 @@ REALISTIC_ACTION_OUTPUTS = {
     },
     "codex_plan_task": {
         "ok": True,
+        "run_id": "run_plan_alias",
+        "status": "queued",
         "repo_name": "repo",
-        "plan": "1. Inspect\n2. Patch\n",
-        "result": {"summary": "narrow plan"},
+        "result": {},
         "error": "",
     },
     "codex_implement_task": {
         "ok": True,
+        "run_id": "run_implement_alias",
+        "status": "queued",
         "repo_name": "repo",
-        "changed_files": [
-            "codexbridge/server.py",
-            "tests/test_mcp_action_discovery.py",
-        ],
-        "tests": [{"command": "python -m pytest -q", "exit_code": 0}],
-        "result": {"summary": "applied"},
+        "result": {},
         "error": "",
     },
     "get_latest_run_result": {
@@ -204,6 +217,14 @@ REALISTIC_ACTION_OUTPUTS = {
         "host_id": "my_vps",
         "ssh_alias": "my-vps",
         "exit_code": 0,
+        "error": "",
+    },
+    "start_external_fixture_validation_async": {
+        "ok": True,
+        "run_id": "run_fixture",
+        "status": "queued",
+        "repo_name": "repo",
+        "result": {},
         "error": "",
     },
     "start_ssh_command_async": {
@@ -492,6 +513,35 @@ REALISTIC_ACTION_OUTPUTS = {
         "validation_errors": [],
         "error": "",
     },
+    "get_patch_status": {
+        "ok": True,
+        "repo_name": "repo",
+        "patch_id": "20260624T120000Z_patch_abcd1234",
+        "status": "applied",
+        "changed_files": ["README.md"],
+        "apply_result": {"ok": True},
+        "error": "",
+    },
+    "preview_managed_artifact_cleanup": {
+        "ok": True,
+        "repo_name": "repo",
+        "cleanup_id": "20260624T120000Z_cleanup_abcd1234",
+        "status": "previewed",
+        "artifacts": [{"path": ".codex-tmp/a", "sha256": "a" * 64}],
+        "file_count": 1,
+        "total_bytes": 1,
+        "error": "",
+    },
+    "apply_managed_artifact_cleanup": {
+        "ok": True,
+        "repo_name": "repo",
+        "cleanup_id": "20260624T120000Z_cleanup_abcd1234",
+        "status": "applied",
+        "removed_files": [".codex-tmp/a"],
+        "missing_files": [],
+        "idempotent_replay": False,
+        "error": "",
+    },
     "apply_repo_patch": {
         "ok": True,
         "patch_id": "20260624T120000Z_patch_abcd1234",
@@ -660,6 +710,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_json_validation_path_async",
         "start_git_readonly_async",
         "start_ssh_command_async",
+        "start_external_fixture_validation_async",
         "cancel_run",
         "reload_service",
         "start_supervised_recovery_task",
@@ -667,6 +718,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "pause_supervisor",
         "cancel_supervisor",
         # controlled local coding tools
+        "apply_managed_artifact_cleanup",
         "apply_repo_patch",
         "apply_previewed_repo_change",
         "create_repo_file",
@@ -1036,7 +1088,12 @@ def test_remote_capability_tools_delegate(monkeypatch) -> None:
     health = getattr(server, "ssh_host_health")("my_vps")
 
     assert listed["ok"] is True
-    assert health == {"ok": True, "status": "ok", "host_id": "my_vps"}
+    assert health["ok"] is True
+    assert health["status"] == "ok"
+    assert health["host_id"] == "my_vps"
+    assert len(health["server_build_hash"]) == 64
+    assert len(health["schema_hash"]) == 64
+    assert health["capability_epoch"]
 
 
 def test_start_remote_command_async_delegates(monkeypatch) -> None:

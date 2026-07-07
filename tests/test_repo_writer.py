@@ -9,7 +9,6 @@ import hashlib
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -26,7 +25,6 @@ from codexbridge.repo_writer import (
     delete_repo_file,
     move_repo_file,
     _sha256_file,
-    _make_patch_id,
 )
 
 
@@ -484,7 +482,7 @@ def test_apply_rejects_stale_file_between_preview_and_apply(tmp_path: Path) -> N
         apply_repo_patch(repo, ops, preview["patch_id"], runs)
 
 
-def test_apply_rejects_already_applied(tmp_path: Path) -> None:
+def test_apply_replays_original_success_when_already_applied(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
     write_file(repo / "i.py", "i = 1\n")
@@ -498,9 +496,13 @@ def test_apply_rejects_already_applied(tmp_path: Path) -> None:
         }
     ]
     preview = preview_repo_patch(repo, ops, runs)
-    apply_repo_patch(repo, ops, preview["patch_id"], runs)
-    with pytest.raises(ValueError, match="already been applied"):
-        apply_repo_patch(repo, ops, preview["patch_id"], runs)
+    first = apply_repo_patch(repo, ops, preview["patch_id"], runs)
+    replay = apply_repo_patch(repo, ops, preview["patch_id"], runs)
+    assert first["ok"] is True
+    assert first["idempotent_replay"] is False
+    assert replay["ok"] is True
+    assert replay["idempotent_replay"] is True
+    assert replay["patch_id"] == first["patch_id"]
 
 
 def test_apply_previewed_repo_change_applies_modify_without_operations(
@@ -660,6 +662,7 @@ def test_apply_previewed_repo_change_preserves_exact_payload_bytes(
     payload_bytes = b"line1\r\nline2\r\n"
     (patch_dir / "payload_0.bin").write_bytes(payload_bytes)
     manifest["operations"][0]["payload_sha256"] = sha256_bytes(payload_bytes)
+    manifest["operations"][0]["payload_size_bytes"] = len(payload_bytes)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     result = apply_previewed_repo_change(repo, preview["patch_id"], runs)
@@ -1044,7 +1047,7 @@ def test_apply_previewed_repo_change_rolls_back_if_manifest_write_fails(
 
     monkeypatch.setattr(rw, "_atomic_write_text", fail_manifest_write)
 
-    with pytest.raises(RuntimeError, match="partial rollback"):
+    with pytest.raises(RuntimeError, match="before writes"):
         apply_previewed_repo_change(repo, preview["patch_id"], runs)
 
     assert (repo / "modify.py").read_text(encoding="utf-8") == "before\n"
@@ -1513,6 +1516,30 @@ def test_preview_supports_line_range_replacement(tmp_path: Path) -> None:
     assert (repo / "ranges.py").read_text(encoding="utf-8") == "one\nnew\nthree\n"
 
 
+def test_preview_supports_exact_text_lf_anchor_against_crlf_file(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    path = repo / "exact_windows.py"
+    path.write_bytes(b"alpha\r\nbeta\r\n")
+    sha = sha256_file(path)
+    operation = {
+        "path": "exact_windows.py",
+        "expected_sha256": sha,
+        "type": "exact_text",
+        "old_text": "alpha\nbeta\n",
+        "new_text": "alpha\ngamma\n",
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+    assert preview["ok"] is True
+    result = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert path.read_bytes() == b"alpha\r\ngamma\r\n"
+
+
 def test_preview_supports_unified_diff_and_crlf_matching(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
@@ -1583,7 +1610,9 @@ def test_preview_supports_python_ast_top_level_replacement(tmp_path: Path) -> No
 
 
 def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
-    import ast, codexbridge.repo_writer as rw_mod
+    import ast
+
+    import codexbridge.repo_writer as rw_mod
 
     source = Path(rw_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)

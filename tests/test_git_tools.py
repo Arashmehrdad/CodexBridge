@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+import codexbridge.git_tools as git_tools
 from codexbridge.git_tools import (
     CommitMetadataError,
+    GitCommandError,
     changed_files,
     commit_all_changes,
     commit_selected_files,
@@ -198,7 +200,7 @@ def test_stage_manifest_stage_all_and_unstage_all(repo: Path) -> None:
     assert "new.txt" in staged["after"]["staged"]
 
     unstaged = unstage_all(repo)
-    assert "tracked.txt" in unstaged["after"]["unstaged"]
+    assert "tracked.txt" in unstaged["after"]["untracked"]
 
 
 def test_commit_all_changes_stages_deleted_files(repo: Path) -> None:
@@ -208,3 +210,58 @@ def test_commit_all_changes_stages_deleted_files(repo: Path) -> None:
 
     assert result["ok"] is True
     assert result["commit_hash"]
+
+
+def test_commit_failure_restores_preexisting_index_and_reports_stderr(
+    repo: Path, monkeypatch
+) -> None:
+    (repo / "base.txt").write_text("staged before operation\n", encoding="utf-8")
+    run(["git", "add", "base.txt"], repo)
+    (repo / "selected.txt").write_text("selected\n", encoding="utf-8")
+    original_run_git = git_tools._run_git
+
+    def fail_commit(repo_root: Path, args: list[str], *, check: bool = False):
+        if args and args[0] == "commit":
+            raise GitCommandError(
+                {
+                    "argv": ["git", *args],
+                    "exit_code": 128,
+                    "stdout": "",
+                    "stderr": "simulated commit failure",
+                    "duration_seconds": 0.01,
+                    "index_lock": {"exists": False, "path": ".git/index.lock"},
+                }
+            )
+        return original_run_git(repo_root, args, check=check)
+
+    monkeypatch.setattr(git_tools, "_run_git", fail_commit)
+    result = commit_selected_files(repo, ["selected.txt"], "test: failure")
+
+    assert result["ok"] is False
+    assert result["index_restored"] is True
+    assert result["git_error"]["stderr"] == "simulated commit failure"
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    assert staged == ["base.txt"]
+    assert "selected.txt" in result["stage_manifest_after"]["untracked"]
+
+
+def test_status_manifest_classifies_tool_owned_files(repo: Path) -> None:
+    scratch = repo / ".codex-tmp" / "entry.txt"
+    scratch.parent.mkdir()
+    scratch.write_text("one\ntwo\n", encoding="utf-8")
+
+    manifest = dry_run_stage_manifest(repo)
+    entry = next(
+        item for item in manifest["files"] if item["path"] == ".codex-tmp/entry.txt"
+    )
+
+    assert ".codex-tmp/entry.txt" in manifest["tool_owned"]
+    assert entry["tool_owned"] is True
+    assert entry["size_bytes"] > 0
+    assert entry["line_count"] == 2

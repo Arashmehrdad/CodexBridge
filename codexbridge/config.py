@@ -42,6 +42,26 @@ class SSHConfig(BaseModel):
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
 
 
+class ExternalFixturesConfig(BaseModel):
+    enabled: bool = False
+    allowed_hosts: List[str] = Field(default_factory=list)
+    max_bytes: int = Field(default=20_000_000, ge=1, le=500_000_000)
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
+
+    @model_validator(mode="after")
+    def validate_allowed_hosts(self) -> "ExternalFixturesConfig":
+        normalized: list[str] = []
+        for host in self.allowed_hosts:
+            value = host.strip().lower().rstrip(".")
+            if not value or any(character in value for character in "/:@*?"):
+                raise ValueError(f"Invalid external fixture host: {host!r}")
+            normalized.append(value)
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("External fixture hosts must be unique")
+        self.allowed_hosts = normalized
+        return self
+
+
 class CodexConfig(BaseModel):
     executable: str = "codex"
     model: str = ""
@@ -242,6 +262,9 @@ class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
     ssh: SSHConfig = Field(default_factory=SSHConfig)
+    external_fixtures: ExternalFixturesConfig = Field(
+        default_factory=ExternalFixturesConfig
+    )
     codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
@@ -336,12 +359,7 @@ def load_config(
 
 
 def resolve_repo(config: AppConfig, repo_name: str) -> Path:
-    _, repo = resolve_repo_config(config, repo_name)
-    repo_path = Path(repo.path).resolve()
-    if not repo_path.exists():
-        raise ValueError(f"Repo path does not exist: {repo_path}")
-    if not (repo_path / ".git").exists():
-        raise ValueError(f"Repo path does not contain .git: {repo_path}")
+    _, repo_path, _ = resolve_repo_identity(config, repo_name)
     return repo_path
 
 
@@ -354,3 +372,16 @@ def resolve_repo_config(config: AppConfig, repo_name: str) -> tuple[str, RepoCon
     if matched_name is None:
         raise ValueError(f"Unknown repo_name: {repo_name}")
     return matched_name, config.repos[matched_name]
+
+
+def resolve_repo_identity(
+    config: AppConfig, repo_name: str
+) -> tuple[str, Path, RepoConfig]:
+    """Resolve one canonical repository identity for every tool family."""
+    canonical_name, repo = resolve_repo_config(config, repo_name)
+    repo_path = Path(repo.path).resolve()
+    if not repo_path.exists():
+        raise ValueError(f"Repo path does not exist: {repo_path}")
+    if not (repo_path / ".git").exists():
+        raise ValueError(f"Repo path does not contain .git: {repo_path}")
+    return canonical_name, repo_path, repo

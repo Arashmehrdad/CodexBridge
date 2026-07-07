@@ -73,7 +73,11 @@ Hard rules:
 - Do not touch unrelated dirty files.
 - Run only provided tests unless the approved plan clearly requires normal project verification.
 - Report changed files, tests run, exit code, final summary, and remaining risks.
-- End with exactly these machine-readable lines:
+- Report each mandatory plan item on its own line as either:
+  COMPLETED_REQUIREMENT: <requirement>
+  SKIPPED_REQUIREMENT: <requirement and reason>
+- End with these machine-readable lines:
+  VALIDATION_STATUS: passed|failed|not_run|not_required
   FINAL_STATUS: completed|blocked|failed
   PLAN_CONFORMANCE: yes|no
   BLOCKERS: none or a concise blocker description

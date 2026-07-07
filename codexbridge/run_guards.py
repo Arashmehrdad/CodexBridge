@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -26,6 +27,11 @@ _EXPLICIT_STATUS_RE = re.compile(
     r"(?im)^FINAL_STATUS:\s*(completed|blocked|failed)\s*$"
 )
 _PLAN_CONFORMANCE_RE = re.compile(r"(?im)^PLAN_CONFORMANCE:\s*(yes|no)\s*$")
+_COMPLETED_REQUIREMENT_RE = re.compile(r"(?im)^COMPLETED_REQUIREMENT:\s*(.+?)\s*$")
+_SKIPPED_REQUIREMENT_RE = re.compile(r"(?im)^SKIPPED_REQUIREMENT:\s*(.+?)\s*$")
+_VALIDATION_STATUS_RE = re.compile(
+    r"(?im)^VALIDATION_STATUS:\s*(passed|failed|not_run|not_required)\s*$"
+)
 _PLAN_STATUS_RE = re.compile(r"(?im)^PLAN_STATUS:\s*(ready|blocked)\s*$")
 _PLAN_PLACEHOLDER_PATTERNS = (
     re.compile(r"\bsend\s+(?:me\s+)?the\s+actual\s+task\b", re.IGNORECASE),
@@ -52,6 +58,9 @@ class ImplementationOutcome:
     blocked: bool
     blockers: list[str]
     plan_conformance: bool | None
+    completed_requirements: list[str] = field(default_factory=list)
+    skipped_requirements: list[str] = field(default_factory=list)
+    validation_status: str | None = None
 
 
 WorkspaceSnapshot = dict[str, tuple[int, int]]
@@ -79,36 +88,45 @@ def allowed_write_directories(
 def snapshot_workspace(
     repo_root: Path, ignored_roots: Iterable[Path] = ()
 ) -> WorkspaceSnapshot:
-    """Capture persistent files outside known caches and bridge artifact roots."""
+    """Capture persistent files while pruning ignored trees before traversal."""
     root = repo_root.resolve()
-    ignored: list[Path] = []
+    ignored: set[Path] = set()
     for candidate in ignored_roots:
         resolved = candidate.resolve()
         try:
             resolved.relative_to(root)
         except ValueError:
             continue
-        ignored.append(resolved)
+        ignored.add(resolved)
+
     snapshot: WorkspaceSnapshot = {}
-    for path in root.rglob("*"):
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
+    for current_dir, directory_names, file_names in os.walk(root, topdown=True):
+        current = Path(current_dir).resolve()
+        if current in ignored:
+            directory_names[:] = []
             continue
-        if any(
-            path == ignored_root or ignored_root in path.parents
-            for ignored_root in ignored
-        ):
-            continue
-        if any(part.lower() in _IGNORED_WORKSPACE_PARTS for part in relative.parts):
-            continue
-        try:
-            if not path.is_file():
+
+        kept_directories: list[str] = []
+        for name in directory_names:
+            child = (current / name).resolve()
+            if name.lower() in _IGNORED_WORKSPACE_PARTS:
                 continue
-            stat = path.stat()
-        except OSError:
-            continue
-        snapshot[relative.as_posix()] = (stat.st_size, stat.st_mtime_ns)
+            if any(
+                child == ignored_root or ignored_root in child.parents
+                for ignored_root in ignored
+            ):
+                continue
+            kept_directories.append(name)
+        directory_names[:] = kept_directories
+
+        for name in file_names:
+            path = current / name
+            try:
+                relative = path.relative_to(root)
+                stat = path.stat()
+            except (OSError, ValueError):
+                continue
+            snapshot[relative.as_posix()] = (stat.st_size, stat.st_mtime_ns)
     return snapshot
 
 
@@ -186,22 +204,31 @@ def assess_plan_output(summary: str) -> ImplementationOutcome:
 
 
 def assess_implementation_output(summary: str) -> ImplementationOutcome:
-    """Classify explicit/fallback blocker signals from Codex's final response."""
-    explicit_statuses = _EXPLICIT_STATUS_RE.findall(summary or "")
-    conformance_matches = _PLAN_CONFORMANCE_RE.findall(summary or "")
+    """Classify blocker, conformance, requirement, and validation signals."""
+    text = summary or ""
+    explicit_statuses = _EXPLICIT_STATUS_RE.findall(text)
+    conformance_matches = _PLAN_CONFORMANCE_RE.findall(text)
     plan_conformance = None
     if conformance_matches:
         plan_conformance = conformance_matches[-1].lower() == "yes"
+    completed_requirements = [
+        item.strip() for item in _COMPLETED_REQUIREMENT_RE.findall(text)
+    ]
+    skipped_requirements = [
+        item.strip() for item in _SKIPPED_REQUIREMENT_RE.findall(text)
+    ]
+    validation_matches = _VALIDATION_STATUS_RE.findall(text)
+    validation_status = validation_matches[-1].lower() if validation_matches else None
 
     blockers: list[str] = []
     if explicit_statuses and explicit_statuses[-1].lower() in {"blocked", "failed"}:
         blockers.append(f"Codex reported FINAL_STATUS: {explicit_statuses[-1].lower()}")
-    if plan_conformance is False:
-        blockers.append("Codex reported PLAN_CONFORMANCE: no")
+    if validation_status == "failed":
+        blockers.append("Codex reported VALIDATION_STATUS: failed")
 
     if not explicit_statuses:
         for pattern in _BLOCKER_PATTERNS:
-            if pattern.search(summary or ""):
+            if pattern.search(text):
                 blockers.append(
                     "Codex final response reports an implementation blocker"
                 )
@@ -211,4 +238,7 @@ def assess_implementation_output(summary: str) -> ImplementationOutcome:
         blocked=bool(blockers),
         blockers=blockers,
         plan_conformance=plan_conformance,
+        completed_requirements=completed_requirements,
+        skipped_requirements=skipped_requirements,
+        validation_status=validation_status,
     )

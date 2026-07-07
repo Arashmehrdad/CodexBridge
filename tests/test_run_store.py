@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,63 @@ def test_run_store_tracks_progress_metadata(tmp_path: Path) -> None:
     assert updated["elapsed_seconds"] == 1.25
     assert updated["progress"]["percent"] == 50
     assert updated["heartbeat_at"]
+
+
+def test_run_store_computes_dynamic_elapsed_and_stale_heartbeat(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    now = datetime.now(timezone.utc)
+    store.update_run(
+        RUN_ID,
+        status="running",
+        started_at=(now - timedelta(seconds=12)).isoformat(),
+        heartbeat_at=(now - timedelta(seconds=45)).isoformat(),
+        elapsed_seconds=0.0,
+    )
+
+    current = store.get_run(RUN_ID)
+
+    assert current["elapsed_seconds"] >= 11.0
+    assert current["heartbeat_age_seconds"] >= 44.0
+    assert current["worker_stale"] is True
+
+
+def test_run_store_heartbeat_merges_existing_progress(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    store.set_progress(
+        RUN_ID,
+        phase="execute",
+        progress={"phase_item": "one"},
+        elapsed_seconds=1.0,
+    )
+
+    current = store.heartbeat(
+        RUN_ID,
+        elapsed_seconds=2.5,
+        progress_updates={"last_output_at": "now"},
+    )
+
+    assert current["current_phase"] == "execute"
+    assert current["elapsed_seconds"] >= 2.5
+    assert current["progress"] == {
+        "phase_item": "one",
+        "last_output_at": "now",
+    }
 
 
 def test_invalid_run_id_rejected() -> None:

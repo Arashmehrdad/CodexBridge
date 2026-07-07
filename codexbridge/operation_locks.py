@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+from uuid import uuid4
 
 from .run_store import TERMINAL_STATUSES, RunStore, utc_now
 
@@ -139,7 +141,8 @@ class OperationLockStore:
             (row["run_id"],),
         ).fetchone()
         if run is None:
-            return True
+            owner_pid = row.get("owner_pid")
+            return not bool(owner_pid and _pid_is_running(int(owner_pid)))
         status = str(run["status"] or "")
         if status in TERMINAL_STATUSES:
             return True
@@ -147,6 +150,34 @@ class OperationLockStore:
         if owner_pid and not _pid_is_running(int(owner_pid)):
             return True
         return False
+
+
+@contextmanager
+def repository_operation_lock(
+    runs_dir: Path,
+    *,
+    repo_name: str,
+    tool: str,
+    normalized_input: dict[str, Any],
+) -> Iterator[str]:
+    """Use the durable repository lock for synchronous mutating operations."""
+    store = OperationLockStore(runs_dir)
+    owner_id = f"sync_{os.getpid()}_{uuid4().hex[:12]}"
+    acquisition = store.acquire(
+        repo_name=repo_name,
+        tool=tool,
+        normalized_input=normalized_input,
+        run_id=owner_id,
+        owner_pid=os.getpid(),
+    )
+    if not acquisition.acquired:
+        raise RuntimeError(
+            f"Repository operation lock unavailable for {repo_name}: {acquisition.reason}"
+        )
+    try:
+        yield owner_id
+    finally:
+        store.release(repo_name, owner_id)
 
 
 def _pid_is_running(pid: int) -> bool:

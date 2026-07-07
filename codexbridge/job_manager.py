@@ -22,6 +22,7 @@ from .command_profiles import (
 )
 from .config import AppConfig, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter, redact_and_truncate
+from .external_fixtures import validate_fixture_request
 from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .run_store import RunStore, validate_run_id
@@ -102,7 +103,7 @@ class JobManager:
             {"repo_name": repo_name, "command_id": command_id},
             decision,
         )
-        response["repo_name"] = repo_name
+        response.setdefault("repo_name", repo_name)
         response["command_id"] = command_id
         return response
 
@@ -131,7 +132,7 @@ class JobManager:
             },
             decision,
         )
-        response["repo_name"] = repo_name
+        response.setdefault("repo_name", repo_name)
         response["command_id"] = PYTEST_PATH_COMMAND_ID
         response["path"] = normalized_target
         return response
@@ -191,10 +192,51 @@ class JobManager:
             },
             decision,
         )
-        response["repo_name"] = repo_name
+        response.setdefault("repo_name", repo_name)
         response["command_id"] = GIT_READONLY_COMMAND_ID
         response["operation"] = operation
         return response
+
+    def start_external_fixture_validation(
+        self,
+        repo_name: str,
+        url: str,
+        expected_sha256: str,
+        validation: str = "none",
+    ) -> dict:
+        resolve_repo(self.config, repo_name)
+        validate_fixture_request(
+            self.config.external_fixtures,
+            url,
+            expected_sha256,
+            validation,
+        )
+        estimated_minutes = max(
+            1, (self.config.external_fixtures.timeout_seconds + 59) // 60
+        )
+        decision = PolicyDecision(
+            accepted=True,
+            tier=2,
+            risk_level="medium",
+            requires_human=False,
+            reason=(
+                "Hash-pinned fixture from an allowlisted HTTPS host is approved "
+                "for isolated durable validation"
+            ),
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        return self._create_and_launch(
+            "external_fixture_validation",
+            repo_name,
+            {
+                "repo_name": repo_name,
+                "url": url,
+                "expected_sha256": expected_sha256.lower(),
+                "validation": validation,
+            },
+            decision,
+        )
 
     def start_ssh_command(self, host_id: str, command_id: str) -> dict:
         _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
@@ -222,6 +264,16 @@ class JobManager:
     def _create_and_launch(
         self, tool: str, repo_name: str, input_data: dict, decision
     ) -> dict:
+        requested_repo_name = repo_name
+        input_data = dict(input_data)
+        if not repo_name.startswith("ssh:"):
+            resolve_repo(self.config, repo_name)
+            canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
+            repo_name = canonical_repo_name
+            if "repo_name" in input_data:
+                input_data["repo_name"] = canonical_repo_name
+            input_data["requested_repo_name"] = requested_repo_name
+
         if self.config_path is None:
             return {
                 "run_id": None,
@@ -302,7 +354,11 @@ class JobManager:
             data={"worker_pid": process.pid},
         )
         artifacts.append_event(event)
-        return decision.to_start_response(run_id=run_id, status="queued")
+        response = decision.to_start_response(run_id=run_id, status="queued")
+        response["repo_name"] = repo_name
+        if requested_repo_name != repo_name:
+            response["requested_repo_name"] = requested_repo_name
+        return response
 
     def _start_validated_path_command(
         self,
@@ -334,7 +390,7 @@ class JobManager:
             },
             decision,
         )
-        response["repo_name"] = repo_name
+        response.setdefault("repo_name", repo_name)
         response["command_id"] = command_id
         response["path"] = normalized_target
         return response

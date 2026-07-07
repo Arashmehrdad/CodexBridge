@@ -3,6 +3,12 @@ repos:
     path: "D:/Github/Stream_Alpha"
     default_tests:
       - "python -m pytest"
+external_fixtures:
+  enabled: false
+  allowed_hosts:
+    - "fixtures.example.com"
+  max_bytes: 20000000
+  timeout_seconds: 60
 ssh:
   enabled: false
   executable: "ssh"

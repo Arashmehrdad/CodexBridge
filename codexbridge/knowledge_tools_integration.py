@@ -169,11 +169,11 @@ def _active_server_config(mcp: Any):
 
 
 def _runtime_context(mcp: Any, repo_name: str):
-    from .config import resolve_repo
+    from .config import resolve_repo_identity
 
     config = _active_server_config(mcp)
-    repo_root = resolve_repo(config, repo_name)
-    return config, repo_root
+    canonical_name, repo_root, _ = resolve_repo_identity(config, repo_name)
+    return config, repo_root, canonical_name
 
 
 def _memory_hit(record) -> dict[str, Any]:
@@ -194,18 +194,25 @@ def register_knowledge_tools(mcp: Any) -> None:
         return
 
     from .memory.repository import ProjectMemoryRepository
+    from .operation_locks import repository_operation_lock
     from .repo_wiki import RepoWikiService
 
     @mcp.tool(output_schema=WIKI_REFRESH_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def refresh_repo_wiki(repo_name: str, force: bool = False) -> dict:
         """Generate or incrementally refresh the repository-local CodexBridge wiki."""
         try:
-            _, repo_root = _runtime_context(mcp, repo_name)
-            service = RepoWikiService(repo_root, repo_name)
-            git_dir = repo_root / ".git"
-            if git_dir.is_dir() and not (git_dir / "HEAD").is_file():
-                service._git_list_source_candidates = lambda: None
-            return service.refresh(force=force)
+            config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
+            with repository_operation_lock(
+                config.resolve_runs_dir(),
+                repo_name=canonical_name,
+                tool="refresh_repo_wiki",
+                normalized_input={"force": force},
+            ):
+                service = RepoWikiService(repo_root, canonical_name)
+                git_dir = repo_root / ".git"
+                if git_dir.is_dir() and not (git_dir / "HEAD").is_file():
+                    service._git_list_source_candidates = lambda: None
+                return service.refresh(force=force)
         except Exception as exc:
             return {
                 "ok": False,
@@ -223,8 +230,8 @@ def register_knowledge_tools(mcp: Any) -> None:
     def read_repo_wiki(repo_name: str, page: str = "overview.md") -> dict:
         """Read one generated repository wiki page by safe relative page name."""
         try:
-            _, repo_root = _runtime_context(mcp, repo_name)
-            return RepoWikiService(repo_root, repo_name).read_page(page)
+            _, repo_root, canonical_name = _runtime_context(mcp, repo_name)
+            return RepoWikiService(repo_root, canonical_name).read_page(page)
         except Exception as exc:
             return {
                 "ok": False,
@@ -245,22 +252,22 @@ def register_knowledge_tools(mcp: Any) -> None:
     ) -> dict:
         """Search the repository wiki and repository-scoped memory in one call."""
         try:
-            config, repo_root = _runtime_context(mcp, repo_name)
+            config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
             maximum = max(1, min(limit, 50))
-            wiki_hits = RepoWikiService(repo_root, repo_name).search(
+            wiki_hits = RepoWikiService(repo_root, canonical_name).search(
                 query, limit=maximum
             )
             memory = ProjectMemoryRepository(config=config)
             result = memory.search(
                 query,
-                repo_name=repo_name,
+                repo_name=canonical_name,
                 include_global=include_global_memory,
                 limit=maximum,
             )
             memory_hits = [_memory_hit(record) for record in result.records]
             return {
                 "ok": True,
-                "repo_name": repo_name,
+                "repo_name": canonical_name,
                 "query": query,
                 "wiki_hits": wiki_hits,
                 "memory_hits": memory_hits,
@@ -286,17 +293,17 @@ def register_knowledge_tools(mcp: Any) -> None:
         try:
             if not decision.strip():
                 raise ValueError("decision must not be empty")
-            config, repo_root = _runtime_context(mcp, repo_name)
+            config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
             memory = ProjectMemoryRepository(config=config)
             record = memory.remember_decision(
                 decision.strip(),
-                repo_name=repo_name,
+                repo_name=canonical_name,
                 repo_path=repo_root,
                 accepted_by=accepted_by.strip() or None,
             )
             return {
                 "ok": True,
-                "repo_name": repo_name,
+                "repo_name": canonical_name,
                 "memory_id": record.memory_id,
                 "memory_type": record.memory_type.value,
                 "title": record.title,

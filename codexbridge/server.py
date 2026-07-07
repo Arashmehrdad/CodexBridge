@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import socket
 import time
 import urllib.error
 import urllib.request
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from typing import Sequence
 
 from fastmcp import FastMCP
 
-from .config import AppConfig, load_config, resolve_repo, resolve_repo_config
+from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
+from .config import (
+    AppConfig,
+    load_config,
+    resolve_repo,
+    resolve_repo_config,
+    resolve_repo_identity,
+)
 from .git_tools import CommitMetadataError
 from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
@@ -23,6 +32,11 @@ from .git_tools import create_branch as _git_create_branch
 from .git_tools import stage_all as _stage_all
 from .git_tools import unstage_all as _unstage_all
 from .job_manager import JobManager
+from .managed_artifacts import (
+    apply_managed_artifact_cleanup as _apply_managed_artifact_cleanup,
+    preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
+)
+from .operation_locks import repository_operation_lock
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .command_profiles import (
@@ -30,7 +44,7 @@ from .command_profiles import (
     resolve_command_profile,
     run_command_profile,
 )
-from .runner import CodexRunner, latest_run_result as latest_artifact_result
+from .runner import latest_run_result as latest_artifact_result
 from .service_reload import apply_reloaded_config, reload_service as _reload_service
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
@@ -41,6 +55,42 @@ from .local_agent.ollama_adapter import OllamaChatAdapter
 
 
 mcp = FastMCP("CodexBridge")
+_PROCESS_CAPABILITY_METADATA = capability_metadata(PATCH_OPERATION_SCHEMA)
+_original_mcp_tool = mcp.tool
+
+
+def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
+    register = _original_mcp_tool(*tool_args, **tool_kwargs)
+
+    def decorate(function):
+        if inspect.iscoroutinefunction(function):
+
+            @wraps(function)
+            async def async_wrapped(*args, **kwargs):
+                result = await function(*args, **kwargs)
+                if isinstance(result, dict):
+                    result = dict(result)
+                    for key, value in _PROCESS_CAPABILITY_METADATA.items():
+                        result.setdefault(key, value)
+                return result
+
+            return register(async_wrapped)
+
+        @wraps(function)
+        def sync_wrapped(*args, **kwargs):
+            result = function(*args, **kwargs)
+            if isinstance(result, dict):
+                result = dict(result)
+                for key, value in _PROCESS_CAPABILITY_METADATA.items():
+                    result.setdefault(key, value)
+            return result
+
+        return register(sync_wrapped)
+
+    return decorate
+
+
+mcp.tool = _tool_with_capability_metadata
 _config: AppConfig | None = None
 _config_path: Path | None = None
 READ_ONLY_ANNOTATIONS = {
@@ -149,6 +199,7 @@ REPO_STATUS_OUTPUT = {
         "changed_files": {"type": "array", "items": {"type": "string"}},
         "diff_stat": {"type": "string"},
         "recent_commits": {"type": "array", "items": {"type": "string"}},
+        "manifest": {"type": "object", "additionalProperties": True},
         "error": {"type": "string"},
     },
 }
@@ -585,13 +636,59 @@ def get_supervisor_service() -> SupervisorService:
     return SupervisorService(get_config(), get_config_path())
 
 
+def _repo_context(repo_name: str) -> tuple[str, Path, str]:
+    canonical_name, repo_root, _ = resolve_repo_identity(get_config(), repo_name)
+    return canonical_name, repo_root, repo_name
+
+
+def _with_capability_metadata(result: dict[str, Any]) -> dict[str, Any]:
+    result.update(capability_metadata(PATCH_OPERATION_SCHEMA))
+    return result
+
+
+def _locked_repo_operation(
+    repo_name: str,
+    tool: str,
+    normalized_input: dict[str, Any],
+    operation: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    with repository_operation_lock(
+        get_config().resolve_runs_dir(),
+        repo_name=canonical_name,
+        tool=tool,
+        normalized_input=normalized_input,
+    ):
+        result = operation(repo_root)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+async def list_capabilities() -> dict:
+    """Read-only: return the authoritative live tool list and schema epoch."""
+    tools = await mcp.list_tools()
+    actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    result: dict[str, Any] = {
+        "ok": True,
+        "actions": actions,
+        "action_names": sorted(str(action.get("name", "")) for action in actions),
+        "patch_operation_schema": PATCH_OPERATION_SCHEMA,
+        "error": "",
+    }
+    return _with_capability_metadata(result)
+
+
 @mcp.tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def inspect_repo_status(repo_name: str) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = dict(inspect_status(repo_root))
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     result["ok"] = True
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     changed_files = result.get("changed_files")
@@ -607,26 +704,28 @@ def inspect_repo_status(repo_name: str) -> dict:
 
 
 @mcp.tool(
-    output_schema=CODEX_PLAN_OUTPUT,
+    output_schema=RUN_RESULT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
 def codex_plan_task(repo_name: str, task: str, constraints: str = "") -> dict:
-    """Read-only: ask Codex to inspect only and return a plan. Must not edit files."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    return CodexRunner(config).plan_task(repo_name, repo_root, task, constraints)
+    """Compatibility alias: queue a durable plan-only Codex run and return its run ID."""
+    result = get_job_manager().start_plan(repo_name, task, constraints)
+    result["deprecated_sync_alias"] = True
+    result["replacement_tool"] = "start_codex_plan_task_async"
+    return result
 
 
-@mcp.tool(output_schema=CODEX_IMPLEMENT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
 def codex_implement_task(
     repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
 ) -> dict:
-    """Write tool: ask Codex to implement only the approved plan and avoid unrelated files."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    return CodexRunner(config).implement_task(
-        repo_name, repo_root, approved_plan, allowed_files, tests
+    """Compatibility alias: queue durable Codex implementation and return its run ID."""
+    result = get_job_manager().start_implementation(
+        repo_name, approved_plan, allowed_files, tests
     )
+    result["deprecated_sync_alias"] = True
+    result["replacement_tool"] = "start_codex_implement_task_async"
+    return result
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -646,9 +745,17 @@ def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def git_diff_summary(repo_name: str) -> dict:
     """Read-only: return git status and diff stat for a whitelisted repo."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    return {"git_status": git_status(repo_root), "diff_stat": diff_stat(repo_root)}
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = {
+        "ok": True,
+        "repo_name": canonical_name,
+        "git_status": git_status(repo_root),
+        "diff_stat": diff_stat(repo_root),
+        "error": "",
+    }
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
 
 
 @mcp.tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -664,19 +771,24 @@ def commit_selected_files(
     they are never executed. This tool never pushes.
     """
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
 
     try:
-        result = commit_files(
-            repo_root,
-            files,
-            title,
-            description,
-        )
+        with repository_operation_lock(
+            config.resolve_runs_dir(),
+            repo_name=canonical_name,
+            tool="commit_selected_files",
+            normalized_input={
+                "files": files,
+                "title": title,
+                "description": description,
+            },
+        ):
+            result = commit_files(repo_root, files, title, description)
     except CommitMetadataError as exc:
         return {
             "ok": False,
-            "repo_name": repo_name,
+            "repo_name": canonical_name,
             "files_validated": exc.files_validated,
             "blocked_field": exc.field,
             "reason_code": exc.reason_code,
@@ -684,17 +796,20 @@ def commit_selected_files(
             "error": exc.reason,
         }
 
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def dry_run_stage_manifest(repo_name: str) -> dict:
     """Read-only: preview which files would be staged without changing git state."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _dry_run_stage_manifest(repo_root)
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -702,9 +817,17 @@ def dry_run_stage_manifest(repo_name: str) -> dict:
 def stage_all(repo_name: str) -> dict:
     """Write tool: stage all repository changes and return before/after manifest details."""
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _stage_all(repo_root)
-    result["repo_name"] = repo_name
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    with repository_operation_lock(
+        config.resolve_runs_dir(),
+        repo_name=canonical_name,
+        tool="stage_all",
+        normalized_input={"repo_name": canonical_name},
+    ):
+        result = _stage_all(repo_root)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -712,9 +835,17 @@ def stage_all(repo_name: str) -> dict:
 def unstage_all(repo_name: str) -> dict:
     """Write tool: unstage all currently staged changes and return before/after manifest details."""
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _unstage_all(repo_root)
-    result["repo_name"] = repo_name
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    with repository_operation_lock(
+        config.resolve_runs_dir(),
+        repo_name=canonical_name,
+        tool="unstage_all",
+        normalized_input={"repo_name": canonical_name},
+    ):
+        result = _unstage_all(repo_root)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -722,20 +853,28 @@ def unstage_all(repo_name: str) -> dict:
 def commit_all_changes(repo_name: str, title: str, description: str = "") -> dict:
     """Write tool: stage and commit all current repository changes with validated metadata. Never pushes."""
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
     try:
-        result = _commit_all_changes(repo_root, title, description)
+        with repository_operation_lock(
+            config.resolve_runs_dir(),
+            repo_name=canonical_name,
+            tool="commit_all_changes",
+            normalized_input={"title": title, "description": description},
+        ):
+            result = _commit_all_changes(repo_root, title, description)
     except CommitMetadataError as exc:
         return {
             "ok": False,
-            "repo_name": repo_name,
+            "repo_name": canonical_name,
             "files_validated": exc.files_validated,
             "blocked_field": exc.field,
             "reason_code": exc.reason_code,
             "reason": exc.reason,
             "error": exc.reason,
         }
-    result["repo_name"] = repo_name
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
     return result
 
 
@@ -874,6 +1013,25 @@ def list_ssh_capabilities() -> dict:
 def ssh_host_health(host_id: str) -> dict:
     """Read-only: test one configured SSH alias with a fixed non-interactive command."""
     return _ssh_host_health(get_config(), host_id)
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_external_fixture_validation_async(
+    repo_name: str,
+    url: str,
+    expected_sha256: str,
+    validation: str = "none",
+) -> dict:
+    """Queue hash-pinned validation of one allowlisted HTTPS fixture in run storage."""
+    return get_job_manager().start_external_fixture_validation(
+        repo_name,
+        url,
+        expected_sha256,
+        validation,
+    )
 
 
 @mcp.tool(
@@ -1186,50 +1344,91 @@ def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -
     return result
 
 
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_patch_status(repo_name: str, patch_id: str) -> dict:
+    """Read-only: return the durable lifecycle state for one managed patch."""
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = _repo_writer.get_patch_status(repo_root, patch_id, _get_runs_dir())
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def preview_managed_artifact_cleanup(repo_name: str, roots: list[str] = []) -> dict:
+    """Preview cleanup of registered tool-owned scratch files only."""
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = _preview_managed_artifact_cleanup(
+        repo_root, _get_runs_dir(), roots or None
+    )
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def apply_managed_artifact_cleanup(repo_name: str, cleanup_id: str) -> dict:
+    """Apply a hash-verified cleanup preview for registered tool-owned artifacts."""
+    return _locked_repo_operation(
+        repo_name,
+        "apply_managed_artifact_cleanup",
+        {"cleanup_id": cleanup_id},
+        lambda repo_root: _apply_managed_artifact_cleanup(
+            repo_root, _get_runs_dir(), cleanup_id
+        ),
+    )
+
+
 @mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> dict:
     """Write tool: apply a patch previously validated by preview_repo_patch. Rechecks all hashes before writing."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.apply_repo_patch(
-        repo_root, operations, patch_id, _get_runs_dir()
+    return _locked_repo_operation(
+        repo_name,
+        "apply_repo_patch",
+        {"patch_id": patch_id, "operations": operations},
+        lambda repo_root: _repo_writer.apply_repo_patch(
+            repo_root, operations, patch_id, _get_runs_dir()
+        ),
     )
-    result["repo_name"] = repo_name
-    return result
 
 
 @mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_previewed_repo_change(repo_name: str, patch_id: str) -> dict:
     """Write tool: apply a previewed repository change using only the opaque local preview bundle identified by patch_id."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.apply_previewed_repo_change(
-        repo_root, patch_id, _get_runs_dir()
+    return _locked_repo_operation(
+        repo_name,
+        "apply_previewed_repo_change",
+        {"patch_id": patch_id},
+        lambda repo_root: _repo_writer.apply_previewed_repo_change(
+            repo_root, patch_id, _get_runs_dir()
+        ),
     )
-    result["repo_name"] = repo_name
-    return result
 
 
 @mcp.tool(output_schema=CREATE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def create_repo_file(repo_name: str, path: str, content: str) -> dict:
     """Write tool: create a new file in the repository. Rejects existing files and applies all path/content safety checks."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.create_repo_file(repo_root, path, content)
-    result["repo_name"] = repo_name
-    return result
+    return _locked_repo_operation(
+        repo_name,
+        "create_repo_file",
+        {"path": path, "content_sha256": _repo_writer._sha256_text(content)},
+        lambda repo_root: _repo_writer.create_repo_file(repo_root, path, content),
+    )
 
 
 @mcp.tool(output_schema=DELETE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
     """Write tool: delete a file after verifying its SHA-256. Saves rollback content."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.delete_repo_file(
-        repo_root, path, expected_sha256, _get_runs_dir()
+    return _locked_repo_operation(
+        repo_name,
+        "delete_repo_file",
+        {"path": path, "expected_sha256": expected_sha256},
+        lambda repo_root: _repo_writer.delete_repo_file(
+            repo_root, path, expected_sha256, _get_runs_dir()
+        ),
     )
-    result["repo_name"] = repo_name
-    return result
 
 
 @mcp.tool(output_schema=MOVE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -1240,37 +1439,49 @@ def move_repo_file(
     expected_sha256: str,
 ) -> dict:
     """Write tool: move a file to a new repo-relative path after verifying its SHA-256. Saves rollback information."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.move_repo_file(
-        repo_root, source_path, destination_path, expected_sha256, _get_runs_dir()
+    return _locked_repo_operation(
+        repo_name,
+        "move_repo_file",
+        {
+            "source_path": source_path,
+            "destination_path": destination_path,
+            "expected_sha256": expected_sha256,
+        },
+        lambda repo_root: _repo_writer.move_repo_file(
+            repo_root,
+            source_path,
+            destination_path,
+            expected_sha256,
+            _get_runs_dir(),
+        ),
     )
-    result["repo_name"] = repo_name
-    return result
 
 
 @mcp.tool(output_schema=REVERT_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
     """Write tool: revert a previously applied managed patch using saved rollback content. Never uses git reset."""
-    config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    result = _repo_writer.revert_managed_patch(repo_root, patch_id, _get_runs_dir())
-    result["repo_name"] = repo_name
-    return result
+    return _locked_repo_operation(
+        repo_name,
+        "revert_managed_patch",
+        {"patch_id": patch_id},
+        lambda repo_root: _repo_writer.revert_managed_patch(
+            repo_root, patch_id, _get_runs_dir()
+        ),
+    )
 
 
 @mcp.tool(output_schema=RUN_COMMAND_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_project_command(repo_name: str, command_id: str) -> dict:
-    """Write tool: run an allowlisted project command by command_id. Uses subprocess with shell=False."""
+    """Run one allowlisted synchronous command under the repository operation lock."""
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
-    _, repo_config = resolve_repo_config(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    _, repo_config = resolve_repo_config(config, canonical_name)
     repo_profiles = list(repo_config.command_profiles or [])
     profile = resolve_command_profile(command_id, repo_profiles)
     if profile.async_only:
-        return {
+        result = {
             "ok": False,
-            "repo_name": repo_name,
+            "repo_name": canonical_name,
             "command_id": command_id,
             "argv": list(profile.argv),
             "exit_code": 2,
@@ -1286,9 +1497,15 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
                 "execution. Use start_project_command_async."
             ),
         }
-    result = run_command_profile(profile, repo_root)
-    result["repo_name"] = repo_name
-    return result
+        if requested_name != canonical_name:
+            result["requested_repo_name"] = requested_name
+        return result
+    return _locked_repo_operation(
+        repo_name,
+        "run_project_command",
+        {"command_id": command_id},
+        lambda root: run_command_profile(profile, root),
+    )
 
 
 @mcp.tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -1316,7 +1533,6 @@ def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
 @mcp.tool(output_schema=CREATE_BRANCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def create_git_branch(repo_name: str, branch_name: str) -> dict:
     """Write tool: create a new local git branch. Rejects protected names and existing branches."""
-    import re as _re
     from .repo_writer import (
         _PROTECTED_BRANCHES,
         _PROTECTED_BRANCH_PREFIXES,
@@ -1324,7 +1540,7 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
     )
 
     config = get_config()
-    repo_root = resolve_repo(config, repo_name)
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
 
     if not branch_name or not _BRANCH_NAME_RE.match(branch_name):
         return {
@@ -1360,16 +1576,30 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
             "error": f"Branch already exists: {branch_name!r}",
         }
     try:
-        _git_create_branch(repo_root, branch_name)
+        with repository_operation_lock(
+            config.resolve_runs_dir(),
+            repo_name=canonical_name,
+            tool="create_git_branch",
+            normalized_input={"branch_name": branch_name},
+        ):
+            _git_create_branch(repo_root, branch_name)
     except ValueError as exc:
         return {
             "ok": False,
-            "repo_name": repo_name,
+            "repo_name": canonical_name,
             "branch_name": branch_name,
             "error": str(exc),
         }
 
-    return {"ok": True, "repo_name": repo_name, "branch_name": branch_name, "error": ""}
+    result = {
+        "ok": True,
+        "repo_name": canonical_name,
+        "branch_name": branch_name,
+        "error": "",
+    }
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
