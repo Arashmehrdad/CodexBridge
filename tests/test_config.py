@@ -180,6 +180,7 @@ def test_cloudflare_config_and_profile_validation() -> None:
         allowed_dns_names=["api.example.com"],
         allowed_ruleset_phases=["http_request_firewall_custom"],
         allowed_tunnel_ids=["12345678-1234-1234-1234-123456789abc"],
+        allowed_turnstile_sitekeys=["0x" + ("a" * 30)],
     )
     config = CloudflareConfig(
         enabled=True,
@@ -191,8 +192,10 @@ def test_cloudflare_config_and_profile_validation() -> None:
     assert config.api_base_url == "https://api.cloudflare.com/client/v4"
     assert config.env_file == ".env"
     assert config.confirmation_token == "CONFIRM_CLOUDFLARE_HIGH_RISK"
+    assert config.allow_turnstile is False
     assert profile.zone_name == "example.com"
     assert profile.allowed_dns_names == ["api.example.com"]
+    assert profile.allowed_turnstile_sitekeys == ["0x" + ("a" * 30)]
 
     with pytest.raises(ValidationError, match="official client v4"):
         CloudflareConfig(api_base_url="https://example.com/client/v4")
@@ -206,6 +209,12 @@ def test_cloudflare_config_and_profile_validation() -> None:
         )
     with pytest.raises(ValidationError, match="UUID"):
         CloudflareProfileConfig(allowed_tunnel_ids=["bad-id"])
+    with pytest.raises(ValidationError, match="allowed_turnstile_sitekeys"):
+        CloudflareProfileConfig(allowed_turnstile_sitekeys=["bad sitekey"])
+    with pytest.raises(ValidationError, match="allowed_turnstile_sitekeys must be unique"):
+        CloudflareProfileConfig(
+            allowed_turnstile_sitekeys=["sitekey", "sitekey"]
+        )
 
     repo = RepoConfig(path=".", cloudflare_profiles=["production"])
     assert repo.cloudflare_profiles == ["production"]
