@@ -42,7 +42,14 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.docker.executable == "docker"
     assert config.cloudflare.enabled is False
     assert config.cloudflare.token_env == "CLOUDFLARE_API_TOKEN"
-    assert config.cloudflare.profiles["production"].zone_name == "example.com"
+    assert config.cloudflare.allow_turnstile_write is False
+    assert config.cloudflare.allow_turnstile_secret_rotation is False
+    assert config.cloudflare.allow_turnstile_delete is False
+    production = config.cloudflare.profiles["production"]
+    assert production.zone_name == "example.com"
+    assert production.turnstile.secret_destination is not None
+    assert production.turnstile.secret_destination.path == ".env.production"
+    assert production.turnstile.secret_destination.variable == "TURNSTILE_SECRET_KEY"
     assert config.ssh.hosts["my_vps"].ssh_alias == "my-vps"
     assert [
         profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
