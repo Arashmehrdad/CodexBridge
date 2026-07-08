@@ -204,7 +204,8 @@ class CloudflareSecretDestinationConfig(BaseModel):
             or len(raw_path) > 512
             or windows_path.is_absolute()
             or windows_path.drive
-            or raw_path.startswith("//")
+            or raw_path.startswith("/")
+            or ":" in raw_path
             or any(part == ".." for part in windows_path.parts)
             or any(ord(char) < 32 or ord(char) == 127 for char in raw_path)
         ):

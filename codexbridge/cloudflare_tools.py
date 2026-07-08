@@ -1665,7 +1665,6 @@ def list_cloudflare_capabilities(
             "allow_zone_settings": config.cloudflare.allow_zone_settings,
             "allow_rulesets": config.cloudflare.allow_rulesets,
             "allow_tunnels": config.cloudflare.allow_tunnels,
-            "allow_turnstile": config.cloudflare.allow_turnstile,
             "allow_turnstile_write": config.cloudflare.allow_turnstile_write,
             "allow_turnstile_secret_rotation": (
                 config.cloudflare.allow_turnstile_secret_rotation

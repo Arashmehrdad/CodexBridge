@@ -66,7 +66,6 @@ def make_config(tmp_path: Path, **overrides) -> AppConfig:
         "allow_zone_settings": True,
         "allow_rulesets": True,
         "allow_tunnels": True,
-        "allow_turnstile": True,
         "allow_turnstile_write": True,
         "allow_turnstile_secret_rotation": True,
         "allow_turnstile_delete": True,
@@ -969,7 +968,6 @@ def test_capabilities_report_turnstile_scope_gates_and_secret_destination(
 ) -> None:
     config = make_config(
         tmp_path,
-        allow_turnstile=False,
         allow_turnstile_write=False,
         allow_turnstile_secret_rotation=False,
         allow_turnstile_delete=False,
@@ -978,7 +976,7 @@ def test_capabilities_report_turnstile_scope_gates_and_secret_destination(
 
     capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
 
-    assert capabilities["gates"]["allow_turnstile"] is False
+    assert "allow_turnstile" not in capabilities["gates"]
     assert capabilities["gates"]["allow_turnstile_write"] is False
     assert capabilities["gates"]["allow_turnstile_secret_rotation"] is False
     assert capabilities["gates"]["allow_turnstile_delete"] is False

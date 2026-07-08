@@ -236,16 +236,17 @@ def test_cloudflare_config_and_profile_validation() -> None:
         ValidationError, match="allowed_turnstile_sitekeys must be unique"
     ):
         CloudflareProfileConfig(allowed_turnstile_sitekeys=["sitekey", "sitekey"])
-    with pytest.raises(ValidationError, match="safe repository-relative path"):
-        CloudflareProfileConfig(
-            turnstile={
-                "secret_destination": {
-                    "type": "env_file",
-                    "path": "../outside.env",
-                    "variable": "TURNSTILE_SECRET_KEY",
+    for unsafe_path in ("../outside.env", "/outside.env", "file:stream"):
+        with pytest.raises(ValidationError, match="safe repository-relative path"):
+            CloudflareProfileConfig(
+                turnstile={
+                    "secret_destination": {
+                        "type": "env_file",
+                        "path": unsafe_path,
+                        "variable": "TURNSTILE_SECRET_KEY",
+                    }
                 }
-            }
-        )
+            )
     with pytest.raises(ValidationError, match="environment variable name"):
         CloudflareProfileConfig(
             turnstile={
