@@ -15,6 +15,11 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
+from .cloudflare_tools import cloudflare_health as _cloudflare_health
+from .cloudflare_tools import (
+    list_cloudflare_capabilities as _list_cloudflare_capabilities,
+)
+from .cloudflare_tools import run_cloudflare_inspection as _run_cloudflare_inspection
 from .config import (
     AppConfig,
     load_config,
@@ -1154,6 +1159,70 @@ def docker_inspect(
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
     return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_cloudflare_capabilities() -> dict:
+    """Read-only: list scoped Cloudflare operations, profiles, and risk gates."""
+    return _list_cloudflare_capabilities(get_config())
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def cloudflare_health(profile_id: str) -> dict:
+    """Read-only: verify a configured Cloudflare token and profile scope."""
+    return _cloudflare_health(get_config(), profile_id)
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def cloudflare_inspect(
+    profile_id: str,
+    operation: str,
+    resource_id: str = "",
+    name: str = "",
+    record_type: str = "",
+    since_minutes: int = 60,
+    page: int = 1,
+    per_page: int = 100,
+) -> dict:
+    """Read-only: run one bounded Cloudflare zone, DNS, tunnel, ruleset, or analytics inspection."""
+    return _run_cloudflare_inspection(
+        get_config(),
+        profile_id,
+        operation,
+        resource_id=resource_id,
+        name=name,
+        record_type=record_type,
+        since_minutes=since_minutes,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_cloudflare_action_async(
+    profile_id: str,
+    action: str,
+    resource_id: str = "",
+    payload: dict[str, Any] | None = None,
+    confirmation: str = "",
+) -> dict:
+    """Write async tool: queue one bounded Cloudflare DNS, cache, zone, ruleset, or tunnel action."""
+    return get_job_manager().start_cloudflare_action(
+        profile_id,
+        action,
+        resource_id=resource_id,
+        payload=payload,
+        confirmation=confirmation,
+    )
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
