@@ -141,7 +141,9 @@ def _safe_services(services: list[str] | None) -> list[str]:
 def _resolve_compose_files(repo_root: Path, repo_config: RepoConfig) -> list[str]:
     requested = list(repo_config.docker_compose_files or [])
     if not requested:
-        requested = [name for name in _COMPOSE_CANDIDATES if (repo_root / name).is_file()]
+        requested = [
+            name for name in _COMPOSE_CANDIDATES if (repo_root / name).is_file()
+        ]
     if not requested:
         raise ValueError("No repository Docker Compose file was found or configured")
 
@@ -149,12 +151,16 @@ def _resolve_compose_files(repo_root: Path, repo_config: RepoConfig) -> list[str
     for relative in requested:
         candidate = validate_repo_relative_path(repo_root, relative)
         if not candidate.is_file() or candidate.suffix.lower() not in {".yml", ".yaml"}:
-            raise ValueError(f"Compose file must be an existing repository YAML file: {relative}")
+            raise ValueError(
+                f"Compose file must be an existing repository YAML file: {relative}"
+            )
         normalized.append(candidate.relative_to(repo_root.resolve()).as_posix())
     return normalized
 
 
-def _compose_prefix(config: AppConfig, repo_root: Path, repo_config: RepoConfig) -> list[str]:
+def _compose_prefix(
+    config: AppConfig, repo_root: Path, repo_config: RepoConfig
+) -> list[str]:
     argv = [config.docker.executable, "compose"]
     for compose_file in _resolve_compose_files(repo_root, repo_config):
         argv.extend(["--file", compose_file])
@@ -172,10 +178,14 @@ def _exec_profile(repo_config: RepoConfig, command_id: str) -> DockerExecProfile
         if profile.command_id == command_id:
             return profile
     allowed = sorted(profile.command_id for profile in repo_config.docker_exec_profiles)
-    raise ValueError(f"Unknown Docker exec command_id: {command_id!r}. Allowed: {allowed}")
+    raise ValueError(
+        f"Unknown Docker exec command_id: {command_id!r}. Allowed: {allowed}"
+    )
 
 
-def _require_high_risk_approval(config: AppConfig, action: str, confirmation: str) -> None:
+def _require_high_risk_approval(
+    config: AppConfig, action: str, confirmation: str
+) -> None:
     gate = HIGH_RISK_ACTIONS.get(action)
     if gate is None:
         return
@@ -260,7 +270,7 @@ def build_docker_inspection(
             "container",
             "inspect",
             "--format",
-            "{{json (dict \"Id\" .Id \"Name\" .Name \"Image\" .Image \"State\" .State \"HostConfig\" .HostConfig)}}",
+            '{{json (dict "Id" .Id "Name" .Name "Image" .Image "State" .State "HostConfig" .HostConfig)}}',
             _safe_token(target, "target"),
         ]
     elif operation == "image_details":
@@ -269,7 +279,7 @@ def build_docker_inspection(
             "image",
             "inspect",
             "--format",
-            "{{json (dict \"Id\" .Id \"RepoTags\" .RepoTags \"RepoDigests\" .RepoDigests \"Created\" .Created \"Size\" .Size \"Architecture\" .Architecture \"Os\" .Os)}}",
+            '{{json (dict "Id" .Id "RepoTags" .RepoTags "RepoDigests" .RepoDigests "Created" .Created "Size" .Size "Architecture" .Architecture "Os" .Os)}}',
             _safe_token(target, "target"),
         ]
     elif operation == "network_details":
@@ -278,7 +288,7 @@ def build_docker_inspection(
             "network",
             "inspect",
             "--format",
-            "{{json (dict \"Name\" .Name \"Id\" .Id \"Driver\" .Driver \"Scope\" .Scope \"Internal\" .Internal \"IPAM\" .IPAM)}}",
+            '{{json (dict "Name" .Name "Id" .Id "Driver" .Driver "Scope" .Scope "Internal" .Internal "IPAM" .IPAM)}}',
             _safe_token(target, "target"),
         ]
     else:
@@ -287,7 +297,7 @@ def build_docker_inspection(
             "volume",
             "inspect",
             "--format",
-            "{{json (dict \"Name\" .Name \"Driver\" .Driver \"Mountpoint\" .Mountpoint \"Scope\" .Scope)}}",
+            '{{json (dict "Name" .Name "Driver" .Driver "Mountpoint" .Mountpoint "Scope" .Scope)}}',
             _safe_token(target, "target"),
         ]
 
@@ -318,7 +328,9 @@ def build_docker_action(
     _require_enabled(config)
     action = str(action or "").strip()
     if action not in DOCKER_ACTIONS:
-        raise ValueError(f"Unsupported Docker action: {action!r}. Allowed: {list(DOCKER_ACTIONS)}")
+        raise ValueError(
+            f"Unsupported Docker action: {action!r}. Allowed: {list(DOCKER_ACTIONS)}"
+        )
     _require_high_risk_approval(config, action, confirmation)
 
     docker = config.docker.executable
@@ -347,7 +359,11 @@ def build_docker_action(
     }
 
     if action in compose_simple:
-        argv = _compose_prefix(config, repo_root, repo_config) + [compose_simple[action]] + safe_services
+        argv = (
+            _compose_prefix(config, repo_root, repo_config)
+            + [compose_simple[action]]
+            + safe_services
+        )
         if action in {"compose_build", "compose_pull"}:
             timeout = max(timeout, 1800)
     elif action == "compose_up":
@@ -357,7 +373,10 @@ def build_docker_action(
         argv.extend(safe_services)
         timeout = max(timeout, 1800)
     elif action == "compose_down":
-        argv = _compose_prefix(config, repo_root, repo_config) + ["down", "--remove-orphans"]
+        argv = _compose_prefix(config, repo_root, repo_config) + [
+            "down",
+            "--remove-orphans",
+        ]
     elif action == "compose_down_volumes":
         argv = _compose_prefix(config, repo_root, repo_config) + [
             "down",
@@ -365,7 +384,11 @@ def build_docker_action(
             "--remove-orphans",
         ]
     elif action == "compose_rm":
-        argv = _compose_prefix(config, repo_root, repo_config) + ["rm", "--force", "--stop"] + safe_services
+        argv = (
+            _compose_prefix(config, repo_root, repo_config)
+            + ["rm", "--force", "--stop"]
+            + safe_services
+        )
     elif action in {"compose_exec", "container_exec"}:
         profile = _exec_profile(repo_config, command_id)
         writes_files = profile.writes_files
@@ -374,7 +397,11 @@ def build_docker_action(
             service = safe_services[0] if len(safe_services) == 1 else ""
             if not service:
                 raise ValueError("compose_exec requires exactly one service")
-            argv = _compose_prefix(config, repo_root, repo_config) + ["exec", "--no-TTY", service]
+            argv = _compose_prefix(config, repo_root, repo_config) + [
+                "exec",
+                "--no-TTY",
+                service,
+            ]
         else:
             argv = [docker, "container", "exec", _safe_token(target, "target")]
         argv.extend(profile.argv)
@@ -383,7 +410,9 @@ def build_docker_action(
         build_context = _validate_repo_directory(repo_root, context, "context")
         argv = [docker, "image", "build", "--tag", tag]
         if dockerfile:
-            argv.extend(["--file", _validate_repo_file(repo_root, dockerfile, "dockerfile")])
+            argv.extend(
+                ["--file", _validate_repo_file(repo_root, dockerfile, "dockerfile")]
+            )
         argv.append(build_context)
         timeout = max(timeout, 3600)
     elif action == "image_pull":
@@ -401,7 +430,12 @@ def build_docker_action(
         argv = [docker, "image", "push", _safe_token(target, "target")]
         timeout = max(timeout, 1800)
     elif action in container_simple:
-        argv = [docker, "container", container_simple[action], _safe_token(target, "target")]
+        argv = [
+            docker,
+            "container",
+            container_simple[action],
+            _safe_token(target, "target"),
+        ]
     elif action == "container_remove":
         argv = [docker, "container", "rm"]
         if force:
@@ -487,7 +521,9 @@ def _run_argv(config: AppConfig, spec: DockerCommandSpec, cwd: Path) -> dict[str
             stderr = ""
         else:
             remaining = max_bytes - len(stdout_bytes)
-            stderr = stderr.encode("utf-8")[:remaining].decode("utf-8", errors="replace")
+            stderr = stderr.encode("utf-8")[:remaining].decode(
+                "utf-8", errors="replace"
+            )
 
     return {
         "ok": exit_code == 0 and not timed_out,

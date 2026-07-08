@@ -152,9 +152,7 @@ def test_high_risk_action_requires_config_gate_and_confirmation(tmp_path: Path) 
 
     config.docker.allow_prune = True
     with pytest.raises(ValueError, match="requires confirmation token"):
-        docker_tools.build_docker_action(
-            config, tmp_path, repo_config, "volume_prune"
-        )
+        docker_tools.build_docker_action(config, tmp_path, repo_config, "volume_prune")
 
     spec = docker_tools.build_docker_action(
         config,
@@ -168,9 +166,7 @@ def test_high_risk_action_requires_config_gate_and_confirmation(tmp_path: Path) 
 
 
 def test_push_and_remove_have_separate_opt_in_gates(tmp_path: Path) -> None:
-    config, repo_config = make_config(
-        tmp_path, allow_push=True, allow_remove=True
-    )
+    config, repo_config = make_config(tmp_path, allow_push=True, allow_remove=True)
     confirmation = config.docker.confirmation_token
 
     push = docker_tools.build_docker_action(
@@ -200,7 +196,9 @@ def test_push_and_remove_have_separate_opt_in_gates(tmp_path: Path) -> None:
     assert remove.argv == ["docker", "container", "rm", "--force", "api-1"]
 
 
-def test_run_argv_uses_shell_false_and_redacts_output(tmp_path: Path, monkeypatch) -> None:
+def test_run_argv_uses_shell_false_and_redacts_output(
+    tmp_path: Path, monkeypatch
+) -> None:
     config, _ = make_config(tmp_path)
     captured = {}
 

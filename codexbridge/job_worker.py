@@ -720,7 +720,9 @@ class JobWorker:
         if safety_failure:
             risks.append("Docker action unexpectedly changed repository state")
         if command_result.get("timed_out"):
-            risks.append("Docker action timed out; inspect durable output before retrying")
+            risks.append(
+                "Docker action timed out; inspect durable output before retrying"
+            )
 
         terminal_status = (
             "completed" if command_result.get("ok") and not safety_failure else "failed"
@@ -763,9 +765,12 @@ class JobWorker:
             "diff_stat": diff_after,
             "tests_run": [],
             "test_results": output_summary,
-            "summary": output_summary[-4000:] if output_summary else f"Docker action {action} finished",
+            "summary": output_summary[-4000:]
+            if output_summary
+            else f"Docker action {action} finished",
             "remaining_risks": risks,
-            "error": commit_data["commit_error"] or str(command_result.get("error", "")),
+            "error": commit_data["commit_error"]
+            or str(command_result.get("error", "")),
             "safety_failure": safety_failure,
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),

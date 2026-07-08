@@ -119,9 +119,7 @@ def test_start_async_project_command_creates_durable_run(
     assert status["input"]["command_id"] == "pytest"
 
 
-def test_start_docker_action_creates_durable_run(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_start_docker_action_creates_durable_run(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
     (repo / "docker-compose.yml").write_text(

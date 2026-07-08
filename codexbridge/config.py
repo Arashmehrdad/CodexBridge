@@ -16,12 +16,18 @@ class DockerExecProfileConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_profile(self) -> "DockerExecProfileConfig":
-        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        allowed = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
         if not self.command_id or any(char not in allowed for char in self.command_id):
             raise ValueError("Docker exec command_id must use letters, numbers, _ or -")
         for argument in self.argv:
-            if not argument or any(ord(char) < 32 or ord(char) == 127 for char in argument):
-                raise ValueError("Docker exec argv values must be non-empty and contain no control characters")
+            if not argument or any(
+                ord(char) < 32 or ord(char) == 127 for char in argument
+            ):
+                raise ValueError(
+                    "Docker exec argv values must be non-empty and contain no control characters"
+                )
             if any(token in argument for token in (";", "&&", "||", "|", "`", "$(")):
                 raise ValueError("Docker exec argv must not contain shell operators")
         return self
@@ -54,7 +60,9 @@ class RepoConfig(BaseModel):
     def validate_unique_docker_exec_command_ids(self) -> "RepoConfig":
         command_ids = [profile.command_id for profile in self.docker_exec_profiles]
         if len(command_ids) != len(set(command_ids)):
-            raise ValueError("Docker exec command_id values must be unique per repository")
+            raise ValueError(
+                "Docker exec command_id values must be unique per repository"
+            )
         return self
 
 
