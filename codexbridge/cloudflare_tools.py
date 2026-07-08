@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from pathlib import Path
 import re
 import secrets
 import time
@@ -111,6 +112,8 @@ _REDACT_RESPONSE_KEYS = {
 }
 _MAX_PAYLOAD_BYTES = 100_000
 _MAX_LIST_ITEMS = 100
+_MAX_ENV_FILE_BYTES = 65_536
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _ANALYTICS_QUERY = """
 query CodexBridgeHTTPAnalytics(
@@ -174,10 +177,58 @@ def resolve_cloudflare_profile(
     return profile
 
 
-def _env_identifier(configured: str, env_name: str, field: str) -> str:
+def _dotenv_values(config: AppConfig) -> dict[str, str]:
+    root = config.config_dir.resolve()
+    path = (root / config.cloudflare.env_file).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError("Cloudflare env_file escapes the config directory") from None
+    if not path.exists():
+        return {}
+    if not path.is_file():
+        raise ValueError("Cloudflare env_file is not a regular file")
+    if path.stat().st_size > _MAX_ENV_FILE_BYTES:
+        raise ValueError("Cloudflare env_file exceeds 65536 bytes")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("Cloudflare env_file could not be read as UTF-8") from exc
+
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            raise ValueError("Cloudflare env_file contains an invalid assignment")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not _ENV_NAME_RE.fullmatch(key):
+            raise ValueError("Cloudflare env_file contains an invalid variable name")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if "\x00" in value or "\r" in value or "\n" in value:
+            raise ValueError("Cloudflare env_file contains an invalid value")
+        values[key] = value
+    return values
+
+
+def _env_value(config: AppConfig, env_name: str) -> str:
+    if env_name in os.environ:
+        return str(os.environ[env_name])
+    return _dotenv_values(config).get(env_name, "")
+
+
+def _env_identifier(
+    config: AppConfig, configured: str, env_name: str, field: str
+) -> str:
     value = str(configured or "").strip().lower()
     if not value and env_name:
-        value = str(os.environ.get(env_name, "")).strip().lower()
+        value = _env_value(config, env_name).strip().lower()
     if not value:
         raise ValueError(f"Cloudflare {field} is not configured")
     if not _ID_RE.fullmatch(value):
@@ -185,16 +236,18 @@ def _env_identifier(configured: str, env_name: str, field: str) -> str:
     return value
 
 
-def _account_id(profile: CloudflareProfileConfig) -> str:
-    return _env_identifier(profile.account_id, profile.account_id_env, "account_id")
+def _account_id(config: AppConfig, profile: CloudflareProfileConfig) -> str:
+    return _env_identifier(
+        config, profile.account_id, profile.account_id_env, "account_id"
+    )
 
 
 def _token(config: AppConfig) -> str:
-    value = str(os.environ.get(config.cloudflare.token_env, "")).strip()
+    value = _env_value(config, config.cloudflare.token_env).strip()
     if not value:
         raise ValueError(
-            f"Cloudflare API token is missing from environment variable "
-            f"{config.cloudflare.token_env!r}"
+            f"Cloudflare API token is missing from {config.cloudflare.env_file!r} "
+            f"and environment variable {config.cloudflare.token_env!r}"
         )
     if any(ord(char) < 33 or ord(char) == 127 for char in value):
         raise ValueError("Cloudflare API token contains invalid characters")
@@ -435,7 +488,7 @@ def _request(
 def _zone_id(config: AppConfig, profile: CloudflareProfileConfig) -> str:
     configured = str(profile.zone_id or "").strip().lower()
     if not configured and profile.zone_id_env:
-        configured = str(os.environ.get(profile.zone_id_env, "")).strip().lower()
+        configured = _env_value(config, profile.zone_id_env).strip().lower()
     if configured:
         if not _ID_RE.fullmatch(configured):
             raise ValueError("Cloudflare zone_id must be a 32-character hex ID")
@@ -562,7 +615,7 @@ def run_cloudflare_inspection(
                 payload={"query": _ANALYTICS_QUERY, "variables": variables},
             )
     else:
-        account_id = _account_id(profile)
+        account_id = _account_id(config, profile)
         if operation == "tunnels":
             response = _request(
                 config,
@@ -870,7 +923,7 @@ def build_cloudflare_action(
         _require_gate(config, "allow_tunnels", action)
         _require_confirmation(config, action, confirmation)
         high_risk = True
-        account_id = _account_id(profile)
+        account_id = _account_id(config, profile)
         if action == "tunnel_create":
             data = _safe_payload(data, allowed_keys={"name", "config_src"})
             name = str(data.get("name", "")).strip()
@@ -974,7 +1027,7 @@ def cloudflare_health(config: AppConfig, profile_id: str) -> dict[str, Any]:
     if profile.zone_id or profile.zone_id_env or profile.zone_name:
         zone_id = _zone_id(config, profile)
     if profile.account_id or profile.account_id_env:
-        account_id = _account_id(profile)
+        account_id = _account_id(config, profile)
     return {
         "ok": True,
         "profile_id": _safe_profile_id(profile_id),
