@@ -222,9 +222,9 @@ Supported actions cover Compose build/up/down/start/stop/restart/pause/unpause/k
 
 Push, cleanup, removals, and `compose down` with volumes require two independent checks: the relevant `allow_*` setting must be enabled and the exact configured confirmation token must be supplied on that call. The confirmation token is an approval phrase, not a credential. Docker exec accepts only `command_id` values pre-registered under `docker_exec_profiles`; free-form command text, arbitrary argv, shell chaining, interactive shells, and arbitrary host paths are unsupported. Every subprocess uses an argv list with `shell=False`, bounded output, timeouts, durable artifacts for async operations, and repository operation locks.
 
-## Allowlisted SSH Commands
+## SSH Deployment and Remote Debugging
 
-CodexBridge can use the local Windows OpenSSH client through a stable alias from `~/.ssh/config` or Tailscale MagicDNS. Changing public IP addresses therefore do not need to appear in CodexBridge configuration.
+CodexBridge uses the local Windows OpenSSH and SCP clients through stable aliases from `%USERPROFILE%/.ssh/config`. Tailscale MagicDNS can provide stable private hostnames, but it is optional; public IP addresses also work behind an alias.
 
 ```sshconfig
 Host my-vps
@@ -232,26 +232,71 @@ Host my-vps
     User ubuntu
     IdentityFile C:/Users/arash/.ssh/id_ed25519
     IdentitiesOnly yes
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
 ```
 
 ```yaml
 ssh:
   enabled: true
   executable: "ssh"
+  scp_executable: "scp"
+  max_output_bytes: 100000
+  max_transfer_bytes: 500000000
+  transfer_timeout_seconds: 1800
+  allow_transfer: true
+  allow_deploy: true
+  allow_admin: true
+  allow_delete: false
+  allow_reboot: false
+  confirmation_token: "CONFIRM_SSH_HIGH_RISK"
   hosts:
     my_vps:
       ssh_alias: "my-vps"
+      connect_timeout_seconds: 20
+      use_sudo: true
+      allowed_remote_roots:
+        - "/srv/my-app"
+        - "/var/log"
+      allowed_executables:
+        - "docker"
+        - "git"
+        - "curl"
+        - "systemctl"
+        - "journalctl"
+      deployment_profiles:
+        app:
+          repo_name: "my_app"
+          remote_root: "/srv/my-app"
+          local_subdir: "."
+          compose_file: "docker-compose.yml"
+          compose_project_name: "my-app"
+          compose_build: true
+          shared_files:
+            "/srv/my-app/shared/.env.production": ".env.production"
+          health_command_id: "health"
       command_profiles:
-        - command_id: "uptime"
-          argv: ["uptime"]
-          timeout_seconds: 30
-          description: "Show server uptime"
+        - command_id: "health"
+          argv: ["curl", "-fsS", "http://127.0.0.1:3000/health"]
+          timeout_seconds: 60
           writes_remote: false
 ```
 
-Use `list_ssh_capabilities()` to inspect configured hosts and commands, `ssh_host_health(host_id)` for a fixed connectivity check, and `start_ssh_command_async(host_id, command_id)` to queue a durable remote command. Poll the returned `run_id` with the existing run tools.
+SSH MCP tools:
 
-ChatGPT sends only `host_id` and `command_id`. Host resolution, usernames, and private keys stay in the local SSH configuration. CodexBridge uses `shell=False`, batch mode, strict host-key checking, disabled password authentication, disabled agent forwarding, and cleared forwarding. Arbitrary command text, interactive shells, uploads, downloads, tunnels, and port forwarding are not supported. `writes_remote` is risk metadata; CodexBridge cannot independently prove that a nominally read-only command made no remote changes or verify the final remote state after a write.
+- `list_ssh_capabilities()` lists hosts, remote roots, deployments, fixed commands, supported inspections and risk gates.
+- `ssh_host_health(host_id)` performs a non-interactive connection check.
+- `ssh_inspect(host_id, operation, ...)` provides bounded system, process, port, network, systemd, journal, Docker, Git and remote-file diagnostics.
+- `start_ssh_command_async(host_id, command_id)` preserves compatibility with fixed command profiles.
+- `start_ssh_action_async(host_id, action, ...)` performs durable service, Compose, Git, package and filesystem administration. `run_argv` accepts only a configured executable plus validated argv; it is not a shell.
+- `start_ssh_transfer_async(...)` uploads only repository-scoped local files and downloads only into the durable run directory.
+- `start_ssh_deployment_async(host_id, deployment_id, confirmation)` creates a filtered repository archive, uploads it, extracts a release, verifies and links server-side shared secret files, starts or rebuilds Compose with a stable project name, runs the configured health check, and updates the `current` symlink only after health succeeds.
+
+Read-only file access is limited to `allowed_remote_roots` and blocks secret-like files. Uploads reject local secret-like files and parent traversal. Deployment archives exclude `.git`, virtual environments, dependency caches, `node_modules`, run storage and secret-like files. Production `.env` files should live under a server-side shared directory and be linked into each release through `shared_files`; they are never downloaded, packaged, logged or returned to ChatGPT.
+
+Service stops, Compose shutdown, package administration, deletion, reboot, shutdown, overwrite transfers, emergency argv execution and deployments require their matching `allow_*` gate plus the exact configured confirmation token. Every local subprocess uses an argv list with `shell=False`, batch mode, strict host-key checking, disabled password and keyboard-interactive authentication, disabled agent forwarding, cleared forwardings, output limits, timeouts and durable artifacts. Interactive shells, arbitrary command strings, shell operators, tunnels and port forwarding remain unsupported.
+
+A completed remote write means the remote command exited successfully; CodexBridge still reports `remote_state_verified: false` unless a separate inspection or deployment health check confirms the relevant state.
 
 ## Controlled External Fixtures
 
@@ -303,6 +348,9 @@ Durable async runs cover:
 - `start_pytest_path_async`
 - `start_external_fixture_validation_async`
 - `start_ssh_command_async`
+- `start_ssh_action_async`
+- `start_ssh_transfer_async`
+- `start_ssh_deployment_async`
 
 Read and control them with:
 
