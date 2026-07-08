@@ -247,7 +247,9 @@ cloudflare:
   allow_zone_settings: false
   allow_rulesets: false
   allow_tunnels: false
-  allow_turnstile: false
+  allow_turnstile_write: false
+  allow_turnstile_secret_rotation: false
+  allow_turnstile_delete: false
   allow_delete: false
   confirmation_token: "CONFIRM_CLOUDFLARE_HIGH_RISK"
   profiles:
@@ -259,6 +261,11 @@ cloudflare:
       allowed_ruleset_phases: ["http_request_firewall_custom"]
       allowed_tunnel_ids: []
       allowed_turnstile_sitekeys: []
+      turnstile:
+        secret_destination:
+          type: "env_file"
+          path: ".env.production"
+          variable: "TURNSTILE_SECRET_KEY"
     second_site_production:
       account_id_env: "SECOND_SITE_CLOUDFLARE_ACCOUNT_ID"
       zone_id_env: "SECOND_SITE_CLOUDFLARE_ZONE_ID"
@@ -267,6 +274,11 @@ cloudflare:
       allowed_ruleset_phases: ["http_request_firewall_custom"]
       allowed_tunnel_ids: []
       allowed_turnstile_sitekeys: []
+      turnstile:
+        secret_destination:
+          type: "env_file"
+          path: ".env.production"
+          variable: "SECOND_SITE_TURNSTILE_SECRET_KEY"
 ```
 
 The API token and optional account/zone IDs can be loaded from the configured `.env` file next to `config.yaml`, or from operating-system environment variables. Operating-system variables take priority. They are read only at request time and are never accepted as MCP arguments or stored in durable inputs. The repository `.gitignore` excludes `.env`.
@@ -283,16 +295,16 @@ Cloudflare MCP tools:
 
 - `list_cloudflare_capabilities(repo_name)` lists fixed operations and only the profiles authorized for that repository.
 - `cloudflare_health(repo_name, profile_id)` verifies the configured token and authorized profile scope without changing account state.
-- `cloudflare_inspect(repo_name, profile_id, operation, ...)` supports the exact names `list_accounts`, `list_zones`, `get_zone`, `list_dns_records`, `list_turnstile_widgets`, `list_tunnels`, `list_rulesets`, and `get_ssl_settings`, plus the existing token, DNSSEC, Universal SSL, route, connection, configuration, and bounded analytics operations. Account and zone discovery remains constrained to the authorized profile account.
-- `start_cloudflare_action_async(repo_name, profile_id, action, ...)` supports the exact names `create_dns_record`, `update_dns_record`, `delete_dns_record`, `purge_cache`, `update_ssl_settings`, `create_tunnel`, and `update_turnstile_widget`, while retaining the original compatibility action names.
+- `cloudflare_inspect(repo_name, profile_id, operation, ...)` supports the exact names `list_accounts`, `list_zones`, `get_zone`, `list_dns_records`, `turnstile_widgets`, `turnstile_widget`, `list_tunnels`, `list_rulesets`, and `get_ssl_settings`, plus the existing token, DNSSEC, Universal SSL, route, connection, configuration, and bounded analytics operations. `list_turnstile_widgets` remains a compatibility alias for `turnstile_widgets`. Account and zone discovery remains constrained to the authorized profile account.
+- `start_cloudflare_action_async(repo_name, profile_id, action, ...)` supports the exact names `create_dns_record`, `update_dns_record`, `delete_dns_record`, `purge_cache`, `update_ssl_settings`, `create_tunnel`, `turnstile_create`, `turnstile_update`, `turnstile_rotate_secret`, and `turnstile_delete`, while retaining the existing compatibility action names.
 
-DNS create/update requires `allow_dns_write`. Cache purge, zone settings, rulesets, tunnels, and Turnstile updates each require their matching gate. Turnstile updates additionally require an explicitly allowlisted sitekey. Deletes, DNS batches, full cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset writes, tunnel writes, and Turnstile updates require the exact `CONFIRM_CLOUDFLARE_HIGH_RISK` approval phrase where applicable; destructive actions also require `allow_delete`.
+Turnstile create and update require `allow_turnstile_write`. Secret rotation requires both `allow_turnstile_write` and `allow_turnstile_secret_rotation`; deletion requires `allow_turnstile_delete`. Rotation and deletion also require the exact configured high-risk confirmation phrase. Every widget-specific operation is restricted to `allowed_turnstile_sitekeys`. DNS create/update requires `allow_dns_write`; cache purge, zone settings, rulesets, and tunnels retain their existing independent gates.
 
-Payloads are bounded and schema-checked, DNS names remain within the configured zone and optional allowlist, and ruleset phases, tunnel IDs, and mutable Turnstile sitekeys remain profile-scoped. Tunnel secrets are generated locally when required, are never accepted from callers, and are removed from returned data. Responses are recursively redacted and size-limited. Durable runs store sanitized `stdout.txt`, `stderr.txt`, and `cloudflare_result.json` artifacts under `runs/<run_id>/`.
+Payloads are bounded and schema-checked, DNS names remain within the configured zone and optional allowlist, and ruleset phases, tunnel IDs, and mutable Turnstile sitekeys remain profile-scoped. Tunnel secrets are generated locally when required and are removed from returned data. Responses are recursively redacted and size-limited. Durable runs store sanitized `stdout.txt`, `stderr.txt`, and `cloudflare_result.json` artifacts under `runs/<run_id>/`.
 
-`create_turnstile_widget`, `rotate_turnstile_secret`, and `get_tunnel_token` are intentionally reported as `secret_delivery_pending`. Cloudflare returns a new secret or token from those operations, so they remain non-invokable until CodexBridge has a reviewed ephemeral delivery sink that never places the value in normal MCP output, stdout, stderr, audit events, durable inputs, result JSON, or report files.
+`turnstile_rotate_secret` always sends `{"invalidate_immediately": false}` to Cloudflare. The previous secret therefore remains valid for the two-hour grace period, and Cloudflare does not permit another rotation during that period. The returned new secret is removed from the Cloudflare response object and written directly to the profile's repository-relative `turnstile.secret_destination`. The destination and its temporary replacement must both be Git-ignored regular files. The bridge returns only widget metadata, rotation status, the two-hour grace period, and whether the destination was updated; it never writes the secret to MCP output, stdout, stderr, audit events, durable run inputs, result JSON, reports, diffs, or Git commits. `turnstile_create` uses the same direct secret-delivery path because widget creation also returns a secret.
 
-Cloudflare remains disabled by default. All write gates, including `allow_turnstile`, default to false. Development and unit tests use mocked HTTP responses and make no live Cloudflare account changes. No live account read or write occurs until the subsystem is enabled, a scoped profile and environment token are configured, and a specific MCP operation is called.
+`get_tunnel_token` remains reported as `secret_delivery_pending`. Cloudflare remains disabled by default, and all write gates default to false. Development and unit tests use mocked HTTP responses and make no live Cloudflare account changes. No live account read or write occurs until the subsystem is enabled, a scoped profile and environment token are configured, and a specific MCP operation is called.
 
 ## SSH Deployment and Remote Debugging
 
