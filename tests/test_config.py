@@ -13,6 +13,8 @@ from codexbridge.config import (
     LocalModelConfig,
     RepoConfig,
     SSHCommandProfileConfig,
+    SSHConfig,
+    SSHDeploymentProfileConfig,
     SSHHostConfig,
     SupervisorAutonomyProfile,
     SupervisorsConfig,
@@ -110,6 +112,58 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
         SSHHostConfig(
             ssh_alias="my-vps",
             command_profiles=[profile, profile.model_copy()],
+        )
+
+
+def test_ssh_deployment_and_admin_config_validation() -> None:
+    deployment = SSHDeploymentProfileConfig(
+        repo_name="sample",
+        remote_root="/srv/sample",
+        compose_file="docker-compose.yml",
+        compose_project_name="sample-app",
+        shared_files={"/srv/sample/shared/.env": ".env"},
+    )
+    host = SSHHostConfig(
+        ssh_alias="sample-host",
+        allowed_remote_roots=["/srv/sample/", "/var/log"],
+        allowed_executables=["docker", "git"],
+        deployment_profiles={"sample": deployment},
+    )
+    config = SSHConfig(
+        enabled=True,
+        allow_transfer=True,
+        allow_deploy=True,
+        allow_admin=True,
+        allow_delete=True,
+        allow_reboot=True,
+        hosts={"sample": host},
+    )
+
+    assert host.allowed_remote_roots == ["/srv/sample", "/var/log"]
+    assert config.scp_executable == "scp"
+    assert config.confirmation_token == "CONFIRM_SSH_HIGH_RISK"
+    assert config.hosts["sample"].deployment_profiles["sample"].compose_project_name == (
+        "sample-app"
+    )
+
+    with pytest.raises(ValidationError, match="absolute POSIX path"):
+        SSHDeploymentProfileConfig(repo_name="sample", remote_root="relative/path")
+    with pytest.raises(ValidationError, match="repository-relative"):
+        SSHDeploymentProfileConfig(
+            repo_name="sample",
+            remote_root="/srv/sample",
+            local_subdir="../outside",
+        )
+    with pytest.raises(ValidationError, match="absolute POSIX paths"):
+        SSHHostConfig(
+            ssh_alias="sample-host",
+            allowed_remote_roots=["relative/path"],
+        )
+    with pytest.raises(ValidationError, match="release-relative"):
+        SSHDeploymentProfileConfig(
+            repo_name="sample",
+            remote_root="/srv/sample",
+            shared_files={"/srv/sample/shared/.env": "../.env"},
         )
 
 
