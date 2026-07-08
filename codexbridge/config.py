@@ -267,6 +267,7 @@ class CloudflareConfig(BaseModel):
     enabled: bool = False
     api_base_url: str = "https://api.cloudflare.com/client/v4"
     token_env: str = "CLOUDFLARE_API_TOKEN"
+    env_file: str = ".env"
     timeout_seconds: int = Field(default=30, ge=1, le=300)
     max_output_bytes: int = Field(default=500000, ge=1024, le=5000000)
     allow_dns_write: bool = False
@@ -298,6 +299,18 @@ class CloudflareConfig(BaseModel):
             raise ValueError(
                 "Cloudflare token_env must be an environment variable name"
             )
+        env_file = str(self.env_file or "").strip().replace("\\", "/")
+        env_parts = Path(env_file).parts
+        if (
+            not env_file
+            or env_file.startswith("/")
+            or ":" in env_file
+            or ".." in env_parts
+        ):
+            raise ValueError(
+                "Cloudflare env_file must be a safe path relative to config.yaml"
+            )
+        self.env_file = env_file
         return self
 
 
