@@ -918,11 +918,13 @@ def build_cloudflare_action(
     confirmation: str = "",
 ) -> CloudflareActionSpec:
     profile = resolve_cloudflare_profile(config, profile_id)
-    action = str(action or "").strip()
-    if action not in CLOUDFLARE_ACTIONS:
+    requested_action = str(action or "").strip()
+    if requested_action not in CLOUDFLARE_ACTIONS:
         raise ValueError(
-            f"Unsupported Cloudflare action: {action!r}. Allowed: {list(CLOUDFLARE_ACTIONS)}"
+            f"Unsupported Cloudflare action: {requested_action!r}. "
+            f"Allowed: {list(CLOUDFLARE_ACTIONS)}"
         )
+    action = _CLOUDFLARE_ACTION_ALIASES.get(requested_action, requested_action)
     data = _safe_payload(payload)
     timeout = config.cloudflare.timeout_seconds
     high_risk = False
@@ -1007,6 +1009,7 @@ def build_cloudflare_action(
         method = "POST"
         path = f"/zones/{zone_id}/purge_cache"
     elif action in {
+        "update_ssl_settings",
         "zone_setting_update",
         "dnssec_enable",
         "dnssec_disable",
@@ -1016,12 +1019,18 @@ def build_cloudflare_action(
         _require_confirmation(config, action, confirmation)
         high_risk = True
         zone_id = _zone_id(config, profile)
-        if action == "zone_setting_update":
+        if action in {"zone_setting_update", "update_ssl_settings"}:
             data = _safe_payload(data, allowed_keys={"value"})
             if "value" not in data:
                 raise ValueError("Zone setting update requires value")
+            setting_id = _safe_setting_id(resource_id)
+            if action == "update_ssl_settings" and setting_id not in _SSL_SETTING_IDS:
+                raise ValueError(
+                    f"Unsupported Cloudflare SSL setting: {setting_id!r}. "
+                    f"Allowed: {sorted(_SSL_SETTING_IDS)}"
+                )
             method = "PATCH"
-            path = f"/zones/{zone_id}/settings/{_safe_setting_id(resource_id)}"
+            path = f"/zones/{zone_id}/settings/{setting_id}"
         elif action == "ssl_universal_update":
             data = _safe_payload(data, allowed_keys={"enabled"})
             if not isinstance(data.get("enabled"), bool):
@@ -1100,6 +1109,15 @@ def build_cloudflare_action(
                     method = "DELETE"
                     data = {}
                 path = f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{rule_id}"
+    elif action == "update_turnstile_widget":
+        _require_gate(config, "allow_turnstile", action)
+        _require_confirmation(config, action, confirmation)
+        high_risk = True
+        account_id = _account_id(config, profile)
+        sitekey = _require_turnstile_scope(profile, resource_id)
+        data = _validate_turnstile_update_payload(data)
+        method = "PUT"
+        path = f"/accounts/{account_id}/challenges/widgets/{sitekey}"
     else:
         _require_gate(config, "allow_tunnels", action)
         _require_confirmation(config, action, confirmation)
@@ -1156,7 +1174,7 @@ def build_cloudflare_action(
                 path = f"/accounts/{account_id}/cfd_tunnel/{tunnel_id}"
 
     return CloudflareActionSpec(
-        action=action,
+        action=requested_action,
         method=method,
         path=path,
         payload=data or None,
