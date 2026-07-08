@@ -945,6 +945,14 @@ def _validate_turnstile_update_payload(payload: dict[str, Any]) -> dict[str, Any
     return payload
 
 
+def _validate_turnstile_create_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _validate_turnstile_update_payload(payload)
+    missing = [field for field in ("name", "domains", "mode") if field not in payload]
+    if missing:
+        raise ValueError(f"Turnstile widget create requires fields: {missing}")
+    return payload
+
+
 def run_cloudflare_inspection(
     config: AppConfig,
     profile_id: str,
@@ -1222,6 +1230,7 @@ def build_cloudflare_action(
     data = _safe_payload(payload)
     timeout = config.cloudflare.timeout_seconds
     high_risk = False
+    secret_response = False
 
     if action.startswith("dns_"):
         zone_id = _zone_id(config, profile)
@@ -1415,15 +1424,48 @@ def build_cloudflare_action(
                     method = "DELETE"
                     data = {}
                 path = f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{rule_id}"
-    elif action == "update_turnstile_widget":
-        _require_gate(config, "allow_turnstile", action)
-        _require_confirmation(config, action, confirmation)
-        high_risk = True
+    elif action.startswith("turnstile_"):
         account_id = _account_id(config, profile)
-        sitekey = _require_turnstile_scope(profile, resource_id)
-        data = _validate_turnstile_update_payload(data)
-        method = "PUT"
-        path = f"/accounts/{account_id}/challenges/widgets/{sitekey}"
+        if action == "turnstile_create":
+            _require_gate(config, "allow_turnstile_write", action)
+            if profile.turnstile.secret_destination is None:
+                raise ValueError("Turnstile secret destination is not configured")
+            data = _validate_turnstile_create_payload(data)
+            method = "POST"
+            path = f"/accounts/{account_id}/challenges/widgets"
+            secret_response = True
+        elif action == "turnstile_update":
+            _require_gate(config, "allow_turnstile_write", action)
+            sitekey = _require_turnstile_scope(profile, resource_id)
+            data = _validate_turnstile_update_payload(data)
+            method = "PUT"
+            path = f"/accounts/{account_id}/challenges/widgets/{sitekey}"
+        elif action == "turnstile_rotate_secret":
+            _require_gate(config, "allow_turnstile_write", action)
+            _require_gate(config, "allow_turnstile_secret_rotation", action)
+            _require_confirmation(config, action, confirmation)
+            if profile.turnstile.secret_destination is None:
+                raise ValueError("Turnstile secret destination is not configured")
+            if data:
+                raise ValueError("Turnstile secret rotation payload is fixed by policy")
+            sitekey = _require_turnstile_scope(profile, resource_id)
+            data = {"invalidate_immediately": False}
+            method = "POST"
+            path = (
+                f"/accounts/{account_id}/challenges/widgets/{sitekey}/rotate_secret"
+            )
+            high_risk = True
+            secret_response = True
+        else:
+            _require_gate(config, "allow_turnstile_delete", action)
+            _require_confirmation(config, action, confirmation)
+            if data:
+                raise ValueError("Turnstile delete does not accept a payload")
+            sitekey = _require_turnstile_scope(profile, resource_id)
+            data = {}
+            method = "DELETE"
+            path = f"/accounts/{account_id}/challenges/widgets/{sitekey}"
+            high_risk = True
     else:
         _require_gate(config, "allow_tunnels", action)
         _require_confirmation(config, action, confirmation)
@@ -1486,6 +1528,7 @@ def build_cloudflare_action(
         payload=data or None,
         timeout_seconds=timeout,
         high_risk=high_risk,
+        secret_response=secret_response,
     )
 
 
@@ -1497,7 +1540,9 @@ def run_cloudflare_action(
     resource_id: str = "",
     payload: dict[str, Any] | None = None,
     confirmation: str = "",
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
+    profile = resolve_cloudflare_profile(config, profile_id)
     spec = build_cloudflare_action(
         config,
         profile_id,
@@ -1506,12 +1551,26 @@ def run_cloudflare_action(
         payload=payload,
         confirmation=confirmation,
     )
-    result = _request(
-        config,
-        spec.method,
-        spec.path,
-        payload=spec.payload,
-    )
+    if spec.secret_response:
+        prepared = _prepare_secret_destination(repo_root, profile)
+        requested_sitekey = (
+            _safe_turnstile_sitekey(resource_id)
+            if spec.action == "turnstile_rotate_secret"
+            else ""
+        )
+        result = _request_turnstile_secret_action(
+            config,
+            spec,
+            prepared,
+            requested_sitekey=requested_sitekey,
+        )
+    else:
+        result = _request(
+            config,
+            spec.method,
+            spec.path,
+            payload=spec.payload,
+        )
     result.update(
         {
             "profile_id": _safe_profile_id(profile_id),
