@@ -35,10 +35,12 @@ def test_readme_documents_bounded_docker_workflow() -> None:
 def test_readme_documents_cloudflare_capabilities() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "Cloudflare DNS, Edge, Rulesets, and Tunnels" in readme
-    assert "list_cloudflare_capabilities()" in readme
-    assert "cloudflare_health(profile_id)" in readme
-    assert "cloudflare_inspect(profile_id, operation, ...)" in readme
-    assert "start_cloudflare_action_async(profile_id, action, ...)" in readme
+    assert "list_cloudflare_capabilities(repo_name)" in readme
+    assert "cloudflare_health(repo_name, profile_id)" in readme
+    assert "cloudflare_inspect(repo_name, profile_id, operation, ...)" in readme
+    assert "start_cloudflare_action_async(repo_name, profile_id, action, ...)" in readme
+    assert "global CodexBridge service with repository-scoped access" in readme
+    assert "cloudflare_profiles" in readme
     assert "CLOUDFLARE_API_TOKEN" in readme
     assert 'env_file: ".env"' in readme
     assert "Operating-system variables take priority" in readme
