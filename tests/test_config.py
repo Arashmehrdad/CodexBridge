@@ -142,9 +142,9 @@ def test_ssh_deployment_and_admin_config_validation() -> None:
     assert host.allowed_remote_roots == ["/srv/sample", "/var/log"]
     assert config.scp_executable == "scp"
     assert config.confirmation_token == "CONFIRM_SSH_HIGH_RISK"
-    assert config.hosts["sample"].deployment_profiles["sample"].compose_project_name == (
-        "sample-app"
-    )
+    assert config.hosts["sample"].deployment_profiles[
+        "sample"
+    ].compose_project_name == ("sample-app")
 
     with pytest.raises(ValidationError, match="absolute POSIX path"):
         SSHDeploymentProfileConfig(repo_name="sample", remote_root="relative/path")

@@ -632,9 +632,7 @@ class JobWorker:
             {"host_id": host_id, "action": action},
         )
         command_result = dict(
-            redact_and_truncate(
-                run_ssh_action(self.config, host_id, action, **kwargs)
-            )
+            redact_and_truncate(run_ssh_action(self.config, host_id, action, **kwargs))
         )
         stdout = str(command_result.get("stdout", ""))
         stderr = str(command_result.get("stderr", ""))
@@ -667,7 +665,9 @@ class JobWorker:
             "diff_stat": "",
             "tests_run": [],
             "test_results": output_summary,
-            "summary": output_summary[-4000:] if output_summary else f"SSH action {action} finished",
+            "summary": output_summary[-4000:]
+            if output_summary
+            else f"SSH action {action} finished",
             "remaining_risks": risks,
             "error": str(command_result.get("error", "")),
             "safety_failure": False,

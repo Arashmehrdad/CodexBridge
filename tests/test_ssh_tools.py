@@ -84,9 +84,12 @@ def test_remote_paths_are_root_bounded_and_secret_reads_are_blocked(
         ssh_tools.validate_remote_path(host, "/home/other/file.txt")
     with pytest.raises(ValueError, match="secret-like"):
         ssh_tools.validate_remote_path(host, "/srv/app/current/.env")
-    assert ssh_tools.validate_remote_path(
-        host, "/srv/app/shared/.env.production", sensitive=True
-    ) == "/srv/app/shared/.env.production"
+    assert (
+        ssh_tools.validate_remote_path(
+            host, "/srv/app/shared/.env.production", sensitive=True
+        )
+        == "/srv/app/shared/.env.production"
+    )
 
 
 def test_inspection_builders_cover_service_git_and_file_debugging(
@@ -342,14 +345,18 @@ def test_deployment_excludes_secrets_links_shared_files_and_activates_last(
 
     assert ["test", "-f", "/srv/app/shared/.env.production"] in remote_calls
     assert any(
-        call[:2] == ["ln", "-sfn"] and call[1:] == [
+        call[:2] == ["ln", "-sfn"]
+        and call[1:]
+        == [
             "-sfn",
             "/srv/app/shared/.env.production",
             "/srv/app/releases/run123/.env.production",
         ]
         for call in remote_calls
     )
-    compose_call = next(call for call in remote_calls if call[:2] == ["docker", "compose"])
+    compose_call = next(
+        call for call in remote_calls if call[:2] == ["docker", "compose"]
+    )
     assert "--project-name" in compose_call
     assert "sample-app" in compose_call
     assert "/srv/app/releases/run123" in compose_call
@@ -417,7 +424,9 @@ def test_cleanup_failure_is_non_fatal_after_successful_deployment(
     )
 
     assert result["ok"] is True
-    cleanup = next(step for step in result["steps"] if step["step"] == "cleanup_archive")
+    cleanup = next(
+        step for step in result["steps"] if step["step"] == "cleanup_archive"
+    )
     assert cleanup["ok"] is False
     assert cleanup["non_fatal"] is True
 
@@ -445,6 +454,4 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert "docker_compose_up" in result["actions"]
     assert result["gates"]["allow_deploy"] is True
     assert result["arbitrary_shell_supported"] is False
-    assert result["hosts"][0]["deployments"][0]["deployment_id"] == (
-        "sample_deploy"
-    )
+    assert result["hosts"][0]["deployments"][0]["deployment_id"] == ("sample_deploy")

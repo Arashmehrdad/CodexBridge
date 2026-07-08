@@ -478,7 +478,9 @@ class JobManager:
         if not self.config.ssh.allow_deploy:
             raise ValueError("SSH deployment capability is disabled by allow_deploy")
         if confirmation != self.config.ssh.confirmation_token:
-            raise ValueError("SSH deployment requires the configured confirmation token")
+            raise ValueError(
+                "SSH deployment requires the configured confirmation token"
+            )
         host = resolve_ssh_host(self.config, host_id)
         deployment = host.deployment_profiles.get(deployment_id)
         if deployment is None:

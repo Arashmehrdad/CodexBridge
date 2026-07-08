@@ -93,22 +93,34 @@ class SSHDeploymentProfileConfig(BaseModel):
         if not self.repo_name.strip():
             raise ValueError("SSH deployment repo_name must not be empty")
         if not self.remote_root.startswith("/") or "\\" in self.remote_root:
-            raise ValueError("SSH deployment remote_root must be an absolute POSIX path")
-        if self.local_subdir.startswith(("/", "\\")) or ".." in self.local_subdir.replace("\\", "/").split("/"):
+            raise ValueError(
+                "SSH deployment remote_root must be an absolute POSIX path"
+            )
+        if self.local_subdir.startswith(
+            ("/", "\\")
+        ) or ".." in self.local_subdir.replace("\\", "/").split("/"):
             raise ValueError("SSH deployment local_subdir must be repository-relative")
         if self.compose_file and (
             self.compose_file.startswith(("/", "\\"))
             or ".." in self.compose_file.replace("\\", "/").split("/")
         ):
-            raise ValueError("SSH deployment compose_file must be relative to remote_root")
+            raise ValueError(
+                "SSH deployment compose_file must be relative to remote_root"
+            )
         if self.env_file and not self.env_file.startswith("/"):
             raise ValueError("SSH deployment env_file must be an absolute POSIX path")
         for remote_source, release_target in self.shared_files.items():
             if not remote_source.startswith("/") or "\\" in remote_source:
-                raise ValueError("SSH deployment shared file sources must be absolute POSIX paths")
+                raise ValueError(
+                    "SSH deployment shared file sources must be absolute POSIX paths"
+                )
             normalized_target = release_target.replace("\\", "/")
-            if normalized_target.startswith("/") or ".." in normalized_target.split("/"):
-                raise ValueError("SSH deployment shared file targets must be release-relative")
+            if normalized_target.startswith("/") or ".." in normalized_target.split(
+                "/"
+            ):
+                raise ValueError(
+                    "SSH deployment shared file targets must be release-relative"
+                )
         return self
 
 
@@ -118,7 +130,9 @@ class SSHHostConfig(BaseModel):
     use_sudo: bool = False
     allowed_remote_roots: List[str] = Field(default_factory=list)
     allowed_executables: List[str] = Field(default_factory=list)
-    deployment_profiles: Dict[str, SSHDeploymentProfileConfig] = Field(default_factory=dict)
+    deployment_profiles: Dict[str, SSHDeploymentProfileConfig] = Field(
+        default_factory=dict
+    )
     command_profiles: List[SSHCommandProfileConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")

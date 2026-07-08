@@ -182,7 +182,9 @@ def _safe_packages(packages: list[str] | None) -> list[str]:
     return normalized
 
 
-def _validate_runtime_argv(host: SSHHostConfig, executable: str, args: list[str]) -> list[str]:
+def _validate_runtime_argv(
+    host: SSHHostConfig, executable: str, args: list[str]
+) -> list[str]:
     executable = str(executable or "").strip()
     if not _SAFE_EXECUTABLE_RE.fullmatch(executable):
         raise ValueError(f"Invalid remote executable: {executable!r}")
@@ -242,16 +244,23 @@ def validate_remote_path(
     roots = [posixpath.normpath(root) for root in host.allowed_remote_roots]
     if not roots:
         raise ValueError("No allowed_remote_roots are configured for this SSH host")
-    if not any(normalized == root or normalized.startswith(root.rstrip("/") + "/") for root in roots):
+    if not any(
+        normalized == root or normalized.startswith(root.rstrip("/") + "/")
+        for root in roots
+    ):
         raise ValueError(
             f"Remote path is outside configured roots: {normalized}. Allowed roots: {roots}"
         )
     if not sensitive and _is_secret_path(normalized):
-        raise ValueError("Remote secret-like paths are not readable through CodexBridge")
+        raise ValueError(
+            "Remote secret-like paths are not readable through CodexBridge"
+        )
     return normalized
 
 
-def _resolve_deployment(host: SSHHostConfig, deployment_id: str) -> SSHDeploymentProfileConfig:
+def _resolve_deployment(
+    host: SSHHostConfig, deployment_id: str
+) -> SSHDeploymentProfileConfig:
     deployment_id = _safe_name(deployment_id, "deployment_id")
     profile = host.deployment_profiles.get(deployment_id)
     if profile is None:
@@ -351,7 +360,12 @@ def build_ssh_inspection(
     if operation in fixed:
         remote_argv = fixed[operation]
     elif operation == "service_status":
-        remote_argv = ["systemctl", "status", "--no-pager", _safe_name(target, "target")]
+        remote_argv = [
+            "systemctl",
+            "status",
+            "--no-pager",
+            _safe_name(target, "target"),
+        ]
     elif operation == "journal":
         remote_argv = ["journalctl", "-n", str(tail), "--no-pager"]
         if target:
@@ -411,7 +425,9 @@ def build_ssh_inspection(
     )
 
 
-def run_ssh_inspection(config: AppConfig, host_id: str, operation: str, **kwargs: Any) -> dict:
+def run_ssh_inspection(
+    config: AppConfig, host_id: str, operation: str, **kwargs: Any
+) -> dict:
     spec = build_ssh_inspection(config, host_id, operation, **kwargs)
     result = _run_remote_argv(
         config,
@@ -449,7 +465,9 @@ def build_ssh_action(
     host = resolve_ssh_host(config, host_id)
     action = str(action or "").strip()
     if action not in SSH_ACTIONS:
-        raise ValueError(f"Unsupported SSH action: {action!r}. Allowed: {list(SSH_ACTIONS)}")
+        raise ValueError(
+            f"Unsupported SSH action: {action!r}. Allowed: {list(SSH_ACTIONS)}"
+        )
     _require_confirmation(config, action, confirmation)
     high_risk = action in HIGH_RISK_SSH_ACTIONS
     timeout = 600
@@ -500,7 +518,9 @@ def build_ssh_action(
             compose_path,
             *compose_actions[action],
         ]
-        remote_argv.extend(_safe_name(item, "service") for item in profile.compose_services)
+        remote_argv.extend(
+            _safe_name(item, "service") for item in profile.compose_services
+        )
         timeout = 1800
     elif action == "git_fetch":
         profile = _resolve_deployment(host, deployment_id)
@@ -509,7 +529,12 @@ def build_ssh_action(
         profile = _resolve_deployment(host, deployment_id)
         remote_argv = ["git", "-C", profile.remote_root, "pull", "--ff-only"]
     elif action == "create_directory":
-        remote_argv = ["mkdir", "-p", "--", validate_remote_path(host, path, sensitive=True)]
+        remote_argv = [
+            "mkdir",
+            "-p",
+            "--",
+            validate_remote_path(host, path, sensitive=True),
+        ]
     elif action == "copy_path":
         remote_argv = [
             "cp",
@@ -526,9 +551,19 @@ def build_ssh_action(
             validate_remote_path(host, destination, sensitive=True),
         ]
     elif action == "remove_file":
-        remote_argv = ["rm", "-f" if force else "-i", "--", validate_remote_path(host, path, sensitive=True)]
+        remote_argv = [
+            "rm",
+            "-f" if force else "-i",
+            "--",
+            validate_remote_path(host, path, sensitive=True),
+        ]
     elif action == "remove_directory":
-        remote_argv = ["rm", "-rf" if force else "-r", "--", validate_remote_path(host, path, sensitive=True)]
+        remote_argv = [
+            "rm",
+            "-rf" if force else "-r",
+            "--",
+            validate_remote_path(host, path, sensitive=True),
+        ]
     elif action == "package_update":
         remote_argv = _with_sudo(host, ["apt-get", "update"])
         timeout = 1800
@@ -596,7 +631,9 @@ def resolve_scp_executable(config: AppConfig) -> str:
     return resolved
 
 
-def _scp_base(config: AppConfig, host_id: str, *, recursive: bool) -> tuple[list[str], SSHHostConfig]:
+def _scp_base(
+    config: AppConfig, host_id: str, *, recursive: bool
+) -> tuple[list[str], SSHHostConfig]:
     host = resolve_ssh_host(config, host_id)
     argv = [
         resolve_scp_executable(config),
@@ -624,7 +661,9 @@ def _scp_base(config: AppConfig, host_id: str, *, recursive: bool) -> tuple[list
     return argv, host
 
 
-def _run_local_argv(argv: list[str], *, cwd: Path, timeout_seconds: int, output_limit: int) -> dict:
+def _run_local_argv(
+    argv: list[str], *, cwd: Path, timeout_seconds: int, output_limit: int
+) -> dict:
     started = time.monotonic()
     timed_out = False
     try:
@@ -667,7 +706,9 @@ def _run_local_argv(argv: list[str], *, cwd: Path, timeout_seconds: int, output_
             stderr = ""
         else:
             remaining = output_limit - len(stdout_bytes)
-            stderr = stderr.encode("utf-8")[:remaining].decode("utf-8", errors="replace")
+            stderr = stderr.encode("utf-8")[:remaining].decode(
+                "utf-8", errors="replace"
+            )
     return {
         "ok": exit_code == 0 and not timed_out,
         "argv": argv,
@@ -717,14 +758,18 @@ def run_ssh_transfer(
         if local.is_dir() and not recursive:
             raise ValueError("Directory upload requires recursive=true")
         if _is_secret_path(local.as_posix()):
-            raise ValueError("Secret-like local files cannot be uploaded through CodexBridge")
+            raise ValueError(
+                "Secret-like local files cannot be uploaded through CodexBridge"
+            )
         argv.extend([str(local), f"{alias}:{remote}"])
         cwd = repo_root
         destination = remote
     else:
         downloads = run_dir / "downloads"
         downloads.mkdir(parents=True, exist_ok=True)
-        requested_name = Path(local_path).name if local_path else PurePosixPath(remote).name
+        requested_name = (
+            Path(local_path).name if local_path else PurePosixPath(remote).name
+        )
         if not requested_name or requested_name in {".", ".."}:
             requested_name = "downloaded-artifact"
         local = downloads / requested_name
@@ -809,7 +854,9 @@ def run_ssh_deployment(
         host, posixpath.join(profile.remote_root, "current"), sensitive=True
     )
     remote_archive = validate_remote_path(
-        host, posixpath.join(profile.remote_root, ".codexbridge", f"{run_id}.tar.gz"), sensitive=True
+        host,
+        posixpath.join(profile.remote_root, ".codexbridge", f"{run_id}.tar.gz"),
+        sensitive=True,
     )
     steps: list[dict[str, Any]] = []
 
@@ -826,7 +873,9 @@ def run_ssh_deployment(
         return _deployment_result(host_id, deployment_id, archive_path, steps)
 
     scp_argv, _ = _scp_base(config, host_id, recursive=False)
-    scp_argv.extend([str(archive_path), f"{validate_ssh_alias(host.ssh_alias)}:{remote_archive}"])
+    scp_argv.extend(
+        [str(archive_path), f"{validate_ssh_alias(host.ssh_alias)}:{remote_archive}"]
+    )
     upload = _run_local_argv(
         scp_argv,
         cwd=run_dir,
@@ -884,12 +933,17 @@ def run_ssh_deployment(
         compose_argv.extend(["-f", compose_path])
         if profile.env_file:
             compose_argv.extend(
-                ["--env-file", validate_remote_path(host, profile.env_file, sensitive=True)]
+                [
+                    "--env-file",
+                    validate_remote_path(host, profile.env_file, sensitive=True),
+                ]
             )
         compose_argv.extend(["up", "-d"])
         if profile.compose_build:
             compose_argv.append("--build")
-        compose_argv.extend(_safe_name(item, "service") for item in profile.compose_services)
+        compose_argv.extend(
+            _safe_name(item, "service") for item in profile.compose_services
+        )
         if not remote_step("compose_up", compose_argv, timeout=3600):
             return _deployment_result(host_id, deployment_id, archive_path, steps)
 
@@ -898,7 +952,11 @@ def run_ssh_deployment(
             "service_restart",
             _with_sudo(
                 host,
-                ["systemctl", "restart", _safe_name(profile.service_name, "service_name")],
+                [
+                    "systemctl",
+                    "restart",
+                    _safe_name(profile.service_name, "service_name"),
+                ],
             ),
         ):
             return _deployment_result(host_id, deployment_id, archive_path, steps)
@@ -938,11 +996,7 @@ def _deployment_result(
     required_steps = [step for step in steps if not step.get("non_fatal")]
     ok = bool(required_steps) and all(bool(step.get("ok")) for step in required_steps)
     failed_step = next(
-        (
-            str(step.get("step"))
-            for step in required_steps
-            if not step.get("ok")
-        ),
+        (str(step.get("step")) for step in required_steps if not step.get("ok")),
         "",
     )
     return {
@@ -956,13 +1010,19 @@ def _deployment_result(
         "exit_code": 0 if ok else 1,
         "timed_out": any(bool(step.get("timed_out")) for step in steps),
         "output_truncated": any(bool(step.get("output_truncated")) for step in steps),
-        "stdout": "\n".join(str(step.get("stdout", "")) for step in steps if step.get("stdout")),
-        "stderr": "\n".join(str(step.get("stderr", "")) for step in steps if step.get("stderr")),
+        "stdout": "\n".join(
+            str(step.get("stdout", "")) for step in steps if step.get("stdout")
+        ),
+        "stderr": "\n".join(
+            str(step.get("stderr", "")) for step in steps if step.get("stderr")
+        ),
         "error": f"Deployment failed at step: {failed_step}" if failed_step else "",
     }
 
 
-def enrich_ssh_capabilities(config: AppConfig, result: dict[str, Any]) -> dict[str, Any]:
+def enrich_ssh_capabilities(
+    config: AppConfig, result: dict[str, Any]
+) -> dict[str, Any]:
     result = dict(result)
     result.update(
         {
@@ -997,6 +1057,8 @@ def enrich_ssh_capabilities(config: AppConfig, result: dict[str, Any]) -> dict[s
                 "service_name": profile.service_name,
                 "health_command_id": profile.health_command_id,
             }
-            for deployment_id, profile in sorted(host_config.deployment_profiles.items())
+            for deployment_id, profile in sorted(
+                host_config.deployment_profiles.items()
+            )
         ]
     return result
