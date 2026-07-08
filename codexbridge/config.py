@@ -78,9 +78,7 @@ class RepoConfig(BaseModel):
                 )
             normalized_profiles.append(value)
         if len(normalized_profiles) != len(set(normalized_profiles)):
-            raise ValueError(
-                "Cloudflare profile IDs must be unique per repository"
-            )
+            raise ValueError("Cloudflare profile IDs must be unique per repository")
         self.cloudflare_profiles = normalized_profiles
         return self
 

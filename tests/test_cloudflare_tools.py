@@ -464,9 +464,7 @@ def test_repository_cloudflare_profile_authorization_and_filtering(
 
     capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
     assert capabilities["repo_name"] == "sample"
-    assert [item["profile_id"] for item in capabilities["profiles"]] == [
-        "production"
-    ]
+    assert [item["profile_id"] for item in capabilities["profiles"]] == ["production"]
 
     with pytest.raises(ValueError, match="not authorized"):
         cloudflare_tools.authorize_cloudflare_profile(config, "sample", "other")

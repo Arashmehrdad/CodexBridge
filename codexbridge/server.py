@@ -1175,9 +1175,7 @@ def list_cloudflare_capabilities(repo_name: str) -> dict:
 def cloudflare_health(repo_name: str, profile_id: str) -> dict:
     """Read-only: verify an authorized repository Cloudflare profile and token."""
     config = get_config()
-    canonical_repo_name, _ = authorize_cloudflare_profile(
-        config, repo_name, profile_id
-    )
+    canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _cloudflare_health(config, profile_id)
     result["repo_name"] = canonical_repo_name
     return result
@@ -1200,9 +1198,7 @@ def cloudflare_inspect(
 ) -> dict:
     """Read-only: run one bounded Cloudflare inspection for an authorized repository."""
     config = get_config()
-    canonical_repo_name, _ = authorize_cloudflare_profile(
-        config, repo_name, profile_id
-    )
+    canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _run_cloudflare_inspection(
         config,
         profile_id,

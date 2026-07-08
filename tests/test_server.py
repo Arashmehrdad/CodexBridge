@@ -172,9 +172,7 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
         repos={
-            "repo": RepoConfig(
-                path=str(tmp_path), cloudflare_profiles=["production"]
-            )
+            "repo": RepoConfig(path=str(tmp_path), cloudflare_profiles=["production"])
         },
         cloudflare={
             "enabled": True,

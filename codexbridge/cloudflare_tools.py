@@ -1061,7 +1061,10 @@ def list_cloudflare_capabilities(
         authorized_profile_ids = set(repo.cloudflare_profiles)
     profiles = []
     for profile_id, profile in sorted(config.cloudflare.profiles.items()):
-        if authorized_profile_ids is not None and profile_id not in authorized_profile_ids:
+        if (
+            authorized_profile_ids is not None
+            and profile_id not in authorized_profile_ids
+        ):
             continue
         profiles.append(
             {
