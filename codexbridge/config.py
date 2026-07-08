@@ -55,14 +55,33 @@ class RepoConfig(BaseModel):
     docker_compose_files: List[str] = Field(default_factory=list)
     docker_project_name: str = ""
     docker_exec_profiles: List[DockerExecProfileConfig] = Field(default_factory=list)
+    cloudflare_profiles: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_docker_exec_command_ids(self) -> "RepoConfig":
+    def validate_repository_capabilities(self) -> "RepoConfig":
         command_ids = [profile.command_id for profile in self.docker_exec_profiles]
         if len(command_ids) != len(set(command_ids)):
             raise ValueError(
                 "Docker exec command_id values must be unique per repository"
             )
+        normalized_profiles: list[str] = []
+        for profile_id in self.cloudflare_profiles:
+            value = str(profile_id or "").strip()
+            if (
+                not value
+                or len(value) > 64
+                or not value[0].isalnum()
+                or any(not (char.isalnum() or char in "_-") for char in value)
+            ):
+                raise ValueError(
+                    "Cloudflare profile IDs assigned to repositories are invalid"
+                )
+            normalized_profiles.append(value)
+        if len(normalized_profiles) != len(set(normalized_profiles)):
+            raise ValueError(
+                "Cloudflare profile IDs must be unique per repository"
+            )
+        self.cloudflare_profiles = normalized_profiles
         return self
 
 
