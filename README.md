@@ -184,6 +184,44 @@ Command execution rules:
 
 If a long command times out in synchronous mode, retrying it synchronously is not the correct recovery path. Register or use the durable async profile and recover through the run tools instead.
 
+## Docker and Docker Compose
+
+Docker support is a dedicated bounded subsystem, not an arbitrary Docker CLI shell. Enable it globally under `docker` and optionally configure Compose files, a Compose project name, and fixed in-container command profiles per repository.
+
+```yaml
+docker:
+  enabled: true
+  executable: "docker"
+  max_output_bytes: 100000
+  default_timeout_seconds: 600
+  allow_push: true
+  allow_prune: true
+  allow_remove: true
+  allow_compose_down_volumes: true
+  confirmation_token: "CONFIRM_DOCKER_HIGH_RISK"
+repos:
+  my_app:
+    path: "D:/Github/my_app"
+    docker_compose_files: ["docker-compose.yml"]
+    docker_project_name: "my-app"
+    docker_exec_profiles:
+      - command_id: "health"
+        argv: ["python", "-m", "app.health"]
+        timeout_seconds: 60
+        writes_files: false
+```
+
+Docker MCP tools:
+
+- `list_docker_capabilities(repo_name)` lists supported operations, gates, Compose configuration, and configured exec command IDs.
+- `docker_health()` checks Docker Engine and Compose availability.
+- `docker_inspect(repo_name, operation, ...)` performs fixed read-only inspection such as engine info, containers, images, networks, volumes, disk usage, Compose config/ps/images/logs, and bounded object details.
+- `start_docker_action_async(repo_name, action, ...)` queues lifecycle and administrative work as a durable run. Poll it with the standard run-status and run-result tools.
+
+Supported actions cover Compose build/up/down/start/stop/restart/pause/unpause/kill/pull, configured Compose or container exec, image build/pull/tag/push, container lifecycle, network and volume creation, removals, and builder/container/image/network/volume/system cleanup. Compose commands execute from the validated repository root and use only repository Compose files. Image-build contexts and Dockerfiles must be repository-relative.
+
+Push, cleanup, removals, and `compose down` with volumes require two independent checks: the relevant `allow_*` setting must be enabled and the exact configured confirmation token must be supplied on that call. The confirmation token is an approval phrase, not a credential. Docker exec accepts only `command_id` values pre-registered under `docker_exec_profiles`; free-form command text, arbitrary argv, shell chaining, interactive shells, and arbitrary host paths are unsupported. Every subprocess uses an argv list with `shell=False`, bounded output, timeouts, durable artifacts for async operations, and repository operation locks.
+
 ## Allowlisted SSH Commands
 
 CodexBridge can use the local Windows OpenSSH client through a stable alias from `~/.ssh/config` or Tailscale MagicDNS. Changing public IP addresses therefore do not need to appear in CodexBridge configuration.

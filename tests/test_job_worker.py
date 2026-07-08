@@ -197,6 +197,75 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "1 passed\n"
 
 
+def test_docker_action_worker_persists_bounded_result(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "docker-compose.yml").write_text(
+        "services:\n  api:\n    image: example/api\n", encoding="utf-8"
+    )
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        repo,
+        runs_dir,
+        extra_lines=["docker:", "  enabled: true"],
+    )
+    run_id = "20260701T000000Z_docker_action_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="docker_action",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "action": "compose_up",
+            "services": ["api"],
+            "build": True,
+        },
+    )
+    captured = {}
+
+    def fake_run(config, repo_root, repo_config, action, **kwargs):
+        captured["action"] = action
+        captured["kwargs"] = kwargs
+        return {
+            "ok": True,
+            "action": action,
+            "argv": ["docker", "compose", "up", "--detach", "api"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "started\n",
+            "stderr": "",
+            "output_truncated": False,
+            "high_risk": False,
+            "writes_files": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_worker.run_docker_action", fake_run)
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    worker = JobWorker(config_path, run_id)
+
+    assert worker.execute() == 0
+    result = store.get_run(run_id)["result"]
+    assert result["status"] == "completed"
+    assert result["tool"] == "docker_action"
+    assert result["action"] == "compose_up"
+    assert result["high_risk"] is False
+    assert captured["kwargs"]["services"] == ["api"]
+    assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "started\n"
+
+
 def test_project_command_worker_rebuilds_scoped_pytest_profile(
     monkeypatch, tmp_path: Path
 ) -> None:

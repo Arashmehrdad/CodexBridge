@@ -119,6 +119,49 @@ def test_start_async_project_command_creates_durable_run(
     assert status["input"]["command_id"] == "pytest"
 
 
+def test_start_docker_action_creates_durable_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    (repo / "docker-compose.yml").write_text(
+        "services:\n  api:\n    image: example/api\n", encoding="utf-8"
+    )
+    manager.config.docker.enabled = True
+
+    response = manager.start_docker_action(
+        "sample", "compose_up", services=["api"], build=True
+    )
+
+    assert response["accepted"] is True
+    assert response["action"] == "compose_up"
+    assert response["high_risk"] is False
+    status = manager.get_status(response["run_id"])
+    assert status["tool"] == "docker_action"
+    assert status["input"]["services"] == ["api"]
+    assert status["input"]["build"] is True
+
+
+def test_start_high_risk_docker_action_requires_confirmed_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.docker.enabled = True
+    manager.config.docker.allow_prune = True
+
+    response = manager.start_docker_action(
+        "sample",
+        "image_prune",
+        confirmation=manager.config.docker.confirmation_token,
+    )
+
+    assert response["accepted"] is True
+    assert response["high_risk"] is True
+    status = manager.get_status(response["run_id"])
+    assert status["risk_level"] == "high"
+    assert status["input"]["action"] == "image_prune"
+
+
 def test_start_pytest_path_persists_normalized_target(
     tmp_path: Path, monkeypatch
 ) -> None:

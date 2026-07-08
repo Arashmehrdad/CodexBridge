@@ -21,6 +21,11 @@ from .config import (
     resolve_repo_config,
     resolve_repo_identity,
 )
+from .docker_tools import (
+    docker_health as _docker_health,
+    list_docker_capabilities as _list_docker_capabilities,
+    run_docker_inspection as _run_docker_inspection,
+)
 from .git_tools import CommitMetadataError
 from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
@@ -1096,6 +1101,60 @@ def _finish_local_model_health(result: dict, started: float) -> dict:
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_docker_capabilities(repo_name: str = "") -> dict:
+    """Read-only: list bounded Docker operations, risk gates, and configured exec profiles."""
+    config = get_config()
+    if not repo_name:
+        return _list_docker_capabilities(config)
+    canonical_name, _repo_root, requested_name = _repo_context(repo_name)
+    _, repo_config = resolve_repo_config(config, canonical_name)
+    result = _list_docker_capabilities(config, repo_config)
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def docker_health() -> dict:
+    """Read-only: verify Docker Engine and Docker Compose connectivity."""
+    return _docker_health(get_config())
+
+
+@mcp.tool(
+    output_schema=RUN_COMMAND_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def docker_inspect(
+    repo_name: str,
+    operation: str,
+    target: str = "",
+    service: str = "",
+    tail: int = 200,
+) -> dict:
+    """Read-only: run one fixed Docker or Compose inspection operation."""
+    config = get_config()
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    _, repo_config = resolve_repo_config(config, canonical_name)
+    result = _run_docker_inspection(
+        config,
+        repo_root,
+        repo_config,
+        operation,
+        target=target,
+        service=service,
+        tail=tail,
+    )
+    result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_ssh_capabilities() -> dict:
     """Read-only: list configured SSH host IDs and allowlisted command metadata."""
     return _list_ssh_capabilities(get_config())
@@ -1156,6 +1215,39 @@ def start_codex_implement_task_async(
     """Write async tool: queue an approved implementation Codex job and return a durable run_id immediately."""
     return get_job_manager().start_implementation(
         repo_name, approved_plan, allowed_files, tests
+    )
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_docker_action_async(
+    repo_name: str,
+    action: str,
+    target: str = "",
+    destination: str = "",
+    services: list[str] = [],
+    command_id: str = "",
+    context: str = ".",
+    dockerfile: str = "",
+    build: bool = False,
+    force: bool = False,
+    confirmation: str = "",
+) -> dict:
+    """Write async tool: queue one bounded Docker action; high-risk actions require config opt-in and confirmation."""
+    return get_job_manager().start_docker_action(
+        repo_name,
+        action,
+        target=target,
+        destination=destination,
+        services=services,
+        command_id=command_id,
+        context=context,
+        dockerfile=dockerfile,
+        build=build,
+        force=force,
+        confirmation=confirmation,
     )
 
 

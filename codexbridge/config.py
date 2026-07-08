@@ -7,11 +7,55 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
+class DockerExecProfileConfig(BaseModel):
+    command_id: str
+    argv: List[str] = Field(default_factory=list, min_length=1, max_length=64)
+    timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    description: str = ""
+    writes_files: bool = False
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> "DockerExecProfileConfig":
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        if not self.command_id or any(char not in allowed for char in self.command_id):
+            raise ValueError("Docker exec command_id must use letters, numbers, _ or -")
+        for argument in self.argv:
+            if not argument or any(ord(char) < 32 or ord(char) == 127 for char in argument):
+                raise ValueError("Docker exec argv values must be non-empty and contain no control characters")
+            if any(token in argument for token in (";", "&&", "||", "|", "`", "$(")):
+                raise ValueError("Docker exec argv must not contain shell operators")
+        return self
+
+
+class DockerConfig(BaseModel):
+    enabled: bool = False
+    executable: str = "docker"
+    max_output_bytes: int = Field(default=100000, ge=1024, le=5000000)
+    default_timeout_seconds: int = Field(default=600, ge=1, le=7200)
+    allow_push: bool = False
+    allow_prune: bool = False
+    allow_remove: bool = False
+    allow_compose_down_volumes: bool = False
+    confirmation_token: str = Field(
+        default="CONFIRM_DOCKER_HIGH_RISK", min_length=8, max_length=128
+    )
+
+
 class RepoConfig(BaseModel):
     path: str
     default_tests: List[str] = Field(default_factory=list)
     command_profiles: List[Dict] = Field(default_factory=list)
     wiki_exclude_paths: List[str] = Field(default_factory=list)
+    docker_compose_files: List[str] = Field(default_factory=list)
+    docker_project_name: str = ""
+    docker_exec_profiles: List[DockerExecProfileConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_docker_exec_command_ids(self) -> "RepoConfig":
+        command_ids = [profile.command_id for profile in self.docker_exec_profiles]
+        if len(command_ids) != len(set(command_ids)):
+            raise ValueError("Docker exec command_id values must be unique per repository")
+        return self
 
 
 class SSHCommandProfileConfig(BaseModel):
@@ -262,6 +306,7 @@ class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
     ssh: SSHConfig = Field(default_factory=SSHConfig)
+    docker: DockerConfig = Field(default_factory=DockerConfig)
     external_fixtures: ExternalFixturesConfig = Field(
         default_factory=ExternalFixturesConfig
     )

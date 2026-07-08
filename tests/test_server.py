@@ -102,6 +102,72 @@ def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
     assert server.get_supervisor_resume_prompt(supervisor_id)["tool"] == "prompt"
 
 
+def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  api:\n    image: example/api\n", encoding="utf-8"
+    )
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        docker={"enabled": True},
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "_list_docker_capabilities",
+        lambda cfg, repo_config=None: {
+            "ok": True,
+            "enabled": cfg.docker.enabled,
+            "actions": ["compose_up"],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "_docker_health",
+        lambda cfg: {"ok": True, "enabled": cfg.docker.enabled, "error": ""},
+    )
+    monkeypatch.setattr(
+        server,
+        "_run_docker_inspection",
+        lambda cfg, root, repo_config, operation, **kwargs: {
+            "ok": True,
+            "action": operation,
+            "argv": ["docker", "compose", "ps"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "ok",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+
+    class FakeJobs:
+        def start_docker_action(self, repo_name, action, **kwargs):
+            return {
+                "ok": True,
+                "run_id": "run_docker",
+                "repo_name": repo_name,
+                "action": action,
+                "kwargs": kwargs,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+
+    assert server.list_docker_capabilities("repo")["enabled"] is True
+    assert server.docker_health()["ok"] is True
+    assert server.docker_inspect("repo", "compose_ps")["action"] == "compose_ps"
+    queued = server.start_docker_action_async(
+        "repo", "compose_up", services=["api"], build=True
+    )
+    assert queued["run_id"] == "run_docker"
+    assert queued["kwargs"]["services"] == ["api"]
+    assert queued["kwargs"]["build"] is True
+
+
 def test_commit_tool_returns_structured_metadata_rejection(
     monkeypatch,
     tmp_path,

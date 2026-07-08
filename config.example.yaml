@@ -3,12 +3,31 @@ repos:
     path: "D:/Github/Stream_Alpha"
     default_tests:
       - "python -m pytest"
+    docker_compose_files:
+      - "docker-compose.yml"
+    docker_project_name: "stream-alpha"
+    docker_exec_profiles:
+      - command_id: "health"
+        argv: ["python", "-m", "app.health"]
+        timeout_seconds: 60
+        description: "Run the configured in-container health command"
+        writes_files: false
 external_fixtures:
   enabled: false
   allowed_hosts:
     - "fixtures.example.com"
   max_bytes: 20000000
   timeout_seconds: 60
+docker:
+  enabled: false
+  executable: "docker"
+  max_output_bytes: 100000
+  default_timeout_seconds: 600
+  allow_push: false
+  allow_prune: false
+  allow_remove: false
+  allow_compose_down_volumes: false
+  confirmation_token: "CONFIRM_DOCKER_HIGH_RISK"
 ssh:
   enabled: false
   executable: "ssh"

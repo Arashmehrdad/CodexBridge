@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from codexbridge.config import (
     AppConfig,
+    DockerConfig,
+    DockerExecProfileConfig,
     LocalModelConfig,
     RepoConfig,
     SSHCommandProfileConfig,
@@ -32,6 +34,8 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().max_implementation_tier == 2
     assert config.ssh.enabled is False
+    assert config.docker.enabled is False
+    assert config.docker.executable == "docker"
     assert config.ssh.hosts["my_vps"].ssh_alias == "my-vps"
     assert [
         profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
@@ -107,6 +111,23 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
             ssh_alias="my-vps",
             command_profiles=[profile, profile.model_copy()],
         )
+
+
+def test_docker_config_and_exec_profile_validation() -> None:
+    config = DockerConfig(enabled=True, allow_push=True, allow_prune=True)
+    assert config.enabled is True
+    assert config.allow_push is True
+    assert config.allow_prune is True
+    assert config.confirmation_token == "CONFIRM_DOCKER_HIGH_RISK"
+
+    profile = DockerExecProfileConfig(command_id="health", argv=["python", "-V"])
+    with pytest.raises(ValidationError, match="unique"):
+        RepoConfig(
+            path=".",
+            docker_exec_profiles=[profile, profile.model_copy()],
+        )
+    with pytest.raises(ValidationError, match="shell operators"):
+        DockerExecProfileConfig(command_id="bad", argv=["sh; whoami"])
 
 
 def test_unknown_default_supervisor_profile_rejected() -> None:

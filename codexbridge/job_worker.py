@@ -25,6 +25,7 @@ from .command_profiles import (
     run_command_profile,
 )
 from .config import load_config, resolve_repo, resolve_repo_config
+from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import fetch_validate_and_discard
 from .managed_artifacts import (
@@ -248,6 +249,10 @@ class JobWorker:
 
         if tool == "project_command":
             return self._execute_project_command(
+                started_at, repo_name, repo_root, input_data
+            )
+        if tool == "docker_action":
+            return self._execute_docker_action(
                 started_at, repo_name, repo_root, input_data
             )
         if tool == "external_fixture_validation":
@@ -643,6 +648,132 @@ class JobWorker:
             "error": str(fixture_result.get("error", "")),
             "safety_failure": False,
             "fixture": fixture_result,
+        }
+
+    def _execute_docker_action(
+        self,
+        started_at: str,
+        repo_name: str,
+        repo_root: Path,
+        input_data: dict,
+    ) -> dict:
+        _, repo_config = resolve_repo_config(self.config, repo_name)
+        kwargs = {
+            "target": str(input_data.get("target", "")),
+            "destination": str(input_data.get("destination", "")),
+            "services": list(input_data.get("services") or []),
+            "command_id": str(input_data.get("command_id", "")),
+            "context": str(input_data.get("context", ".")),
+            "dockerfile": str(input_data.get("dockerfile", "")),
+            "build": bool(input_data.get("build", False)),
+            "force": bool(input_data.get("force", False)),
+            "confirmation": str(input_data.get("confirmation", "")),
+        }
+        action = str(input_data["action"])
+        spec = build_docker_action(
+            self.config, repo_root, repo_config, action, **kwargs
+        )
+        git_before = git_tools.git_status(repo_root)
+        diff_before = git_tools.diff_stat(repo_root)
+        dirty_before = git_tools.changed_files(repo_root)
+        workspace_before = snapshot_workspace(
+            repo_root, [self.config.resolve_runs_dir()]
+        )
+        self.artifacts.write_text("git_before.txt", git_before)
+        self.event(
+            "warning" if spec.high_risk else "info",
+            "docker",
+            "Starting bounded Docker action",
+            {
+                "action": action,
+                "high_risk": spec.high_risk,
+                "timeout_seconds": spec.timeout_seconds,
+            },
+        )
+        command_result = run_docker_action(
+            self.config, repo_root, repo_config, action, **kwargs
+        )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+
+        git_after = git_tools.git_status(repo_root)
+        diff_after = git_tools.diff_stat(repo_root)
+        changed_after = git_tools.changed_files(repo_root)
+        workspace_after = snapshot_workspace(
+            repo_root, [self.config.resolve_runs_dir()]
+        )
+        introduced_changes, preserved_preexisting_changes = classify_git_attribution(
+            changed_after, workspace_before, workspace_after, dirty_before
+        )
+        self.artifacts.write_text("git_after.txt", git_after)
+        self.artifacts.write_text("diff_stat.txt", diff_after)
+
+        safety_failure = bool(
+            not spec.writes_files
+            and (git_before != git_after or diff_before != diff_after)
+        )
+        risks: list[str] = []
+        if spec.high_risk:
+            risks.append("High-risk Docker action executed after explicit confirmation")
+        if safety_failure:
+            risks.append("Docker action unexpectedly changed repository state")
+        if command_result.get("timed_out"):
+            risks.append("Docker action timed out; inspect durable output before retrying")
+
+        terminal_status = (
+            "completed" if command_result.get("ok") and not safety_failure else "failed"
+        )
+        commit_data = {
+            "commit_required": False,
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "commit_result": {"ok": True, "reason": "not_applicable"},
+        }
+        if terminal_status == "completed" and spec.writes_files:
+            commit_data = self._finalize_commit(
+                repo_root, introduced_changes, tool_name="docker_action"
+            )
+            git_after = git_tools.git_status(repo_root)
+            diff_after = git_tools.diff_stat(repo_root)
+            if commit_data["commit_attempted"] and commit_data["commit_error"]:
+                terminal_status = "failed"
+                risks.append(
+                    f"Automatic commit finalization failed: {commit_data['commit_error']}"
+                )
+
+        output_summary = (stdout or stderr).strip()
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": repo_name,
+            "tool": "docker_action",
+            "action": action,
+            "status": terminal_status,
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": introduced_changes,
+            "introduced_changes": introduced_changes,
+            "preserved_preexisting_changes": preserved_preexisting_changes,
+            "git_status": git_after,
+            "diff_stat": diff_after,
+            "tests_run": [],
+            "test_results": output_summary,
+            "summary": output_summary[-4000:] if output_summary else f"Docker action {action} finished",
+            "remaining_risks": risks,
+            "error": commit_data["commit_error"] or str(command_result.get("error", "")),
+            "safety_failure": safety_failure,
+            "timed_out": bool(command_result.get("timed_out")),
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "high_risk": spec.high_risk,
+            "writes_files": spec.writes_files,
+            "command_result": command_result,
+            **commit_data,
         }
 
     def _execute_project_command(

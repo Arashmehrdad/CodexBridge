@@ -21,6 +21,7 @@ from .command_profiles import (
     resolve_command_profile,
 )
 from .config import AppConfig, resolve_repo, resolve_repo_config
+from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
 from .operation_locks import OperationLockStore
@@ -198,6 +199,74 @@ class JobManager:
         response.setdefault("repo_name", repo_name)
         response["command_id"] = GIT_READONLY_COMMAND_ID
         response["operation"] = operation
+        return response
+
+    def start_docker_action(
+        self,
+        repo_name: str,
+        action: str,
+        *,
+        target: str = "",
+        destination: str = "",
+        services: list[str] | None = None,
+        command_id: str = "",
+        context: str = ".",
+        dockerfile: str = "",
+        build: bool = False,
+        force: bool = False,
+        confirmation: str = "",
+    ) -> dict:
+        repo_root = resolve_repo(self.config, repo_name)
+        _, repo_config = resolve_repo_config(self.config, repo_name)
+        normalized_services = list(services or [])
+        spec = build_docker_action(
+            self.config,
+            repo_root,
+            repo_config,
+            action,
+            target=target,
+            destination=destination,
+            services=normalized_services,
+            command_id=command_id,
+            context=context,
+            dockerfile=dockerfile,
+            build=build,
+            force=force,
+            confirmation=confirmation,
+        )
+        estimated_minutes = max(1, (spec.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3 if spec.high_risk else 2,
+            risk_level="high" if spec.high_risk else "medium",
+            requires_human=False,
+            reason=(
+                "Explicitly confirmed high-risk Docker action is approved"
+                if spec.high_risk
+                else "Bounded Docker action is approved for durable async execution"
+            ),
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        input_data = {
+            "repo_name": repo_name,
+            "action": action,
+            "target": target,
+            "destination": destination,
+            "services": normalized_services,
+            "command_id": command_id,
+            "context": context,
+            "dockerfile": dockerfile,
+            "build": build,
+            "force": force,
+            "confirmation": confirmation,
+        }
+        response = self._create_and_launch(
+            "docker_action", repo_name, input_data, decision
+        )
+        response.setdefault("repo_name", repo_name)
+        response["action"] = action
+        response["high_risk"] = spec.high_risk
         return response
 
     def start_external_fixture_validation(

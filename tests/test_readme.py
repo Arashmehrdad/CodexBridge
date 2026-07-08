@@ -23,6 +23,15 @@ def test_readme_sets_human_involvement_policy() -> None:
     assert "Codex runs these checks and reports the results" in readme
 
 
+def test_readme_documents_bounded_docker_workflow() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "list_docker_capabilities(repo_name)" in readme
+    assert "start_docker_action_async(repo_name, action, ...)" in readme
+    assert "CONFIRM_DOCKER_HIGH_RISK" in readme
+    assert "free-form command text, arbitrary argv" in readme
+    assert "shell=False" in readme
+
+
 def test_readme_documents_supervisor_workflow() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "start_supervised_recovery_task" in readme
