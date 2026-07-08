@@ -171,7 +171,11 @@ def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
 def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
-        repos={"repo": RepoConfig(path=str(tmp_path))},
+        repos={
+            "repo": RepoConfig(
+                path=str(tmp_path), cloudflare_profiles=["production"]
+            )
+        },
         cloudflare={
             "enabled": True,
             "allow_dns_write": True,
@@ -189,7 +193,7 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         server,
         "_list_cloudflare_capabilities",
-        lambda cfg: {
+        lambda cfg, repo_name="": {
             "ok": True,
             "enabled": cfg.cloudflare.enabled,
             "actions": ["dns_create"],
@@ -219,10 +223,11 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     )
 
     class FakeJobs:
-        def start_cloudflare_action(self, profile_id, action, **kwargs):
+        def start_cloudflare_action(self, repo_name, profile_id, action, **kwargs):
             return {
                 "ok": True,
                 "run_id": "run_cloudflare",
+                "repo_name": repo_name,
                 "profile_id": profile_id,
                 "action": action,
                 "kwargs": kwargs,
@@ -230,13 +235,18 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
 
-    assert server.list_cloudflare_capabilities()["actions"] == ["dns_create"]
-    assert server.cloudflare_health("production")["zone_name"] == "example.com"
+    assert server.list_cloudflare_capabilities("repo")["actions"] == ["dns_create"]
+    assert server.cloudflare_health("repo", "production")["zone_name"] == "example.com"
     inspected = server.cloudflare_inspect(
-        "production", "dns_records", name="api.example.com", record_type="A"
+        "repo",
+        "production",
+        "dns_records",
+        name="api.example.com",
+        record_type="A",
     )
     assert inspected["operation"] == "dns_records"
     queued = server.start_cloudflare_action_async(
+        "repo",
         "production",
         "dns_create",
         payload={
