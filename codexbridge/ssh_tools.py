@@ -845,21 +845,38 @@ def run_ssh_deployment(
         timeout=1800,
     ):
         return _deployment_result(host_id, deployment_id, archive_path, steps)
-    if not remote_step("activate", ["ln", "-sfn", release_root, current_link]):
-        return _deployment_result(host_id, deployment_id, archive_path, steps)
+
+    for remote_source, release_target in profile.shared_files.items():
+        source_path = validate_remote_path(host, remote_source, sensitive=True)
+        target_path = validate_remote_path(
+            host,
+            posixpath.join(release_root, release_target),
+            sensitive=True,
+        )
+        if not remote_step(
+            f"link_shared:{release_target}",
+            ["ln", "-sfn", source_path, target_path],
+        ):
+            return _deployment_result(host_id, deployment_id, archive_path, steps)
 
     if profile.compose_file:
         compose_path = validate_remote_path(
-            host, posixpath.join(current_link, profile.compose_file)
+            host, posixpath.join(release_root, profile.compose_file)
         )
         compose_argv = [
             "docker",
             "compose",
             "--project-directory",
-            current_link,
-            "-f",
-            compose_path,
+            release_root,
         ]
+        if profile.compose_project_name:
+            compose_argv.extend(
+                [
+                    "--project-name",
+                    _safe_name(profile.compose_project_name, "compose_project_name"),
+                ]
+            )
+        compose_argv.extend(["-f", compose_path])
         if profile.env_file:
             compose_argv.extend(
                 ["--env-file", validate_remote_path(host, profile.env_file, sensitive=True)]
@@ -891,6 +908,9 @@ def run_ssh_deployment(
             timeout=health_profile.timeout_seconds,
         ):
             return _deployment_result(host_id, deployment_id, archive_path, steps)
+
+    if not remote_step("activate", ["ln", "-sfn", release_root, current_link]):
+        return _deployment_result(host_id, deployment_id, archive_path, steps)
 
     remote_step("cleanup_archive", ["rm", "-f", "--", remote_archive])
     return _deployment_result(host_id, deployment_id, archive_path, steps)
