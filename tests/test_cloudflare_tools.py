@@ -71,12 +71,47 @@ def install_token(monkeypatch, config: AppConfig) -> None:
     monkeypatch.setenv(config.cloudflare.token_env, "test-cloudflare-token")
 
 
-def test_token_must_come_from_environment(monkeypatch, tmp_path: Path) -> None:
+def test_token_must_come_from_environment_or_env_file(
+    monkeypatch, tmp_path: Path
+) -> None:
     config = make_config(tmp_path)
     monkeypatch.delenv(config.cloudflare.token_env, raising=False)
 
-    with pytest.raises(ValueError, match="missing from environment variable"):
+    with pytest.raises(ValueError, match="missing from '.env'"):
         cloudflare_tools.run_cloudflare_inspection(config, "production", "token_verify")
+
+
+def test_env_file_supplies_token_and_ids_with_os_precedence(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    profile = config.cloudflare.profiles["production"]
+    profile.account_id = ""
+    profile.zone_id = ""
+    profile.account_id_env = "CLOUDFLARE_ACCOUNT_ID"
+    profile.zone_id_env = "CLOUDFLARE_ZONE_ID"
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "# Cloudflare credentials",
+                'CLOUDFLARE_API_TOKEN="file-token"',
+                f"CLOUDFLARE_ACCOUNT_ID={ACCOUNT_ID}",
+                f"CLOUDFLARE_ZONE_ID={ZONE_ID}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_ZONE_ID", raising=False)
+
+    assert cloudflare_tools._token(config) == "file-token"
+    assert cloudflare_tools._account_id(config, profile) == ACCOUNT_ID
+    assert cloudflare_tools._zone_id(config, profile) == ZONE_ID
+
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "os-token")
+    assert cloudflare_tools._token(config) == "os-token"
 
 
 def test_token_verify_uses_fixed_official_endpoint(monkeypatch, tmp_path: Path) -> None:

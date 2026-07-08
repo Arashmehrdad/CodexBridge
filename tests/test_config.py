@@ -189,12 +189,15 @@ def test_cloudflare_config_and_profile_validation() -> None:
     )
 
     assert config.api_base_url == "https://api.cloudflare.com/client/v4"
+    assert config.env_file == ".env"
     assert config.confirmation_token == "CONFIRM_CLOUDFLARE_HIGH_RISK"
     assert profile.zone_name == "example.com"
     assert profile.allowed_dns_names == ["api.example.com"]
 
     with pytest.raises(ValidationError, match="official client v4"):
         CloudflareConfig(api_base_url="https://example.com/client/v4")
+    with pytest.raises(ValidationError, match="safe path relative"):
+        CloudflareConfig(env_file="../outside.env")
     with pytest.raises(ValidationError, match="32-character hex ID"):
         CloudflareProfileConfig(account_id="not-an-id")
     with pytest.raises(ValidationError, match="inside zone_name"):

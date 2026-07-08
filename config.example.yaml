@@ -32,6 +32,7 @@ cloudflare:
   enabled: false
   api_base_url: "https://api.cloudflare.com/client/v4"
   token_env: "CLOUDFLARE_API_TOKEN"
+  env_file: ".env"
   timeout_seconds: 30
   max_output_bytes: 500000
   allow_dns_write: false

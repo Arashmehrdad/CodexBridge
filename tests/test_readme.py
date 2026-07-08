@@ -40,6 +40,8 @@ def test_readme_documents_cloudflare_capabilities() -> None:
     assert "cloudflare_inspect(profile_id, operation, ...)" in readme
     assert "start_cloudflare_action_async(profile_id, action, ...)" in readme
     assert "CLOUDFLARE_API_TOKEN" in readme
+    assert 'env_file: ".env"' in readme
+    assert "Operating-system variables take priority" in readme
     assert "CONFIRM_CLOUDFLARE_HIGH_RISK" in readme
     assert "does not expose arbitrary URLs" in readme
     assert "Tunnel secrets are generated locally" in readme

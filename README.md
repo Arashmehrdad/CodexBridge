@@ -231,6 +231,7 @@ cloudflare:
   enabled: false
   api_base_url: "https://api.cloudflare.com/client/v4"
   token_env: "CLOUDFLARE_API_TOKEN"
+  env_file: ".env"
   timeout_seconds: 30
   max_output_bytes: 500000
   allow_dns_write: false
@@ -250,7 +251,15 @@ cloudflare:
       allowed_tunnel_ids: []
 ```
 
-The API token is read only from `token_env` at request time and is never accepted as an MCP argument or stored in durable inputs. Account and zone IDs can be configured directly or supplied through environment variables. Profiles restrict DNS names, ruleset phases, and tunnel IDs independently.
+The API token and optional account/zone IDs can be loaded from the configured `.env` file next to `config.yaml`, or from operating-system environment variables. Operating-system variables take priority. They are read only at request time and are never accepted as MCP arguments or stored in durable inputs. The repository `.gitignore` excludes `.env`.
+
+```dotenv
+CLOUDFLARE_API_TOKEN=replace-with-a-scoped-api-token
+CLOUDFLARE_ACCOUNT_ID=replace-with-the-32-character-account-id
+CLOUDFLARE_ZONE_ID=replace-with-the-32-character-zone-id
+```
+
+Profiles restrict DNS names, ruleset phases, and tunnel IDs independently. Do not use the Global API Key and do not paste the token into chat, configuration YAML, logs, or command history.
 
 Cloudflare MCP tools:
 
