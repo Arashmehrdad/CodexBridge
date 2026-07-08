@@ -677,6 +677,76 @@ class JobWorker:
             "command_result": command_result,
         }
 
+    def _execute_ssh_transfer(self, started_at: str, input_data: dict) -> dict:
+        host_id = str(input_data["host_id"])
+        direction = str(input_data["direction"])
+        local_repo_name = str(input_data["local_repo_name"])
+        repo_root = resolve_repo(self.config, local_repo_name)
+        run_dir = Path(self.run["run_dir"])
+        self.event(
+            "warning" if input_data.get("overwrite") else "info",
+            "ssh_transfer",
+            "Starting bounded SSH transfer",
+            {"host_id": host_id, "direction": direction},
+        )
+        transfer_result = dict(
+            redact_and_truncate(
+                run_ssh_transfer(
+                    self.config,
+                    host_id,
+                    direction,
+                    repo_root=repo_root,
+                    local_path=str(input_data.get("local_path", "")),
+                    remote_path=str(input_data.get("remote_path", "")),
+                    run_dir=run_dir,
+                    recursive=bool(input_data.get("recursive", False)),
+                    overwrite=bool(input_data.get("overwrite", False)),
+                    confirmation=str(input_data.get("confirmation", "")),
+                )
+            )
+        )
+        stdout = str(transfer_result.get("stdout", ""))
+        stderr = str(transfer_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        self.artifacts.write_json("transfer_result.json", transfer_result)
+        ended_at = _utc_now()
+        risks: list[str] = []
+        if direction == "upload":
+            risks.append(
+                "Upload changed remote state; final remote state is not independently verified"
+            )
+        if transfer_result.get("timed_out"):
+            risks.append("SSH transfer timed out; inspect artifacts before retrying")
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "ssh_transfer",
+            "host_id": host_id,
+            "direction": direction,
+            "status": "completed" if transfer_result.get("ok") else "failed",
+            "exit_code": int(transfer_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": transfer_result,
+            "summary": (
+                f"SSH {direction} completed: {transfer_result.get('destination', '')}"
+                if transfer_result.get("ok")
+                else f"SSH {direction} failed"
+            ),
+            "remaining_risks": risks,
+            "error": str(transfer_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": bool(transfer_result.get("timed_out")),
+            "output_truncated": bool(transfer_result.get("output_truncated")),
+            "transfer_result": transfer_result,
+        }
+
     def _execute_external_fixture_validation(
         self,
         started_at: str,
