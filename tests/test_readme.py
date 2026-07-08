@@ -47,6 +47,13 @@ def test_readme_documents_cloudflare_capabilities() -> None:
     assert "CONFIRM_CLOUDFLARE_HIGH_RISK" in readme
     assert "does not expose arbitrary URLs" in readme
     assert "Tunnel secrets are generated locally" in readme
+    assert "allow_turnstile" in readme
+    assert "allowed_turnstile_sitekeys" in readme
+    assert "list_accounts" in readme
+    assert "update_turnstile_widget" in readme
+    assert "secret_delivery_pending" in readme
+    assert "get_tunnel_token" in readme
+    assert "make no live Cloudflare account changes" in readme
     assert "Cloudflare remains disabled by default" in readme
 
 
