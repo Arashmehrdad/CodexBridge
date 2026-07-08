@@ -687,6 +687,7 @@ class JobWorker:
         canonical_repo_name, _ = authorize_cloudflare_profile(
             self.config, repo_name, profile_id
         )
+        repo_root = resolve_repo(self.config, canonical_repo_name)
         self.event(
             "warning" if input_data.get("confirmation") else "info",
             "cloudflare_action",
@@ -706,6 +707,7 @@ class JobWorker:
                     resource_id=str(input_data.get("resource_id", "")),
                     payload=dict(input_data.get("payload") or {}),
                     confirmation=str(input_data.get("confirmation", "")),
+                    repo_root=repo_root,
                 )
             )
         )
