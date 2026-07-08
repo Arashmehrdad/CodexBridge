@@ -671,12 +671,15 @@ def run_cloudflare_inspection(
     per_page: int = 100,
 ) -> dict[str, Any]:
     profile = resolve_cloudflare_profile(config, profile_id)
-    operation = str(operation or "").strip()
-    if operation not in READ_ONLY_CLOUDFLARE_OPERATIONS:
+    requested_operation = str(operation or "").strip()
+    if requested_operation not in READ_ONLY_CLOUDFLARE_OPERATIONS:
         raise ValueError(
-            f"Unsupported Cloudflare inspection operation: {operation!r}. "
+            f"Unsupported Cloudflare inspection operation: {requested_operation!r}. "
             f"Allowed: {list(READ_ONLY_CLOUDFLARE_OPERATIONS)}"
         )
+    operation = _CLOUDFLARE_INSPECTION_ALIASES.get(
+        requested_operation, requested_operation
+    )
     if page < 1 or page > 10000:
         raise ValueError("page must be between 1 and 10000")
     if per_page < 1 or per_page > 500:
@@ -686,12 +689,40 @@ def run_cloudflare_inspection(
 
     if operation == "token_verify":
         response = _request(config, "GET", "/user/tokens/verify")
+    elif operation == "list_accounts":
+        account_id = _account_id(config, profile)
+        response = _request(config, "GET", f"/accounts/{account_id}")
+    elif operation == "list_zones":
+        account_id = _account_id(config, profile)
+        query: dict[str, Any] = {
+            "account.id": account_id,
+            "page": page,
+            "per_page": per_page,
+        }
+        if name:
+            zone_name = str(name).strip().lower().rstrip(".")
+            if (
+                not zone_name
+                or len(zone_name) > 253
+                or any(
+                    not label
+                    or len(label) > 63
+                    or label.startswith("-")
+                    or label.endswith("-")
+                    or any(not (char.isalnum() or char == "-") for char in label)
+                    for label in zone_name.split(".")
+                )
+            ):
+                raise ValueError("Invalid Cloudflare zone name filter")
+            query["name"] = zone_name
+        response = _request(config, "GET", "/zones", query=query)
     elif operation in {
         "zone_details",
         "dns_records",
         "dns_record",
         "zone_settings",
         "dnssec",
+        "get_ssl_settings",
         "ssl_universal",
         "rulesets",
         "ruleset",
@@ -701,7 +732,7 @@ def run_cloudflare_inspection(
         if operation == "zone_details":
             response = _request(config, "GET", f"/zones/{zone_id}")
         elif operation == "dns_records":
-            query: dict[str, Any] = {"page": page, "per_page": per_page}
+            query = {"page": page, "per_page": per_page}
             safe_name = _safe_dns_name(profile, name, required=False)
             safe_type = _safe_dns_type(record_type)
             if safe_name:
@@ -720,6 +751,16 @@ def run_cloudflare_inspection(
             response = _request(config, "GET", f"/zones/{zone_id}/settings")
         elif operation == "dnssec":
             response = _request(config, "GET", f"/zones/{zone_id}/dnssec")
+        elif operation == "get_ssl_settings":
+            setting_id = str(resource_id or "ssl").strip()
+            if setting_id not in _SSL_SETTING_IDS:
+                raise ValueError(
+                    f"Unsupported Cloudflare SSL setting: {setting_id!r}. "
+                    f"Allowed: {sorted(_SSL_SETTING_IDS)}"
+                )
+            response = _request(
+                config, "GET", f"/zones/{zone_id}/settings/{setting_id}"
+            )
         elif operation == "ssl_universal":
             response = _request(
                 config, "GET", f"/zones/{zone_id}/ssl/universal/settings"
@@ -748,7 +789,14 @@ def run_cloudflare_inspection(
             )
     else:
         account_id = _account_id(config, profile)
-        if operation == "tunnels":
+        if operation == "list_turnstile_widgets":
+            response = _request(
+                config,
+                "GET",
+                f"/accounts/{account_id}/challenges/widgets",
+                query={"page": page, "per_page": per_page},
+            )
+        elif operation == "tunnels":
             response = _request(
                 config,
                 "GET",
@@ -777,7 +825,8 @@ def run_cloudflare_inspection(
     response.update(
         {
             "profile_id": _safe_profile_id(profile_id),
-            "operation": operation,
+            "operation": requested_operation,
+            "canonical_operation": operation,
             "writes_remote": False,
             "high_risk": False,
         }
