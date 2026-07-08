@@ -206,6 +206,145 @@ class CloudflareActionSpec:
     description: str = "Bounded Cloudflare API action"
 
 
+@dataclass(frozen=True)
+class PreparedSecretDestination:
+    path: Path
+    temp_path: Path
+    variable: str
+
+
+def _git_path_is_ignored(repo_root: Path, path: Path) -> bool:
+    relative = path.relative_to(repo_root).as_posix()
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), "check-ignore", "-q", "--", relative],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+def _validate_env_destination_file(path: Path, variable: str) -> None:
+    if not path.exists():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Turnstile secret destination must be a regular file")
+    if path.stat().st_size > _MAX_ENV_FILE_BYTES:
+        raise ValueError("Turnstile secret destination exceeds 65536 bytes")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("Turnstile secret destination is not readable UTF-8") from exc
+    assignment = re.compile(
+        rf"^\s*(?:export\s+)?{re.escape(variable)}\s*=", re.MULTILINE
+    )
+    if len(assignment.findall(text)) > 1:
+        raise ValueError("Turnstile secret destination contains duplicate variables")
+
+
+def _prepare_secret_destination(
+    repo_root: Path | None, profile: CloudflareProfileConfig
+) -> PreparedSecretDestination:
+    destination = profile.turnstile.secret_destination
+    if destination is None:
+        raise ValueError("Turnstile secret destination is not configured")
+    if repo_root is None:
+        raise ValueError("Turnstile secret actions require an authorized repository root")
+    root = Path(repo_root).resolve()
+    unresolved = root / destination.path
+    if unresolved.exists() and unresolved.is_symlink():
+        raise ValueError("Turnstile secret destination must not be a symlink")
+    path = unresolved.resolve(strict=False)
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError("Turnstile secret destination escapes the repository") from None
+    if not path.parent.is_dir():
+        raise ValueError("Turnstile secret destination parent directory does not exist")
+    if not _git_path_is_ignored(root, path):
+        raise ValueError("Turnstile secret destination must be Git-ignored")
+    _validate_env_destination_file(path, destination.variable)
+
+    temp_path = path.with_name(
+        f".{path.name}.codexbridge-{secrets.token_hex(8)}.tmp"
+    )
+    if not _git_path_is_ignored(root, temp_path):
+        raise ValueError("Turnstile secret destination temporary file must be Git-ignored")
+    try:
+        descriptor = os.open(
+            temp_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        raise ValueError("Turnstile secret destination is not writable") from None
+    return PreparedSecretDestination(
+        path=path,
+        temp_path=temp_path,
+        variable=destination.variable,
+    )
+
+
+def _cleanup_secret_destination(prepared: PreparedSecretDestination) -> None:
+    try:
+        prepared.temp_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _write_env_secret(prepared: PreparedSecretDestination, secret: str) -> None:
+    if (
+        not isinstance(secret, str)
+        or not secret
+        or len(secret) > 4096
+        or any(char in secret for char in "\x00\r\n")
+    ):
+        raise ValueError("Cloudflare returned an invalid Turnstile secret")
+    try:
+        text = (
+            prepared.path.read_text(encoding="utf-8-sig")
+            if prepared.path.exists()
+            else ""
+        )
+        assignment = re.compile(
+            rf"^\s*(?:export\s+)?{re.escape(prepared.variable)}\s*=.*$",
+            re.MULTILINE,
+        )
+        quoted = '"' + secret.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        replacement = f"{prepared.variable}={quoted}"
+        if assignment.search(text):
+            updated = assignment.sub(replacement, text, count=1)
+        else:
+            separator = "" if not text or text.endswith("\n") else "\n"
+            updated = f"{text}{separator}{replacement}\n"
+        with prepared.temp_path.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(updated)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            prepared.temp_path.chmod(0o600)
+        except OSError:
+            pass
+        os.replace(prepared.temp_path, prepared.path)
+        try:
+            prepared.path.chmod(0o600)
+        except OSError:
+            pass
+    except (OSError, UnicodeError):
+        _cleanup_secret_destination(prepared)
+        raise ValueError("Turnstile secret destination update failed") from None
+
+
 def _require_enabled(config: AppConfig) -> None:
     if not config.cloudflare.enabled:
         raise ValueError("Cloudflare capability is disabled in config")
