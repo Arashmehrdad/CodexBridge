@@ -28,6 +28,31 @@ docker:
   allow_remove: false
   allow_compose_down_volumes: false
   confirmation_token: "CONFIRM_DOCKER_HIGH_RISK"
+cloudflare:
+  enabled: false
+  api_base_url: "https://api.cloudflare.com/client/v4"
+  token_env: "CLOUDFLARE_API_TOKEN"
+  timeout_seconds: 30
+  max_output_bytes: 500000
+  allow_dns_write: false
+  allow_cache_purge: false
+  allow_zone_settings: false
+  allow_rulesets: false
+  allow_tunnels: false
+  allow_delete: false
+  confirmation_token: "CONFIRM_CLOUDFLARE_HIGH_RISK"
+  profiles:
+    production:
+      account_id_env: "CLOUDFLARE_ACCOUNT_ID"
+      zone_id_env: "CLOUDFLARE_ZONE_ID"
+      zone_name: "example.com"
+      allowed_dns_names:
+        - "example.com"
+        - "www.example.com"
+      allowed_ruleset_phases:
+        - "http_request_firewall_custom"
+        - "http_request_transform"
+      allowed_tunnel_ids: []
 ssh:
   enabled: false
   executable: "ssh"
