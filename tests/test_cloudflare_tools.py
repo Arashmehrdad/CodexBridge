@@ -873,7 +873,9 @@ def test_turnstile_secret_destination_uses_real_git_ignore_rule(tmp_path: Path) 
         assert prepared.path == tmp_path / ".env.production"
         assert prepared.temp_path.name.startswith(".env.production.codexbridge-")
         assert cloudflare_tools._git_path_is_ignored(tmp_path, prepared.path) is True
-        assert cloudflare_tools._git_path_is_ignored(tmp_path, prepared.temp_path) is True
+        assert (
+            cloudflare_tools._git_path_is_ignored(tmp_path, prepared.temp_path) is True
+        )
     finally:
         cloudflare_tools._cleanup_secret_destination(prepared)
 

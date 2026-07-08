@@ -255,7 +255,9 @@ def _prepare_secret_destination(
     if destination is None:
         raise ValueError("Turnstile secret destination is not configured")
     if repo_root is None:
-        raise ValueError("Turnstile secret actions require an authorized repository root")
+        raise ValueError(
+            "Turnstile secret actions require an authorized repository root"
+        )
     root = Path(repo_root).resolve()
     unresolved = root / destination.path
     if unresolved.exists() and unresolved.is_symlink():
@@ -264,18 +266,20 @@ def _prepare_secret_destination(
     try:
         path.relative_to(root)
     except ValueError:
-        raise ValueError("Turnstile secret destination escapes the repository") from None
+        raise ValueError(
+            "Turnstile secret destination escapes the repository"
+        ) from None
     if not path.parent.is_dir():
         raise ValueError("Turnstile secret destination parent directory does not exist")
     if not _git_path_is_ignored(root, path):
         raise ValueError("Turnstile secret destination must be Git-ignored")
     _validate_env_destination_file(path, destination.variable)
 
-    temp_path = path.with_name(
-        f"{path.name}.codexbridge-{secrets.token_hex(8)}.tmp"
-    )
+    temp_path = path.with_name(f"{path.name}.codexbridge-{secrets.token_hex(8)}.tmp")
     if not _git_path_is_ignored(root, temp_path):
-        raise ValueError("Turnstile secret destination temporary file must be Git-ignored")
+        raise ValueError(
+            "Turnstile secret destination temporary file must be Git-ignored"
+        )
     try:
         descriptor = os.open(
             temp_path,
@@ -762,7 +766,9 @@ def _request_turnstile_secret_action(
                 f"Cloudflare Turnstile secret action failed with HTTP {status_code}"
             ) from None
         except urllib.error.URLError:
-            raise ValueError("Cloudflare Turnstile secret action connection failed") from None
+            raise ValueError(
+                "Cloudflare Turnstile secret action connection failed"
+            ) from None
         except TimeoutError:
             raise ValueError("Cloudflare Turnstile secret action timed out") from None
         if len(raw) > config.cloudflare.max_output_bytes:
@@ -1452,9 +1458,7 @@ def build_cloudflare_action(
             sitekey = _require_turnstile_scope(profile, resource_id)
             data = {"invalidate_immediately": False}
             method = "POST"
-            path = (
-                f"/accounts/{account_id}/challenges/widgets/{sitekey}/rotate_secret"
-            )
+            path = f"/accounts/{account_id}/challenges/widgets/{sitekey}/rotate_secret"
             high_risk = True
             secret_response = True
         else:
