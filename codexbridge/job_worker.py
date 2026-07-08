@@ -747,6 +747,82 @@ class JobWorker:
             "transfer_result": transfer_result,
         }
 
+    def _execute_ssh_deployment(self, started_at: str, input_data: dict) -> dict:
+        host_id = str(input_data["host_id"])
+        deployment_id = str(input_data["deployment_id"])
+        host = resolve_ssh_host(self.config, host_id)
+        deployment = host.deployment_profiles.get(deployment_id)
+        if deployment is None:
+            raise ValueError(f"Unknown deployment_id: {deployment_id!r}")
+        repo_root = resolve_repo(self.config, deployment.repo_name)
+        run_dir = Path(self.run["run_dir"])
+        self.event(
+            "warning",
+            "ssh_deployment",
+            "Starting confirmed archive deployment",
+            {
+                "host_id": host_id,
+                "deployment_id": deployment_id,
+                "repo_name": deployment.repo_name,
+            },
+        )
+        deployment_result = dict(
+            redact_and_truncate(
+                run_ssh_deployment(
+                    self.config,
+                    host_id,
+                    deployment_id,
+                    repo_root=repo_root,
+                    run_dir=run_dir,
+                    run_id=self.run_id,
+                    confirmation=str(input_data.get("confirmation", "")),
+                )
+            )
+        )
+        self.artifacts.write_json("deployment_result.json", deployment_result)
+        stdout = str(deployment_result.get("stdout", ""))
+        stderr = str(deployment_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        ended_at = _utc_now()
+        risks = [
+            "Deployment changed remote state; inspect deployment steps and health output",
+            "CodexBridge cannot independently prove application-level correctness",
+        ]
+        if deployment_result.get("timed_out"):
+            risks.append(
+                "Deployment timed out; do not retry before checking the active release"
+            )
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "ssh_deployment",
+            "host_id": host_id,
+            "deployment_id": deployment_id,
+            "source_repo_name": deployment.repo_name,
+            "status": "completed" if deployment_result.get("ok") else "failed",
+            "exit_code": int(deployment_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": deployment_result.get("steps", []),
+            "summary": (
+                f"Deployment {deployment_id} completed"
+                if deployment_result.get("ok")
+                else str(deployment_result.get("error", "Deployment failed"))
+            ),
+            "remaining_risks": risks,
+            "error": str(deployment_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": bool(deployment_result.get("timed_out")),
+            "output_truncated": bool(deployment_result.get("output_truncated")),
+            "deployment_result": deployment_result,
+        }
+
     def _execute_external_fixture_validation(
         self,
         started_at: str,
