@@ -207,6 +207,13 @@ def test_cloudflare_config_and_profile_validation() -> None:
     with pytest.raises(ValidationError, match="UUID"):
         CloudflareProfileConfig(allowed_tunnel_ids=["bad-id"])
 
+    repo = RepoConfig(path=".", cloudflare_profiles=["production"])
+    assert repo.cloudflare_profiles == ["production"]
+    with pytest.raises(ValidationError, match="profile IDs assigned"):
+        RepoConfig(path=".", cloudflare_profiles=["bad profile"])
+    with pytest.raises(ValidationError, match="unique per repository"):
+        RepoConfig(path=".", cloudflare_profiles=["production", "production"])
+
 
 def test_docker_config_and_exec_profile_validation() -> None:
     config = DockerConfig(enabled=True, allow_push=True, allow_prune=True)
