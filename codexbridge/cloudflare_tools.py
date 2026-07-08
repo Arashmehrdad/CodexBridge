@@ -272,7 +272,7 @@ def _prepare_secret_destination(
     _validate_env_destination_file(path, destination.variable)
 
     temp_path = path.with_name(
-        f".{path.name}.codexbridge-{secrets.token_hex(8)}.tmp"
+        f"{path.name}.codexbridge-{secrets.token_hex(8)}.tmp"
     )
     if not _git_path_is_ignored(root, temp_path):
         raise ValueError("Turnstile secret destination temporary file must be Git-ignored")
