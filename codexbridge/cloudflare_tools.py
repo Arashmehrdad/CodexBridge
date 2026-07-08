@@ -587,6 +587,77 @@ def _require_tunnel_scope(profile: CloudflareProfileConfig, tunnel_id: str) -> s
     return tunnel_id
 
 
+def _safe_turnstile_sitekey(value: str) -> str:
+    sitekey = str(value or "").strip()
+    if (
+        not sitekey
+        or len(sitekey) > 64
+        or any(not (char.isalnum() or char in "_-") for char in sitekey)
+    ):
+        raise ValueError("Invalid Cloudflare Turnstile sitekey")
+    return sitekey
+
+
+def _require_turnstile_scope(
+    profile: CloudflareProfileConfig, sitekey: str
+) -> str:
+    sitekey = _safe_turnstile_sitekey(sitekey)
+    allowed = set(profile.allowed_turnstile_sitekeys)
+    if not allowed or sitekey not in allowed:
+        raise ValueError("Cloudflare Turnstile sitekey is not in allowed_turnstile_sitekeys")
+    return sitekey
+
+
+def _validate_turnstile_update_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _safe_payload(
+        payload,
+        allowed_keys={
+            "domains",
+            "mode",
+            "name",
+            "bot_fight_mode",
+            "clearance_level",
+            "ephemeral_id",
+            "offlabel",
+        },
+    )
+    if not payload:
+        raise ValueError("Turnstile widget update requires at least one field")
+    if "domains" in payload:
+        domains = payload["domains"]
+        if not isinstance(domains, list) or not domains or len(domains) > 15:
+            raise ValueError("Turnstile domains must contain between 1 and 15 values")
+        if any(
+            not isinstance(domain, str)
+            or not domain.strip()
+            or len(domain.strip()) > 253
+            or any(ord(char) < 33 or ord(char) == 127 for char in domain)
+            for domain in domains
+        ):
+            raise ValueError("Turnstile domains must be bounded non-empty hostnames")
+        payload["domains"] = [domain.strip().lower().rstrip(".") for domain in domains]
+    if "mode" in payload and payload["mode"] not in _TURNSTILE_MODES:
+        raise ValueError(f"Unsupported Turnstile mode: {payload['mode']!r}")
+    if "clearance_level" in payload and (
+        payload["clearance_level"] not in _TURNSTILE_CLEARANCE_LEVELS
+    ):
+        raise ValueError(
+            f"Unsupported Turnstile clearance_level: {payload['clearance_level']!r}"
+        )
+    if "name" in payload and (
+        not isinstance(payload["name"], str)
+        or not payload["name"].strip()
+        or len(payload["name"].strip()) > 254
+    ):
+        raise ValueError("Turnstile name must be a non-empty string of at most 254 characters")
+    if "name" in payload:
+        payload["name"] = payload["name"].strip()
+    for field in ("bot_fight_mode", "ephemeral_id", "offlabel"):
+        if field in payload and not isinstance(payload[field], bool):
+            raise ValueError(f"Turnstile {field} must be boolean")
+    return payload
+
+
 def run_cloudflare_inspection(
     config: AppConfig,
     profile_id: str,
