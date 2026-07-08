@@ -292,6 +292,7 @@ def test_start_cloudflare_action_creates_durable_run(
     manager = make_manager(tmp_path, monkeypatch)
     manager.config.cloudflare.enabled = True
     manager.config.cloudflare.allow_dns_write = True
+    manager.config.repos["sample"].cloudflare_profiles = ["production"]
     manager.config.cloudflare.profiles = {
         "production": CloudflareProfileConfig(
             zone_id="a" * 32,
@@ -301,6 +302,7 @@ def test_start_cloudflare_action_creates_durable_run(
     }
 
     response = manager.start_cloudflare_action(
+        "sample",
         "production",
         "dns_create",
         payload={
@@ -313,11 +315,12 @@ def test_start_cloudflare_action_creates_durable_run(
     )
 
     assert response["accepted"] is True
+    assert response["repo_name"] == "sample"
     assert response["profile_id"] == "production"
     assert response["action"] == "dns_create"
     assert response["high_risk"] is False
     status = manager.get_status(response["run_id"])
-    assert status["repo_name"] == "cloudflare:production"
+    assert status["repo_name"] == "cloudflare:sample:production"
     assert status["tool"] == "cloudflare_action"
     assert status["risk_level"] == "medium"
 
@@ -328,6 +331,7 @@ def test_cloudflare_high_risk_action_requires_confirmation(
     manager = make_manager(tmp_path, monkeypatch)
     manager.config.cloudflare.enabled = True
     manager.config.cloudflare.allow_delete = True
+    manager.config.repos["sample"].cloudflare_profiles = ["production"]
     manager.config.cloudflare.profiles = {
         "production": CloudflareProfileConfig(
             zone_id="a" * 32,
@@ -338,7 +342,34 @@ def test_cloudflare_high_risk_action_requires_confirmation(
 
     with pytest.raises(ValueError, match="requires confirmation token"):
         manager.start_cloudflare_action(
-            "production", "dns_delete", resource_id="c" * 32
+            "sample", "production", "dns_delete", resource_id="c" * 32
+        )
+
+
+def test_cloudflare_action_rejects_unauthorized_repository(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.cloudflare.enabled = True
+    manager.config.cloudflare.allow_dns_write = True
+    manager.config.cloudflare.profiles = {
+        "production": CloudflareProfileConfig(
+            zone_id="a" * 32,
+            zone_name="example.com",
+            allowed_dns_names=["api.example.com"],
+        )
+    }
+
+    with pytest.raises(ValueError, match="not authorized"):
+        manager.start_cloudflare_action(
+            "sample",
+            "production",
+            "dns_create",
+            payload={
+                "type": "A",
+                "name": "api.example.com",
+                "content": "192.0.2.10",
+            },
         )
 
 
