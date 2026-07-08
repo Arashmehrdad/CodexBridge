@@ -718,18 +718,22 @@ def build_cloudflare_action(
             unknown = sorted(set(data) - allowed_batch)
             if unknown or not data:
                 raise ValueError(f"Unsupported or empty DNS batch fields: {unknown}")
-            for key in ("posts", "puts"):
+            for record in data.get("posts", []):
+                if not isinstance(record, dict):
+                    raise ValueError("DNS batch posts entries must be objects")
+                _validate_dns_record_payload(profile, record, partial=False)
+            for key, partial in (("puts", False), ("patches", True)):
                 for record in data.get(key, []):
                     if not isinstance(record, dict):
                         raise ValueError(f"DNS batch {key} entries must be objects")
-                    _validate_dns_record_payload(profile, record, partial=False)
-            for record in data.get("patches", []):
-                if not isinstance(record, dict):
-                    raise ValueError("DNS batch patches entries must be objects")
-                if "id" not in record:
-                    raise ValueError("DNS batch patch entries require id")
-                _safe_resource_id(str(record["id"]), "dns_record_id")
-                _validate_dns_record_payload(profile, record, partial=True)
+                    record_id = record.get("id")
+                    if not record_id:
+                        raise ValueError(f"DNS batch {key} entries require id")
+                    _safe_resource_id(str(record_id), "dns_record_id")
+                    record_payload = {k: v for k, v in record.items() if k != "id"}
+                    _validate_dns_record_payload(
+                        profile, record_payload, partial=partial
+                    )
             for record in data.get("deletes", []):
                 if not isinstance(record, dict) or "id" not in record:
                     raise ValueError("DNS batch delete entries require id")
