@@ -442,3 +442,31 @@ def test_response_limit_and_capability_listing(monkeypatch, tmp_path: Path) -> N
     assert "tunnel_config_update" in capabilities["actions"]
     assert capabilities["arbitrary_http_supported"] is False
     assert capabilities["raw_graphql_supported"] is False
+
+
+def test_repository_cloudflare_profile_authorization_and_filtering(
+    tmp_path: Path,
+) -> None:
+    config = make_config(tmp_path)
+    config.repos["sample"].cloudflare_profiles = ["production"]
+    config.cloudflare.profiles["other"] = CloudflareProfileConfig(
+        account_id="e" * 32,
+        zone_id="f" * 32,
+        zone_name="other.example",
+        allowed_dns_names=["other.example"],
+    )
+
+    canonical_name, profile = cloudflare_tools.authorize_cloudflare_profile(
+        config, "Sample", "production"
+    )
+    assert canonical_name == "sample"
+    assert profile.zone_name == "example.com"
+
+    capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
+    assert capabilities["repo_name"] == "sample"
+    assert [item["profile_id"] for item in capabilities["profiles"]] == [
+        "production"
+    ]
+
+    with pytest.raises(ValueError, match="not authorized"):
+        cloudflare_tools.authorize_cloudflare_profile(config, "sample", "other")
