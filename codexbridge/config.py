@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List
+from pathlib import Path, PureWindowsPath
+from typing import Dict, List, Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -190,6 +190,46 @@ class SSHConfig(BaseModel):
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
 
 
+class CloudflareSecretDestinationConfig(BaseModel):
+    type: Literal["env_file"] = "env_file"
+    path: str
+    variable: str
+
+    @model_validator(mode="after")
+    def validate_destination(self) -> "CloudflareSecretDestinationConfig":
+        raw_path = str(self.path or "").strip().replace("\\", "/")
+        windows_path = PureWindowsPath(raw_path)
+        if (
+            not raw_path
+            or len(raw_path) > 512
+            or windows_path.is_absolute()
+            or windows_path.drive
+            or raw_path.startswith("//")
+            or any(part == ".." for part in windows_path.parts)
+            or any(ord(char) < 32 or ord(char) == 127 for char in raw_path)
+        ):
+            raise ValueError(
+                "Cloudflare secret destination path must be a safe repository-relative path"
+            )
+        variable = str(self.variable or "").strip()
+        if (
+            not variable
+            or len(variable) > 128
+            or variable[0].isdigit()
+            or any(not (char.isalnum() or char == "_") for char in variable)
+        ):
+            raise ValueError(
+                "Cloudflare secret destination variable must be an environment variable name"
+            )
+        self.path = raw_path
+        self.variable = variable
+        return self
+
+
+class CloudflareTurnstileConfig(BaseModel):
+    secret_destination: CloudflareSecretDestinationConfig | None = None
+
+
 class CloudflareProfileConfig(BaseModel):
     account_id: str = ""
     account_id_env: str = ""
@@ -200,6 +240,9 @@ class CloudflareProfileConfig(BaseModel):
     allowed_ruleset_phases: List[str] = Field(default_factory=list)
     allowed_tunnel_ids: List[str] = Field(default_factory=list)
     allowed_turnstile_sitekeys: List[str] = Field(default_factory=list)
+    turnstile: CloudflareTurnstileConfig = Field(
+        default_factory=CloudflareTurnstileConfig
+    )
 
     @model_validator(mode="after")
     def validate_profile(self) -> "CloudflareProfileConfig":
@@ -309,6 +352,9 @@ class CloudflareConfig(BaseModel):
     allow_rulesets: bool = False
     allow_tunnels: bool = False
     allow_turnstile: bool = False
+    allow_turnstile_write: bool = False
+    allow_turnstile_secret_rotation: bool = False
+    allow_turnstile_delete: bool = False
     allow_delete: bool = False
     confirmation_token: str = Field(
         default="CONFIRM_CLOUDFLARE_HIGH_RISK", min_length=8, max_length=128
