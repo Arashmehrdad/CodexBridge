@@ -168,6 +168,87 @@ def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
     assert queued["kwargs"]["build"] is True
 
 
+def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        cloudflare={
+            "enabled": True,
+            "allow_dns_write": True,
+            "profiles": {
+                "production": {
+                    "zone_id": "a" * 32,
+                    "zone_name": "example.com",
+                    "allowed_dns_names": ["api.example.com"],
+                }
+            },
+        },
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "_list_cloudflare_capabilities",
+        lambda cfg: {
+            "ok": True,
+            "enabled": cfg.cloudflare.enabled,
+            "actions": ["dns_create"],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "_cloudflare_health",
+        lambda cfg, profile_id: {
+            "ok": True,
+            "profile_id": profile_id,
+            "zone_name": "example.com",
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "_run_cloudflare_inspection",
+        lambda cfg, profile_id, operation, **kwargs: {
+            "ok": True,
+            "profile_id": profile_id,
+            "operation": operation,
+            "result": [{"id": "c" * 32}],
+            "error": "",
+        },
+    )
+
+    class FakeJobs:
+        def start_cloudflare_action(self, profile_id, action, **kwargs):
+            return {
+                "ok": True,
+                "run_id": "run_cloudflare",
+                "profile_id": profile_id,
+                "action": action,
+                "kwargs": kwargs,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+
+    assert server.list_cloudflare_capabilities()["actions"] == ["dns_create"]
+    assert server.cloudflare_health("production")["zone_name"] == "example.com"
+    inspected = server.cloudflare_inspect(
+        "production", "dns_records", name="api.example.com", record_type="A"
+    )
+    assert inspected["operation"] == "dns_records"
+    queued = server.start_cloudflare_action_async(
+        "production",
+        "dns_create",
+        payload={
+            "type": "A",
+            "name": "api.example.com",
+            "content": "192.0.2.10",
+        },
+    )
+    assert queued["run_id"] == "run_cloudflare"
+    assert queued["kwargs"]["payload"]["name"] == "api.example.com"
+
+
 def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
