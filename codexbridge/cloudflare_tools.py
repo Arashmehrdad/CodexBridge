@@ -598,13 +598,13 @@ def _safe_turnstile_sitekey(value: str) -> str:
     return sitekey
 
 
-def _require_turnstile_scope(
-    profile: CloudflareProfileConfig, sitekey: str
-) -> str:
+def _require_turnstile_scope(profile: CloudflareProfileConfig, sitekey: str) -> str:
     sitekey = _safe_turnstile_sitekey(sitekey)
     allowed = set(profile.allowed_turnstile_sitekeys)
     if not allowed or sitekey not in allowed:
-        raise ValueError("Cloudflare Turnstile sitekey is not in allowed_turnstile_sitekeys")
+        raise ValueError(
+            "Cloudflare Turnstile sitekey is not in allowed_turnstile_sitekeys"
+        )
     return sitekey
 
 
@@ -649,7 +649,9 @@ def _validate_turnstile_update_payload(payload: dict[str, Any]) -> dict[str, Any
         or not payload["name"].strip()
         or len(payload["name"].strip()) > 254
     ):
-        raise ValueError("Turnstile name must be a non-empty string of at most 254 characters")
+        raise ValueError(
+            "Turnstile name must be a non-empty string of at most 254 characters"
+        )
     if "name" in payload:
         payload["name"] = payload["name"].strip()
     for field in ("bot_fight_mode", "ephemeral_id", "offlabel"):
@@ -1036,9 +1038,7 @@ def build_cloudflare_action(
             if setting_id == "ssl_recommender":
                 data = _safe_payload(data, allowed_keys={"enabled"})
                 if not isinstance(data.get("enabled"), bool):
-                    raise ValueError(
-                        "SSL recommender update requires boolean enabled"
-                    )
+                    raise ValueError("SSL recommender update requires boolean enabled")
             else:
                 data = _safe_payload(data, allowed_keys={"value"})
                 if "value" not in data:
@@ -1278,9 +1278,7 @@ def list_cloudflare_capabilities(
                 "allowed_dns_names": list(profile.allowed_dns_names),
                 "allowed_ruleset_phases": list(profile.allowed_ruleset_phases),
                 "allowed_tunnel_ids": list(profile.allowed_tunnel_ids),
-                "allowed_turnstile_sitekeys": list(
-                    profile.allowed_turnstile_sitekeys
-                ),
+                "allowed_turnstile_sitekeys": list(profile.allowed_turnstile_sitekeys),
             }
         )
     return {

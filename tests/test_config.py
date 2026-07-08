@@ -211,10 +211,10 @@ def test_cloudflare_config_and_profile_validation() -> None:
         CloudflareProfileConfig(allowed_tunnel_ids=["bad-id"])
     with pytest.raises(ValidationError, match="allowed_turnstile_sitekeys"):
         CloudflareProfileConfig(allowed_turnstile_sitekeys=["bad sitekey"])
-    with pytest.raises(ValidationError, match="allowed_turnstile_sitekeys must be unique"):
-        CloudflareProfileConfig(
-            allowed_turnstile_sitekeys=["sitekey", "sitekey"]
-        )
+    with pytest.raises(
+        ValidationError, match="allowed_turnstile_sitekeys must be unique"
+    ):
+        CloudflareProfileConfig(allowed_turnstile_sitekeys=["sitekey", "sitekey"])
 
     repo = RepoConfig(path=".", cloudflare_profiles=["production"])
     assert repo.cloudflare_profiles == ["production"]
