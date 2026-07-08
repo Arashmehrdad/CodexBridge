@@ -609,6 +609,74 @@ class JobWorker:
             "command_result": command_result,
         }
 
+    def _execute_ssh_action(self, started_at: str, input_data: dict) -> dict:
+        host_id = str(input_data["host_id"])
+        action = str(input_data["action"])
+        kwargs = {
+            "target": str(input_data.get("target", "")),
+            "source": str(input_data.get("source", "")),
+            "destination": str(input_data.get("destination", "")),
+            "path": str(input_data.get("path", "")),
+            "deployment_id": str(input_data.get("deployment_id", "")),
+            "command_id": str(input_data.get("command_id", "")),
+            "packages": list(input_data.get("packages") or []),
+            "executable": str(input_data.get("executable", "")),
+            "args": list(input_data.get("args") or []),
+            "force": bool(input_data.get("force", False)),
+            "confirmation": str(input_data.get("confirmation", "")),
+        }
+        self.event(
+            "warning" if input_data.get("confirmation") else "info",
+            "ssh_action",
+            "Starting bounded SSH action",
+            {"host_id": host_id, "action": action},
+        )
+        command_result = dict(
+            redact_and_truncate(
+                run_ssh_action(self.config, host_id, action, **kwargs)
+            )
+        )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        ended_at = _utc_now()
+        risks: list[str] = []
+        if command_result.get("high_risk"):
+            risks.append("High-risk SSH action executed after explicit confirmation")
+        if command_result.get("timed_out"):
+            risks.append("SSH action timed out; inspect durable output before retrying")
+        risks.append("CodexBridge cannot independently verify the final remote state")
+        output_summary = (stdout or stderr).strip()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "ssh_action",
+            "host_id": host_id,
+            "action": action,
+            "writes_remote": bool(command_result.get("writes_remote", True)),
+            "high_risk": bool(command_result.get("high_risk", False)),
+            "remote_state_verified": False,
+            "status": "completed" if command_result.get("ok") else "failed",
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": output_summary,
+            "summary": output_summary[-4000:] if output_summary else f"SSH action {action} finished",
+            "remaining_risks": risks,
+            "error": str(command_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": bool(command_result.get("timed_out")),
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
+        }
+
     def _execute_external_fixture_validation(
         self,
         started_at: str,
