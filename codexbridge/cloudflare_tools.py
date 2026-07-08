@@ -287,6 +287,10 @@ def _prepare_secret_destination(
         finally:
             os.close(descriptor)
     except OSError:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise ValueError("Turnstile secret destination is not writable") from None
     return PreparedSecretDestination(
         path=path,
