@@ -117,11 +117,7 @@ def test_inspection_builders_cover_service_git_and_file_debugging(
         tail=350,
     )
 
-    assert host_info.remote_argv == [
-        "hostnamectl",
-        "--no-pager",
-        "--no-ask-password",
-    ]
+    assert host_info.remote_argv == ["hostnamectl", "--static"]
     assert service.remote_argv == [
         "systemctl",
         "status",
