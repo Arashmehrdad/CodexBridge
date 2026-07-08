@@ -181,6 +181,13 @@ def test_cloudflare_config_and_profile_validation() -> None:
         allowed_ruleset_phases=["http_request_firewall_custom"],
         allowed_tunnel_ids=["12345678-1234-1234-1234-123456789abc"],
         allowed_turnstile_sitekeys=["0x" + ("a" * 30)],
+        turnstile={
+            "secret_destination": {
+                "type": "env_file",
+                "path": ".env.production",
+                "variable": "TURNSTILE_SECRET_KEY",
+            }
+        },
     )
     config = CloudflareConfig(
         enabled=True,
@@ -193,9 +200,16 @@ def test_cloudflare_config_and_profile_validation() -> None:
     assert config.env_file == ".env"
     assert config.confirmation_token == "CONFIRM_CLOUDFLARE_HIGH_RISK"
     assert config.allow_turnstile is False
+    assert config.allow_turnstile_write is False
+    assert config.allow_turnstile_secret_rotation is False
+    assert config.allow_turnstile_delete is False
     assert profile.zone_name == "example.com"
     assert profile.allowed_dns_names == ["api.example.com"]
     assert profile.allowed_turnstile_sitekeys == ["0x" + ("a" * 30)]
+    assert profile.turnstile.secret_destination is not None
+    assert profile.turnstile.secret_destination.type == "env_file"
+    assert profile.turnstile.secret_destination.path == ".env.production"
+    assert profile.turnstile.secret_destination.variable == "TURNSTILE_SECRET_KEY"
 
     with pytest.raises(ValidationError, match="official client v4"):
         CloudflareConfig(api_base_url="https://example.com/client/v4")
@@ -215,6 +229,36 @@ def test_cloudflare_config_and_profile_validation() -> None:
         ValidationError, match="allowed_turnstile_sitekeys must be unique"
     ):
         CloudflareProfileConfig(allowed_turnstile_sitekeys=["sitekey", "sitekey"])
+    with pytest.raises(ValidationError, match="safe repository-relative path"):
+        CloudflareProfileConfig(
+            turnstile={
+                "secret_destination": {
+                    "type": "env_file",
+                    "path": "../outside.env",
+                    "variable": "TURNSTILE_SECRET_KEY",
+                }
+            }
+        )
+    with pytest.raises(ValidationError, match="environment variable name"):
+        CloudflareProfileConfig(
+            turnstile={
+                "secret_destination": {
+                    "type": "env_file",
+                    "path": ".env.production",
+                    "variable": "bad-variable",
+                }
+            }
+        )
+    with pytest.raises(ValidationError, match="Input should be 'env_file'"):
+        CloudflareProfileConfig(
+            turnstile={
+                "secret_destination": {
+                    "type": "stdout",
+                    "path": ".env.production",
+                    "variable": "TURNSTILE_SECRET_KEY",
+                }
+            }
+        )
 
     repo = RepoConfig(path=".", cloudflare_profiles=["production"])
     assert repo.cloudflare_profiles == ["production"]
