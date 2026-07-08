@@ -18,6 +18,7 @@ def test_cloudflare_action_worker_persists_result(monkeypatch, tmp_path: Path) -
                 "repos:",
                 "  sample:",
                 f'    path: "{repo.as_posix()}"',
+                "    cloudflare_profiles: [production]",
                 "cloudflare:",
                 "  enabled: true",
                 "  allow_dns_write: true",
@@ -39,10 +40,11 @@ def test_cloudflare_action_worker_persists_result(monkeypatch, tmp_path: Path) -
     store = RunStore(runs_dir)
     store.create_run(
         run_id=run_id,
-        repo_name="cloudflare:production",
+        repo_name="cloudflare:sample:production",
         tool="cloudflare_action",
         run_dir=run_dir,
         input_data={
+            "repo_name": "sample",
             "profile_id": "production",
             "action": "dns_create",
             "resource_id": "",
@@ -83,7 +85,8 @@ def test_cloudflare_action_worker_persists_result(monkeypatch, tmp_path: Path) -
     result = persisted["result"]
     assert persisted["status"] == "completed"
     assert result["tool"] == "cloudflare_action"
-    assert result["repo_name"] == "cloudflare:production"
+    assert result["repo_name"] == "sample"
+    assert result["cloudflare_profile_id"] == "production"
     assert result["profile_id"] == "production"
     assert result["action"] == "dns_create"
     assert result["method"] == "POST"
