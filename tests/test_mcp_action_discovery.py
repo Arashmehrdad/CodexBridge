@@ -805,6 +805,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "codex_implement_task",
         "commit_selected_files",
         "start_codex_implement_task_async",
+        "start_docker_action_async",
         "start_project_command_async",
         "start_pytest_path_async",
         "start_py_compile_path_async",
