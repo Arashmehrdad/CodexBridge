@@ -79,9 +79,11 @@ class SSHDeploymentProfileConfig(BaseModel):
     remote_root: str
     local_subdir: str = "."
     compose_file: str = ""
+    compose_project_name: str = ""
     compose_services: List[str] = Field(default_factory=list)
     compose_build: bool = True
     env_file: str = ""
+    shared_files: Dict[str, str] = Field(default_factory=dict)
     service_name: str = ""
     health_command_id: str = ""
     exclude_paths: List[str] = Field(default_factory=list)
@@ -101,6 +103,12 @@ class SSHDeploymentProfileConfig(BaseModel):
             raise ValueError("SSH deployment compose_file must be relative to remote_root")
         if self.env_file and not self.env_file.startswith("/"):
             raise ValueError("SSH deployment env_file must be an absolute POSIX path")
+        for remote_source, release_target in self.shared_files.items():
+            if not remote_source.startswith("/") or "\\" in remote_source:
+                raise ValueError("SSH deployment shared file sources must be absolute POSIX paths")
+            normalized_target = release_target.replace("\\", "/")
+            if normalized_target.startswith("/") or ".." in normalized_target.split("/"):
+                raise ValueError("SSH deployment shared file targets must be release-relative")
         return self
 
 
