@@ -545,7 +545,7 @@ def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:
         confirmation=confirmation,
     )
     assert recommender_spec.payload == {"enabled": True}
-    with pytest.raises(ValueError, match="boolean enabled"):
+    with pytest.raises(ValueError, match="Unsupported Cloudflare payload fields"):
         cloudflare_tools.build_cloudflare_action(
             config,
             "production",
