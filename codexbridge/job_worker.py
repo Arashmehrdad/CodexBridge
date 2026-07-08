@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from . import git_tools
-from .cloudflare_tools import run_cloudflare_action
+from .cloudflare_tools import authorize_cloudflare_profile, run_cloudflare_action
 from .command_profiles import (
     BASH_N_PATH_COMMAND_ID,
     GIT_READONLY_COMMAND_ID,
@@ -681,13 +681,21 @@ class JobWorker:
         }
 
     def _execute_cloudflare_action(self, started_at: str, input_data: dict) -> dict:
+        repo_name = str(input_data["repo_name"])
         profile_id = str(input_data["profile_id"])
         action = str(input_data["action"])
+        canonical_repo_name, _ = authorize_cloudflare_profile(
+            self.config, repo_name, profile_id
+        )
         self.event(
             "warning" if input_data.get("confirmation") else "info",
             "cloudflare_action",
             "Starting bounded Cloudflare action",
-            {"profile_id": profile_id, "action": action},
+            {
+                "repo_name": canonical_repo_name,
+                "profile_id": profile_id,
+                "action": action,
+            },
         )
         action_result = dict(
             redact_and_truncate(
@@ -718,8 +726,9 @@ class JobWorker:
         output_summary = (stdout or stderr).strip()
         return {
             "run_id": self.run_id,
-            "repo_name": f"cloudflare:{profile_id}",
+            "repo_name": canonical_repo_name,
             "tool": "cloudflare_action",
+            "cloudflare_profile_id": profile_id,
             "profile_id": profile_id,
             "action": action,
             "writes_remote": True,
