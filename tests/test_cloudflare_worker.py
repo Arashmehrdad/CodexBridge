@@ -123,7 +123,7 @@ def test_turnstile_rotation_worker_never_persists_secret(
                 "  profiles:",
                 "    production:",
                 f"      account_id: {'b' * 32}",
-                f"      allowed_turnstile_sitekeys: [{sitekey}]",
+                f'      allowed_turnstile_sitekeys: ["{sitekey}"]',
                 "      turnstile:",
                 "        secret_destination:",
                 "          type: env_file",
