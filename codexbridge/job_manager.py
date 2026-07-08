@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .cloudflare_tools import build_cloudflare_action
 from .command_profiles import (
     BASH_N_PATH_COMMAND_ID,
     GIT_READONLY_COMMAND_ID,
@@ -513,12 +514,62 @@ class JobManager:
         response["deployment_id"] = deployment_id
         return response
 
+    def start_cloudflare_action(
+        self,
+        profile_id: str,
+        action: str,
+        *,
+        resource_id: str = "",
+        payload: dict | None = None,
+        confirmation: str = "",
+    ) -> dict:
+        normalized_payload = dict(payload or {})
+        spec = build_cloudflare_action(
+            self.config,
+            profile_id,
+            action,
+            resource_id=resource_id,
+            payload=normalized_payload,
+            confirmation=confirmation,
+        )
+        estimated_minutes = max(1, (spec.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3 if spec.high_risk else 2,
+            risk_level="high" if spec.high_risk else "medium",
+            requires_human=False,
+            reason=(
+                "Explicitly confirmed high-risk Cloudflare action is approved"
+                if spec.high_risk
+                else "Bounded Cloudflare action is approved for durable execution"
+            ),
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        input_data = {
+            "profile_id": profile_id,
+            "action": action,
+            "resource_id": resource_id,
+            "payload": normalized_payload,
+            "confirmation": confirmation,
+        }
+        response = self._create_and_launch(
+            "cloudflare_action",
+            f"cloudflare:{profile_id}",
+            input_data,
+            decision,
+        )
+        response["profile_id"] = profile_id
+        response["action"] = action
+        response["high_risk"] = spec.high_risk
+        return response
+
     def _create_and_launch(
         self, tool: str, repo_name: str, input_data: dict, decision
     ) -> dict:
         requested_repo_name = repo_name
         input_data = dict(input_data)
-        if not repo_name.startswith("ssh:"):
+        if not repo_name.startswith(("ssh:", "cloudflare:")):
             resolve_repo(self.config, repo_name)
             canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
             repo_name = canonical_repo_name
