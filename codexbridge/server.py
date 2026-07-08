@@ -1212,7 +1212,7 @@ def start_cloudflare_action_async(
     profile_id: str,
     action: str,
     resource_id: str = "",
-    payload: dict[str, Any] | None = None,
+    payload: dict[str, Any] = {},
     confirmation: str = "",
 ) -> dict:
     """Write async tool: queue one bounded Cloudflare DNS, cache, zone, ruleset, or tunnel action."""
