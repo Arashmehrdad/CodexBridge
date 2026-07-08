@@ -47,7 +47,8 @@ from .run_guards import (
 )
 from .runner import CodexRunner, _safe_command_args
 from .safety import reject_destructive_command, validate_repo_relative_paths
-from .ssh_commands import run_ssh_command
+from .ssh_commands import resolve_ssh_host, run_ssh_command
+from .ssh_tools import run_ssh_action, run_ssh_deployment, run_ssh_transfer
 
 
 def _utc_now() -> str:
@@ -243,6 +244,12 @@ class JobWorker:
 
         if tool == "ssh_command":
             return self._execute_ssh_command(started_at, input_data)
+        if tool == "ssh_action":
+            return self._execute_ssh_action(started_at, input_data)
+        if tool == "ssh_transfer":
+            return self._execute_ssh_transfer(started_at, input_data)
+        if tool == "ssh_deployment":
+            return self._execute_ssh_deployment(started_at, input_data)
 
         repo_name = input_data["repo_name"]
         repo_root = resolve_repo(self.config, repo_name)
