@@ -854,6 +854,11 @@ def run_ssh_deployment(
             sensitive=True,
         )
         if not remote_step(
+            f"verify_shared:{release_target}",
+            ["test", "-f", source_path],
+        ):
+            return _deployment_result(host_id, deployment_id, archive_path, steps)
+        if not remote_step(
             f"link_shared:{release_target}",
             ["ln", "-sfn", source_path, target_path],
         ):
@@ -912,7 +917,15 @@ def run_ssh_deployment(
     if not remote_step("activate", ["ln", "-sfn", release_root, current_link]):
         return _deployment_result(host_id, deployment_id, archive_path, steps)
 
-    remote_step("cleanup_archive", ["rm", "-f", "--", remote_archive])
+    cleanup = _run_remote_argv(
+        config,
+        host_id,
+        ["rm", "-f", "--", remote_archive],
+        timeout_seconds=600,
+    )
+    cleanup["step"] = "cleanup_archive"
+    cleanup["non_fatal"] = True
+    steps.append(cleanup)
     return _deployment_result(host_id, deployment_id, archive_path, steps)
 
 
@@ -922,8 +935,16 @@ def _deployment_result(
     archive_path: Path,
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    ok = bool(steps) and all(bool(step.get("ok")) for step in steps)
-    failed_step = next((str(step.get("step")) for step in steps if not step.get("ok")), "")
+    required_steps = [step for step in steps if not step.get("non_fatal")]
+    ok = bool(required_steps) and all(bool(step.get("ok")) for step in required_steps)
+    failed_step = next(
+        (
+            str(step.get("step"))
+            for step in required_steps
+            if not step.get("ok")
+        ),
+        "",
+    )
     return {
         "ok": ok,
         "host_id": host_id,
