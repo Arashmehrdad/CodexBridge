@@ -41,7 +41,7 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.ssh.hosts["my_vps"].ssh_alias == "my-vps"
     assert [
         profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
-    ] == ["uptime", "restart_app"]
+    ] == ["health", "uptime", "restart_app"]
 
 
 def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
