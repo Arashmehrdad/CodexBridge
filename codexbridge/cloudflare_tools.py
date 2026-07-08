@@ -84,9 +84,7 @@ _DNS_TYPES = frozenset(
     }
 )
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _SETTING_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _FORBIDDEN_PAYLOAD_KEYS = {
@@ -243,8 +241,10 @@ def _safe_dns_name(
         for label in name.split(".")
     ):
         raise ValueError(f"Invalid DNS record name: {value!r}")
-    if profile.zone_name and name != profile.zone_name and not name.endswith(
-        f".{profile.zone_name}"
+    if (
+        profile.zone_name
+        and name != profile.zone_name
+        and not name.endswith(f".{profile.zone_name}")
     ):
         raise ValueError("DNS record name is outside the configured Cloudflare zone")
     if profile.allowed_dns_names and name not in set(profile.allowed_dns_names):
@@ -327,7 +327,9 @@ def _error_messages(body: Any) -> str:
             messages = []
             for item in errors:
                 if isinstance(item, dict):
-                    messages.append(str(item.get("message") or item.get("code") or item))
+                    messages.append(
+                        str(item.get("message") or item.get("code") or item)
+                    )
                 else:
                     messages.append(str(item))
             if messages:
@@ -600,7 +602,9 @@ def run_cloudflare_inspection(
 
 def _require_gate(config: AppConfig, gate: str, action: str) -> None:
     if not bool(getattr(config.cloudflare, gate)):
-        raise ValueError(f"Cloudflare action {action!r} is disabled by config gate {gate}")
+        raise ValueError(
+            f"Cloudflare action {action!r} is disabled by config gate {gate}"
+        )
 
 
 def _require_confirmation(config: AppConfig, action: str, confirmation: str) -> None:
@@ -640,8 +644,10 @@ def _validate_dns_record_payload(
         raise ValueError("DNS payload requires content or data")
     if "ttl" in payload:
         ttl = payload["ttl"]
-        if not isinstance(ttl, int) or isinstance(ttl, bool) or (
-            ttl != 1 and not 60 <= ttl <= 86400
+        if (
+            not isinstance(ttl, int)
+            or isinstance(ttl, bool)
+            or (ttl != 1 and not 60 <= ttl <= 86400)
         ):
             raise ValueError("DNS ttl must be 1 or between 60 and 86400")
     if "proxied" in payload and not isinstance(payload["proxied"], bool):
@@ -747,7 +753,9 @@ def build_cloudflare_action(
         unknown = sorted(set(data) - allowed)
         populated = [key for key in allowed if key in data]
         if unknown or len(populated) != 1:
-            raise ValueError("Cache purge requires exactly one supported purge selector")
+            raise ValueError(
+                "Cache purge requires exactly one supported purge selector"
+            )
         selector = populated[0]
         if selector == "purge_everything":
             if data[selector] is not True:
@@ -757,7 +765,9 @@ def build_cloudflare_action(
         else:
             values = data[selector]
             if not isinstance(values, list) or not values or len(values) > 30:
-                raise ValueError("Cache purge lists must contain between 1 and 30 values")
+                raise ValueError(
+                    "Cache purge lists must contain between 1 and 30 values"
+                )
             if any(not isinstance(value, str) or not value.strip() for value in values):
                 raise ValueError("Cache purge values must be non-empty strings")
         method = "POST"
@@ -798,14 +808,18 @@ def build_cloudflare_action(
         high_risk = True
         zone_id = _zone_id(config, profile)
         if action == "ruleset_create":
-            data = _safe_payload(data, allowed_keys={"name", "description", "kind", "phase", "rules"})
+            data = _safe_payload(
+                data, allowed_keys={"name", "description", "kind", "phase", "rules"}
+            )
             _validate_ruleset_phase(profile, data, required=True)
             method = "POST"
             path = f"/zones/{zone_id}/rulesets"
         else:
             ruleset_id = _safe_resource_id(resource_id, "ruleset_id")
             if action == "ruleset_update":
-                data = _safe_payload(data, allowed_keys={"description", "name", "kind", "phase", "rules"})
+                data = _safe_payload(
+                    data, allowed_keys={"description", "name", "kind", "phase", "rules"}
+                )
                 _validate_ruleset_phase(profile, data, required=False)
                 method = "PUT"
                 path = f"/zones/{zone_id}/rulesets/{ruleset_id}"
@@ -815,13 +829,37 @@ def build_cloudflare_action(
                 data = {}
                 path = f"/zones/{zone_id}/rulesets/{ruleset_id}"
             elif action == "ruleset_rule_add":
-                data = _safe_payload(data, allowed_keys={"action", "action_parameters", "description", "enabled", "expression", "logging", "ratelimit", "ref"})
+                data = _safe_payload(
+                    data,
+                    allowed_keys={
+                        "action",
+                        "action_parameters",
+                        "description",
+                        "enabled",
+                        "expression",
+                        "logging",
+                        "ratelimit",
+                        "ref",
+                    },
+                )
                 method = "POST"
                 path = f"/zones/{zone_id}/rulesets/{ruleset_id}/rules"
             else:
                 rule_id = _safe_resource_id(str(data.pop("rule_id", "")), "rule_id")
                 if action == "ruleset_rule_update":
-                    data = _safe_payload(data, allowed_keys={"action", "action_parameters", "description", "enabled", "expression", "logging", "ratelimit", "ref"})
+                    data = _safe_payload(
+                        data,
+                        allowed_keys={
+                            "action",
+                            "action_parameters",
+                            "description",
+                            "enabled",
+                            "expression",
+                            "logging",
+                            "ratelimit",
+                            "ref",
+                        },
+                    )
                     method = "PATCH"
                 else:
                     _require_gate(config, "allow_delete", action)
@@ -837,11 +875,15 @@ def build_cloudflare_action(
             data = _safe_payload(data, allowed_keys={"name", "config_src"})
             name = str(data.get("name", "")).strip()
             if not name or len(name) > 128:
-                raise ValueError("Tunnel create requires a name of at most 128 characters")
+                raise ValueError(
+                    "Tunnel create requires a name of at most 128 characters"
+                )
             data["config_src"] = str(data.get("config_src") or "cloudflare")
             if data["config_src"] != "cloudflare":
                 raise ValueError("Tunnel config_src must be cloudflare")
-            data["tunnel_secret"] = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+            data["tunnel_secret"] = base64.b64encode(secrets.token_bytes(32)).decode(
+                "ascii"
+            )
             method = "POST"
             path = f"/accounts/{account_id}/cfd_tunnel"
         elif action == "tunnel_route_create":
@@ -868,7 +910,9 @@ def build_cloudflare_action(
             if action == "tunnel_config_update":
                 data = _safe_payload(data, allowed_keys={"config"})
                 if not isinstance(data.get("config"), dict):
-                    raise ValueError("Tunnel configuration update requires config object")
+                    raise ValueError(
+                        "Tunnel configuration update requires config object"
+                    )
                 method = "PUT"
                 path = f"/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations"
             else:

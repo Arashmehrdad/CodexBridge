@@ -1309,7 +1309,10 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
 def test_cloudflare_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert set(actions["list_cloudflare_capabilities"]["inputSchema"]["properties"]) == set()
+    assert (
+        set(actions["list_cloudflare_capabilities"]["inputSchema"]["properties"])
+        == set()
+    )
     health_schema = actions["cloudflare_health"]["inputSchema"]
     assert set(health_schema["properties"]) == {"profile_id"}
     assert set(health_schema.get("required", [])) == {"profile_id"}
@@ -1336,7 +1339,9 @@ def test_cloudflare_tool_input_schemas_are_exact() -> None:
         "confirmation",
     }
     assert set(action_schema.get("required", [])) == {"profile_id", "action"}
-    assert actions["start_cloudflare_action_async"]["annotations"]["readOnlyHint"] is False
+    assert (
+        actions["start_cloudflare_action_async"]["annotations"]["readOnlyHint"] is False
+    )
 
 
 def test_remote_capability_tools_delegate(monkeypatch) -> None:

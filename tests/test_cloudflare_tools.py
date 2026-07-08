@@ -76,9 +76,7 @@ def test_token_must_come_from_environment(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv(config.cloudflare.token_env, raising=False)
 
     with pytest.raises(ValueError, match="missing from environment variable"):
-        cloudflare_tools.run_cloudflare_inspection(
-            config, "production", "token_verify"
-        )
+        cloudflare_tools.run_cloudflare_inspection(config, "production", "token_verify")
 
 
 def test_token_verify_uses_fixed_official_endpoint(monkeypatch, tmp_path: Path) -> None:
@@ -235,9 +233,7 @@ def test_dns_batch_supports_post_put_patch_and_delete_entries(tmp_path: Path) ->
                     "ttl": 300,
                 }
             ],
-            "patches": [
-                {"id": RECORD_ID, "content": "192.0.2.12", "proxied": True}
-            ],
+            "patches": [{"id": RECORD_ID, "content": "192.0.2.12", "proxied": True}],
             "deletes": [{"id": RECORD_ID}],
         },
         confirmation=config.cloudflare.confirmation_token,
@@ -384,9 +380,7 @@ def test_api_errors_are_safe(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
     with pytest.raises(ValueError, match="Authentication error") as exc:
-        cloudflare_tools.run_cloudflare_inspection(
-            config, "production", "token_verify"
-        )
+        cloudflare_tools.run_cloudflare_inspection(config, "production", "token_verify")
     assert "test-cloudflare-token" not in str(exc.value)
 
 
@@ -405,9 +399,7 @@ def test_response_limit_and_capability_listing(monkeypatch, tmp_path: Path) -> N
         lambda request, timeout: OversizedResponse(),
     )
     with pytest.raises(ValueError, match="exceeded max_output_bytes"):
-        cloudflare_tools.run_cloudflare_inspection(
-            config, "production", "token_verify"
-        )
+        cloudflare_tools.run_cloudflare_inspection(config, "production", "token_verify")
 
     capabilities = cloudflare_tools.list_cloudflare_capabilities(config)
     assert capabilities["enabled"] is True

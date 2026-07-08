@@ -680,9 +680,7 @@ class JobWorker:
             "command_result": command_result,
         }
 
-    def _execute_cloudflare_action(
-        self, started_at: str, input_data: dict
-    ) -> dict:
+    def _execute_cloudflare_action(self, started_at: str, input_data: dict) -> dict:
         profile_id = str(input_data["profile_id"])
         action = str(input_data["action"])
         self.event(
