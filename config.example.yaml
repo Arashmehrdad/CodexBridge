@@ -46,6 +46,9 @@ cloudflare:
   allow_zone_settings: false
   allow_rulesets: false
   allow_tunnels: false
+  allow_turnstile_write: false
+  allow_turnstile_secret_rotation: false
+  allow_turnstile_delete: false
   allow_delete: false
   confirmation_token: "CONFIRM_CLOUDFLARE_HIGH_RISK"
   profiles:
@@ -60,6 +63,12 @@ cloudflare:
         - "http_request_firewall_custom"
         - "http_request_transform"
       allowed_tunnel_ids: []
+      allowed_turnstile_sitekeys: []
+      turnstile:
+        secret_destination:
+          type: "env_file"
+          path: ".env.production"
+          variable: "TURNSTILE_SECRET_KEY"
     second_site_production:
       account_id_env: "SECOND_SITE_CLOUDFLARE_ACCOUNT_ID"
       zone_id_env: "SECOND_SITE_CLOUDFLARE_ZONE_ID"
@@ -70,6 +79,12 @@ cloudflare:
       allowed_ruleset_phases:
         - "http_request_firewall_custom"
       allowed_tunnel_ids: []
+      allowed_turnstile_sitekeys: []
+      turnstile:
+        secret_destination:
+          type: "env_file"
+          path: ".env.production"
+          variable: "SECOND_SITE_TURNSTILE_SECRET_KEY"
 ssh:
   enabled: false
   executable: "ssh"
