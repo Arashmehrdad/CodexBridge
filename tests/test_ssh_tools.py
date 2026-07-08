@@ -236,7 +236,7 @@ def test_transfer_uses_scp_shell_false_and_repo_scoping(
     assert captured["argv"][-2] == str(repo / "app.txt")
     assert captured["argv"][-1] == "sample-host:/srv/app/incoming/app.txt"
 
-    with pytest.raises(ValueError, match="outside repository"):
+    with pytest.raises(ValueError, match="Parent traversal"):
         ssh_tools.run_ssh_transfer(
             config,
             "sample_host",
