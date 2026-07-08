@@ -21,6 +21,7 @@ ACCOUNT_ID = "b" * 32
 RECORD_ID = "c" * 32
 RULESET_ID = "d" * 32
 TUNNEL_ID = "12345678-1234-1234-1234-123456789abc"
+TURNSTILE_SITEKEY = "0x" + ("a" * 30)
 
 
 class FakeResponse:
@@ -48,6 +49,7 @@ def make_config(tmp_path: Path, **overrides) -> AppConfig:
         allowed_dns_names=["example.com", "api.example.com"],
         allowed_ruleset_phases=["http_request_firewall_custom"],
         allowed_tunnel_ids=[TUNNEL_ID],
+        allowed_turnstile_sitekeys=[TURNSTILE_SITEKEY],
     )
     values = {
         "enabled": True,
@@ -56,6 +58,7 @@ def make_config(tmp_path: Path, **overrides) -> AppConfig:
         "allow_zone_settings": True,
         "allow_rulesets": True,
         "allow_tunnels": True,
+        "allow_turnstile": True,
         "allow_delete": True,
         "profiles": {"production": profile},
     }
@@ -468,3 +471,207 @@ def test_repository_cloudflare_profile_authorization_and_filtering(
 
     with pytest.raises(ValueError, match="not authorized"):
         cloudflare_tools.authorize_cloudflare_profile(config, "sample", "other")
+
+
+def test_exact_read_capability_aliases_use_fixed_scoped_endpoints(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    urls: list[str] = []
+
+    def fake_urlopen(request, timeout):
+        urls.append(request.full_url)
+        return FakeResponse({"success": True, "result": []})
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
+    calls = [
+        ("list_accounts", {}),
+        ("list_zones", {"name": "example.com", "page": 2, "per_page": 25}),
+        ("get_zone", {}),
+        ("list_dns_records", {}),
+        ("list_turnstile_widgets", {}),
+        ("list_tunnels", {}),
+        ("list_rulesets", {}),
+        ("get_ssl_settings", {"resource_id": "min_tls_version"}),
+    ]
+    results = [
+        cloudflare_tools.run_cloudflare_inspection(
+            config, "production", operation, **kwargs
+        )
+        for operation, kwargs in calls
+    ]
+
+    assert urls[0].endswith(f"/accounts/{ACCOUNT_ID}")
+    assert urls[1].startswith("https://api.cloudflare.com/client/v4/zones?")
+    assert f"account.id={ACCOUNT_ID}" in urls[1]
+    assert "name=example.com" in urls[1]
+    assert urls[2].endswith(f"/zones/{ZONE_ID}")
+    assert f"/zones/{ZONE_ID}/dns_records" in urls[3]
+    assert urls[4].startswith(
+        f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/challenges/widgets?"
+    )
+    assert f"/accounts/{ACCOUNT_ID}/cfd_tunnel" in urls[5]
+    assert urls[6].endswith(f"/zones/{ZONE_ID}/rulesets")
+    assert urls[7].endswith(f"/zones/{ZONE_ID}/settings/min_tls_version")
+    assert results[2]["operation"] == "get_zone"
+    assert results[2]["canonical_operation"] == "zone_details"
+    assert results[7]["canonical_operation"] == "get_ssl_settings"
+
+
+def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+    confirmation = config.cloudflare.confirmation_token
+
+    spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "update_ssl_settings",
+        resource_id="tls_1_3",
+        payload={"value": "on"},
+        confirmation=confirmation,
+    )
+    assert spec.action == "update_ssl_settings"
+    assert spec.method == "PATCH"
+    assert spec.path == f"/zones/{ZONE_ID}/settings/tls_1_3"
+    assert spec.high_risk is True
+
+    with pytest.raises(ValueError, match="Unsupported Cloudflare SSL setting"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_ssl_settings",
+            resource_id="unbounded_setting",
+            payload={"value": "on"},
+            confirmation=confirmation,
+        )
+    with pytest.raises(ValueError, match="Unsupported Cloudflare SSL setting"):
+        cloudflare_tools.run_cloudflare_inspection(
+            config,
+            "production",
+            "get_ssl_settings",
+            resource_id="unbounded_setting",
+        )
+
+
+def test_turnstile_update_is_gated_confirmed_and_profile_scoped(tmp_path: Path) -> None:
+    config = make_config(tmp_path, allow_turnstile=False)
+    payload = {
+        "name": "Andia widget",
+        "domains": ["Andia-Beauty.example.com"],
+        "mode": "managed",
+        "clearance_level": "no_clearance",
+        "ephemeral_id": True,
+    }
+
+    with pytest.raises(ValueError, match="allow_turnstile"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_turnstile_widget",
+            resource_id=TURNSTILE_SITEKEY,
+            payload=payload,
+            confirmation=config.cloudflare.confirmation_token,
+        )
+
+    config.cloudflare.allow_turnstile = True
+    with pytest.raises(ValueError, match="allowed_turnstile_sitekeys"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_turnstile_widget",
+            resource_id="0x" + ("b" * 30),
+            payload=payload,
+            confirmation=config.cloudflare.confirmation_token,
+        )
+    with pytest.raises(ValueError, match="requires confirmation token"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_turnstile_widget",
+            resource_id=TURNSTILE_SITEKEY,
+            payload=payload,
+        )
+
+    spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "update_turnstile_widget",
+        resource_id=TURNSTILE_SITEKEY,
+        payload=payload,
+        confirmation=config.cloudflare.confirmation_token,
+    )
+    assert spec.method == "PUT"
+    assert spec.path == (
+        f"/accounts/{ACCOUNT_ID}/challenges/widgets/{TURNSTILE_SITEKEY}"
+    )
+    assert spec.payload["domains"] == ["andia-beauty.example.com"]
+    assert spec.high_risk is True
+
+    with pytest.raises(ValueError, match="forbidden"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_turnstile_widget",
+            resource_id=TURNSTILE_SITEKEY,
+            payload={"secret": "must-not-be-accepted"},
+            confirmation=config.cloudflare.confirmation_token,
+        )
+
+
+def test_exact_write_aliases_preserve_existing_bounded_implementations(
+    tmp_path: Path,
+) -> None:
+    config = make_config(tmp_path)
+    dns_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "create_dns_record",
+        payload={
+            "type": "A",
+            "name": "api.example.com",
+            "content": "192.0.2.44",
+            "ttl": 300,
+        },
+    )
+    purge_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "purge_cache",
+        payload={"files": ["https://example.com/app.css"]},
+    )
+    tunnel_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "create_tunnel",
+        payload={"name": "bounded-tunnel"},
+        confirmation=config.cloudflare.confirmation_token,
+    )
+
+    assert dns_spec.action == "create_dns_record"
+    assert dns_spec.path == f"/zones/{ZONE_ID}/dns_records"
+    assert purge_spec.action == "purge_cache"
+    assert purge_spec.path == f"/zones/{ZONE_ID}/purge_cache"
+    assert tunnel_spec.action == "create_tunnel"
+    assert tunnel_spec.path == f"/accounts/{ACCOUNT_ID}/cfd_tunnel"
+
+
+def test_capabilities_report_turnstile_scope_and_secret_delivery_deferrals(
+    tmp_path: Path,
+) -> None:
+    config = make_config(tmp_path, allow_turnstile=False)
+    config.repos["sample"].cloudflare_profiles = ["production"]
+
+    capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
+
+    assert capabilities["gates"]["allow_turnstile"] is False
+    assert capabilities["profiles"][0]["allowed_turnstile_sitekeys"] == [
+        TURNSTILE_SITEKEY
+    ]
+    assert set(capabilities["secret_delivery_pending"]) == {
+        "create_turnstile_widget",
+        "rotate_turnstile_secret",
+        "get_tunnel_token",
+    }
+    assert "list_accounts" in capabilities["read_only_operations"]
+    assert "update_turnstile_widget" in capabilities["actions"]
