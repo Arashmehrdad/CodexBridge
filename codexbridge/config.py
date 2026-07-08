@@ -199,6 +199,7 @@ class CloudflareProfileConfig(BaseModel):
     allowed_dns_names: List[str] = Field(default_factory=list)
     allowed_ruleset_phases: List[str] = Field(default_factory=list)
     allowed_tunnel_ids: List[str] = Field(default_factory=list)
+    allowed_turnstile_sitekeys: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_profile(self) -> "CloudflareProfileConfig":
@@ -277,6 +278,21 @@ class CloudflareProfileConfig(BaseModel):
         if len(tunnel_ids) != len(set(tunnel_ids)):
             raise ValueError("Cloudflare allowed_tunnel_ids must be unique")
         self.allowed_tunnel_ids = tunnel_ids
+        turnstile_sitekeys = [
+            str(value or "").strip() for value in self.allowed_turnstile_sitekeys
+        ]
+        if any(
+            not value
+            or len(value) > 64
+            or any(not (char.isalnum() or char in "_-") for char in value)
+            for value in turnstile_sitekeys
+        ):
+            raise ValueError(
+                "Cloudflare allowed_turnstile_sitekeys contain an invalid value"
+            )
+        if len(turnstile_sitekeys) != len(set(turnstile_sitekeys)):
+            raise ValueError("Cloudflare allowed_turnstile_sitekeys must be unique")
+        self.allowed_turnstile_sitekeys = turnstile_sitekeys
         return self
 
 
@@ -292,6 +308,7 @@ class CloudflareConfig(BaseModel):
     allow_zone_settings: bool = False
     allow_rulesets: bool = False
     allow_tunnels: bool = False
+    allow_turnstile: bool = False
     allow_delete: bool = False
     confirmation_token: str = Field(
         default="CONFIRM_CLOUDFLARE_HIGH_RISK", min_length=8, max_length=128
