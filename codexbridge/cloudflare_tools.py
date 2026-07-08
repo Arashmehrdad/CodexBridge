@@ -1076,12 +1076,19 @@ def run_cloudflare_inspection(
             )
     else:
         account_id = _account_id(config, profile)
-        if operation == "list_turnstile_widgets":
+        if operation == "turnstile_widgets":
             response = _request(
                 config,
                 "GET",
                 f"/accounts/{account_id}/challenges/widgets",
                 query={"page": page, "per_page": per_page},
+            )
+        elif operation == "turnstile_widget":
+            sitekey = _require_turnstile_scope(profile, resource_id)
+            response = _request(
+                config,
+                "GET",
+                f"/accounts/{account_id}/challenges/widgets/{sitekey}",
             )
         elif operation == "tunnels":
             response = _request(
