@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .cloudflare_tools import build_cloudflare_action
+from .cloudflare_tools import authorize_cloudflare_profile, build_cloudflare_action
 from .command_profiles import (
     BASH_N_PATH_COMMAND_ID,
     GIT_READONLY_COMMAND_ID,
@@ -516,6 +516,7 @@ class JobManager:
 
     def start_cloudflare_action(
         self,
+        repo_name: str,
         profile_id: str,
         action: str,
         *,
@@ -523,6 +524,9 @@ class JobManager:
         payload: dict | None = None,
         confirmation: str = "",
     ) -> dict:
+        canonical_repo_name, _ = authorize_cloudflare_profile(
+            self.config, repo_name, profile_id
+        )
         normalized_payload = dict(payload or {})
         spec = build_cloudflare_action(
             self.config,
@@ -547,6 +551,7 @@ class JobManager:
             recommended_check_after_minutes=min(2, estimated_minutes),
         )
         input_data = {
+            "repo_name": canonical_repo_name,
             "profile_id": profile_id,
             "action": action,
             "resource_id": resource_id,
@@ -555,10 +560,11 @@ class JobManager:
         }
         response = self._create_and_launch(
             "cloudflare_action",
-            f"cloudflare:{profile_id}",
+            f"cloudflare:{canonical_repo_name}:{profile_id}",
             input_data,
             decision,
         )
+        response["repo_name"] = canonical_repo_name
         response["profile_id"] = profile_id
         response["action"] = action
         response["high_risk"] = spec.high_risk
