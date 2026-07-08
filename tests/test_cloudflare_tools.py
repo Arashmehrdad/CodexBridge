@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import secrets as secret_factory
+import subprocess
 from pathlib import Path
 import urllib.error
 
@@ -857,6 +858,24 @@ def test_turnstile_create_writes_secret_without_returning_it(
     env_text = (tmp_path / ".env.production").read_text(encoding="utf-8")
     if generated_secret not in env_text:
         pytest.fail("Turnstile creation secret was not delivered", pytrace=False)
+
+
+def test_turnstile_secret_destination_uses_real_git_ignore_rule(tmp_path: Path) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True
+    )
+    (tmp_path / ".gitignore").write_text(".env*\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    profile = config.cloudflare.profiles["production"]
+
+    prepared = cloudflare_tools._prepare_secret_destination(tmp_path, profile)
+    try:
+        assert prepared.path == tmp_path / ".env.production"
+        assert prepared.temp_path.name.startswith(".env.production.codexbridge-")
+        assert cloudflare_tools._git_path_is_ignored(tmp_path, prepared.path) is True
+        assert cloudflare_tools._git_path_is_ignored(tmp_path, prepared.temp_path) is True
+    finally:
+        cloudflare_tools._cleanup_secret_destination(prepared)
 
 
 def test_turnstile_secret_preflight_blocks_network_when_destination_not_ignored(
