@@ -19,14 +19,22 @@ from .safety import redact_secret_values
 
 READ_ONLY_CLOUDFLARE_OPERATIONS = (
     "token_verify",
+    "list_accounts",
+    "list_zones",
+    "get_zone",
     "zone_details",
+    "list_dns_records",
     "dns_records",
     "dns_record",
     "zone_settings",
     "dnssec",
+    "get_ssl_settings",
     "ssl_universal",
+    "list_rulesets",
     "rulesets",
     "ruleset",
+    "list_turnstile_widgets",
+    "list_tunnels",
     "tunnels",
     "tunnel",
     "tunnel_connections",
@@ -36,11 +44,16 @@ READ_ONLY_CLOUDFLARE_OPERATIONS = (
 )
 
 CLOUDFLARE_ACTIONS = (
+    "create_dns_record",
+    "update_dns_record",
+    "delete_dns_record",
     "dns_create",
     "dns_update",
     "dns_delete",
     "dns_batch",
+    "purge_cache",
     "cache_purge",
+    "update_ssl_settings",
     "zone_setting_update",
     "dnssec_enable",
     "dnssec_disable",
@@ -51,11 +64,47 @@ CLOUDFLARE_ACTIONS = (
     "ruleset_rule_add",
     "ruleset_rule_update",
     "ruleset_rule_delete",
+    "update_turnstile_widget",
+    "create_tunnel",
     "tunnel_create",
     "tunnel_config_update",
     "tunnel_delete",
     "tunnel_route_create",
     "tunnel_route_delete",
+)
+
+_CLOUDFLARE_INSPECTION_ALIASES = {
+    "get_zone": "zone_details",
+    "list_dns_records": "dns_records",
+    "list_rulesets": "rulesets",
+    "list_tunnels": "tunnels",
+}
+_CLOUDFLARE_ACTION_ALIASES = {
+    "create_dns_record": "dns_create",
+    "update_dns_record": "dns_update",
+    "delete_dns_record": "dns_delete",
+    "purge_cache": "cache_purge",
+    "create_tunnel": "tunnel_create",
+}
+_SSL_SETTING_IDS = frozenset(
+    {
+        "ssl",
+        "min_tls_version",
+        "tls_1_3",
+        "automatic_https_rewrites",
+        "always_use_https",
+        "opportunistic_encryption",
+        "ssl_recommender",
+    }
+)
+_TURNSTILE_MODES = frozenset({"managed", "non-interactive", "invisible"})
+_TURNSTILE_CLEARANCE_LEVELS = frozenset(
+    {"no_clearance", "jschallenge", "managed", "interactive"}
+)
+_SECRET_DELIVERY_PENDING = (
+    "create_turnstile_widget",
+    "rotate_turnstile_secret",
+    "get_tunnel_token",
 )
 
 _DNS_TYPES = frozenset(
