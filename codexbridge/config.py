@@ -74,9 +74,43 @@ class SSHCommandProfileConfig(BaseModel):
     writes_remote: bool = False
 
 
+class SSHDeploymentProfileConfig(BaseModel):
+    repo_name: str
+    remote_root: str
+    local_subdir: str = "."
+    compose_file: str = ""
+    compose_services: List[str] = Field(default_factory=list)
+    compose_build: bool = True
+    env_file: str = ""
+    service_name: str = ""
+    health_command_id: str = ""
+    exclude_paths: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_deployment_profile(self) -> "SSHDeploymentProfileConfig":
+        if not self.repo_name.strip():
+            raise ValueError("SSH deployment repo_name must not be empty")
+        if not self.remote_root.startswith("/") or "\\" in self.remote_root:
+            raise ValueError("SSH deployment remote_root must be an absolute POSIX path")
+        if self.local_subdir.startswith(("/", "\\")) or ".." in self.local_subdir.replace("\\", "/").split("/"):
+            raise ValueError("SSH deployment local_subdir must be repository-relative")
+        if self.compose_file and (
+            self.compose_file.startswith(("/", "\\"))
+            or ".." in self.compose_file.replace("\\", "/").split("/")
+        ):
+            raise ValueError("SSH deployment compose_file must be relative to remote_root")
+        if self.env_file and not self.env_file.startswith("/"):
+            raise ValueError("SSH deployment env_file must be an absolute POSIX path")
+        return self
+
+
 class SSHHostConfig(BaseModel):
     ssh_alias: str
     connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    use_sudo: bool = False
+    allowed_remote_roots: List[str] = Field(default_factory=list)
+    allowed_executables: List[str] = Field(default_factory=list)
+    deployment_profiles: Dict[str, SSHDeploymentProfileConfig] = Field(default_factory=dict)
     command_profiles: List[SSHCommandProfileConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -84,13 +118,36 @@ class SSHHostConfig(BaseModel):
         command_ids = [profile.command_id for profile in self.command_profiles]
         if len(command_ids) != len(set(command_ids)):
             raise ValueError("SSH command_id values must be unique per host")
+        roots = [root.rstrip("/") or "/" for root in self.allowed_remote_roots]
+        if any(not root.startswith("/") or "\\" in root for root in roots):
+            raise ValueError("SSH allowed_remote_roots must be absolute POSIX paths")
+        if len(roots) != len(set(roots)):
+            raise ValueError("SSH allowed_remote_roots must be unique")
+        self.allowed_remote_roots = roots
+        executables = [value.strip() for value in self.allowed_executables]
+        if any(not value for value in executables):
+            raise ValueError("SSH allowed_executables must not contain empty values")
+        if len(executables) != len(set(executables)):
+            raise ValueError("SSH allowed_executables must be unique")
+        self.allowed_executables = executables
         return self
 
 
 class SSHConfig(BaseModel):
     enabled: bool = False
     executable: str = "ssh"
+    scp_executable: str = "scp"
     max_output_bytes: int = Field(default=100000, ge=1024, le=5000000)
+    max_transfer_bytes: int = Field(default=500000000, ge=1024, le=5000000000)
+    transfer_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
+    allow_transfer: bool = False
+    allow_deploy: bool = False
+    allow_admin: bool = False
+    allow_delete: bool = False
+    allow_reboot: bool = False
+    confirmation_token: str = Field(
+        default="CONFIRM_SSH_HIGH_RISK", min_length=8, max_length=128
+    )
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
 
 
