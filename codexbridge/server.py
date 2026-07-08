@@ -15,6 +15,7 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
+from .cloudflare_tools import authorize_cloudflare_profile
 from .cloudflare_tools import cloudflare_health as _cloudflare_health
 from .cloudflare_tools import (
     list_cloudflare_capabilities as _list_cloudflare_capabilities,
@@ -1162,18 +1163,24 @@ def docker_inspect(
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_cloudflare_capabilities() -> dict:
-    """Read-only: list scoped Cloudflare operations, profiles, and risk gates."""
-    return _list_cloudflare_capabilities(get_config())
+def list_cloudflare_capabilities(repo_name: str) -> dict:
+    """Read-only: list Cloudflare capabilities and profiles authorized for one repository."""
+    return _list_cloudflare_capabilities(get_config(), repo_name)
 
 
 @mcp.tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
-def cloudflare_health(profile_id: str) -> dict:
-    """Read-only: verify a configured Cloudflare token and profile scope."""
-    return _cloudflare_health(get_config(), profile_id)
+def cloudflare_health(repo_name: str, profile_id: str) -> dict:
+    """Read-only: verify an authorized repository Cloudflare profile and token."""
+    config = get_config()
+    canonical_repo_name, _ = authorize_cloudflare_profile(
+        config, repo_name, profile_id
+    )
+    result = _cloudflare_health(config, profile_id)
+    result["repo_name"] = canonical_repo_name
+    return result
 
 
 @mcp.tool(
@@ -1181,6 +1188,7 @@ def cloudflare_health(profile_id: str) -> dict:
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
 def cloudflare_inspect(
+    repo_name: str,
     profile_id: str,
     operation: str,
     resource_id: str = "",
@@ -1190,9 +1198,13 @@ def cloudflare_inspect(
     page: int = 1,
     per_page: int = 100,
 ) -> dict:
-    """Read-only: run one bounded Cloudflare zone, DNS, tunnel, ruleset, or analytics inspection."""
-    return _run_cloudflare_inspection(
-        get_config(),
+    """Read-only: run one bounded Cloudflare inspection for an authorized repository."""
+    config = get_config()
+    canonical_repo_name, _ = authorize_cloudflare_profile(
+        config, repo_name, profile_id
+    )
+    result = _run_cloudflare_inspection(
+        config,
         profile_id,
         operation,
         resource_id=resource_id,
@@ -1202,6 +1214,8 @@ def cloudflare_inspect(
         page=page,
         per_page=per_page,
     )
+    result["repo_name"] = canonical_repo_name
+    return result
 
 
 @mcp.tool(
@@ -1209,6 +1223,7 @@ def cloudflare_inspect(
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
 def start_cloudflare_action_async(
+    repo_name: str,
     profile_id: str,
     action: str,
     resource_id: str = "",
@@ -1217,6 +1232,7 @@ def start_cloudflare_action_async(
 ) -> dict:
     """Write async tool: queue one bounded Cloudflare DNS, cache, zone, ruleset, or tunnel action."""
     return get_job_manager().start_cloudflare_action(
+        repo_name,
         profile_id,
         action,
         resource_id=resource_id,
