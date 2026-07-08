@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import secrets as secret_factory
 from pathlib import Path
 import urllib.error
 
@@ -50,6 +51,13 @@ def make_config(tmp_path: Path, **overrides) -> AppConfig:
         allowed_ruleset_phases=["http_request_firewall_custom"],
         allowed_tunnel_ids=[TUNNEL_ID],
         allowed_turnstile_sitekeys=[TURNSTILE_SITEKEY],
+        turnstile={
+            "secret_destination": {
+                "type": "env_file",
+                "path": ".env.production",
+                "variable": "TURNSTILE_SECRET_KEY",
+            }
+        },
     )
     values = {
         "enabled": True,
@@ -59,6 +67,9 @@ def make_config(tmp_path: Path, **overrides) -> AppConfig:
         "allow_rulesets": True,
         "allow_tunnels": True,
         "allow_turnstile": True,
+        "allow_turnstile_write": True,
+        "allow_turnstile_secret_rotation": True,
+        "allow_turnstile_delete": True,
         "allow_delete": True,
         "profiles": {"production": profile},
     }
@@ -490,7 +501,8 @@ def test_exact_read_capability_aliases_use_fixed_scoped_endpoints(
         ("list_zones", {"name": "example.com", "page": 2, "per_page": 25}),
         ("get_zone", {}),
         ("list_dns_records", {}),
-        ("list_turnstile_widgets", {}),
+        ("turnstile_widgets", {}),
+        ("turnstile_widget", {"resource_id": TURNSTILE_SITEKEY}),
         ("list_tunnels", {}),
         ("list_rulesets", {}),
         ("get_ssl_settings", {"resource_id": "min_tls_version"}),
@@ -511,12 +523,15 @@ def test_exact_read_capability_aliases_use_fixed_scoped_endpoints(
     assert urls[4].startswith(
         f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/challenges/widgets?"
     )
-    assert f"/accounts/{ACCOUNT_ID}/cfd_tunnel" in urls[5]
-    assert urls[6].endswith(f"/zones/{ZONE_ID}/rulesets")
-    assert urls[7].endswith(f"/zones/{ZONE_ID}/settings/min_tls_version")
+    assert urls[5].endswith(
+        f"/accounts/{ACCOUNT_ID}/challenges/widgets/{TURNSTILE_SITEKEY}"
+    )
+    assert f"/accounts/{ACCOUNT_ID}/cfd_tunnel" in urls[6]
+    assert urls[7].endswith(f"/zones/{ZONE_ID}/rulesets")
+    assert urls[8].endswith(f"/zones/{ZONE_ID}/settings/min_tls_version")
     assert results[2]["operation"] == "get_zone"
     assert results[2]["canonical_operation"] == "zone_details"
-    assert results[7]["canonical_operation"] == "get_ssl_settings"
+    assert results[8]["canonical_operation"] == "get_ssl_settings"
 
 
 def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:
