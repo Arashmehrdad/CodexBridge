@@ -32,7 +32,11 @@ EXPECTED_EXPOSED_ACTIONS = {
     "start_docker_action_async",
     "list_ssh_capabilities",
     "ssh_host_health",
+    "ssh_inspect",
     "start_ssh_command_async",
+    "start_ssh_action_async",
+    "start_ssh_transfer_async",
+    "start_ssh_deployment_async",
     "start_external_fixture_validation_async",
     "start_codex_plan_task_async",
     "start_codex_implement_task_async",
@@ -310,6 +314,21 @@ REALISTIC_ACTION_OUTPUTS = {
         "exit_code": 0,
         "error": "",
     },
+    "ssh_inspect": {
+        "ok": True,
+        "host_id": "my_vps",
+        "operation": "git_status",
+        "argv": ["ssh", "<bounded remote argv>"],
+        "exit_code": 0,
+        "timed_out": False,
+        "duration_seconds": 0.1,
+        "stdout": "## main",
+        "stderr": "",
+        "output_truncated": False,
+        "writes_remote": False,
+        "high_risk": False,
+        "error": "",
+    },
     "start_external_fixture_validation_async": {
         "ok": True,
         "run_id": "run_fixture",
@@ -325,6 +344,34 @@ REALISTIC_ACTION_OUTPUTS = {
         "host_id": "my_vps",
         "command_id": "uptime",
         "writes_remote": False,
+        "result": {},
+        "error": "",
+    },
+    "start_ssh_action_async": {
+        "ok": True,
+        "run_id": "run_ssh_action",
+        "status": "queued",
+        "host_id": "my_vps",
+        "action": "service_restart",
+        "high_risk": False,
+        "result": {},
+        "error": "",
+    },
+    "start_ssh_transfer_async": {
+        "ok": True,
+        "run_id": "run_ssh_transfer",
+        "status": "queued",
+        "host_id": "my_vps",
+        "direction": "upload",
+        "result": {},
+        "error": "",
+    },
+    "start_ssh_deployment_async": {
+        "ok": True,
+        "run_id": "run_ssh_deploy",
+        "status": "queued",
+        "host_id": "my_vps",
+        "deployment_id": "app",
         "result": {},
         "error": "",
     },
@@ -813,6 +860,9 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_json_validation_path_async",
         "start_git_readonly_async",
         "start_ssh_command_async",
+        "start_ssh_action_async",
+        "start_ssh_transfer_async",
+        "start_ssh_deployment_async",
         "start_external_fixture_validation_async",
         "cancel_run",
         "reload_service",
@@ -874,7 +924,11 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "commit_all_changes" in actions
     assert "list_ssh_capabilities" in actions
     assert "ssh_host_health" in actions
+    assert "ssh_inspect" in actions
     assert "start_ssh_command_async" in actions
+    assert "start_ssh_action_async" in actions
+    assert "start_ssh_transfer_async" in actions
+    assert "start_ssh_deployment_async" in actions
     assert "pytest" not in actions
     assert "pip_check" not in actions
     assert "dashboard_summary" not in actions
