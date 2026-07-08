@@ -8,6 +8,7 @@ from codexbridge.config import (
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
+    SSHDeploymentProfileConfig,
     SSHHostConfig,
 )
 from codexbridge.job_manager import JobManager
@@ -200,6 +201,83 @@ def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> N
     assert status["repo_name"] == "ssh:my_vps"
     assert status["tool"] == "ssh_command"
     assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
+
+
+def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    host = manager.config.ssh.hosts["my_vps"]
+    host.allowed_remote_roots = ["/srv/app", "/var/log"]
+    host.allowed_executables = ["docker", "git", "curl"]
+    host.deployment_profiles = {
+        "sample_app": SSHDeploymentProfileConfig(
+            repo_name="sample",
+            remote_root="/srv/app",
+            compose_file="docker-compose.yml",
+            health_command_id="uptime",
+        )
+    }
+    manager.config.ssh.allow_transfer = True
+    manager.config.ssh.allow_deploy = True
+    manager.config.ssh.allow_admin = True
+    local_file = tmp_path / "repo" / "deploy.txt"
+    local_file.write_text("deploy\n", encoding="utf-8")
+
+    action = manager.start_ssh_action(
+        "my_vps", "service_restart", target="sample.service"
+    )
+    transfer = manager.start_ssh_transfer(
+        "my_vps",
+        "upload",
+        repo_name="sample",
+        local_path="deploy.txt",
+        remote_path="/srv/app/incoming/deploy.txt",
+    )
+    deployment = manager.start_ssh_deployment(
+        "my_vps",
+        "sample_app",
+        confirmation=manager.config.ssh.confirmation_token,
+    )
+
+    assert action["accepted"] is True
+    assert action["action"] == "service_restart"
+    assert manager.get_status(action["run_id"])["tool"] == "ssh_action"
+    assert transfer["accepted"] is True
+    assert transfer["direction"] == "upload"
+    assert manager.get_status(transfer["run_id"])["tool"] == "ssh_transfer"
+    assert deployment["accepted"] is True
+    assert deployment["deployment_id"] == "sample_app"
+    deployment_status = manager.get_status(deployment["run_id"])
+    assert deployment_status["tool"] == "ssh_deployment"
+    assert deployment_status["risk_level"] == "high"
+
+
+def test_ssh_transfer_overwrite_and_deployment_require_confirmation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    host = manager.config.ssh.hosts["my_vps"]
+    host.allowed_remote_roots = ["/srv/app"]
+    host.deployment_profiles = {
+        "sample_app": SSHDeploymentProfileConfig(
+            repo_name="sample", remote_root="/srv/app"
+        )
+    }
+    manager.config.ssh.allow_transfer = True
+    manager.config.ssh.allow_deploy = True
+
+    with pytest.raises(ValueError, match="confirmation token"):
+        manager.start_ssh_transfer(
+            "my_vps",
+            "download",
+            repo_name="sample",
+            local_path="artifact.log",
+            remote_path="/srv/app/artifact.log",
+            overwrite=True,
+        )
+    with pytest.raises(ValueError, match="confirmation token"):
+        manager.start_ssh_deployment("my_vps", "sample_app", confirmation="")
 
 
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
