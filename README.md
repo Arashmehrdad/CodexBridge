@@ -222,6 +222,49 @@ Supported actions cover Compose build/up/down/start/stop/restart/pause/unpause/k
 
 Push, cleanup, removals, and `compose down` with volumes require two independent checks: the relevant `allow_*` setting must be enabled and the exact configured confirmation token must be supplied on that call. The confirmation token is an approval phrase, not a credential. Docker exec accepts only `command_id` values pre-registered under `docker_exec_profiles`; free-form command text, arbitrary argv, shell chaining, interactive shells, and arbitrary host paths are unsupported. Every subprocess uses an argv list with `shell=False`, bounded output, timeouts, durable artifacts for async operations, and repository operation locks.
 
+## Cloudflare DNS, Edge, Rulesets, and Tunnels
+
+Cloudflare support is a dedicated profile-scoped API subsystem. It uses the official client-v4 API through Python HTTPS requests and does not expose arbitrary URLs, endpoint paths, HTTP methods, headers, tokens, or GraphQL text.
+
+```yaml
+cloudflare:
+  enabled: false
+  api_base_url: "https://api.cloudflare.com/client/v4"
+  token_env: "CLOUDFLARE_API_TOKEN"
+  timeout_seconds: 30
+  max_output_bytes: 500000
+  allow_dns_write: false
+  allow_cache_purge: false
+  allow_zone_settings: false
+  allow_rulesets: false
+  allow_tunnels: false
+  allow_delete: false
+  confirmation_token: "CONFIRM_CLOUDFLARE_HIGH_RISK"
+  profiles:
+    production:
+      account_id_env: "CLOUDFLARE_ACCOUNT_ID"
+      zone_id_env: "CLOUDFLARE_ZONE_ID"
+      zone_name: "example.com"
+      allowed_dns_names: ["example.com", "www.example.com"]
+      allowed_ruleset_phases: ["http_request_firewall_custom"]
+      allowed_tunnel_ids: []
+```
+
+The API token is read only from `token_env` at request time and is never accepted as an MCP argument or stored in durable inputs. Account and zone IDs can be configured directly or supplied through environment variables. Profiles restrict DNS names, ruleset phases, and tunnel IDs independently.
+
+Cloudflare MCP tools:
+
+- `list_cloudflare_capabilities()` lists fixed inspections, actions, profiles and risk gates.
+- `cloudflare_health(profile_id)` verifies the configured token and resolves the profile scope without changing account state.
+- `cloudflare_inspect(profile_id, operation, ...)` reads token status, zone details, DNS, settings, DNSSEC, Universal SSL, rulesets, tunnels, routes, connections, configurations and bounded HTTP analytics.
+- `start_cloudflare_action_async(profile_id, action, ...)` queues DNS changes, cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset administration, tunnel administration and private-network routes as durable jobs.
+
+DNS create/update requires `allow_dns_write`. Cache purge, zone settings, rulesets and tunnels each require their matching gate. Deletes, DNS batches, full cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset writes and tunnel writes require the exact `CONFIRM_CLOUDFLARE_HIGH_RISK` approval phrase where applicable; destructive actions also require `allow_delete`.
+
+Payloads are bounded and schema-checked, DNS names remain within the configured zone and optional allowlist, and ruleset phases and tunnel IDs remain profile-scoped. Tunnel secrets are generated locally when required, are never accepted from callers, and are removed from returned data. Responses are recursively redacted and size-limited. Durable runs store sanitized `stdout.txt`, `stderr.txt`, and `cloudflare_result.json` artifacts under `runs/<run_id>/`.
+
+Cloudflare remains disabled by default. No live account read or write occurs until it is enabled, a scoped profile and environment token are configured, and a specific MCP operation is called.
+
 ## SSH Deployment and Remote Debugging
 
 CodexBridge uses the local Windows OpenSSH and SCP clients through stable aliases from `%USERPROFILE%/.ssh/config`. Tailscale MagicDNS can provide stable private hostnames, but it is optional; public IP addresses also work behind an alias.
@@ -347,6 +390,7 @@ Durable async runs cover:
 - `start_project_command_async`
 - `start_pytest_path_async`
 - `start_external_fixture_validation_async`
+- `start_cloudflare_action_async`
 - `start_ssh_command_async`
 - `start_ssh_action_async`
 - `start_ssh_transfer_async`
@@ -446,6 +490,7 @@ CodexBridge's practical safety boundary is:
 - repo-relative path validation for reads and writes
 - `shell=False` execution for allowlisted command profiles
 - allowlisted SSH aliases and remote command IDs with strict non-interactive OpenSSH options
+- fixed official Cloudflare API endpoints with profile-scoped zones, DNS names, ruleset phases and tunnel IDs
 - capped command and read outputs
 - secret redaction on repository reads and many returned summaries
 - pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform, while a developer may still push locally with Git outside the bridge workflow
