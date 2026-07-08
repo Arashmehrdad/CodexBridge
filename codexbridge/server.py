@@ -58,6 +58,8 @@ from .self_check import run_self_check
 from .supervisor_service import SupervisorService
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
+from .ssh_tools import enrich_ssh_capabilities as _enrich_ssh_capabilities
+from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 
@@ -1156,8 +1158,9 @@ def docker_inspect(
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_ssh_capabilities() -> dict:
-    """Read-only: list configured SSH host IDs and allowlisted command metadata."""
-    return _list_ssh_capabilities(get_config())
+    """Read-only: list SSH hosts, inspections, actions, transfers, deployments, and risk gates."""
+    config = get_config()
+    return _enrich_ssh_capabilities(config, _list_ssh_capabilities(config))
 
 
 @mcp.tool(
@@ -1167,6 +1170,30 @@ def list_ssh_capabilities() -> dict:
 def ssh_host_health(host_id: str) -> dict:
     """Read-only: test one configured SSH alias with a fixed non-interactive command."""
     return _ssh_host_health(get_config(), host_id)
+
+
+@mcp.tool(
+    output_schema=RUN_COMMAND_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def ssh_inspect(
+    host_id: str,
+    operation: str,
+    path: str = "",
+    target: str = "",
+    deployment_id: str = "",
+    tail: int = 200,
+) -> dict:
+    """Read-only: run one bounded SSH system, service, log, Git, Docker, or file inspection."""
+    return _run_ssh_inspection(
+        get_config(),
+        host_id,
+        operation,
+        path=path,
+        target=target,
+        deployment_id=deployment_id,
+        tail=tail,
+    )
 
 
 @mcp.tool(
@@ -1195,6 +1222,87 @@ def start_external_fixture_validation_async(
 def start_ssh_command_async(host_id: str, command_id: str) -> dict:
     """Write async tool: queue one configured SSH command by host ID and command ID."""
     return get_job_manager().start_ssh_command(host_id, command_id)
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_ssh_action_async(
+    host_id: str,
+    action: str,
+    target: str = "",
+    source: str = "",
+    destination: str = "",
+    path: str = "",
+    deployment_id: str = "",
+    command_id: str = "",
+    packages: list[str] = [],
+    executable: str = "",
+    args: list[str] = [],
+    force: bool = False,
+    confirmation: str = "",
+) -> dict:
+    """Write async tool: queue one bounded SSH administration, Git, service, or Compose action."""
+    return get_job_manager().start_ssh_action(
+        host_id,
+        action,
+        target=target,
+        source=source,
+        destination=destination,
+        path=path,
+        deployment_id=deployment_id,
+        command_id=command_id,
+        packages=packages,
+        executable=executable,
+        args=args,
+        force=force,
+        confirmation=confirmation,
+    )
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_ssh_transfer_async(
+    host_id: str,
+    direction: str,
+    repo_name: str,
+    local_path: str,
+    remote_path: str,
+    recursive: bool = False,
+    overwrite: bool = False,
+    confirmation: str = "",
+) -> dict:
+    """Write async tool: queue a repository-scoped upload or run-artifact download using SCP."""
+    return get_job_manager().start_ssh_transfer(
+        host_id,
+        direction,
+        repo_name=repo_name,
+        local_path=local_path,
+        remote_path=remote_path,
+        recursive=recursive,
+        overwrite=overwrite,
+        confirmation=confirmation,
+    )
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
+def start_ssh_deployment_async(
+    host_id: str,
+    deployment_id: str,
+    confirmation: str,
+) -> dict:
+    """Write async tool: deploy a configured repository as an archive release and activate it remotely."""
+    return get_job_manager().start_ssh_deployment(
+        host_id,
+        deployment_id,
+        confirmation=confirmation,
+    )
 
 
 @mcp.tool(
