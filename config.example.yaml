@@ -6,6 +6,8 @@ repos:
     docker_compose_files:
       - "docker-compose.yml"
     docker_project_name: "stream-alpha"
+    cloudflare_profiles:
+      - "production"
     docker_exec_profiles:
       - command_id: "health"
         argv: ["python", "-m", "app.health"]
@@ -53,6 +55,16 @@ cloudflare:
       allowed_ruleset_phases:
         - "http_request_firewall_custom"
         - "http_request_transform"
+      allowed_tunnel_ids: []
+    second_site_production:
+      account_id_env: "SECOND_SITE_CLOUDFLARE_ACCOUNT_ID"
+      zone_id_env: "SECOND_SITE_CLOUDFLARE_ZONE_ID"
+      zone_name: "second-example.com"
+      allowed_dns_names:
+        - "second-example.com"
+        - "www.second-example.com"
+      allowed_ruleset_phases:
+        - "http_request_firewall_custom"
       allowed_tunnel_ids: []
 ssh:
   enabled: false
