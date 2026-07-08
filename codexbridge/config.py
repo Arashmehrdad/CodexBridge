@@ -173,6 +173,112 @@ class SSHConfig(BaseModel):
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
 
 
+class CloudflareProfileConfig(BaseModel):
+    account_id: str = ""
+    account_id_env: str = ""
+    zone_id: str = ""
+    zone_id_env: str = ""
+    zone_name: str = ""
+    allowed_dns_names: List[str] = Field(default_factory=list)
+    allowed_ruleset_phases: List[str] = Field(default_factory=list)
+    allowed_tunnel_ids: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> "CloudflareProfileConfig":
+        hex_chars = set("0123456789abcdef")
+        for field_name in ("account_id", "zone_id"):
+            value = str(getattr(self, field_name) or "").strip().lower()
+            if value and (len(value) != 32 or any(char not in hex_chars for char in value)):
+                raise ValueError(f"Cloudflare {field_name} must be a 32-character hex ID")
+            setattr(self, field_name, value)
+        env_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        for field_name in ("account_id_env", "zone_id_env"):
+            value = str(getattr(self, field_name) or "").strip()
+            if value and (value[0].isdigit() or any(char not in env_chars for char in value)):
+                raise ValueError(f"Cloudflare {field_name} must be an environment variable name")
+            setattr(self, field_name, value)
+        zone_name = str(self.zone_name or "").strip().lower().rstrip(".")
+        if zone_name and (
+            len(zone_name) > 253
+            or "." not in zone_name
+            or any(
+                not label
+                or len(label) > 63
+                or label.startswith("-")
+                or label.endswith("-")
+                or any(not (char.isalnum() or char == "-") for char in label)
+                for label in zone_name.split(".")
+            )
+        ):
+            raise ValueError("Cloudflare zone_name must be a valid DNS zone name")
+        self.zone_name = zone_name
+        normalized_names: list[str] = []
+        for name in self.allowed_dns_names:
+            value = str(name or "").strip().lower().rstrip(".")
+            if not value:
+                raise ValueError("Cloudflare allowed_dns_names must not contain empty values")
+            if zone_name and value != zone_name and not value.endswith(f".{zone_name}"):
+                raise ValueError("Cloudflare allowed DNS names must remain inside zone_name")
+            normalized_names.append(value)
+        if len(normalized_names) != len(set(normalized_names)):
+            raise ValueError("Cloudflare allowed_dns_names must be unique")
+        self.allowed_dns_names = normalized_names
+        phases = [str(value or "").strip() for value in self.allowed_ruleset_phases]
+        if any(
+            not value
+            or len(value) > 128
+            or any(not (char.isalnum() or char in "_-") for char in value)
+            for value in phases
+        ):
+            raise ValueError("Cloudflare ruleset phases contain an invalid value")
+        if len(phases) != len(set(phases)):
+            raise ValueError("Cloudflare allowed_ruleset_phases must be unique")
+        self.allowed_ruleset_phases = phases
+        tunnel_ids = [str(value or "").strip().lower() for value in self.allowed_tunnel_ids]
+        for value in tunnel_ids:
+            parts = value.split("-")
+            if [len(part) for part in parts] != [8, 4, 4, 4, 12] or any(
+                char not in hex_chars for part in parts for char in part
+            ):
+                raise ValueError("Cloudflare tunnel IDs must be UUID values")
+        if len(tunnel_ids) != len(set(tunnel_ids)):
+            raise ValueError("Cloudflare allowed_tunnel_ids must be unique")
+        self.allowed_tunnel_ids = tunnel_ids
+        return self
+
+
+class CloudflareConfig(BaseModel):
+    enabled: bool = False
+    api_base_url: str = "https://api.cloudflare.com/client/v4"
+    token_env: str = "CLOUDFLARE_API_TOKEN"
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    max_output_bytes: int = Field(default=500000, ge=1024, le=5000000)
+    allow_dns_write: bool = False
+    allow_cache_purge: bool = False
+    allow_zone_settings: bool = False
+    allow_rulesets: bool = False
+    allow_tunnels: bool = False
+    allow_delete: bool = False
+    confirmation_token: str = Field(
+        default="CONFIRM_CLOUDFLARE_HIGH_RISK", min_length=8, max_length=128
+    )
+    profiles: Dict[str, CloudflareProfileConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_cloudflare(self) -> "CloudflareConfig":
+        self.api_base_url = self.api_base_url.rstrip("/")
+        if self.api_base_url != "https://api.cloudflare.com/client/v4":
+            raise ValueError("Cloudflare api_base_url must use the official client v4 endpoint")
+        env_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        if (
+            not self.token_env
+            or self.token_env[0].isdigit()
+            or any(char not in env_chars for char in self.token_env)
+        ):
+            raise ValueError("Cloudflare token_env must be an environment variable name")
+        return self
+
+
 class ExternalFixturesConfig(BaseModel):
     enabled: bool = False
     allowed_hosts: List[str] = Field(default_factory=list)
@@ -394,6 +500,7 @@ class AppConfig(BaseModel):
     runs_dir: str = "runs"
     ssh: SSHConfig = Field(default_factory=SSHConfig)
     docker: DockerConfig = Field(default_factory=DockerConfig)
+    cloudflare: CloudflareConfig = Field(default_factory=CloudflareConfig)
     external_fixtures: ExternalFixturesConfig = Field(
         default_factory=ExternalFixturesConfig
     )
