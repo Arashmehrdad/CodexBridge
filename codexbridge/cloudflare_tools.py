@@ -5,12 +5,14 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, CloudflareProfileConfig, resolve_repo_config
@@ -33,6 +35,8 @@ READ_ONLY_CLOUDFLARE_OPERATIONS = (
     "list_rulesets",
     "rulesets",
     "ruleset",
+    "turnstile_widgets",
+    "turnstile_widget",
     "list_turnstile_widgets",
     "list_tunnels",
     "tunnels",
@@ -64,6 +68,10 @@ CLOUDFLARE_ACTIONS = (
     "ruleset_rule_add",
     "ruleset_rule_update",
     "ruleset_rule_delete",
+    "turnstile_create",
+    "turnstile_update",
+    "turnstile_rotate_secret",
+    "turnstile_delete",
     "update_turnstile_widget",
     "create_tunnel",
     "tunnel_create",
@@ -77,6 +85,7 @@ _CLOUDFLARE_INSPECTION_ALIASES = {
     "get_zone": "zone_details",
     "list_dns_records": "dns_records",
     "list_rulesets": "rulesets",
+    "list_turnstile_widgets": "turnstile_widgets",
     "list_tunnels": "tunnels",
 }
 _CLOUDFLARE_ACTION_ALIASES = {
@@ -84,6 +93,7 @@ _CLOUDFLARE_ACTION_ALIASES = {
     "update_dns_record": "dns_update",
     "delete_dns_record": "dns_delete",
     "purge_cache": "cache_purge",
+    "update_turnstile_widget": "turnstile_update",
     "create_tunnel": "tunnel_create",
 }
 _SSL_SETTING_IDS = frozenset(
@@ -101,11 +111,7 @@ _TURNSTILE_MODES = frozenset({"managed", "non-interactive", "invisible"})
 _TURNSTILE_CLEARANCE_LEVELS = frozenset(
     {"no_clearance", "jschallenge", "managed", "interactive"}
 )
-_SECRET_DELIVERY_PENDING = (
-    "create_turnstile_widget",
-    "rotate_turnstile_secret",
-    "get_tunnel_token",
-)
+_SECRET_DELIVERY_PENDING = ("get_tunnel_token",)
 
 _DNS_TYPES = frozenset(
     {
@@ -195,6 +201,7 @@ class CloudflareActionSpec:
     payload: dict[str, Any] | None
     timeout_seconds: int
     high_risk: bool
+    secret_response: bool = False
     writes_remote: bool = True
     description: str = "Bounded Cloudflare API action"
 
