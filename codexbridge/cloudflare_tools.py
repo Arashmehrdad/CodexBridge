@@ -1630,6 +1630,24 @@ def list_cloudflare_capabilities(
                 "allowed_ruleset_phases": list(profile.allowed_ruleset_phases),
                 "allowed_tunnel_ids": list(profile.allowed_tunnel_ids),
                 "allowed_turnstile_sitekeys": list(profile.allowed_turnstile_sitekeys),
+                "turnstile_secret_destination": {
+                    "configured": profile.turnstile.secret_destination is not None,
+                    "type": (
+                        profile.turnstile.secret_destination.type
+                        if profile.turnstile.secret_destination is not None
+                        else ""
+                    ),
+                    "path": (
+                        profile.turnstile.secret_destination.path
+                        if profile.turnstile.secret_destination is not None
+                        else ""
+                    ),
+                    "variable": (
+                        profile.turnstile.secret_destination.variable
+                        if profile.turnstile.secret_destination is not None
+                        else ""
+                    ),
+                },
             }
         )
     return {
@@ -1647,6 +1665,11 @@ def list_cloudflare_capabilities(
             "allow_rulesets": config.cloudflare.allow_rulesets,
             "allow_tunnels": config.cloudflare.allow_tunnels,
             "allow_turnstile": config.cloudflare.allow_turnstile,
+            "allow_turnstile_write": config.cloudflare.allow_turnstile_write,
+            "allow_turnstile_secret_rotation": (
+                config.cloudflare.allow_turnstile_secret_rotation
+            ),
+            "allow_turnstile_delete": config.cloudflare.allow_turnstile_delete,
             "allow_delete": config.cloudflare.allow_delete,
         },
         "secret_delivery_pending": list(_SECRET_DELIVERY_PENDING),
