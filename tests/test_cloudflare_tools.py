@@ -536,6 +536,25 @@ def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:
     assert spec.path == f"/zones/{ZONE_ID}/settings/tls_1_3"
     assert spec.high_risk is True
 
+    recommender_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "update_ssl_settings",
+        resource_id="ssl_recommender",
+        payload={"enabled": True},
+        confirmation=confirmation,
+    )
+    assert recommender_spec.payload == {"enabled": True}
+    with pytest.raises(ValueError, match="boolean enabled"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "update_ssl_settings",
+            resource_id="ssl_recommender",
+            payload={"value": "on"},
+            confirmation=confirmation,
+        )
+
     with pytest.raises(ValueError, match="Unsupported Cloudflare SSL setting"):
         cloudflare_tools.build_cloudflare_action(
             config,
