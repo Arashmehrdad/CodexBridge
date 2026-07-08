@@ -47,10 +47,21 @@ def test_readme_documents_cloudflare_capabilities() -> None:
     assert "CONFIRM_CLOUDFLARE_HIGH_RISK" in readme
     assert "does not expose arbitrary URLs" in readme
     assert "Tunnel secrets are generated locally" in readme
-    assert "allow_turnstile" in readme
+    assert "allow_turnstile_write" in readme
+    assert "allow_turnstile_secret_rotation" in readme
+    assert "allow_turnstile_delete" in readme
     assert "allowed_turnstile_sitekeys" in readme
-    assert "list_accounts" in readme
-    assert "update_turnstile_widget" in readme
+    assert "turnstile.secret_destination" in readme
+    assert "TURNSTILE_SECRET_KEY" in readme
+    assert "turnstile_widgets" in readme
+    assert "turnstile_widget" in readme
+    assert "turnstile_create" in readme
+    assert "turnstile_update" in readme
+    assert "turnstile_rotate_secret" in readme
+    assert "turnstile_delete" in readme
+    assert '{"invalidate_immediately": false}' in readme
+    assert "two-hour grace period" in readme
+    assert "must both be Git-ignored" in readme
     assert "secret_delivery_pending" in readme
     assert "get_tunnel_token" in readme
     assert "make no live Cloudflare account changes" in readme
