@@ -31,12 +31,49 @@ docker:
 ssh:
   enabled: false
   executable: "ssh"
+  scp_executable: "scp"
   max_output_bytes: 100000
+  max_transfer_bytes: 500000000
+  transfer_timeout_seconds: 1800
+  allow_transfer: false
+  allow_deploy: false
+  allow_admin: false
+  allow_delete: false
+  allow_reboot: false
+  confirmation_token: "CONFIRM_SSH_HIGH_RISK"
   hosts:
     my_vps:
       ssh_alias: "my-vps"
       connect_timeout_seconds: 10
+      use_sudo: true
+      allowed_remote_roots:
+        - "/srv/my-app"
+        - "/var/log"
+      allowed_executables:
+        - "docker"
+        - "git"
+        - "curl"
+        - "systemctl"
+        - "journalctl"
+      deployment_profiles:
+        sample_app:
+          repo_name: "stream_alpha"
+          remote_root: "/srv/my-app"
+          local_subdir: "."
+          compose_file: "docker-compose.yml"
+          compose_project_name: "sample-app"
+          compose_build: true
+          shared_files:
+            "/srv/my-app/shared/.env.production": ".env.production"
+          health_command_id: "health"
+          exclude_paths:
+            - "coverage"
       command_profiles:
+        - command_id: "health"
+          argv: ["curl", "-fsS", "http://127.0.0.1:3000/health"]
+          timeout_seconds: 60
+          description: "Verify the deployed application health endpoint"
+          writes_remote: false
         - command_id: "uptime"
           argv: ["uptime"]
           timeout_seconds: 30
