@@ -14,6 +14,10 @@ repos:
         timeout_seconds: 60
         description: "Run the configured in-container health command"
         writes_files: false
+  second_site:
+    path: "D:/Github/Second_Site"
+    cloudflare_profiles:
+      - "second_site_production"
 external_fixtures:
   enabled: false
   allowed_hosts:

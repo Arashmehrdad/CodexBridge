@@ -224,9 +224,17 @@ Push, cleanup, removals, and `compose down` with volumes require two independent
 
 ## Cloudflare DNS, Edge, Rulesets, and Tunnels
 
-Cloudflare support is a dedicated profile-scoped API subsystem. It uses the official client-v4 API through Python HTTPS requests and does not expose arbitrary URLs, endpoint paths, HTTP methods, headers, tokens, or GraphQL text.
+Cloudflare support is a global CodexBridge service with repository-scoped access. Credentials and account/zone profiles are defined once under `cloudflare.profiles`; each repository explicitly lists the profile IDs it may use. Adding another website requires only a new global profile and a repository binding, not new Cloudflare code or project-specific tools. It uses the official client-v4 API through Python HTTPS requests and does not expose arbitrary URLs, endpoint paths, HTTP methods, headers, tokens, or GraphQL text.
 
 ```yaml
+repos:
+  andia_beauty:
+    path: "D:/Github/Andia_Beauty"
+    cloudflare_profiles: ["production"]
+  second_site:
+    path: "D:/Github/Second_Site"
+    cloudflare_profiles: ["second_site_production"]
+
 cloudflare:
   enabled: false
   api_base_url: "https://api.cloudflare.com/client/v4"
@@ -249,6 +257,13 @@ cloudflare:
       allowed_dns_names: ["example.com", "www.example.com"]
       allowed_ruleset_phases: ["http_request_firewall_custom"]
       allowed_tunnel_ids: []
+    second_site_production:
+      account_id_env: "SECOND_SITE_CLOUDFLARE_ACCOUNT_ID"
+      zone_id_env: "SECOND_SITE_CLOUDFLARE_ZONE_ID"
+      zone_name: "second-example.com"
+      allowed_dns_names: ["second-example.com", "www.second-example.com"]
+      allowed_ruleset_phases: ["http_request_firewall_custom"]
+      allowed_tunnel_ids: []
 ```
 
 The API token and optional account/zone IDs can be loaded from the configured `.env` file next to `config.yaml`, or from operating-system environment variables. Operating-system variables take priority. They are read only at request time and are never accepted as MCP arguments or stored in durable inputs. The repository `.gitignore` excludes `.env`.
@@ -259,14 +274,14 @@ CLOUDFLARE_ACCOUNT_ID=replace-with-the-32-character-account-id
 CLOUDFLARE_ZONE_ID=replace-with-the-32-character-zone-id
 ```
 
-Profiles restrict DNS names, ruleset phases, and tunnel IDs independently. Do not use the Global API Key and do not paste the token into chat, configuration YAML, logs, or command history.
+Profiles restrict DNS names, ruleset phases, and tunnel IDs independently. Repository bindings are deny-by-default: a repository cannot inspect or modify a profile unless that profile ID appears in its `cloudflare_profiles` list. Do not use the Global API Key and do not paste the token into chat, configuration YAML, logs, or command history.
 
 Cloudflare MCP tools:
 
-- `list_cloudflare_capabilities()` lists fixed inspections, actions, profiles and risk gates.
-- `cloudflare_health(profile_id)` verifies the configured token and resolves the profile scope without changing account state.
-- `cloudflare_inspect(profile_id, operation, ...)` reads token status, zone details, DNS, settings, DNSSEC, Universal SSL, rulesets, tunnels, routes, connections, configurations and bounded HTTP analytics.
-- `start_cloudflare_action_async(profile_id, action, ...)` queues DNS changes, cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset administration, tunnel administration and private-network routes as durable jobs.
+- `list_cloudflare_capabilities(repo_name)` lists fixed operations and only the profiles authorized for that repository.
+- `cloudflare_health(repo_name, profile_id)` verifies the configured token and authorized profile scope without changing account state.
+- `cloudflare_inspect(repo_name, profile_id, operation, ...)` reads token status, zone details, DNS, settings, DNSSEC, Universal SSL, rulesets, tunnels, routes, connections, configurations and bounded HTTP analytics.
+- `start_cloudflare_action_async(repo_name, profile_id, action, ...)` queues DNS changes, cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset administration, tunnel administration and private-network routes as durable jobs.
 
 DNS create/update requires `allow_dns_write`. Cache purge, zone settings, rulesets and tunnels each require their matching gate. Deletes, DNS batches, full cache purges, zone-setting changes, DNSSEC, Universal SSL, ruleset writes and tunnel writes require the exact `CONFIRM_CLOUDFLARE_HIGH_RISK` approval phrase where applicable; destructive actions also require `allow_delete`.
 
