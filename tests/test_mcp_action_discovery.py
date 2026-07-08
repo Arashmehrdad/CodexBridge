@@ -1262,6 +1262,11 @@ def test_remote_capability_tools_delegate(monkeypatch) -> None:
             "host_id": host_id,
         },
     )
+    monkeypatch.setattr(
+        server,
+        "_enrich_ssh_capabilities",
+        lambda received, result: {**result, "enriched": received is config},
+    )
 
     listed = getattr(server, "list_ssh_capabilities")()
     health = getattr(server, "ssh_host_health")("my_vps")

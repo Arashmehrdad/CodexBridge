@@ -229,6 +229,11 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     action = manager.start_ssh_action(
         "my_vps", "service_restart", target="sample.service"
     )
+    assert action["accepted"] is True
+    assert action["action"] == "service_restart"
+    assert manager.get_status(action["run_id"])["tool"] == "ssh_action"
+    manager.locks.release("ssh:my_vps", action["run_id"])
+
     transfer = manager.start_ssh_transfer(
         "my_vps",
         "upload",
@@ -236,18 +241,16 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
         local_path="deploy.txt",
         remote_path="/srv/app/incoming/deploy.txt",
     )
+    assert transfer["accepted"] is True
+    assert transfer["direction"] == "upload"
+    assert manager.get_status(transfer["run_id"])["tool"] == "ssh_transfer"
+    manager.locks.release("ssh:my_vps", transfer["run_id"])
+
     deployment = manager.start_ssh_deployment(
         "my_vps",
         "sample_app",
         confirmation=manager.config.ssh.confirmation_token,
     )
-
-    assert action["accepted"] is True
-    assert action["action"] == "service_restart"
-    assert manager.get_status(action["run_id"])["tool"] == "ssh_action"
-    assert transfer["accepted"] is True
-    assert transfer["direction"] == "upload"
-    assert manager.get_status(transfer["run_id"])["tool"] == "ssh_transfer"
     assert deployment["accepted"] is True
     assert deployment["deployment_id"] == "sample_app"
     deployment_status = manager.get_status(deployment["run_id"])
