@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .config import AppConfig, CloudflareProfileConfig
+from .config import AppConfig, CloudflareProfileConfig, resolve_repo_config
 from .safety import redact_secret_values
 
 
@@ -174,6 +174,19 @@ def resolve_cloudflare_profile(
             f"Allowed: {sorted(config.cloudflare.profiles)}"
         )
     return profile
+
+
+def authorize_cloudflare_profile(
+    config: AppConfig, repo_name: str, profile_id: str
+) -> tuple[str, CloudflareProfileConfig]:
+    canonical_repo_name, repo = resolve_repo_config(config, repo_name)
+    profile_id = _safe_profile_id(profile_id)
+    if profile_id not in repo.cloudflare_profiles:
+        raise ValueError(
+            f"Repository {canonical_repo_name!r} is not authorized for "
+            f"Cloudflare profile {profile_id!r}"
+        )
+    return canonical_repo_name, resolve_cloudflare_profile(config, profile_id)
 
 
 def _dotenv_values(config: AppConfig) -> dict[str, str]:
@@ -1038,9 +1051,18 @@ def cloudflare_health(config: AppConfig, profile_id: str) -> dict[str, Any]:
     }
 
 
-def list_cloudflare_capabilities(config: AppConfig) -> dict[str, Any]:
+def list_cloudflare_capabilities(
+    config: AppConfig, repo_name: str = ""
+) -> dict[str, Any]:
+    canonical_repo_name = ""
+    authorized_profile_ids: set[str] | None = None
+    if repo_name:
+        canonical_repo_name, repo = resolve_repo_config(config, repo_name)
+        authorized_profile_ids = set(repo.cloudflare_profiles)
     profiles = []
     for profile_id, profile in sorted(config.cloudflare.profiles.items()):
+        if authorized_profile_ids is not None and profile_id not in authorized_profile_ids:
+            continue
         profiles.append(
             {
                 "profile_id": profile_id,
@@ -1057,6 +1079,7 @@ def list_cloudflare_capabilities(config: AppConfig) -> dict[str, Any]:
     return {
         "ok": True,
         "enabled": config.cloudflare.enabled,
+        "repo_name": canonical_repo_name,
         "api_base_url": config.cloudflare.api_base_url,
         "token_env": config.cloudflare.token_env,
         "read_only_operations": list(READ_ONLY_CLOUDFLARE_OPERATIONS),
