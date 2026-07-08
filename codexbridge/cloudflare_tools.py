@@ -753,17 +753,14 @@ def _request_turnstile_secret_action(
                 raw = response.read(config.cloudflare.max_output_bytes + 1)
         except urllib.error.HTTPError as exc:
             status_code = int(exc.code)
-            raw = exc.read(config.cloudflare.max_output_bytes + 1)
-            try:
-                parsed_error = json.loads(raw.decode("utf-8", errors="replace"))
-            except json.JSONDecodeError:
-                parsed_error = {"message": "Cloudflare API returned an HTTP error"}
-            raise ValueError(_error_messages(_redact_response(parsed_error))) from None
-        except urllib.error.URLError as exc:
-            reason = redact_secret_values(str(getattr(exc, "reason", exc)))
-            raise ValueError(f"Cloudflare API connection failed: {reason}") from None
+            exc.read(config.cloudflare.max_output_bytes + 1)
+            raise ValueError(
+                f"Cloudflare Turnstile secret action failed with HTTP {status_code}"
+            ) from None
+        except urllib.error.URLError:
+            raise ValueError("Cloudflare Turnstile secret action connection failed") from None
         except TimeoutError:
-            raise ValueError("Cloudflare API request timed out") from None
+            raise ValueError("Cloudflare Turnstile secret action timed out") from None
         if len(raw) > config.cloudflare.max_output_bytes:
             raise ValueError("Cloudflare API response exceeded max_output_bytes")
         try:
@@ -773,7 +770,7 @@ def _request_turnstile_secret_action(
         if not isinstance(parsed, dict):
             raise ValueError("Cloudflare API returned an invalid Turnstile response")
         if parsed.get("success") is False:
-            raise ValueError(_error_messages(_redact_response(parsed)))
+            raise ValueError("Cloudflare Turnstile secret action was rejected")
         result = parsed.get("result")
         if not isinstance(result, dict):
             raise ValueError("Cloudflare API returned an invalid Turnstile result")
