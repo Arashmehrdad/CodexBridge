@@ -30,6 +30,10 @@ EXPECTED_EXPOSED_ACTIONS = {
     "docker_health",
     "docker_inspect",
     "start_docker_action_async",
+    "list_cloudflare_capabilities",
+    "cloudflare_health",
+    "cloudflare_inspect",
+    "start_cloudflare_action_async",
     "list_ssh_capabilities",
     "ssh_host_health",
     "ssh_inspect",
@@ -284,6 +288,58 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "queued",
         "repo_name": "repo",
         "action": "compose_up",
+        "result": {},
+        "error": "",
+    },
+    "list_cloudflare_capabilities": {
+        "ok": True,
+        "enabled": False,
+        "api_base_url": "https://api.cloudflare.com/client/v4",
+        "token_env": "CLOUDFLARE_API_TOKEN",
+        "read_only_operations": ["dns_records"],
+        "actions": ["dns_create"],
+        "gates": {"allow_dns_write": False},
+        "profiles": [],
+        "arbitrary_http_supported": False,
+        "raw_graphql_supported": False,
+        "error": "",
+    },
+    "cloudflare_health": {
+        "ok": True,
+        "profile_id": "production",
+        "token_status": {"status": "active"},
+        "zone_id_configured": True,
+        "account_id_configured": True,
+        "zone_name": "example.com",
+        "error": "",
+    },
+    "cloudflare_inspect": {
+        "ok": True,
+        "profile_id": "production",
+        "operation": "dns_records",
+        "method": "GET",
+        "path": "/zones/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dns_records",
+        "status_code": 200,
+        "duration_seconds": 0.1,
+        "result": [],
+        "result_info": {},
+        "messages": [],
+        "exit_code": 0,
+        "timed_out": False,
+        "stdout": "{}",
+        "stderr": "",
+        "output_truncated": False,
+        "writes_remote": False,
+        "high_risk": False,
+        "error": "",
+    },
+    "start_cloudflare_action_async": {
+        "ok": True,
+        "run_id": "run_cloudflare",
+        "status": "queued",
+        "profile_id": "production",
+        "action": "dns_create",
+        "high_risk": False,
         "result": {},
         "error": "",
     },
@@ -853,6 +909,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "commit_selected_files",
         "start_codex_implement_task_async",
         "start_docker_action_async",
+        "start_cloudflare_action_async",
         "start_project_command_async",
         "start_pytest_path_async",
         "start_py_compile_path_async",
@@ -922,6 +979,10 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "stage_all" in actions
     assert "unstage_all" in actions
     assert "commit_all_changes" in actions
+    assert "list_cloudflare_capabilities" in actions
+    assert "cloudflare_health" in actions
+    assert "cloudflare_inspect" in actions
+    assert "start_cloudflare_action_async" in actions
     assert "list_ssh_capabilities" in actions
     assert "ssh_host_health" in actions
     assert "ssh_inspect" in actions
@@ -1243,6 +1304,39 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
     compact_status_schema = actions["inspect_repo_status_compact"]["inputSchema"]
     assert set(compact_status_schema["properties"]) == {"repo_name"}
     assert set(compact_status_schema.get("required", [])) == {"repo_name"}
+
+
+def test_cloudflare_tool_input_schemas_are_exact() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+
+    assert set(actions["list_cloudflare_capabilities"]["inputSchema"]["properties"]) == set()
+    health_schema = actions["cloudflare_health"]["inputSchema"]
+    assert set(health_schema["properties"]) == {"profile_id"}
+    assert set(health_schema.get("required", [])) == {"profile_id"}
+
+    inspect_schema = actions["cloudflare_inspect"]["inputSchema"]
+    assert set(inspect_schema["properties"]) == {
+        "profile_id",
+        "operation",
+        "resource_id",
+        "name",
+        "record_type",
+        "since_minutes",
+        "page",
+        "per_page",
+    }
+    assert set(inspect_schema.get("required", [])) == {"profile_id", "operation"}
+
+    action_schema = actions["start_cloudflare_action_async"]["inputSchema"]
+    assert set(action_schema["properties"]) == {
+        "profile_id",
+        "action",
+        "resource_id",
+        "payload",
+        "confirmation",
+    }
+    assert set(action_schema.get("required", [])) == {"profile_id", "action"}
+    assert actions["start_cloudflare_action_async"]["annotations"]["readOnlyHint"] is False
 
 
 def test_remote_capability_tools_delegate(monkeypatch) -> None:
