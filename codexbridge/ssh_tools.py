@@ -339,7 +339,7 @@ def build_ssh_inspection(
     timeout = 60
 
     fixed = {
-        "host_info": ["hostnamectl"],
+        "host_info": ["hostnamectl", "--no-pager", "--no-ask-password"],
         "uptime": ["uptime"],
         "cpu_info": ["lscpu"],
         "memory_status": ["free", "-h"],

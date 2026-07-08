@@ -97,6 +97,9 @@ def test_inspection_builders_cover_service_git_and_file_debugging(
 ) -> None:
     config, _ = make_config(tmp_path)
 
+    host_info = ssh_tools.build_ssh_inspection(
+        config, "sample_host", "host_info"
+    )
     service = ssh_tools.build_ssh_inspection(
         config, "sample_host", "service_status", target="api.service"
     )
@@ -114,6 +117,11 @@ def test_inspection_builders_cover_service_git_and_file_debugging(
         tail=350,
     )
 
+    assert host_info.remote_argv == [
+        "hostnamectl",
+        "--no-pager",
+        "--no-ask-password",
+    ]
     assert service.remote_argv == [
         "systemctl",
         "status",
