@@ -1019,16 +1019,30 @@ def build_cloudflare_action(
         _require_confirmation(config, action, confirmation)
         high_risk = True
         zone_id = _zone_id(config, profile)
-        if action in {"zone_setting_update", "update_ssl_settings"}:
+        if action == "zone_setting_update":
             data = _safe_payload(data, allowed_keys={"value"})
             if "value" not in data:
                 raise ValueError("Zone setting update requires value")
             setting_id = _safe_setting_id(resource_id)
-            if action == "update_ssl_settings" and setting_id not in _SSL_SETTING_IDS:
+            method = "PATCH"
+            path = f"/zones/{zone_id}/settings/{setting_id}"
+        elif action == "update_ssl_settings":
+            setting_id = _safe_setting_id(resource_id)
+            if setting_id not in _SSL_SETTING_IDS:
                 raise ValueError(
                     f"Unsupported Cloudflare SSL setting: {setting_id!r}. "
                     f"Allowed: {sorted(_SSL_SETTING_IDS)}"
                 )
+            if setting_id == "ssl_recommender":
+                data = _safe_payload(data, allowed_keys={"enabled"})
+                if not isinstance(data.get("enabled"), bool):
+                    raise ValueError(
+                        "SSL recommender update requires boolean enabled"
+                    )
+            else:
+                data = _safe_payload(data, allowed_keys={"value"})
+                if "value" not in data:
+                    raise ValueError("SSL setting update requires value")
             method = "PATCH"
             path = f"/zones/{zone_id}/settings/{setting_id}"
         elif action == "ssl_universal_update":
