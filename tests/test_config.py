@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from codexbridge.config import (
     AppConfig,
+    CloudflareConfig,
+    CloudflareProfileConfig,
     DockerConfig,
     DockerExecProfileConfig,
     LocalModelConfig,
@@ -38,6 +40,9 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.ssh.enabled is False
     assert config.docker.enabled is False
     assert config.docker.executable == "docker"
+    assert config.cloudflare.enabled is False
+    assert config.cloudflare.token_env == "CLOUDFLARE_API_TOKEN"
+    assert config.cloudflare.profiles["production"].zone_name == "example.com"
     assert config.ssh.hosts["my_vps"].ssh_alias == "my-vps"
     assert [
         profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
@@ -165,6 +170,39 @@ def test_ssh_deployment_and_admin_config_validation() -> None:
             remote_root="/srv/sample",
             shared_files={"/srv/sample/shared/.env": "../.env"},
         )
+
+
+def test_cloudflare_config_and_profile_validation() -> None:
+    profile = CloudflareProfileConfig(
+        account_id="b" * 32,
+        zone_id="a" * 32,
+        zone_name="Example.COM.",
+        allowed_dns_names=["api.example.com"],
+        allowed_ruleset_phases=["http_request_firewall_custom"],
+        allowed_tunnel_ids=["12345678-1234-1234-1234-123456789abc"],
+    )
+    config = CloudflareConfig(
+        enabled=True,
+        allow_dns_write=True,
+        allow_delete=True,
+        profiles={"production": profile},
+    )
+
+    assert config.api_base_url == "https://api.cloudflare.com/client/v4"
+    assert config.confirmation_token == "CONFIRM_CLOUDFLARE_HIGH_RISK"
+    assert profile.zone_name == "example.com"
+    assert profile.allowed_dns_names == ["api.example.com"]
+
+    with pytest.raises(ValidationError, match="official client v4"):
+        CloudflareConfig(api_base_url="https://example.com/client/v4")
+    with pytest.raises(ValidationError, match="32-character hex ID"):
+        CloudflareProfileConfig(account_id="not-an-id")
+    with pytest.raises(ValidationError, match="inside zone_name"):
+        CloudflareProfileConfig(
+            zone_name="example.com", allowed_dns_names=["outside.test"]
+        )
+    with pytest.raises(ValidationError, match="UUID"):
+        CloudflareProfileConfig(allowed_tunnel_ids=["bad-id"])
 
 
 def test_docker_config_and_exec_profile_validation() -> None:
