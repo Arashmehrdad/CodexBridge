@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from . import git_tools
+from .cloudflare_tools import run_cloudflare_action
 from .command_profiles import (
     BASH_N_PATH_COMMAND_ID,
     GIT_READONLY_COMMAND_ID,
@@ -242,6 +243,8 @@ class JobWorker:
         input_data = self.run["input"]
         tool = self.run["tool"]
 
+        if tool == "cloudflare_action":
+            return self._execute_cloudflare_action(started_at, input_data)
         if tool == "ssh_command":
             return self._execute_ssh_command(started_at, input_data)
         if tool == "ssh_action":
@@ -675,6 +678,76 @@ class JobWorker:
             "output_truncated": bool(command_result.get("output_truncated")),
             "argv": list(command_result.get("argv", [])),
             "command_result": command_result,
+        }
+
+    def _execute_cloudflare_action(
+        self, started_at: str, input_data: dict
+    ) -> dict:
+        profile_id = str(input_data["profile_id"])
+        action = str(input_data["action"])
+        self.event(
+            "warning" if input_data.get("confirmation") else "info",
+            "cloudflare_action",
+            "Starting bounded Cloudflare action",
+            {"profile_id": profile_id, "action": action},
+        )
+        action_result = dict(
+            redact_and_truncate(
+                run_cloudflare_action(
+                    self.config,
+                    profile_id,
+                    action,
+                    resource_id=str(input_data.get("resource_id", "")),
+                    payload=dict(input_data.get("payload") or {}),
+                    confirmation=str(input_data.get("confirmation", "")),
+                )
+            )
+        )
+        stdout = str(action_result.get("stdout", ""))
+        stderr = str(action_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        self.artifacts.write_json("cloudflare_result.json", action_result)
+        ended_at = _utc_now()
+        risks: list[str] = []
+        if action_result.get("high_risk"):
+            risks.append(
+                "High-risk Cloudflare action executed after explicit confirmation"
+            )
+        risks.append(
+            "Cloudflare state changed; final edge propagation is not independently verified"
+        )
+        output_summary = (stdout or stderr).strip()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"cloudflare:{profile_id}",
+            "tool": "cloudflare_action",
+            "profile_id": profile_id,
+            "action": action,
+            "writes_remote": True,
+            "high_risk": bool(action_result.get("high_risk", False)),
+            "remote_state_verified": False,
+            "status": "completed" if action_result.get("ok") else "failed",
+            "exit_code": int(action_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": action_result,
+            "summary": output_summary[-4000:]
+            if output_summary
+            else f"Cloudflare action {action} finished",
+            "remaining_risks": risks,
+            "error": str(action_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": bool(action_result.get("timed_out")),
+            "output_truncated": bool(action_result.get("output_truncated")),
+            "method": str(action_result.get("method", "")),
+            "path": str(action_result.get("path", "")),
+            "cloudflare_result": action_result,
         }
 
     def _execute_ssh_transfer(self, started_at: str, input_data: dict) -> dict:
