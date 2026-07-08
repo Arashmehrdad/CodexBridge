@@ -32,6 +32,20 @@ def test_readme_documents_bounded_docker_workflow() -> None:
     assert "shell=False" in readme
 
 
+def test_readme_documents_ssh_deployment_and_debugging() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "SSH Deployment and Remote Debugging" in readme
+    assert "ssh_inspect(host_id, operation, ...)" in readme
+    assert "start_ssh_action_async(host_id, action, ...)" in readme
+    assert "start_ssh_transfer_async(...)" in readme
+    assert "start_ssh_deployment_async(host_id, deployment_id, confirmation)" in readme
+    assert "CONFIRM_SSH_HIGH_RISK" in readme
+    assert "allowed_remote_roots" in readme
+    assert "shared_files" in readme
+    assert "updates the `current` symlink only after health succeeds" in readme
+    assert "Interactive shells, arbitrary command strings" in readme
+
+
 def test_readme_documents_supervisor_workflow() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "start_supervised_recovery_task" in readme
