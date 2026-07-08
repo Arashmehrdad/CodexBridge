@@ -7,6 +7,7 @@ import pytest
 
 from codexbridge.config import (
     AppConfig,
+    CloudflareProfileConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
@@ -283,6 +284,62 @@ def test_ssh_transfer_overwrite_and_deployment_require_confirmation(
         )
     with pytest.raises(ValueError, match="confirmation token"):
         manager.start_ssh_deployment("my_vps", "sample_app", confirmation="")
+
+
+def test_start_cloudflare_action_creates_durable_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.cloudflare.enabled = True
+    manager.config.cloudflare.allow_dns_write = True
+    manager.config.cloudflare.profiles = {
+        "production": CloudflareProfileConfig(
+            zone_id="a" * 32,
+            zone_name="example.com",
+            allowed_dns_names=["api.example.com"],
+        )
+    }
+
+    response = manager.start_cloudflare_action(
+        "production",
+        "dns_create",
+        payload={
+            "type": "A",
+            "name": "api.example.com",
+            "content": "192.0.2.10",
+            "ttl": 1,
+            "proxied": True,
+        },
+    )
+
+    assert response["accepted"] is True
+    assert response["profile_id"] == "production"
+    assert response["action"] == "dns_create"
+    assert response["high_risk"] is False
+    status = manager.get_status(response["run_id"])
+    assert status["repo_name"] == "cloudflare:production"
+    assert status["tool"] == "cloudflare_action"
+    assert status["risk_level"] == "medium"
+
+
+def test_cloudflare_high_risk_action_requires_confirmation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.cloudflare.enabled = True
+    manager.config.cloudflare.allow_delete = True
+    manager.config.cloudflare.profiles = {
+        "production": CloudflareProfileConfig(
+            zone_id="a" * 32,
+            zone_name="example.com",
+            allowed_dns_names=["api.example.com"],
+        )
+    }
+
+    with pytest.raises(ValueError, match="requires confirmation token"):
+        manager.start_cloudflare_action(
+            "production", "dns_delete", resource_id="c" * 32
+        )
 
 
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
