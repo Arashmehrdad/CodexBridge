@@ -28,8 +28,13 @@ from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .run_guards import derive_requirement_manifest
 from .run_store import RunStore, validate_run_id
-from .safety import reject_destructive_command, validate_repo_relative_paths
-from .ssh_commands import resolve_ssh_command_profile
+from .safety import (
+    reject_destructive_command,
+    validate_repo_relative_path,
+    validate_repo_relative_paths,
+)
+from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
+from .ssh_tools import build_ssh_action, validate_remote_path
 
 
 def make_run_id(tool: str) -> str:
@@ -331,6 +336,179 @@ class JobManager:
         response["host_id"] = host_id
         response["command_id"] = command_id
         response["writes_remote"] = profile.writes_remote
+        return response
+
+    def start_ssh_action(
+        self,
+        host_id: str,
+        action: str,
+        *,
+        target: str = "",
+        source: str = "",
+        destination: str = "",
+        path: str = "",
+        deployment_id: str = "",
+        command_id: str = "",
+        packages: list[str] | None = None,
+        executable: str = "",
+        args: list[str] | None = None,
+        force: bool = False,
+        confirmation: str = "",
+    ) -> dict:
+        normalized_packages = list(packages or [])
+        normalized_args = list(args or [])
+        spec = build_ssh_action(
+            self.config,
+            host_id,
+            action,
+            target=target,
+            source=source,
+            destination=destination,
+            path=path,
+            deployment_id=deployment_id,
+            command_id=command_id,
+            packages=normalized_packages,
+            executable=executable,
+            args=normalized_args,
+            force=force,
+            confirmation=confirmation,
+        )
+        estimated_minutes = max(1, (spec.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3 if spec.high_risk else 2,
+            risk_level="high" if spec.high_risk else "medium",
+            requires_human=False,
+            reason=(
+                "Explicitly confirmed high-risk SSH action is approved"
+                if spec.high_risk
+                else "Bounded SSH action is approved for durable execution"
+            ),
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        input_data = {
+            "host_id": host_id,
+            "action": action,
+            "target": target,
+            "source": source,
+            "destination": destination,
+            "path": path,
+            "deployment_id": deployment_id,
+            "command_id": command_id,
+            "packages": normalized_packages,
+            "executable": executable,
+            "args": normalized_args,
+            "force": force,
+            "confirmation": confirmation,
+        }
+        response = self._create_and_launch(
+            "ssh_action", f"ssh:{host_id}", input_data, decision
+        )
+        response["host_id"] = host_id
+        response["action"] = action
+        response["high_risk"] = spec.high_risk
+        return response
+
+    def start_ssh_transfer(
+        self,
+        host_id: str,
+        direction: str,
+        *,
+        repo_name: str,
+        local_path: str,
+        remote_path: str,
+        recursive: bool = False,
+        overwrite: bool = False,
+        confirmation: str = "",
+    ) -> dict:
+        if not self.config.ssh.allow_transfer:
+            raise ValueError("SSH transfer capability is disabled by allow_transfer")
+        direction = str(direction or "").strip().lower()
+        if direction not in {"upload", "download"}:
+            raise ValueError("direction must be 'upload' or 'download'")
+        if overwrite and confirmation != self.config.ssh.confirmation_token:
+            raise ValueError(
+                "Overwrite transfer requires the configured SSH confirmation token"
+            )
+        host = resolve_ssh_host(self.config, host_id)
+        validate_remote_path(host, remote_path, sensitive=True)
+        repo_root = resolve_repo(self.config, repo_name)
+        if direction == "upload":
+            local = validate_repo_relative_path(repo_root, local_path)
+            if not local.exists():
+                raise ValueError(f"Local upload path does not exist: {local_path}")
+            if local.is_dir() and not recursive:
+                raise ValueError("Directory upload requires recursive=true")
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3 if overwrite else 2,
+            risk_level="high" if overwrite else "medium",
+            requires_human=False,
+            reason="Bounded SCP transfer is approved for durable execution",
+            estimated_duration_minutes=max(
+                1, (self.config.ssh.transfer_timeout_seconds + 59) // 60
+            ),
+            recommended_check_after_minutes=2,
+        )
+        input_data = {
+            "host_id": host_id,
+            "direction": direction,
+            "local_repo_name": repo_name,
+            "local_path": local_path,
+            "remote_path": remote_path,
+            "recursive": recursive,
+            "overwrite": overwrite,
+            "confirmation": confirmation,
+        }
+        response = self._create_and_launch(
+            "ssh_transfer", f"ssh:{host_id}", input_data, decision
+        )
+        response["host_id"] = host_id
+        response["direction"] = direction
+        return response
+
+    def start_ssh_deployment(
+        self,
+        host_id: str,
+        deployment_id: str,
+        *,
+        confirmation: str,
+    ) -> dict:
+        if not self.config.ssh.allow_deploy:
+            raise ValueError("SSH deployment capability is disabled by allow_deploy")
+        if confirmation != self.config.ssh.confirmation_token:
+            raise ValueError("SSH deployment requires the configured confirmation token")
+        host = resolve_ssh_host(self.config, host_id)
+        deployment = host.deployment_profiles.get(deployment_id)
+        if deployment is None:
+            raise ValueError(
+                f"Unknown deployment_id: {deployment_id!r}. "
+                f"Allowed: {sorted(host.deployment_profiles)}"
+            )
+        resolve_repo(self.config, deployment.repo_name)
+        validate_remote_path(host, deployment.remote_root, sensitive=True)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3,
+            risk_level="high",
+            requires_human=False,
+            reason="Confirmed archive-based SSH deployment is approved",
+            estimated_duration_minutes=max(
+                5, (self.config.ssh.transfer_timeout_seconds + 59) // 60
+            ),
+            recommended_check_after_minutes=2,
+        )
+        input_data = {
+            "host_id": host_id,
+            "deployment_id": deployment_id,
+            "confirmation": confirmation,
+        }
+        response = self._create_and_launch(
+            "ssh_deployment", f"ssh:{host_id}", input_data, decision
+        )
+        response["host_id"] = host_id
+        response["deployment_id"] = deployment_id
         return response
 
     def _create_and_launch(
