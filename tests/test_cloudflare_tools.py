@@ -588,8 +588,8 @@ def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:
         )
 
 
-def test_turnstile_update_is_gated_confirmed_and_profile_scoped(tmp_path: Path) -> None:
-    config = make_config(tmp_path, allow_turnstile=False)
+def test_turnstile_update_is_gated_and_profile_scoped(tmp_path: Path) -> None:
+    config = make_config(tmp_path, allow_turnstile_write=False)
     payload = {
         "name": "Andia widget",
         "domains": ["Andia-Beauty.example.com"],
@@ -598,59 +598,333 @@ def test_turnstile_update_is_gated_confirmed_and_profile_scoped(tmp_path: Path) 
         "ephemeral_id": True,
     }
 
-    with pytest.raises(ValueError, match="allow_turnstile"):
+    with pytest.raises(ValueError, match="allow_turnstile_write"):
         cloudflare_tools.build_cloudflare_action(
             config,
             "production",
-            "update_turnstile_widget",
+            "turnstile_update",
             resource_id=TURNSTILE_SITEKEY,
             payload=payload,
-            confirmation=config.cloudflare.confirmation_token,
         )
 
-    config.cloudflare.allow_turnstile = True
+    config.cloudflare.allow_turnstile_write = True
     with pytest.raises(ValueError, match="allowed_turnstile_sitekeys"):
         cloudflare_tools.build_cloudflare_action(
             config,
             "production",
-            "update_turnstile_widget",
+            "turnstile_update",
             resource_id="0x" + ("b" * 30),
-            payload=payload,
-            confirmation=config.cloudflare.confirmation_token,
-        )
-    with pytest.raises(ValueError, match="requires confirmation token"):
-        cloudflare_tools.build_cloudflare_action(
-            config,
-            "production",
-            "update_turnstile_widget",
-            resource_id=TURNSTILE_SITEKEY,
             payload=payload,
         )
 
     spec = cloudflare_tools.build_cloudflare_action(
         config,
         "production",
-        "update_turnstile_widget",
+        "turnstile_update",
         resource_id=TURNSTILE_SITEKEY,
         payload=payload,
-        confirmation=config.cloudflare.confirmation_token,
     )
     assert spec.method == "PUT"
     assert spec.path == (
         f"/accounts/{ACCOUNT_ID}/challenges/widgets/{TURNSTILE_SITEKEY}"
     )
     assert spec.payload["domains"] == ["andia-beauty.example.com"]
-    assert spec.high_risk is True
+    assert spec.high_risk is False
+    assert spec.secret_response is False
+
+    alias_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "update_turnstile_widget",
+        resource_id=TURNSTILE_SITEKEY,
+        payload=payload,
+    )
+    assert alias_spec.path == spec.path
 
     with pytest.raises(ValueError, match="forbidden"):
         cloudflare_tools.build_cloudflare_action(
             config,
             "production",
-            "update_turnstile_widget",
+            "turnstile_update",
             resource_id=TURNSTILE_SITEKEY,
             payload={"secret": "must-not-be-accepted"},
+        )
+
+
+def test_turnstile_create_update_and_delete_specs_are_bounded(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+    create_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "turnstile_create",
+        payload={
+            "name": "Andia Clinic",
+            "domains": ["andiyaclinic.ir", "www.andiyaclinic.ir"],
+            "mode": "managed",
+        },
+    )
+    assert create_spec.method == "POST"
+    assert create_spec.path == f"/accounts/{ACCOUNT_ID}/challenges/widgets"
+    assert create_spec.secret_response is True
+    assert create_spec.high_risk is False
+
+    config.cloudflare.allow_turnstile_delete = False
+    with pytest.raises(ValueError, match="allow_turnstile_delete"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_delete",
+            resource_id=TURNSTILE_SITEKEY,
             confirmation=config.cloudflare.confirmation_token,
         )
+    config.cloudflare.allow_turnstile_delete = True
+    with pytest.raises(ValueError, match="requires confirmation token"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_delete",
+            resource_id=TURNSTILE_SITEKEY,
+        )
+    delete_spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "turnstile_delete",
+        resource_id=TURNSTILE_SITEKEY,
+        confirmation=config.cloudflare.confirmation_token,
+    )
+    assert delete_spec.method == "DELETE"
+    assert delete_spec.path.endswith(f"/challenges/widgets/{TURNSTILE_SITEKEY}")
+    assert delete_spec.high_risk is True
+
+
+def test_turnstile_rotation_has_fixed_body_and_separate_gates(tmp_path: Path) -> None:
+    config = make_config(
+        tmp_path,
+        allow_turnstile_write=False,
+        allow_turnstile_secret_rotation=False,
+    )
+    confirmation = config.cloudflare.confirmation_token
+
+    with pytest.raises(ValueError, match="allow_turnstile_write"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+            confirmation=confirmation,
+        )
+    config.cloudflare.allow_turnstile_write = True
+    with pytest.raises(ValueError, match="allow_turnstile_secret_rotation"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+            confirmation=confirmation,
+        )
+    config.cloudflare.allow_turnstile_secret_rotation = True
+    with pytest.raises(ValueError, match="requires confirmation token"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+        )
+    with pytest.raises(ValueError, match="payload is fixed"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+            payload={"invalidate_immediately": True},
+            confirmation=confirmation,
+        )
+
+    spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "turnstile_rotate_secret",
+        resource_id=TURNSTILE_SITEKEY,
+        confirmation=confirmation,
+    )
+    assert spec.method == "POST"
+    assert spec.path == (
+        f"/accounts/{ACCOUNT_ID}/challenges/widgets/{TURNSTILE_SITEKEY}/rotate_secret"
+    )
+    assert spec.payload == {"invalidate_immediately": False}
+    assert spec.secret_response is True
+    assert spec.high_risk is True
+
+
+def test_turnstile_rotation_writes_secret_only_to_destination(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    monkeypatch.setattr(
+        cloudflare_tools, "_git_path_is_ignored", lambda repo_root, path: True
+    )
+    old_value = "old-" + ("x" * 16)
+    generated_secret = "unit-" + secret_factory.token_hex(24)
+    destination = tmp_path / ".env.production"
+    destination.write_text(
+        f'OTHER=value\nTURNSTILE_SECRET_KEY="{old_value}"\n', encoding="utf-8"
+    )
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(
+            {
+                "success": True,
+                "result": {
+                    "sitekey": TURNSTILE_SITEKEY,
+                    "name": "Andia Clinic",
+                    "domains": ["andiyaclinic.ir", "www.andiyaclinic.ir"],
+                    "secret": generated_secret,
+                },
+            }
+        )
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
+    result = cloudflare_tools.run_cloudflare_action(
+        config,
+        "production",
+        "turnstile_rotate_secret",
+        resource_id=TURNSTILE_SITEKEY,
+        confirmation=config.cloudflare.confirmation_token,
+        repo_root=tmp_path,
+    )
+
+    assert captured["body"] == {"invalidate_immediately": False}
+    assert result["result"] == {
+        "sitekey": TURNSTILE_SITEKEY,
+        "widget_name": "Andia Clinic",
+        "domains": ["andiyaclinic.ir", "www.andiyaclinic.ir"],
+        "rotated": True,
+        "grace_period_hours": 2,
+        "secret_destination_updated": True,
+    }
+    serialized = json.dumps(result, sort_keys=True)
+    if generated_secret in serialized:
+        pytest.fail("Turnstile secret leaked into the action result", pytrace=False)
+    env_text = destination.read_text(encoding="utf-8")
+    if generated_secret not in env_text or old_value in env_text:
+        pytest.fail("Turnstile secret destination was not replaced", pytrace=False)
+    assert not list(tmp_path.glob(".*.codexbridge-*.tmp"))
+
+
+def test_turnstile_create_writes_secret_without_returning_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    monkeypatch.setattr(
+        cloudflare_tools, "_git_path_is_ignored", lambda repo_root, path: True
+    )
+    generated_secret = "unit-" + secret_factory.token_hex(24)
+
+    monkeypatch.setattr(
+        cloudflare_tools.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeResponse(
+            {
+                "success": True,
+                "result": {
+                    "sitekey": TURNSTILE_SITEKEY,
+                    "name": "Andia Clinic",
+                    "domains": ["andiyaclinic.ir"],
+                    "secret": generated_secret,
+                },
+            }
+        ),
+    )
+    result = cloudflare_tools.run_cloudflare_action(
+        config,
+        "production",
+        "turnstile_create",
+        payload={
+            "name": "Andia Clinic",
+            "domains": ["andiyaclinic.ir"],
+            "mode": "managed",
+        },
+        repo_root=tmp_path,
+    )
+
+    assert result["result"]["created"] is True
+    serialized = json.dumps(result, sort_keys=True)
+    if generated_secret in serialized:
+        pytest.fail("Turnstile creation secret leaked into the result", pytrace=False)
+    env_text = (tmp_path / ".env.production").read_text(encoding="utf-8")
+    if generated_secret not in env_text:
+        pytest.fail("Turnstile creation secret was not delivered", pytrace=False)
+
+
+def test_turnstile_secret_preflight_blocks_network_when_destination_not_ignored(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    monkeypatch.setattr(
+        cloudflare_tools, "_git_path_is_ignored", lambda repo_root, path: False
+    )
+    network_called = False
+
+    def fail_if_called(request, timeout):
+        nonlocal network_called
+        network_called = True
+        raise AssertionError("network must not be called")
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fail_if_called)
+    with pytest.raises(ValueError, match="must be Git-ignored"):
+        cloudflare_tools.run_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+            confirmation=config.cloudflare.confirmation_token,
+            repo_root=tmp_path,
+        )
+    assert network_called is False
+
+
+def test_turnstile_secret_http_errors_do_not_echo_response_content(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    monkeypatch.setattr(
+        cloudflare_tools, "_git_path_is_ignored", lambda repo_root, path: True
+    )
+    generated_secret = "unit-" + secret_factory.token_hex(24)
+
+    def fake_urlopen(request, timeout):
+        body = io.BytesIO(
+            json.dumps(
+                {
+                    "success": False,
+                    "errors": [{"message": generated_secret}],
+                    "secret": generated_secret,
+                }
+            ).encode("utf-8")
+        )
+        raise urllib.error.HTTPError(
+            request.full_url, 409, "Conflict", hdrs=None, fp=body
+        )
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(ValueError, match="HTTP 409") as exc:
+        cloudflare_tools.run_cloudflare_action(
+            config,
+            "production",
+            "turnstile_rotate_secret",
+            resource_id=TURNSTILE_SITEKEY,
+            confirmation=config.cloudflare.confirmation_token,
+            repo_root=tmp_path,
+        )
+    if generated_secret in str(exc.value):
+        pytest.fail("Turnstile secret leaked into an exception", pytrace=False)
+    assert not list(tmp_path.glob(".*.codexbridge-*.tmp"))
 
 
 def test_exact_write_aliases_preserve_existing_bounded_implementations(
@@ -690,22 +964,39 @@ def test_exact_write_aliases_preserve_existing_bounded_implementations(
     assert tunnel_spec.path == f"/accounts/{ACCOUNT_ID}/cfd_tunnel"
 
 
-def test_capabilities_report_turnstile_scope_and_secret_delivery_deferrals(
+def test_capabilities_report_turnstile_scope_gates_and_secret_destination(
     tmp_path: Path,
 ) -> None:
-    config = make_config(tmp_path, allow_turnstile=False)
+    config = make_config(
+        tmp_path,
+        allow_turnstile=False,
+        allow_turnstile_write=False,
+        allow_turnstile_secret_rotation=False,
+        allow_turnstile_delete=False,
+    )
     config.repos["sample"].cloudflare_profiles = ["production"]
 
     capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
 
     assert capabilities["gates"]["allow_turnstile"] is False
-    assert capabilities["profiles"][0]["allowed_turnstile_sitekeys"] == [
-        TURNSTILE_SITEKEY
-    ]
-    assert set(capabilities["secret_delivery_pending"]) == {
-        "create_turnstile_widget",
-        "rotate_turnstile_secret",
-        "get_tunnel_token",
+    assert capabilities["gates"]["allow_turnstile_write"] is False
+    assert capabilities["gates"]["allow_turnstile_secret_rotation"] is False
+    assert capabilities["gates"]["allow_turnstile_delete"] is False
+    profile = capabilities["profiles"][0]
+    assert profile["allowed_turnstile_sitekeys"] == [TURNSTILE_SITEKEY]
+    assert profile["turnstile_secret_destination"] == {
+        "configured": True,
+        "type": "env_file",
+        "path": ".env.production",
+        "variable": "TURNSTILE_SECRET_KEY",
     }
-    assert "list_accounts" in capabilities["read_only_operations"]
-    assert "update_turnstile_widget" in capabilities["actions"]
+    assert set(capabilities["secret_delivery_pending"]) == {"get_tunnel_token"}
+    assert "turnstile_widgets" in capabilities["read_only_operations"]
+    assert "turnstile_widget" in capabilities["read_only_operations"]
+    for action in (
+        "turnstile_create",
+        "turnstile_update",
+        "turnstile_rotate_secret",
+        "turnstile_delete",
+    ):
+        assert action in capabilities["actions"]
