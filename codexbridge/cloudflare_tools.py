@@ -692,6 +692,145 @@ def _request(
     return response_object
 
 
+def _safe_turnstile_metadata(
+    result: dict[str, Any], *, requested_sitekey: str = ""
+) -> tuple[str, str, list[str]]:
+    sitekey = _safe_turnstile_sitekey(
+        str(result.get("sitekey") or requested_sitekey or "")
+    )
+    if requested_sitekey and sitekey != requested_sitekey:
+        raise ValueError("Cloudflare returned an unexpected Turnstile sitekey")
+    widget_name = str(result.get("name") or "").strip()
+    if len(widget_name) > 254 or any(
+        ord(char) < 32 or ord(char) == 127 for char in widget_name
+    ):
+        raise ValueError("Cloudflare returned invalid Turnstile widget metadata")
+    raw_domains = result.get("domains") or []
+    if not isinstance(raw_domains, list) or len(raw_domains) > 100:
+        raise ValueError("Cloudflare returned invalid Turnstile domain metadata")
+    domains: list[str] = []
+    for raw_domain in raw_domains:
+        domain = str(raw_domain or "").strip().lower().rstrip(".")
+        if (
+            not domain
+            or len(domain) > 253
+            or any(ord(char) < 33 or ord(char) == 127 for char in domain)
+        ):
+            raise ValueError("Cloudflare returned invalid Turnstile domain metadata")
+        domains.append(domain)
+    return sitekey, widget_name, domains
+
+
+def _request_turnstile_secret_action(
+    config: AppConfig,
+    spec: CloudflareActionSpec,
+    prepared: PreparedSecretDestination,
+    *,
+    requested_sitekey: str = "",
+) -> dict[str, Any]:
+    _require_enabled(config)
+    token = _token(config)
+    body = json.dumps(spec.payload or {}, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        f"{config.cloudflare.api_base_url}{spec.path}",
+        data=body,
+        method=spec.method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "CodexBridge/0.1",
+        },
+    )
+    started = time.monotonic()
+    status_code = 0
+    try:
+        try:
+            with urllib.request.urlopen(
+                request, timeout=config.cloudflare.timeout_seconds
+            ) as response:
+                status_code = int(getattr(response, "status", 200))
+                raw = response.read(config.cloudflare.max_output_bytes + 1)
+        except urllib.error.HTTPError as exc:
+            status_code = int(exc.code)
+            raw = exc.read(config.cloudflare.max_output_bytes + 1)
+            try:
+                parsed_error = json.loads(raw.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                parsed_error = {"message": "Cloudflare API returned an HTTP error"}
+            raise ValueError(_error_messages(_redact_response(parsed_error))) from None
+        except urllib.error.URLError as exc:
+            reason = redact_secret_values(str(getattr(exc, "reason", exc)))
+            raise ValueError(f"Cloudflare API connection failed: {reason}") from None
+        except TimeoutError:
+            raise ValueError("Cloudflare API request timed out") from None
+        if len(raw) > config.cloudflare.max_output_bytes:
+            raise ValueError("Cloudflare API response exceeded max_output_bytes")
+        try:
+            parsed = json.loads(raw.decode("utf-8", errors="replace")) if raw else {}
+        except json.JSONDecodeError:
+            raise ValueError("Cloudflare API returned invalid JSON") from None
+        if not isinstance(parsed, dict):
+            raise ValueError("Cloudflare API returned an invalid Turnstile response")
+        if parsed.get("success") is False:
+            raise ValueError(_error_messages(_redact_response(parsed)))
+        result = parsed.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Cloudflare API returned an invalid Turnstile result")
+        secret = result.pop("secret", None)
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("Cloudflare Turnstile response did not include a secret")
+        sitekey, widget_name, domains = _safe_turnstile_metadata(
+            result, requested_sitekey=requested_sitekey
+        )
+        _write_env_secret(prepared, secret)
+        secret = ""
+        result.clear()
+        parsed.clear()
+        raw = b""
+
+        if spec.action == "turnstile_rotate_secret":
+            safe_result = {
+                "sitekey": sitekey,
+                "widget_name": widget_name,
+                "domains": domains,
+                "rotated": True,
+                "grace_period_hours": 2,
+                "secret_destination_updated": True,
+            }
+        else:
+            safe_result = {
+                "sitekey": sitekey,
+                "widget_name": widget_name,
+                "domains": domains,
+                "created": True,
+                "secret_destination_updated": True,
+            }
+        duration = round(time.monotonic() - started, 3)
+        response_object = {
+            "ok": True,
+            "method": spec.method,
+            "path": spec.path,
+            "status_code": status_code,
+            "duration_seconds": duration,
+            "result": safe_result,
+            "result_info": {},
+            "messages": [],
+            "error": "",
+            "exit_code": 0,
+            "timed_out": False,
+            "stderr": "",
+            "output_truncated": False,
+        }
+        response_object["stdout"] = json.dumps(
+            response_object, ensure_ascii=False, default=str
+        )
+        return response_object
+    finally:
+        token = ""
+        _cleanup_secret_destination(prepared)
+
+
 def _zone_id(config: AppConfig, profile: CloudflareProfileConfig) -> str:
     configured = str(profile.zone_id or "").strip().lower()
     if not configured and profile.zone_id_env:
