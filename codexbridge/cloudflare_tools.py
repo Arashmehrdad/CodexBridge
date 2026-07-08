@@ -1264,6 +1264,9 @@ def list_cloudflare_capabilities(
                 "allowed_dns_names": list(profile.allowed_dns_names),
                 "allowed_ruleset_phases": list(profile.allowed_ruleset_phases),
                 "allowed_tunnel_ids": list(profile.allowed_tunnel_ids),
+                "allowed_turnstile_sitekeys": list(
+                    profile.allowed_turnstile_sitekeys
+                ),
             }
         )
     return {
@@ -1280,8 +1283,10 @@ def list_cloudflare_capabilities(
             "allow_zone_settings": config.cloudflare.allow_zone_settings,
             "allow_rulesets": config.cloudflare.allow_rulesets,
             "allow_tunnels": config.cloudflare.allow_tunnels,
+            "allow_turnstile": config.cloudflare.allow_turnstile,
             "allow_delete": config.cloudflare.allow_delete,
         },
+        "secret_delivery_pending": list(_SECRET_DELIVERY_PENDING),
         "confirmation_token": config.cloudflare.confirmation_token,
         "profiles": profiles,
         "arbitrary_http_supported": False,
