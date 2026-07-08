@@ -168,6 +168,115 @@ def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
     assert queued["kwargs"]["build"] is True
 
 
+def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        ssh={
+            "enabled": True,
+            "allow_transfer": True,
+            "allow_deploy": True,
+            "allow_admin": True,
+            "hosts": {
+                "my_vps": {
+                    "ssh_alias": "my-vps",
+                    "allowed_remote_roots": ["/srv/app", "/var/log"],
+                    "allowed_executables": ["docker", "git", "curl"],
+                    "deployment_profiles": {
+                        "app": {"repo_name": "repo", "remote_root": "/srv/app"}
+                    },
+                }
+            },
+        },
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "_list_ssh_capabilities",
+        lambda cfg: {"ok": True, "enabled": True, "hosts": [], "error": ""},
+    )
+    monkeypatch.setattr(
+        server,
+        "_enrich_ssh_capabilities",
+        lambda cfg, result: {**result, "actions": ["service_restart"]},
+    )
+    monkeypatch.setattr(
+        server,
+        "_ssh_host_health",
+        lambda cfg, host_id: {"ok": True, "host_id": host_id, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        server,
+        "_run_ssh_inspection",
+        lambda cfg, host_id, operation, **kwargs: {
+            "ok": True,
+            "host_id": host_id,
+            "operation": operation,
+            "stdout": "healthy",
+            "stderr": "",
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+
+    class FakeJobs:
+        def start_ssh_action(self, host_id, action, **kwargs):
+            return {
+                "ok": True,
+                "run_id": "run_action",
+                "host_id": host_id,
+                "action": action,
+                "kwargs": kwargs,
+            }
+
+        def start_ssh_transfer(self, host_id, direction, **kwargs):
+            return {
+                "ok": True,
+                "run_id": "run_transfer",
+                "host_id": host_id,
+                "direction": direction,
+                "kwargs": kwargs,
+            }
+
+        def start_ssh_deployment(self, host_id, deployment_id, **kwargs):
+            return {
+                "ok": True,
+                "run_id": "run_deploy",
+                "host_id": host_id,
+                "deployment_id": deployment_id,
+                "kwargs": kwargs,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+
+    assert server.list_ssh_capabilities()["actions"] == ["service_restart"]
+    assert server.ssh_host_health("my_vps")["status"] == "ok"
+    assert server.ssh_inspect("my_vps", "uptime")["stdout"] == "healthy"
+    action = server.start_ssh_action_async(
+        "my_vps", "service_restart", target="app.service"
+    )
+    transfer = server.start_ssh_transfer_async(
+        "my_vps",
+        "upload",
+        "repo",
+        "README.md",
+        "/srv/app/README.md",
+    )
+    deployment = server.start_ssh_deployment_async(
+        "my_vps", "app", "CONFIRM_SSH_HIGH_RISK"
+    )
+    assert action["run_id"] == "run_action"
+    assert action["kwargs"]["target"] == "app.service"
+    assert transfer["run_id"] == "run_transfer"
+    assert transfer["kwargs"]["repo_name"] == "repo"
+    assert deployment["run_id"] == "run_deploy"
+    assert deployment["kwargs"]["confirmation"] == "CONFIRM_SSH_HIGH_RISK"
+
+
 def test_commit_tool_returns_structured_metadata_rejection(
     monkeypatch,
     tmp_path,
