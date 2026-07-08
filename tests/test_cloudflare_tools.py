@@ -211,6 +211,44 @@ def test_dns_writes_are_zone_scoped_and_gated(tmp_path: Path) -> None:
         )
 
 
+def test_dns_batch_supports_post_put_patch_and_delete_entries(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+    spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "dns_batch",
+        payload={
+            "posts": [
+                {
+                    "type": "A",
+                    "name": "api.example.com",
+                    "content": "192.0.2.10",
+                    "ttl": 1,
+                }
+            ],
+            "puts": [
+                {
+                    "id": RECORD_ID,
+                    "type": "A",
+                    "name": "api.example.com",
+                    "content": "192.0.2.11",
+                    "ttl": 300,
+                }
+            ],
+            "patches": [
+                {"id": RECORD_ID, "content": "192.0.2.12", "proxied": True}
+            ],
+            "deletes": [{"id": RECORD_ID}],
+        },
+        confirmation=config.cloudflare.confirmation_token,
+    )
+
+    assert spec.method == "POST"
+    assert spec.path == f"/zones/{ZONE_ID}/dns_records/batch"
+    assert spec.high_risk is True
+    assert spec.payload["patches"][0]["id"] == RECORD_ID
+
+
 def test_destructive_actions_require_confirmation(tmp_path: Path) -> None:
     config = make_config(tmp_path)
 
