@@ -159,6 +159,68 @@ def test_build_ssh_argv_supports_explicit_endpoint_and_identity(
     assert capabilities["hosts"][0]["connection_mode"] == "explicit"
 
 
+def test_connection_file_is_reread_for_each_ssh_operation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    first_key = tmp_path / "first_key"
+    second_key = tmp_path / "second_key"
+    first_key.write_text("first\n", encoding="utf-8")
+    second_key.write_text("second\n", encoding="utf-8")
+    connection_file = tmp_path / "runpod-ssh-command.txt"
+    connection_file.write_text(
+        f"ssh root@194.68.245.114 -p 22054 -i {first_key}\n",
+        encoding="utf-8",
+    )
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        connection_file=str(connection_file),
+        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    _, profile = resolve_ssh_command_profile(config, "my_vps", "status")
+
+    first = build_ssh_argv(config, "my_vps", profile)
+    assert first[-2] == "root@194.68.245.114"
+    assert first[first.index("-p") + 1] == "22054"
+    assert first[first.index("-i") + 1] == str(first_key)
+
+    connection_file.write_text(
+        f"ssh root@203.0.113.20 -p 31000 -i {second_key}\n",
+        encoding="utf-8",
+    )
+    second = build_ssh_argv(config, "my_vps", profile)
+    assert second[-2] == "root@203.0.113.20"
+    assert second[second.index("-p") + 1] == "31000"
+    assert second[second.index("-i") + 1] == str(second_key)
+    capabilities = list_ssh_capabilities(config)
+    assert capabilities["hosts"][0]["connection_mode"] == "connection_file"
+
+
+def test_connection_file_rejects_noncanonical_or_unsafe_commands(
+    tmp_path: Path, monkeypatch
+) -> None:
+    identity = tmp_path / "key"
+    identity.write_text("key\n", encoding="utf-8")
+    connection_file = tmp_path / "runpod.txt"
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        connection_file=str(connection_file),
+        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+
+    connection_file.write_text("ssh root@example.com -i key -p 22\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="must use"):
+        resolve_ssh_command_profile(config, "my_vps", "status")
+
+    connection_file.write_text(
+        f"ssh root@example.com -p 22 -i {identity};whoami\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="blocked shell syntax"):
+        resolve_ssh_command_profile(config, "my_vps", "status")
+
+
 def test_explicit_endpoint_requires_existing_identity_file(
     tmp_path: Path, monkeypatch
 ) -> None:

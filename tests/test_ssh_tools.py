@@ -297,6 +297,49 @@ def test_transfer_supports_explicit_endpoint_identity_and_port(
     )
 
 
+def test_transfer_rereads_file_backed_endpoint(tmp_path: Path, monkeypatch) -> None:
+    config, repo = make_config(tmp_path)
+    original = config.ssh.hosts["sample_host"]
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    connection_file = tmp_path / "runpod.txt"
+    connection_file.write_text(
+        f"ssh root@194.68.245.114 -p 22054 -i {identity}\n",
+        encoding="utf-8",
+    )
+    config.ssh.hosts["sample_host"] = SSHHostConfig(
+        connection_file=str(connection_file),
+        allowed_remote_roots=original.allowed_remote_roots,
+        allowed_executables=original.allowed_executables,
+        deployment_profiles=original.deployment_profiles,
+        command_profiles=original.command_profiles,
+    )
+    captured: dict = {}
+    monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ssh_tools.subprocess, "run", fake_run)
+
+    result = ssh_tools.run_ssh_transfer(
+        config,
+        "sample_host",
+        "upload",
+        repo_root=repo,
+        local_path="app.txt",
+        remote_path="/srv/app/incoming/app.txt",
+        run_dir=tmp_path / "run",
+    )
+
+    assert result["ok"] is True
+    assert captured["argv"][captured["argv"].index("-P") + 1] == "22054"
+    assert captured["argv"][-1] == (
+        "root@194.68.245.114:/srv/app/incoming/app.txt"
+    )
+
+
 def test_download_is_saved_under_run_artifacts(tmp_path: Path, monkeypatch) -> None:
     config, repo = make_config(tmp_path)
     monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")

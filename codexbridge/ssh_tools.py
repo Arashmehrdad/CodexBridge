@@ -23,6 +23,7 @@ from .ssh_commands import (
     build_ssh_argv,
     build_ssh_connection_options,
     build_ssh_destination,
+    resolve_ssh_connection,
     resolve_ssh_command_profile,
     resolve_ssh_host,
     validate_ssh_alias,
@@ -635,8 +636,9 @@ def resolve_scp_executable(config: AppConfig) -> str:
 
 def _scp_base(
     config: AppConfig, host_id: str, *, recursive: bool
-) -> tuple[list[str], SSHHostConfig]:
+) -> tuple[list[str], SSHHostConfig, str]:
     host = resolve_ssh_host(config, host_id)
+    connection = resolve_ssh_connection(host)
     argv = [
         resolve_scp_executable(config),
         "-B",
@@ -658,10 +660,10 @@ def _scp_base(
         "-o",
         f"ConnectTimeout={host.connect_timeout_seconds}",
     ]
-    argv.extend(build_ssh_connection_options(host, scp=True))
+    argv.extend(build_ssh_connection_options(host, scp=True, connection=connection))
     if recursive:
         argv.append("-r")
-    return argv, host
+    return argv, host, connection.destination
 
 
 def _run_local_argv(
@@ -751,9 +753,10 @@ def run_ssh_transfer(
         raise ValueError(
             f"Overwrite transfer requires confirmation token {config.ssh.confirmation_token!r}"
         )
-    argv, host = _scp_base(config, host_id, recursive=recursive)
+    argv, host, destination_host = _scp_base(
+        config, host_id, recursive=recursive
+    )
     remote = validate_remote_path(host, remote_path, sensitive=True)
-    destination_host = build_ssh_destination(host)
     if direction == "upload":
         local = validate_repo_relative_path(repo_root, local_path)
         if not local.exists():
@@ -875,9 +878,11 @@ def run_ssh_deployment(
     ):
         return _deployment_result(host_id, deployment_id, archive_path, steps)
 
-    scp_argv, _ = _scp_base(config, host_id, recursive=False)
+    scp_argv, _, destination_host = _scp_base(
+        config, host_id, recursive=False
+    )
     scp_argv.extend(
-        [str(archive_path), f"{build_ssh_destination(host)}:{remote_archive}"]
+        [str(archive_path), f"{destination_host}:{remote_archive}"]
     )
     upload = _run_local_argv(
         scp_argv,

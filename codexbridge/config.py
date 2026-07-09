@@ -143,6 +143,7 @@ class SSHDeploymentProfileConfig(BaseModel):
 
 class SSHHostConfig(BaseModel):
     ssh_alias: str = ""
+    connection_file: str = ""
     hostname: str = ""
     user: str = ""
     port: int = Field(default=22, ge=1, le=65535)
@@ -159,19 +160,36 @@ class SSHHostConfig(BaseModel):
     @model_validator(mode="after")
     def validate_unique_command_ids(self) -> "SSHHostConfig":
         self.ssh_alias = self.ssh_alias.strip()
+        self.connection_file = self.connection_file.strip()
         self.hostname = self.hostname.strip()
         self.user = self.user.strip()
         self.identity_file = self.identity_file.strip()
         direct_values = (self.hostname, self.user, self.identity_file)
-        if self.ssh_alias:
-            if any(direct_values) or self.port != 22:
-                raise ValueError(
-                    "SSH host must use either ssh_alias or explicit hostname/user/identity_file"
-                )
+        configured_modes = sum(
+            (
+                bool(self.ssh_alias),
+                bool(self.connection_file),
+                any(direct_values) or self.port != 22,
+            )
+        )
+        if configured_modes != 1:
+            raise ValueError(
+                "SSH host must use exactly one of ssh_alias, connection_file, or explicit hostname/user/identity_file"
+            )
+        if self.connection_file:
+            if any(ord(char) < 32 or ord(char) == 127 for char in self.connection_file):
+                raise ValueError("SSH connection_file must not contain control characters")
+            if not (
+                Path(self.connection_file).is_absolute()
+                or PureWindowsPath(self.connection_file).is_absolute()
+            ):
+                raise ValueError("SSH connection_file must be an absolute path")
+        elif self.ssh_alias:
+            pass
         else:
             if not all(direct_values):
                 raise ValueError(
-                    "SSH host requires ssh_alias or explicit hostname, user, and identity_file"
+                    "Explicit SSH host requires hostname, user, and identity_file"
                 )
             host_allowed = set(
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"

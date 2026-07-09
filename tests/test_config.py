@@ -127,7 +127,7 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
         )
 
 
-def test_ssh_host_supports_alias_or_explicit_endpoint(tmp_path: Path) -> None:
+def test_ssh_host_supports_alias_file_or_explicit_endpoint(tmp_path: Path) -> None:
     direct = SSHHostConfig(
         hostname="ssh.runpod.io",
         user="pod-user-123",
@@ -139,15 +139,27 @@ def test_ssh_host_supports_alias_or_explicit_endpoint(tmp_path: Path) -> None:
     assert direct.user == "pod-user-123"
     assert direct.port == 2222
 
-    with pytest.raises(ValidationError, match="either ssh_alias or explicit"):
+    connection_file = SSHHostConfig(connection_file=str(tmp_path / "runpod.txt"))
+    assert connection_file.connection_file == str(tmp_path / "runpod.txt")
+
+    with pytest.raises(ValidationError, match="exactly one"):
         SSHHostConfig(
             ssh_alias="runpod-wan",
             hostname="ssh.runpod.io",
             user="pod-user-123",
             identity_file=str(tmp_path / "runpod_key"),
         )
-    with pytest.raises(ValidationError, match="requires ssh_alias or explicit"):
+    with pytest.raises(ValidationError, match="exactly one"):
+        SSHHostConfig()
+    with pytest.raises(ValidationError, match="Explicit SSH host requires"):
         SSHHostConfig(hostname="ssh.runpod.io", user="pod-user-123")
+    with pytest.raises(ValidationError, match="exactly one"):
+        SSHHostConfig(
+            ssh_alias="runpod-wan",
+            connection_file=str(tmp_path / "runpod.txt"),
+        )
+    with pytest.raises(ValidationError, match="absolute path"):
+        SSHHostConfig(connection_file="relative/runpod.txt")
     with pytest.raises(ValidationError, match="absolute path"):
         SSHHostConfig(
             hostname="ssh.runpod.io",

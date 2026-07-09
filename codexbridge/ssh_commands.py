@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import re
 import shlex
 import shutil
 import subprocess
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from .config import AppConfig, SSHCommandProfileConfig, SSHHostConfig
 
@@ -19,6 +20,10 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9.-]+$")
 _USER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_CONNECTION_COMMAND_RE = re.compile(
+    r"^ssh\s+(?P<user>[A-Za-z0-9._-]+)@(?P<hostname>[A-Za-z0-9.-]+)\s+"
+    r"-p\s+(?P<port>[0-9]{1,5})\s+-i\s+(?P<identity>.+)$"
+)
 _CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f;&|<>`$()*?]")
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
@@ -33,6 +38,14 @@ _BLOCKED_REMOTE_LAUNCHERS = {
     "sh",
     "zsh",
 }
+
+
+@dataclass(frozen=True)
+class SSHConnection:
+    destination: str
+    mode: str
+    identity_file: str = ""
+    port: int = 22
 
 
 def validate_ssh_host_id(host_id: str) -> str:
@@ -69,32 +82,99 @@ def validate_ssh_user(user: str) -> str:
     return value
 
 
-def resolve_ssh_identity_file(host: SSHHostConfig) -> str:
-    configured = str(host.identity_file).strip()
-    if not configured:
+def _resolve_identity_path(configured: str) -> str:
+    value = str(configured).strip()
+    if not value:
         raise ValueError("Explicit SSH endpoint requires identity_file")
-    candidate = Path(configured).expanduser()
-    if not candidate.is_absolute():
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        value = value[1:-1].strip()
+    if not value or _CONTROL_OR_SHELL_META_RE.search(value):
+        raise ValueError("SSH identity_file contains blocked characters")
+    candidate = Path(value).expanduser()
+    if not (candidate.is_absolute() or PureWindowsPath(value).is_absolute()):
         raise ValueError("SSH identity_file must be an absolute path")
     if not candidate.is_file():
-        raise ValueError(f"SSH identity_file does not exist: {configured}")
+        raise ValueError(f"SSH identity_file does not exist: {value}")
     return str(candidate)
 
 
-def build_ssh_destination(host: SSHHostConfig) -> str:
+def resolve_ssh_identity_file(host: SSHHostConfig) -> str:
+    return _resolve_identity_path(host.identity_file)
+
+
+def _resolve_connection_file(configured: str) -> SSHConnection:
+    path = Path(str(configured).strip()).expanduser()
+    if not (path.is_absolute() or PureWindowsPath(str(configured)).is_absolute()):
+        raise ValueError("SSH connection_file must be an absolute path")
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"SSH connection_file is missing or not a regular file: {configured}")
+    if path.stat().st_size > 4096:
+        raise ValueError("SSH connection_file is too large")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Unable to read SSH connection_file {configured}: {exc}") from exc
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise ValueError("SSH connection_file must contain exactly one non-empty command line")
+    line = lines[0]
+    if _CONTROL_OR_SHELL_META_RE.search(line):
+        raise ValueError("SSH connection_file contains blocked shell syntax")
+    match = _CONNECTION_COMMAND_RE.fullmatch(line)
+    if match is None:
+        raise ValueError(
+            "SSH connection_file must use: ssh user@host -p PORT -i IDENTITY_FILE"
+        )
+    port = int(match.group("port"))
+    if not 1 <= port <= 65535:
+        raise ValueError("SSH connection_file port must be between 1 and 65535")
+    user = validate_ssh_user(match.group("user"))
+    hostname = validate_ssh_hostname(match.group("hostname"))
+    identity_file = _resolve_identity_path(match.group("identity"))
+    return SSHConnection(
+        destination=f"{user}@{hostname}",
+        mode="connection_file",
+        identity_file=identity_file,
+        port=port,
+    )
+
+
+def resolve_ssh_connection(host: SSHHostConfig) -> SSHConnection:
     if host.ssh_alias:
-        return validate_ssh_alias(host.ssh_alias)
-    return f"{validate_ssh_user(host.user)}@{validate_ssh_hostname(host.hostname)}"
+        return SSHConnection(
+            destination=validate_ssh_alias(host.ssh_alias),
+            mode="alias",
+        )
+    if host.connection_file:
+        return _resolve_connection_file(host.connection_file)
+    return SSHConnection(
+        destination=(
+            f"{validate_ssh_user(host.user)}@{validate_ssh_hostname(host.hostname)}"
+        ),
+        mode="explicit",
+        identity_file=resolve_ssh_identity_file(host),
+        port=host.port,
+    )
+
+
+def build_ssh_destination(host: SSHHostConfig) -> str:
+    return resolve_ssh_connection(host).destination
 
 
 def build_ssh_connection_options(
-    host: SSHHostConfig, *, scp: bool = False
+    host: SSHHostConfig,
+    *,
+    scp: bool = False,
+    connection: SSHConnection | None = None,
 ) -> list[str]:
-    if host.ssh_alias:
+    resolved = connection or resolve_ssh_connection(host)
+    if resolved.mode == "alias":
         return []
-    options = ["-i", resolve_ssh_identity_file(host)]
-    if host.port != 22:
-        options.extend(["-P" if scp else "-p", str(host.port)])
+    options = ["-i", resolved.identity_file]
+    if resolved.port != 22:
+        options.extend(["-P" if scp else "-p", str(resolved.port)])
     return options
 
 
@@ -143,9 +223,7 @@ def resolve_ssh_host(config: AppConfig, host_id: str) -> SSHHostConfig:
     host = config.ssh.hosts.get(normalized_host_id)
     if host is None:
         raise ValueError(f"Unknown SSH host_id: {normalized_host_id}")
-    build_ssh_destination(host)
-    if not host.ssh_alias:
-        resolve_ssh_identity_file(host)
+    resolve_ssh_connection(host)
     seen: set[str] = set()
     for profile in host.command_profiles:
         validate_ssh_command_profile(profile)
@@ -196,7 +274,8 @@ def build_ssh_argv(
     profile: SSHCommandProfileConfig | None = None,
 ) -> list[str]:
     host = resolve_ssh_host(config, host_id)
-    destination = build_ssh_destination(host)
+    connection = resolve_ssh_connection(host)
+    destination = connection.destination
     if profile is None:
         remote_command = "true"
     else:
@@ -233,7 +312,7 @@ def build_ssh_argv(
         "ConnectionAttempts=1",
         "-o",
         f"ConnectTimeout={host.connect_timeout_seconds}",
-        *build_ssh_connection_options(host),
+        *build_ssh_connection_options(host, connection=connection),
         destination,
         remote_command,
     ]
@@ -325,7 +404,7 @@ def run_ssh_command(config: AppConfig, host_id: str, command_id: str) -> dict:
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": build_ssh_destination(host),
+            "ssh_alias": argv[-2],
             "command_id": profile.command_id,
             "writes_remote": bool(profile.writes_remote),
             "remote_state_verified": False,
@@ -348,7 +427,7 @@ def ssh_host_health(config: AppConfig, host_id: str) -> dict:
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": build_ssh_destination(host),
+            "ssh_alias": argv[-2],
             "status": "ok" if result["ok"] else "unavailable",
         }
     )
@@ -360,7 +439,8 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
     for host_id in sorted(config.ssh.hosts):
         host = config.ssh.hosts[host_id]
         validate_ssh_host_id(host_id)
-        destination = build_ssh_destination(host)
+        connection = resolve_ssh_connection(host)
+        destination = connection.destination
         commands = []
         seen: set[str] = set()
         for profile in host.command_profiles:
@@ -383,7 +463,7 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
             {
                 "host_id": host_id,
                 "ssh_alias": destination,
-                "connection_mode": "alias" if host.ssh_alias else "explicit",
+                "connection_mode": connection.mode,
                 "connect_timeout_seconds": host.connect_timeout_seconds,
                 "commands": commands,
             }
