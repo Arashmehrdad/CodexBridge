@@ -877,7 +877,7 @@ def commit_selected_files(
     manifest_before = dry_run_stage_manifest(repo_root)
     snapshot = _snapshot_index(repo_root)
     try:
-        _run_git(repo_root, ["add", "--", *selected], check=True)
+        _run_git(repo_root, ["add", "--sparse", "--", *selected], check=True)
         _run_git(
             repo_root,
             ["commit", "-m", title, "-m", description],

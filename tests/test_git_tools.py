@@ -68,6 +68,42 @@ def test_selected_file_commit_commits_only_selected_files(repo: Path) -> None:
     assert "one.txt" not in result["remaining_dirty_files"]
 
 
+def test_selected_file_commit_accepts_modified_file_outside_sparse_checkout(
+    repo: Path,
+) -> None:
+    included = repo / "included"
+    excluded = repo / "excluded"
+    included.mkdir()
+    excluded.mkdir()
+    (included / "keep.txt").write_text("keep\n", encoding="utf-8")
+    (excluded / "target.txt").write_text("original\n", encoding="utf-8")
+    run(["git", "add", "included/keep.txt", "excluded/target.txt"], repo)
+    run(["git", "commit", "-m", "add sparse fixture"], repo)
+    run(["git", "sparse-checkout", "init", "--cone"], repo)
+    run(["git", "sparse-checkout", "set", "included"], repo)
+
+    excluded.mkdir(exist_ok=True)
+    (excluded / "target.txt").write_text("updated\n", encoding="utf-8")
+
+    result = commit_selected_files(
+        repo,
+        ["excluded/target.txt"],
+        "test: commit sparse path",
+    )
+
+    assert result["ok"] is True
+    assert result["commit_hash"]
+    assert "excluded/target.txt" not in result["remaining_dirty_files"]
+    committed = subprocess.run(
+        ["git", "show", "HEAD:excluded/target.txt"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert committed.stdout == "updated\n"
+
+
 def test_selected_file_commit_accepts_files_inside_untracked_directory(
     repo: Path,
 ) -> None:
