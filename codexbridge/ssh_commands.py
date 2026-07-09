@@ -285,10 +285,13 @@ def build_ssh_argv(
     strict_host_key_checking = (
         "accept-new" if connection.mode == "connection_file" else "yes"
     )
+    force_pty = bool(getattr(host, "force_pty", False)) or connection.destination.endswith(
+        "@ssh.runpod.io"
+    )
     return [
         executable,
         "-n",
-        "-tt" if host.force_pty else "-T",
+        "-tt" if force_pty else "-T",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -467,7 +470,8 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
                 "host_id": host_id,
                 "ssh_alias": destination,
                 "connection_mode": connection.mode,
-                "force_pty": host.force_pty,
+                "force_pty": bool(getattr(host, "force_pty", False))
+                or destination.endswith("@ssh.runpod.io"),
                 "connect_timeout_seconds": host.connect_timeout_seconds,
                 "commands": commands,
             }

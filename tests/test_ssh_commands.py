@@ -136,7 +136,6 @@ def test_build_ssh_argv_supports_explicit_endpoint_and_identity(
         port=2222,
         identity_file=str(identity),
         connect_timeout_seconds=17,
-        force_pty=True,
         command_profiles=[
             SSHCommandProfileConfig(
                 command_id="status",
