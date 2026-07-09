@@ -21,6 +21,8 @@ from .safety import redact_secret_values, validate_repo_relative_path
 from .ssh_commands import (
     _run_ssh_argv,
     build_ssh_argv,
+    build_ssh_connection_options,
+    build_ssh_destination,
     resolve_ssh_command_profile,
     resolve_ssh_host,
     validate_ssh_alias,
@@ -656,6 +658,7 @@ def _scp_base(
         "-o",
         f"ConnectTimeout={host.connect_timeout_seconds}",
     ]
+    argv.extend(build_ssh_connection_options(host, scp=True))
     if recursive:
         argv.append("-r")
     return argv, host
@@ -750,7 +753,7 @@ def run_ssh_transfer(
         )
     argv, host = _scp_base(config, host_id, recursive=recursive)
     remote = validate_remote_path(host, remote_path, sensitive=True)
-    alias = validate_ssh_alias(host.ssh_alias)
+    destination_host = build_ssh_destination(host)
     if direction == "upload":
         local = validate_repo_relative_path(repo_root, local_path)
         if not local.exists():
@@ -761,7 +764,7 @@ def run_ssh_transfer(
             raise ValueError(
                 "Secret-like local files cannot be uploaded through CodexBridge"
             )
-        argv.extend([str(local), f"{alias}:{remote}"])
+        argv.extend([str(local), f"{destination_host}:{remote}"])
         cwd = repo_root
         destination = remote
     else:
@@ -775,7 +778,7 @@ def run_ssh_transfer(
         local = downloads / requested_name
         if local.exists() and not overwrite:
             raise ValueError(f"Download destination already exists: {local.name}")
-        argv.extend([f"{alias}:{remote}", str(local)])
+        argv.extend([f"{destination_host}:{remote}", str(local)])
         cwd = run_dir
         destination = str(local)
     result = _run_local_argv(
@@ -874,7 +877,7 @@ def run_ssh_deployment(
 
     scp_argv, _ = _scp_base(config, host_id, recursive=False)
     scp_argv.extend(
-        [str(archive_path), f"{validate_ssh_alias(host.ssh_alias)}:{remote_archive}"]
+        [str(archive_path), f"{build_ssh_destination(host)}:{remote_archive}"]
     )
     upload = _run_local_argv(
         scp_argv,
