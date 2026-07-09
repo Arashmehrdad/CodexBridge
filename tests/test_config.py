@@ -127,6 +127,41 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
         )
 
 
+def test_ssh_host_supports_alias_or_explicit_endpoint(tmp_path: Path) -> None:
+    direct = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        port=2222,
+        identity_file=str(tmp_path / "runpod_key"),
+    )
+    assert direct.ssh_alias == ""
+    assert direct.hostname == "ssh.runpod.io"
+    assert direct.user == "pod-user-123"
+    assert direct.port == 2222
+
+    with pytest.raises(ValidationError, match="either ssh_alias or explicit"):
+        SSHHostConfig(
+            ssh_alias="runpod-wan",
+            hostname="ssh.runpod.io",
+            user="pod-user-123",
+            identity_file=str(tmp_path / "runpod_key"),
+        )
+    with pytest.raises(ValidationError, match="requires ssh_alias or explicit"):
+        SSHHostConfig(hostname="ssh.runpod.io", user="pod-user-123")
+    with pytest.raises(ValidationError, match="absolute path"):
+        SSHHostConfig(
+            hostname="ssh.runpod.io",
+            user="pod-user-123",
+            identity_file="relative/key",
+        )
+    with pytest.raises(ValidationError, match="SSH hostname"):
+        SSHHostConfig(
+            hostname="bad host",
+            user="pod-user-123",
+            identity_file=str(tmp_path / "runpod_key"),
+        )
+
+
 def test_ssh_deployment_and_admin_config_validation() -> None:
     deployment = SSHDeploymentProfileConfig(
         repo_name="sample",

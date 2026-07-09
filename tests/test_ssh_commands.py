@@ -124,6 +124,57 @@ def test_build_ssh_argv_uses_alias_and_hardened_options(
     assert "ConnectTimeout=12" in argv
 
 
+def test_build_ssh_argv_supports_explicit_endpoint_and_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        port=2222,
+        identity_file=str(identity),
+        connect_timeout_seconds=17,
+        command_profiles=[
+            SSHCommandProfileConfig(
+                command_id="status",
+                argv=["uptime"],
+                timeout_seconds=45,
+                description="Show server uptime",
+            )
+        ],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    _, profile = resolve_ssh_command_profile(config, "my_vps", "status")
+
+    argv = build_ssh_argv(config, "my_vps", profile)
+
+    assert argv[-2:] == ["pod-user-123@ssh.runpod.io", "uptime"]
+    assert argv[argv.index("-i") + 1] == str(identity)
+    assert argv[argv.index("-p") + 1] == "2222"
+    assert "ConnectTimeout=17" in argv
+    capabilities = list_ssh_capabilities(config)
+    assert capabilities["hosts"][0]["ssh_alias"] == "pod-user-123@ssh.runpod.io"
+    assert capabilities["hosts"][0]["connection_mode"] == "explicit"
+
+
+def test_explicit_endpoint_requires_existing_identity_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(tmp_path / "missing-key"),
+        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+
+    with pytest.raises(ValueError, match="identity_file does not exist"):
+        resolve_ssh_command_profile(config, "my_vps", "status")
+
+
 def test_run_ssh_command_uses_shell_false_and_returns_metadata(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -199,6 +250,7 @@ def test_capability_listing_exposes_metadata_not_remote_argv(tmp_path: Path) -> 
     host = result["hosts"][0]
     assert host["host_id"] == "my_vps"
     assert host["ssh_alias"] == "my-vps"
+    assert host["connection_mode"] == "alias"
     command = host["commands"][0]
     assert command == {
         "command_id": "status",
