@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 
 DEFAULT_RUNPOD_USER = "fhxnfase3ezwmn-644113c6"
@@ -20,6 +22,68 @@ class ConfigurationError(RuntimeError):
 def _managed_pattern() -> re.Pattern[str]:
     return re.compile(
         rf"(?ms)^{re.escape(START_MARKER)}\r?\n.*?^{re.escape(END_MARKER)}\r?\n?"
+    )
+
+
+def _run_windows_command(argv: list[str], label: str) -> str:
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ConfigurationError(f"Unable to run {label}: {exc}") from exc
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip()
+        raise ConfigurationError(
+            f"{label} failed with exit code {completed.returncode}: {message}"
+        )
+    return completed.stdout
+
+
+def _current_windows_user_sid() -> str:
+    output = _run_windows_command(
+        ["whoami.exe", "/user", "/fo", "csv", "/nh"],
+        "whoami",
+    )
+    rows = list(csv.reader(output.splitlines()))
+    if len(rows) != 1 or len(rows[0]) < 2:
+        raise ConfigurationError("Unable to parse the current Windows user SID")
+    sid = rows[0][1].strip()
+    if not re.fullmatch(r"S-[0-9-]+", sid):
+        raise ConfigurationError(f"Invalid current Windows user SID: {sid!r}")
+    return sid
+
+
+def harden_windows_acl(path: Path) -> None:
+    if os.name != "nt":
+        return
+    sid = _current_windows_user_sid()
+    target = str(path.resolve())
+    _run_windows_command(["icacls.exe", target, "/reset"], "icacls reset")
+    _run_windows_command(
+        ["icacls.exe", target, "/inheritance:r"],
+        "icacls inheritance removal",
+    )
+    _run_windows_command(
+        [
+            "icacls.exe",
+            target,
+            "/grant:r",
+            f"*{sid}:(F)",
+            "*S-1-5-18:(F)",
+            "*S-1-5-32-544:(F)",
+        ],
+        "icacls grant",
+    )
+    _run_windows_command(
+        ["icacls.exe", target, "/setowner", f"*{sid}"],
+        "icacls owner update",
     )
 
 
@@ -76,6 +140,8 @@ def update_ssh_config(
             os.fsync(handle.fileno())
         os.replace(temporary_path, config)
         temporary_path = None
+        harden_windows_acl(config)
+        harden_windows_acl(identity)
     except OSError as exc:
         raise ConfigurationError(f"Unable to write SSH config {config}: {exc}") from exc
     finally:
