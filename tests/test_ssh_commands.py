@@ -107,6 +107,7 @@ def test_build_ssh_argv_uses_alias_and_hardened_options(
     argv = build_ssh_argv(config, "my_vps", profile)
 
     assert argv[0] == "ssh.exe"
+    assert argv[1] == "-n"
     assert argv[-2:] == ["my-vps", "uptime"]
     assert "BatchMode=yes" in argv
     assert "IdentitiesOnly=yes" in argv
@@ -116,6 +117,10 @@ def test_build_ssh_argv_uses_alias_and_hardened_options(
     assert "ForwardAgent=no" in argv
     assert "ClearAllForwardings=yes" in argv
     assert "PermitLocalCommand=no" in argv
+    assert "ControlMaster=no" in argv
+    assert "ControlPath=none" in argv
+    assert "ControlPersist=no" in argv
+    assert "ConnectionAttempts=1" in argv
     assert "ConnectTimeout=12" in argv
 
 
@@ -138,6 +143,7 @@ def test_run_ssh_command_uses_shell_false_and_returns_metadata(
     result = run_ssh_command(config, "my_vps", "status")
 
     assert captured["kwargs"]["shell"] is False
+    assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
     assert captured["kwargs"]["cwd"] == tmp_path
     assert captured["argv"][-2] == "my-vps"
     assert captured["argv"][-1] == "systemctl restart app"

@@ -154,6 +154,7 @@ def build_ssh_argv(
     executable = resolve_ssh_executable(config)
     return [
         executable,
+        "-n",
         "-T",
         "-o",
         "BatchMode=yes",
@@ -171,6 +172,14 @@ def build_ssh_argv(
         "ClearAllForwardings=yes",
         "-o",
         "PermitLocalCommand=no",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
+        "-o",
+        "ControlPersist=no",
+        "-o",
+        "ConnectionAttempts=1",
         "-o",
         f"ConnectTimeout={host.connect_timeout_seconds}",
         ssh_alias,
@@ -208,6 +217,7 @@ def _run_ssh_argv(
             encoding="utf-8",
             errors="replace",
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             shell=False,
             timeout=timeout_seconds,
         )
