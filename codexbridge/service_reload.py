@@ -9,6 +9,18 @@ from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import AppConfig, load_config
 from .repo_discovery_integration import install_repo_discovery
 
+def _rebind_server_ssh_helpers() -> None:
+    server_module = sys.modules.get("codexbridge.server")
+    commands_module = sys.modules.get("codexbridge.ssh_commands")
+    tools_module = sys.modules.get("codexbridge.ssh_tools")
+    if server_module is None or commands_module is None or tools_module is None:
+        return
+    server_module._list_ssh_capabilities = commands_module.list_ssh_capabilities
+    server_module._ssh_host_health = commands_module.ssh_host_health
+    server_module._enrich_ssh_capabilities = tools_module.enrich_ssh_capabilities
+    server_module._run_ssh_inspection = tools_module.run_ssh_inspection
+
+
 RELOADABLE_MODULES = {
     "codexbridge.capabilities",
     "codexbridge.command_profiles",
@@ -22,6 +34,8 @@ RELOADABLE_MODULES = {
     "codexbridge.repo_writer",
     "codexbridge.run_guards",
     "codexbridge.run_store",
+    "codexbridge.ssh_commands",
+    "codexbridge.ssh_tools",
     "codexbridge.transactions",
     "codexbridge.return_loop.atomic_writer",
 }
@@ -61,6 +75,8 @@ def reload_service(
             importlib.reload(sys.modules[qualified])
         else:
             importlib.import_module(qualified)
+        if qualified == "codexbridge.ssh_tools":
+            _rebind_server_ssh_helpers()
         reloaded.append(qualified)
 
     result = {
