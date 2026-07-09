@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,62 @@ END_MARKER = "# END CODEXBRIDGE ANDIYA"
 
 class RepairError(RuntimeError):
     """Raised when the alias cannot be restored and validated safely."""
+
+
+def _run_windows_command(argv: list[str], label: str) -> str:
+    try:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RepairError(f"{label}_failed") from exc
+    if completed.returncode != 0:
+        raise RepairError(f"{label}_failed")
+    return completed.stdout
+
+
+def _current_windows_user_sid() -> str:
+    output = _run_windows_command(
+        ["whoami.exe", "/user", "/fo", "csv", "/nh"],
+        "sid_lookup",
+    )
+    rows = list(csv.reader(output.splitlines()))
+    if len(rows) != 1 or len(rows[0]) < 2:
+        raise RepairError("sid_parse_failed")
+    sid = rows[0][1].strip()
+    if not re.fullmatch(r"S-[0-9-]+", sid):
+        raise RepairError("sid_parse_failed")
+    return sid
+
+
+def _harden_windows_acl(path: Path) -> None:
+    if os.name != "nt":
+        return
+    sid = _current_windows_user_sid()
+    target = str(path.resolve())
+    _run_windows_command(["icacls.exe", target, "/reset"], "acl_reset")
+    _run_windows_command(["icacls.exe", target, "/inheritance:r"], "acl_inheritance")
+    _run_windows_command(
+        [
+            "icacls.exe",
+            target,
+            "/grant:r",
+            f"*{sid}:(F)",
+            "*S-1-5-18:(F)",
+            "*S-1-5-32-544:(F)",
+        ],
+        "acl_grant",
+    )
+    _run_windows_command(
+        ["icacls.exe", target, "/setowner", f"*{sid}"],
+        "acl_owner",
+    )
 
 
 def _ssh_executable() -> Path:
@@ -142,6 +199,7 @@ def _write_atomic(config_path: Path, content: str) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+        _harden_windows_acl(config_path)
         return
 
     temporary: Path | None = None
@@ -157,6 +215,7 @@ def _write_atomic(config_path: Path, content: str) -> None:
             os.fsync(handle.fileno())
         os.replace(temporary, config_path)
         temporary = None
+        _harden_windows_acl(config_path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
