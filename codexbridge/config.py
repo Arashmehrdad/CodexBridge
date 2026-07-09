@@ -142,7 +142,11 @@ class SSHDeploymentProfileConfig(BaseModel):
 
 
 class SSHHostConfig(BaseModel):
-    ssh_alias: str
+    ssh_alias: str = ""
+    hostname: str = ""
+    user: str = ""
+    port: int = Field(default=22, ge=1, le=65535)
+    identity_file: str = ""
     connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
     use_sudo: bool = False
     allowed_remote_roots: List[str] = Field(default_factory=list)
@@ -154,6 +158,42 @@ class SSHHostConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_command_ids(self) -> "SSHHostConfig":
+        self.ssh_alias = self.ssh_alias.strip()
+        self.hostname = self.hostname.strip()
+        self.user = self.user.strip()
+        self.identity_file = self.identity_file.strip()
+        direct_values = (self.hostname, self.user, self.identity_file)
+        if self.ssh_alias:
+            if any(direct_values) or self.port != 22:
+                raise ValueError(
+                    "SSH host must use either ssh_alias or explicit hostname/user/identity_file"
+                )
+        else:
+            if not all(direct_values):
+                raise ValueError(
+                    "SSH host requires ssh_alias or explicit hostname, user, and identity_file"
+                )
+            host_allowed = set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+            )
+            user_allowed = set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+            )
+            if any(char not in host_allowed for char in self.hostname):
+                raise ValueError(
+                    "SSH hostname must use letters, numbers, dots, or hyphens"
+                )
+            if any(char not in user_allowed for char in self.user):
+                raise ValueError(
+                    "SSH user must use letters, numbers, dots, underscores, or hyphens"
+                )
+            if any(ord(char) < 32 or ord(char) == 127 for char in self.identity_file):
+                raise ValueError("SSH identity_file must not contain control characters")
+            if not (
+                Path(self.identity_file).is_absolute()
+                or PureWindowsPath(self.identity_file).is_absolute()
+            ):
+                raise ValueError("SSH identity_file must be an absolute path")
         command_ids = [profile.command_id for profile in self.command_profiles]
         if len(command_ids) != len(set(command_ids)):
             raise ValueError("SSH command_id values must be unique per host")

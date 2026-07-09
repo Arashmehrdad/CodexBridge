@@ -17,6 +17,8 @@ MAX_REMOTE_COMMAND_BYTES = 4096
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9.-]+$")
+_USER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f;&|<>`$()*?]")
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
@@ -47,6 +49,53 @@ def validate_ssh_alias(ssh_alias: str) -> str:
             "SSH alias must contain only letters, numbers, dots, underscores, or hyphens"
         )
     return value
+
+
+def validate_ssh_hostname(hostname: str) -> str:
+    value = str(hostname).strip()
+    if not value or not _HOSTNAME_RE.fullmatch(value):
+        raise ValueError(
+            "SSH hostname must contain only letters, numbers, dots, or hyphens"
+        )
+    return value
+
+
+def validate_ssh_user(user: str) -> str:
+    value = str(user).strip()
+    if not value or not _USER_RE.fullmatch(value):
+        raise ValueError(
+            "SSH user must contain only letters, numbers, dots, underscores, or hyphens"
+        )
+    return value
+
+
+def resolve_ssh_identity_file(host: SSHHostConfig) -> str:
+    configured = str(host.identity_file).strip()
+    if not configured:
+        raise ValueError("Explicit SSH endpoint requires identity_file")
+    candidate = Path(configured).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("SSH identity_file must be an absolute path")
+    if not candidate.is_file():
+        raise ValueError(f"SSH identity_file does not exist: {configured}")
+    return str(candidate)
+
+
+def build_ssh_destination(host: SSHHostConfig) -> str:
+    if host.ssh_alias:
+        return validate_ssh_alias(host.ssh_alias)
+    return f"{validate_ssh_user(host.user)}@{validate_ssh_hostname(host.hostname)}"
+
+
+def build_ssh_connection_options(
+    host: SSHHostConfig, *, scp: bool = False
+) -> list[str]:
+    if host.ssh_alias:
+        return []
+    options = ["-i", resolve_ssh_identity_file(host)]
+    if host.port != 22:
+        options.extend(["-P" if scp else "-p", str(host.port)])
+    return options
 
 
 def validate_ssh_command_profile(
@@ -94,7 +143,9 @@ def resolve_ssh_host(config: AppConfig, host_id: str) -> SSHHostConfig:
     host = config.ssh.hosts.get(normalized_host_id)
     if host is None:
         raise ValueError(f"Unknown SSH host_id: {normalized_host_id}")
-    validate_ssh_alias(host.ssh_alias)
+    build_ssh_destination(host)
+    if not host.ssh_alias:
+        resolve_ssh_identity_file(host)
     seen: set[str] = set()
     for profile in host.command_profiles:
         validate_ssh_command_profile(profile)
@@ -145,7 +196,7 @@ def build_ssh_argv(
     profile: SSHCommandProfileConfig | None = None,
 ) -> list[str]:
     host = resolve_ssh_host(config, host_id)
-    ssh_alias = validate_ssh_alias(host.ssh_alias)
+    destination = build_ssh_destination(host)
     if profile is None:
         remote_command = "true"
     else:
@@ -182,7 +233,8 @@ def build_ssh_argv(
         "ConnectionAttempts=1",
         "-o",
         f"ConnectTimeout={host.connect_timeout_seconds}",
-        ssh_alias,
+        *build_ssh_connection_options(host),
+        destination,
         remote_command,
     ]
 
@@ -273,7 +325,7 @@ def run_ssh_command(config: AppConfig, host_id: str, command_id: str) -> dict:
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": validate_ssh_alias(host.ssh_alias),
+            "ssh_alias": build_ssh_destination(host),
             "command_id": profile.command_id,
             "writes_remote": bool(profile.writes_remote),
             "remote_state_verified": False,
@@ -296,7 +348,7 @@ def ssh_host_health(config: AppConfig, host_id: str) -> dict:
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": validate_ssh_alias(host.ssh_alias),
+            "ssh_alias": build_ssh_destination(host),
             "status": "ok" if result["ok"] else "unavailable",
         }
     )
@@ -308,7 +360,7 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
     for host_id in sorted(config.ssh.hosts):
         host = config.ssh.hosts[host_id]
         validate_ssh_host_id(host_id)
-        validate_ssh_alias(host.ssh_alias)
+        destination = build_ssh_destination(host)
         commands = []
         seen: set[str] = set()
         for profile in host.command_profiles:
@@ -330,7 +382,8 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
         hosts.append(
             {
                 "host_id": host_id,
-                "ssh_alias": host.ssh_alias,
+                "ssh_alias": destination,
+                "connection_mode": "alias" if host.ssh_alias else "explicit",
                 "connect_timeout_seconds": host.connect_timeout_seconds,
                 "commands": commands,
             }
