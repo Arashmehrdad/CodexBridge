@@ -183,6 +183,8 @@ def test_connection_file_is_reread_for_each_ssh_operation(
     assert first[-2] == "root@194.68.245.114"
     assert first[first.index("-p") + 1] == "22054"
     assert first[first.index("-i") + 1] == str(first_key)
+    assert "StrictHostKeyChecking=accept-new" in first
+    assert "StrictHostKeyChecking=yes" not in first
 
     connection_file.write_text(
         f"ssh root@203.0.113.20 -p 31000 -i {second_key}\n",

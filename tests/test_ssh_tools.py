@@ -335,6 +335,8 @@ def test_transfer_rereads_file_backed_endpoint(tmp_path: Path, monkeypatch) -> N
 
     assert result["ok"] is True
     assert captured["argv"][captured["argv"].index("-P") + 1] == "22054"
+    assert "StrictHostKeyChecking=accept-new" in captured["argv"]
+    assert "StrictHostKeyChecking=yes" not in captured["argv"]
     assert captured["argv"][-1] == (
         "root@194.68.245.114:/srv/app/incoming/app.txt"
     )

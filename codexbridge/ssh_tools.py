@@ -639,6 +639,9 @@ def _scp_base(
 ) -> tuple[list[str], SSHHostConfig, str]:
     host = resolve_ssh_host(config, host_id)
     connection = resolve_ssh_connection(host)
+    strict_host_key_checking = (
+        "accept-new" if connection.mode == "connection_file" else "yes"
+    )
     argv = [
         resolve_scp_executable(config),
         "-B",
@@ -648,7 +651,7 @@ def _scp_base(
         "-o",
         "IdentitiesOnly=yes",
         "-o",
-        "StrictHostKeyChecking=yes",
+        f"StrictHostKeyChecking={strict_host_key_checking}",
         "-o",
         "PasswordAuthentication=no",
         "-o",

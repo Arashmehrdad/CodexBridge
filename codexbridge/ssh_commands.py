@@ -282,6 +282,9 @@ def build_ssh_argv(
         validate_ssh_command_profile(profile)
         remote_command = shlex.join([str(item) for item in profile.argv])
     executable = resolve_ssh_executable(config)
+    strict_host_key_checking = (
+        "accept-new" if connection.mode == "connection_file" else "yes"
+    )
     return [
         executable,
         "-n",
@@ -291,7 +294,7 @@ def build_ssh_argv(
         "-o",
         "IdentitiesOnly=yes",
         "-o",
-        "StrictHostKeyChecking=yes",
+        f"StrictHostKeyChecking={strict_host_key_checking}",
         "-o",
         "PasswordAuthentication=no",
         "-o",
