@@ -10,7 +10,9 @@ import re
 import subprocess
 import tempfile
 
+DEFAULT_RUNPOD_HOSTNAME = "ssh.runpod.io"
 DEFAULT_RUNPOD_USER = "fhxnfase3ezwmn-644113c6"
+DEFAULT_RUNPOD_PORT = 22
 START_MARKER = "# BEGIN CODEXBRIDGE RUNPOD WAN"
 END_MARKER = "# END CODEXBRIDGE RUNPOD WAN"
 
@@ -87,16 +89,27 @@ def harden_windows_acl(path: Path) -> None:
     )
 
 
-def render_managed_block(runpod_user: str, identity_file: Path) -> str:
+def render_managed_block(
+    hostname: str,
+    runpod_user: str,
+    port: int,
+    identity_file: Path,
+) -> str:
+    normalized_hostname = hostname.strip()
     normalized_user = runpod_user.strip()
+    if not normalized_hostname or not re.fullmatch(r"[A-Za-z0-9.-]+", normalized_hostname):
+        raise ConfigurationError("RunPod hostname contains invalid characters")
     if not normalized_user or not re.fullmatch(r"[A-Za-z0-9._-]+", normalized_user):
         raise ConfigurationError("RunPod user contains invalid characters")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ConfigurationError("RunPod port must be between 1 and 65535")
     normalized_identity = identity_file.resolve().as_posix()
     return (
         f"{START_MARKER}\n"
         "Host runpod-wan\n"
-        "    HostName ssh.runpod.io\n"
+        f"    HostName {normalized_hostname}\n"
         f"    User {normalized_user}\n"
+        f"    Port {port}\n"
         f"    IdentityFile {normalized_identity}\n"
         "    IdentitiesOnly yes\n"
         "    ServerAliveInterval 30\n"
@@ -109,6 +122,8 @@ def update_ssh_config(
     config_path: Path,
     identity_file: Path,
     runpod_user: str = DEFAULT_RUNPOD_USER,
+    hostname: str = DEFAULT_RUNPOD_HOSTNAME,
+    port: int = DEFAULT_RUNPOD_PORT,
 ) -> Path:
     config = config_path.expanduser().resolve()
     identity = identity_file.expanduser().resolve()
@@ -124,7 +139,7 @@ def update_ssh_config(
         raise ConfigurationError(f"Unable to read SSH config {config}: {exc}") from exc
 
     cleaned = _managed_pattern().sub("", existing).rstrip()
-    block = render_managed_block(runpod_user, identity).rstrip()
+    block = render_managed_block(hostname, runpod_user, port, identity).rstrip()
     new_content = f"{block}\n" if not cleaned else f"{cleaned}\n\n{block}\n"
 
     temporary_path: Path | None = None
@@ -155,7 +170,9 @@ def update_ssh_config(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--hostname", default=DEFAULT_RUNPOD_HOSTNAME)
     parser.add_argument("--runpod-user", default=DEFAULT_RUNPOD_USER)
+    parser.add_argument("--port", type=int, default=DEFAULT_RUNPOD_PORT)
     parser.add_argument(
         "--identity-file",
         default=str(Path.home() / ".ssh" / "runpod_wan22"),
@@ -174,6 +191,8 @@ def main() -> int:
             Path(args.config_path),
             Path(args.identity_file),
             args.runpod_user,
+            args.hostname,
+            args.port,
         )
     except ConfigurationError as exc:
         print(f"ERROR: {exc}")
