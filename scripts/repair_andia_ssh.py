@@ -131,6 +131,13 @@ def _render_block(identity_file: Path) -> str:
 
 def _write_atomic(config_path: Path, content: str) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    if config_path.exists():
+        with config_path.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return
+
     temporary: Path | None = None
     try:
         descriptor, raw_path = tempfile.mkstemp(
