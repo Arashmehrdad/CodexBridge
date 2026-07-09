@@ -878,9 +878,12 @@ def run_ssh_deployment(
     ):
         return _deployment_result(host_id, deployment_id, archive_path, steps)
 
-    scp_argv, _, destination_host = _scp_base(
-        config, host_id, recursive=False
-    )
+    scp_result = _scp_base(config, host_id, recursive=False)
+    if len(scp_result) == 2:  # Compatibility for existing test/plugin mocks.
+        scp_argv, _ = scp_result
+        destination_host = build_ssh_destination(host)
+    else:
+        scp_argv, _, destination_host = scp_result
     scp_argv.extend(
         [str(archive_path), f"{destination_host}:{remote_archive}"]
     )
