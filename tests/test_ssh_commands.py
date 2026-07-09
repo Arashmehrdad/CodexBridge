@@ -272,6 +272,82 @@ def test_run_ssh_command_uses_shell_false_and_returns_metadata(
     assert result["remote_state_verified"] is False
 
 
+def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(identity),
+        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout=(
+                "RunPod banner\r\n"
+                "uptime output\r\n"
+                "__CODEXBRIDGE_REMOTE_EXIT__=0\r\n"
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_command(config, "my_vps", "status")
+
+    assert "-tt" in captured["argv"]
+    assert "-n" not in captured["argv"]
+    assert captured["argv"][-1] == "pod-user-123@ssh.runpod.io"
+    assert "input" in captured["kwargs"]
+    assert "stdin" not in captured["kwargs"]
+    assert "uptime\n" in captured["kwargs"]["input"]
+    assert "__CODEXBRIDGE_REMOTE_EXIT__=" in captured["kwargs"]["input"]
+    assert result["ok"] is True
+    assert result["exit_code"] == 0
+    assert "__CODEXBRIDGE_REMOTE_EXIT__=" not in result["stdout"]
+
+
+def test_runpod_proxy_marker_controls_remote_exit_code(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(identity),
+        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    monkeypatch.setattr(
+        ssh_commands.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(
+            stdout="\r\n__CODEXBRIDGE_REMOTE_EXIT__=7\r\n",
+            stderr="",
+            returncode=0,
+        ),
+    )
+
+    result = run_ssh_command(config, "my_vps", "status")
+
+    assert result["ok"] is False
+    assert result["exit_code"] == 7
+    assert result["error"] == "Remote command exited with code 7"
+
+
 def test_ssh_health_uses_fixed_true_command(tmp_path: Path, monkeypatch) -> None:
     config = make_config(tmp_path)
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")

@@ -23,6 +23,7 @@ from .ssh_commands import (
     build_ssh_argv,
     build_ssh_connection_options,
     build_ssh_destination,
+    prepare_ssh_execution,
     resolve_ssh_connection,
     resolve_ssh_command_profile,
     resolve_ssh_host,
@@ -306,14 +307,21 @@ def _run_remote_argv(
         writes_remote=False,
     )
     validate_ssh_command_profile(profile)
-    argv = build_ssh_argv(config, host_id, profile)
+    host = resolve_ssh_host(config, host_id)
+    built_argv = build_ssh_argv(config, host_id, profile)
+    argv, stdin_text, _ = prepare_ssh_execution(host, built_argv)
     result = _run_ssh_argv(
         argv,
         cwd=config.config_dir,
         timeout_seconds=timeout_seconds,
         output_limit=config.ssh.max_output_bytes,
+        stdin_text=stdin_text,
     )
-    result["argv"] = [*argv[:-1], "<bounded remote argv>"]
+    result["argv"] = (
+        [*argv[:-1], "<bounded remote argv>"]
+        if stdin_text is None
+        else [*argv, "<bounded remote argv via stdin>"]
+    )
     result["stdout"] = redact_secret_values(str(result.get("stdout", "")))
     result["stderr"] = redact_secret_values(str(result.get("stderr", "")))
     result["host_id"] = validate_ssh_host_id(host_id)
