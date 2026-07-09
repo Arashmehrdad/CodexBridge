@@ -48,6 +48,12 @@ def _private_key_candidates(ssh_dir: Path) -> list[Path]:
 
 def _classify_failure(stderr: str) -> str:
     lowered = stderr.lower()
+    if "could not resolve hostname" in lowered:
+        return "alias_unresolved"
+    if "bad owner or permissions" in lowered:
+        return "config_permissions_rejected"
+    if "bad configuration option" in lowered or "bad configuration options" in lowered:
+        return "config_parse_failed"
     if "host key verification failed" in lowered:
         return "host_key_verification_failed"
     if "permission denied" in lowered:
