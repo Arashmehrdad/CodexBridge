@@ -25,6 +25,10 @@ _CONNECTION_COMMAND_RE = re.compile(
     r"-p\s+(?P<port>[0-9]{1,5})\s+-i\s+(?P<identity>.+)$"
 )
 _CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f;&|<>`$()*?]")
+_PTY_EXIT_MARKER = "__CODEXBRIDGE_REMOTE_EXIT__="
+_PTY_EXIT_RE = re.compile(
+    r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+"
+)
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
     "cmd",
@@ -285,9 +289,7 @@ def build_ssh_argv(
     strict_host_key_checking = (
         "accept-new" if connection.mode == "connection_file" else "yes"
     )
-    force_pty = bool(getattr(host, "force_pty", False)) or connection.destination.endswith(
-        "@ssh.runpod.io"
-    )
+    force_pty = requires_forced_pty(host, connection.destination)
     return [
         executable,
         "-n",
@@ -324,6 +326,35 @@ def build_ssh_argv(
     ]
 
 
+def requires_forced_pty(host: SSHHostConfig, destination: str) -> bool:
+    return bool(getattr(host, "force_pty", False)) or destination.endswith(
+        "@ssh.runpod.io"
+    )
+
+
+def prepare_ssh_execution(
+    host: SSHHostConfig,
+    argv: list[str],
+) -> tuple[list[str], str | None, str]:
+    if len(argv) < 4:
+        raise ValueError("SSH argv is incomplete")
+    destination = argv[-2]
+    if not requires_forced_pty(host, destination):
+        return argv, None, destination
+    if argv[1] != "-n" or argv[2] != "-tt":
+        raise ValueError("Forced-PTY SSH argv is malformed")
+    remote_command = argv[-1]
+    execution_argv = [argv[0], *argv[2:-1]]
+    stdin_text = (
+        "stty -echo 2>/dev/null || true\n"
+        f"{remote_command}\n"
+        "__codexbridge_status=$?\n"
+        f"printf '\\n{_PTY_EXIT_MARKER}%s\\n' \"$__codexbridge_status\"\n"
+        "exit \"$__codexbridge_status\"\n"
+    )
+    return execution_argv, stdin_text, destination
+
+
 def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bool]:
     combined_size = len((stdout + stderr).encode("utf-8"))
     if combined_size <= limit:
@@ -341,23 +372,31 @@ def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bo
 
 
 def _run_ssh_argv(
-    argv: list[str], *, cwd: Path, timeout_seconds: int, output_limit: int
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int,
+    output_limit: int,
+    stdin_text: str | None = None,
 ) -> dict:
     started = time.monotonic()
     timed_out = False
     try:
-        completed = subprocess.run(
-            argv,
-            cwd=cwd,
-            env=os.environ.copy(),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            shell=False,
-            timeout=timeout_seconds,
-        )
+        run_kwargs = {
+            "cwd": cwd,
+            "env": os.environ.copy(),
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "capture_output": True,
+            "shell": False,
+            "timeout": timeout_seconds,
+        }
+        if stdin_text is None:
+            run_kwargs["stdin"] = subprocess.DEVNULL
+        else:
+            run_kwargs["input"] = stdin_text
+        completed = subprocess.run(argv, **run_kwargs)
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
         exit_code = int(completed.returncode)
@@ -378,6 +417,19 @@ def _run_ssh_argv(
         stdout = ""
         stderr = str(exc)
         exit_code = 1
+    if stdin_text is not None and not timed_out:
+        matches = list(_PTY_EXIT_RE.finditer(stdout))
+        if matches:
+            marker = matches[-1]
+            exit_code = int(marker.group("code"))
+            cleaned = stdout[: marker.start()] + stdout[marker.end() :]
+            stdout = cleaned.rstrip("\r\n")
+            if stdout:
+                stdout += "\n"
+        else:
+            exit_code = 1
+            missing = "Forced-PTY session ended without remote exit marker"
+            stderr = f"{stderr.rstrip()}\n{missing}".strip()
     stdout, stderr, output_truncated = _truncate_output(stdout, stderr, output_limit)
     duration = round(time.monotonic() - started, 3)
     return {
@@ -392,25 +444,35 @@ def _run_ssh_argv(
         "error": (
             f"Timed out after {timeout_seconds}s"
             if timed_out
-            else (stderr.strip()[:300] if exit_code != 0 else "")
+            else (
+                (stderr.strip() or f"Remote command exited with code {exit_code}")[:300]
+                if exit_code != 0
+                else ""
+            )
         ),
     }
 
 
 def run_ssh_command(config: AppConfig, host_id: str, command_id: str) -> dict:
     host, profile = resolve_ssh_command_profile(config, host_id, command_id)
-    argv = build_ssh_argv(config, host_id, profile)
+    built_argv = build_ssh_argv(config, host_id, profile)
+    argv, stdin_text, destination = prepare_ssh_execution(host, built_argv)
     result = _run_ssh_argv(
         argv,
         cwd=config.config_dir,
         timeout_seconds=profile.timeout_seconds,
         output_limit=config.ssh.max_output_bytes,
+        stdin_text=stdin_text,
     )
-    result["argv"] = [*argv[:-1], "<configured command>"]
+    result["argv"] = (
+        [*argv[:-1], "<configured command>"]
+        if stdin_text is None
+        else [*argv, "<configured command via stdin>"]
+    )
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": argv[-2],
+            "ssh_alias": destination,
             "command_id": profile.command_id,
             "writes_remote": bool(profile.writes_remote),
             "remote_state_verified": False,
@@ -421,19 +483,25 @@ def run_ssh_command(config: AppConfig, host_id: str, command_id: str) -> dict:
 
 def ssh_host_health(config: AppConfig, host_id: str) -> dict:
     host = resolve_ssh_host(config, host_id)
-    argv = build_ssh_argv(config, host_id)
+    built_argv = build_ssh_argv(config, host_id)
+    argv, stdin_text, destination = prepare_ssh_execution(host, built_argv)
     timeout = max(5, host.connect_timeout_seconds + 5)
     result = _run_ssh_argv(
         argv,
         cwd=config.config_dir,
         timeout_seconds=timeout,
         output_limit=config.ssh.max_output_bytes,
+        stdin_text=stdin_text,
     )
-    result["argv"] = [*argv[:-1], "<health check>"]
+    result["argv"] = (
+        [*argv[:-1], "<health check>"]
+        if stdin_text is None
+        else [*argv, "<health check via stdin>"]
+    )
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
-            "ssh_alias": argv[-2],
+            "ssh_alias": destination,
             "status": "ok" if result["ok"] else "unavailable",
         }
     )
