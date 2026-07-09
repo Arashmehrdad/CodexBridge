@@ -136,6 +136,7 @@ def test_build_ssh_argv_supports_explicit_endpoint_and_identity(
         port=2222,
         identity_file=str(identity),
         connect_timeout_seconds=17,
+        force_pty=True,
         command_profiles=[
             SSHCommandProfileConfig(
                 command_id="status",
@@ -151,12 +152,15 @@ def test_build_ssh_argv_supports_explicit_endpoint_and_identity(
     argv = build_ssh_argv(config, "my_vps", profile)
 
     assert argv[-2:] == ["pod-user-123@ssh.runpod.io", "uptime"]
+    assert "-tt" in argv
+    assert "-T" not in argv
     assert argv[argv.index("-i") + 1] == str(identity)
     assert argv[argv.index("-p") + 1] == "2222"
     assert "ConnectTimeout=17" in argv
     capabilities = list_ssh_capabilities(config)
     assert capabilities["hosts"][0]["ssh_alias"] == "pod-user-123@ssh.runpod.io"
     assert capabilities["hosts"][0]["connection_mode"] == "explicit"
+    assert capabilities["hosts"][0]["force_pty"] is True
 
 
 def test_connection_file_is_reread_for_each_ssh_operation(

@@ -288,7 +288,7 @@ def build_ssh_argv(
     return [
         executable,
         "-n",
-        "-T",
+        "-tt" if host.force_pty else "-T",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -467,6 +467,7 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
                 "host_id": host_id,
                 "ssh_alias": destination,
                 "connection_mode": connection.mode,
+                "force_pty": host.force_pty,
                 "connect_timeout_seconds": host.connect_timeout_seconds,
                 "commands": commands,
             }

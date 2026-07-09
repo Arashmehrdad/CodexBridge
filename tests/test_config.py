@@ -138,6 +138,15 @@ def test_ssh_host_supports_alias_file_or_explicit_endpoint(tmp_path: Path) -> No
     assert direct.hostname == "ssh.runpod.io"
     assert direct.user == "pod-user-123"
     assert direct.port == 2222
+    assert direct.force_pty is False
+
+    forced = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(tmp_path / "runpod_key"),
+        force_pty=True,
+    )
+    assert forced.force_pty is True
 
     connection_file = SSHHostConfig(connection_file=str(tmp_path / "runpod.txt"))
     assert connection_file.connection_file == str(tmp_path / "runpod.txt")

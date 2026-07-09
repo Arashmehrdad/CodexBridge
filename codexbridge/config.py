@@ -149,6 +149,7 @@ class SSHHostConfig(BaseModel):
     port: int = Field(default=22, ge=1, le=65535)
     identity_file: str = ""
     connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    force_pty: bool = False
     use_sudo: bool = False
     allowed_remote_roots: List[str] = Field(default_factory=list)
     allowed_executables: List[str] = Field(default_factory=list)
