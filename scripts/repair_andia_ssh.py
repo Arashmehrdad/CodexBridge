@@ -228,7 +228,7 @@ def main() -> int:
         original = config_path.read_text(encoding="utf-8") if existed else ""
         cleaned = _managed_pattern().sub("", original).rstrip()
         block = _render_block(selected).rstrip()
-        updated = f"{block}\n" if not cleaned else f"{cleaned}\n\n{block}\n"
+        updated = f"{block}\n" if not cleaned else f"{block}\n\n{cleaned}\n"
         _write_atomic(config_path, updated)
         report["alias_written"] = True
 
