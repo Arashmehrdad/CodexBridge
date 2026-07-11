@@ -35,6 +35,7 @@ from .managed_artifacts import (
 )
 from .operation_locks import OperationLockStore
 from .policy import decide_implementation_task, decide_plan_task
+from .process_control import process_group_popen_kwargs, terminate_process_tree
 from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import RunStore
 from .run_guards import (
@@ -341,6 +342,7 @@ class JobWorker:
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **process_group_popen_kwargs(),
         )
         self.store.update_run(self.run_id, pid=process.pid)
         self.event(
@@ -377,13 +379,13 @@ class JobWorker:
         try:
             exit_code = process.wait(timeout=self.config.codex.default_timeout_seconds)
         except subprocess.TimeoutExpired:
-            process.kill()
+            termination = terminate_process_tree(process.pid)
             exit_code = 124
             self.event(
                 "error",
                 "codex",
-                "Codex process timed out and was killed",
-                {"pid": process.pid},
+                "Codex process timed out; process-tree termination requested",
+                {"pid": process.pid, "termination": termination},
             )
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
