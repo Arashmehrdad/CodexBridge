@@ -151,6 +151,7 @@ def rollback_service() -> dict[str, object]:
 def _rebind_server_ssh_helpers() -> None:
     server_module = sys.modules.get("codexbridge.server")
     commands_module = sys.modules.get("codexbridge.ssh_commands")
+    manager_module = sys.modules.get("codexbridge.ssh_profile_manager")
     tools_module = sys.modules.get("codexbridge.ssh_tools")
     if server_module is None or commands_module is None or tools_module is None:
         return
@@ -158,6 +159,14 @@ def _rebind_server_ssh_helpers() -> None:
     server_module._ssh_host_health = commands_module.ssh_host_health
     server_module._enrich_ssh_capabilities = tools_module.enrich_ssh_capabilities
     server_module._run_ssh_inspection = tools_module.run_ssh_inspection
+    if manager_module is not None:
+        server_module._preview_ssh_profile_change = (
+            manager_module.preview_ssh_profile_change
+        )
+        server_module._get_ssh_profile_change_status = (
+            manager_module.get_ssh_profile_change_status
+        )
+        server_module._apply_ssh_profile_change = manager_module.apply_ssh_profile_change
 
 
 RELOADABLE_MODULES = {
@@ -219,7 +228,11 @@ def reload_service(
             importlib.reload(sys.modules[qualified])
         else:
             importlib.import_module(qualified)
-        if qualified == "codexbridge.ssh_tools":
+        if qualified in {
+            "codexbridge.ssh_commands",
+            "codexbridge.ssh_profile_manager",
+            "codexbridge.ssh_tools",
+        }:
             _rebind_server_ssh_helpers()
         reloaded.append(qualified)
 
