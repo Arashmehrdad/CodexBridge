@@ -61,12 +61,15 @@ def test_posix_termination_targets_independent_process_group(monkeypatch) -> Non
         "process_is_running",
         lambda _pid: next(states, False),
     )
-    monkeypatch.setattr(process_control.os, "getpgrp", lambda: 10)
-    monkeypatch.setattr(process_control.os, "getpgid", lambda _pid: 777)
+    monkeypatch.setattr(process_control.os, "getpgrp", lambda: 10, raising=False)
+    monkeypatch.setattr(
+        process_control.os, "getpgid", lambda _pid: 777, raising=False
+    )
     monkeypatch.setattr(
         process_control.os,
         "killpg",
         lambda group, sig: signals.append((group, sig)),
+        raising=False,
     )
     monkeypatch.setattr(process_control.time, "sleep", lambda _seconds: None)
 
