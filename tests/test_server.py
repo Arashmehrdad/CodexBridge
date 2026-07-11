@@ -1020,3 +1020,111 @@ def test_repo_status_compact_schema_uses_new_compact_fields() -> None:
     summary_properties = properties["tool_owned_summary"]["properties"]
     assert "count" not in summary_properties
     assert "total_known_line_count" not in summary_properties
+
+
+def test_server_ssh_profile_preview_and_status_delegate(monkeypatch, tmp_path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("repos: {}\n", encoding="utf-8")
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(repo))},
+        config_dir=tmp_path,
+        runs_dir=str(tmp_path / "runs"),
+    )
+    server.set_config(config, config_path)
+    captured: dict[str, object] = {}
+
+    def fake_preview(path, runs_dir, action, host_id, **kwargs):
+        captured.update(
+            {
+                "path": path,
+                "runs_dir": runs_dir,
+                "action": action,
+                "host_id": host_id,
+                **kwargs,
+            }
+        )
+        return {"ok": True, "change_id": "change_1", "status": "previewed"}
+
+    monkeypatch.setattr(server, "_preview_ssh_profile_change", fake_preview)
+    monkeypatch.setattr(
+        server,
+        "_get_ssh_profile_change_status",
+        lambda path, runs_dir, change_id: {
+            "ok": True,
+            "change_id": change_id,
+            "status": "previewed",
+            "path": str(path),
+            "runs_dir": str(runs_dir),
+        },
+    )
+
+    preview = server.preview_ssh_profile_change(
+        "add_host", "beta", host_config={"ssh_alias": "beta-host"}
+    )
+    status = server.get_ssh_profile_change_status("change_1")
+
+    assert preview["change_id"] == "change_1"
+    assert captured["path"] == config_path
+    assert captured["runs_dir"] == tmp_path / "runs"
+    assert captured["action"] == "add_host"
+    assert captured["host_id"] == "beta"
+    assert captured["host_config"] == {"ssh_alias": "beta-host"}
+    assert status["change_id"] == "change_1"
+
+
+def test_server_apply_ssh_profile_change_uses_global_lock_and_activates(
+    monkeypatch, tmp_path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("repos: {}\n", encoding="utf-8")
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(repo))},
+        config_dir=tmp_path,
+        runs_dir=str(tmp_path / "runs"),
+    )
+    server.set_config(config, config_path)
+    locks: list[dict[str, object]] = []
+    activated: list[tuple[object, object]] = []
+
+    def fake_lock(*args, **kwargs):
+        locks.append({"args": args, **kwargs})
+        return nullcontext()
+
+    def fake_apply(path, runs_dir, change_id, *, activate):
+        activation = activate(path)
+        return {
+            "ok": True,
+            "change_id": change_id,
+            "status": "applied",
+            "activation": activation,
+            "runs_dir": str(runs_dir),
+        }
+
+    monkeypatch.setattr(server, "repository_operation_lock", fake_lock)
+    monkeypatch.setattr(server, "_apply_ssh_profile_change", fake_apply)
+    monkeypatch.setattr(
+        server,
+        "_reload_service",
+        lambda path, modules: {"ok": True, "status": "active", "modules": modules},
+    )
+    monkeypatch.setattr(server, "apply_reloaded_config", lambda path: config)
+    monkeypatch.setattr(
+        server,
+        "set_config",
+        lambda active, path=None: activated.append((active, path)),
+    )
+
+    result = server.apply_ssh_profile_change("change_1")
+
+    assert result["ok"] is True
+    assert result["activation"]["modules"] == ["config"]
+    assert locks[0]["repo_name"] == "__codexbridge_config__"
+    assert locks[0]["tool"] == "apply_ssh_profile_change"
+    assert locks[0]["normalized_input"] == {"change_id": "change_1"}
+    assert activated == [(config, config_path)]
