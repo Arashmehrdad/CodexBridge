@@ -40,6 +40,7 @@ from .safety import (
     validate_repo_relative_paths,
 )
 from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
+from .ssh_watchdog import terminate_remote_process_group, validate_monitored_command_start
 from .ssh_tools import build_ssh_action, validate_remote_path
 
 
@@ -361,6 +362,36 @@ class JobManager:
         response["host_id"] = host_id
         response["command_id"] = command_id
         response["writes_remote"] = profile.writes_remote
+        return response
+
+    def start_ssh_monitored_command(self, host_id: str, command_id: str) -> dict:
+        host, profile = validate_monitored_command_start(self.config, host_id, command_id)
+        estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=2 if profile.writes_remote else 1,
+            risk_level="medium" if profile.writes_remote else "low",
+            requires_human=False,
+            reason="Opt-in monitored SSH command is approved for durable async execution",
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        response = self._create_and_launch(
+            "ssh_monitored_command",
+            f"ssh:{host_id}",
+            {"host_id": host_id, "command_id": command_id},
+            decision,
+        )
+        response["host_id"] = host_id
+        response["command_id"] = command_id
+        response["writes_remote"] = profile.writes_remote
+        response["watchdog_mode"] = host.watchdog.enforcement_mode
+        response["automatic_termination_active"] = bool(
+            host.watchdog.enabled
+            and host.watchdog.enforcement_mode == "terminate"
+            and host.watchdog.allow_automatic_termination
+            and profile.watchdog_eligible
+        )
         return response
 
     def start_ssh_action(
@@ -878,9 +909,149 @@ class JobManager:
             }
 
         requested_at = datetime.now(timezone.utc).isoformat()
-        pids: list[tuple[str, int]] = []
+        progress = dict(run.get("progress") or {})
+        progress["cancellation_requested_at"] = requested_at
         child_pid = int(run.get("pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
+
+        if run["tool"] == "ssh_monitored_command":
+            if run["status"] == "queued" and not worker_pid and not child_pid:
+                ended_at = datetime.now(timezone.utc).isoformat()
+                self.store.update_run(
+                    run_id,
+                    status="cancelled",
+                    ended_at=ended_at,
+                    error="Run cancelled before monitored SSH launch",
+                    progress_json=progress,
+                )
+                self.locks.release(run["repo_name"], run_id)
+                return {
+                    "ok": True,
+                    "run_id": run_id,
+                    "status": "cancelled",
+                    "cancelled": True,
+                    "terminated": False,
+                    "termination_confirmed": True,
+                    "termination_reports": [],
+                }
+
+            self.store.update_run(
+                run_id,
+                status="cancellation_pending",
+                current_phase="cancellation_pending",
+                progress_json=progress,
+            )
+            if worker_pid > 0 and process_is_running(worker_pid):
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "status": "cancellation_pending",
+                    "cancelled": False,
+                    "terminated": False,
+                    "termination_confirmed": False,
+                    "reason": "Cancellation recorded; attached worker owns remote termination",
+                }
+
+            remote_process = dict(progress.get("remote_process") or {})
+            if not remote_process:
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "status": "cancellation_pending",
+                    "cancelled": False,
+                    "terminated": False,
+                    "termination_confirmed": False,
+                    "reason": "Worker is unavailable and remote process identity is unknown; lock retained",
+                }
+            termination = terminate_remote_process_group(
+                self.config,
+                str(run["input"]["host_id"]),
+                {
+                    **remote_process,
+                    "command_id": str(run["input"]["command_id"]),
+                },
+                grace_seconds=int(progress.get("termination_grace_seconds") or 5),
+            )
+            progress["remote_termination"] = termination
+            if not termination.get("terminated"):
+                self.store.set_progress(
+                    run_id,
+                    phase="cancellation_pending",
+                    progress=progress,
+                    elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
+                )
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "status": "cancellation_pending",
+                    "cancelled": False,
+                    "terminated": False,
+                    "termination_confirmed": False,
+                    "termination_reports": [termination],
+                    "reason": "Remote termination could not be confirmed; lock retained",
+                }
+
+            reports = []
+            if child_pid > 0 and process_is_running(child_pid):
+                report = terminate_process_tree(child_pid)
+                report["role"] = "child"
+                reports.append(report)
+            local_confirmed = all(
+                bool(report.get("terminated")) for report in reports
+            )
+            progress["termination_reports"] = reports
+            if not local_confirmed:
+                self.store.set_progress(
+                    run_id,
+                    phase="cancellation_pending",
+                    progress=progress,
+                    elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
+                )
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "status": "cancellation_pending",
+                    "cancelled": False,
+                    "terminated": True,
+                    "termination_confirmed": False,
+                    "termination_reports": [termination, *reports],
+                    "reason": "Remote exit confirmed but local SSH termination is unconfirmed; lock retained",
+                }
+
+            ended_at = datetime.now(timezone.utc).isoformat()
+            self.store.update_run(
+                run_id,
+                status="cancelled",
+                ended_at=ended_at,
+                error="Run cancelled after verified remote termination",
+                progress_json=progress,
+            )
+            self.locks.release(run["repo_name"], run_id)
+            event = self.store.append_event(
+                run_id,
+                level="warning",
+                stage="cancel",
+                message="Monitored SSH run cancelled after verified remote termination",
+                data={"termination_reports": [termination, *reports]},
+            )
+            ArtifactWriter(Path(run["run_dir"])).append_event(event)
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "status": "cancelled",
+                "cancelled": True,
+                "terminated": True,
+                "termination_confirmed": True,
+                "termination_reports": [termination, *reports],
+            }
+
+        self.store.set_progress(
+            run_id,
+            phase=run.get("current_phase") or "cancellation_pending",
+            progress=progress,
+            elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
+        )
+        pids: list[tuple[str, int]] = []
         if child_pid > 0:
             pids.append(("child", child_pid))
         if worker_pid > 0 and worker_pid != child_pid:
@@ -893,13 +1064,7 @@ class JobManager:
         termination_confirmed = all(
             bool(report.get("terminated")) for report in reports
         )
-        progress = dict(run.get("progress") or {})
-        progress.update(
-            {
-                "cancellation_requested_at": requested_at,
-                "termination_reports": reports,
-            }
-        )
+        progress["termination_reports"] = reports
 
         if not termination_confirmed:
             self.store.set_progress(

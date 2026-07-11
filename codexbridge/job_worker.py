@@ -50,6 +50,7 @@ from .run_guards import (
 from .runner import CodexRunner, _safe_command_args
 from .safety import reject_destructive_command, validate_repo_relative_paths
 from .ssh_commands import resolve_ssh_host, run_ssh_command
+from .ssh_watchdog import start_monitored_ssh_command
 from .ssh_tools import run_ssh_action, run_ssh_deployment, run_ssh_transfer
 
 
@@ -157,6 +158,9 @@ class JobWorker:
         )
 
     def execute(self) -> int:
+        current_before_start = self.store.get_run(self.run_id)
+        if current_before_start["status"] == "cancelled":
+            return 0
         started_at = _utc_now()
         self._started_monotonic = time.monotonic()
         self.store.update_run(self.run_id, status="running", started_at=started_at)
@@ -192,7 +196,7 @@ class JobWorker:
             self.store.update_run(
                 self.run_id,
                 status=status,
-                ended_at=ended_at,
+                ended_at=None if status == "cancellation_pending" else ended_at,
                 duration_seconds=result["duration_seconds"],
                 exit_code=result.get("exit_code"),
                 summary=result.get("summary", ""),
@@ -204,7 +208,7 @@ class JobWorker:
                 "info"
                 if status == "completed"
                 else "warning"
-                if status == "partial"
+                if status in {"partial", "cancelled", "timed_out"}
                 else "error"
             )
             self.event(
@@ -215,16 +219,42 @@ class JobWorker:
             )
             worker_exit_code = int(result.get("exit_code") or 0)
             return (
-                1 if status == "failed" and worker_exit_code == 0 else worker_exit_code
+                1
+                if status in {"failed", "cancellation_pending"}
+                and worker_exit_code == 0
+                else worker_exit_code
             )
         except Exception as exc:
             ended_at = _utc_now()
             result = self._error_result(started_at, ended_at, exc)
+            progress = dict(self.store.get_run(self.run_id).get("progress") or {})
+            remote_process = dict(progress.get("remote_process") or {})
+            remote_identity_known = bool(
+                self.run["tool"] == "ssh_monitored_command"
+                and remote_process.get("pid")
+                and remote_process.get("pgid")
+                and remote_process.get("start_time_ticks")
+            )
+            failure_status = (
+                "cancellation_pending" if remote_identity_known else "failed"
+            )
+            if remote_identity_known:
+                result.update(
+                    {
+                        "status": "cancellation_pending",
+                        "error": (
+                            "Worker failed after remote launch; remote exit is unconfirmed: "
+                            + str(exc)
+                        ),
+                        "safety_failure": True,
+                        "remote_process": remote_process,
+                    }
+                )
             self.artifacts.write_json("result.json", result)
             self.store.update_run(
                 self.run_id,
-                status="failed",
-                ended_at=ended_at,
+                status=failure_status,
+                ended_at=None if remote_identity_known else ended_at,
                 duration_seconds=result["duration_seconds"],
                 exit_code=1,
                 summary=result["summary"],
@@ -232,13 +262,20 @@ class JobWorker:
                 safety_failure=True,
                 result_json=result,
             )
-            self.event("error", "result", "Run failed", {"error": str(exc)})
+            self.event(
+                "error",
+                "cancellation_pending" if remote_identity_known else "result",
+                "Run requires remote recovery" if remote_identity_known else "Run failed",
+                {"error": str(exc)},
+            )
             return 1
         finally:
             self._heartbeat_stop.set()
             if self._heartbeat_thread is not None:
                 self._heartbeat_thread.join(timeout=2)
-            self.locks.release(self.run["repo_name"], self.run_id)
+            final_status = str(self.store.get_run(self.run_id).get("status") or "")
+            if final_status != "cancellation_pending":
+                self.locks.release(self.run["repo_name"], self.run_id)
 
     def _execute_inner(self, started_at: str) -> dict:
         input_data = self.run["input"]
@@ -248,6 +285,8 @@ class JobWorker:
             return self._execute_cloudflare_action(started_at, input_data)
         if tool == "ssh_command":
             return self._execute_ssh_command(started_at, input_data)
+        if tool == "ssh_monitored_command":
+            return self._execute_ssh_monitored_command(started_at, input_data)
         if tool == "ssh_action":
             return self._execute_ssh_action(started_at, input_data)
         if tool == "ssh_transfer":
@@ -611,6 +650,86 @@ class JobWorker:
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
             "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
+        }
+
+    def _execute_ssh_monitored_command(self, started_at: str, input_data: dict) -> dict:
+        host_id = str(input_data["host_id"])
+        command_id = str(input_data["command_id"])
+        self.event(
+            "info",
+            "ssh_monitored_command",
+            "Starting monitored SSH command",
+            {"host_id": host_id, "command_id": command_id},
+        )
+
+        def on_progress(progress_updates: dict) -> None:
+            current = self.store.get_run(self.run_id)
+            progress = dict(current.get("progress") or {})
+            progress.update(progress_updates)
+            self.store.set_progress(
+                self.run_id,
+                phase="ssh_monitored_command",
+                progress=progress,
+                elapsed_seconds=self._elapsed_seconds(),
+            )
+
+        def on_event(level: str, stage: str, data: dict) -> None:
+            self.event(level, stage, "Monitored SSH watchdog sample", data)
+
+        def cancellation_check() -> bool:
+            progress = dict(self.store.get_run(self.run_id).get("progress") or {})
+            return bool(progress.get("cancellation_requested_at"))
+
+        command_result = dict(
+            redact_and_truncate(
+                start_monitored_ssh_command(
+                    self.config,
+                    host_id,
+                    command_id,
+                    run_dir=Path(self.run["run_dir"]),
+                    on_progress=on_progress,
+                    on_event=on_event,
+                    cancellation_check=cancellation_check,
+                )
+            )
+        )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "ssh_monitored_command",
+            "host_id": host_id,
+            "ssh_alias": str(command_result.get("ssh_alias", "")),
+            "command_id": command_id,
+            "writes_remote": bool(command_result.get("writes_remote")),
+            "remote_process": dict(command_result.get("remote_process") or {}),
+            "watchdog_mode": str(command_result.get("watchdog_mode", "observe_only")),
+            "automatic_termination_active": bool(
+                command_result.get("automatic_termination_active")
+            ),
+            "termination": dict(command_result.get("termination") or {}),
+            "watchdog_samples": list(command_result.get("watchdog_samples") or []),
+            "status": str(command_result.get("status", "failed")),
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": (stdout or stderr).strip(),
+            "summary": ((stdout or stderr).strip() or f"Monitored SSH command {command_id} finished")[-4000:],
+            "remaining_risks": [],
+            "error": str(command_result.get("error", "")),
+            "safety_failure": bool(command_result.get("safety_failure")),
+            "timed_out": bool(command_result.get("timed_out")),
+            "output_truncated": bool(command_result.get("output_truncated")),
             "command_result": command_result,
         }
 
