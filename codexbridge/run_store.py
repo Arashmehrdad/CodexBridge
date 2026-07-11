@@ -293,17 +293,37 @@ class RunStore:
 
     def mark_stale_running(self) -> int:
         now = utc_now()
+        updated = 0
         with self.connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE runs
-                SET status = 'failed', ended_at = ?, error = 'Server restarted while run was marked running'
-                WHERE status = 'running'
-                """,
-                (now,),
-            )
-        return int(cursor.rowcount)
-
+            rows = conn.execute(
+                "SELECT run_id, tool FROM runs WHERE status = 'running'"
+            ).fetchall()
+            for row in rows:
+                if str(row["tool"] or "") == "ssh_monitored_command":
+                    conn.execute(
+                        """
+                        UPDATE runs
+                        SET status = 'cancellation_pending',
+                            current_phase = 'cancellation_pending',
+                            ended_at = NULL,
+                            error = 'Server restarted while monitored remote execution may still be active',
+                            safety_failure = 1
+                        WHERE run_id = ? AND status = 'running'
+                        """,
+                        (row["run_id"],),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE runs
+                        SET status = 'failed', ended_at = ?,
+                            error = 'Server restarted while run was marked running'
+                        WHERE run_id = ? AND status = 'running'
+                        """,
+                        (now, row["run_id"]),
+                    )
+                updated += 1
+        return updated
     def set_progress(
         self,
         run_id: str,

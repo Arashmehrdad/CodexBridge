@@ -200,6 +200,10 @@ class OperationLockStore:
         status = str(run["status"] or "")
         if status in TERMINAL_STATUSES:
             return True
+        if status == "cancellation_pending":
+            # The remote process may outlive the local worker. Keep the lock until
+            # verified remote exit or termination moves the run to a terminal state.
+            return False
         if status == "running":
             owner_pid = run["worker_pid"] or run["pid"] or row.get("owner_pid")
         else:
@@ -207,8 +211,6 @@ class OperationLockStore:
         if owner_pid and not _pid_is_running(int(owner_pid)):
             return True
         return False
-
-
 @contextmanager
 def repository_operation_lock(
     runs_dir: Path,
