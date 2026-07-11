@@ -39,6 +39,8 @@ EXPECTED_EXPOSED_ACTIONS = {
     "get_ssh_profile_change_status",
     "apply_ssh_profile_change",
     "ssh_host_health",
+    "ssh_environment_probe",
+    "ssh_gpu_telemetry",
     "ssh_inspect",
     "start_ssh_command_async",
     "start_ssh_action_async",
@@ -432,6 +434,63 @@ REALISTIC_ACTION_OUTPUTS = {
         "host_id": "my_vps",
         "ssh_alias": "my-vps",
         "exit_code": 0,
+        "error": "",
+    },
+    "ssh_environment_probe": {
+        "ok": True,
+        "host_id": "my_vps",
+        "status": "ok",
+        "environment": {
+            "os": "Linux 6.8.0 x86_64",
+            "working_directory": "/workspace",
+            "python": {"version": "3.12.3", "virtual_env": "/opt/venv"},
+            "torch": {"version": "2.7.0", "cuda_available": True},
+            "cuda_compiler": "Cuda compilation tools, release 12.8",
+            "system_memory": {"used_percent": 40.0},
+            "root_disk": {"free_percent": 60.0},
+        },
+        "gpu": {"ok": True, "device_count": 1, "devices": []},
+        "checks": {},
+        "watchdog": {
+            "enabled": False,
+            "enforcement_mode": "observe_only",
+            "status": "disabled",
+            "can_terminate_remote_processes": False,
+            "checks": [],
+            "breaches": [],
+        },
+        "writes_remote": False,
+        "high_risk": False,
+        "error": "",
+    },
+    "ssh_gpu_telemetry": {
+        "ok": True,
+        "host_id": "my_vps",
+        "status": "ok",
+        "available": True,
+        "device_count": 1,
+        "process_count": 1,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA A40",
+                "memory_used_percent": 50.0,
+                "gpu_utilization_percent": 80.0,
+                "temperature_c": 70.0,
+            }
+        ],
+        "processes": [{"pid": 1234, "process_name": "python3"}],
+        "checks": {},
+        "watchdog": {
+            "enabled": False,
+            "enforcement_mode": "observe_only",
+            "status": "disabled",
+            "can_terminate_remote_processes": False,
+            "checks": [],
+            "breaches": [],
+        },
+        "writes_remote": False,
+        "high_risk": False,
         "error": "",
     },
     "ssh_inspect": {
@@ -1204,6 +1263,8 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "get_ssh_profile_change_status" in actions
     assert "apply_ssh_profile_change" in actions
     assert "ssh_host_health" in actions
+    assert "ssh_environment_probe" in actions
+    assert "ssh_gpu_telemetry" in actions
     assert "ssh_inspect" in actions
     assert "start_ssh_command_async" in actions
     assert "start_ssh_action_async" in actions
