@@ -27,8 +27,13 @@ from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
 from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
+from .process_control import (
+    process_group_popen_kwargs,
+    process_is_running,
+    terminate_process_tree,
+)
 from .run_guards import derive_requirement_manifest
-from .run_store import RunStore, validate_run_id
+from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .safety import (
     reject_destructive_command,
     validate_repo_relative_path,
@@ -42,6 +47,25 @@ def make_run_id(tool: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_tool = "".join(char if char.isalnum() else "_" for char in tool.lower())
     return f"{timestamp}_{safe_tool}_{uuid4().hex[:8]}"
+
+
+def _read_output_tail(path: Path, tail_bytes: int) -> dict:
+    if not path.exists():
+        return {"text": "", "size_bytes": 0, "truncated": False, "available": False}
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"Run output is not a regular file: {path.name}")
+    size = path.stat().st_size
+    offset = max(0, size - tail_bytes)
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        data = handle.read(tail_bytes)
+    text = data.decode("utf-8", errors="replace")
+    return {
+        "text": redact_and_truncate(text, tail_bytes),
+        "size_bytes": size,
+        "truncated": offset > 0,
+        "available": True,
+    }
 
 
 class JobManager:
@@ -652,6 +676,7 @@ class JobManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=os.name != "nt",
+            **process_group_popen_kwargs(),
         )
         self.store.update_run(run_id, worker_pid=process.pid)
         self.locks.heartbeat(repo_name, run_id)
@@ -711,6 +736,81 @@ class JobManager:
     def get_events(self, run_id: str, limit: int = 50) -> list[dict]:
         return redact_and_truncate(self.store.get_events(run_id, limit))
 
+    def get_control_status(self, run_id: str) -> dict:
+        run = self.store.get_run(run_id)
+        worker_pid = int(run.get("worker_pid") or 0)
+        child_pid = int(run.get("pid") or 0)
+        progress = dict(run.get("progress") or {})
+        return redact_and_truncate(
+            {
+                "ok": True,
+                "run_id": run_id,
+                "repo_name": run["repo_name"],
+                "tool": run["tool"],
+                "status": run["status"],
+                "current_phase": run.get("current_phase") or "",
+                "elapsed_seconds": run.get("elapsed_seconds") or 0.0,
+                "heartbeat_at": run.get("heartbeat_at"),
+                "heartbeat_age_seconds": run.get("heartbeat_age_seconds"),
+                "worker_stale": bool(run.get("worker_stale")),
+                "worker_pid": worker_pid,
+                "worker_running": process_is_running(worker_pid),
+                "child_pid": child_pid,
+                "child_running": process_is_running(child_pid),
+                "last_output_at": progress.get("last_output_at", ""),
+                "cancellation_requested_at": progress.get(
+                    "cancellation_requested_at", ""
+                ),
+                "lock": self.locks.find_lock(run["repo_name"], run_id) or {},
+                "error": run.get("error") or "",
+            }
+        )
+
+    def get_output(
+        self, run_id: str, stream: str = "combined", tail_bytes: int = 20000
+    ) -> dict:
+        validate_run_id(run_id)
+        normalized_stream = str(stream or "combined").strip().lower()
+        if normalized_stream not in {"stdout", "stderr", "combined"}:
+            raise ValueError("stream must be stdout, stderr, or combined")
+        bounded_tail = max(1, min(int(tail_bytes), 200000))
+        run = self.store.get_run(run_id)
+        raw_run_dir = Path(run["run_dir"])
+        if raw_run_dir.is_symlink():
+            raise ValueError("Run directory must not be a symlink")
+        run_dir = raw_run_dir.resolve()
+        run_dir.relative_to(self.config.resolve_runs_dir())
+        selected = (
+            [normalized_stream]
+            if normalized_stream in {"stdout", "stderr"}
+            else ["stdout", "stderr"]
+        )
+        streams = {
+            name: _read_output_tail(run_dir / f"{name}.txt", bounded_tail)
+            for name in selected
+        }
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "status": run["status"],
+            "stream": normalized_stream,
+            "tail_bytes": bounded_tail,
+            "streams": streams,
+            "error": "",
+        }
+
+    def list_operation_locks(
+        self, repo_name: str | None = None, *, include_stale: bool = True
+    ) -> list[dict]:
+        normalized_name = repo_name or None
+        if normalized_name and not normalized_name.startswith(
+            ("ssh:", "cloudflare:", "__")
+        ):
+            normalized_name, _ = resolve_repo_config(self.config, normalized_name)
+        return redact_and_truncate(
+            self.locks.list_locks(normalized_name, include_stale=include_stale)
+        )
+
     def get_result(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)
         result = run.get("result") or {}
@@ -767,48 +867,89 @@ class JobManager:
     def cancel_run(self, run_id: str) -> dict:
         validate_run_id(run_id)
         run = self.store.get_run(run_id)
-        if run["status"] in {"completed", "failed", "cancelled", "needs_input"}:
+        if run["status"] in TERMINAL_STATUSES:
             return {
+                "ok": True,
                 "run_id": run_id,
                 "status": run["status"],
                 "cancelled": False,
+                "termination_confirmed": True,
                 "reason": "Run is already terminal",
             }
-        worker_pid = run.get("worker_pid")
-        terminated = False
-        if worker_pid:
-            try:
-                if os.name == "nt":
-                    subprocess.run(
-                        ["taskkill", "/PID", str(worker_pid), "/T", "/F"],
-                        text=True,
-                        capture_output=True,
-                        timeout=10,
-                    )
-                else:
-                    os.kill(int(worker_pid), 15)
-                terminated = True
-            except Exception:
-                terminated = False
+
+        requested_at = datetime.now(timezone.utc).isoformat()
+        pids: list[tuple[str, int]] = []
+        child_pid = int(run.get("pid") or 0)
+        worker_pid = int(run.get("worker_pid") or 0)
+        if child_pid > 0:
+            pids.append(("child", child_pid))
+        if worker_pid > 0 and worker_pid != child_pid:
+            pids.append(("worker", worker_pid))
+        reports = []
+        for role, pid in pids:
+            report = terminate_process_tree(pid)
+            report["role"] = role
+            reports.append(report)
+        termination_confirmed = all(
+            bool(report.get("terminated")) for report in reports
+        )
+        progress = dict(run.get("progress") or {})
+        progress.update(
+            {
+                "cancellation_requested_at": requested_at,
+                "termination_reports": reports,
+            }
+        )
+
+        if not termination_confirmed:
+            self.store.set_progress(
+                run_id,
+                phase="cancellation_pending",
+                progress=progress,
+                elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
+            )
+            event = self.store.append_event(
+                run_id,
+                level="error",
+                stage="cancellation_pending",
+                message="Cancellation requested but process termination is unconfirmed",
+                data={"termination_reports": reports},
+            )
+            ArtifactWriter(Path(run["run_dir"])).append_event(event)
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "status": run["status"],
+                "cancelled": False,
+                "terminated": False,
+                "termination_confirmed": False,
+                "termination_reports": reports,
+                "reason": "Process termination could not be confirmed; lock retained",
+            }
+
         ended_at = datetime.now(timezone.utc).isoformat()
         self.store.update_run(
             run_id,
             status="cancelled",
             ended_at=ended_at,
             error="Run cancelled by request",
+            progress_json=progress,
         )
         self.locks.release(run["repo_name"], run_id)
         event = self.store.append_event(
             run_id,
             level="warning",
             stage="cancel",
-            message="Run cancellation requested",
-            data={"terminated": terminated},
+            message="Run cancelled after process-tree termination was confirmed",
+            data={"termination_reports": reports},
         )
         ArtifactWriter(Path(run["run_dir"])).append_event(event)
         return {
+            "ok": True,
             "run_id": run_id,
             "status": "cancelled",
             "cancelled": True,
-            "terminated": terminated,
+            "terminated": bool(reports),
+            "termination_confirmed": True,
+            "termination_reports": reports,
         }
