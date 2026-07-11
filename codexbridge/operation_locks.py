@@ -5,6 +5,7 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
@@ -120,6 +121,59 @@ class OperationLockStore:
                 "DELETE FROM operation_locks WHERE repo_name = ? AND run_id = ?",
                 (repo_name, run_id),
             )
+
+    def list_locks(
+        self,
+        repo_name: str | None = None,
+        *,
+        include_stale: bool = True,
+    ) -> list[dict[str, Any]]:
+        where = ""
+        params: tuple[Any, ...] = ()
+        if repo_name:
+            where = " WHERE lower(repo_name) = lower(?)"
+            params = (repo_name,)
+        now = datetime.now(timezone.utc)
+        results: list[dict[str, Any]] = []
+        with self.store.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM operation_locks" + where + " ORDER BY acquired_at",
+                params,
+            ).fetchall()
+            for row in rows:
+                lock = dict(row)
+                stale = self._is_stale(conn, lock)
+                if stale and not include_stale:
+                    continue
+                run = conn.execute(
+                    "SELECT status, worker_pid, pid FROM runs WHERE run_id = ?",
+                    (lock["run_id"],),
+                ).fetchone()
+                heartbeat = datetime.fromisoformat(str(lock["heartbeat_at"]))
+                results.append(
+                    {
+                        "repo_name": str(lock["repo_name"]),
+                        "tool": str(lock["tool"]),
+                        "run_id": str(lock["run_id"]),
+                        "owner_pid": int(lock["owner_pid"] or 0),
+                        "acquired_at": str(lock["acquired_at"]),
+                        "heartbeat_at": str(lock["heartbeat_at"]),
+                        "heartbeat_age_seconds": round(
+                            max(0.0, (now - heartbeat).total_seconds()), 3
+                        ),
+                        "stale": stale,
+                        "run_status": str(run["status"] or "") if run else "",
+                        "worker_pid": int(run["worker_pid"] or 0) if run else 0,
+                        "child_pid": int(run["pid"] or 0) if run else 0,
+                    }
+                )
+        return results
+
+    def find_lock(self, repo_name: str, run_id: str) -> dict[str, Any] | None:
+        for lock in self.list_locks(repo_name, include_stale=True):
+            if lock["run_id"] == run_id:
+                return lock
+        return None
 
     def recover_stale(self) -> int:
         removed = 0
