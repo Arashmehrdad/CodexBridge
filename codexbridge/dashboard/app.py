@@ -59,6 +59,10 @@ def create_dashboard_app(config: AppConfig | None = None):
     def api_jobs():
         return [item.to_dict() for item in summary().jobs]
 
+    @app.get("/api/workflows")
+    def api_workflows():
+        return [item.to_dict() for item in summary().workflows]
+
     @app.get("/api/supervisors")
     def api_supervisors():
         return [item.to_dict() for item in summary().supervisors]

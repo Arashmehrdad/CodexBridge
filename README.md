@@ -442,6 +442,7 @@ Durable async runs cover:
 
 - `start_codex_plan_task_async`
 - `start_codex_implement_task_async`
+- `start_workflow`
 - `start_project_command_async`
 - `start_pytest_path_async`
 - `start_external_fixture_validation_async`
@@ -458,6 +459,10 @@ Read and control them with:
 - `get_run_result`
 - `list_runs`
 - `cancel_run`
+- `get_workflow_status`
+- `get_workflow_events`
+- `get_workflow_result`
+- `cancel_workflow`
 
 Workflow:
 
@@ -478,6 +483,56 @@ Scoped pytest example:
 If OpenAI safety blocks a tool call before CodexBridge returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 
 Async state is durable across process restarts because run metadata is stored in `runs/codexbridge.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
+
+### Durable Workflows
+
+When you already know the full multi-step engineering sequence, submit one structured workflow with `start_workflow(...)` instead of starting and polling each child run manually. The workflow worker launches the child runs through the existing durable run APIs, waits internally for terminal child status, records step outcomes, and advances the next eligible step without needing repeated ChatGPT monitoring turns.
+
+Supported workflow step types in this batch:
+
+- `codex_implement`
+- `project_command`
+- `pytest_path`
+- `git_readonly`
+- `local_summary`
+
+Typical use:
+
+1. Call `start_workflow(repo_name, objective, steps)` with the full ordered step list.
+2. Save the returned `workflow_id`.
+3. Prefer waiting for the generated PulseSender artifacts under `runs/workflows/<workflow_id>/` instead of polling every child run.
+4. Use `get_workflow_status`, `get_workflow_events`, `get_workflow_result`, and `cancel_workflow` for inspection, recovery, or cancellation when needed.
+
+Example:
+
+```powershell
+start_workflow `
+  -repo_name "codexbridge" `
+  -objective "Implement batch and validate it" `
+  -steps @(
+    @{
+      id = "implement"
+      type = "codex_implement"
+      parameters = @{
+        approved_plan = "Implement the approved batch"
+        allowed_files = @("codexbridge/workflows/models.py", "tests/test_workflows.py")
+        tests = @("python -m pytest -q tests/test_workflows.py")
+      }
+    },
+    @{
+      id = "targeted_pytest"
+      type = "pytest_path"
+      depends_on = @("implement")
+      parameters = @{ path = "tests/test_workflows.py" }
+    },
+    @{
+      id = "summary"
+      type = "local_summary"
+      depends_on = @("implement", "targeted_pytest")
+      parameters = @{}
+    }
+  )
+```
 
 ## Supervisor Workflow
 

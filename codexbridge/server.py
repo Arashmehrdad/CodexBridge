@@ -82,6 +82,7 @@ from .ssh_tools import run_ssh_gpu_telemetry as _run_ssh_gpu_telemetry
 from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
+from .workflows import WorkflowManager
 
 
 mcp = FastMCP("CodexBridge")
@@ -116,6 +117,38 @@ def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
             return result
 
         return register(sync_wrapped)
+
+    return decorate
+
+
+def _internal_tool(*tool_args, **tool_kwargs):
+    # Preserve direct Python compatibility without publishing an MCP action.
+    del tool_args, tool_kwargs
+
+    def decorate(function):
+        if inspect.iscoroutinefunction(function):
+
+            @wraps(function)
+            async def async_wrapped(*args, **kwargs):
+                result = await function(*args, **kwargs)
+                if isinstance(result, dict):
+                    result = dict(result)
+                    for key, value in _PROCESS_CAPABILITY_METADATA.items():
+                        result.setdefault(key, value)
+                return result
+
+            return async_wrapped
+
+        @wraps(function)
+        def sync_wrapped(*args, **kwargs):
+            result = function(*args, **kwargs)
+            if isinstance(result, dict):
+                result = dict(result)
+                for key, value in _PROCESS_CAPABILITY_METADATA.items():
+                    result.setdefault(key, value)
+            return result
+
+        return sync_wrapped
 
     return decorate
 
@@ -191,6 +224,22 @@ EVENT_LIST_OUTPUT = {
             "items": {"type": "object", "additionalProperties": True},
         },
         "notifications": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "error": {"type": "string"},
+    },
+}
+WORKFLOW_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "ok": {"type": "boolean"},
+        "workflow_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "status": {"type": "string"},
+        "terminal_status": {"type": "string"},
+        "steps": {
             "type": "array",
             "items": {"type": "object", "additionalProperties": True},
         },
@@ -717,6 +766,10 @@ def get_job_manager() -> JobManager:
     return JobManager(get_config(), get_config_path())
 
 
+def get_workflow_manager() -> WorkflowManager:
+    return WorkflowManager(get_config(), get_config_path())
+
+
 def get_supervisor_service() -> SupervisorService:
     return SupervisorService(get_config(), get_config_path())
 
@@ -822,7 +875,7 @@ def inspect_repo_status_compact(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -834,7 +887,7 @@ def codex_plan_task(repo_name: str, task: str, constraints: str = "") -> dict:
     return result
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
 def codex_implement_task(
     repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
 ) -> dict:
@@ -847,7 +900,7 @@ def codex_implement_task(
     return result
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
     """Read-only: return the most recent saved CodexBridge run result."""
     config = get_config()
@@ -867,7 +920,7 @@ def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
         return latest_artifact_result(config.resolve_runs_dir())
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def git_diff_summary(repo_name: str) -> dict:
     """Read-only: return git status and diff stat for a whitelisted repo."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -935,7 +988,7 @@ def commit_selected_files(
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def dry_run_stage_manifest(repo_name: str, include_ignored: bool = False) -> dict:
     """Read-only: preview which files would be staged without changing git state."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -946,7 +999,7 @@ def dry_run_stage_manifest(repo_name: str, include_ignored: bool = False) -> dic
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def stage_all(repo_name: str) -> dict:
     """Write tool: stage all repository changes and return before/after manifest details."""
     config = get_config()
@@ -964,7 +1017,7 @@ def stage_all(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def unstage_all(repo_name: str) -> dict:
     """Write tool: unstage all currently staged changes and return before/after manifest details."""
     config = get_config()
@@ -982,7 +1035,7 @@ def unstage_all(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def commit_all_changes(repo_name: str, title: str, description: str = "") -> dict:
     """Write tool: stage and commit all current repository changes with validated metadata. Never pushes."""
     config = get_config()
@@ -1335,7 +1388,7 @@ def apply_ssh_profile_change(change_id: str) -> dict:
         )
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1595,6 +1648,41 @@ def start_git_readonly_async(repo_name: str, operation: str) -> dict:
     return get_job_manager().start_git_readonly(repo_name, operation)
 
 
+@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_workflow(repo_name: str, objective: str, steps: list[dict[str, Any]]) -> dict:
+    """Write async tool: queue one durable validated workflow and return its workflow ID immediately."""
+    return get_workflow_manager().start_workflow(repo_name, objective, steps)
+
+
+@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_workflow_status(workflow_id: str) -> dict:
+    """Read-only: return durable status metadata for one workflow."""
+    return get_workflow_manager().get_status(workflow_id)
+
+
+@mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_workflow_events(workflow_id: str, limit: int = 100) -> dict:
+    """Read-only: return ordered workflow events."""
+    return _wrap_item_list(
+        "events",
+        "workflow_id",
+        workflow_id,
+        get_workflow_manager().get_events(workflow_id, limit),
+    )
+
+
+@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_workflow_result(workflow_id: str) -> dict:
+    """Read-only: return the latest durable workflow snapshot."""
+    return get_workflow_manager().get_result(workflow_id)
+
+
+@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def cancel_workflow(workflow_id: str) -> dict:
+    """Write tool: cancel a workflow and request cancellation of its active child run."""
+    return get_workflow_manager().cancel_workflow(workflow_id)
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
     """Read-only: return durable status metadata for a queued/running/completed async run."""
@@ -1743,7 +1831,7 @@ def cancel_supervisor(supervisor_id: str) -> dict:
     return get_supervisor_service().cancel(supervisor_id)
 
 
-@mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_notifications(
     supervisor_id: str, delivery_status: str = "", limit: int = 50
 ) -> dict:
@@ -1758,7 +1846,7 @@ def get_supervisor_notifications(
     )
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
     """Read-only: return the canonical supervisor resume prompt if present."""
     return get_supervisor_service().get_resume_prompt(supervisor_id)
@@ -1779,7 +1867,7 @@ def list_repo_files(
     return result
 
 
-@mcp.tool(output_schema=READ_REPO_FILE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=READ_REPO_FILE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def read_repo_file(
     repo_name: str, path: str, start_line: int = 1, end_line: int = 0
 ) -> dict:
@@ -1830,7 +1918,7 @@ def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
     return result
 
 
-@mcp.tool(output_schema=REPO_GIT_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=REPO_GIT_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_git_status(repo_name: str) -> dict:
     """Read-only: return raw git status --short --branch output for a whitelisted repository."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1946,7 +2034,7 @@ def apply_managed_artifact_cleanup(repo_name: str, cleanup_id: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> dict:
     """Write tool: apply a patch previously validated by preview_repo_patch. Rechecks all hashes before writing."""
     return _locked_repo_operation(
@@ -1974,7 +2062,7 @@ def apply_previewed_repo_change(repo_name: str, patch_id: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=CREATE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=CREATE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def create_repo_file(repo_name: str, path: str, content: str) -> dict:
     """Write tool: create a new file in the repository. Rejects existing files and applies all path/content safety checks."""
     return _locked_repo_operation(
@@ -1986,7 +2074,7 @@ def create_repo_file(repo_name: str, path: str, content: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=DELETE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=DELETE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
     """Write tool: delete a file after verifying its SHA-256. Saves rollback content."""
     return _locked_repo_operation(
@@ -2041,7 +2129,7 @@ def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=RUN_COMMAND_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_COMMAND_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_project_command(repo_name: str, command_id: str) -> dict:
     """Run one allowlisted synchronous command under the repository operation lock."""
     config = get_config()
@@ -2195,6 +2283,10 @@ def run_server(args: argparse.Namespace) -> None:
     set_config(load_config(config_path), config_path)
     try:
         get_job_manager().reconcile_startup()
+    except Exception:
+        pass
+    try:
+        get_workflow_manager().reconcile_startup()
     except Exception:
         pass
     if args.transport == "stdio":

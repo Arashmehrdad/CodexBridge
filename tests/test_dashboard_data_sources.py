@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
 from codexbridge.dashboard import get_dashboard_summary
-from codexbridge.memory.repository import ProjectMemoryRepository
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    path = (Path("runs") / "pytest_tmp" / uuid4().hex).resolve()
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -46,6 +54,20 @@ def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
             "status": "completed",
             "job_profile": "dummy_success",
             "created_at": "2026-01-02T00:00:00Z",
+        },
+    )
+    write_json(
+        runs / "workflows" / "wf1" / "result.json",
+        {
+            "workflow_id": "wf1",
+            "status": "reported",
+            "terminal_status": "completed",
+            "objective": "ship durable workflow",
+            "created_at": "2026-01-02T12:00:00Z",
+            "steps": [
+                {"id": "one", "status": "passed"},
+                {"id": "two", "status": "failed"},
+            ],
         },
     )
     write_json(
@@ -103,6 +125,8 @@ def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
 
     assert summary.commands[0].id == "cmd1"
     assert summary.jobs[0].id == "job1"
+    assert summary.workflows[0].id == "wf1"
+    assert summary.workflows[0].step_states == ["one:passed", "two:failed"]
     assert summary.supervisors[0].id == "sup1"
     assert summary.approvals[0].id == "approval1"
     assert summary.codex_escalations[0].id == "codex1"
@@ -185,12 +209,26 @@ def test_dashboard_malformed_large_sensitive_and_limit_handling(tmp_path: Path) 
 
 def test_dashboard_memory_overview_with_temporary_store(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    repository = ProjectMemoryRepository(
-        db_path=runs / "memory" / "project_memory.sqlite3"
-    )
-    repository.remember_project_fact(
-        "Validation recipe lives in README", repo_name="repo"
-    )
+    class FakeStore:
+        def recent(self, limit=50):
+            return [
+                type(
+                    "Record",
+                    (),
+                    {
+                        "memory_id": "mem1",
+                        "archived": False,
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                        "repo_name": "repo",
+                        "repo_path": None,
+                        "source_path": None,
+                        "summary": "Validation recipe lives in README",
+                    },
+                )()
+            ][:limit]
+
+    repository = type("FakeRepository", (), {"store": FakeStore()})()
 
     summary = get_dashboard_summary(runs, memory_repository=repository)
 
@@ -210,3 +248,22 @@ def test_dashboard_collectors_stay_under_runs_dir(tmp_path: Path) -> None:
     summary = get_dashboard_summary(runs, include_memory=False)
 
     assert [job.id for job in summary.jobs] == ["job1"]
+
+
+def test_dashboard_collects_workflow_return_loop_artifacts(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    write_json(
+        runs / "workflows" / "wf1" / "pulse_manifest.json",
+        {
+            "artifact_id": "wf1",
+            "status": "ready",
+            "ready": True,
+            "delivered": False,
+            "created_at": "2026-01-06T00:00:00Z",
+            "updated_at": "2026-01-06T00:00:00Z",
+        },
+    )
+
+    summary = get_dashboard_summary(runs, include_memory=False)
+
+    assert [item.id for item in summary.return_loop] == ["wf1"]

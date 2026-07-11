@@ -21,6 +21,7 @@ from .models import (
     DashboardRunSummary,
     DashboardSummary,
     DashboardSupervisorSummary,
+    DashboardWorkflowSummary,
 )
 
 T = TypeVar("T", bound=DashboardItem)
@@ -46,6 +47,9 @@ def get_dashboard_summary(
             _collect_commands(runs_dir, limit, max_file_bytes, errors), limit
         ),
         jobs=_bounded(_collect_jobs(runs_dir, limit, max_file_bytes, errors), limit),
+        workflows=_bounded(
+            _collect_workflows(runs_dir, limit, max_file_bytes, errors), limit
+        ),
         supervisors=_bounded(
             _collect_supervisors(runs_dir, limit, max_file_bytes, errors), limit
         ),
@@ -224,6 +228,47 @@ def _collect_jobs(
     return _sort_items(items)
 
 
+def _collect_workflows(
+    runs_dir: Path, limit: int, max_file_bytes: int, errors: list[str]
+) -> list[DashboardWorkflowSummary]:
+    items = []
+    for path in _safe_glob(
+        runs_dir / "workflows", "*/result.json", limit, max_file_bytes, errors
+    ):
+        data = _read_json(path, runs_dir, max_file_bytes, errors)
+        if data is None:
+            continue
+        steps = data.get("steps") if isinstance(data.get("steps"), list) else []
+        items.append(
+            DashboardWorkflowSummary(
+                id=str(data.get("workflow_id") or path.parent.name),
+                status=str(data.get("terminal_status") or data.get("status") or ""),
+                terminal_status=str(data.get("terminal_status") or ""),
+                created_at=str(data.get("created_at") or ""),
+                updated_at=str(data.get("updated_at") or ""),
+                ended_at=str(data.get("ended_at") or ""),
+                repo_name=data.get("repo_name"),
+                artifact_path=path,
+                summary=_safe_text(str(data.get("objective") or "")),
+                failure_summary=_safe_text(str(data.get("failure_summary") or "")),
+                next_recommended_action=_safe_text(
+                    str(data.get("recommended_next_action") or "")
+                ),
+                active_child_run_id=_safe_text(
+                    str(data.get("active_child_run_id") or "")
+                ),
+                step_states=[
+                    _safe_text(
+                        f"{step.get('id', '')}:{step.get('status', '')}"
+                    )
+                    for step in steps
+                    if isinstance(step, dict)
+                ],
+            )
+        )
+    return _sort_items(items)
+
+
 def _collect_supervisors(
     runs_dir: Path, limit: int, max_file_bytes: int, errors: list[str]
 ) -> list[DashboardSupervisorSummary]:
@@ -324,7 +369,7 @@ def _collect_return_loop(
     runs_dir: Path, limit: int, max_file_bytes: int, errors: list[str]
 ) -> list[DashboardReturnLoopSummary]:
     items = []
-    for root in (runs_dir / "jobs", runs_dir / "supervisors"):
+    for root in (runs_dir / "jobs", runs_dir / "supervisors", runs_dir / "workflows"):
         for path in _safe_glob(
             root, "*/pulse_manifest.json", limit, max_file_bytes, errors
         ):

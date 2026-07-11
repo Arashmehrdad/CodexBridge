@@ -42,6 +42,13 @@ class DashboardJobSummary(DashboardItem):
     job_profile: str = ""
 
 
+class DashboardWorkflowSummary(DashboardItem):
+    source_kind: str = "workflow"
+    terminal_status: str = ""
+    active_child_run_id: str = ""
+    step_states: list[str] = Field(default_factory=list)
+
+
 class DashboardSupervisorSummary(DashboardItem):
     source_kind: str = "supervisor"
     codex_invoked: bool = False
@@ -99,6 +106,7 @@ class DashboardSummary(BaseModel):
     runs: list[DashboardRunSummary] = Field(default_factory=list)
     commands: list[DashboardCommandSummary] = Field(default_factory=list)
     jobs: list[DashboardJobSummary] = Field(default_factory=list)
+    workflows: list[DashboardWorkflowSummary] = Field(default_factory=list)
     supervisors: list[DashboardSupervisorSummary] = Field(default_factory=list)
     approvals: list[DashboardApprovalSummary] = Field(default_factory=list)
     codex_escalations: list[DashboardCodexEscalationSummary] = Field(

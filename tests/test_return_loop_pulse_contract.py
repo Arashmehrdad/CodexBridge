@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
 from codexbridge.config import ReturnLoopConfig
 from codexbridge.return_loop.models import ReturnLoopStatus
 from codexbridge.return_loop.pulse_contract import (
@@ -12,6 +14,25 @@ from codexbridge.return_loop.pulse_contract import (
     mark_sent_by_external_pulsesender,
 )
 from codexbridge.run_store import utc_now
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    path = (Path("runs") / "pytest_tmp" / uuid4().hex).resolve()
+    path.mkdir(parents=True, exist_ok=False)
+    return path
+
+
+@pytest.fixture(autouse=True)
+def patch_atomic_write(monkeypatch):
+    def write_json(path: Path, data: dict):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return {"path": str(path)}
+
+    monkeypatch.setattr(
+        "codexbridge.return_loop.pulse_contract.atomic_write_json", write_json
+    )
 
 
 def write_report_set(
@@ -68,7 +89,9 @@ def test_readiness_check_requires_existing_manifest_and_files(tmp_path: Path) ->
     assert missing.ready is False
 
     manifest_path = write_report_set(tmp_path / "runs" / "jobs" / "job2")
-    (manifest_path.parent / "resume_prompt.txt").unlink()
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["resume_prompt_path"] = str(manifest_path.parent / "missing_resume_prompt.txt")
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     result = check_report_readiness(manifest_path)
     assert result.status == ReturnLoopStatus.INVALID
     assert "Missing" in result.blocked_reason
@@ -118,9 +141,13 @@ def test_discover_ready_reports_returns_only_ready_unsent_reports(
     mark_sent_by_external_pulsesender(ready_path, utc_now(), sender_id="test")
 
     write_report_set(runs / "supervisors" / "supervisor_ready")
+    write_report_set(runs / "workflows" / "workflow_ready", source_status="reported")
     reports = discover_ready_reports(runs)
 
-    assert [report.artifact_id for report in reports] == ["supervisor_ready"]
+    assert [report.artifact_id for report in reports] == [
+        "supervisor_ready",
+        "workflow_ready",
+    ]
 
 
 def test_mark_sent_by_external_pulsesender_updates_manifest_atomically(

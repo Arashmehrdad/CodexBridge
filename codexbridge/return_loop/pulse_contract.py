@@ -204,7 +204,7 @@ def mark_sent_by_external_pulsesender(
 def discover_ready_reports(runs_dir: Path) -> list[ReportManifest]:
     runs_dir = Path(runs_dir)
     manifests: list[ReportManifest] = []
-    for root in (runs_dir / "jobs", runs_dir / "supervisors"):
+    for root in (runs_dir / "jobs", runs_dir / "supervisors", runs_dir / "workflows"):
         if not root.exists():
             continue
         for manifest_path in root.glob("*/pulse_manifest.json"):

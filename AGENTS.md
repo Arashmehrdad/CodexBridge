@@ -69,6 +69,9 @@ Codex should be used for:
 - fixing failing tests after local diagnosis
 - architecture-sensitive changes
 - multi-file implementation work
+- durable workflow orchestration when a complete multi-step sequence is already known
+
+When a full multi-step sequence is already known, prefer starting one durable workflow instead of manually chaining child runs from ChatGPT turn by turn. Never start duplicate child runs for the same durable workflow state, and do not emit repetitive "still running" monitoring turns when the workflow worker can advance internally.
 
 Before a future Codex escalation, the local agent should prepare a compact packet containing:
 - objective
@@ -177,9 +180,10 @@ This list is directional, not proof that a feature exists:
 6. Autonomy Policy Engine
 7. Supervisor Upgrade
 8. Long-Run Job Manager
-9. PulseSender Return Loop
-10. Optional Local Coding
-11. Minimal Dashboard
+9. Workflow Orchestrator
+10. PulseSender Return Loop
+11. Optional Local Coding
+12. Minimal Dashboard
 
 ## Reporting Format
 

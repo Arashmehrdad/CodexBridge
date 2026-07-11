@@ -17,6 +17,7 @@ def render_dashboard_html(summary: DashboardSummary) -> str:
         ),
         ("Recent command runs", _lines(summary.commands)),
         ("Long-running jobs", _lines(summary.jobs)),
+        ("Durable workflows", _lines(summary.workflows)),
         ("Supervisors", _lines(summary.supervisors)),
         (
             "Pending approvals",
@@ -55,13 +56,16 @@ def render_dashboard_html(summary: DashboardSummary) -> str:
 def _lines(items) -> list[str]:
     lines = []
     for item in items:
+        step_states = ""
+        if getattr(item, "step_states", None):
+            step_states = f" steps={', '.join(item.step_states)}"
         artifact = (
             f" artifact={item.artifact_path}"
             if getattr(item, "artifact_path", None)
             else ""
         )
         lines.append(
-            f"{item.id} [{item.status}] {item.summary or item.failure_summary or item.error}{artifact}"
+            f"{item.id} [{item.status}] {item.summary or item.failure_summary or item.error}{step_states}{artifact}"
         )
     return lines or ["No items."]
 

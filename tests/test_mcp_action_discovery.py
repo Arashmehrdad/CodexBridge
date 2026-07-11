@@ -11,6 +11,7 @@ from typing import Any
 from jsonschema import Draft202012Validator, validate
 
 from codexbridge.config import AppConfig, LocalModelConfig, RepoConfig
+from codexbridge.knowledge_tools_integration import register_knowledge_tools
 import codexbridge.server as server
 
 
@@ -107,6 +108,41 @@ EXPECTED_EXPOSED_ACTIONS = {
     "unstage_all",
     "commit_all_changes",
 }
+RETIRED_DIRECT_ACTIONS = {
+    "apply_repo_patch",
+    "codex_implement_task",
+    "codex_plan_task",
+    "commit_all_changes",
+    "create_repo_file",
+    "delete_repo_file",
+    "dry_run_stage_manifest",
+    "get_latest_run_result",
+    "get_supervisor_notifications",
+    "get_supervisor_resume_prompt",
+    "git_diff_summary",
+    "read_repo_file",
+    "repo_git_status",
+    "run_project_command",
+    "ssh_host_health",
+    "stage_all",
+    "unstage_all",
+}
+WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
+    "cancel_workflow",
+    "get_workflow_events",
+    "get_workflow_result",
+    "get_workflow_status",
+    "read_repo_wiki",
+    "refresh_repo_wiki",
+    "remember_repo_decision",
+    "search_repo_knowledge",
+    "start_workflow",
+}
+EXPECTED_EXPOSED_ACTIONS = (
+    EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
+) | WORKFLOW_AND_KNOWLEDGE_ACTIONS
+assert len(EXPECTED_EXPOSED_ACTIONS) == 80
+
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
         "ok": True,
@@ -1126,6 +1162,92 @@ REALISTIC_ACTION_OUTPUTS = {
 }
 
 
+REALISTIC_ACTION_OUTPUTS.update(
+    {
+        "start_workflow": {
+            "ok": True,
+            "workflow_id": "workflow_1",
+            "repo_name": "repo",
+            "status": "queued",
+            "terminal_status": "",
+            "steps": [],
+            "error": "",
+        },
+        "get_workflow_status": {
+            "ok": True,
+            "workflow_id": "workflow_1",
+            "repo_name": "repo",
+            "status": "reported",
+            "terminal_status": "completed",
+            "steps": [],
+            "error": "",
+        },
+        "get_workflow_events": {
+            "ok": True,
+            "workflow_id": "workflow_1",
+            "events": [],
+            "notifications": [],
+            "error": "",
+        },
+        "get_workflow_result": {
+            "ok": True,
+            "workflow_id": "workflow_1",
+            "repo_name": "repo",
+            "status": "reported",
+            "terminal_status": "completed",
+            "steps": [],
+            "error": "",
+        },
+        "cancel_workflow": {
+            "ok": True,
+            "workflow_id": "workflow_1",
+            "repo_name": "repo",
+            "status": "reported",
+            "terminal_status": "cancelled",
+            "steps": [],
+            "error": "",
+        },
+        "refresh_repo_wiki": {
+            "ok": True,
+            "repo_name": "repo",
+            "status": "unchanged",
+            "wiki_root": ".codexbridge/wiki",
+            "pages": ["overview.md"],
+            "source_file_count": 1,
+            "changed_source_files": [],
+            "scan_truncated": False,
+            "error": "",
+        },
+        "read_repo_wiki": {
+            "ok": True,
+            "repo_name": "repo",
+            "page": "overview.md",
+            "content": "# Overview\n",
+            "size_bytes": 11,
+            "truncated": False,
+            "error": "",
+        },
+        "search_repo_knowledge": {
+            "ok": True,
+            "repo_name": "repo",
+            "query": "workflow",
+            "wiki_hits": [],
+            "memory_hits": [],
+            "error": "",
+        },
+        "remember_repo_decision": {
+            "ok": True,
+            "repo_name": "repo",
+            "memory_id": "memory_1",
+            "memory_type": "decision_memory",
+            "title": "Decision",
+            "summary": "Repository-scoped decision.",
+            "error": "",
+        },
+    }
+)
+
+
 class FakeResponse:
     def __init__(self, payload: dict[str, Any] | str, status: int = 200):
         self.payload = payload
@@ -1139,6 +1261,7 @@ class FakeResponse:
 
 def discovered_actions() -> list[dict]:
     async def _list() -> list[dict]:
+        register_knowledge_tools(server.mcp)
         tools = await server.mcp.list_tools()
         return [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
 
@@ -1204,6 +1327,10 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "apply_ssh_profile_change",
         "start_external_fixture_validation_async",
         "cancel_run",
+        "start_workflow",
+        "cancel_workflow",
+        "refresh_repo_wiki",
+        "remember_repo_decision",
         "reload_service",
         "rollback_service",
         "start_supervised_recovery_task",
@@ -1245,52 +1372,18 @@ def test_apply_previewed_repo_change_schema_is_opaque() -> None:
 def test_currently_exposed_batch_actions_are_discoverable() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert "git_diff_summary" in actions
-    assert "inspect_repo_status_compact" in actions
-    assert "list_runs" in actions
-    assert "get_run_control_status" in actions
-    assert "get_run_output" in actions
-    assert "list_operation_locks" in actions
-    assert "get_supervisor_status" in actions
-    assert "run_local_self_check" in actions
-    assert "local_model_health" in actions
-    assert "start_pytest_path_async" in actions
-    assert "start_py_compile_path_async" in actions
-    assert "start_bash_n_path_async" in actions
-    assert "start_json_validation_path_async" in actions
-    assert "start_git_readonly_async" in actions
-    assert "inspect_commit_range" in actions
-    assert "reload_service" in actions
-    assert "validate_service_config" in actions
-    assert "get_service_reload_status" in actions
-    assert "rollback_service" in actions
-    assert "dry_run_stage_manifest" in actions
-    assert "stage_all" in actions
-    assert "unstage_all" in actions
-    assert "commit_all_changes" in actions
-    assert "list_cloudflare_capabilities" in actions
-    assert "cloudflare_health" in actions
-    assert "cloudflare_inspect" in actions
-    assert "start_cloudflare_action_async" in actions
-    assert "list_ssh_capabilities" in actions
-    assert "preview_ssh_profile_change" in actions
-    assert "get_ssh_profile_change_status" in actions
-    assert "apply_ssh_profile_change" in actions
-    assert "ssh_host_health" in actions
-    assert "ssh_environment_probe" in actions
-    assert "ssh_gpu_telemetry" in actions
-    assert "ssh_inspect" in actions
-    assert "start_ssh_command_async" in actions
-    assert "start_ssh_action_async" in actions
-    assert "start_ssh_transfer_async" in actions
-    assert "start_ssh_deployment_async" in actions
-    assert "pytest" not in actions
-    assert "pip_check" not in actions
-    assert "dashboard_summary" not in actions
-    assert "memory_search" not in actions
-    assert "policy_evaluate" not in actions
-    assert "local_coding_preview" not in actions
-
+    assert len(actions) == 80
+    assert RETIRED_DIRECT_ACTIONS.isdisjoint(actions)
+    for name in WORKFLOW_AND_KNOWLEDGE_ACTIONS:
+        assert name in actions
+    for name in {
+        "get_run_control_status",
+        "get_run_output",
+        "list_operation_locks",
+        "ssh_environment_probe",
+        "ssh_gpu_telemetry",
+    }:
+        assert name in actions
 
 def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None:
     for action in discovered_actions():
@@ -1302,12 +1395,12 @@ def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None
 def test_realistic_outputs_validate_against_public_action_output_schemas() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert set(REALISTIC_ACTION_OUTPUTS) == set(actions)
+    assert set(REALISTIC_ACTION_OUTPUTS) == set(actions) | RETIRED_DIRECT_ACTIONS
 
-    for name, sample in REALISTIC_ACTION_OUTPUTS.items():
+    for name, action in actions.items():
+        sample = REALISTIC_ACTION_OUTPUTS[name]
         json.dumps(sample, sort_keys=True)
-        validate(instance=sample, schema=actions[name]["outputSchema"])
-
+        validate(instance=sample, schema=action["outputSchema"])
 
 def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> None:
     config = AppConfig(
@@ -1591,9 +1684,8 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
         "head_commit",
     }
 
-    manifest_schema = actions["dry_run_stage_manifest"]["inputSchema"]
-    assert set(manifest_schema["properties"]) == {"repo_name", "include_ignored"}
-    assert set(manifest_schema.get("required", [])) == {"repo_name"}
+    assert "dry_run_stage_manifest" in RETIRED_DIRECT_ACTIONS
+    assert "dry_run_stage_manifest" not in actions
 
     compact_status_schema = actions["inspect_repo_status_compact"]["inputSchema"]
     assert set(compact_status_schema["properties"]) == {"repo_name"}
@@ -1729,12 +1821,14 @@ def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
 def test_remote_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     list_name = "list_ssh_capabilities"
-    health_name = "ssh_host_health"
     start_name = "start_ssh_command_async"
     monitored_name = "start_ssh_monitored_command_async"
 
     assert set(actions[list_name]["inputSchema"]["properties"]) == set()
-    assert set(actions[health_name]["inputSchema"]["properties"]) == {"host_id"}
+    for name in {"ssh_environment_probe", "ssh_gpu_telemetry"}:
+        schema = actions[name]["inputSchema"]
+        assert set(schema["properties"]) == {"host_id"}
+        assert set(schema.get("required", [])) == {"host_id"}
     assert set(actions[start_name]["inputSchema"]["properties"]) == {
         "host_id",
         "command_id",
@@ -1772,13 +1866,17 @@ def test_run_status_events_result_and_supervisor_schemas_are_present() -> None:
     actions = {item["name"]: item for item in discovered_actions()}
     for name in {
         "get_run_status",
+        "get_run_control_status",
+        "get_run_output",
         "get_run_events",
         "get_run_result",
+        "list_operation_locks",
         "get_supervisor_status",
         "get_supervisor_events",
         "get_supervisor_result",
-        "get_supervisor_notifications",
-        "get_supervisor_resume_prompt",
+        "get_workflow_status",
+        "get_workflow_events",
+        "get_workflow_result",
     }:
         assert actions[name]["outputSchema"] is not None
 
@@ -1907,7 +2005,4 @@ def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
         instance=supervisor_events,
         schema=actions["get_supervisor_events"]["outputSchema"],
     )
-    validate(
-        instance=notifications,
-        schema=actions["get_supervisor_notifications"]["outputSchema"],
-    )
+    validate(instance=notifications, schema=server.EVENT_LIST_OUTPUT)

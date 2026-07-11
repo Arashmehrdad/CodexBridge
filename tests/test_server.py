@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from pathlib import Path
+from uuid import uuid4
 
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.git_tools import CommitMetadataError
 from codexbridge.server import parse_args
 import codexbridge.server as server
+import pytest
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    path = (Path("runs") / "pytest_tmp" / uuid4().hex).resolve()
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 def test_server_cli_defaults_to_http_mcp_path() -> None:
@@ -78,6 +88,28 @@ class FakeSupervisorService:
         return {"tool": "prompt"}
 
 
+class FakeWorkflowManager:
+    def start_workflow(self, repo_name, objective, steps):
+        return {
+            "tool": "start_workflow",
+            "repo_name": repo_name,
+            "objective": objective,
+            "steps": steps,
+        }
+
+    def get_status(self, workflow_id):
+        return {"tool": "workflow_status", "workflow_id": workflow_id}
+
+    def get_events(self, workflow_id, limit):
+        return [{"tool": "workflow_events", "workflow_id": workflow_id, "limit": limit}]
+
+    def get_result(self, workflow_id):
+        return {"tool": "workflow_result", "workflow_id": workflow_id}
+
+    def cancel_workflow(self, workflow_id):
+        return {"tool": "cancel_workflow", "workflow_id": workflow_id}
+
+
 def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
     monkeypatch.setattr(
         server, "get_supervisor_service", lambda: FakeSupervisorService()
@@ -100,6 +132,21 @@ def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
         == "pending"
     )
     assert server.get_supervisor_resume_prompt(supervisor_id)["tool"] == "prompt"
+
+
+def test_server_workflow_tool_functions_delegate(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_workflow_manager", lambda: FakeWorkflowManager())
+    workflow_id = "20260711T203357Z_workflow_deadbeef"
+    started = server.start_workflow(
+        "repo",
+        "objective",
+        [{"id": "one", "type": "project_command", "parameters": {"command_id": "pytest"}}],
+    )
+    assert started["tool"] == "start_workflow"
+    assert server.get_workflow_status(workflow_id)["tool"] == "workflow_status"
+    assert server.get_workflow_events(workflow_id, 7)["events"][0]["limit"] == 7
+    assert server.get_workflow_result(workflow_id)["tool"] == "workflow_result"
+    assert server.cancel_workflow(workflow_id)["tool"] == "cancel_workflow"
 
 
 def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
@@ -539,6 +586,11 @@ def test_run_project_command_accepts_case_insensitive_repo_name(
             "output_truncated": False,
             "error": "",
         },
+    )
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
     )
 
     result = server.run_project_command("CodexBridge", "custom")

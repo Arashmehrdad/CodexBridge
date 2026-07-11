@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.dashboard.app import create_dashboard_app
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    path = (Path("runs") / "pytest_tmp" / uuid4().hex).resolve()
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 pytest.importorskip("fastapi")
@@ -28,6 +36,16 @@ def make_app(tmp_path: Path):
         tmp_path / "runs" / "local_agent" / "commands" / "cmd1" / "result.json",
         {"run_id": "cmd1", "command_id": "git_status", "status": "success"},
     )
+    write_json(
+        tmp_path / "runs" / "workflows" / "wf1" / "result.json",
+        {
+            "workflow_id": "wf1",
+            "status": "reported",
+            "terminal_status": "completed",
+            "objective": "durable workflow",
+            "steps": [{"id": "one", "status": "passed"}],
+        },
+    )
     return create_dashboard_app(config)
 
 
@@ -43,9 +61,11 @@ def test_dashboard_health_root_and_api_summary_routes(tmp_path: Path) -> None:
     assert root.status_code == 200
     assert "Overall health" in root.text
     assert "Recent command runs" in root.text
+    assert "Durable workflows" in root.text
     assert "PulseSender readiness" in root.text
     assert summary.status_code == 200
     assert summary.json()["commands"][0]["id"] == "cmd1"
+    assert summary.json()["workflows"][0]["id"] == "wf1"
 
 
 def test_dashboard_api_routes_are_read_only(tmp_path: Path) -> None:
@@ -55,6 +75,7 @@ def test_dashboard_api_routes_are_read_only(tmp_path: Path) -> None:
     for path in [
         "/api/runs",
         "/api/jobs",
+        "/api/workflows",
         "/api/supervisors",
         "/api/approvals",
         "/api/codex-escalations",
