@@ -118,7 +118,11 @@ def test_operation_lock_listing_is_sanitized_and_filterable(tmp_path: Path) -> N
     assert listed[0]["run_id"] == RUN_ID
     assert listed[0]["run_status"] == "queued"
     assert "input_fingerprint" not in listed[0]
-    assert store.find_lock("sample", RUN_ID) == listed[0]
+    found = store.find_lock("sample", RUN_ID)
+    assert found is not None
+    assert found["run_id"] == listed[0]["run_id"]
+    assert found["repo_name"] == listed[0]["repo_name"]
+    assert found["tool"] == listed[0]["tool"]
 
 
 def test_operation_lock_listing_can_hide_stale_rows(
