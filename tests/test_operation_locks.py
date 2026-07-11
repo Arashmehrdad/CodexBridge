@@ -92,3 +92,53 @@ def test_operation_lock_recovers_stale_dead_worker_before_server_pid(
     )
 
     assert store.recover_stale() == 1
+
+
+def test_operation_lock_listing_is_sanitized_and_filterable(tmp_path: Path) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={"repo_name": "sample", "command_id": "pytest"},
+        run_id=RUN_ID,
+        owner_pid=123,
+    )
+
+    listed = store.list_locks("SAMPLE")
+
+    assert len(listed) == 1
+    assert listed[0]["repo_name"] == "sample"
+    assert listed[0]["run_id"] == RUN_ID
+    assert listed[0]["run_status"] == "queued"
+    assert "input_fingerprint" not in listed[0]
+    assert store.find_lock("sample", RUN_ID) == listed[0]
+
+
+def test_operation_lock_listing_can_hide_stale_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+    )
+    monkeypatch.setattr(store, "_is_stale", lambda _conn, _row: True)
+
+    assert store.list_locks(include_stale=False) == []
+    assert store.list_locks(include_stale=True)[0]["stale"] is True
