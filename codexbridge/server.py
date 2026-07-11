@@ -77,6 +77,8 @@ from .ssh_profile_manager import (
     preview_ssh_profile_change as _preview_ssh_profile_change,
 )
 from .ssh_tools import enrich_ssh_capabilities as _enrich_ssh_capabilities
+from .ssh_tools import run_ssh_environment_probe as _run_ssh_environment_probe
+from .ssh_tools import run_ssh_gpu_telemetry as _run_ssh_gpu_telemetry
 from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
@@ -1340,6 +1342,24 @@ def apply_ssh_profile_change(change_id: str) -> dict:
 def ssh_host_health(host_id: str) -> dict:
     """Read-only: test one configured SSH alias with a fixed non-interactive command."""
     return _ssh_host_health(get_config(), host_id)
+
+
+@mcp.tool(
+    output_schema=RUN_COMMAND_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def ssh_environment_probe(host_id: str) -> dict:
+    """Read-only: collect structured OS, Python, CUDA, GPU, memory, disk, and watchdog metadata."""
+    return _run_ssh_environment_probe(get_config(), host_id)
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def ssh_gpu_telemetry(host_id: str) -> dict:
+    """Read-only: collect structured NVIDIA GPU utilization, memory, temperature, power, and process metadata."""
+    return _run_ssh_gpu_telemetry(get_config(), host_id)
 
 
 @mcp.tool(
