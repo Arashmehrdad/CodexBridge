@@ -71,6 +71,11 @@ from .self_check import run_self_check
 from .supervisor_service import SupervisorService
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
+from .ssh_profile_manager import (
+    apply_ssh_profile_change as _apply_ssh_profile_change,
+    get_ssh_profile_change_status as _get_ssh_profile_change_status,
+    preview_ssh_profile_change as _preview_ssh_profile_change,
+)
 from .ssh_tools import enrich_ssh_capabilities as _enrich_ssh_capabilities
 from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
 from .local_agent.models import LocalModelStatus
@@ -1267,6 +1272,65 @@ def list_ssh_capabilities() -> dict:
     """Read-only: list SSH hosts, inspections, actions, transfers, deployments, and risk gates."""
     config = get_config()
     return _enrich_ssh_capabilities(config, _list_ssh_capabilities(config))
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def preview_ssh_profile_change(
+    action: str,
+    host_id: str,
+    host_config: dict[str, Any] = {},
+    command_id: str = "",
+    command_profile: dict[str, Any] = {},
+) -> dict:
+    """Read-only: validate and preview one structured SSH host or command-profile config change."""
+    config_path = get_config_path()
+    if config_path is None:
+        raise ValueError("SSH profile management requires a config file path")
+    return _preview_ssh_profile_change(
+        config_path,
+        _get_runs_dir(),
+        action,
+        host_id,
+        host_config=host_config or None,
+        command_id=command_id,
+        command_profile=command_profile or None,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_ssh_profile_change_status(change_id: str) -> dict:
+    """Read-only: return sanitized lifecycle metadata for one SSH profile change preview."""
+    config_path = get_config_path()
+    if config_path is None:
+        raise ValueError("SSH profile management requires a config file path")
+    return _get_ssh_profile_change_status(config_path, _get_runs_dir(), change_id)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def apply_ssh_profile_change(change_id: str) -> dict:
+    """Write tool: atomically apply and activate one hash-verified SSH profile change preview."""
+    config_path = get_config_path()
+    if config_path is None:
+        raise ValueError("SSH profile management requires a config file path")
+
+    def activate(candidate_path: Path) -> dict[str, Any]:
+        result = _reload_service(candidate_path, modules=["config"])
+        if result.get("ok"):
+            set_config(apply_reloaded_config(candidate_path), candidate_path)
+        return result
+
+    with repository_operation_lock(
+        _get_runs_dir(),
+        repo_name="__codexbridge_config__",
+        tool="apply_ssh_profile_change",
+        normalized_input={"change_id": change_id},
+    ):
+        return _apply_ssh_profile_change(
+            config_path,
+            _get_runs_dir(),
+            change_id,
+            activate=activate,
+        )
 
 
 @mcp.tool(

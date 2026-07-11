@@ -174,6 +174,7 @@ RELOADABLE_MODULES = {
     "codexbridge.run_guards",
     "codexbridge.run_store",
     "codexbridge.ssh_commands",
+    "codexbridge.ssh_profile_manager",
     "codexbridge.ssh_tools",
     "codexbridge.transactions",
     "codexbridge.return_loop.atomic_writer",
