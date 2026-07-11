@@ -158,6 +158,8 @@ def _rebind_server_ssh_helpers() -> None:
     server_module._list_ssh_capabilities = commands_module.list_ssh_capabilities
     server_module._ssh_host_health = commands_module.ssh_host_health
     server_module._enrich_ssh_capabilities = tools_module.enrich_ssh_capabilities
+    server_module._run_ssh_environment_probe = tools_module.run_ssh_environment_probe
+    server_module._run_ssh_gpu_telemetry = tools_module.run_ssh_gpu_telemetry
     server_module._run_ssh_inspection = tools_module.run_ssh_inspection
     if manager_module is not None:
         server_module._preview_ssh_profile_change = (
