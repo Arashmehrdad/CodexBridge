@@ -35,6 +35,9 @@ EXPECTED_EXPOSED_ACTIONS = {
     "cloudflare_inspect",
     "start_cloudflare_action_async",
     "list_ssh_capabilities",
+    "preview_ssh_profile_change",
+    "get_ssh_profile_change_status",
+    "apply_ssh_profile_change",
     "ssh_host_health",
     "ssh_inspect",
     "start_ssh_command_async",
@@ -363,6 +366,61 @@ REALISTIC_ACTION_OUTPUTS = {
                 ],
             }
         ],
+        "error": "",
+    },
+    "preview_ssh_profile_change": {
+        "ok": True,
+        "change_id": "20260711T120000Z_sshcfg_1234abcd",
+        "status": "previewed",
+        "action": "add_host",
+        "host_id": "my_vps",
+        "command_id": "",
+        "created_at": "2026-07-11T12:00:00+00:00",
+        "applied_at": "",
+        "failed_at": "",
+        "base_config_sha256": "a" * 64,
+        "candidate_config_sha256": "b" * 64,
+        "capability_diff": {
+            "hosts_added": ["my_vps"],
+            "hosts_removed": [],
+            "hosts_changed": [],
+        },
+        "error": "",
+    },
+    "get_ssh_profile_change_status": {
+        "ok": True,
+        "change_id": "20260711T120000Z_sshcfg_1234abcd",
+        "status": "previewed",
+        "action": "add_host",
+        "host_id": "my_vps",
+        "command_id": "",
+        "created_at": "2026-07-11T12:00:00+00:00",
+        "applied_at": "",
+        "failed_at": "",
+        "base_config_sha256": "a" * 64,
+        "candidate_config_sha256": "b" * 64,
+        "capability_diff": {
+            "hosts_added": ["my_vps"],
+            "hosts_removed": [],
+            "hosts_changed": [],
+        },
+        "error": "",
+    },
+    "apply_ssh_profile_change": {
+        "ok": True,
+        "change_id": "20260711T120000Z_sshcfg_1234abcd",
+        "status": "applied",
+        "action": "add_host",
+        "host_id": "my_vps",
+        "command_id": "",
+        "config_sha256": "b" * 64,
+        "capability_diff": {
+            "hosts_added": ["my_vps"],
+            "hosts_removed": [],
+            "hosts_changed": [],
+        },
+        "activation": {"ok": True, "status": "active"},
+        "idempotent_replay": False,
         "error": "",
     },
     "ssh_host_health": {
@@ -1015,6 +1073,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_ssh_action_async",
         "start_ssh_transfer_async",
         "start_ssh_deployment_async",
+        "apply_ssh_profile_change",
         "start_external_fixture_validation_async",
         "cancel_run",
         "reload_service",
@@ -1083,6 +1142,9 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "cloudflare_inspect" in actions
     assert "start_cloudflare_action_async" in actions
     assert "list_ssh_capabilities" in actions
+    assert "preview_ssh_profile_change" in actions
+    assert "get_ssh_profile_change_status" in actions
+    assert "apply_ssh_profile_change" in actions
     assert "ssh_host_health" in actions
     assert "ssh_inspect" in actions
     assert "start_ssh_command_async" in actions
