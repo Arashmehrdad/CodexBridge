@@ -249,11 +249,11 @@ def _apply_mutation(data: dict[str, Any], mutation: dict[str, Any]) -> dict[str,
     if action == "add_host":
         if exists:
             raise ValueError(f"SSH host already exists: {host_id}")
-        hosts[host_id] = copy.deepcopy(mutation["host_config"])
+        hosts[host_id] = _normalized_host(dict(mutation["host_config"]))
     elif action == "replace_host":
         if not exists:
             raise ValueError(f"Unknown SSH host_id: {host_id}")
-        hosts[host_id] = copy.deepcopy(mutation["host_config"])
+        hosts[host_id] = _normalized_host(dict(mutation["host_config"]))
     elif action == "remove_host":
         if not exists:
             raise ValueError(f"Unknown SSH host_id: {host_id}")
@@ -278,7 +278,9 @@ def _apply_mutation(data: dict[str, Any], mutation: dict[str, Any]) -> dict[str,
                 f"Duplicate SSH command_id for host '{host_id}': {command_id}"
             )
         if action == "upsert_command":
-            replacement = copy.deepcopy(mutation["command_profile"])
+            _effective_id, replacement = _normalized_command(
+                command_id, dict(mutation["command_profile"])
+            )
             if matching:
                 profiles[matching[0]] = replacement
             else:
