@@ -44,8 +44,10 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
                             command_id="uptime",
                             argv=["uptime"],
                             timeout_seconds=30,
+                            watchdog_eligible=True,
                         )
                     ],
+                    watchdog={"enabled": True},
                 )
             },
         ),
@@ -203,6 +205,22 @@ def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> N
     status = manager.get_status(response["run_id"])
     assert status["repo_name"] == "ssh:my_vps"
     assert status["tool"] == "ssh_command"
+    assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
+
+
+def test_start_ssh_monitored_command_creates_durable_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+
+    assert response["accepted"] is True
+    assert response["host_id"] == "my_vps"
+    assert response["command_id"] == "uptime"
+    assert response["watchdog_mode"] == "observe_only"
+    status = manager.get_status(response["run_id"])
+    assert status["tool"] == "ssh_monitored_command"
     assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
 
 
@@ -549,6 +567,20 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
     assert cancelled["termination_confirmed"] is True
     assert manager.get_status(response["run_id"])["status"] == "cancelled"
     assert manager.locks.find_lock("sample", response["run_id"]) is None
+
+
+def test_cancel_monitored_run_without_remote_metadata_stays_pending(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+
+    cancelled = manager.cancel_run(response["run_id"])
+
+    assert cancelled["ok"] is False
+    assert cancelled["termination_confirmed"] is False
+    assert "remote process identity is unknown" in cancelled["reason"]
+    assert "lock retained" in cancelled["reason"]
 
 
 def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> None:
