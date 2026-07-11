@@ -1226,7 +1226,19 @@ def enrich_ssh_capabilities(
         host["watchdog"] = {
             "enabled": host_config.watchdog.enabled,
             "enforcement_mode": host_config.watchdog.enforcement_mode,
-            "can_terminate_remote_processes": False,
+            "allow_automatic_termination": host_config.watchdog.allow_automatic_termination,
+            "poll_interval_seconds": host_config.watchdog.poll_interval_seconds,
+            "consecutive_breaches": host_config.watchdog.consecutive_breaches,
+            "termination_grace_seconds": host_config.watchdog.termination_grace_seconds,
+            "can_terminate_remote_processes": bool(
+                host_config.watchdog.enabled
+                and host_config.watchdog.enforcement_mode == "terminate"
+                and host_config.watchdog.allow_automatic_termination
+                and any(
+                    profile.watchdog_eligible
+                    for profile in host_config.command_profiles
+                )
+            ),
             "thresholds": {
                 "max_gpu_memory_percent": host_config.watchdog.max_gpu_memory_percent,
                 "max_gpu_temperature_c": host_config.watchdog.max_gpu_temperature_c,

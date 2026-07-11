@@ -551,6 +551,19 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert result["hosts"][0]["watchdog"]["enforcement_mode"] == "observe_only"
     assert result["hosts"][0]["watchdog"]["can_terminate_remote_processes"] is False
 
+    host = config.ssh.hosts["sample_host"]
+    host.watchdog = SSHWatchdogConfig(
+        enabled=True,
+        enforcement_mode="terminate",
+        allow_automatic_termination=True,
+    )
+    gated = ssh_tools.enrich_ssh_capabilities(config, base)
+    assert gated["hosts"][0]["watchdog"]["can_terminate_remote_processes"] is False
+
+    host.command_profiles[0].watchdog_eligible = True
+    active = ssh_tools.enrich_ssh_capabilities(config, base)
+    assert active["hosts"][0]["watchdog"]["can_terminate_remote_processes"] is True
+
 
 def test_environment_probe_returns_structured_gpu_and_watchdog_metadata(
     tmp_path: Path, monkeypatch

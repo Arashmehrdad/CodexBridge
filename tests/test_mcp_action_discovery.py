@@ -43,6 +43,7 @@ EXPECTED_EXPOSED_ACTIONS = {
     "ssh_gpu_telemetry",
     "ssh_inspect",
     "start_ssh_command_async",
+    "start_ssh_monitored_command_async",
     "start_ssh_action_async",
     "start_ssh_transfer_async",
     "start_ssh_deployment_async",
@@ -523,6 +524,18 @@ REALISTIC_ACTION_OUTPUTS = {
         "host_id": "my_vps",
         "command_id": "uptime",
         "writes_remote": False,
+        "result": {},
+        "error": "",
+    },
+    "start_ssh_monitored_command_async": {
+        "ok": True,
+        "run_id": "run_monitored",
+        "status": "queued",
+        "host_id": "my_vps",
+        "command_id": "uptime",
+        "writes_remote": False,
+        "watchdog_mode": "observe_only",
+        "automatic_termination_active": False,
         "result": {},
         "error": "",
     },
@@ -1184,6 +1197,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_json_validation_path_async",
         "start_git_readonly_async",
         "start_ssh_command_async",
+        "start_ssh_monitored_command_async",
         "start_ssh_action_async",
         "start_ssh_transfer_async",
         "start_ssh_deployment_async",
@@ -1693,11 +1707,31 @@ def test_start_remote_command_async_delegates(monkeypatch) -> None:
     assert result["command_id"] == "uptime"
 
 
+def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
+    def start(self, host_id, command_id):
+        return {
+            "run_id": "run_monitored",
+            "accepted": True,
+            "status": "queued",
+            "host_id": host_id,
+            "command_id": command_id,
+        }
+
+    fake_manager = type("FakeJobManager", (), {"start_ssh_monitored_command": start})()
+    monkeypatch.setattr(server, "get_job_manager", lambda: fake_manager)
+
+    result = getattr(server, "start_ssh_monitored_command_async")("my_vps", "uptime")
+
+    assert result["accepted"] is True
+    assert result["run_id"] == "run_monitored"
+
+
 def test_remote_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     list_name = "list_ssh_capabilities"
     health_name = "ssh_host_health"
     start_name = "start_ssh_command_async"
+    monitored_name = "start_ssh_monitored_command_async"
 
     assert set(actions[list_name]["inputSchema"]["properties"]) == set()
     assert set(actions[health_name]["inputSchema"]["properties"]) == {"host_id"}
@@ -1706,6 +1740,10 @@ def test_remote_tool_input_schemas_are_exact() -> None:
         "command_id",
     }
     assert set(actions[start_name]["inputSchema"].get("required", [])) == {
+        "host_id",
+        "command_id",
+    }
+    assert set(actions[monitored_name]["inputSchema"]["properties"]) == {
         "host_id",
         "command_id",
     }
