@@ -1159,12 +1159,13 @@ def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
     locks = server.list_operation_locks("sample", include_stale=False)
 
     assert control["run_id"] == "run_1"
-    assert output == {
-        "ok": True,
-        "run_id": "run_1",
-        "stream": "stdout",
-        "tail_bytes": 123,
-    }
+    assert output["ok"] is True
+    assert output["run_id"] == "run_1"
+    assert output["stream"] == "stdout"
+    assert output["tail_bytes"] == 123
+    assert output["server_build_hash"]
+    assert output["schema_hash"]
+    assert output["capability_epoch"]
     assert locks["ok"] is True
     assert locks["count"] == 1
     assert locks["locks"][0]["repo_name"] == "sample"
