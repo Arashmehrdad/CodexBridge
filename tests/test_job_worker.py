@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from codexbridge.job_worker import JobWorker
@@ -962,3 +963,115 @@ def test_project_command_worker_commits_only_for_write_profiles(
     assert calls == [("project_command", ["generated.txt"])]
     assert writer_result["commit_attempted"] is True
     assert reader_result["commit_attempted"] is False
+
+
+def test_codex_timeout_terminates_process_tree_and_records_report(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260707T000006Z_codex_plan_task_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="codex_plan_task",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "task": "Inspect documentation",
+            "constraints": "",
+        },
+    )
+
+    class FakePipe:
+        def readline(self) -> str:
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class TimedOutProcess:
+        pid = 4321
+        stdout = FakePipe()
+        stderr = FakePipe()
+
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("codex", timeout)
+
+    popen_kwargs: dict[str, object] = {}
+
+    def fake_popen(*args, **kwargs):
+        popen_kwargs.update(kwargs)
+        return TimedOutProcess()
+
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        lambda self: "codex",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        lambda self, _executable: "",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.CodexRunner._codex_exec_args",
+        lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
+            "codex"
+        ],
+    )
+    monkeypatch.setattr("codexbridge.job_worker.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.process_group_popen_kwargs",
+        lambda: {"creationflags": 512},
+    )
+    terminations: list[int] = []
+    monkeypatch.setattr(
+        "codexbridge.job_worker.terminate_process_tree",
+        lambda pid: terminations.append(pid)
+        or {
+            "pid": pid,
+            "method": "simulated_tree",
+            "termination_attempted": True,
+            "forced": True,
+            "exit_code": 0,
+            "terminated": True,
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        lambda _repo_root, _before: [],
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.git_tools.changed_files", lambda _repo_root: []
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.git_tools.git_status", lambda _repo_root: ""
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.git_tools.diff_stat", lambda _repo_root: ""
+    )
+
+    worker = JobWorker(config_path, run_id)
+
+    assert worker.execute() == 1
+    result = store.get_run(run_id)["result"]
+    events = store.get_events(run_id, 50)
+    assert popen_kwargs["creationflags"] == 512
+    assert terminations == [4321]
+    assert result["status"] == "timed_out"
+    assert result["codex_exit_code"] == 124
+    timeout_event = next(event for event in events if event["stage"] == "codex" and "timed out" in event["message"])
+    assert timeout_event["data"]["termination"]["terminated"] is True
