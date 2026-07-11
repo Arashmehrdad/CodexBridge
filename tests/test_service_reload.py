@@ -4,7 +4,15 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
-from codexbridge.service_reload import reload_service
+import pytest
+
+from codexbridge.service_reload import (
+    apply_reloaded_config,
+    get_reload_status,
+    reload_service,
+    rollback_service,
+    validate_config_candidate,
+)
 
 
 def test_reload_service_reloads_config_only(tmp_path: Path) -> None:
@@ -74,3 +82,58 @@ def test_reload_service_marks_unreloadable_modules_restart_required(
 
     assert result["ok"] is False
     assert result["restart_required"] == ["codexbridge.server"]
+
+
+def test_invalid_candidate_does_not_replace_last_known_good(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    active = apply_reloaded_config(config_path)
+    assert Path(active.repos["sample"].path).resolve() == repo.resolve()
+
+    config_path.write_text(
+        "repos:\n  sample:\n    path: 'missing'\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        validate_config_candidate(config_path)
+
+    status = get_reload_status()
+    lifecycle = status["config_lifecycle"]
+    assert lifecycle["has_last_known_good_config"] is True
+    assert Path(lifecycle["active_config_path"]).resolve() == config_path.resolve()
+
+
+def test_reload_status_and_rollback_restore_previous_config(tmp_path: Path) -> None:
+    repo_one = tmp_path / "repo_one"
+    repo_two = tmp_path / "repo_two"
+    repo_one.mkdir()
+    repo_two.mkdir()
+    (repo_one / ".git").mkdir()
+    (repo_two / ".git").mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo_one.as_posix()}'\n",
+        encoding="utf-8",
+    )
+
+    first = apply_reloaded_config(config_path)
+    assert Path(first.repos["sample"].path).resolve() == repo_one.resolve()
+
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo_two.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    reloaded = reload_service(config_path, modules=["config"])
+    assert reloaded["ok"] is True
+    assert reloaded["config_lifecycle"]["has_previous_config"] is True
+
+    rolled_back = rollback_service()
+    assert rolled_back["ok"] is True
+    restored = rolled_back["config"]
+    assert Path(restored.repos["sample"].path).resolve() == repo_one.resolve()

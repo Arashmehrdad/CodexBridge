@@ -469,6 +469,24 @@ class CommitMetadataError(ValueError):
         self.files_validated = files_validated
 
 
+class CommitPolicyError(ValueError):
+    """Structured validation error for repository commit policy enforcement."""
+
+    def __init__(
+        self,
+        reason_code: str,
+        reason: str,
+        *,
+        files_validated: bool,
+        blocked_field: str = "policy",
+    ) -> None:
+        super().__init__(reason)
+        self.field = blocked_field
+        self.reason_code = reason_code
+        self.reason = reason
+        self.files_validated = files_validated
+
+
 def _validate_commit_metadata(
     title: str,
     description: str,
@@ -638,6 +656,43 @@ def _build_auto_commit_metadata(tool_name: str, run_id: str = "") -> tuple[str, 
     return title, description
 
 
+def _build_commit_report(
+    *,
+    commit_hash: str,
+    title: str,
+    description: str,
+    mode: str,
+    files_validated: bool,
+    staged_paths: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "commit_hash": commit_hash,
+        "title": title,
+        "description": description,
+        "mode": mode,
+        "files_validated": files_validated,
+        "staged_paths": list(staged_paths or []),
+    }
+
+
+def _reject_unrelated_staged_files(
+    manifest_before: dict[str, Any],
+    allowed_paths: Iterable[str],
+    *,
+    files_validated: bool,
+) -> None:
+    allowed = set(_normalize_explicit_paths(allowed_paths))
+    unrelated = [
+        path for path in manifest_before.get("staged", []) if Path(path).as_posix() not in allowed
+    ]
+    if unrelated:
+        raise CommitPolicyError(
+            "unrelated_staged_files",
+            "Commit refused because unrelated staged files are present in the real index",
+            files_validated=files_validated,
+        )
+
+
 def _finalize_stage_paths(repo_root: Path, requested_paths: Iterable[str]) -> list[str]:
     selected = set(_normalize_explicit_paths(requested_paths))
     if not selected:
@@ -664,6 +719,7 @@ def finalize_explicit_changes(
     *,
     tool_name: str,
     run_id: str = "",
+    require_commit_report: bool = True,
 ) -> dict[str, Any]:
     selected = _normalize_explicit_paths(paths)
     for file_name in selected:
@@ -793,7 +849,6 @@ def finalize_explicit_changes(
                 "commit_error": str(exc),
                 "commit_result": failure,
             }
-
     success = {
         "ok": True,
         "files_validated": True,
@@ -805,6 +860,18 @@ def finalize_explicit_changes(
         "staged_paths": stage_paths,
         "title": title,
         "description": description,
+        "commit_report": (
+            _build_commit_report(
+                commit_hash=commit_hash,
+                title=title,
+                description=description,
+                mode="explicit_isolated",
+                files_validated=True,
+                staged_paths=stage_paths,
+            )
+            if require_commit_report
+            else {}
+        ),
         "error": "",
     }
     return {
@@ -861,6 +928,9 @@ def commit_selected_files(
     files: Iterable[str],
     title: str,
     description: str = "",
+    *,
+    refuse_unrelated_staged_files: bool = True,
+    require_commit_report: bool = True,
 ) -> dict:
     selected = list(files)
     if not selected:
@@ -875,6 +945,10 @@ def commit_selected_files(
         raise ValueError(f"Files are not currently changed: {missing}")
 
     manifest_before = dry_run_stage_manifest(repo_root)
+    if refuse_unrelated_staged_files:
+        _reject_unrelated_staged_files(
+            manifest_before, selected, files_validated=True
+        )
     snapshot = _snapshot_index(repo_root)
     try:
         _run_git(repo_root, ["add", "--sparse", "--", *selected], check=True)
@@ -911,6 +985,18 @@ def commit_selected_files(
         "index_state_after": _index_state(repo_root),
         "remaining_dirty_files": changed_files(repo_root),
         "git_status": git_status(repo_root),
+        "commit_report": (
+            _build_commit_report(
+                commit_hash=commit_hash,
+                title=title,
+                description=description,
+                mode="explicit_selected",
+                files_validated=True,
+                staged_paths=selected,
+            )
+            if require_commit_report
+            else {}
+        ),
         "error": "",
     }
 
@@ -1013,7 +1099,20 @@ def unstage_all(repo_root: Path) -> dict:
     }
 
 
-def commit_all_changes(repo_root: Path, title: str, description: str = "") -> dict:
+def commit_all_changes(
+    repo_root: Path,
+    title: str,
+    description: str = "",
+    *,
+    commit_mode: str = "explicit_only",
+    require_commit_report: bool = True,
+) -> dict:
+    if commit_mode == "explicit_only":
+        raise CommitPolicyError(
+            "commit_all_disabled",
+            "Repository policy forbids commit-all behavior unless commit_mode allows it",
+            files_validated=False,
+        )
     _validate_commit_metadata(title, description or "", files_validated=False)
     manifest_before = dry_run_stage_manifest(repo_root)
     snapshot = _snapshot_index(repo_root)
@@ -1051,6 +1150,18 @@ def commit_all_changes(repo_root: Path, title: str, description: str = "") -> di
         "index_state_after": _index_state(repo_root),
         "remaining_dirty_files": changed_files(repo_root),
         "git_status": git_status(repo_root),
+        "commit_report": (
+            _build_commit_report(
+                commit_hash=commit_hash,
+                title=title,
+                description=description or "",
+                mode="all_tracked_and_untracked",
+                files_validated=False,
+                staged_paths=manifest_before.get("staged", []),
+            )
+            if require_commit_report
+            else {}
+        ),
         "error": "",
     }
 

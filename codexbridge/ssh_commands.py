@@ -24,7 +24,7 @@ _CONNECTION_COMMAND_RE = re.compile(
     r"^ssh\s+(?P<user>[A-Za-z0-9._-]+)@(?P<hostname>[A-Za-z0-9.-]+)\s+"
     r"-p\s+(?P<port>[0-9]{1,5})\s+-i\s+(?P<identity>.+)$"
 )
-_CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f;&|<>`$()*?]")
+_CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f]")
 _PTY_EXIT_MARKER = "__CODEXBRIDGE_REMOTE_EXIT__="
 _PTY_EXIT_RE = re.compile(
     r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+"
@@ -42,6 +42,7 @@ _BLOCKED_REMOTE_LAUNCHERS = {
     "sh",
     "zsh",
 }
+_BLOCKED_SHELL_TOKENS = ("&&", "||", ";", "|", "`", "$(", "<", ">")
 
 
 @dataclass(frozen=True)
@@ -126,6 +127,14 @@ def _resolve_connection_file(configured: str) -> SSHConnection:
     line = lines[0]
     if _CONTROL_OR_SHELL_META_RE.search(line):
         raise ValueError("SSH connection_file contains blocked shell syntax")
+    blocked_token = next(
+        (token for token in _BLOCKED_SHELL_TOKENS if token in line),
+        None,
+    )
+    if blocked_token is not None:
+        raise ValueError(
+            f"SSH connection_file contains blocked shell syntax: {blocked_token}"
+        )
     match = _CONNECTION_COMMAND_RE.fullmatch(line)
     if match is None:
         raise ValueError(
@@ -195,9 +204,10 @@ def validate_ssh_command_profile(
         )
     if len(argv) > MAX_REMOTE_ARGV_ITEMS:
         raise ValueError(f"SSH command profile '{command_id}' has too many argv items")
-    if Path(argv[0]).name.lower() in _BLOCKED_REMOTE_LAUNCHERS:
+    launcher = Path(argv[0]).name.lower()
+    if launcher in _BLOCKED_REMOTE_LAUNCHERS:
         raise ValueError(
-            f"SSH command profile '{command_id}' may not launch a remote shell"
+            f"SSH command profile '{command_id}' may not launch a remote shell wrapper: {launcher}"
         )
     total_bytes = 0
     for item in argv:
@@ -211,9 +221,17 @@ def validate_ssh_command_profile(
             raise ValueError(
                 f"SSH command profile '{command_id}' contains an oversized argv item"
             )
+        blocked_token = next(
+            (token for token in _BLOCKED_SHELL_TOKENS if token in item),
+            None,
+        )
+        if blocked_token is not None:
+            raise ValueError(
+                f"SSH command profile '{command_id}' contains blocked shell token: {blocked_token}"
+            )
         if _CONTROL_OR_SHELL_META_RE.search(item):
             raise ValueError(
-                f"SSH command profile '{command_id}' contains blocked shell syntax"
+                f"SSH command profile '{command_id}' contains control characters"
             )
     if total_bytes > MAX_REMOTE_COMMAND_BYTES:
         raise ValueError(f"SSH command profile '{command_id}' is too large")

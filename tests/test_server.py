@@ -447,6 +447,30 @@ def test_reload_service_delegates_and_refreshes_config(monkeypatch, tmp_path) ->
     assert refreshed["done"] is True
 
 
+def test_server_reload_lifecycle_tools_delegate(monkeypatch, tmp_path) -> None:
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "_validate_config_candidate",
+        lambda path: {"ok": True, "candidate_config_path": str(path), "error": ""},
+    )
+    monkeypatch.setattr(
+        server,
+        "_get_reload_status",
+        lambda: {"ok": True, "status": "active", "error": ""},
+    )
+    monkeypatch.setattr(
+        server,
+        "_rollback_service",
+        lambda: {"ok": True, "rolled_back": True, "config": config, "error": ""},
+    )
+
+    assert server.validate_service_config()["ok"] is True
+    assert server.get_service_reload_status()["status"] == "active"
+    assert server.rollback_service()["rolled_back"] is True
+
+
 def test_repo_context_discovers_direct_child_repo_without_explicit_entry(
     tmp_path,
 ) -> None:
@@ -564,7 +588,7 @@ def test_run_project_command_finalizes_write_profile_changes(
     monkeypatch.setattr(
         server,
         "finalize_explicit_changes",
-        lambda repo_root, paths, *, tool_name, run_id="": (
+        lambda repo_root, paths, *, tool_name, run_id="", require_commit_report=True: (
             finalized.append(list(paths))
             or {
                 "commit_required": True,
@@ -581,6 +605,59 @@ def test_run_project_command_finalizes_write_profile_changes(
     assert result["ok"] is True
     assert finalized == [["generated.txt"]]
     assert result["commit_hash"] == "abc123"
+
+
+def test_commit_all_changes_rejected_by_repo_policy(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+
+    result = server.commit_all_changes("repo", "chore: everything")
+
+    assert result["ok"] is False
+    assert result["reason_code"] == "commit_all_disabled"
+    assert result["blocked_field"] == "policy"
+
+
+def test_commit_selected_files_respects_repo_policy_options(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={
+            "repo": RepoConfig(
+                path=str(tmp_path),
+                refuse_unrelated_staged_files=False,
+                require_commit_report=False,
+            )
+        },
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "repository_operation_lock",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_commit(repo_root, files, title, description="", **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "commit_hash": "a" * 40, "files_validated": True, "error": ""}
+
+    monkeypatch.setattr(server, "commit_files", fake_commit)
+
+    result = server.commit_selected_files("repo", ["safe.txt"], "fix: scoped")
+
+    assert result["ok"] is True
+    assert captured["refuse_unrelated_staged_files"] is False
+    assert captured["require_commit_report"] is False
 
 
 def test_preview_tools_preserve_canonical_repo_name(monkeypatch, tmp_path) -> None:
@@ -637,7 +714,7 @@ def test_direct_write_tools_finalize_commits(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         server,
         "finalize_explicit_changes",
-        lambda repo_root, paths, *, tool_name, run_id="": (
+        lambda repo_root, paths, *, tool_name, run_id="", require_commit_report=True: (
             finalized.append((tool_name, list(paths)))
             or {
                 "commit_required": True,
@@ -769,7 +846,7 @@ def test_direct_write_commit_failure_returns_commit_failed_status(
     monkeypatch.setattr(
         server,
         "finalize_explicit_changes",
-        lambda repo_root, paths, *, tool_name, run_id="": {
+        lambda repo_root, paths, *, tool_name, run_id="", require_commit_report=True: {
             "commit_required": True,
             "commit_attempted": True,
             "commit_hash": "",
