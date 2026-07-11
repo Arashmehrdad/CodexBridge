@@ -152,3 +152,39 @@ def test_run_store_repo_filters_are_case_insensitive(tmp_path: Path) -> None:
 
     assert store.list_runs(repo_name="sample")[0]["repo_name"] == "Sample"
     assert store.latest_run(repo_name="sample")["repo_name"] == "Sample"
+
+
+def test_mark_stale_running_preserves_monitored_remote_safety_state(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    monitored_id = "20260711T120000Z_ssh_monitored_command_deadbeef"
+    ordinary_id = "20260711T120001Z_project_command_deadbeef"
+    store.create_run(
+        run_id=monitored_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        run_dir=tmp_path / "runs" / monitored_id,
+        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        status="running",
+    )
+    store.create_run(
+        run_id=ordinary_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / ordinary_id,
+        input_data={"command_id": "pytest"},
+        status="running",
+    )
+
+    assert store.mark_stale_running() == 2
+
+    monitored = store.get_run(monitored_id)
+    ordinary = store.get_run(ordinary_id)
+    assert monitored["status"] == "cancellation_pending"
+    assert monitored["current_phase"] == "cancellation_pending"
+    assert monitored["ended_at"] is None
+    assert monitored["safety_failure"] is True
+    assert "may still be active" in monitored["error"]
+    assert ordinary["status"] == "failed"
+    assert ordinary["ended_at"] is not None

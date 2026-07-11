@@ -146,3 +146,31 @@ def test_operation_lock_listing_can_hide_stale_rows(
 
     assert store.list_locks(include_stale=False) == []
     assert store.list_locks(include_stale=True)[0]["stale"] is True
+
+
+def test_cancellation_pending_lock_is_retained_after_owner_exit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        status="cancellation_pending",
+    )
+    store.acquire(
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        normalized_input={"host_id": "my_vps", "command_id": "uptime"},
+        run_id=RUN_ID,
+        owner_pid=999,
+    )
+    monkeypatch.setattr(operation_locks, "_pid_is_running", lambda _pid: False)
+
+    assert store.recover_stale() == 0
+    lock = store.find_lock("ssh:my_vps", RUN_ID)
+    assert lock is not None
+    assert lock["run_status"] == "cancellation_pending"
+    assert lock["stale"] is False
