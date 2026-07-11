@@ -10,76 +10,13 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 
-_STATIC_MANAGED_ARTIFACT_ROOTS: tuple[str, ...] = (
+MANAGED_ARTIFACT_ROOTS: tuple[str, ...] = (
     ".codex-tmp",
     ".pytest_cache",
     ".ruff_cache",
     "tests/pytest_tmp_probe",
 )
-_ROOT_PROBE_GROUP = "root_pytest_probes"
-_ROOT_PROBE_NAME_RE = re.compile(r"^[a-z0-9_]{8}$")
-_ROOT_PROBE_HASH = "f02285fb90ed8c81531fe78cf4e2abb68a62be73ee7d317623e2c3e3aefdfff2"
-_WRITE_PROBE_HASH = "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
-
-
-def _is_registered_root_probe(path: Path) -> bool:
-    if not path.is_file() or path.is_symlink():
-        return False
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return False
-    digest = hashlib.sha256(data).hexdigest()
-    if path.name == "temp_write_probe.txt":
-        return data == b"ok" and digest == _WRITE_PROBE_HASH
-    return bool(
-        _ROOT_PROBE_NAME_RE.fullmatch(path.name)
-        and data == b"blat"
-        and digest == _ROOT_PROBE_HASH
-    )
-
-
-def _discover_root_probe_names(repo_root: Path) -> tuple[str, ...]:
-    try:
-        return tuple(
-            sorted(
-                path.name
-                for path in repo_root.iterdir()
-                if _is_registered_root_probe(path)
-            )
-        )
-    except OSError:
-        return ()
-
-
-_MODULE_REPO_ROOT = Path(__file__).resolve().parent.parent
-MANAGED_ARTIFACT_ROOTS: tuple[str, ...] = (
-    *_STATIC_MANAGED_ARTIFACT_ROOTS,
-    _ROOT_PROBE_GROUP,
-    *_discover_root_probe_names(_MODULE_REPO_ROOT),
-)
 CLEANUP_ID_RE = re.compile(r"^\d{8}T\d{6}Z_cleanup_[0-9a-f]{8}$")
-
-
-class _RootProbeGroup:
-    def __init__(self, repo_root: Path, only_name: str | None = None):
-        self.repo_root = repo_root
-        self.only_name = only_name
-
-    def exists(self) -> bool:
-        return bool(self.rglob("*"))
-
-    def rglob(self, _pattern: str) -> list[Path]:
-        if self.only_name:
-            candidate = self.repo_root / self.only_name
-            return [candidate] if _is_registered_root_probe(candidate) else []
-        return [
-            self.repo_root / name
-            for name in _discover_root_probe_names(self.repo_root)
-        ]
-
-    def rmdir(self) -> None:
-        return None
 
 
 def _utc_now() -> str:
@@ -106,26 +43,14 @@ def _sha256_file(path: Path) -> str:
 
 def _resolve_allowed_roots(
     repo_root: Path, roots: Iterable[str] | None = None
-) -> list[tuple[str, Any]]:
-    root = repo_root.resolve()
-    requested = (
-        list(roots)
-        if roots is not None
-        else [*_STATIC_MANAGED_ARTIFACT_ROOTS, _ROOT_PROBE_GROUP]
-    )
-    known = set(MANAGED_ARTIFACT_ROOTS)
-    unknown = sorted(set(requested) - known)
+) -> list[tuple[str, Path]]:
+    requested = list(roots or MANAGED_ARTIFACT_ROOTS)
+    unknown = sorted(set(requested) - set(MANAGED_ARTIFACT_ROOTS))
     if unknown:
         raise ValueError(f"Unsupported managed artifact roots: {unknown}")
-    resolved: list[tuple[str, Any]] = []
-    registered_probe_names = set(_discover_root_probe_names(root))
+    resolved: list[tuple[str, Path]] = []
+    root = repo_root.resolve()
     for relative in requested:
-        if relative == _ROOT_PROBE_GROUP:
-            resolved.append((relative, _RootProbeGroup(root)))
-            continue
-        if relative in registered_probe_names:
-            resolved.append((relative, _RootProbeGroup(root, only_name=relative)))
-            continue
         absolute = (root / relative).resolve()
         absolute.relative_to(root)
         resolved.append((relative, absolute))
