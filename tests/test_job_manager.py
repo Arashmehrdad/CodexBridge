@@ -400,6 +400,13 @@ def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
     cancelled = manager.cancel_run(response["run_id"])
     assert cancelled["cancelled"] is True
     assert manager.get_status(response["run_id"])["status"] == "cancelled"
+    first = manager.get_result(response["run_id"])
+    second = manager.get_result(response["run_id"])
+    assert first == second
+    assert first["status"] == "cancelled"
+    assert first["cancelled"] is True
+    assert first["stdout"] == ""
+    assert first["stderr"] == ""
 
 
 def test_reconcile_startup_marks_running_failed(tmp_path: Path, monkeypatch) -> None:
@@ -408,6 +415,25 @@ def test_reconcile_startup_marks_running_failed(tmp_path: Path, monkeypatch) -> 
     manager.store.update_run(response["run_id"], status="running")
     assert manager.reconcile_startup() == 1
     assert manager.get_status(response["run_id"])["status"] == "failed"
+    result = manager.get_result(response["run_id"])
+    assert result["classification"] == "infrastructure_failure"
+    assert result["stdout"] == ""
+    assert result["stderr"] == ""
+
+
+def test_unknown_and_malformed_run_ids_are_structured(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    unknown = "20260711T000000Z_project_command_deadbeef"
+
+    for lookup in (manager.get_status, manager.get_result, manager.cancel_run):
+        missing = lookup(unknown)
+        malformed = lookup("not-a-run-id")
+        assert missing["ok"] is False
+        assert missing["error_code"] == "run_not_found"
+        assert malformed["ok"] is False
+        assert malformed["error_code"] == "invalid_run_id"
 
 
 def test_start_async_duplicate_project_command_is_rejected(

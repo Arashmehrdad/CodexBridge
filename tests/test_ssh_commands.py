@@ -183,7 +183,9 @@ def test_connection_file_is_reread_for_each_ssh_operation(
     config = make_config(tmp_path)
     config.ssh.hosts["my_vps"] = SSHHostConfig(
         connection_file=str(connection_file),
-        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+        command_profiles=[
+            SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+        ],
     )
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
     _, profile = resolve_ssh_command_profile(config, "my_vps", "status")
@@ -216,7 +218,9 @@ def test_connection_file_rejects_noncanonical_or_unsafe_commands(
     config = make_config(tmp_path)
     config.ssh.hosts["my_vps"] = SSHHostConfig(
         connection_file=str(connection_file),
-        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+        command_profiles=[
+            SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+        ],
     )
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
 
@@ -240,7 +244,9 @@ def test_explicit_endpoint_requires_existing_identity_file(
         hostname="ssh.runpod.io",
         user="pod-user-123",
         identity_file=str(tmp_path / "missing-key"),
-        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+        command_profiles=[
+            SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+        ],
     )
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
 
@@ -289,7 +295,9 @@ def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
         hostname="ssh.runpod.io",
         user="pod-user-123",
         identity_file=str(identity),
-        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+        command_profiles=[
+            SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+        ],
     )
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
     captured: dict = {}
@@ -299,9 +307,7 @@ def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
         captured["kwargs"] = kwargs
         return SimpleNamespace(
             stdout=(
-                "RunPod banner\r\n"
-                "uptime output\r\n"
-                "__CODEXBRIDGE_REMOTE_EXIT__=0\r\n"
+                "RunPod banner\r\nuptime output\r\n__CODEXBRIDGE_REMOTE_EXIT__=0\r\n"
             ),
             stderr="",
             returncode=0,
@@ -334,7 +340,9 @@ def test_runpod_proxy_marker_controls_remote_exit_code(
         hostname="ssh.runpod.io",
         user="pod-user-123",
         identity_file=str(identity),
-        command_profiles=[SSHCommandProfileConfig(command_id="status", argv=["uptime"])],
+        command_profiles=[
+            SSHCommandProfileConfig(command_id="status", argv=["uptime"])
+        ],
     )
     monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
     monkeypatch.setattr(
@@ -406,5 +414,6 @@ def test_capability_listing_exposes_metadata_not_remote_argv(tmp_path: Path) -> 
         "description": "Show server uptime",
         "timeout_seconds": 45,
         "writes_remote": False,
+        "watchdog_eligible": False,
     }
     assert "argv" not in command

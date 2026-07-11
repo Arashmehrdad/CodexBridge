@@ -173,6 +173,22 @@ class JobWorker:
         self._heartbeat_thread.start()
         try:
             result = self._execute_inner(started_at)
+            result.setdefault("stdout", "")
+            result.setdefault("stderr", "")
+            exit_code = result.get("exit_code")
+            result.setdefault(
+                "process_success", exit_code == 0 if exit_code is not None else None
+            )
+            result.setdefault(
+                "classification",
+                "process_failure"
+                if exit_code not in {None, 0}
+                else (
+                    "semantic_failure"
+                    if result.get("status") in {"failed", "partial"}
+                    else "success"
+                ),
+            )
             status = str(
                 result.get("status")
                 or (
@@ -184,7 +200,12 @@ class JobWorker:
                 )
             )
             ended_at = result["ended_at"]
-            self.artifacts.write_json("result.json", result)
+            artifact_error = ""
+            try:
+                self.artifacts.write_json("result.json", result)
+            except Exception as exc:
+                artifact_error = f"Could not persist result artifact: {exc}"
+                result["artifact_error"] = artifact_error
             current = self.store.get_run(self.run_id)
             if current["status"] == "cancelled":
                 self.event(
@@ -250,7 +271,12 @@ class JobWorker:
                         "remote_process": remote_process,
                     }
                 )
-            self.artifacts.write_json("result.json", result)
+            try:
+                self.artifacts.write_json("result.json", result)
+            except Exception as artifact_exc:
+                result["artifact_error"] = (
+                    f"Could not persist result artifact: {artifact_exc}"
+                )
             self.store.update_run(
                 self.run_id,
                 status=failure_status,
@@ -265,7 +291,9 @@ class JobWorker:
             self.event(
                 "error",
                 "cancellation_pending" if remote_identity_known else "result",
-                "Run requires remote recovery" if remote_identity_known else "Run failed",
+                "Run requires remote recovery"
+                if remote_identity_known
+                else "Run failed",
                 {"error": str(exc)},
             )
             return 1
@@ -415,6 +443,7 @@ class JobWorker:
         )
         stdout_thread.start()
         stderr_thread.start()
+        termination: dict = {"terminated": False}
         try:
             exit_code = process.wait(timeout=self.config.codex.default_timeout_seconds)
         except subprocess.TimeoutExpired:
@@ -509,8 +538,12 @@ class JobWorker:
                 and validation_confirmed
             )
         )
-        if exit_code == 124:
+        if exit_code == 124 and termination.get("terminated"):
             terminal_status = "timed_out"
+        elif exit_code == 124:
+            terminal_status = "cancellation_pending"
+            safety_failure = True
+            risks.append("Process-tree termination could not be confirmed")
         elif safety_failure or blocked or exit_code != 0:
             terminal_status = "failed"
         elif not implementation_complete:
@@ -550,6 +583,18 @@ class JobWorker:
             "tool": tool,
             "status": terminal_status,
             "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "process_success": exit_code == 0,
+            "classification": (
+                "process_failure"
+                if exit_code != 0
+                else (
+                    "semantic_failure"
+                    if terminal_status in {"failed", "partial"}
+                    else "success"
+                )
+            ),
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),
@@ -724,7 +769,10 @@ class JobWorker:
             "diff_stat": "",
             "tests_run": [],
             "test_results": (stdout or stderr).strip(),
-            "summary": ((stdout or stderr).strip() or f"Monitored SSH command {command_id} finished")[-4000:],
+            "summary": (
+                (stdout or stderr).strip()
+                or f"Monitored SSH command {command_id} finished"
+            )[-4000:],
             "remaining_risks": [],
             "error": str(command_result.get("error", "")),
             "safety_failure": bool(command_result.get("safety_failure")),
@@ -1149,7 +1197,11 @@ class JobWorker:
             )
 
         terminal_status = (
-            "completed" if command_result.get("ok") and not safety_failure else "failed"
+            "timed_out"
+            if command_result.get("timed_out")
+            else "completed"
+            if command_result.get("ok") and not safety_failure
+            else "failed"
         )
         commit_data = {
             "commit_required": False,
@@ -1179,6 +1231,18 @@ class JobWorker:
             "action": action,
             "status": terminal_status,
             "exit_code": int(command_result.get("exit_code", 1)),
+            "stdout": stdout,
+            "stderr": stderr,
+            "process_success": int(command_result.get("exit_code", 1)) == 0,
+            "classification": (
+                "timeout"
+                if command_result.get("timed_out")
+                else "process_failure"
+                if int(command_result.get("exit_code", 1)) != 0
+                else "semantic_failure"
+                if safety_failure
+                else "success"
+            ),
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),
@@ -1330,7 +1394,11 @@ class JobWorker:
             },
         }
         terminal_status = (
-            "completed" if command_result.get("ok") and not safety_failure else "failed"
+            "timed_out"
+            if command_result.get("timed_out")
+            else "completed"
+            if command_result.get("ok") and not safety_failure
+            else "failed"
         )
         if terminal_status == "completed" and profile.writes_files:
             commit_data = self._finalize_commit(
@@ -1359,6 +1427,18 @@ class JobWorker:
             "path": normalized_target,
             "status": terminal_status,
             "exit_code": int(command_result.get("exit_code", 1)),
+            "stdout": stdout,
+            "stderr": stderr,
+            "process_success": int(command_result.get("exit_code", 1)) == 0,
+            "classification": (
+                "timeout"
+                if command_result.get("timed_out")
+                else "process_failure"
+                if int(command_result.get("exit_code", 1)) != 0
+                else "semantic_failure"
+                if safety_failure
+                else "success"
+            ),
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),
@@ -1389,6 +1469,12 @@ class JobWorker:
             "tool": self.run.get("tool", ""),
             "status": "failed",
             "exit_code": 1,
+            "stdout": "",
+            "stderr": "",
+            "process_success": False,
+            "classification": "infrastructure_failure",
+            "cancelled": False,
+            "timed_out": False,
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": _duration(started_at, ended_at),

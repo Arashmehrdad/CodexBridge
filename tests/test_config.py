@@ -62,6 +62,8 @@ def test_config_example_loads_without_repo_validation() -> None:
     watchdog = config.ssh.hosts["my_vps"].watchdog
     assert watchdog.enabled is False
     assert watchdog.enforcement_mode == "observe_only"
+    assert watchdog.allow_automatic_termination is False
+    assert watchdog.poll_interval_seconds == 30
     assert watchdog.max_gpu_memory_percent == 95
 
 
@@ -207,14 +209,22 @@ def test_ssh_watchdog_config_is_bounded_and_observe_only() -> None:
 
     assert watchdog.enabled is True
     assert watchdog.enforcement_mode == "observe_only"
+    assert watchdog.poll_interval_seconds == 30
+    assert watchdog.consecutive_breaches == 2
     with pytest.raises(ValidationError):
         SSHWatchdogConfig(max_gpu_memory_percent=101)
     with pytest.raises(ValidationError):
         SSHWatchdogConfig(max_gpu_temperature_c=0)
     with pytest.raises(ValidationError):
         SSHWatchdogConfig(min_disk_free_percent=100)
+    terminate = SSHWatchdogConfig(enforcement_mode="terminate")
+    assert terminate.enforcement_mode == "terminate"
     with pytest.raises(ValidationError):
-        SSHWatchdogConfig(enforcement_mode="terminate")
+        SSHWatchdogConfig(poll_interval_seconds=4)
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(consecutive_breaches=11)
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(termination_grace_seconds=31)
 
 
 def test_ssh_deployment_and_admin_config_validation() -> None:

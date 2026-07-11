@@ -93,6 +93,7 @@ class SSHCommandProfileConfig(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1, le=3600)
     description: str = ""
     writes_remote: bool = False
+    watchdog_eligible: bool = False
 
 
 class SSHDeploymentProfileConfig(BaseModel):
@@ -147,7 +148,11 @@ class SSHDeploymentProfileConfig(BaseModel):
 
 class SSHWatchdogConfig(BaseModel):
     enabled: bool = False
-    enforcement_mode: Literal["observe_only"] = "observe_only"
+    enforcement_mode: Literal["observe_only", "terminate"] = "observe_only"
+    allow_automatic_termination: bool = False
+    poll_interval_seconds: int = Field(default=30, ge=5, le=300)
+    consecutive_breaches: int = Field(default=2, ge=1, le=10)
+    termination_grace_seconds: int = Field(default=5, ge=1, le=30)
     max_gpu_memory_percent: float = Field(default=95.0, gt=0, le=100)
     max_gpu_temperature_c: float = Field(default=90.0, gt=0, le=125)
     max_system_memory_percent: float = Field(default=95.0, gt=0, le=100)
@@ -193,7 +198,9 @@ class SSHHostConfig(BaseModel):
             )
         if self.connection_file:
             if any(ord(char) < 32 or ord(char) == 127 for char in self.connection_file):
-                raise ValueError("SSH connection_file must not contain control characters")
+                raise ValueError(
+                    "SSH connection_file must not contain control characters"
+                )
             if not (
                 Path(self.connection_file).is_absolute()
                 or PureWindowsPath(self.connection_file).is_absolute()
@@ -221,7 +228,9 @@ class SSHHostConfig(BaseModel):
                     "SSH user must use letters, numbers, dots, underscores, or hyphens"
                 )
             if any(ord(char) < 32 or ord(char) == 127 for char in self.identity_file):
-                raise ValueError("SSH identity_file must not contain control characters")
+                raise ValueError(
+                    "SSH identity_file must not contain control characters"
+                )
             if not (
                 Path(self.identity_file).is_absolute()
                 or PureWindowsPath(self.identity_file).is_absolute()

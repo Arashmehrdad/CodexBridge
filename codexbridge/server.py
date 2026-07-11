@@ -1418,6 +1418,15 @@ def start_ssh_command_async(host_id: str, command_id: str) -> dict:
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
+def start_ssh_monitored_command_async(host_id: str, command_id: str) -> dict:
+    """Write async tool: queue one opt-in monitored SSH command by host ID and command ID."""
+    return get_job_manager().start_ssh_monitored_command(host_id, command_id)
+
+
+@mcp.tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
 def start_ssh_action_async(
     host_id: str,
     action: str,
@@ -1607,9 +1616,7 @@ def get_run_output(
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_operation_locks(
-    repo_name: str = "", include_stale: bool = True
-) -> dict:
+def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dict:
     """Read-only: list durable repository, SSH-host, and configuration operation locks."""
     locks = get_job_manager().list_operation_locks(
         repo_name or None, include_stale=include_stale

@@ -26,9 +26,7 @@ _CONNECTION_COMMAND_RE = re.compile(
 )
 _CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f]")
 _PTY_EXIT_MARKER = "__CODEXBRIDGE_REMOTE_EXIT__="
-_PTY_EXIT_RE = re.compile(
-    r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+"
-)
+_PTY_EXIT_RE = re.compile(r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+")
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
     "cmd",
@@ -114,16 +112,22 @@ def _resolve_connection_file(configured: str) -> SSHConnection:
     if not (path.is_absolute() or PureWindowsPath(str(configured)).is_absolute()):
         raise ValueError("SSH connection_file must be an absolute path")
     if path.is_symlink() or not path.is_file():
-        raise ValueError(f"SSH connection_file is missing or not a regular file: {configured}")
+        raise ValueError(
+            f"SSH connection_file is missing or not a regular file: {configured}"
+        )
     if path.stat().st_size > 4096:
         raise ValueError("SSH connection_file is too large")
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise ValueError(f"Unable to read SSH connection_file {configured}: {exc}") from exc
+        raise ValueError(
+            f"Unable to read SSH connection_file {configured}: {exc}"
+        ) from exc
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     if len(lines) != 1:
-        raise ValueError("SSH connection_file must contain exactly one non-empty command line")
+        raise ValueError(
+            "SSH connection_file must contain exactly one non-empty command line"
+        )
     line = lines[0]
     if _CONTROL_OR_SHELL_META_RE.search(line):
         raise ValueError("SSH connection_file contains blocked shell syntax")
@@ -368,7 +372,7 @@ def prepare_ssh_execution(
         f"{remote_command}\n"
         "__codexbridge_status=$?\n"
         f"printf '\\n{_PTY_EXIT_MARKER}%s\\n' \"$__codexbridge_status\"\n"
-        "exit \"$__codexbridge_status\"\n"
+        'exit "$__codexbridge_status"\n'
     )
     return execution_argv, stdin_text, destination
 
@@ -549,6 +553,7 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
                     "description": profile.description,
                     "timeout_seconds": profile.timeout_seconds,
                     "writes_remote": profile.writes_remote,
+                    "watchdog_eligible": bool(profile.watchdog_eligible),
                 }
             )
         hosts.append(

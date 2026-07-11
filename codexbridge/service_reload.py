@@ -50,7 +50,8 @@ def _lifecycle_metadata() -> dict[str, object]:
             "has_last_known_good_config": (
                 _CONFIG_LIFECYCLE_STATE["last_known_good_config"] is not None
             ),
-            "has_previous_config": _CONFIG_LIFECYCLE_STATE["previous_config"] is not None,
+            "has_previous_config": _CONFIG_LIFECYCLE_STATE["previous_config"]
+            is not None,
         }
     }
 
@@ -148,6 +149,7 @@ def rollback_service() -> dict[str, object]:
     result.update(capability_metadata(PATCH_OPERATION_SCHEMA))
     return result
 
+
 def _rebind_server_ssh_helpers() -> None:
     server_module = sys.modules.get("codexbridge.server")
     commands_module = sys.modules.get("codexbridge.ssh_commands")
@@ -168,7 +170,9 @@ def _rebind_server_ssh_helpers() -> None:
         server_module._get_ssh_profile_change_status = (
             manager_module.get_ssh_profile_change_status
         )
-        server_module._apply_ssh_profile_change = manager_module.apply_ssh_profile_change
+        server_module._apply_ssh_profile_change = (
+            manager_module.apply_ssh_profile_change
+        )
 
 
 RELOADABLE_MODULES = {
@@ -187,6 +191,7 @@ RELOADABLE_MODULES = {
     "codexbridge.ssh_commands",
     "codexbridge.ssh_profile_manager",
     "codexbridge.ssh_tools",
+    "codexbridge.ssh_watchdog",
     "codexbridge.transactions",
     "codexbridge.return_loop.atomic_writer",
 }
@@ -209,7 +214,7 @@ def reload_service(
     if "config" in requested:
         if config_path is None:
             raise ValueError("reload_service requires a config path")
-        validated = validate_config_candidate(config_path)
+        validate_config_candidate(config_path)
         validated_config = _CONFIG_LIFECYCLE_STATE["last_validated_config"]  # type: ignore[assignment]
         resolved_config_path = str(Path(config_path).resolve())
         reloaded.append("config")
@@ -239,7 +244,9 @@ def reload_service(
         reloaded.append(qualified)
 
     if validated_config is not None:
-        _CONFIG_LIFECYCLE_STATE["previous_config"] = _CONFIG_LIFECYCLE_STATE["active_config"]
+        _CONFIG_LIFECYCLE_STATE["previous_config"] = _CONFIG_LIFECYCLE_STATE[
+            "active_config"
+        ]
         _CONFIG_LIFECYCLE_STATE["previous_loaded_at"] = _CONFIG_LIFECYCLE_STATE[
             "active_loaded_at"
         ]

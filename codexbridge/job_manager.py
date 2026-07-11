@@ -40,7 +40,10 @@ from .safety import (
     validate_repo_relative_paths,
 )
 from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
-from .ssh_watchdog import terminate_remote_process_group, validate_monitored_command_start
+from .ssh_watchdog import (
+    terminate_remote_process_group,
+    validate_monitored_command_start,
+)
 from .ssh_tools import build_ssh_action, validate_remote_path
 
 
@@ -365,7 +368,9 @@ class JobManager:
         return response
 
     def start_ssh_monitored_command(self, host_id: str, command_id: str) -> dict:
-        host, profile = validate_monitored_command_start(self.config, host_id, command_id)
+        host, profile = validate_monitored_command_start(
+            self.config, host_id, command_id
+        )
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
             accepted=True,
@@ -761,7 +766,10 @@ class JobManager:
         return response
 
     def get_status(self, run_id: str) -> dict:
-        run = self.store.get_run(run_id)
+        try:
+            run = self.store.get_run(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
         return redact_and_truncate(run)
 
     def get_events(self, run_id: str, limit: int = 50) -> list[dict]:
@@ -843,7 +851,10 @@ class JobManager:
         )
 
     def get_result(self, run_id: str) -> dict:
-        run = self.store.get_run(run_id)
+        try:
+            run = self.store.get_run(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
         result = run.get("result") or {}
         if result:
             return redact_and_truncate(result)
@@ -854,6 +865,10 @@ class JobManager:
                 "tool": run["tool"],
                 "status": run["status"],
                 "exit_code": run["exit_code"],
+                "stdout": "",
+                "stderr": "",
+                "process_success": None,
+                "classification": "pending",
                 "started_at": run["started_at"],
                 "ended_at": run["ended_at"],
                 "duration_seconds": run["duration_seconds"],
@@ -866,8 +881,54 @@ class JobManager:
                 "remaining_risks": [],
                 "error": run["error"],
                 "safety_failure": run["safety_failure"],
+                "cancelled": False,
+                "timed_out": False,
             }
         )
+
+    @staticmethod
+    def _run_lookup_error(run_id: str, exc: Exception) -> dict:
+        malformed = isinstance(exc, ValueError)
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "status": "invalid" if malformed else "not_found",
+            "classification": "lookup_error",
+            "error_code": "invalid_run_id" if malformed else "run_not_found",
+            "error": str(exc),
+            "result_available": False,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+        }
+
+    @staticmethod
+    def _cancellation_result(
+        run: dict, ended_at: str, error: str, progress: dict
+    ) -> dict:
+        return {
+            "run_id": run["run_id"],
+            "repo_name": run["repo_name"],
+            "tool": run["tool"],
+            "status": "cancelled",
+            "classification": "cancelled",
+            "process_success": None,
+            "exit_code": run.get("exit_code"),
+            "stdout": "",
+            "stderr": "",
+            "started_at": run.get("started_at"),
+            "ended_at": ended_at,
+            "duration_seconds": run.get("duration_seconds"),
+            "summary": error,
+            "error": error,
+            "cancelled": True,
+            "cancellation": progress,
+            "timed_out": False,
+            "safety_failure": False,
+            "changed_files": [],
+            "tests_run": [],
+            "remaining_risks": [],
+        }
 
     def list_runs(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20
@@ -896,8 +957,11 @@ class JobManager:
         return self.get_result(run["run_id"])
 
     def cancel_run(self, run_id: str) -> dict:
-        validate_run_id(run_id)
-        run = self.store.get_run(run_id)
+        try:
+            validate_run_id(run_id)
+            run = self.store.get_run(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
         if run["status"] in TERMINAL_STATUSES:
             return {
                 "ok": True,
@@ -917,12 +981,15 @@ class JobManager:
         if run["tool"] == "ssh_monitored_command":
             if run["status"] == "queued" and not worker_pid and not child_pid:
                 ended_at = datetime.now(timezone.utc).isoformat()
+                error = "Run cancelled before monitored SSH launch"
+                result = self._cancellation_result(run, ended_at, error, progress)
                 self.store.update_run(
                     run_id,
                     status="cancelled",
                     ended_at=ended_at,
-                    error="Run cancelled before monitored SSH launch",
+                    error=error,
                     progress_json=progress,
+                    result_json=result,
                 )
                 self.locks.release(run["repo_name"], run_id)
                 return {
@@ -996,9 +1063,7 @@ class JobManager:
                 report = terminate_process_tree(child_pid)
                 report["role"] = "child"
                 reports.append(report)
-            local_confirmed = all(
-                bool(report.get("terminated")) for report in reports
-            )
+            local_confirmed = all(bool(report.get("terminated")) for report in reports)
             progress["termination_reports"] = reports
             if not local_confirmed:
                 self.store.set_progress(
@@ -1019,12 +1084,15 @@ class JobManager:
                 }
 
             ended_at = datetime.now(timezone.utc).isoformat()
+            error = "Run cancelled after verified remote termination"
+            result = self._cancellation_result(run, ended_at, error, progress)
             self.store.update_run(
                 run_id,
                 status="cancelled",
                 ended_at=ended_at,
-                error="Run cancelled after verified remote termination",
+                error=error,
                 progress_json=progress,
+                result_json=result,
             )
             self.locks.release(run["repo_name"], run_id)
             event = self.store.append_event(
@@ -1061,9 +1129,12 @@ class JobManager:
             report = terminate_process_tree(pid)
             report["role"] = role
             reports.append(report)
-        termination_confirmed = all(
-            bool(report.get("terminated")) for report in reports
-        )
+        if run["status"] == "queued" and not pids:
+            termination_confirmed = True
+        else:
+            termination_confirmed = bool(reports) and all(
+                bool(report.get("terminated")) for report in reports
+            )
         progress["termination_reports"] = reports
 
         if not termination_confirmed:
@@ -1093,12 +1164,15 @@ class JobManager:
             }
 
         ended_at = datetime.now(timezone.utc).isoformat()
+        error = "Run cancelled by request"
+        result = self._cancellation_result(run, ended_at, error, progress)
         self.store.update_run(
             run_id,
             status="cancelled",
             ended_at=ended_at,
-            error="Run cancelled by request",
+            error=error,
             progress_json=progress,
+            result_json=result,
         )
         self.locks.release(run["repo_name"], run_id)
         event = self.store.append_event(

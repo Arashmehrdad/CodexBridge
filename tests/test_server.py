@@ -313,6 +313,14 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     )
 
     class FakeJobs:
+        def start_ssh_monitored_command(self, host_id, command_id):
+            return {
+                "ok": True,
+                "run_id": "run_monitored",
+                "host_id": host_id,
+                "command_id": command_id,
+            }
+
         def start_ssh_action(self, host_id, action, **kwargs):
             return {
                 "ok": True,
@@ -364,6 +372,8 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     assert transfer["kwargs"]["repo_name"] == "repo"
     assert deployment["run_id"] == "run_deploy"
     assert deployment["kwargs"]["confirmation"] == "CONFIRM_SSH_HIGH_RISK"
+    monitored = server.start_ssh_monitored_command_async("my_vps", "uptime")
+    assert monitored["run_id"] == "run_monitored"
 
 
 def test_commit_tool_returns_structured_metadata_rejection(
@@ -448,7 +458,9 @@ def test_reload_service_delegates_and_refreshes_config(monkeypatch, tmp_path) ->
 
 
 def test_server_reload_lifecycle_tools_delegate(monkeypatch, tmp_path) -> None:
-    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
     server.set_config(config, tmp_path / "config.yaml")
     monkeypatch.setattr(
         server,
@@ -627,7 +639,9 @@ def test_commit_all_changes_rejected_by_repo_policy(monkeypatch, tmp_path) -> No
     assert result["blocked_field"] == "policy"
 
 
-def test_commit_selected_files_respects_repo_policy_options(monkeypatch, tmp_path) -> None:
+def test_commit_selected_files_respects_repo_policy_options(
+    monkeypatch, tmp_path
+) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
         repos={
@@ -649,7 +663,12 @@ def test_commit_selected_files_respects_repo_policy_options(monkeypatch, tmp_pat
 
     def fake_commit(repo_root, files, title, description="", **kwargs):
         captured.update(kwargs)
-        return {"ok": True, "commit_hash": "a" * 40, "files_validated": True, "error": ""}
+        return {
+            "ok": True,
+            "commit_hash": "a" * 40,
+            "files_validated": True,
+            "error": "",
+        }
 
     monkeypatch.setattr(server, "commit_files", fake_commit)
 
@@ -1178,14 +1197,18 @@ def test_server_ssh_probe_tools_delegate_to_structured_collectors(monkeypatch) -
     monkeypatch.setattr(
         server,
         "_run_ssh_environment_probe",
-        lambda active, host_id: calls.append(("environment", active, host_id))
-        or {"ok": True, "host_id": host_id, "status": "ok"},
+        lambda active, host_id: (
+            calls.append(("environment", active, host_id))
+            or {"ok": True, "host_id": host_id, "status": "ok"}
+        ),
     )
     monkeypatch.setattr(
         server,
         "_run_ssh_gpu_telemetry",
-        lambda active, host_id: calls.append(("gpu", active, host_id))
-        or {"ok": True, "host_id": host_id, "status": "ok"},
+        lambda active, host_id: (
+            calls.append(("gpu", active, host_id))
+            or {"ok": True, "host_id": host_id, "status": "ok"}
+        ),
     )
 
     environment = server.ssh_environment_probe("gpu_host")

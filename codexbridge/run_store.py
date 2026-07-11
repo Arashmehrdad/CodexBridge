@@ -29,7 +29,7 @@ def validate_run_id(run_id: str) -> None:
 
 
 def dumps(data: dict[str, Any] | list[Any] | None) -> str:
-    return json.dumps(data or {}, sort_keys=True)
+    return json.dumps({} if data is None else data, sort_keys=True)
 
 
 def loads(value: str | None) -> Any:
@@ -313,17 +313,36 @@ class RunStore:
                         (row["run_id"],),
                     )
                 else:
+                    result = {
+                        "run_id": row["run_id"],
+                        "tool": row["tool"],
+                        "status": "failed",
+                        "classification": "infrastructure_failure",
+                        "process_success": None,
+                        "exit_code": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "started_at": None,
+                        "ended_at": now,
+                        "duration_seconds": None,
+                        "summary": "Server restarted while run was marked running",
+                        "error": "Server restarted while run was marked running",
+                        "cancelled": False,
+                        "timed_out": False,
+                    }
                     conn.execute(
                         """
                         UPDATE runs
                         SET status = 'failed', ended_at = ?,
-                            error = 'Server restarted while run was marked running'
+                            error = 'Server restarted while run was marked running',
+                            result_json = ?
                         WHERE run_id = ? AND status = 'running'
                         """,
-                        (now, row["run_id"]),
+                        (now, dumps(result), row["run_id"]),
                     )
                 updated += 1
         return updated
+
     def set_progress(
         self,
         run_id: str,

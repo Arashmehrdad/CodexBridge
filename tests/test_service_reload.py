@@ -50,6 +50,10 @@ def test_reload_service_rebinds_server_ssh_helpers(
         _run_ssh_environment_probe=object(),
         _run_ssh_gpu_telemetry=object(),
         _run_ssh_inspection=object(),
+        start_ssh_monitored_command_async=lambda host_id, command_id: {
+            "host_id": host_id,
+            "command_id": command_id,
+        },
     )
     monkeypatch.setitem(sys.modules, "codexbridge.server", fake_server)
 
@@ -66,8 +70,7 @@ def test_reload_service_rebinds_server_ssh_helpers(
     assert fake_server._ssh_host_health is commands_module.ssh_host_health
     assert fake_server._enrich_ssh_capabilities is tools_module.enrich_ssh_capabilities
     assert (
-        fake_server._run_ssh_environment_probe
-        is tools_module.run_ssh_environment_probe
+        fake_server._run_ssh_environment_probe is tools_module.run_ssh_environment_probe
     )
     assert fake_server._run_ssh_gpu_telemetry is tools_module.run_ssh_gpu_telemetry
     assert fake_server._run_ssh_inspection is tools_module.run_ssh_inspection

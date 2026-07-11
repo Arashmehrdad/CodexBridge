@@ -381,6 +381,7 @@ SSH MCP tools:
 - `ssh_gpu_telemetry(host_id)` returns structured NVIDIA device and compute-process telemetry, including utilization, memory, temperature and power readings.
 - `ssh_inspect(host_id, operation, ...)` provides bounded system, process, port, network, systemd, journal, Docker, Git and remote-file diagnostics.
 - `start_ssh_command_async(host_id, command_id)` preserves compatibility with fixed command profiles.
+- `start_ssh_monitored_command_async(host_id, command_id)` is the separate monitored path for watchdog-eligible command profiles.
 - `start_ssh_action_async(host_id, action, ...)` performs durable service, Compose, Git, package and filesystem administration. `run_argv` accepts only a configured executable plus validated argv; it is not a shell.
 - `start_ssh_transfer_async(...)` uploads only repository-scoped local files and downloads only into the durable run directory.
 - `start_ssh_deployment_async(host_id, deployment_id, confirmation)` creates a filtered repository archive, uploads it, extracts a release, verifies and links server-side shared secret files, starts or rebuilds Compose with a stable project name, runs the configured health check, and updates the `current` symlink only after health succeeds.
@@ -389,7 +390,9 @@ Read-only file access is limited to `allowed_remote_roots` and blocks secret-lik
 
 Service stops, Compose shutdown, package administration, deletion, reboot, shutdown, overwrite transfers, emergency argv execution and deployments require their matching `allow_*` gate plus the exact configured confirmation token. Every local subprocess uses an argv list with `shell=False`, batch mode, strict host-key checking, disabled password and keyboard-interactive authentication, disabled agent forwarding, cleared forwardings, output limits, timeouts and durable artifacts. Interactive shells, arbitrary command strings, shell operators, tunnels and port forwarding remain unsupported.
 
-The SSH watchdog is currently observe-only. It evaluates configured GPU-memory, GPU-temperature, system-memory and root-disk thresholds and reports breaches, but it cannot terminate remote processes yet. A later enforcement batch will bind those observations to durable remote jobs and confirmed process-group cancellation.
+Monitored SSH commands are opt-in and separate from ordinary SSH commands. A monitored start is refused unless the command profile has `watchdog_eligible: true` and the host watchdog is enabled. Automatic termination is active only when all of the following are true: `enabled`, `enforcement_mode: "terminate"`, `allow_automatic_termination: true`, and the profile is watchdog-eligible. Observe-only monitored runs record breaches and never terminate solely on a threshold breach.
+
+When termination is active, CodexBridge starts the configured remote argv in a new remote session/process group, persists bounded remote identity metadata (`pid`, `pgid`, `/proc` start-time ticks), samples the structured environment/GPU probe at the configured interval, requires the configured number of consecutive breached samples, and attempts confirmed remote process-group termination. Timeout and cancellation handling are fail-closed: if remote termination is unconfirmed, the run remains `cancellation_pending` or fails with `safety_failure: true` instead of claiming the remote process stopped safely.
 
 A completed remote write means the remote command exited successfully; CodexBridge still reports `remote_state_verified: false` unless a separate inspection or deployment health check confirms the relevant state.
 

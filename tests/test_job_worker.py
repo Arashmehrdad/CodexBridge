@@ -125,6 +125,8 @@ def test_blocked_zero_exit_run_is_persisted_as_failed(
     persisted = store.get_run(run_id)
     assert persisted["status"] == "failed"
     assert persisted["exit_code"] == 0
+    assert persisted["result"]["process_success"] is True
+    assert persisted["result"]["classification"] == "semantic_failure"
     assert persisted["error"]
 
 
@@ -190,12 +192,64 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
     assert persisted["status"] == "completed"
     assert result["command_id"] == "pytest"
     assert result["timed_out"] is False
+    assert result["process_success"] is True
+    assert result["classification"] == "success"
+    assert result["stdout"] == "1 passed\n"
+    assert result["stderr"] == ""
     assert Path(result["temporary_directory"]).is_dir()
     assert Path(result["pytest_basetemp"]).is_dir()
     assert captured["cwd"] == repo
     assert captured["extra_env"]["TMP"] == result["temporary_directory"]
     assert "--basetemp=" in captured["extra_env"]["PYTEST_ADDOPTS"]
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "1 passed\n"
+
+
+def test_result_artifact_failure_does_not_strand_terminal_database_record(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260711T000000Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+    )
+    worker = JobWorker(config_path, run_id)
+    result = {
+        "run_id": run_id,
+        "repo_name": "sample",
+        "tool": "project_command",
+        "status": "completed",
+        "exit_code": 0,
+        "started_at": utc_now(),
+        "ended_at": utc_now(),
+        "duration_seconds": 0.0,
+        "summary": "",
+        "error": "",
+    }
+    monkeypatch.setattr(worker, "_execute_inner", lambda _started_at: result)
+    monkeypatch.setattr(
+        worker.artifacts,
+        "write_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    assert worker.execute() == 0
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "completed"
+    assert persisted["result"]["artifact_error"] == (
+        "Could not persist result artifact: disk full"
+    )
 
 
 def test_docker_action_worker_persists_bounded_result(
@@ -1033,16 +1087,18 @@ def test_codex_timeout_terminates_process_tree_and_records_report(
     terminations: list[int] = []
     monkeypatch.setattr(
         "codexbridge.job_worker.terminate_process_tree",
-        lambda pid: terminations.append(pid)
-        or {
-            "pid": pid,
-            "method": "simulated_tree",
-            "termination_attempted": True,
-            "forced": True,
-            "exit_code": 0,
-            "terminated": True,
-            "error": "",
-        },
+        lambda pid: (
+            terminations.append(pid)
+            or {
+                "pid": pid,
+                "method": "simulated_tree",
+                "termination_attempted": True,
+                "forced": True,
+                "exit_code": 0,
+                "terminated": True,
+                "error": "",
+            }
+        ),
     )
     monkeypatch.setattr(
         "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
@@ -1073,5 +1129,82 @@ def test_codex_timeout_terminates_process_tree_and_records_report(
     assert terminations == [4321]
     assert result["status"] == "timed_out"
     assert result["codex_exit_code"] == 124
-    timeout_event = next(event for event in events if event["stage"] == "codex" and "timed out" in event["message"])
+    timeout_event = next(
+        event
+        for event in events
+        if event["stage"] == "codex" and "timed out" in event["message"]
+    )
     assert timeout_event["data"]["termination"]["terminated"] is True
+
+
+def test_monitored_ssh_worker_persists_structured_result(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        repo,
+        runs_dir,
+        extra_lines=[
+            "ssh:",
+            "  enabled: true",
+            "  hosts:",
+            "    my_vps:",
+            '      ssh_alias: "my-vps"',
+            "      watchdog:",
+            "        enabled: true",
+            "      command_profiles:",
+            "        - command_id: uptime",
+            '          argv: ["uptime"]',
+            "          watchdog_eligible: true",
+        ],
+    )
+    run_id = "20260711T000000Z_ssh_monitored_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        run_dir=run_dir,
+        input_data={"host_id": "my_vps", "command_id": "uptime"},
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.start_monitored_ssh_command",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "status": "completed",
+            "exit_code": 0,
+            "stdout": "ok\n",
+            "stderr": "",
+            "ssh_alias": "my-vps",
+            "writes_remote": False,
+            "watchdog_mode": "observe_only",
+            "automatic_termination_active": False,
+            "remote_process": {"pid": 123, "pgid": 123, "start_time_ticks": "999"},
+            "watchdog_samples": [{"sample_index": 1, "status": "ok", "breaches": []}],
+            "termination": {
+                "identity_verified": False,
+                "term_sent": False,
+                "kill_sent": False,
+                "terminated": False,
+                "error": "",
+            },
+            "timed_out": False,
+            "output_truncated": False,
+            "error": "",
+            "safety_failure": False,
+        },
+    )
+
+    worker = JobWorker(config_path, run_id)
+    assert worker.execute() == 0
+    result = store.get_run(run_id)["result"]
+    assert result["tool"] == "ssh_monitored_command"
+    assert result["status"] == "completed"
+    assert result["remote_process"]["pid"] == 123
