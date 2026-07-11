@@ -1169,3 +1169,33 @@ def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
     assert locks["ok"] is True
     assert locks["count"] == 1
     assert locks["locks"][0]["repo_name"] == "sample"
+
+
+def test_server_ssh_probe_tools_delegate_to_structured_collectors(monkeypatch) -> None:
+    config = object()
+    calls: list[tuple[str, object, str]] = []
+    monkeypatch.setattr(server, "get_config", lambda: config)
+    monkeypatch.setattr(
+        server,
+        "_run_ssh_environment_probe",
+        lambda active, host_id: calls.append(("environment", active, host_id))
+        or {"ok": True, "host_id": host_id, "status": "ok"},
+    )
+    monkeypatch.setattr(
+        server,
+        "_run_ssh_gpu_telemetry",
+        lambda active, host_id: calls.append(("gpu", active, host_id))
+        or {"ok": True, "host_id": host_id, "status": "ok"},
+    )
+
+    environment = server.ssh_environment_probe("gpu_host")
+    gpu = server.ssh_gpu_telemetry("gpu_host")
+
+    assert environment["host_id"] == "gpu_host"
+    assert gpu["host_id"] == "gpu_host"
+    assert calls == [
+        ("environment", config, "gpu_host"),
+        ("gpu", config, "gpu_host"),
+    ]
+    assert environment["server_build_hash"]
+    assert gpu["schema_hash"]
