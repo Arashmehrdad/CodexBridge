@@ -54,6 +54,9 @@ EXPECTED_EXPOSED_ACTIONS = {
     "start_json_validation_path_async",
     "start_git_readonly_async",
     "get_run_status",
+    "get_run_control_status",
+    "get_run_output",
+    "list_operation_locks",
     "get_run_events",
     "get_run_result",
     "list_runs",
@@ -572,6 +575,58 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "running",
         "repo_name": "repo",
         "result": {},
+        "error": "",
+    },
+    "get_run_control_status": {
+        "ok": True,
+        "run_id": "run_2",
+        "repo_name": "repo",
+        "tool": "project_command",
+        "status": "running",
+        "current_phase": "command",
+        "heartbeat_age_seconds": 1.5,
+        "worker_stale": False,
+        "worker_pid": 123,
+        "worker_running": True,
+        "child_pid": 456,
+        "child_running": True,
+        "lock": {"repo_name": "repo", "run_id": "run_2"},
+        "error": "",
+    },
+    "get_run_output": {
+        "ok": True,
+        "run_id": "run_2",
+        "status": "running",
+        "stream": "combined",
+        "tail_bytes": 20000,
+        "streams": {
+            "stdout": {
+                "text": "running\n",
+                "size_bytes": 8,
+                "truncated": False,
+                "available": True,
+            },
+            "stderr": {
+                "text": "",
+                "size_bytes": 0,
+                "truncated": False,
+                "available": False,
+            },
+        },
+        "error": "",
+    },
+    "list_operation_locks": {
+        "ok": True,
+        "locks": [
+            {
+                "repo_name": "repo",
+                "tool": "project_command",
+                "run_id": "run_2",
+                "heartbeat_age_seconds": 1.0,
+                "stale": False,
+            }
+        ],
+        "count": 1,
         "error": "",
     },
     "get_run_events": {
@@ -1120,6 +1175,9 @@ def test_currently_exposed_batch_actions_are_discoverable() -> None:
     assert "git_diff_summary" in actions
     assert "inspect_repo_status_compact" in actions
     assert "list_runs" in actions
+    assert "get_run_control_status" in actions
+    assert "get_run_output" in actions
+    assert "list_operation_locks" in actions
     assert "get_supervisor_status" in actions
     assert "run_local_self_check" in actions
     assert "local_model_health" in actions
