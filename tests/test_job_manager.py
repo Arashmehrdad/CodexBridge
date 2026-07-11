@@ -464,3 +464,133 @@ def test_list_runs_and_latest_result_use_canonical_repo_filters(
 
     assert listed[0]["repo_name"] == "sample"
     assert latest["repo_name"] == "sample"
+
+
+def test_worker_launch_uses_independent_process_group_options(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_popen(*args, **kwargs):
+        captured.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_group_popen_kwargs",
+        lambda: {"creationflags": 512},
+    )
+    monkeypatch.setattr("codexbridge.job_manager.subprocess.Popen", fake_popen)
+
+    response = manager.start_plan("sample", "inspect docs")
+
+    assert response["accepted"] is True
+    assert captured["creationflags"] == 512
+
+
+def test_cancel_run_is_fail_closed_when_termination_is_unconfirmed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    monkeypatch.setattr(
+        "codexbridge.job_manager.terminate_process_tree",
+        lambda pid: {
+            "pid": pid,
+            "method": "simulated",
+            "termination_attempted": True,
+            "forced": False,
+            "exit_code": 1,
+            "terminated": False,
+            "error": "still running",
+        },
+    )
+
+    cancelled = manager.cancel_run(response["run_id"])
+
+    assert cancelled["ok"] is False
+    assert cancelled["cancelled"] is False
+    assert cancelled["termination_confirmed"] is False
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "queued"
+    assert status["current_phase"] == "cancellation_pending"
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+
+
+def test_cancel_run_terminates_child_then_worker_and_releases_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(response["run_id"], pid=222, worker_pid=111)
+    terminated: list[int] = []
+
+    def fake_terminate(pid):
+        terminated.append(pid)
+        return {
+            "pid": pid,
+            "method": "simulated",
+            "termination_attempted": True,
+            "forced": False,
+            "exit_code": 0,
+            "terminated": True,
+            "error": "",
+        }
+
+    monkeypatch.setattr(
+        "codexbridge.job_manager.terminate_process_tree", fake_terminate
+    )
+
+    cancelled = manager.cancel_run(response["run_id"])
+
+    assert terminated == [222, 111]
+    assert cancelled["ok"] is True
+    assert cancelled["cancelled"] is True
+    assert cancelled["termination_confirmed"] is True
+    assert manager.get_status(response["run_id"])["status"] == "cancelled"
+    assert manager.locks.find_lock("sample", response["run_id"]) is None
+
+
+def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    run = manager.store.get_run(response["run_id"])
+    run_dir = Path(run["run_dir"])
+    (run_dir / "stdout.txt").write_text("0123456789abcdef", encoding="utf-8")
+
+    output = manager.get_output(response["run_id"], "combined", tail_bytes=6)
+
+    assert output["ok"] is True
+    assert output["tail_bytes"] == 6
+    assert output["streams"]["stdout"]["text"] == "abcdef"
+    assert output["streams"]["stdout"]["truncated"] is True
+    assert output["streams"]["stderr"]["available"] is False
+
+
+def test_get_control_status_reports_process_and_lock_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda pid: pid == 12345
+    )
+
+    control = manager.get_control_status(response["run_id"])
+
+    assert control["ok"] is True
+    assert control["worker_pid"] == 12345
+    assert control["worker_running"] is True
+    assert control["child_running"] is False
+    assert control["lock"]["run_id"] == response["run_id"]
+
+
+def test_list_operation_locks_accepts_canonical_case_filter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+
+    locks = manager.list_operation_locks("Sample")
+
+    assert [item["run_id"] for item in locks] == [response["run_id"]]
