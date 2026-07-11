@@ -14,6 +14,7 @@ from codexbridge.config import (
     SSHConfig,
     SSHDeploymentProfileConfig,
     SSHHostConfig,
+    SSHWatchdogConfig,
 )
 
 
@@ -546,3 +547,130 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert result["gates"]["allow_deploy"] is True
     assert result["arbitrary_shell_supported"] is False
     assert result["hosts"][0]["deployments"][0]["deployment_id"] == ("sample_deploy")
+    assert result["structured_probes"] == ["environment", "gpu_telemetry"]
+    assert result["hosts"][0]["watchdog"]["enforcement_mode"] == "observe_only"
+    assert result["hosts"][0]["watchdog"]["can_terminate_remote_processes"] is False
+
+
+def test_environment_probe_returns_structured_gpu_and_watchdog_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, _ = make_config(tmp_path)
+    config.ssh.hosts["sample_host"].watchdog = SSHWatchdogConfig(
+        enabled=True,
+        max_gpu_memory_percent=40,
+        max_gpu_temperature_c=70,
+        max_system_memory_percent=50,
+        min_disk_free_percent=30,
+    )
+
+    def success(stdout: str = "") -> dict:
+        return {
+            "ok": True,
+            "argv": ["ssh", "<bounded>"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": stdout,
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        }
+
+    def fake_remote(config, host_id, argv, *, timeout_seconds):
+        if argv[:1] == ["uname"]:
+            return success("Linux 6.8.0 x86_64\n")
+        if argv[:1] == ["pwd"]:
+            return success("/workspace\n")
+        if argv[:2] == ["python3", "-c"] and "__import__('torch')" in argv[2]:
+            return success(
+                '{"version":"2.7.0","cuda_available":true,'
+                '"cuda_version":"12.8","device_count":1}\n'
+            )
+        if argv[:2] == ["python3", "-c"]:
+            return success(
+                '{"executable":"/opt/venv/bin/python3","version":"3.12.3",'
+                '"prefix":"/opt/venv","base_prefix":"/usr",'
+                '"virtual_env":"/opt/venv","platform":"Linux",'
+                '"machine":"x86_64"}\n'
+            )
+        if argv[:1] == ["nvcc"]:
+            return success("Cuda compilation tools, release 12.8, V12.8.61\n")
+        if argv[:1] == ["free"]:
+            return success(
+                "              total        used        free      shared  buff/cache   available\n"
+                "Mem:     1000000000   700000000   100000000           0   200000000   300000000\n"
+            )
+        if argv[:1] == ["df"]:
+            return success(
+                "Filesystem 1-blocks Used Available Use% Mounted on\n"
+                "/dev/root 1000000000 800000000 200000000 80% /\n"
+            )
+        if argv[:2] == ["nvidia-smi", "--query-gpu=index,name,uuid,driver_version,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit"]:
+            return success(
+                "0, NVIDIA A40, GPU-abc, 550.54.15, 46068, 23034, 23034, 81, 52, 76, 184.5, 300.0\n"
+            )
+        if argv[:2] == ["nvidia-smi", "--query-compute-apps=pid,process_name,gpu_uuid,used_gpu_memory"]:
+            return success("1234, python3, GPU-abc, 22000\n")
+        raise AssertionError(f"Unexpected probe argv: {argv}")
+
+    monkeypatch.setattr(ssh_tools, "_run_remote_argv", fake_remote)
+
+    result = ssh_tools.run_ssh_environment_probe(config, "sample_host")
+
+    assert result["ok"] is True
+    assert result["status"] == "ok"
+    assert result["environment"]["python"]["executable"] == "/opt/venv/bin/python3"
+    assert result["environment"]["torch"]["cuda_available"] is True
+    assert result["gpu"]["device_count"] == 1
+    assert result["gpu"]["processes"][0]["pid"] == 1234
+    assert result["watchdog"]["status"] == "breached"
+    assert {item["metric"] for item in result["watchdog"]["breaches"]} == {
+        "gpu_memory_percent",
+        "gpu_temperature_c",
+        "system_memory_percent",
+        "root_disk_free_percent",
+    }
+    assert all("stdout" not in check for check in result["checks"].values())
+
+
+def test_environment_probe_is_partial_when_optional_gpu_stack_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, _ = make_config(tmp_path)
+
+    def fake_remote(config, host_id, argv, *, timeout_seconds):
+        required = argv[0] in {"uname", "pwd", "free", "df"}
+        outputs = {
+            "uname": "Linux 6.8.0 x86_64\n",
+            "pwd": "/workspace\n",
+            "free": (
+                "              total        used        free      shared  buff/cache   available\n"
+                "Mem:     1000000000   100000000   100000000           0   800000000   900000000\n"
+            ),
+            "df": (
+                "Filesystem 1-blocks Used Available Use% Mounted on\n"
+                "/dev/root 1000000000 100000000 900000000 10% /\n"
+            ),
+        }
+        return {
+            "ok": required,
+            "argv": ["ssh", "<bounded>"],
+            "exit_code": 0 if required else 127,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": outputs.get(argv[0], ""),
+            "stderr": "not found" if not required else "",
+            "output_truncated": False,
+            "error": "not found" if not required else "",
+        }
+
+    monkeypatch.setattr(ssh_tools, "_run_remote_argv", fake_remote)
+
+    result = ssh_tools.run_ssh_environment_probe(config, "sample_host")
+
+    assert result["ok"] is True
+    assert result["status"] == "partial"
+    assert result["gpu"]["status"] == "unavailable"
+    assert result["environment"]["python"] == {}
+    assert result["error"] == ""
