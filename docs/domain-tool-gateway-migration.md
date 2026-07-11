@@ -30,6 +30,10 @@ For every phase:
 11. After a phase passes, record an internal checkpoint summary containing files changed, public action count, retired names, focused test results, and the next phase, then continue without committing.
 12. If a phase cannot be completed safely, stop the entire implementation run. Do not attempt later phases or broad repairs.
 
+### Persistent progress journal
+
+`docs/domain-tool-gateway-progress.md` is allowed in every phase. Create it at the start of Phase 0 and update it only after a phase's focused validation passes. Each checkpoint must record the completed phase, files changed so far, public action count, tools retired or introduced, focused test results, known limitations, and the next phase. If execution is interrupted, leave the current unvalidated phase marked `in_progress` and do not falsely mark it complete.
+
 ## Objective
 
 Reduce the public MCP surface from 80 narrowly named tools to a smaller set of domain gateways while preserving behavior and safety. The migration should improve tool-selection reliability, reduce connector/schema overhead, avoid the 80-tool exposure boundary, and keep the current specialised Python implementations as internal functions.
