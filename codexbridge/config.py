@@ -145,6 +145,15 @@ class SSHDeploymentProfileConfig(BaseModel):
         return self
 
 
+class SSHWatchdogConfig(BaseModel):
+    enabled: bool = False
+    enforcement_mode: Literal["observe_only"] = "observe_only"
+    max_gpu_memory_percent: float = Field(default=95.0, gt=0, le=100)
+    max_gpu_temperature_c: float = Field(default=90.0, gt=0, le=125)
+    max_system_memory_percent: float = Field(default=95.0, gt=0, le=100)
+    min_disk_free_percent: float = Field(default=5.0, ge=0, lt=100)
+
+
 class SSHHostConfig(BaseModel):
     ssh_alias: str = ""
     connection_file: str = ""
@@ -161,6 +170,7 @@ class SSHHostConfig(BaseModel):
         default_factory=dict
     )
     command_profiles: List[SSHCommandProfileConfig] = Field(default_factory=list)
+    watchdog: SSHWatchdogConfig = Field(default_factory=SSHWatchdogConfig)
 
     @model_validator(mode="after")
     def validate_unique_command_ids(self) -> "SSHHostConfig":
