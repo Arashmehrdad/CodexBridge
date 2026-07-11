@@ -120,6 +120,13 @@ ssh:
         - "curl"
         - "systemctl"
         - "journalctl"
+      watchdog:
+        enabled: false
+        enforcement_mode: "observe_only"
+        max_gpu_memory_percent: 95
+        max_gpu_temperature_c: 90
+        max_system_memory_percent: 95
+        min_disk_free_percent: 5
       deployment_profiles:
         sample_app:
           repo_name: "stream_alpha"

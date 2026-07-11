@@ -18,6 +18,7 @@ from codexbridge.config import (
     SSHConfig,
     SSHDeploymentProfileConfig,
     SSHHostConfig,
+    SSHWatchdogConfig,
     SupervisorAutonomyProfile,
     SupervisorsConfig,
     load_config,
@@ -58,6 +59,10 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert [
         profile.command_id for profile in config.ssh.hosts["my_vps"].command_profiles
     ] == ["health", "uptime", "restart_app"]
+    watchdog = config.ssh.hosts["my_vps"].watchdog
+    assert watchdog.enabled is False
+    assert watchdog.enforcement_mode == "observe_only"
+    assert watchdog.max_gpu_memory_percent == 95
 
 
 def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
@@ -189,6 +194,27 @@ def test_ssh_host_supports_alias_file_or_explicit_endpoint(tmp_path: Path) -> No
             user="pod-user-123",
             identity_file=str(tmp_path / "runpod_key"),
         )
+
+
+def test_ssh_watchdog_config_is_bounded_and_observe_only() -> None:
+    watchdog = SSHWatchdogConfig(
+        enabled=True,
+        max_gpu_memory_percent=80,
+        max_gpu_temperature_c=85,
+        max_system_memory_percent=90,
+        min_disk_free_percent=10,
+    )
+
+    assert watchdog.enabled is True
+    assert watchdog.enforcement_mode == "observe_only"
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(max_gpu_memory_percent=101)
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(max_gpu_temperature_c=0)
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(min_disk_free_percent=100)
+    with pytest.raises(ValidationError):
+        SSHWatchdogConfig(enforcement_mode="terminate")
 
 
 def test_ssh_deployment_and_admin_config_validation() -> None:

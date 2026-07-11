@@ -348,6 +348,13 @@ ssh:
         - "curl"
         - "systemctl"
         - "journalctl"
+      watchdog:
+        enabled: false
+        enforcement_mode: "observe_only"
+        max_gpu_memory_percent: 95
+        max_gpu_temperature_c: 90
+        max_system_memory_percent: 95
+        min_disk_free_percent: 5
       deployment_profiles:
         app:
           repo_name: "my_app"
@@ -370,6 +377,8 @@ SSH MCP tools:
 
 - `list_ssh_capabilities()` lists hosts, remote roots, deployments, fixed commands, supported inspections and risk gates.
 - `ssh_host_health(host_id)` performs a non-interactive connection check.
+- `ssh_environment_probe(host_id)` returns structured OS, working-directory, Python, virtual-environment, PyTorch, CUDA, RAM, root-disk and GPU metadata without returning the remote environment-variable set.
+- `ssh_gpu_telemetry(host_id)` returns structured NVIDIA device and compute-process telemetry, including utilization, memory, temperature and power readings.
 - `ssh_inspect(host_id, operation, ...)` provides bounded system, process, port, network, systemd, journal, Docker, Git and remote-file diagnostics.
 - `start_ssh_command_async(host_id, command_id)` preserves compatibility with fixed command profiles.
 - `start_ssh_action_async(host_id, action, ...)` performs durable service, Compose, Git, package and filesystem administration. `run_argv` accepts only a configured executable plus validated argv; it is not a shell.
@@ -379,6 +388,8 @@ SSH MCP tools:
 Read-only file access is limited to `allowed_remote_roots` and blocks secret-like files. Uploads reject local secret-like files and parent traversal. Deployment archives exclude `.git`, virtual environments, dependency caches, `node_modules`, run storage and secret-like files. Production `.env` files should live under a server-side shared directory and be linked into each release through `shared_files`; they are never downloaded, packaged, logged or returned to ChatGPT.
 
 Service stops, Compose shutdown, package administration, deletion, reboot, shutdown, overwrite transfers, emergency argv execution and deployments require their matching `allow_*` gate plus the exact configured confirmation token. Every local subprocess uses an argv list with `shell=False`, batch mode, strict host-key checking, disabled password and keyboard-interactive authentication, disabled agent forwarding, cleared forwardings, output limits, timeouts and durable artifacts. Interactive shells, arbitrary command strings, shell operators, tunnels and port forwarding remain unsupported.
+
+The SSH watchdog is currently observe-only. It evaluates configured GPU-memory, GPU-temperature, system-memory and root-disk thresholds and reports breaches, but it cannot terminate remote processes yet. A later enforcement batch will bind those observations to durable remote jobs and confirmed process-group cancellation.
 
 A completed remote write means the remote command exited successfully; CodexBridge still reports `remote_state_verified: false` unless a separate inspection or deployment health check confirms the relevant state.
 
