@@ -1,6 +1,6 @@
 # Domain Tool Gateway Migration Plan
 
-Status: approved implementation plan; implementation has not started.
+Status: approved end-to-end implementation plan; implementation has not started.
 
 Baseline:
 
@@ -13,20 +13,22 @@ Baseline:
 
 ## Mandatory execution rule
 
-This document is a multi-run migration plan. A Codex run must implement exactly one phase explicitly named in its prompt and then stop. It must not continue into the next phase, even if time and context remain.
+This document may be implemented in one end-to-end Codex run. The run must execute Phases 0 through 8 sequentially, treat each phase as an internal transaction, run that phase's focused validation before advancing, and stop immediately if any phase gate fails. It must not skip or reorder phases, conceal failures, or continue after a failed gate.
 
 For every phase:
 
 1. Inspect the current repository and this document before editing.
-2. Confirm the working tree is clean except for files explicitly allowed by the current phase.
+2. Confirm the working tree is clean before Phase 0. During later phases, confirm that all dirty files belong to the cumulative migration scope and that no unrelated files appeared.
 3. Do not modify unrelated files.
 4. Do not commit, push, rebase, reset, clean, stash, or switch branches.
 5. Preserve all existing run IDs, workflow IDs, supervisor IDs, durable artifacts, locks, audit records, safety checks, and internal implementations.
 6. Never introduce arbitrary shell-command execution.
 7. Keep read-only and write-capable public tools separate.
-8. Stop immediately on an unexpected test failure, schema incompatibility, missing prerequisite, quota/rate-limit error, or uncertainty about destructive behavior.
+8. Stop immediately on an unexpected test failure, schema incompatibility, missing prerequisite, quota/rate-limit/context-limit error, or uncertainty about destructive behavior.
 9. Leave the repository syntactically valid and report the exact partial state if interrupted.
-10. Run only the validation commands listed for the current phase, followed by the required common validation.
+10. Run the validation commands listed for the current phase before advancing. Run the required common validation after each phase when practical and always after Phase 8.
+11. After a phase passes, record an internal checkpoint summary containing files changed, public action count, retired names, focused test results, and the next phase, then continue without committing.
+12. If a phase cannot be completed safely, stop the entire implementation run. Do not attempt later phases or broad repairs.
 
 ## Objective
 
@@ -442,18 +444,21 @@ git status --short
 
 The `git reset --hard` line is destructive to uncommitted work and must only be used after exporting or intentionally discarding the interrupted migration diff.
 
-## Required phase report
+## Required implementation report
 
-At the end of each phase, report:
+During a single end-to-end run, keep a concise internal checkpoint after every completed phase. In the final response, report:
 
-- phase implemented
-- files changed
+- phases completed and any phase where execution stopped
+- files changed, grouped by phase or domain
 - public tools added, extended, retired, and final count
+- complete retired-name to gateway-operation mapping
 - operation-to-internal-function mapping
 - schema and annotation changes
 - tests added
-- focused and full validation results
-- any compatibility impact on existing chats
+- focused validation results for every phase
+- final full-suite and dependency-check results
+- benchmark results and comparison with the 80-tool baseline
+- compatibility impact on existing chats and connector refresh requirements
 - assumptions and known limitations
+- exact `git status --short`
 - confirmation that no commit or push occurred
-- the next phase, without implementing it
