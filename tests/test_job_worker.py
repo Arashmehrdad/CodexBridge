@@ -1066,7 +1066,7 @@ def test_codex_timeout_terminates_process_tree_and_records_report(
 
     worker = JobWorker(config_path, run_id)
 
-    assert worker.execute() == 1
+    assert worker.execute() == 124
     result = store.get_run(run_id)["result"]
     events = store.get_events(run_id, 50)
     assert popen_kwargs["creationflags"] == 512
