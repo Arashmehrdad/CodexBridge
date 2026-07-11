@@ -32,7 +32,7 @@ from .docker_tools import (
     list_docker_capabilities as _list_docker_capabilities,
     run_docker_inspection as _run_docker_inspection,
 )
-from .git_tools import CommitMetadataError
+from .git_tools import CommitMetadataError, CommitPolicyError
 from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
@@ -59,7 +59,14 @@ from .command_profiles import (
     run_command_profile,
 )
 from .runner import latest_run_result as latest_artifact_result
-from .service_reload import apply_reloaded_config, reload_service as _reload_service
+from .service_reload import (
+    apply_reloaded_config,
+    get_reload_status as _get_reload_status,
+    register_active_config,
+    reload_service as _reload_service,
+    rollback_service as _rollback_service,
+    validate_config_candidate as _validate_config_candidate,
+)
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
@@ -686,6 +693,7 @@ def set_config(config: AppConfig, config_path: Path | None = None) -> None:
     global _config, _config_path
     _config = config
     _config_path = config_path
+    register_active_config(config, config_path)
 
 
 def get_config() -> AppConfig:
@@ -733,10 +741,12 @@ def _locked_repo_operation(
     ):
         result = operation(repo_root)
         if result.get("ok") and finalize_commit:
+            repo_policy = get_config().repos[canonical_name]
             commit_data = finalize_explicit_changes(
                 repo_root,
                 result.get("changed_files") or [],
                 tool_name=tool,
+                require_commit_report=repo_policy.require_commit_report,
             )
             result = dict(result)
             result.update(commit_data)
@@ -892,8 +902,16 @@ def commit_selected_files(
                 "description": description,
             },
         ):
-            result = commit_files(repo_root, files, title, description)
-    except CommitMetadataError as exc:
+            repo_policy = config.repos[canonical_name]
+            result = commit_files(
+                repo_root,
+                files,
+                title,
+                description,
+                refuse_unrelated_staged_files=repo_policy.refuse_unrelated_staged_files,
+                require_commit_report=repo_policy.require_commit_report,
+            )
+    except (CommitMetadataError, CommitPolicyError) as exc:
         return {
             "ok": False,
             "repo_name": canonical_name,
@@ -969,8 +987,15 @@ def commit_all_changes(repo_name: str, title: str, description: str = "") -> dic
             tool="commit_all_changes",
             normalized_input={"title": title, "description": description},
         ):
-            result = _commit_all_changes(repo_root, title, description)
-    except CommitMetadataError as exc:
+            repo_policy = config.repos[canonical_name]
+            result = _commit_all_changes(
+                repo_root,
+                title,
+                description,
+                commit_mode=repo_policy.commit_mode,
+                require_commit_report=repo_policy.require_commit_report,
+            )
+    except (CommitMetadataError, CommitPolicyError) as exc:
         return {
             "ok": False,
             "repo_name": canonical_name,
@@ -1521,6 +1546,28 @@ def reload_service(modules: list[str] = []) -> dict:
     result = _reload_service(get_config_path(), modules=modules)
     if result["ok"] and get_config_path() is not None:
         set_config(apply_reloaded_config(get_config_path()), get_config_path())
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def validate_service_config() -> dict:
+    """Read-only: validate the current config candidate without activating it."""
+    return _validate_config_candidate(get_config_path())
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_service_reload_status() -> dict:
+    """Read-only: return structured config lifecycle metadata for reload status."""
+    return _get_reload_status()
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def rollback_service() -> dict:
+    """Write tool: restore the previous last-known-good in-memory configuration."""
+    result = _rollback_service()
+    rolled_back_config = result.pop("config", None)
+    if result.get("ok") and isinstance(rolled_back_config, AppConfig):
+        set_config(rolled_back_config, get_config_path())
     return result
 
 

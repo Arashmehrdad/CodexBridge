@@ -1,6 +1,10 @@
 repos:
   stream_alpha:
     path: "D:/Github/Stream_Alpha"
+    commit_mode: "explicit_only"
+    allow_push: false
+    refuse_unrelated_staged_files: true
+    require_commit_report: true
     default_tests:
       - "python -m pytest"
     docker_compose_files:
@@ -16,6 +20,10 @@ repos:
         writes_files: false
   second_site:
     path: "D:/Github/Second_Site"
+    commit_mode: "explicit_only"
+    allow_push: false
+    refuse_unrelated_staged_files: true
+    require_commit_report: true
     cloudflare_profiles:
       - "second_site_production"
 external_fixtures:

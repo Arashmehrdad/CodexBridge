@@ -87,14 +87,20 @@ def test_remote_profile_rejects_shell_launchers_and_metacharacters() -> None:
     shell_profile = SSHCommandProfileConfig(
         command_id="bad", argv=["bash", "-lc", "uptime"]
     )
-    with pytest.raises(ValueError, match="remote shell"):
+    with pytest.raises(ValueError, match="wrapper: bash"):
         validate_ssh_command_profile(shell_profile)
 
     chained_profile = SSHCommandProfileConfig(
         command_id="bad", argv=["echo", "hello;whoami"]
     )
-    with pytest.raises(ValueError, match="blocked shell syntax"):
+    with pytest.raises(ValueError, match="token: ;"):
         validate_ssh_command_profile(chained_profile)
+
+    redirect_profile = SSHCommandProfileConfig(
+        command_id="bad", argv=["echo", "hello>out.txt"]
+    )
+    with pytest.raises(ValueError, match="token: >"):
+        validate_ssh_command_profile(redirect_profile)
 
 
 def test_build_ssh_argv_uses_alias_and_hardened_options(

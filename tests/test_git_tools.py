@@ -9,6 +9,7 @@ import pytest
 import codexbridge.git_tools as git_tools
 from codexbridge.git_tools import (
     CommitMetadataError,
+    CommitPolicyError,
     GitCommandError,
     changed_files,
     commit_all_changes,
@@ -260,10 +261,31 @@ def test_stage_manifest_stage_all_and_unstage_all(repo: Path) -> None:
 def test_commit_all_changes_stages_deleted_files(repo: Path) -> None:
     (repo / "base.txt").unlink()
 
-    result = commit_all_changes(repo, "chore: remove base")
+    result = commit_all_changes(repo, "chore: remove base", commit_mode="all_allowed")
 
     assert result["ok"] is True
     assert result["commit_hash"]
+    assert result["commit_report"]["mode"] == "all_tracked_and_untracked"
+
+
+def test_commit_all_changes_rejected_by_default_policy(repo: Path) -> None:
+    (repo / "base.txt").write_text("updated\n", encoding="utf-8")
+
+    with pytest.raises(CommitPolicyError) as caught:
+        commit_all_changes(repo, "chore: update base")
+
+    assert caught.value.reason_code == "commit_all_disabled"
+
+
+def test_selected_commit_refuses_unrelated_staged_files_by_default(repo: Path) -> None:
+    (repo / "base.txt").write_text("staged before operation\n", encoding="utf-8")
+    run(["git", "add", "base.txt"], repo)
+    (repo / "selected.txt").write_text("selected\n", encoding="utf-8")
+
+    with pytest.raises(CommitPolicyError) as caught:
+        commit_selected_files(repo, ["selected.txt"], "test: selected")
+
+    assert caught.value.reason_code == "unrelated_staged_files"
 
 
 def test_commit_failure_restores_preexisting_index_and_reports_stderr(
@@ -289,7 +311,12 @@ def test_commit_failure_restores_preexisting_index_and_reports_stderr(
         return original_run_git(repo_root, args, check=check)
 
     monkeypatch.setattr(git_tools, "_run_git", fail_commit)
-    result = commit_selected_files(repo, ["selected.txt"], "test: failure")
+    result = commit_selected_files(
+        repo,
+        ["selected.txt"],
+        "test: failure",
+        refuse_unrelated_staged_files=False,
+    )
 
     assert result["ok"] is False
     assert result["index_restored"] is True
@@ -320,6 +347,7 @@ def test_finalize_explicit_changes_commits_only_requested_paths(repo: Path) -> N
     assert result["commit_attempted"] is True
     assert result["commit_hash"]
     assert result["commit_error"] == ""
+    assert result["commit_result"]["commit_report"]["mode"] == "explicit_isolated"
     assert "selected.txt" not in result["commit_result"]["remaining_dirty_files"]
     assert "unrelated.txt" in result["commit_result"]["remaining_dirty_files"]
     staged = subprocess.run(

@@ -35,6 +35,10 @@ def test_config_example_loads_without_repo_validation() -> None:
     config = load_config("config.example.yaml", validate_repos=False)
     assert "stream_alpha" in config.repos
     assert config.codex.executable == "codex"
+    assert config.repos["stream_alpha"].commit_mode == "explicit_only"
+    assert config.repos["stream_alpha"].allow_push is False
+    assert config.repos["stream_alpha"].refuse_unrelated_staged_files is True
+    assert config.repos["stream_alpha"].require_commit_report is True
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().max_implementation_tier == 2
     assert config.ssh.enabled is False
@@ -60,6 +64,10 @@ def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
+    assert config.repos["sample"].commit_mode == "explicit_only"
+    assert config.repos["sample"].allow_push is False
+    assert config.repos["sample"].refuse_unrelated_staged_files is True
+    assert config.repos["sample"].require_commit_report is True
     assert config.supervisors.default_autonomy_profile == "balanced"
     assert config.supervisors.effective_profile().stop_on_requires_human is True
     assert config.supervisors.notifications.enabled is True
@@ -413,3 +421,18 @@ def test_resolve_repo_config_accepts_case_insensitive_name(tmp_path: Path) -> No
     assert resolved_name == "codexbridge"
     assert resolved_repo.path == str(repo)
     assert resolve_repo(config, "CodexBridge") == repo.resolve()
+
+
+def test_repo_commit_policy_fields_accept_overrides() -> None:
+    repo = RepoConfig(
+        path=".",
+        commit_mode="all_allowed",
+        allow_push=False,
+        refuse_unrelated_staged_files=False,
+        require_commit_report=False,
+    )
+
+    assert repo.commit_mode == "all_allowed"
+    assert repo.allow_push is False
+    assert repo.refuse_unrelated_staged_files is False
+    assert repo.require_commit_report is False

@@ -52,6 +52,10 @@ class RepoConfig(BaseModel):
     default_tests: List[str] = Field(default_factory=list)
     command_profiles: List[Dict] = Field(default_factory=list)
     wiki_exclude_paths: List[str] = Field(default_factory=list)
+    commit_mode: Literal["explicit_only", "all_allowed"] = "explicit_only"
+    allow_push: bool = False
+    refuse_unrelated_staged_files: bool = True
+    require_commit_report: bool = True
     docker_compose_files: List[str] = Field(default_factory=list)
     docker_project_name: str = ""
     docker_exec_profiles: List[DockerExecProfileConfig] = Field(default_factory=list)
