@@ -1128,3 +1128,43 @@ def test_server_apply_ssh_profile_change_uses_global_lock_and_activates(
     assert locks[0]["tool"] == "apply_ssh_profile_change"
     assert locks[0]["normalized_input"] == {"change_id": "change_1"}
     assert activated == [(config, config_path)]
+
+
+def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
+    class Manager:
+        def get_control_status(self, run_id):
+            return {"ok": True, "run_id": run_id, "status": "running"}
+
+        def get_output(self, run_id, stream, tail_bytes):
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "stream": stream,
+                "tail_bytes": tail_bytes,
+            }
+
+        def list_operation_locks(self, repo_name=None, *, include_stale=True):
+            return [
+                {
+                    "repo_name": repo_name or "sample",
+                    "run_id": "run_1",
+                    "stale": not include_stale,
+                }
+            ]
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+
+    control = server.get_run_control_status("run_1")
+    output = server.get_run_output("run_1", "stdout", 123)
+    locks = server.list_operation_locks("sample", include_stale=False)
+
+    assert control["run_id"] == "run_1"
+    assert output == {
+        "ok": True,
+        "run_id": "run_1",
+        "stream": "stdout",
+        "tail_bytes": 123,
+    }
+    assert locks["ok"] is True
+    assert locks["count"] == 1
+    assert locks["locks"][0]["repo_name"] == "sample"
