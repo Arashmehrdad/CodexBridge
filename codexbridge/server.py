@@ -1572,6 +1572,31 @@ def get_run_status(run_id: str) -> dict:
     return get_job_manager().get_status(run_id)
 
 
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_control_status(run_id: str) -> dict:
+    """Read-only: report heartbeat, process-tree, cancellation, and lock state for one run."""
+    return get_job_manager().get_control_status(run_id)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_output(
+    run_id: str, stream: str = "combined", tail_bytes: int = 20000
+) -> dict:
+    """Read-only: return a bounded redacted tail of durable stdout and/or stderr."""
+    return get_job_manager().get_output(run_id, stream, tail_bytes)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_operation_locks(
+    repo_name: str = "", include_stale: bool = True
+) -> dict:
+    """Read-only: list durable repository, SSH-host, and configuration operation locks."""
+    locks = get_job_manager().list_operation_locks(
+        repo_name or None, include_stale=include_stale
+    )
+    return {"ok": True, "locks": locks, "count": len(locks), "error": ""}
+
+
 @mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_events(run_id: str, limit: int = 50) -> dict:
     """Read-only: return recent timeline events for an async run."""
