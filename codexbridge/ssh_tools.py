@@ -31,6 +31,17 @@ from .ssh_commands import (
     validate_ssh_command_profile,
     validate_ssh_host_id,
 )
+from .ssh_probes import (
+    environment_probe_specs,
+    evaluate_watchdog,
+    gpu_probe_specs,
+    parse_gpu_devices,
+    parse_gpu_processes,
+    parse_json_object,
+    parse_root_disk,
+    parse_system_memory,
+    summarize_probe_result,
+)
 
 SSH_INSPECTIONS = (
     "host_info",
@@ -454,6 +465,147 @@ def run_ssh_inspection(
         }
     )
     return result
+
+
+def _run_probe_specs(config: AppConfig, host_id: str, specs) -> dict[str, dict]:
+    results: dict[str, dict] = {}
+    for spec in specs:
+        results[spec.name] = _run_remote_argv(
+            config,
+            host_id,
+            list(spec.argv),
+            timeout_seconds=spec.timeout_seconds,
+        )
+    return results
+
+
+def _mark_parse_error(checks: dict[str, dict], name: str, error: Exception) -> None:
+    check = checks.setdefault(name, {})
+    check["ok"] = False
+    check["parse_error"] = str(error)
+    if not check.get("error"):
+        check["error"] = f"Unable to parse probe output: {error}"
+
+
+def run_ssh_gpu_telemetry(config: AppConfig, host_id: str) -> dict[str, Any]:
+    host = resolve_ssh_host(config, host_id)
+    raw = _run_probe_specs(config, host_id, gpu_probe_specs())
+    checks = {name: summarize_probe_result(result) for name, result in raw.items()}
+    devices: list[dict[str, Any]] = []
+    processes: list[dict[str, Any]] = []
+
+    if raw["gpu_devices"].get("ok"):
+        try:
+            devices = parse_gpu_devices(str(raw["gpu_devices"].get("stdout", "")))
+        except (TypeError, ValueError) as exc:
+            _mark_parse_error(checks, "gpu_devices", exc)
+    if raw["gpu_processes"].get("ok"):
+        try:
+            processes = parse_gpu_processes(
+                str(raw["gpu_processes"].get("stdout", ""))
+            )
+        except (TypeError, ValueError) as exc:
+            _mark_parse_error(checks, "gpu_processes", exc)
+
+    available = bool(checks["gpu_devices"].get("ok"))
+    process_probe_ok = bool(checks["gpu_processes"].get("ok"))
+    status = "ok" if available and process_probe_ok else "partial" if available else "unavailable"
+    watchdog = evaluate_watchdog(host, devices=devices)
+    return {
+        "ok": available,
+        "host_id": validate_ssh_host_id(host_id),
+        "status": status,
+        "available": available,
+        "device_count": len(devices),
+        "process_count": len(processes),
+        "devices": devices,
+        "processes": processes,
+        "checks": checks,
+        "watchdog": watchdog,
+        "writes_remote": False,
+        "high_risk": False,
+        "error": "" if available else str(checks["gpu_devices"].get("error", "")),
+    }
+
+
+def run_ssh_environment_probe(config: AppConfig, host_id: str) -> dict[str, Any]:
+    host = resolve_ssh_host(config, host_id)
+    specs = environment_probe_specs()
+    raw = _run_probe_specs(config, host_id, specs)
+    checks = {name: summarize_probe_result(result) for name, result in raw.items()}
+    environment: dict[str, Any] = {
+        "os": "",
+        "working_directory": "",
+        "python": {},
+        "torch": {},
+        "cuda_compiler": "",
+        "system_memory": {},
+        "root_disk": {},
+    }
+
+    if raw["os"].get("ok"):
+        environment["os"] = str(raw["os"].get("stdout", "")).strip()
+    if raw["working_directory"].get("ok"):
+        environment["working_directory"] = str(
+            raw["working_directory"].get("stdout", "")
+        ).strip()
+    for name, target in (
+        ("python_environment", "python"),
+        ("torch_environment", "torch"),
+    ):
+        if raw[name].get("ok"):
+            try:
+                environment[target] = parse_json_object(str(raw[name].get("stdout", "")))
+            except (TypeError, ValueError) as exc:
+                _mark_parse_error(checks, name, exc)
+    if raw["cuda_compiler"].get("ok"):
+        environment["cuda_compiler"] = str(
+            raw["cuda_compiler"].get("stdout", "")
+        ).strip()
+    if raw["system_memory"].get("ok"):
+        try:
+            environment["system_memory"] = parse_system_memory(
+                str(raw["system_memory"].get("stdout", ""))
+            )
+        except (TypeError, ValueError) as exc:
+            _mark_parse_error(checks, "system_memory", exc)
+    if raw["root_disk"].get("ok"):
+        try:
+            environment["root_disk"] = parse_root_disk(
+                str(raw["root_disk"].get("stdout", ""))
+            )
+        except (TypeError, ValueError) as exc:
+            _mark_parse_error(checks, "root_disk", exc)
+
+    gpu = run_ssh_gpu_telemetry(config, host_id)
+    watchdog = evaluate_watchdog(
+        host,
+        devices=list(gpu.get("devices") or []),
+        system_memory=environment["system_memory"] or None,
+        root_disk=environment["root_disk"] or None,
+    )
+    required_names = {spec.name for spec in specs if spec.required}
+    required_ok = all(bool(checks[name].get("ok")) for name in required_names)
+    optional_failures = [
+        name for name, check in checks.items() if name not in required_names and not check.get("ok")
+    ]
+    status = "ok"
+    if not required_ok:
+        status = "unavailable"
+    elif optional_failures or not gpu.get("ok"):
+        status = "partial"
+    return {
+        "ok": required_ok,
+        "host_id": validate_ssh_host_id(host_id),
+        "status": status,
+        "environment": environment,
+        "gpu": gpu,
+        "checks": checks,
+        "watchdog": watchdog,
+        "writes_remote": False,
+        "high_risk": False,
+        "error": "" if required_ok else "One or more required environment probes failed",
+    }
 
 
 def build_ssh_action(
@@ -1049,6 +1201,7 @@ def enrich_ssh_capabilities(
     result.update(
         {
             "read_only_operations": list(SSH_INSPECTIONS),
+            "structured_probes": ["environment", "gpu_telemetry"],
             "actions": list(SSH_ACTIONS),
             "high_risk_actions": dict(HIGH_RISK_SSH_ACTIONS),
             "gates": {
@@ -1070,6 +1223,17 @@ def enrich_ssh_capabilities(
         host["allowed_remote_roots"] = list(host_config.allowed_remote_roots)
         host["allowed_executables"] = list(host_config.allowed_executables)
         host["use_sudo"] = host_config.use_sudo
+        host["watchdog"] = {
+            "enabled": host_config.watchdog.enabled,
+            "enforcement_mode": host_config.watchdog.enforcement_mode,
+            "can_terminate_remote_processes": False,
+            "thresholds": {
+                "max_gpu_memory_percent": host_config.watchdog.max_gpu_memory_percent,
+                "max_gpu_temperature_c": host_config.watchdog.max_gpu_temperature_c,
+                "max_system_memory_percent": host_config.watchdog.max_system_memory_percent,
+                "min_disk_free_percent": host_config.watchdog.min_disk_free_percent,
+            },
+        }
         host["deployments"] = [
             {
                 "deployment_id": deployment_id,
