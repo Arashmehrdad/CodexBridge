@@ -47,7 +47,7 @@ Codex escalation context now searches memory using the target repository name, p
 
 ## MCP tools
 
-### `refresh_repo_wiki`
+### `knowledge_action` (`action: "refresh_wiki"`)
 
 Generate or refresh the wiki for a whitelisted repository.
 
@@ -56,11 +56,11 @@ Inputs:
 - `repo_name`
 - `force` (optional)
 
-### `read_repo_wiki`
+### `knowledge_query` (`operation: "read_wiki"`)
 
 Read one safe wiki page such as `overview.md` or `architecture.md`.
 
-### `search_repo_knowledge`
+### `knowledge_query` (`operation: "search"`)
 
 Search both the generated wiki and repository-scoped memory.
 
@@ -71,16 +71,16 @@ Inputs:
 - `limit`
 - `include_global_memory` (optional, default `false`)
 
-### `remember_repo_decision`
+### `knowledge_action` (`action: "remember_decision"`)
 
 Persist an accepted decision under one repository.
 
 ## Deployment
 
-These tools add new MCP actions. After pulling the implementation:
+The knowledge gateways expose strict discriminated schemas. After pulling the implementation:
 
 1. Run the relevant tests.
 2. Restart the CodexBridge server.
-3. Refresh the CodexBridge app in ChatGPT.
+3. Refresh the CodexBridge connector/action catalog in ChatGPT.
 
 A full disconnect and reconnect is not normally required.

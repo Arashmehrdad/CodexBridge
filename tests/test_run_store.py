@@ -55,6 +55,20 @@ def test_run_store_updates_status_and_result(tmp_path: Path) -> None:
     assert updated["result"]["summary"] == "done"
 
 
+def test_event_cursor_is_ascending_and_preserves_legacy_latest_page(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(run_id=RUN_ID, repo_name="sample", tool="project_command", run_dir=tmp_path / "runs" / RUN_ID, input_data={})
+    for index in range(4):
+        store.append_event(RUN_ID, level="info", stage="test", message=str(index))
+    legacy = store.get_events(RUN_ID, limit=2)
+    assert [event["message"] for event in legacy] == ["2", "3"]
+    first_page = store.get_events(RUN_ID, limit=2, after_id=0)
+    assert [event["message"] for event in first_page] == ["0", "1"]
+    cursor = first_page[-1]["id"]
+    assert [event["message"] for event in store.get_events(RUN_ID, limit=2, after_id=cursor)] == ["2", "3"]
+    assert store.get_events(RUN_ID, limit=2, after_id=999999) == []
+
+
 def test_run_store_tracks_progress_metadata(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     store.create_run(

@@ -772,8 +772,10 @@ class JobManager:
             return self._run_lookup_error(run_id, exc)
         return redact_and_truncate(run)
 
-    def get_events(self, run_id: str, limit: int = 50) -> list[dict]:
-        return redact_and_truncate(self.store.get_events(run_id, limit))
+    def get_events(
+        self, run_id: str, limit: int = 50, after_id: int | None = None
+    ) -> list[dict]:
+        return redact_and_truncate(self.store.get_events(run_id, limit, after_id))
 
     def get_control_status(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)

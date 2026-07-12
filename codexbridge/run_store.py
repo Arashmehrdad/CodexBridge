@@ -277,18 +277,26 @@ class RunStore:
             )
         return event
 
-    def get_events(self, run_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def get_events(
+        self, run_id: str, limit: int = 50, after_id: int | None = None
+    ) -> list[dict[str, Any]]:
         validate_run_id(run_id)
         limit = max(1, min(int(limit), 500))
         with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM (
-                    SELECT * FROM events WHERE run_id = ? ORDER BY id DESC LIMIT ?
-                ) ORDER BY id ASC
-                """,
-                (run_id, limit),
-            ).fetchall()
+            if after_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT * FROM events WHERE run_id = ? ORDER BY id DESC LIMIT ?
+                    ) ORDER BY id ASC
+                    """,
+                    (run_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM events WHERE run_id = ? AND id > ? ORDER BY id ASC LIMIT ?",
+                    (run_id, max(0, int(after_id)), limit),
+                ).fetchall()
         return [self._row_to_event(row) for row in rows]
 
     def mark_stale_running(self) -> int:
@@ -422,6 +430,7 @@ class RunStore:
 
     def _row_to_event(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
+            "id": row["id"],
             "timestamp": row["timestamp"],
             "run_id": row["run_id"],
             "level": row["level"],

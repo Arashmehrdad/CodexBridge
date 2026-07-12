@@ -83,6 +83,29 @@ from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 from .workflows import WorkflowManager
+from .gateway_models import (
+    RepoApplyRequest,
+    RepoCommitRequest,
+    RepoPreviewRequest,
+    RepoQueryRequest,
+    RunStartRequest,
+    RunQueryRequest,
+    DockerActionRequest,
+    DockerQueryRequest,
+    CloudflareActionRequest,
+    CloudflareQueryRequest,
+    SSHActionRequest,
+    SSHQueryRequest,
+    CodexImplementRequest,
+    CodexPlanRequest,
+    SystemActionRequest,
+    SystemQueryRequest,
+    SSHInspectRequest,
+    SupervisorActionRequest,
+    SupervisorQueryRequest,
+    WorkflowActionRequest,
+    WorkflowQueryRequest,
+)
 
 
 mcp = FastMCP("CodexBridge")
@@ -820,7 +843,7 @@ def _locked_repo_operation(
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 async def list_capabilities() -> dict:
     """Read-only: return the authoritative live tool list and schema epoch."""
     tools = await mcp.list_tools()
@@ -835,7 +858,7 @@ async def list_capabilities() -> dict:
     return _with_capability_metadata(result)
 
 
-@mcp.tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def inspect_repo_status(repo_name: str) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -857,7 +880,7 @@ def inspect_repo_status(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=REPO_STATUS_COMPACT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=REPO_STATUS_COMPACT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def inspect_repo_status_compact(repo_name: str) -> dict:
     """Read-only: return a compact repository status with tool-owned changes summarized."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -936,7 +959,7 @@ def git_diff_summary(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=COMMIT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def commit_selected_files(
     repo_name: str,
     files: list[str],
@@ -1071,14 +1094,14 @@ def commit_all_changes(repo_name: str, title: str, description: str = "") -> dic
     return result
 
 
-@mcp.tool(output_schema=SELF_CHECK_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=SELF_CHECK_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_local_self_check() -> dict:
     """Read-only: run local setup, test, git, and MCP transport readiness checks."""
     config = get_config()
     return run_self_check(config=config, config_path=get_config_path(), live_port=8765)
 
 
-@mcp.tool(output_schema=LOCAL_MODEL_HEALTH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=LOCAL_MODEL_HEALTH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def local_model_health() -> dict:
     """Read-only: verify configured Ollama/OpenAI-compatible local model connectivity with a tiny smoke prompt."""
     config = get_config().local_model
@@ -1193,7 +1216,7 @@ def _finish_local_model_health(result: dict, started: float) -> dict:
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_docker_capabilities(repo_name: str = "") -> dict:
     """Read-only: list bounded Docker operations, risk gates, and configured exec profiles."""
     config = get_config()
@@ -1208,7 +1231,7 @@ def list_docker_capabilities(repo_name: str = "") -> dict:
     return result
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1217,7 +1240,7 @@ def docker_health() -> dict:
     return _docker_health(get_config())
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_COMMAND_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1247,13 +1270,13 @@ def docker_inspect(
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_cloudflare_capabilities(repo_name: str) -> dict:
     """Read-only: list Cloudflare capabilities and profiles authorized for one repository."""
     return _list_cloudflare_capabilities(get_config(), repo_name)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1266,7 +1289,7 @@ def cloudflare_health(repo_name: str, profile_id: str) -> dict:
     return result
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1299,7 +1322,7 @@ def cloudflare_inspect(
     return result
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1322,14 +1345,14 @@ def start_cloudflare_action_async(
     )
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_ssh_capabilities() -> dict:
     """Read-only: list SSH hosts, inspections, actions, transfers, deployments, and risk gates."""
     config = get_config()
     return _enrich_ssh_capabilities(config, _list_ssh_capabilities(config))
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_ssh_profile_change(
     action: str,
     host_id: str,
@@ -1352,7 +1375,7 @@ def preview_ssh_profile_change(
     )
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_ssh_profile_change_status(change_id: str) -> dict:
     """Read-only: return sanitized lifecycle metadata for one SSH profile change preview."""
     config_path = get_config_path()
@@ -1361,7 +1384,7 @@ def get_ssh_profile_change_status(change_id: str) -> dict:
     return _get_ssh_profile_change_status(config_path, _get_runs_dir(), change_id)
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_ssh_profile_change(change_id: str) -> dict:
     """Write tool: atomically apply and activate one hash-verified SSH profile change preview."""
     config_path = get_config_path()
@@ -1397,7 +1420,7 @@ def ssh_host_health(host_id: str) -> dict:
     return _ssh_host_health(get_config(), host_id)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_COMMAND_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1406,7 +1429,7 @@ def ssh_environment_probe(host_id: str) -> dict:
     return _run_ssh_environment_probe(get_config(), host_id)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1415,11 +1438,11 @@ def ssh_gpu_telemetry(host_id: str) -> dict:
     return _run_ssh_gpu_telemetry(get_config(), host_id)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_COMMAND_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
-def ssh_inspect(
+def ssh_inspect_legacy(
     host_id: str,
     operation: str,
     path: str = "",
@@ -1440,6 +1463,28 @@ def ssh_inspect(
 
 
 @mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
+def ssh_inspect(request: SSHInspectRequest) -> dict:
+    """Read-only SSH gateway for strict health, telemetry, and bounded inspections."""
+    if request.operation == "host_health":
+        return ssh_host_health(request.host_id)
+    if request.operation == "environment_probe":
+        return ssh_environment_probe(request.host_id)
+    if request.operation == "gpu_telemetry":
+        return ssh_gpu_telemetry(request.host_id)
+    return ssh_inspect_legacy(
+        request.host_id,
+        request.inspection,
+        path=request.path,
+        target=request.target,
+        deployment_id=request.deployment_id,
+        tail=request.tail,
+    )
+
+
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1458,7 +1503,7 @@ def start_external_fixture_validation_async(
     )
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1467,7 +1512,7 @@ def start_ssh_command_async(host_id: str, command_id: str) -> dict:
     return get_job_manager().start_ssh_command(host_id, command_id)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1476,7 +1521,7 @@ def start_ssh_monitored_command_async(host_id: str, command_id: str) -> dict:
     return get_job_manager().start_ssh_monitored_command(host_id, command_id)
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1513,7 +1558,7 @@ def start_ssh_action_async(
     )
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1540,7 +1585,7 @@ def start_ssh_transfer_async(
     )
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1557,7 +1602,116 @@ def start_ssh_deployment_async(
     )
 
 
-@mcp.tool(
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
+def codex_plan(request: CodexPlanRequest) -> dict:
+    """Read-only Codex gateway for a durable plan-only run."""
+    return start_codex_plan_task_async(request.repo_name, request.task, request.constraints)
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
+def codex_implement(request: CodexImplementRequest) -> dict:
+    """Write Codex gateway for an approved plan with an explicit file/test scope."""
+    return start_codex_implement_task_async(
+        request.repo_name, request.approved_plan, request.allowed_files, request.tests
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def docker_query(request: DockerQueryRequest) -> dict:
+    """Read-only Docker gateway for capabilities, health, and bounded inspection."""
+    if request.operation == "capabilities":
+        return list_docker_capabilities(request.repo_name)
+    if request.operation == "health":
+        return docker_health()
+    return docker_inspect(
+        request.repo_name, request.inspection, request.target, request.service, request.tail
+    )
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**WRITE_ANNOTATIONS, "openWorldHint": True})
+def docker_action(request: DockerActionRequest) -> dict:
+    """Write Docker gateway for bounded configured actions and confirmations."""
+    return start_docker_action_async(
+        request.repo_name,
+        request.action,
+        target=request.target,
+        destination=request.destination,
+        services=request.services,
+        command_id=request.command_id,
+        context=request.context,
+        dockerfile=request.dockerfile,
+        build=request.build,
+        force=request.force,
+        confirmation=request.confirmation,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
+def cloudflare_query(request: CloudflareQueryRequest) -> dict:
+    """Read-only Cloudflare gateway for authorized capabilities, health, and inspection."""
+    if request.operation == "capabilities":
+        return list_cloudflare_capabilities(request.repo_name)
+    if request.operation == "health":
+        return cloudflare_health(request.repo_name, request.profile_id)
+    return cloudflare_inspect(
+        request.repo_name, request.profile_id, request.inspection,
+        resource_id=request.resource_id, name=request.name, record_type=request.record_type,
+        since_minutes=request.since_minutes, page=request.page, per_page=request.per_page,
+    )
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**WRITE_ANNOTATIONS, "openWorldHint": True})
+def cloudflare_action(request: CloudflareActionRequest) -> dict:
+    """Write Cloudflare gateway for profile-authorized bounded actions."""
+    return start_cloudflare_action_async(
+        request.repo_name, request.profile_id, request.action,
+        resource_id=request.resource_id, payload=request.payload,
+        confirmation=request.confirmation,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def ssh_query(request: SSHQueryRequest) -> dict:
+    """Read-only SSH gateway for capabilities and hash-verified profile lifecycle reads."""
+    if request.operation == "capabilities":
+        return list_ssh_capabilities()
+    if request.operation == "profile_status":
+        return get_ssh_profile_change_status(request.change_id)
+    return preview_ssh_profile_change(
+        request.action, request.host_id, request.host_config,
+        request.command_id, request.command_profile,
+    )
+
+
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**WRITE_ANNOTATIONS, "openWorldHint": True})
+def ssh_action(request: SSHActionRequest) -> dict:
+    """Write SSH gateway preserving command, administration, transfer, and deployment gates."""
+    if request.action == "profile_apply":
+        return apply_ssh_profile_change(request.change_id)
+    if request.action == "command":
+        return start_ssh_command_async(request.host_id, request.command_id)
+    if request.action == "monitored_command":
+        return start_ssh_monitored_command_async(request.host_id, request.command_id)
+    if request.action == "administration":
+        return start_ssh_action_async(
+            request.host_id, request.ssh_action, target=request.target,
+            source=request.source, destination=request.destination, path=request.path,
+            deployment_id=request.deployment_id, command_id=request.command_id,
+            packages=request.packages, executable=request.executable, args=request.args,
+            force=request.force, confirmation=request.confirmation,
+        )
+    if request.action == "transfer":
+        return start_ssh_transfer_async(
+            request.host_id, request.direction, request.repo_name,
+            request.local_path, request.remote_path, request.recursive,
+            request.overwrite, request.confirmation,
+        )
+    return start_ssh_deployment_async(
+        request.host_id, request.deployment_id, request.confirmation
+    )
+
+
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1568,7 +1722,7 @@ def start_codex_plan_task_async(
     return get_job_manager().start_plan(repo_name, task, constraints)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
 def start_codex_implement_task_async(
     repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
 ) -> dict:
@@ -1578,7 +1732,7 @@ def start_codex_implement_task_async(
     )
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
@@ -1611,56 +1765,76 @@ def start_docker_action_async(
     )
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_project_command_async(repo_name: str, command_id: str) -> dict:
     """Write async tool: queue an allowlisted project command and return a durable run_id immediately."""
     return get_job_manager().start_project_command(repo_name, command_id)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_pytest_path_async(repo_name: str, path: str) -> dict:
     """Write async tool: queue scoped pytest for one validated repo-relative target and return a durable run_id immediately."""
     return get_job_manager().start_pytest_path(repo_name, path)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_py_compile_path_async(repo_name: str, path: str) -> dict:
     """Write async tool: queue py_compile validation for one validated repo-relative Python target."""
     return get_job_manager().start_py_compile_path(repo_name, path)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_bash_n_path_async(repo_name: str, path: str) -> dict:
     """Write async tool: queue bash -n validation for one validated repo-relative shell target."""
     return get_job_manager().start_bash_n_path(repo_name, path)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_json_validation_path_async(repo_name: str, path: str) -> dict:
     """Write async tool: queue JSON syntax validation for one validated repo-relative target."""
     return get_job_manager().start_json_validation_path(repo_name, path)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_git_readonly_async(repo_name: str, operation: str) -> dict:
     """Write async tool: queue one allowlisted read-only git inspection operation and return a durable run_id."""
     build_git_readonly_profile(operation)
     return get_job_manager().start_git_readonly(repo_name, operation)
 
 
-@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def run_start(request: RunStartRequest) -> dict:
+    """Write gateway for allowlisted project validation and durable run starters."""
+    if request.operation == "project_command":
+        return start_project_command_async(request.repo_name, request.command_id)
+    if request.operation == "pytest_path":
+        return start_pytest_path_async(request.repo_name, request.path)
+    if request.operation == "py_compile_path":
+        return start_py_compile_path_async(request.repo_name, request.path)
+    if request.operation == "bash_syntax_path":
+        return start_bash_n_path_async(request.repo_name, request.path)
+    if request.operation == "json_validation_path":
+        return start_json_validation_path_async(request.repo_name, request.path)
+    if request.operation == "git_readonly":
+        return start_git_readonly_async(request.repo_name, request.git_operation)
+    return start_external_fixture_validation_async(
+        request.repo_name, request.url, request.expected_sha256, request.validation
+    )
+
+
+@_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_workflow(repo_name: str, objective: str, steps: list[dict[str, Any]]) -> dict:
     """Write async tool: queue one durable validated workflow and return its workflow ID immediately."""
     return get_workflow_manager().start_workflow(repo_name, objective, steps)
 
 
-@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_workflow_status(workflow_id: str) -> dict:
     """Read-only: return durable status metadata for one workflow."""
     return get_workflow_manager().get_status(workflow_id)
 
 
-@mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_workflow_events(workflow_id: str, limit: int = 100) -> dict:
     """Read-only: return ordered workflow events."""
     return _wrap_item_list(
@@ -1671,31 +1845,49 @@ def get_workflow_events(workflow_id: str, limit: int = 100) -> dict:
     )
 
 
-@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_workflow_result(workflow_id: str) -> dict:
     """Read-only: return the latest durable workflow snapshot."""
     return get_workflow_manager().get_result(workflow_id)
 
 
-@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def cancel_workflow(workflow_id: str) -> dict:
     """Write tool: cancel a workflow and request cancellation of its active child run."""
     return get_workflow_manager().cancel_workflow(workflow_id)
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def workflow_query(request: WorkflowQueryRequest) -> dict:
+    """Read-only gateway for durable workflow status, events, and results."""
+    if request.operation == "status":
+        return get_workflow_status(request.workflow_id)
+    if request.operation == "events":
+        return get_workflow_events(request.workflow_id, request.limit)
+    return get_workflow_result(request.workflow_id)
+
+
+@mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def workflow_action(request: WorkflowActionRequest) -> dict:
+    """Write gateway for validated workflow starts and cancellations."""
+    if request.action == "start":
+        return start_workflow(request.repo_name, request.objective, request.steps)
+    return cancel_workflow(request.workflow_id)
+
+
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
     """Read-only: return durable status metadata for a queued/running/completed async run."""
     return get_job_manager().get_status(run_id)
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_control_status(run_id: str) -> dict:
     """Read-only: report heartbeat, process-tree, cancellation, and lock state for one run."""
     return get_job_manager().get_control_status(run_id)
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_output(
     run_id: str, stream: str = "combined", tail_bytes: int = 20000
 ) -> dict:
@@ -1703,7 +1895,7 @@ def get_run_output(
     return get_job_manager().get_output(run_id, stream, tail_bytes)
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dict:
     """Read-only: list durable repository, SSH-host, and configuration operation locks."""
     locks = get_job_manager().list_operation_locks(
@@ -1712,21 +1904,26 @@ def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dic
     return {"ok": True, "locks": locks, "count": len(locks), "error": ""}
 
 
-@mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_run_events(run_id: str, limit: int = 50) -> dict:
+@_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_events(run_id: str, limit: int = 50, after_id: int | None = None) -> dict:
     """Read-only: return recent timeline events for an async run."""
+    events = (
+        get_job_manager().get_events(run_id, limit)
+        if after_id is None
+        else get_job_manager().get_events(run_id, limit, after_id)
+    )
     return _wrap_item_list(
-        "events", "run_id", run_id, get_job_manager().get_events(run_id, limit)
+        "events", "run_id", run_id, events
     )
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_result(run_id: str) -> dict:
     """Read-only: return the final or current structured result for an async run."""
     return get_job_manager().get_result(run_id)
 
 
-@mcp.tool(output_schema=RUN_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=RUN_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
     """Read-only: list recent async runs with optional repo/status filters."""
     return {
@@ -1744,7 +1941,25 @@ def cancel_run(run_id: str) -> dict:
     return get_job_manager().cancel_run(run_id)
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def run_query(request: RunQueryRequest) -> dict:
+    """Read-only gateway for durable run status, output, events, results, lists, and locks."""
+    if request.operation == "status":
+        return get_run_status(request.run_id)
+    if request.operation == "control":
+        return get_run_control_status(request.run_id)
+    if request.operation == "output":
+        return get_run_output(request.run_id, request.stream, request.tail_bytes)
+    if request.operation == "events":
+        return get_run_events(request.run_id, request.limit, request.after_id)
+    if request.operation == "result":
+        return get_run_result(request.run_id)
+    if request.operation == "list":
+        return list_runs(request.repo_name, request.status, request.limit)
+    return list_operation_locks(request.repo_name, request.include_stale)
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def reload_service(modules: list[str] = []) -> dict:
     """Write tool: reload supported CodexBridge modules and refresh in-memory config when possible."""
     result = _reload_service(get_config_path(), modules=modules)
@@ -1753,19 +1968,19 @@ def reload_service(modules: list[str] = []) -> dict:
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def validate_service_config() -> dict:
     """Read-only: validate the current config candidate without activating it."""
     return _validate_config_candidate(get_config_path())
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_service_reload_status() -> dict:
     """Read-only: return structured config lifecycle metadata for reload status."""
     return _get_reload_status()
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def rollback_service() -> dict:
     """Write tool: restore the previous last-known-good in-memory configuration."""
     result = _rollback_service()
@@ -1775,7 +1990,29 @@ def rollback_service() -> dict:
     return result
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def system_query(request: SystemQueryRequest) -> dict:
+    """Read-only system gateway for capabilities, health, configuration validation, and reload status."""
+    if request.operation == "capabilities":
+        return list_capabilities()
+    if request.operation == "self_check":
+        return run_local_self_check()
+    if request.operation == "local_model_health":
+        return local_model_health()
+    if request.operation == "validate_config":
+        return validate_service_config()
+    return get_service_reload_status()
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def system_action(request: SystemActionRequest) -> dict:
+    """Write system gateway for validated reload and last-known-good rollback."""
+    if request.action == "reload":
+        return reload_service(request.modules)
+    return rollback_service()
+
+
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_supervised_recovery_task(
     repo_name: str,
     objective: str,
@@ -1790,13 +2027,13 @@ def start_supervised_recovery_task(
     )
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_status(supervisor_id: str) -> dict:
     """Read-only: return enriched supervisor status."""
     return get_supervisor_service().get_status(supervisor_id)
 
 
-@mcp.tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_events(supervisor_id: str, limit: int = 50) -> dict:
     """Read-only: return ordered supervisor events."""
     return _wrap_item_list(
@@ -1807,25 +2044,25 @@ def get_supervisor_events(supervisor_id: str, limit: int = 50) -> dict:
     )
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_result(supervisor_id: str) -> dict:
     """Read-only: return supervisor result metadata and linked run references."""
     return get_supervisor_service().get_result(supervisor_id)
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def resume_supervisor(supervisor_id: str) -> dict:
     """Write tool: advance a supervisor exactly one safe step."""
     return get_supervisor_service().resume(supervisor_id)
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def pause_supervisor(supervisor_id: str) -> dict:
     """Write tool: pause a queued or needs_input supervisor."""
     return get_supervisor_service().pause(supervisor_id)
 
 
-@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def cancel_supervisor(supervisor_id: str) -> dict:
     """Write tool: cancel a supervisor and active child if present."""
     return get_supervisor_service().cancel(supervisor_id)
@@ -1852,7 +2089,42 @@ def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
     return get_supervisor_service().get_resume_prompt(supervisor_id)
 
 
-@mcp.tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def supervisor_query(request: SupervisorQueryRequest) -> dict:
+    """Read-only gateway for durable supervisor state and notifications."""
+    if request.operation == "status":
+        return get_supervisor_status(request.supervisor_id)
+    if request.operation == "events":
+        return get_supervisor_events(request.supervisor_id, request.limit)
+    if request.operation == "result":
+        return get_supervisor_result(request.supervisor_id)
+    if request.operation == "notifications":
+        return get_supervisor_notifications(
+            request.supervisor_id, request.delivery_status, request.limit
+        )
+    return get_supervisor_resume_prompt(request.supervisor_id)
+
+
+@mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def supervisor_action(request: SupervisorActionRequest) -> dict:
+    """Write gateway for validated supervisor lifecycle transitions."""
+    if request.action == "start":
+        return start_supervised_recovery_task(
+            request.repo_name,
+            request.objective,
+            request.task,
+            request.constraints,
+            request.source_run_id,
+            request.autonomy_profile,
+        )
+    if request.action == "resume":
+        return resume_supervisor(request.supervisor_id)
+    if request.action == "pause":
+        return pause_supervisor(request.supervisor_id)
+    return cancel_supervisor(request.supervisor_id)
+
+
+@_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_repo_files(
     repo_name: str, directory: str = "", max_results: int = 500
 ) -> dict:
@@ -1882,7 +2154,7 @@ def read_repo_file(
     return result
 
 
-@mcp.tool(output_schema=SEARCH_REPO_TEXT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=SEARCH_REPO_TEXT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def search_repo_text(
     repo_name: str,
     query: str,
@@ -1905,7 +2177,7 @@ def search_repo_text(
     return result
 
 
-@mcp.tool(
+@_internal_tool(
     output_schema=RECENTLY_MODIFIED_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS
 )
 def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
@@ -1934,7 +2206,7 @@ def repo_git_status(repo_name: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=REPO_GIT_DIFF_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=REPO_GIT_DIFF_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_git_diff(repo_name: str, path: str = "", staged: bool = False) -> dict:
     """Read-only: return git diff output, optionally scoped to one validated relative path or the staging area."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1945,7 +2217,7 @@ def repo_git_diff(repo_name: str, path: str = "", staged: bool = False) -> dict:
     return result
 
 
-@mcp.tool(output_schema=COMMIT_RANGE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=COMMIT_RANGE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def inspect_commit_range(repo_name: str, base_commit: str, head_commit: str) -> dict:
     """Read-only: inspect an exact commit range using only two full commit hashes."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1960,7 +2232,7 @@ def _get_runs_dir() -> "Path":
     return get_config().resolve_runs_dir()
 
 
-@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
     """Read-only: validate patch operations and return a unified diff with a patch_id. Makes no changes."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1971,7 +2243,7 @@ def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
     return result
 
 
-@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
     """Read-only: validate a repo file creation, persist an opaque local payload, and return a patch_id with preview diff."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1984,7 +2256,7 @@ def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -> dict:
     """Read-only: validate a repo file removal and return a patch_id with preview diff. Stores no source payload."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -1997,7 +2269,7 @@ def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_patch_status(repo_name: str, patch_id: str) -> dict:
     """Read-only: return the durable lifecycle state for one managed patch."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2008,7 +2280,7 @@ def get_patch_status(repo_name: str, patch_id: str) -> dict:
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_managed_artifact_cleanup(repo_name: str, roots: list[str] = []) -> dict:
     """Preview cleanup of registered tool-owned scratch files only."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2021,7 +2293,7 @@ def preview_managed_artifact_cleanup(repo_name: str, roots: list[str] = []) -> d
     return result
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_managed_artifact_cleanup(repo_name: str, cleanup_id: str) -> dict:
     """Apply a hash-verified cleanup preview for registered tool-owned artifacts."""
     return _locked_repo_operation(
@@ -2048,7 +2320,7 @@ def apply_repo_patch(repo_name: str, operations: list[dict], patch_id: str) -> d
     )
 
 
-@mcp.tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=APPLY_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_previewed_repo_change(repo_name: str, patch_id: str) -> dict:
     """Write tool: apply a previewed repository change using only the opaque local preview bundle identified by patch_id."""
     return _locked_repo_operation(
@@ -2088,7 +2360,7 @@ def delete_repo_file(repo_name: str, path: str, expected_sha256: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=MOVE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=MOVE_FILE_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def move_repo_file(
     repo_name: str,
     source_path: str,
@@ -2115,7 +2387,7 @@ def move_repo_file(
     )
 
 
-@mcp.tool(output_schema=REVERT_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=REVERT_PATCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
     """Write tool: revert a previously applied managed patch using saved rollback content. Never uses git reset."""
     return _locked_repo_operation(
@@ -2178,7 +2450,7 @@ def run_project_command(repo_name: str, command_id: str) -> dict:
     )
 
 
-@mcp.tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
     """Read-only: return structured git log entries, optionally scoped to a file path."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2189,7 +2461,7 @@ def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
     return result
 
 
-@mcp.tool(output_schema=READ_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@_internal_tool(output_schema=READ_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
     """Read-only: read up to 20 files in one call. Each request has path, start_line, end_line."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2202,7 +2474,7 @@ def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
     return result
 
 
-@mcp.tool(output_schema=CREATE_BRANCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
+@_internal_tool(output_schema=CREATE_BRANCH_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def create_git_branch(repo_name: str, branch_name: str) -> dict:
     """Write tool: create a new local git branch. Rejects protected names and existing branches."""
     from .repo_writer import (
@@ -2258,6 +2530,77 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
     return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def repo_query(request: RepoQueryRequest) -> dict:
+    """Read-only gateway for bounded repository inspection and patch lifecycle status."""
+    if request.operation == "status":
+        return inspect_repo_status(request.repo_name)
+    if request.operation == "compact_status":
+        return inspect_repo_status_compact(request.repo_name)
+    if request.operation == "patch_status":
+        return get_patch_status(request.repo_name, request.patch_id)
+    if request.operation == "list_files":
+        return list_repo_files(request.repo_name, request.directory, request.max_results)
+    if request.operation == "read_files":
+        return read_repo_files(request.repo_name, request.requests)
+    if request.operation == "search_text":
+        return search_repo_text(
+            request.repo_name,
+            request.query,
+            request.directory,
+            request.max_results,
+            request.case_sensitive,
+        )
+    if request.operation == "recent_files":
+        return get_recently_modified_files(request.repo_name, request.limit)
+    if request.operation == "diff":
+        return repo_git_diff(request.repo_name, request.path, request.staged)
+    if request.operation == "log":
+        return git_log(request.repo_name, request.limit, request.path)
+    return inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def repo_preview(request: RepoPreviewRequest) -> dict:
+    """Read-only gateway that produces opaque managed repository change previews."""
+    if request.operation == "patch":
+        return preview_repo_patch(request.repo_name, request.operations)
+    if request.operation == "create_file":
+        return preview_repo_file_creation(request.repo_name, request.path, request.content)
+    if request.operation == "remove_file":
+        return preview_repo_file_removal(
+            request.repo_name, request.path, request.expected_sha256
+        )
+    return preview_managed_artifact_cleanup(request.repo_name, request.roots)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def repo_apply(request: RepoApplyRequest) -> dict:
+    """Write gateway for hash-verified preview application, cleanup, rollback, and moves."""
+    if request.operation == "previewed_change":
+        return apply_previewed_repo_change(request.repo_name, request.patch_id)
+    if request.operation == "cleanup":
+        return apply_managed_artifact_cleanup(request.repo_name, request.cleanup_id)
+    if request.operation == "revert":
+        return revert_managed_patch(request.repo_name, request.patch_id)
+    return move_repo_file(
+        request.repo_name,
+        request.source_path,
+        request.destination_path,
+        request.expected_sha256,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def repo_commit(request: RepoCommitRequest) -> dict:
+    """Write gateway for protected local branch creation and selected-file commits only."""
+    if request.operation == "create_branch":
+        return create_git_branch(request.repo_name, request.branch_name)
+    return commit_selected_files(
+        request.repo_name, request.files, request.title, request.description
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

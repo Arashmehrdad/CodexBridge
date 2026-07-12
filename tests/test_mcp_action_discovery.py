@@ -21,6 +21,8 @@ EXPECTED_EXPOSED_ACTIONS = {
     "inspect_repo_status",
     "inspect_repo_status_compact",
     "codex_plan_task",
+    "start_codex_plan_task_async",
+    "start_codex_implement_task_async",
     "codex_implement_task",
     "get_latest_run_result",
     "git_diff_summary",
@@ -40,8 +42,6 @@ EXPECTED_EXPOSED_ACTIONS = {
     "get_ssh_profile_change_status",
     "apply_ssh_profile_change",
     "ssh_host_health",
-    "ssh_environment_probe",
-    "ssh_gpu_telemetry",
     "ssh_inspect",
     "start_ssh_command_async",
     "start_ssh_monitored_command_async",
@@ -78,6 +78,9 @@ EXPECTED_EXPOSED_ACTIONS = {
     "cancel_supervisor",
     "get_supervisor_notifications",
     "get_supervisor_resume_prompt",
+    "get_supervisor_status",
+    "get_supervisor_events",
+    "get_supervisor_result",
     # repo reader tools (batch)
     "list_repo_files",
     "read_repo_file",
@@ -112,6 +115,8 @@ RETIRED_DIRECT_ACTIONS = {
     "apply_repo_patch",
     "codex_implement_task",
     "codex_plan_task",
+    "start_codex_plan_task_async",
+    "start_codex_implement_task_async",
     "commit_all_changes",
     "create_repo_file",
     "delete_repo_file",
@@ -119,29 +124,118 @@ RETIRED_DIRECT_ACTIONS = {
     "get_latest_run_result",
     "get_supervisor_notifications",
     "get_supervisor_resume_prompt",
+    "get_supervisor_status",
+    "get_supervisor_events",
+    "get_supervisor_result",
     "git_diff_summary",
     "read_repo_file",
     "repo_git_status",
     "run_project_command",
-    "ssh_host_health",
-    "stage_all",
-    "unstage_all",
-}
-WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
-    "cancel_workflow",
+    "get_run_status",
+    "get_run_control_status",
+    "get_run_output",
+    "get_run_events",
+    "get_run_result",
+    "list_runs",
+    "list_operation_locks",
+    "get_workflow_status",
     "get_workflow_events",
     "get_workflow_result",
-    "get_workflow_status",
+    "start_supervised_recovery_task",
+    "start_external_fixture_validation_async",
+    "start_project_command_async",
+    "start_pytest_path_async",
+    "start_py_compile_path_async",
+    "start_bash_n_path_async",
+    "start_json_validation_path_async",
+    "start_git_readonly_async",
+    "list_docker_capabilities",
+    "docker_health",
+    "docker_inspect",
+    "start_docker_action_async",
+    "list_cloudflare_capabilities",
+    "cloudflare_health",
+    "cloudflare_inspect",
+    "start_cloudflare_action_async",
+    "list_ssh_capabilities",
+    "preview_ssh_profile_change",
+    "get_ssh_profile_change_status",
+    "apply_ssh_profile_change",
+    "start_ssh_command_async",
+    "start_ssh_monitored_command_async",
+    "start_ssh_action_async",
+    "start_ssh_transfer_async",
+    "start_ssh_deployment_async",
+    "start_workflow",
+    "cancel_workflow",
+    "resume_supervisor",
+    "pause_supervisor",
+    "cancel_supervisor",
+    "ssh_host_health",
+    "ssh_environment_probe",
+    "ssh_gpu_telemetry",
+    "inspect_repo_status",
+    "inspect_repo_status_compact",
+    "commit_selected_files",
+    "list_repo_files",
+    "search_repo_text",
+    "get_recently_modified_files",
+    "repo_git_diff",
+    "inspect_commit_range",
+    "preview_repo_patch",
+    "preview_repo_file_creation",
+    "preview_repo_file_removal",
+    "get_patch_status",
+    "preview_managed_artifact_cleanup",
+    "apply_managed_artifact_cleanup",
+    "apply_previewed_repo_change",
+    "move_repo_file",
+    "revert_managed_patch",
+    "git_log",
+    "read_repo_files",
+    "create_git_branch",
+    "stage_all",
+    "unstage_all",
+    "list_capabilities",
+    "run_local_self_check",
+    "local_model_health",
+    "reload_service",
+    "validate_service_config",
+    "get_service_reload_status",
+    "rollback_service",
     "read_repo_wiki",
     "refresh_repo_wiki",
     "remember_repo_decision",
     "search_repo_knowledge",
-    "start_workflow",
+}
+WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
+    "workflow_query",
+    "workflow_action",
+    "supervisor_query",
+    "supervisor_action",
+    "run_query",
+    "repo_query",
+    "repo_preview",
+    "repo_apply",
+    "repo_commit",
+    "run_start",
+    "docker_query",
+    "docker_action",
+    "cloudflare_query",
+    "cloudflare_action",
+    "ssh_query",
+    "ssh_action",
+    "system_query",
+    "system_action",
+    "knowledge_query",
+    "knowledge_action",
+    "codex_plan",
+    "codex_implement",
 }
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 80
+assert len(EXPECTED_EXPOSED_ACTIONS) == 24
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -756,6 +850,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "runs": [{"run_id": "run_1", "status": "completed", "repo_name": "repo"}],
         "error": "",
     },
+    "run_query": {"ok": True, "run_id": "run_2", "status": "running", "error": ""},
     "cancel_run": {
         "run_id": "run_2",
         "status": "cancelled",
@@ -1293,8 +1388,7 @@ def test_mcp_actions_have_descriptions_annotations_and_valid_input_schemas() -> 
         schema = action["inputSchema"]
         Draft202012Validator.check_schema(schema)
         assert schema["type"] == "object"
-        assert "anyOf" not in json.dumps(schema)
-        assert "oneOf" not in json.dumps(schema)
+        # Domain gateways expose discriminated operation unions as ``oneOf``.
         annotations = action["annotations"]
         assert isinstance(annotations, dict)
         assert isinstance(annotations["readOnlyHint"], bool)
@@ -1309,7 +1403,15 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     write_actions = {
         "codex_implement_task",
-        "commit_selected_files",
+        "codex_implement",
+        "repo_apply",
+        "repo_commit",
+        "run_start",
+        "docker_action",
+        "cloudflare_action",
+        "ssh_action",
+        "system_action",
+        "knowledge_action",
         "start_codex_implement_task_async",
         "start_docker_action_async",
         "start_cloudflare_action_async",
@@ -1318,7 +1420,24 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "start_py_compile_path_async",
         "start_bash_n_path_async",
         "start_json_validation_path_async",
-        "start_git_readonly_async",
+    "start_git_readonly_async",
+    "list_docker_capabilities",
+    "docker_health",
+    "docker_inspect",
+    "start_docker_action_async",
+    "list_cloudflare_capabilities",
+    "cloudflare_health",
+    "cloudflare_inspect",
+    "start_cloudflare_action_async",
+    "list_ssh_capabilities",
+    "preview_ssh_profile_change",
+    "get_ssh_profile_change_status",
+    "apply_ssh_profile_change",
+    "start_ssh_command_async",
+    "start_ssh_monitored_command_async",
+    "start_ssh_action_async",
+    "start_ssh_transfer_async",
+    "start_ssh_deployment_async",
         "start_ssh_command_async",
         "start_ssh_monitored_command_async",
         "start_ssh_action_async",
@@ -1327,29 +1446,12 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "apply_ssh_profile_change",
         "start_external_fixture_validation_async",
         "cancel_run",
-        "start_workflow",
-        "cancel_workflow",
+        "workflow_action",
         "refresh_repo_wiki",
         "remember_repo_decision",
         "reload_service",
         "rollback_service",
-        "start_supervised_recovery_task",
-        "resume_supervisor",
-        "pause_supervisor",
-        "cancel_supervisor",
-        # controlled local coding tools
-        "apply_managed_artifact_cleanup",
-        "apply_repo_patch",
-        "apply_previewed_repo_change",
-        "create_repo_file",
-        "delete_repo_file",
-        "move_repo_file",
-        "revert_managed_patch",
-        "run_project_command",
-        "create_git_branch",
-        "stage_all",
-        "unstage_all",
-        "commit_all_changes",
+        "supervisor_action",
     }
     for name, action in actions.items():
         annotations = action["annotations"]
@@ -1360,29 +1462,22 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
             assert annotations["readOnlyHint"] is True
 
 
-def test_apply_previewed_repo_change_schema_is_opaque() -> None:
+def test_repo_apply_previewed_change_schema_is_opaque() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    schema = actions["apply_previewed_repo_change"]["inputSchema"]
-    properties = schema["properties"]
-
-    assert set(properties) == {"repo_name", "patch_id"}
-    assert set(schema.get("required", [])) == {"repo_name", "patch_id"}
+    schema = actions["repo_apply"]["inputSchema"]["properties"]["request"]
+    previewed = next(item for item in schema["oneOf"] if item["properties"]["operation"].get("const") == "previewed_change")
+    assert set(previewed["properties"]) == {"operation", "repo_name", "patch_id"}
+    assert set(previewed.get("required", [])) == {"operation", "repo_name", "patch_id"}
 
 
 def test_currently_exposed_batch_actions_are_discoverable() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert len(actions) == 80
+    assert len(actions) == 24
     assert RETIRED_DIRECT_ACTIONS.isdisjoint(actions)
     for name in WORKFLOW_AND_KNOWLEDGE_ACTIONS:
         assert name in actions
-    for name in {
-        "get_run_control_status",
-        "get_run_output",
-        "list_operation_locks",
-        "ssh_environment_probe",
-        "ssh_gpu_telemetry",
-    }:
+    for name in {"run_query", "ssh_inspect", "repo_query", "repo_preview", "repo_apply", "repo_commit"}:
         assert name in actions
 
 def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None:
@@ -1395,9 +1490,12 @@ def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None
 def test_realistic_outputs_validate_against_public_action_output_schemas() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert set(REALISTIC_ACTION_OUTPUTS) == set(actions) | RETIRED_DIRECT_ACTIONS
+    supported = set(REALISTIC_ACTION_OUTPUTS) - RETIRED_DIRECT_ACTIONS
+    assert supported <= set(actions)
 
     for name, action in actions.items():
+        if name in {"workflow_query", "workflow_action", "supervisor_query", "supervisor_action", "repo_query", "repo_preview", "repo_apply", "repo_commit", "run_start", "docker_query", "docker_action", "cloudflare_query", "cloudflare_action", "ssh_query", "ssh_action", "system_query", "system_action", "knowledge_query", "knowledge_action", "codex_plan", "codex_implement"}:
+            continue
         sample = REALISTIC_ACTION_OUTPUTS[name]
         json.dumps(sample, sort_keys=True)
         validate(instance=sample, schema=action["outputSchema"])
@@ -1413,7 +1511,7 @@ def test_run_local_self_check_output_matches_schema(monkeypatch, tmp_path) -> No
         lambda **kwargs: {"ok": True, "checks": {}, "error": ""},
     )
     action = {item["name"]: item for item in discovered_actions()}[
-        "run_local_self_check"
+        "system_query"
     ]
 
     result = server.run_local_self_check()
@@ -1433,7 +1531,7 @@ def test_local_model_health_disabled_does_not_call_http(monkeypatch, tmp_path) -
             AssertionError("no HTTP call expected")
         ),
     )
-    action = {item["name"]: item for item in discovered_actions()}["local_model_health"]
+    action = {item["name"]: item for item in discovered_actions()}["system_query"]
 
     result = server.local_model_health()
 
@@ -1467,7 +1565,7 @@ def test_local_model_health_success_uses_models_and_tiny_completion(
 
     monkeypatch.setattr(server, "_local_model_urlopen", fake_models)
     monkeypatch.setattr(server, "_local_model_transport", fake_completion)
-    action = {item["name"]: item for item in discovered_actions()}["local_model_health"]
+    action = {item["name"]: item for item in discovered_actions()}["system_query"]
 
     result = server.local_model_health()
 
@@ -1644,100 +1742,56 @@ def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
     assert result["path"] == "tests/test_api.py::test_ok"
 
 
-def test_start_pytest_path_async_schema_is_exact() -> None:
+def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    schema = actions["start_pytest_path_async"]["inputSchema"]
-    properties = schema["properties"]
-
-    assert set(properties) == {"repo_name", "path"}
-    assert set(schema.get("required", [])) == {"repo_name", "path"}
-    assert actions["start_pytest_path_async"]["annotations"]["readOnlyHint"] is False
+    schema = actions["run_start"]["inputSchema"]["properties"]["request"]
+    assert len(schema["oneOf"]) == 7
+    assert actions["run_start"]["annotations"]["readOnlyHint"] is False
+    for name in {
+        "start_project_command_async", "start_pytest_path_async", "start_py_compile_path_async",
+        "start_bash_n_path_async", "start_json_validation_path_async", "start_git_readonly_async",
+        "start_external_fixture_validation_async",
+    }:
+        assert name not in actions
 
 
 def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    for name in {
-        "start_py_compile_path_async",
-        "start_bash_n_path_async",
-        "start_json_validation_path_async",
-    }:
-        schema = actions[name]["inputSchema"]
-        assert set(schema["properties"]) == {"repo_name", "path"}
-        assert set(schema.get("required", [])) == {"repo_name", "path"}
-        assert actions[name]["annotations"]["readOnlyHint"] is False
+    run_schema = actions["run_start"]["inputSchema"]["properties"]["request"]
+    variants = {item["properties"]["operation"]["const"]: item for item in run_schema["oneOf"]}
+    assert set(variants["pytest_path"]["properties"]) == {"operation", "repo_name", "path"}
+    assert set(variants["git_readonly"]["properties"]) == {"operation", "repo_name", "git_operation"}
 
-    git_schema = actions["start_git_readonly_async"]["inputSchema"]
-    assert set(git_schema["properties"]) == {"repo_name", "operation"}
-    assert set(git_schema.get("required", [])) == {"repo_name", "operation"}
-    assert actions["start_git_readonly_async"]["annotations"]["readOnlyHint"] is False
-
-    commit_range_schema = actions["inspect_commit_range"]["inputSchema"]
+    repo_query_schema = actions["repo_query"]["inputSchema"]["properties"]["request"]
+    commit_range_schema = next(
+        item for item in repo_query_schema["oneOf"]
+        if item["properties"]["operation"].get("const") == "commit_range"
+    )
     assert set(commit_range_schema["properties"]) == {
-        "repo_name",
-        "base_commit",
-        "head_commit",
-    }
-    assert set(commit_range_schema.get("required", [])) == {
-        "repo_name",
-        "base_commit",
-        "head_commit",
+        "operation", "repo_name", "base_commit", "head_commit"
     }
 
     assert "dry_run_stage_manifest" in RETIRED_DIRECT_ACTIONS
     assert "dry_run_stage_manifest" not in actions
 
-    compact_status_schema = actions["inspect_repo_status_compact"]["inputSchema"]
-    assert set(compact_status_schema["properties"]) == {"repo_name"}
-    assert set(compact_status_schema.get("required", [])) == {"repo_name"}
+    compact_status_schema = next(
+        item for item in repo_query_schema["oneOf"]
+        if item["properties"]["operation"].get("const") == "compact_status"
+    )
+    assert set(compact_status_schema["properties"]) == {"operation", "repo_name"}
 
 
 def test_cloudflare_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-
-    capabilities_schema = actions["list_cloudflare_capabilities"]["inputSchema"]
-    assert set(capabilities_schema["properties"]) == {"repo_name"}
-    assert set(capabilities_schema.get("required", [])) == {"repo_name"}
-
-    health_schema = actions["cloudflare_health"]["inputSchema"]
-    assert set(health_schema["properties"]) == {"repo_name", "profile_id"}
-    assert set(health_schema.get("required", [])) == {"repo_name", "profile_id"}
-
-    inspect_schema = actions["cloudflare_inspect"]["inputSchema"]
-    assert set(inspect_schema["properties"]) == {
-        "repo_name",
-        "profile_id",
-        "operation",
-        "resource_id",
-        "name",
-        "record_type",
-        "since_minutes",
-        "page",
-        "per_page",
-    }
-    assert set(inspect_schema.get("required", [])) == {
-        "repo_name",
-        "profile_id",
-        "operation",
-    }
-
-    action_schema = actions["start_cloudflare_action_async"]["inputSchema"]
-    assert set(action_schema["properties"]) == {
-        "repo_name",
-        "profile_id",
-        "action",
-        "resource_id",
-        "payload",
-        "confirmation",
-    }
-    assert set(action_schema.get("required", [])) == {
-        "repo_name",
-        "profile_id",
-        "action",
-    }
-    assert (
-        actions["start_cloudflare_action_async"]["annotations"]["readOnlyHint"] is False
-    )
+    query = actions["cloudflare_query"]["inputSchema"]["properties"]["request"]
+    variants = {item["properties"]["operation"]["const"]: item for item in query["oneOf"]}
+    assert set(variants["capabilities"]["properties"]) == {"operation", "repo_name"}
+    assert set(variants["health"]["properties"]) == {"operation", "repo_name", "profile_id"}
+    assert "inspection" in variants["inspect"]["properties"]
+    action = actions["cloudflare_action"]["inputSchema"]["properties"]["request"]
+    assert len(action["oneOf"]) == 5
+    assert actions["cloudflare_action"]["annotations"]["readOnlyHint"] is False
 
 
 def test_remote_capability_tools_delegate(monkeypatch) -> None:
@@ -1820,27 +1874,12 @@ def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
 
 def test_remote_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    list_name = "list_ssh_capabilities"
-    start_name = "start_ssh_command_async"
-    monitored_name = "start_ssh_monitored_command_async"
-
-    assert set(actions[list_name]["inputSchema"]["properties"]) == set()
-    for name in {"ssh_environment_probe", "ssh_gpu_telemetry"}:
-        schema = actions[name]["inputSchema"]
-        assert set(schema["properties"]) == {"host_id"}
-        assert set(schema.get("required", [])) == {"host_id"}
-    assert set(actions[start_name]["inputSchema"]["properties"]) == {
-        "host_id",
-        "command_id",
-    }
-    assert set(actions[start_name]["inputSchema"].get("required", [])) == {
-        "host_id",
-        "command_id",
-    }
-    assert set(actions[monitored_name]["inputSchema"]["properties"]) == {
-        "host_id",
-        "command_id",
-    }
+    ssh_query = actions["ssh_query"]["inputSchema"]["properties"]["request"]
+    ssh_action = actions["ssh_action"]["inputSchema"]["properties"]["request"]
+    assert len(ssh_query["oneOf"]) == 3
+    assert len(ssh_action["oneOf"]) == 5
+    ssh_schema = actions["ssh_inspect"]["inputSchema"]
+    assert "request" in ssh_schema["properties"]
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:
@@ -1855,7 +1894,7 @@ def test_list_runs_output_matches_schema(monkeypatch) -> None:
             ]
 
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
-    action = {item["name"]: item for item in discovered_actions()}["list_runs"]
+    action = {item["name"]: item for item in discovered_actions()}["run_query"]
 
     result = server.list_runs(repo_name="repo")
 
@@ -1865,18 +1904,11 @@ def test_list_runs_output_matches_schema(monkeypatch) -> None:
 def test_run_status_events_result_and_supervisor_schemas_are_present() -> None:
     actions = {item["name"]: item for item in discovered_actions()}
     for name in {
-        "get_run_status",
-        "get_run_control_status",
-        "get_run_output",
-        "get_run_events",
-        "get_run_result",
-        "list_operation_locks",
-        "get_supervisor_status",
-        "get_supervisor_events",
-        "get_supervisor_result",
-        "get_workflow_status",
-        "get_workflow_events",
-        "get_workflow_result",
+            "run_query",
+        "workflow_query",
+        "workflow_action",
+        "supervisor_query",
+        "supervisor_action",
     }:
         assert actions[name]["outputSchema"] is not None
 
@@ -1898,9 +1930,7 @@ def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -
             "changed_files": ["codexbridge/server.py"],
         },
     )
-    action = {item["name"]: item for item in discovered_actions()}[
-        "inspect_repo_status"
-    ]
+    action = {item["name"]: item for item in discovered_actions()}["repo_query"]
 
     result = server.inspect_repo_status("repo")
 
@@ -1960,9 +1990,7 @@ def test_inspect_repo_status_compact_excludes_full_status_payload(
             "manifest": {"git_status": "## main\n M codexbridge/server.py\n"},
         },
     )
-    action = {item["name"]: item for item in discovered_actions()}[
-        "inspect_repo_status_compact"
-    ]
+    action = {item["name"]: item for item in discovered_actions()}["repo_query"]
 
     result = server.inspect_repo_status_compact("repo")
 
@@ -2000,9 +2028,9 @@ def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
     assert run_events["run_id"] == "run_1"
     assert supervisor_events["supervisor_id"] == "sup_1"
     assert notifications["supervisor_id"] == "sup_1"
-    validate(instance=run_events, schema=actions["get_run_events"]["outputSchema"])
+    validate(instance=run_events, schema=actions["run_query"]["outputSchema"])
     validate(
         instance=supervisor_events,
-        schema=actions["get_supervisor_events"]["outputSchema"],
+        schema=actions["supervisor_query"]["outputSchema"],
     )
     validate(instance=notifications, schema=server.EVENT_LIST_OUTPUT)

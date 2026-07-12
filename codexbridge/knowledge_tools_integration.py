@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any, Callable
 
 from .capabilities import capability_metadata
+from .gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
 
 
 READ_ONLY_ANNOTATIONS = {
@@ -150,6 +151,11 @@ MEMORY_WRITE_OUTPUT = {
         "error",
     ],
 }
+KNOWLEDGE_QUERY_OUTPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {"ok": {"type": "boolean"}, "error": {"type": "string"}},
+}
 
 
 def _active_server_config(mcp: Any):
@@ -220,7 +226,6 @@ def register_knowledge_tools(mcp: Any) -> None:
     from .operation_locks import repository_operation_lock
     from .repo_wiki import RepoWikiService
 
-    @mcp.tool(output_schema=WIKI_REFRESH_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def refresh_repo_wiki(repo_name: str, force: bool = False) -> dict:
         """Generate or incrementally refresh the repository-local CodexBridge wiki."""
         try:
@@ -254,7 +259,6 @@ def register_knowledge_tools(mcp: Any) -> None:
                 WIKI_REFRESH_OUTPUT,
             )
 
-    @mcp.tool(output_schema=WIKI_PAGE_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def read_repo_wiki(repo_name: str, page: str = "overview.md") -> dict:
         """Read one generated repository wiki page by safe relative page name."""
         try:
@@ -277,7 +281,6 @@ def register_knowledge_tools(mcp: Any) -> None:
                 WIKI_PAGE_OUTPUT,
             )
 
-    @mcp.tool(output_schema=KNOWLEDGE_SEARCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def search_repo_knowledge(
         repo_name: str,
         query: str,
@@ -323,7 +326,6 @@ def register_knowledge_tools(mcp: Any) -> None:
                 KNOWLEDGE_SEARCH_OUTPUT,
             )
 
-    @mcp.tool(output_schema=MEMORY_WRITE_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def remember_repo_decision(
         repo_name: str,
         decision: str,
@@ -366,6 +368,24 @@ def register_knowledge_tools(mcp: Any) -> None:
                 },
                 MEMORY_WRITE_OUTPUT,
             )
+
+    @mcp.tool(output_schema=KNOWLEDGE_QUERY_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+    def knowledge_query(request: KnowledgeQueryRequest) -> dict:
+        """Read-only gateway for repository wiki pages and isolated knowledge search."""
+        if request.operation == "read_wiki":
+            return read_repo_wiki(request.repo_name, request.page)
+        return search_repo_knowledge(
+            request.repo_name, request.query, request.limit, request.include_global_memory
+        )
+
+    @mcp.tool(output_schema=MEMORY_WRITE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+    def knowledge_action(request: KnowledgeActionRequest) -> dict:
+        """Write gateway for repository wiki refresh and repository-scoped decisions."""
+        if request.action == "refresh_wiki":
+            return refresh_repo_wiki(request.repo_name, request.force)
+        return remember_repo_decision(
+            request.repo_name, request.decision, request.accepted_by
+        )
 
     setattr(mcp, "_codexbridge_knowledge_tools_registered", True)
 

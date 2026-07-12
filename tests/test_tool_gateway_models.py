@@ -1,0 +1,268 @@
+from pydantic import TypeAdapter, ValidationError
+import pytest
+
+from codexbridge.gateway_models import (
+    RepoApplyRequest,
+    RepoCommitRequest,
+    RepoPreviewRequest,
+    RepoQueryRequest,
+    RunStartRequest,
+    DockerActionRequest,
+    DockerQueryRequest,
+    CloudflareActionRequest,
+    CloudflareQueryRequest,
+    SSHActionRequest,
+    SSHQueryRequest,
+    SystemActionRequest,
+    SystemQueryRequest,
+    KnowledgeActionRequest,
+    KnowledgeQueryRequest,
+    RunQueryRequest,
+    SSHEnvironmentProbe,
+    SSHInspectRequest,
+    SupervisorActionRequest,
+    SupervisorQueryRequest,
+    WorkflowActionRequest,
+    WorkflowQueryRequest,
+)
+import codexbridge.server as server
+
+
+def test_ssh_inspection_models_are_discriminated_and_strict() -> None:
+    adapter = TypeAdapter(SSHInspectRequest)
+    assert adapter.validate_python({"operation": "host_health", "host_id": "dev"}).host_id == "dev"
+    try:
+        adapter.validate_python({"operation": "gpu_telemetry", "host_id": "dev", "tail": 10})
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("cross-operation field must be rejected")
+
+
+def test_gateway_model_requires_operation_specific_fields() -> None:
+    adapter = TypeAdapter(RunQueryRequest)
+    assert adapter.validate_python({"operation": "events", "run_id": "run_1"}).limit == 50
+    for payload in ({"operation": "events"}, {"operation": "events", "run_id": "run_1", "stream": "stdout"}):
+        try:
+            adapter.validate_python(payload)
+        except ValidationError:
+            continue
+        raise AssertionError("invalid payload was accepted")
+
+
+def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
+    monkeypatch.setattr(server, "ssh_environment_probe", lambda host_id: {"host_id": host_id, "ok": True})
+    result = server.ssh_inspect(SSHEnvironmentProbe(operation="environment_probe", host_id="dev"))
+    assert result["host_id"] == "dev"
+
+
+def test_workflow_and_supervisor_models_are_operation_specific() -> None:
+    workflow_query = TypeAdapter(WorkflowQueryRequest)
+    workflow_action = TypeAdapter(WorkflowActionRequest)
+    supervisor_query = TypeAdapter(SupervisorQueryRequest)
+    supervisor_action = TypeAdapter(SupervisorActionRequest)
+
+    assert workflow_query.validate_python({"operation": "events", "workflow_id": "wf_1"}).limit == 100
+    assert workflow_action.validate_python(
+        {"action": "start", "repo_name": "repo", "objective": "ship", "steps": [{"id": "one"}]}
+    ).repo_name == "repo"
+    assert supervisor_query.validate_python(
+        {"operation": "notifications", "supervisor_id": "sup_1"}
+    ).limit == 50
+    assert supervisor_action.validate_python(
+        {"action": "pause", "supervisor_id": "sup_1"}
+    ).supervisor_id == "sup_1"
+
+    invalid_payloads = (
+        (workflow_query, {"operation": "status", "workflow_id": "wf_1", "limit": 1}),
+        (workflow_action, {"action": "cancel"}),
+        (supervisor_query, {"operation": "resume_prompt", "supervisor_id": "sup_1", "limit": 1}),
+        (supervisor_action, {"action": "resume", "supervisor_id": "sup_1", "task": "wrong"}),
+    )
+    for adapter, payload in invalid_payloads:
+        try:
+            adapter.validate_python(payload)
+        except ValidationError:
+            continue
+        raise AssertionError(f"invalid payload was accepted: {payload}")
+
+
+def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_workflow_status", lambda workflow_id: {"workflow_id": workflow_id, "ok": True})
+    monkeypatch.setattr(server, "cancel_workflow", lambda workflow_id: {"workflow_id": workflow_id, "status": "cancelled"})
+    monkeypatch.setattr(server, "get_supervisor_resume_prompt", lambda supervisor_id: {"supervisor_id": supervisor_id, "ok": True})
+    monkeypatch.setattr(server, "pause_supervisor", lambda supervisor_id: {"supervisor_id": supervisor_id, "status": "paused"})
+
+    workflow_result = server.workflow_query(
+        TypeAdapter(WorkflowQueryRequest).validate_python(
+            {"operation": "status", "workflow_id": "wf_1"}
+        )
+    )
+    assert workflow_result["workflow_id"] == "wf_1"
+    assert workflow_result["ok"] is True
+    assert server.workflow_action(
+        TypeAdapter(WorkflowActionRequest).validate_python(
+            {"action": "cancel", "workflow_id": "wf_1"}
+        )
+    )["status"] == "cancelled"
+    assert server.supervisor_query(
+        TypeAdapter(SupervisorQueryRequest).validate_python(
+            {"operation": "resume_prompt", "supervisor_id": "sup_1"}
+        )
+    )["supervisor_id"] == "sup_1"
+    assert server.supervisor_action(
+        TypeAdapter(SupervisorActionRequest).validate_python(
+            {"action": "pause", "supervisor_id": "sup_1"}
+        )
+    )["status"] == "paused"
+
+
+def test_repo_gateway_models_are_discriminated_and_strict() -> None:
+    adapters = {
+        "query": TypeAdapter(RepoQueryRequest),
+        "preview": TypeAdapter(RepoPreviewRequest),
+        "apply": TypeAdapter(RepoApplyRequest),
+        "commit": TypeAdapter(RepoCommitRequest),
+    }
+    assert adapters["query"].validate_python(
+        {"operation": "search_text", "repo_name": "repo", "query": "needle"}
+    ).query == "needle"
+    assert adapters["preview"].validate_python(
+        {"operation": "remove_file", "repo_name": "repo", "path": "x.py", "expected_sha256": "a" * 64}
+    ).path == "x.py"
+    assert adapters["apply"].validate_python(
+        {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
+    ).patch_id == "patch_1"
+    assert adapters["commit"].validate_python(
+        {"operation": "commit_selected", "repo_name": "repo", "files": ["x.py"], "title": "fix: x"}
+    ).title == "fix: x"
+
+    invalid = (
+        (adapters["query"], {"operation": "status", "repo_name": "repo", "path": "x.py"}),
+        (adapters["preview"], {"operation": "create_file", "repo_name": "repo", "path": "x.py"}),
+        (adapters["apply"], {"operation": "move_file", "repo_name": "repo", "source_path": "a", "destination_path": "b"}),
+        (adapters["commit"], {"operation": "create_branch", "repo_name": "repo", "branch_name": "x", "files": ["x.py"]}),
+    )
+    for adapter, payload in invalid:
+        with pytest.raises(ValidationError):
+            adapter.validate_python(payload)
+
+
+def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
+    monkeypatch.setattr(server, "search_repo_text", lambda *args: {"operation": "search", "args": args})
+    monkeypatch.setattr(server, "preview_repo_file_removal", lambda *args: {"operation": "remove", "args": args})
+    monkeypatch.setattr(server, "apply_previewed_repo_change", lambda *args: {"operation": "apply", "args": args})
+    monkeypatch.setattr(server, "commit_selected_files", lambda *args: {"operation": "commit", "args": args})
+
+    assert server.repo_query(TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "search_text", "repo_name": "repo", "query": "needle"}
+    ))["operation"] == "search"
+    assert server.repo_preview(TypeAdapter(RepoPreviewRequest).validate_python(
+        {"operation": "remove_file", "repo_name": "repo", "path": "x", "expected_sha256": "a" * 64}
+    ))["operation"] == "remove"
+    assert server.repo_apply(TypeAdapter(RepoApplyRequest).validate_python(
+        {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
+    ))["operation"] == "apply"
+    assert server.repo_commit(TypeAdapter(RepoCommitRequest).validate_python(
+        {"operation": "commit_selected", "repo_name": "repo", "files": ["x"], "title": "fix: x"}
+    ))["operation"] == "commit"
+
+
+def test_run_start_models_reject_cross_operation_fields() -> None:
+    adapter = TypeAdapter(RunStartRequest)
+    assert adapter.validate_python(
+        {"operation": "project_command", "repo_name": "repo", "command_id": "pytest"}
+    ).command_id == "pytest"
+    assert adapter.validate_python(
+        {"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}
+    ).git_operation == "status"
+    assert adapter.validate_python(
+        {
+            "operation": "external_fixture_validation",
+            "repo_name": "repo",
+            "url": "https://example.test/f.json",
+            "expected_sha256": "a" * 64,
+        }
+    ).validation == "none"
+    invalid = (
+        {"operation": "project_command", "repo_name": "repo", "command_id": "pytest", "path": "x"},
+        {"operation": "pytest_path", "repo_name": "repo", "path": "x", "command_id": "pytest"},
+        {"operation": "git_readonly", "repo_name": "repo", "git_operation": "shell"},
+        {"operation": "external_fixture_validation", "repo_name": "repo", "url": "http://example.test", "expected_sha256": "a" * 64},
+    )
+    for payload in invalid:
+        with pytest.raises(ValidationError):
+            adapter.validate_python(payload)
+
+
+def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) -> None:
+    calls = []
+
+    class FakeJobs:
+        def __getattr__(self, name):
+            def invoke(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"ok": True, "run_id": name}
+
+            return invoke
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    for payload, expected in (
+        ({"operation": "project_command", "repo_name": "repo", "command_id": "pytest"}, "start_project_command"),
+        ({"operation": "pytest_path", "repo_name": "repo", "path": "tests"}, "start_pytest_path"),
+        ({"operation": "py_compile_path", "repo_name": "repo", "path": "x.py"}, "start_py_compile_path"),
+        ({"operation": "bash_syntax_path", "repo_name": "repo", "path": "x.sh"}, "start_bash_n_path"),
+        ({"operation": "json_validation_path", "repo_name": "repo", "path": "x.json"}, "start_json_validation_path"),
+        ({"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}, "start_git_readonly"),
+        ({"operation": "external_fixture_validation", "repo_name": "repo", "url": "https://example.test/x", "expected_sha256": "a" * 64}, "start_external_fixture_validation"),
+    ):
+        server.run_start(TypeAdapter(RunStartRequest).validate_python(payload))
+        assert calls[-1][0] == expected
+
+
+def test_phase6_domain_models_reject_cross_domain_fields() -> None:
+    assert TypeAdapter(DockerQueryRequest).validate_python(
+        {"operation": "inspect", "repo_name": "repo", "inspection": "containers"}
+    ).inspection == "containers"
+    assert TypeAdapter(CloudflareQueryRequest).validate_python(
+        {"operation": "health", "repo_name": "repo", "profile_id": "cf"}
+    ).profile_id == "cf"
+    assert TypeAdapter(SSHQueryRequest).validate_python(
+        {"operation": "profile_status", "change_id": "change_1"}
+    ).change_id == "change_1"
+    assert TypeAdapter(SSHActionRequest).validate_python(
+        {"action": "command", "host_id": "dev", "command_id": "uptime"}
+    ).command_id == "uptime"
+    assert TypeAdapter(DockerActionRequest).validate_python(
+        {"action": "compose_up", "repo_name": "repo"}
+    ).action == "compose_up"
+    assert TypeAdapter(CloudflareActionRequest).validate_python(
+        {"action": "dns_create", "repo_name": "repo", "profile_id": "cf"}
+    ).action == "dns_create"
+    with pytest.raises(ValidationError):
+        TypeAdapter(SSHActionRequest).validate_python(
+            {"action": "command", "host_id": "dev", "command_id": "uptime", "remote_path": "/srv"}
+        )
+
+
+def test_phase7_system_and_knowledge_models_are_strict() -> None:
+    assert TypeAdapter(SystemQueryRequest).validate_python(
+        {"operation": "reload_status"}
+    ).operation == "reload_status"
+    assert TypeAdapter(SystemActionRequest).validate_python(
+        {"action": "reload", "modules": ["config"]}
+    ).modules == ["config"]
+    assert TypeAdapter(KnowledgeQueryRequest).validate_python(
+        {"operation": "search", "repo_name": "repo", "query": "locks"}
+    ).query == "locks"
+    assert TypeAdapter(KnowledgeActionRequest).validate_python(
+        {"action": "remember_decision", "repo_name": "repo", "decision": "use locks"}
+    ).decision == "use locks"
+    with pytest.raises(ValidationError):
+        TypeAdapter(SystemActionRequest).validate_python(
+            {"action": "rollback", "modules": ["config"]}
+        )
+    with pytest.raises(ValidationError):
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {"operation": "read_wiki", "repo_name": "repo", "query": "wrong"}
+        )

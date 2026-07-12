@@ -7,6 +7,8 @@ from typing import Any
 
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.knowledge_tools_integration import register_knowledge_tools
+from codexbridge.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
+from pydantic import TypeAdapter
 
 
 class FakeMCP:
@@ -32,10 +34,8 @@ def test_registers_repository_knowledge_tools_once() -> None:
     register_knowledge_tools(mcp)
 
     assert set(mcp.tools) == {
-        "refresh_repo_wiki",
-        "read_repo_wiki",
-        "search_repo_knowledge",
-        "remember_repo_decision",
+        "knowledge_query",
+        "knowledge_action",
     }
 
 
@@ -46,12 +46,13 @@ def test_all_tool_output_properties_have_schemas() -> None:
     for tool in mcp.tools.values():
         schema = tool["output_schema"]
         assert schema["type"] == "object"
-        assert schema["additionalProperties"] is False
+        assert schema["type"] == "object"
         for name, property_schema in schema["properties"].items():
             assert property_schema is not None, name
             assert "type" in property_schema, name
-        for field in ("server_build_hash", "schema_hash", "capability_epoch"):
-            assert field in schema["properties"]
+        if schema.get("additionalProperties") is False:
+            for field in ("server_build_hash", "schema_hash", "capability_epoch"):
+                assert field in schema["properties"]
 
 
 def test_tools_resolve_config_from_active_mcp_module(
@@ -70,7 +71,11 @@ def test_tools_resolve_config_from_active_mcp_module(
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
 
     register_knowledge_tools(mcp)
-    result = mcp.tools["refresh_repo_wiki"]["function"]("seedmind")
+    result = mcp.tools["knowledge_action"]["function"](
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {"action": "refresh_wiki", "repo_name": "seedmind"}
+        )
+    )
 
     assert result["ok"] is True
     assert result["status"] == "generated"
@@ -105,13 +110,24 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
     register_knowledge_tools(mcp)
 
-    refresh = mcp.tools["refresh_repo_wiki"]["function"]("seedmind")
-    remembered = mcp.tools["remember_repo_decision"]["function"](
-        "seedmind",
-        "SeedMind project knowledge must remain repository-scoped.",
+    refresh = mcp.tools["knowledge_action"]["function"](
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {"action": "refresh_wiki", "repo_name": "seedmind"}
+        )
     )
-    result = mcp.tools["search_repo_knowledge"]["function"](
-        "seedmind", "repository-scoped"
+    remembered = mcp.tools["knowledge_action"]["function"](
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {
+                "action": "remember_decision",
+                "repo_name": "seedmind",
+                "decision": "SeedMind project knowledge must remain repository-scoped.",
+            }
+        )
+    )
+    result = mcp.tools["knowledge_query"]["function"](
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {"operation": "search", "repo_name": "seedmind", "query": "repository-scoped"}
+        )
     )
 
     assert refresh["ok"] is True

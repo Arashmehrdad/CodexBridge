@@ -399,7 +399,11 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
 
     assert server.list_ssh_capabilities()["actions"] == ["service_restart"]
     assert server.ssh_host_health("my_vps")["status"] == "ok"
-    assert server.ssh_inspect("my_vps", "uptime")["stdout"] == "healthy"
+    from codexbridge.gateway_models import SSHBoundedInspection
+
+    assert server.ssh_inspect(
+        SSHBoundedInspection(operation="inspection", host_id="my_vps", inspection="uptime")
+    )["stdout"] == "healthy"
     action = server.start_ssh_action_async(
         "my_vps", "service_restart", target="app.service"
     )
