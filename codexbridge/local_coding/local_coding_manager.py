@@ -26,6 +26,7 @@ from .patch_apply import apply_text_atomically
 from .patch_builder import apply_operations_to_text, parse_objective_patch
 from .patch_preview import sha256_text, unified_diff
 from .patch_validator import validate_patch
+from ..repo_wiki import mark_repo_wiki_stale
 from .rollback import restore_original_content
 
 
@@ -248,6 +249,16 @@ class LocalCodingManager:
         atomic_write_text(run_dir / "rollback.patch", diff)
         atomic_write_text(run_dir / "original_snapshot.txt", original)
         apply_text_atomically(target_path, updated)
+        try:
+            mark_repo_wiki_stale(
+                proposal.repo_path,
+                proposal.repo_name,
+                reason="local_coding_apply",
+            )
+        except Exception:
+            # Wiki freshness is advisory; never turn an already-applied,
+            # policy-approved local edit into a false write failure.
+            pass
         command_results = self._run_validation(proposal)
         status = (
             LocalCodingStatus.VALIDATION_PASSED

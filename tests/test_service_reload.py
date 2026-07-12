@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -12,6 +12,10 @@ from codexbridge.service_reload import (
     reload_service,
     rollback_service,
     validate_config_candidate,
+)
+from codexbridge.repo_discovery_integration import (
+    _install_server_binding,
+    resolve_repo_identity_with_discovery,
 )
 
 
@@ -74,6 +78,17 @@ def test_reload_service_rebinds_server_ssh_helpers(
     )
     assert fake_server._run_ssh_gpu_telemetry is tools_module.run_ssh_gpu_telemetry
     assert fake_server._run_ssh_inspection is tools_module.run_ssh_inspection
+
+
+def test_reload_binding_covers_python_module_main_server(monkeypatch) -> None:
+    fake_main = ModuleType("__main__")
+    fake_main.mcp = object()
+    fake_main.resolve_repo_identity = object()
+    monkeypatch.setitem(sys.modules, "__main__", fake_main)
+
+    _install_server_binding()
+
+    assert fake_main.resolve_repo_identity is resolve_repo_identity_with_discovery
 
 
 def test_reload_service_marks_unreloadable_modules_restart_required(

@@ -161,6 +161,8 @@ def test_list_repo_files_skips_symlinked_directory(tmp_path: Path) -> None:
         "node_modules/lodash/index.js",
         "credentials/prod.json",
         "secrets/key.txt",
+        "runs/generated.txt",
+        ".codex-pytest-temp/pytest.txt",
     ],
 )
 def test_list_repo_files_excludes_blocked_names(tmp_path: Path, blocked: str) -> None:
@@ -228,6 +230,44 @@ def test_search_repo_text_skips_binary_files(tmp_path: Path) -> None:
     paths = [h["path"] for h in result["hits"]]
     assert "text.txt" in paths
     assert "binary.bin" not in paths
+
+
+def test_search_repo_text_supports_targeted_patterns(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "src" / "module.py", "needle\n")
+    write(repo / "src" / "notes.txt", "needle\n")
+    write(repo / "other.py", "needle\n")
+
+    result = search_repo_text(
+        repo,
+        "needle",
+        directory="src",
+        file_patterns=["*.py"],
+    )
+
+    assert result["ok"] is True
+    assert [hit["path"] for hit in result["hits"]] == ["src/module.py"]
+
+
+def test_search_repo_text_budget_exhaustion_is_structured(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "module.py", "needle\n")
+    monkeypatch.setattr(repo_reader.shutil, "which", lambda _: "rg")
+
+    def timeout(*args, **kwargs):
+        raise repo_reader.subprocess.TimeoutExpired(args[0], 0.1)
+
+    monkeypatch.setattr(repo_reader.subprocess, "run", timeout)
+
+    result = search_repo_text(repo, "needle", budget_ms=100)
+
+    assert result["ok"] is False
+    assert result["status"] == "interactive_search_budget_exceeded"
+    assert result["fresh"] is False
+    assert result["partial_results"] == []
+    assert "durable" in result["recommended_action"]
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +582,37 @@ def test_server_repo_git_status_tool(tmp_path: Path, monkeypatch) -> None:
     assert result["ok"] is True
     assert result["repo_name"] == "myrepo"
     assert "main" in result["status"]
+
+
+def test_server_repo_status_does_not_claim_success_after_live_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import codexbridge.server as server
+    from codexbridge.config import AppConfig, RepoConfig
+
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"myrepo": RepoConfig(path=str(tmp_path))},
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "inspect_status",
+        lambda root: {
+            "ok": False,
+            "status": "timed_out",
+            "fresh": False,
+            "source": "live_git",
+            "error": "timed out",
+        },
+    )
+
+    result = server.inspect_repo_status("myrepo")
+
+    assert result["ok"] is False
+    assert result["fresh"] is False
+    assert result["status"] == "timed_out"
 
 
 def test_server_repo_git_diff_tool(tmp_path: Path, monkeypatch) -> None:

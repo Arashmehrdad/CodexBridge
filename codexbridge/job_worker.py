@@ -48,6 +48,7 @@ from .run_guards import (
     snapshot_workspace,
 )
 from .runner import CodexRunner, _safe_command_args
+from .repo_wiki import mark_repo_wiki_stale
 from .safety import reject_destructive_command, validate_repo_relative_paths
 from .ssh_commands import resolve_ssh_host, run_ssh_command
 from .ssh_watchdog import start_monitored_ssh_command
@@ -199,6 +200,23 @@ class JobWorker:
                     else "completed"
                 )
             )
+            if (
+                self.run["tool"] == "codex_implement_task"
+                and status in {"completed", "partial"}
+                and result.get("changed_files")
+            ):
+                try:
+                    result["wiki_freshness"] = mark_repo_wiki_stale(
+                        resolve_repo(self.config, self.run["repo_name"]),
+                        self.run["repo_name"],
+                        reason="codex_implement_task",
+                    )
+                except Exception as exc:
+                    result["wiki_freshness"] = {
+                        "ok": False,
+                        "stale": None,
+                        "error": str(exc),
+                    }
             ended_at = result["ended_at"]
             artifact_error = ""
             try:

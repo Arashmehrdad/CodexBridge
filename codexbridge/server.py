@@ -4,6 +4,7 @@ import argparse
 import inspect
 import json
 import socket
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -53,6 +54,7 @@ from .managed_artifacts import (
 from .operation_locks import repository_operation_lock
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
+from .repo_wiki import mark_repo_wiki_stale
 from .command_profiles import (
     build_git_readonly_profile,
     resolve_command_profile,
@@ -297,11 +299,24 @@ REPO_STATUS_OUTPUT = {
         "repo_name": {"type": "string"},
         "branch": {"type": "string"},
         "status": {"type": "string"},
+        "head_commit": {"type": "string"},
         "git_status": {"type": "string"},
+        "staged": {"type": "array", "items": {"type": "string"}},
+        "unstaged": {"type": "array", "items": {"type": "string"}},
+        "untracked": {"type": "array", "items": {"type": "string"}},
+        "deleted": {"type": "array", "items": {"type": "string"}},
+        "renamed": {"type": "array", "items": {"type": "string"}},
         "changed_files": {"type": "array", "items": {"type": "string"}},
+        "total_changed_file_count": {"type": "integer"},
         "diff_stat": {"type": "string"},
         "recent_commits": {"type": "array", "items": {"type": "string"}},
         "manifest": {"type": "object", "additionalProperties": True},
+        "generated_at": {"type": "number"},
+        "duration_ms": {"type": "number"},
+        "fresh": {"type": "boolean"},
+        "source": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "recommended_action": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -430,6 +445,14 @@ SEARCH_REPO_TEXT_OUTPUT = {
         "query": {"type": "string"},
         "directory": {"type": "string"},
         "case_sensitive": {"type": "boolean"},
+        "file_patterns": {"type": "array", "items": {"type": "string"}},
+        "budget_ms": {"type": "integer"},
+        "status": {"type": "string"},
+        "fresh": {"type": "boolean"},
+        "partial_results": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "files_examined": {"type": "integer"},
+        "duration_ms": {"type": "number"},
+        "recommended_action": {"type": "string"},
         "hits": {
             "type": "array",
             "items": {
@@ -477,6 +500,11 @@ REPO_GIT_STATUS_OUTPUT = {
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "status": {"type": "string"},
+        "fresh": {"type": "boolean"},
+        "source": {"type": "string"},
+        "generated_at": {"type": "number"},
+        "duration_ms": {"type": "number"},
+        "recommended_action": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -807,6 +835,15 @@ def _with_capability_metadata(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _mark_wiki_stale_safely(
+    repo_root: Path, repo_name: str, reason: str
+) -> dict[str, Any]:
+    try:
+        return mark_repo_wiki_stale(repo_root, repo_name, reason=reason)
+    except Exception as exc:
+        return {"ok": False, "stale": None, "error": str(exc)}
+
+
 def _locked_repo_operation(
     repo_name: str,
     tool: str,
@@ -837,6 +874,10 @@ def _locked_repo_operation(
                 result["ok"] = False
                 result["status"] = "commit_failed"
                 result["error"] = commit_data["commit_error"]
+        if result.get("ok") and result.get("changed_files"):
+            result["wiki_freshness"] = _mark_wiki_stale_safely(
+                repo_root, canonical_name, tool
+            )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
@@ -862,11 +903,34 @@ async def list_capabilities() -> dict:
 def inspect_repo_status(repo_name: str) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = dict(inspect_status(repo_root))
+    try:
+        result = dict(inspect_status(repo_root))
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "status": "failed",
+            "fresh": False,
+            "source": "live_git",
+            "generated_at": time.time(),
+            "duration_ms": 0.0,
+            "error": str(exc),
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+        }
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
-    result["ok"] = True
+    result.setdefault("ok", False)
+    result.setdefault("status", "unavailable")
+    result.setdefault("fresh", False)
+    result.setdefault("source", "live_git")
+    result.setdefault("head_commit", "")
+    result.setdefault("generated_at", time.time())
+    result.setdefault("duration_ms", 0.0)
+    result.setdefault("truncated", False)
+    result.setdefault(
+        "recommended_action",
+        "Retry the live repository-status check; do not use a cached snapshot.",
+    )
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     changed_files = result.get("changed_files")
     if isinstance(changed_files, list):
@@ -877,6 +941,12 @@ def inspect_repo_status(repo_name: str) -> dict:
     result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
     git_status_text = result.get("git_status")
     result["git_status"] = git_status_text if isinstance(git_status_text, str) else ""
+    for key in ("staged", "unstaged", "untracked", "deleted", "renamed"):
+        value = result.get(key)
+        result[key] = [str(item) for item in value] if isinstance(value, list) else []
+    result["total_changed_file_count"] = int(
+        result.get("total_changed_file_count") or len(result["changed_files"])
+    )
     return result
 
 
@@ -884,14 +954,35 @@ def inspect_repo_status(repo_name: str) -> dict:
 def inspect_repo_status_compact(repo_name: str) -> dict:
     """Read-only: return a compact repository status with tool-owned changes summarized."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = dict(inspect_status_compact(repo_root))
+    try:
+        result = dict(inspect_status_compact(repo_root))
+    except subprocess.TimeoutExpired as exc:
+        result = {
+            "ok": False,
+            "status": "timed_out",
+            "fresh": False,
+            "source": "live_git",
+            "error": str(exc),
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+        }
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "status": "failed",
+            "fresh": False,
+            "source": "live_git",
+            "error": str(exc),
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+        }
     result.pop("git_status", None)
     result.pop("manifest", None)
     result.pop("tool_owned", None)
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
-    result["ok"] = True
+    result.setdefault("ok", False)
+    result.setdefault("fresh", True if result["ok"] else False)
+    result.setdefault("source", "live_git")
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     diff_stat = result.get("diff_stat")
     result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
@@ -1008,6 +1099,10 @@ def commit_selected_files(
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if result.get("ok") and result.get("commit_hash"):
+        result["wiki_freshness"] = _mark_wiki_stale_safely(
+            repo_root, canonical_name, "commit_selected_files"
+        )
     return result
 
 
@@ -1037,6 +1132,10 @@ def stage_all(repo_name: str) -> dict:
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if result.get("ok") and result.get("changed_files"):
+        result["wiki_freshness"] = _mark_wiki_stale_safely(
+            repo_root, canonical_name, "stage_all"
+        )
     return result
 
 
@@ -1091,6 +1190,10 @@ def commit_all_changes(repo_name: str, title: str, description: str = "") -> dic
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if result.get("ok") and result.get("commit_hash"):
+        result["wiki_freshness"] = _mark_wiki_stale_safely(
+            repo_root, canonical_name, "commit_all_changes"
+        )
     return result
 
 
@@ -2161,6 +2264,8 @@ def search_repo_text(
     directory: str = "",
     max_results: int = 50,
     case_sensitive: bool = False,
+    file_patterns: list[str] | None = None,
+    budget_ms: int = 5_000,
 ) -> dict:
     """Read-only: search for a literal string in repository text files. Returns path, line, and redacted snippets."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2170,6 +2275,8 @@ def search_repo_text(
         directory=directory,
         max_results=max_results,
         case_sensitive=case_sensitive,
+        file_patterns=file_patterns,
+        budget_ms=budget_ms,
     )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
@@ -2194,13 +2301,44 @@ def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
 def repo_git_status(repo_name: str) -> dict:
     """Read-only: return raw git status --short --branch output for a whitelisted repository."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    status_text = git_status(repo_root)
-    result = {
-        "ok": True,
-        "repo_name": canonical_name,
-        "status": status_text,
-        "error": "",
-    }
+    started = time.monotonic()
+    try:
+        status_text = git_status(repo_root)
+        result = {
+            "ok": True,
+            "repo_name": canonical_name,
+            "status": status_text,
+            "fresh": True,
+            "source": "live_git",
+            "generated_at": time.time(),
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "recommended_action": "",
+            "error": "",
+        }
+    except subprocess.TimeoutExpired as exc:
+        result = {
+            "ok": False,
+            "repo_name": canonical_name,
+            "status": "timed_out",
+            "fresh": False,
+            "source": "live_git",
+            "generated_at": time.time(),
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+            "error": str(exc),
+        }
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "repo_name": canonical_name,
+            "status": "failed",
+            "fresh": False,
+            "source": "live_git",
+            "generated_at": time.time(),
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+            "error": str(exc),
+        }
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
     return result
@@ -2535,6 +2673,15 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_query(request: RepoQueryRequest) -> dict:
     """Read-only gateway for bounded repository inspection and patch lifecycle status."""
+    try:
+        _repo_context(request.repo_name)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "repo_name": request.repo_name,
+            "status": "invalid_repo_resolution",
+            "error": str(exc),
+        }
     if request.operation == "status":
         return inspect_repo_status(request.repo_name)
     if request.operation == "compact_status":
@@ -2552,6 +2699,8 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.directory,
             request.max_results,
             request.case_sensitive,
+            request.file_patterns,
+            request.budget_ms,
         )
     if request.operation == "recent_files":
         return get_recently_modified_files(request.repo_name, request.limit)

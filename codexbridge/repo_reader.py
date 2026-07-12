@@ -9,9 +9,12 @@ and never invoke Codex CLI, any AI model, or any agent component.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .safety import validate_repo_relative_path, redact_secret_values
@@ -37,10 +40,21 @@ _BLOCKED_NAMES: frozenset[str] = frozenset(
         ".pytest_cache",
         ".mypy_cache",
         ".ruff_cache",
+        ".codex-pytest-temp",
         ".tmp.driveupload",
         ".tox",
         ".nox",
         "node_modules",
+        "runs",
+        "dist",
+        "build",
+        "coverage",
+        "htmlcov",
+        ".next",
+        "generated",
+        "media",
+        "artifacts",
+        "models",
         "credentials",
         "secrets",
     ]
@@ -228,6 +242,23 @@ def list_repo_files(
     else:
         base_abs = repo_root
 
+    # Prefer Git's ignore-aware tracked/untracked view. A filesystem fallback
+    # remains necessary for test fixtures and repositories without a usable
+    # Git worktree.
+    git_files = _git_list_repo_files(repo_root, directory)
+    if git_files is not None:
+        files = git_files[:max_results]
+        return {
+            "ok": True,
+            "repo_name": "",
+            "directory": directory,
+            "files": sorted(files),
+            "count": len(files),
+            "truncated": len(git_files) > max_results,
+            "max_results": max_results,
+            "error": "",
+        }
+
     files: list[str] = []
     truncated = False
     count = 0
@@ -268,6 +299,41 @@ def list_repo_files(
         "max_results": max_results,
         "error": "",
     }
+
+
+def _git_list_repo_files(repo_root: Path, directory: str) -> list[str] | None:
+    git_marker = repo_root / ".git"
+    if git_marker.is_dir() and not (git_marker / "HEAD").is_file():
+        return None
+    args = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
+    if directory:
+        args.extend(["--", directory])
+    try:
+        result = subprocess.run(
+            args,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    files: list[str] = []
+    for raw in result.stdout.splitlines():
+        relative = raw.strip().replace("\\", "/")
+        if not relative:
+            continue
+        try:
+            absolute = _resolve_and_validate(repo_root, relative)
+        except ValueError:
+            continue
+        if absolute.is_file() and not absolute.is_symlink():
+            files.append(relative)
+    return sorted(set(files))
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +414,8 @@ def search_repo_text(
     directory: str = "",
     max_results: int = 50,
     case_sensitive: bool = False,
+    file_patterns: list[str] | None = None,
+    budget_ms: int = 5_000,
 ) -> dict:
     """
     Search for *query* as a literal substring in text files under *directory*.
@@ -358,6 +426,7 @@ def search_repo_text(
         raise ValueError("query must not be empty")
 
     max_results = max(1, min(int(max_results), 500))
+    budget_ms = max(100, min(int(budget_ms), 30_000))
 
     if directory:
         base_abs = _resolve_and_validate(repo_root, directory)
@@ -366,70 +435,251 @@ def search_repo_text(
     else:
         base_abs = repo_root
 
+    patterns = list(file_patterns or [])
+    if len(patterns) > 20 or any(
+        not isinstance(pattern, str)
+        or not pattern.strip()
+        or len(pattern) > 200
+        or Path(pattern).is_absolute()
+        or ".." in Path(pattern).parts
+        for pattern in patterns
+    ):
+        raise ValueError("file_patterns must contain safe, non-empty glob patterns")
+
+    rg = shutil.which("rg")
+    if rg:
+        return _search_with_ripgrep(
+            repo_root,
+            query,
+            directory,
+            max_results,
+            case_sensitive,
+            patterns,
+            budget_ms,
+        )
+
+    # Safe bounded fallback for environments without ripgrep.
+    started = time.monotonic()
     flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        pattern = re.compile(re.escape(query), flags)
-    except re.error as exc:
-        raise ValueError(f"Invalid search query: {exc}") from exc
-
+    pattern = re.compile(re.escape(query), flags)
     hits: list[dict] = []
-    truncated = False
-
+    files_examined = 0
+    timed_out = False
     for dirpath, dirnames, filenames in os.walk(base_abs):
         current = Path(dirpath)
-
-        original_dirs = list(dirnames)
-        dirnames[:] = []
-        for d in original_dirs:
-            child = current / d
-            if _path_is_allowed(repo_root, child) and not child.is_symlink():
-                dirnames.append(d)
-
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if _path_is_allowed(repo_root, current / d)
+            and not (current / d).is_symlink()
+        ]
         for filename in sorted(filenames):
-            if len(hits) >= max_results:
-                truncated = True
+            if (time.monotonic() - started) * 1000 >= budget_ms:
+                timed_out = True
                 break
             child = current / filename
-            if not _path_is_allowed(repo_root, child):
+            if not _path_is_allowed(repo_root, child) or child.is_symlink():
                 continue
-            if child.is_symlink():
+            if patterns and not any(Path(filename).match(p) for p in patterns):
                 continue
+            files_examined += 1
             if _is_binary(child):
                 continue
             try:
-                size = child.stat().st_size
-                if size > MAX_FILE_BYTES:
+                if child.stat().st_size > MAX_FILE_BYTES:
                     continue
                 text = child.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                if len(hits) >= max_results:
-                    truncated = True
-                    break
+            for lineno, line in enumerate(text.splitlines(), 1):
                 if pattern.search(line):
-                    snippet = _redact_text(line.rstrip("\n")[:200])
-                    hits.append(
-                        {
-                            "path": _posix_relative(repo_root, child),
-                            "line": lineno,
-                            "snippet": snippet,
-                        }
-                    )
-
-        if truncated:
+                    hits.append({"path": _posix_relative(repo_root, child), "line": lineno, "snippet": _redact_text(line[:200])})
+                    if len(hits) >= max_results:
+                        timed_out = True
+                        break
+            if timed_out:
+                break
+        if timed_out:
             break
-
+    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    if timed_out and len(hits) < max_results:
+        return {
+            "ok": False,
+            "status": "interactive_search_budget_exceeded",
+            "fresh": False,
+            "repo_name": "",
+            "query": query,
+            "directory": directory,
+            "case_sensitive": case_sensitive,
+            "hits": [],
+            "partial_results": hits,
+            "count": len(hits),
+            "files_examined": files_examined,
+            "duration_ms": duration_ms,
+            "truncated": True,
+            "max_results": max_results,
+            "recommended_action": "Narrow the directory/query or start a durable repository-analysis job.",
+            "error": "Interactive search budget exceeded",
+        }
     return {
         "ok": True,
+        "status": "available",
+        "fresh": True,
+        "repo_name": "",
+        "query": query,
+        "directory": directory,
+        "case_sensitive": case_sensitive,
+        "hits": hits[:max_results],
+        "count": min(len(hits), max_results),
+        "files_examined": files_examined,
+        "duration_ms": duration_ms,
+        "truncated": len(hits) >= max_results,
+        "max_results": max_results,
+        "error": "",
+    }
+
+
+def _search_with_ripgrep(
+    repo_root: Path,
+    query: str,
+    directory: str,
+    max_results: int,
+    case_sensitive: bool,
+    file_patterns: list[str],
+    budget_ms: int,
+) -> dict:
+    started = time.monotonic()
+    args = [
+        "rg",
+        "--json",
+        "--no-heading",
+        "--color",
+        "never",
+        "--fixed-strings",
+        "--max-filesize",
+        str(MAX_FILE_BYTES),
+    ]
+    if not case_sensitive:
+        args.append("--ignore-case")
+    for pattern in file_patterns:
+        args.extend(["--glob", pattern])
+    # rg already honors .gitignore; these additional ignores cover generated
+    # artifacts that are often outside a repository's .gitignore.
+    target_is_generated = directory and any(
+        part.lower() in _BLOCKED_NAMES for part in Path(directory).parts
+    )
+    if not target_is_generated:
+        for excluded in ("runs", ".codex-pytest-temp", "generated", "media", "artifacts", "models"):
+            args.extend(["--glob", f"!{excluded}/**"])
+    args.extend(["--", query, directory or "."])
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=budget_ms / 1000,
+        )
+        timed_out = False
+        raw_output = completed.stdout
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        raw_output = exc.stdout or ""
+        if isinstance(raw_output, bytes):
+            raw_output = raw_output.decode("utf-8", errors="replace")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "status": "failed",
+            "fresh": False,
+            "repo_name": "",
+            "query": query,
+            "directory": directory,
+            "case_sensitive": case_sensitive,
+            "hits": [],
+            "partial_results": [],
+            "count": 0,
+            "files_examined": 0,
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "truncated": False,
+            "max_results": max_results,
+            "error": str(exc),
+        }
+
+    hits: list[dict] = []
+    files: set[str] = set()
+    for line in str(raw_output).splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        data = event.get("data") or {}
+        path_data = data.get("path") or {}
+        relative = str(path_data.get("text") or "").replace("\\", "/")
+        if relative.startswith("./"):
+            relative = relative[2:]
+        if not relative:
+            continue
+        files.add(relative)
+        text = str(data.get("lines", {}).get("text", "")).rstrip("\r\n")
+        hits.append({"path": relative, "line": int(data.get("line_number") or 0), "snippet": _redact_text(text[:200])})
+        if len(hits) >= max_results:
+            break
+    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    if timed_out:
+        return {
+            "ok": False,
+            "status": "interactive_search_budget_exceeded",
+            "fresh": False,
+            "repo_name": "",
+            "query": query,
+            "directory": directory,
+            "case_sensitive": case_sensitive,
+            "hits": [],
+            "partial_results": hits,
+            "count": len(hits),
+            "files_examined": len(files),
+            "duration_ms": duration_ms,
+            "truncated": True,
+            "max_results": max_results,
+            "recommended_action": "Narrow the directory/query or start a durable repository-analysis job.",
+            "error": "Interactive search budget exceeded",
+        }
+    if completed.returncode not in {0, 1}:
+        return {
+            "ok": False,
+            "status": "failed",
+            "fresh": False,
+            "repo_name": "",
+            "query": query,
+            "directory": directory,
+            "case_sensitive": case_sensitive,
+            "hits": [],
+            "partial_results": hits,
+            "count": len(hits),
+            "files_examined": len(files),
+            "duration_ms": duration_ms,
+            "truncated": False,
+            "max_results": max_results,
+            "error": completed.stderr.strip()[:1000],
+        }
+    return {
+        "ok": True,
+        "status": "available",
+        "fresh": True,
         "repo_name": "",
         "query": query,
         "directory": directory,
         "case_sensitive": case_sensitive,
         "hits": hits,
         "count": len(hits),
-        "truncated": truncated,
+        "files_examined": len(files),
+        "duration_ms": duration_ms,
+        "truncated": len(hits) >= max_results,
         "max_results": max_results,
         "error": "",
     }

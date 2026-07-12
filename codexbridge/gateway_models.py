@@ -249,6 +249,8 @@ class RepoSearchTextQuery(GatewayModel):
     directory: str = Field(default="", max_length=1024)
     max_results: int = Field(default=50, ge=1, le=500)
     case_sensitive: bool = False
+    file_patterns: list[str] = Field(default_factory=list, max_length=20)
+    budget_ms: int = Field(default=5_000, ge=100, le=30_000)
 
 
 class RepoRecentFilesQuery(GatewayModel):

@@ -19,6 +19,7 @@ TOOL_OWNED_PREFIXES = (
     ".ruff_cache/",
     "tests/pytest_tmp_probe/",
 )
+GIT_OPERATION_TIMEOUT_SECONDS = 10.0
 FULL_COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -95,6 +96,7 @@ def _run_git(
     *,
     check: bool = False,
     env: dict[str, str] | None = None,
+    timeout_seconds: float = GIT_OPERATION_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     argv = ["git", *args]
     started = time.monotonic()
@@ -105,6 +107,7 @@ def _run_git(
         text=True,
         capture_output=True,
         check=False,
+        timeout=timeout_seconds,
     )
     if check and result.returncode != 0:
         raise GitCommandError(
@@ -121,7 +124,11 @@ def _run_git(
 
 
 def _run_git_bytes(
-    repo_root: Path, args: list[str], *, check: bool = False
+    repo_root: Path,
+    args: list[str],
+    *,
+    check: bool = False,
+    timeout_seconds: float = GIT_OPERATION_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[bytes]:
     argv = ["git", *args]
     started = time.monotonic()
@@ -131,6 +138,7 @@ def _run_git_bytes(
         text=False,
         capture_output=True,
         check=False,
+        timeout=timeout_seconds,
     )
     if check and result.returncode != 0:
         raise GitCommandError(
@@ -259,15 +267,141 @@ def _file_metadata(
 
 
 def inspect_status(repo_root: Path) -> dict:
-    manifest = dry_run_stage_manifest(repo_root)
-    return {
-        "branch": git_branch(repo_root),
-        "git_status": manifest["git_status"],
-        "recent_commits": recent_commits(repo_root),
-        "diff_stat": diff_stat(repo_root),
-        "changed_files": changed_files(repo_root),
-        "manifest": manifest,
-    }
+    """Return one bounded, live Git status snapshot.
+
+    This deliberately does not reuse ``dry_run_stage_manifest``: status must
+    have one explicit freshness boundary and a failure must never be turned
+    into an apparently clean response by a caller.
+    """
+    started = time.monotonic()
+
+    def failure(status: str, error: str, *, partial: dict[str, Any] | None = None) -> dict:
+        result: dict[str, Any] = {
+            "ok": False,
+            "status": status,
+            "branch": "",
+            "head_commit": "",
+            "git_status": "",
+            "staged": [],
+            "unstaged": [],
+            "untracked": [],
+            "deleted": [],
+            "renamed": [],
+            "changed_files": [],
+            "total_changed_file_count": 0,
+            "recent_commits": [],
+            "diff_stat": "",
+            "manifest": {},
+            "generated_at": time.time(),
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "fresh": False,
+            "source": "live_git",
+            "truncated": False,
+            "error": error[:1000],
+            "recommended_action": "Retry the live repository-status check; do not use a cached snapshot.",
+        }
+        if partial:
+            result["partial"] = partial
+        return result
+
+    try:
+        status_result = _run_git(
+            repo_root,
+            ["status", "--short", "--branch", "--untracked-files=all"],
+        )
+        if status_result.returncode != 0:
+            return failure(
+                "failed",
+                status_result.stderr.strip() or "git status failed",
+            )
+
+        head_result = _run_git(repo_root, ["rev-parse", "HEAD"])
+        if head_result.returncode != 0:
+            return failure(
+                "failed",
+                head_result.stderr.strip() or "could not resolve HEAD",
+                partial={"git_status": status_result.stdout},
+            )
+
+        branch = ""
+        entries: list[str] = []
+        for line in status_result.stdout.splitlines():
+            if line.startswith("## "):
+                branch = line[3:].split("...", 1)[0].strip()
+            else:
+                entries.append(line)
+
+        staged: list[str] = []
+        unstaged: list[str] = []
+        untracked: list[str] = []
+        deleted: list[str] = []
+        renamed: list[str] = []
+        changed: list[str] = []
+        manifest_files: list[dict[str, str]] = []
+        for line in entries:
+            if len(line) < 4:
+                continue
+            index_status, worktree_status = line[0], line[1]
+            path = line[3:]
+            if " -> " in path:
+                old_path, path = path.split(" -> ", 1)
+                renamed.append(f"{old_path} -> {path}")
+            if index_status == "?" and worktree_status == "?":
+                untracked.append(path)
+            else:
+                if index_status not in {" ", "?", "!"}:
+                    staged.append(path)
+                if worktree_status not in {" ", "?", "!"}:
+                    unstaged.append(path)
+                if "D" in {index_status, worktree_status}:
+                    deleted.append(path)
+            changed.append(path)
+            manifest_files.append(
+                {
+                    "path": path,
+                    "index_status": index_status,
+                    "worktree_status": worktree_status,
+                }
+            )
+
+        # These are useful context, but a missing log on an empty repository
+        # should not erase a successfully obtained live status snapshot.
+        log_result = _run_git(repo_root, ["log", "--oneline", "-n", "5"])
+        diff_result = _run_git(repo_root, ["diff", "--stat"])
+        return {
+            "ok": True,
+            "status": "available",
+            "branch": branch,
+            "head_commit": head_result.stdout.strip(),
+            "git_status": status_result.stdout,
+            "staged": sorted(set(staged)),
+            "unstaged": sorted(set(unstaged)),
+            "untracked": sorted(set(untracked)),
+            "deleted": sorted(set(deleted)),
+            "renamed": sorted(set(renamed)),
+            "changed_files": sorted(set(changed)),
+            "total_changed_file_count": len(set(changed)),
+            "recent_commits": [line for line in log_result.stdout.splitlines() if line.strip()],
+            "diff_stat": diff_result.stdout,
+            "manifest": {
+                "staged": sorted(set(staged)),
+                "unstaged": sorted(set(unstaged)),
+                "untracked": sorted(set(untracked)),
+                "deleted": sorted(set(deleted)),
+                "renamed": sorted(set(renamed)),
+                "files": manifest_files,
+            },
+            "generated_at": time.time(),
+            "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            "fresh": True,
+            "source": "live_git",
+            "truncated": False,
+            "error": "",
+        }
+    except subprocess.TimeoutExpired as exc:
+        return failure("timed_out", f"Git status timed out: {exc}")
+    except (OSError, GitCommandError, ValueError) as exc:
+        return failure("failed", str(exc))
 
 
 def _tool_owned_root_group(path: str) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path, PureWindowsPath
 from typing import Dict, List, Literal
 
@@ -772,6 +773,59 @@ class AppConfig(BaseModel):
         return self.resolve_runs_dir()
 
 
+def _configured_parent_repo(
+    config: AppConfig, repo_name: str, repo_path: Path
+) -> tuple[str, Path] | None:
+    """Return the configured repository that contains ``repo_path``, if any."""
+    for candidate_name, candidate in config.repos.items():
+        if candidate_name == repo_name:
+            continue
+        candidate_path = Path(candidate.path).resolve()
+        if candidate_path == repo_path:
+            continue
+        try:
+            repo_path.relative_to(candidate_path)
+        except ValueError:
+            continue
+        return candidate_name, candidate_path
+    return None
+
+
+def _git_worktree_root(repo_path: Path) -> Path | None:
+    """Return Git's worktree root, or ``None`` for lightweight fixtures."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def _validate_repo_path(config: AppConfig, repo_name: str, repo_path: Path) -> None:
+    if not repo_path.exists():
+        raise ValueError(f"Repo '{repo_name}' path does not exist: {repo_path}")
+    if not repo_path.is_dir():
+        raise ValueError(f"Repo '{repo_name}' path is not a directory: {repo_path}")
+    if not (repo_path / ".git").exists():
+        raise ValueError(f"Repo '{repo_name}' path does not contain .git: {repo_path}")
+
+    parent = _configured_parent_repo(config, repo_name, repo_path)
+    if parent is not None and _git_worktree_root(repo_path) != repo_path:
+        parent_name, parent_path = parent
+        raise ValueError(
+            f"Repo '{repo_name}' path is nested under configured repo "
+            f"'{parent_name}' ({parent_path}) but is not an independent Git "
+            f"repository: {repo_path}"
+        )
+
+
 def load_config(
     path: str | Path = "config.yaml", *, validate_repos: bool = True
 ) -> AppConfig:
@@ -817,8 +871,5 @@ def resolve_repo_identity(
     """Resolve one canonical repository identity for every tool family."""
     canonical_name, repo = resolve_repo_config(config, repo_name)
     repo_path = Path(repo.path).resolve()
-    if not repo_path.exists():
-        raise ValueError(f"Repo path does not exist: {repo_path}")
-    if not (repo_path / ".git").exists():
-        raise ValueError(f"Repo path does not contain .git: {repo_path}")
+    _validate_repo_path(config, canonical_name, repo_path)
     return canonical_name, repo_path, repo

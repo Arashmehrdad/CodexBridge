@@ -33,6 +33,14 @@ WIKI_REFRESH_OUTPUT = {
         "source_file_count": {"type": "integer"},
         "changed_source_files": {"type": "array", "items": {"type": "string"}},
         "scan_truncated": {"type": "boolean"},
+        "stale": {"type": "boolean"},
+        "generation_id": {"type": "string"},
+        "indexed_head": {"type": "string"},
+        "indexed_branch": {"type": "string"},
+        "source_generation": {"type": "integer"},
+        "indexed_source_generation": {"type": "integer"},
+        "incremental": {"type": "boolean"},
+        "refresh_operation_id": {"type": "string"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
@@ -56,10 +64,17 @@ WIKI_PAGE_OUTPUT = {
     "properties": {
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
+        "status": {"type": "string"},
         "page": {"type": "string"},
         "content": {"type": "string"},
         "size_bytes": {"type": "integer"},
         "truncated": {"type": "boolean"},
+        "generation_id": {"type": "string"},
+        "stale": {"type": "boolean"},
+        "indexed_head": {"type": "string"},
+        "indexed_branch": {"type": "string"},
+        "source_generation": {"type": "integer"},
+        "indexed_source_generation": {"type": "integer"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
@@ -119,6 +134,12 @@ KNOWLEDGE_SEARCH_OUTPUT = {
                 ],
             },
         },
+        "generation_id": {"type": "string"},
+        "stale": {"type": "boolean"},
+        "indexed_head": {"type": "string"},
+        "indexed_branch": {"type": "string"},
+        "source_generation": {"type": "integer"},
+        "indexed_source_generation": {"type": "integer"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
@@ -151,6 +172,19 @@ MEMORY_WRITE_OUTPUT = {
         "error",
     ],
 }
+KNOWLEDGE_ACTION_OUTPUT = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        **WIKI_REFRESH_OUTPUT["properties"],
+        **MEMORY_WRITE_OUTPUT["properties"],
+    },
+    "required": ["ok", "repo_name", "error"],
+    "oneOf": [
+        WIKI_REFRESH_OUTPUT,
+        MEMORY_WRITE_OUTPUT,
+    ],
+}
 KNOWLEDGE_QUERY_OUTPUT = {
     "type": "object",
     "additionalProperties": True,
@@ -164,12 +198,8 @@ def _active_server_config(mcp: Any):
     ``python -m codexbridge.server`` executes the server as ``__main__``. Importing
     ``codexbridge.server`` again would create a second module with a separate
     ``_config`` global. Resolve the module that owns the active MCP object instead,
-    then cache its configuration on that MCP instance.
+    then cache its latest configuration on that MCP instance for diagnostics only.
     """
-    cached = getattr(mcp, "_codexbridge_runtime_config", None)
-    if cached is not None:
-        return cached
-
     for module in tuple(sys.modules.values()):
         if module is None or getattr(module, "mcp", None) is not mcp:
             continue
@@ -184,7 +214,7 @@ def _active_server_config(mcp: Any):
         return config
 
     raise RuntimeError(
-        "CodexBridge config has not been loaded in the active MCP process"
+        "CodexBridge active MCP owner/config could not be resolved"
     )
 
 
@@ -254,6 +284,13 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "source_file_count": 0,
                     "changed_source_files": [],
                     "scan_truncated": False,
+                    "generation_id": "",
+                    "indexed_head": "",
+                    "indexed_branch": "",
+                    "source_generation": 0,
+                    "indexed_source_generation": 0,
+                    "incremental": False,
+                    "refresh_operation_id": "",
                     "error": str(exc),
                 },
                 WIKI_REFRESH_OUTPUT,
@@ -272,10 +309,26 @@ def register_knowledge_tools(mcp: Any) -> None:
                 {
                     "ok": False,
                     "repo_name": repo_name,
+                    "status": (
+                        "corrupt"
+                        if any(
+                            marker in str(exc).lower()
+                            for marker in ("current.json", "generation", "manifest_sha256")
+                        )
+                        else "not_found"
+                        if isinstance(exc, FileNotFoundError)
+                        else "failed"
+                    ),
                     "page": page,
                     "content": "",
                     "size_bytes": 0,
                     "truncated": False,
+                    "generation_id": "",
+                    "stale": False,
+                    "indexed_head": "",
+                    "indexed_branch": "",
+                    "source_generation": 0,
+                    "indexed_source_generation": 0,
                     "error": str(exc),
                 },
                 WIKI_PAGE_OUTPUT,
@@ -291,7 +344,7 @@ def register_knowledge_tools(mcp: Any) -> None:
         try:
             config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
             maximum = max(1, min(limit, 50))
-            wiki_hits = RepoWikiService(repo_root, canonical_name).search(
+            wiki = RepoWikiService(repo_root, canonical_name).search_with_metadata(
                 query, limit=maximum
             )
             memory = ProjectMemoryRepository(config=config)
@@ -307,8 +360,14 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "ok": True,
                     "repo_name": canonical_name,
                     "query": query,
-                    "wiki_hits": wiki_hits,
+                    "wiki_hits": wiki["hits"],
                     "memory_hits": memory_hits,
+                    "generation_id": wiki["generation_id"],
+                    "stale": wiki["stale"],
+                    "indexed_head": wiki["indexed_head"],
+                    "indexed_branch": wiki["indexed_branch"],
+                    "source_generation": wiki["source_generation"],
+                    "indexed_source_generation": wiki["indexed_source_generation"],
                     "error": "",
                 },
                 KNOWLEDGE_SEARCH_OUTPUT,
@@ -321,6 +380,12 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "query": query,
                     "wiki_hits": [],
                     "memory_hits": [],
+                    "generation_id": "",
+                    "stale": False,
+                    "indexed_head": "",
+                    "indexed_branch": "",
+                    "source_generation": 0,
+                    "indexed_source_generation": 0,
                     "error": str(exc),
                 },
                 KNOWLEDGE_SEARCH_OUTPUT,
@@ -378,7 +443,7 @@ def register_knowledge_tools(mcp: Any) -> None:
             request.repo_name, request.query, request.limit, request.include_global_memory
         )
 
-    @mcp.tool(output_schema=MEMORY_WRITE_OUTPUT, annotations=WRITE_ANNOTATIONS)
+    @mcp.tool(output_schema=KNOWLEDGE_ACTION_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def knowledge_action(request: KnowledgeActionRequest) -> dict:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action == "refresh_wiki":

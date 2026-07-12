@@ -116,9 +116,14 @@ def resolve_repo_with_discovery(
 
 
 def _install_server_binding() -> None:
-    server_module = sys.modules.get("codexbridge.server")
-    if server_module is not None:
-        server_module.resolve_repo_identity = resolve_repo_identity_with_discovery
+    # ``python -m codexbridge.server`` owns the active MCP instance from the
+    # ``__main__`` module, while imported/test servers use ``codexbridge.server``.
+    # Rebind both forms after a runtime config reload so repository tools keep
+    # using the same canonical resolver.
+    for module_name in ("codexbridge.server", "__main__"):
+        server_module = sys.modules.get(module_name)
+        if server_module is not None and getattr(server_module, "mcp", None) is not None:
+            server_module.resolve_repo_identity = resolve_repo_identity_with_discovery
 
 
 def install_repo_discovery() -> None:

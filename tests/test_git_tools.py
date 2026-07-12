@@ -60,6 +60,34 @@ def test_temporary_git_repo_status_works(repo: Path) -> None:
     assert status["branch"] in {"master", "main"}
 
 
+def test_inspect_status_has_explicit_freshness_metadata(repo: Path) -> None:
+    status = inspect_status(repo)
+
+    assert status["ok"] is True
+    assert status["fresh"] is True
+    assert status["source"] == "live_git"
+    assert status["status"] == "available"
+    assert status["head_commit"]
+    assert isinstance(status["generated_at"], float)
+    assert isinstance(status["duration_ms"], float)
+    assert status["total_changed_file_count"] == len(status["changed_files"])
+
+
+def test_inspect_status_timeout_is_structured(monkeypatch, repo: Path) -> None:
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 1)
+
+    monkeypatch.setattr(git_tools.subprocess, "run", timeout)
+
+    status = inspect_status(repo)
+
+    assert status["ok"] is False
+    assert status["fresh"] is False
+    assert status["status"] == "timed_out"
+    assert status["changed_files"] == []
+    assert "Retry" in status["recommended_action"]
+
+
 def test_selected_file_commit_commits_only_selected_files(repo: Path) -> None:
     (repo / "one.txt").write_text("one\n", encoding="utf-8")
     (repo / "two.txt").write_text("two\n", encoding="utf-8")
