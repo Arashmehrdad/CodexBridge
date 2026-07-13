@@ -63,7 +63,7 @@ def test_local_agent_does_not_route_edit_tasks_through_policy_execution(
         policy_engine=PolicyEngine(approvals_dir=tmp_path / "runs" / "approvals")
     ).handle_task("fix and refactor policy engine")
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.policy_result is None
 
 
