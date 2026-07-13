@@ -186,6 +186,8 @@ def test_fake_codex_client_called_only_when_invoke_enabled_and_policy_permits(
 
     assert client.called is True
     assert result.status == CodexEscalationStatus.INVOKED
+    assert result.policy_decision["decision"] == "allowed"
+    assert result.policy_decision.get("approval_request_id") is None
 
 
 def test_noop_codex_client_does_not_call_codex(tmp_path: Path) -> None:

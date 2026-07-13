@@ -111,12 +111,18 @@ class CodexEscalationRouter:
                 audit_event_id=audit_id,
             )
 
+        autonomy_profile = (
+            "chatgpt_delegated"
+            if self.router_config.codex_router_require_policy_approval
+            else "permissive"
+        )
         policy = self.policy_engine.evaluate(
             PolicyEvaluationRequest(
                 action=request.objective,
                 action_type=request.task_type or "codex_escalation",
                 repo_name=request.repo_name,
                 repo_path=request.repo_path,
+                autonomy_profile=autonomy_profile,
                 permission_tier="write_apply_under_delegated_approval",
             )
         )
