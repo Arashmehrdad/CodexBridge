@@ -158,6 +158,7 @@ class JobManager:
             expected_state_version=int(run.get("state_version") or 0),
             expected_lease_token=lease_token,
             expected_lease_generation=lease_generation,
+            expected_heartbeat_at=run.get("heartbeat_at"),
         )
         if failed is None:
             return False
@@ -174,6 +175,9 @@ class JobManager:
         run_id = run["run_id"]
         status = str(run.get("status") or "")
         lease_token = str(run.get("worker_lease_token") or "")
+        lease_generation = int(run.get("lease_generation") or 1)
+        state_version = int(run.get("state_version") or 0)
+        observed_heartbeat = run.get("heartbeat_at")
         worker_pid = int(run.get("worker_pid") or 0)
         worker_identity = str(run.get("worker_identity") or "")
         launcher_pid = int(run.get("launcher_pid") or 0)
@@ -183,45 +187,97 @@ class JobManager:
         child_running = process_is_running(child_pid)
 
         if worker_verified:
-            self.locks.claim_owner(
+            adopted = self.store.adopt_worker(
+                run_id,
+                expected_state_version=state_version,
+                lease_token=lease_token,
+                lease_generation=lease_generation,
+                expected_heartbeat_at=observed_heartbeat,
+            )
+            current = adopted or self.store.get_run(run_id)
+            if adopted is None and not (
+                current["status"] == "running"
+                and str(current.get("worker_lease_token") or "") == lease_token
+                and int(current.get("lease_generation") or 1) == lease_generation
+                and process_matches_identity(
+                    int(current.get("worker_pid") or 0),
+                    str(current.get("worker_identity") or ""),
+                )
+            ):
+                return
+            lock_claimed = self.locks.claim_owner(
                 run["repo_name"],
                 run_id,
-                owner_pid=worker_pid,
+                owner_pid=int(current.get("worker_pid") or worker_pid),
                 owner_token=lease_token,
+                lease_generation=lease_generation,
             )
-            self._append_recovery_event(
-                run,
-                level="info",
-                message="Active worker identity verified after server restart",
-                data={"worker_pid": worker_pid},
-            )
+            if not lock_claimed:
+                reason = "Verified worker could not reclaim matching repository lock ownership"
+                contained = self.store.mark_recovery_pending(
+                    run_id,
+                    reason,
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=lease_token,
+                    expected_lease_generation=lease_generation,
+                    expected_heartbeat_at=current.get("heartbeat_at"),
+                )
+                if contained is not None:
+                    self._append_recovery_event(run, level="error", message=reason)
+                return
+            if adopted is not None:
+                self._append_recovery_event(
+                    run,
+                    level="info",
+                    message="Active worker identity verified after server restart",
+                    data={"worker_pid": worker_pid},
+                )
             return
 
         if run["tool"] == "ssh_monitored_command":
             reason = (
                 "Server restarted while monitored remote execution may still be active"
             )
-            self.store.update_run(
+            pending = self.store.conditional_update(
                 run_id,
-                status="cancellation_pending",
-                current_phase="cancellation_pending",
-                ended_at=None,
-                error=reason,
-                recovery_reason=reason,
-                safety_failure=True,
+                fields={
+                    "status": "cancellation_pending",
+                    "current_phase": "cancellation_pending",
+                    "ended_at": None,
+                    "error": reason,
+                    "recovery_reason": reason,
+                    "safety_failure": True,
+                },
+                expected_statuses=(status,),
+                expected_state_version=state_version,
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                expected_heartbeat_at=observed_heartbeat,
+                reject_terminal=True,
             )
-            self._append_recovery_event(run, level="warning", message=reason)
+            if pending is not None:
+                self._append_recovery_event(run, level="warning", message=reason)
             return
 
         if child_running:
             reason = "Worker ownership is unavailable while a child process remains active"
-            self.store.mark_recovery_pending(run_id, reason)
-            self._append_recovery_event(
-                run,
-                level="warning",
-                message=reason,
-                data={"child_pid": child_pid},
+            recovered = self.store.mark_recovery_pending(
+                run_id,
+                reason,
+                expected_statuses=(status,),
+                expected_state_version=state_version,
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                expected_heartbeat_at=observed_heartbeat,
             )
+            if recovered is not None:
+                self._append_recovery_event(
+                    run,
+                    level="warning",
+                    message=reason,
+                    data={"child_pid": child_pid},
+                )
             return
 
         if status in {"launch_pending", "queued"}:
@@ -234,20 +290,69 @@ class JobManager:
                 )
                 return
             if int(run.get("launch_attempts") or 0) < 2:
+                new_lease_token = uuid4().hex
+                reservation = self.locks.reserve_next_launch(
+                    repo_name=run["repo_name"],
+                    run_id=run_id,
+                    expected_statuses=(status,),
+                    expected_state_version=state_version,
+                    expected_owner_token=lease_token,
+                    expected_lease_generation=lease_generation,
+                    new_owner_token=new_lease_token,
+                    owner_pid=os.getpid(),
+                )
+                if reservation is None:
+                    return
                 try:
-                    process = self._spawn_worker(run_id, lease_token)
-                    self.store.record_worker_launch(run_id, process.pid)
-                    self.locks.heartbeat(run["repo_name"], run_id, lease_token)
+                    process = self._spawn_worker(run_id, new_lease_token)
+                    launched = self.store.record_worker_launch(
+                        run_id,
+                        process.pid,
+                        expected_state_version=int(reservation["state_version"]),
+                        expected_lease_token=new_lease_token,
+                        expected_lease_generation=int(
+                            reservation["lease_generation"]
+                        ),
+                        increment_attempt=False,
+                    )
+                    self.locks.heartbeat(
+                        run["repo_name"],
+                        run_id,
+                        new_lease_token,
+                        int(reservation["lease_generation"]),
+                    )
+                    current = launched or self.store.get_run(run_id)
+                    if not (
+                        str(current.get("worker_lease_token") or "")
+                        == new_lease_token
+                        and int(current.get("lease_generation") or 1)
+                        == int(reservation["lease_generation"])
+                    ):
+                        terminate_process_tree(process.pid)
+                        return
                     self._append_recovery_event(
                         run,
                         level="warning",
                         message="Stranded queued worker relaunched once",
-                        data={"launcher_pid": process.pid},
+                        data={
+                            "launcher_pid": process.pid,
+                            "lease_generation": int(
+                                reservation["lease_generation"]
+                            ),
+                        },
                     )
                 except Exception as exc:
-                    self._fail_recovery(
-                        run, f"Worker relaunch failed during startup recovery: {exc}"
-                    )
+                    current = self.store.get_run(run_id)
+                    if (
+                        str(current.get("worker_lease_token") or "")
+                        == new_lease_token
+                        and int(current.get("lease_generation") or 1)
+                        == int(reservation["lease_generation"])
+                    ):
+                        self._fail_recovery(
+                            current,
+                            f"Worker relaunch failed during startup recovery: {exc}",
+                        )
                 return
             self._fail_recovery(
                 run, "Queued run exhausted its bounded worker launch attempts"
@@ -261,8 +366,17 @@ class JobManager:
                 )
                 return
             reason = "Running legacy record has no verifiable worker identity"
-            self.store.mark_recovery_pending(run_id, reason)
-            self._append_recovery_event(run, level="warning", message=reason)
+            recovered = self.store.mark_recovery_pending(
+                run_id,
+                reason,
+                expected_statuses=("running",),
+                expected_state_version=state_version,
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                expected_heartbeat_at=observed_heartbeat,
+            )
+            if recovered is not None:
+                self._append_recovery_event(run, level="warning", message=reason)
             return
 
         if status in {"cancellation_pending", "recovery_pending"}:
