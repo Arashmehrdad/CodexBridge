@@ -255,3 +255,143 @@ def test_recoverable_run_listing_and_legacy_stale_method_are_conservative(
     )
     assert store.mark_stale_running() == 0
     assert store.list_runs(status="running")[0]["status"] == "running"
+
+
+def test_terminal_transition_rejects_stale_lease_and_terminal_overwrite(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="launch_pending",
+        worker_lease_token="lease-current",
+    )
+    launched = store.record_worker_launch(RUN_ID, 111)
+    assert launched is not None
+    assert store.claim_worker(
+        RUN_ID,
+        lease_token="lease-current",
+        lease_generation=1,
+        expected_state_version=launched["state_version"],
+        worker_pid=222,
+        worker_identity="222:windows:1",
+    )
+    running = store.get_run(RUN_ID)
+
+    assert (
+        store.transition_terminal(
+            RUN_ID,
+            status="completed",
+            result={"status": "completed", "summary": "stale"},
+            expected_statuses=("running",),
+            expected_state_version=running["state_version"],
+            expected_lease_token="lease-stale",
+            expected_lease_generation=1,
+        )
+        is None
+    )
+    completed = store.transition_terminal(
+        RUN_ID,
+        status="completed",
+        result={"status": "completed", "summary": "winner"},
+        expected_statuses=("running",),
+        expected_state_version=running["state_version"],
+        expected_lease_token="lease-current",
+        expected_lease_generation=1,
+        summary="winner",
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["result"]["summary"] == "winner"
+
+    assert (
+        store.transition_terminal(
+            RUN_ID,
+            status="timed_out",
+            result={"status": "timed_out", "summary": "loser"},
+            expected_statuses=("running", "completed"),
+            expected_state_version=completed["state_version"],
+            expected_lease_token="lease-current",
+            expected_lease_generation=1,
+        )
+        is None
+    )
+    preserved = store.get_run(RUN_ID)
+    assert preserved["status"] == "completed"
+    assert preserved["result"]["summary"] == "winner"
+
+
+def test_completion_and_timeout_from_same_version_have_one_winner(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="running",
+        worker_lease_token="lease-current",
+    )
+    observed = store.get_run(RUN_ID)
+    completed = store.transition_terminal(
+        RUN_ID,
+        status="completed",
+        result={"status": "completed"},
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token="lease-current",
+        expected_lease_generation=1,
+    )
+    timed_out = store.transition_terminal(
+        RUN_ID,
+        status="timed_out",
+        result={"status": "timed_out"},
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token="lease-current",
+        expected_lease_generation=1,
+    )
+
+    assert completed is not None
+    assert timed_out is None
+    assert store.get_run(RUN_ID)["status"] == "completed"
+
+
+def test_recovery_transition_loses_to_new_worker_heartbeat(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="running",
+        worker_lease_token="lease-current",
+    )
+    observed = store.get_run(RUN_ID)
+    assert store.heartbeat_worker(
+        RUN_ID,
+        lease_token="lease-current",
+        lease_generation=1,
+        elapsed_seconds=1.0,
+        progress_updates={"worker_pid": 222},
+    )
+
+    recovered = store.mark_recovery_pending(
+        RUN_ID,
+        "stale recovery decision",
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token="lease-current",
+        expected_lease_generation=1,
+        expected_heartbeat_at=observed["heartbeat_at"],
+    )
+
+    assert recovered is None
+    assert store.get_run(RUN_ID)["status"] == "running"

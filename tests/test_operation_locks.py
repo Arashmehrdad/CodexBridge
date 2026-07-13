@@ -269,3 +269,104 @@ def test_cancellation_pending_lock_is_retained_after_owner_exit(
     assert lock is not None
     assert lock["run_status"] == "cancellation_pending"
     assert lock["stale"] is False
+
+
+def test_stale_generation_cannot_release_newer_lock(tmp_path: Path) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        worker_lease_token="lease-new",
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_token="lease-new",
+        lease_generation=2,
+    )
+
+    assert store.release("sample", RUN_ID, "lease-new", 1) is False
+    assert store.release("sample", RUN_ID, "lease-old", 2) is False
+    assert store.find_lock("sample", RUN_ID) is not None
+    assert store.release("sample", RUN_ID, "lease-new", 2) is True
+    assert store.find_lock("sample", RUN_ID) is None
+
+
+def test_launch_reservation_is_single_winner_and_rejects_late_claim(
+    tmp_path: Path,
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="queued",
+        worker_lease_token="lease-old",
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_pid=111,
+        owner_token="lease-old",
+        lease_generation=1,
+    )
+    observed = store.store.get_run(RUN_ID)
+
+    winner = store.reserve_next_launch(
+        repo_name="sample",
+        run_id=RUN_ID,
+        expected_statuses=("queued",),
+        expected_state_version=observed["state_version"],
+        expected_owner_token="lease-old",
+        expected_lease_generation=1,
+        new_owner_token="lease-new",
+        owner_pid=222,
+    )
+    loser = store.reserve_next_launch(
+        repo_name="sample",
+        run_id=RUN_ID,
+        expected_statuses=("queued",),
+        expected_state_version=observed["state_version"],
+        expected_owner_token="lease-old",
+        expected_lease_generation=1,
+        new_owner_token="lease-other",
+        owner_pid=333,
+    )
+
+    assert winner is not None
+    assert loser is None
+    current = store.store.get_run(RUN_ID)
+    assert current["status"] == "launch_pending"
+    assert current["worker_lease_token"] == "lease-new"
+    assert current["lease_generation"] == 2
+    assert current["launch_attempts"] == 1
+    assert (
+        store.store.claim_worker(
+            RUN_ID,
+            lease_token="lease-old",
+            lease_generation=1,
+            worker_pid=444,
+            worker_identity="444:windows:1",
+        )
+        is False
+    )
+    assert store.store.claim_worker(
+        RUN_ID,
+        lease_token="lease-new",
+        lease_generation=2,
+        expected_state_version=current["state_version"],
+        worker_pid=555,
+        worker_identity="555:windows:1",
+    )
+    lock = store.find_lock("sample", RUN_ID)
+    assert lock is not None
+    assert lock["lease_generation"] == 2
