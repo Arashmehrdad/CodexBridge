@@ -966,6 +966,7 @@ class JobManager:
             run_id=run_id,
             owner_pid=os.getpid(),
             owner_token=lease_token,
+            lease_generation=1,
         )
         if not acquisition.acquired:
             return {
@@ -1005,9 +1006,24 @@ class JobManager:
                 data={"tool": tool},
             )
             artifacts.append_event(event)
+            launch_intent = self.store.get_run(run_id)
             process = self._spawn_worker(run_id, lease_token)
-            self.store.record_worker_launch(run_id, process.pid)
-            self.locks.heartbeat(repo_name, run_id, lease_token)
+            launched = self.store.record_worker_launch(
+                run_id,
+                process.pid,
+                expected_state_version=int(launch_intent["state_version"]),
+                expected_lease_token=lease_token,
+                expected_lease_generation=int(launch_intent["lease_generation"]),
+            )
+            current = launched or self.store.get_run(run_id)
+            if not (
+                str(current.get("worker_lease_token") or "") == lease_token
+                and int(current.get("lease_generation") or 1) == 1
+                and current["status"] in {"queued", "running"}
+            ):
+                terminate_process_tree(process.pid)
+                raise RuntimeError("Initial worker launch lost durable lease ownership")
+            self.locks.heartbeat(repo_name, run_id, lease_token, 1)
             event = self.store.append_event(
                 run_id,
                 level="info",
@@ -1019,16 +1035,36 @@ class JobManager:
         except Exception as exc:
             reason = f"Worker launch failed after durable acceptance: {exc}"
             if run_created:
-                self.store.fail_infrastructure(run_id, reason)
-                event = self.store.append_event(
+                current = self.store.get_run(run_id)
+                failed = self.store.fail_infrastructure(
                     run_id,
-                    level="error",
-                    stage="launch_failed",
-                    message=reason,
-                    data={},
+                    reason,
+                    expected_statuses=(str(current["status"]),),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=str(current.get("worker_lease_token") or ""),
+                    expected_lease_generation=int(
+                        current.get("lease_generation") or 1
+                    ),
+                    expected_heartbeat_at=current.get("heartbeat_at"),
                 )
-                ArtifactWriter(run_dir).append_event(event)
-            self.locks.release(repo_name, run_id, lease_token)
+                if failed is not None:
+                    event = self.store.append_event(
+                        run_id,
+                        level="error",
+                        stage="launch_failed",
+                        message=reason,
+                        data={},
+                        update_run_metadata=False,
+                    )
+                    ArtifactWriter(run_dir).append_event(event)
+                    self.locks.release(
+                        repo_name,
+                        run_id,
+                        str(current.get("worker_lease_token") or ""),
+                        int(current.get("lease_generation") or 1),
+                    )
+            else:
+                self.locks.release(repo_name, run_id, lease_token, 1)
             return {
                 "run_id": run_id if run_created else "",
                 "accepted": False,
