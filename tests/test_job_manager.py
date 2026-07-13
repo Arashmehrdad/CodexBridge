@@ -510,6 +510,29 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     assert internal["launcher_pid"] == 12345
 
 
+def test_reconcile_startup_records_failure_and_retains_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    monkeypatch.setattr(
+        manager,
+        "_reconcile_run",
+        lambda _run: (_ for _ in ()).throw(RuntimeError("reconcile boom")),
+    )
+
+    assert manager.reconcile_startup() == 1
+
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "recovery_pending"
+    assert "reconcile boom" in status["recovery_reason"]
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+    assert any(
+        event["stage"] == "reconcile" and event["level"] == "error"
+        for event in manager.get_events(response["run_id"])
+    )
+
+
 def test_unknown_and_malformed_run_ids_are_structured(
     tmp_path: Path, monkeypatch
 ) -> None:

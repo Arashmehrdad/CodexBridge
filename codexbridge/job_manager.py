@@ -83,7 +83,17 @@ class JobManager:
     def reconcile_startup(self) -> int:
         reconciled = 0
         for run in self.store.list_recoverable_runs():
-            self._reconcile_run(run)
+            try:
+                self._reconcile_run(run)
+            except Exception as exc:
+                reason = f"Startup reconciliation failed: {exc}"
+                self.store.mark_recovery_pending(run["run_id"], reason)
+                self._append_recovery_event(
+                    run,
+                    level="error",
+                    message=reason,
+                    data={"exception_type": type(exc).__name__},
+                )
             reconciled += 1
         self.locks.recover_stale()
         return reconciled
