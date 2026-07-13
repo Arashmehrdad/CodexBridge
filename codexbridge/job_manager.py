@@ -422,7 +422,9 @@ class JobManager:
             "codex_implement_task", repo_name, input_data, decision
         )
 
-    def start_project_command(self, repo_name: str, command_id: str) -> dict:
+    def start_project_command(
+        self, repo_name: str, command_id: str, *, reserved_run_id: str | None = None
+    ) -> dict:
         resolve_repo(self.config, repo_name)
         _, repo_config = resolve_repo_config(self.config, repo_name)
         repo_profiles = list(repo_config.command_profiles or [])
@@ -447,7 +449,9 @@ class JobManager:
         response["command_id"] = command_id
         return response
 
-    def start_pytest_path(self, repo_name: str, path: str) -> dict:
+    def start_pytest_path(
+        self, repo_name: str, path: str, *, reserved_run_id: str | None = None
+    ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         profile = build_pytest_path_profile(repo_root, path)
         decision = PolicyDecision(
@@ -510,7 +514,9 @@ class JobManager:
             reason="Allowlisted JSON validation path is approved for durable async execution",
         )
 
-    def start_git_readonly(self, repo_name: str, operation: str) -> dict:
+    def start_git_readonly(
+        self, repo_name: str, operation: str, *, reserved_run_id: str | None = None
+    ) -> dict:
         resolve_repo(self.config, repo_name)
         profile = build_git_readonly_profile(operation)
         decision = PolicyDecision(
@@ -933,7 +939,13 @@ class JobManager:
         return response
 
     def _create_and_launch(
-        self, tool: str, repo_name: str, input_data: dict, decision
+        self,
+        tool: str,
+        repo_name: str,
+        input_data: dict,
+        decision,
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict:
         requested_repo_name = repo_name
         input_data = dict(input_data)
@@ -957,7 +969,8 @@ class JobManager:
                 "reason": "Async jobs require a config file path",
             }
 
-        run_id = make_run_id(tool)
+        run_id = reserved_run_id or make_run_id(tool)
+        validate_run_id(run_id)
         lease_token = uuid4().hex
         acquisition = self.locks.acquire(
             repo_name=repo_name,
