@@ -9,6 +9,7 @@ import pytest
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.return_loop.pulse_contract import discover_ready_reports
 from codexbridge.workflows.manager import WorkflowManager
+from codexbridge.workflows.store import WorkflowStore
 from codexbridge.workflows.worker import WorkflowWorker
 from codexbridge.workflows.models import WorkflowEvent, WorkflowRecord, WorkflowStatus
 
@@ -186,9 +187,17 @@ class FakeJobManager:
         cls.cancelled = []
 
     @classmethod
-    def _start(cls, kind: str, payload: dict) -> dict:
+    def _start(
+        cls,
+        kind: str,
+        payload: dict,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict:
         cls.counter += 1
-        run_id = f"20260711T2033{cls.counter:02d}Z_{kind}_{cls.counter:08x}"
+        run_id = reserved_run_id or (
+            f"20260711T2033{cls.counter:02d}Z_{kind}_{cls.counter:08x}"
+        )
         cls.launches.append({"kind": kind, "payload": payload, "run_id": run_id})
         status = "completed"
         summary = f"{kind} completed"
@@ -225,7 +234,13 @@ class FakeJobManager:
         }
 
     def start_implementation(
-        self, repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
+        self,
+        repo_name: str,
+        approved_plan: str,
+        allowed_files: list[str],
+        tests: list[str],
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict:
         return self._start(
             "codex_implement",
@@ -235,19 +250,46 @@ class FakeJobManager:
                 "allowed_files": allowed_files,
                 "tests": tests,
             },
+            reserved_run_id=reserved_run_id,
         )
 
-    def start_project_command(self, repo_name: str, command_id: str) -> dict:
+    def start_project_command(
+        self,
+        repo_name: str,
+        command_id: str,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict:
         return self._start(
-            "project_command", {"repo_name": repo_name, "command_id": command_id}
+            "project_command",
+            {"repo_name": repo_name, "command_id": command_id},
+            reserved_run_id=reserved_run_id,
         )
 
-    def start_pytest_path(self, repo_name: str, path: str) -> dict:
-        return self._start("pytest_path", {"repo_name": repo_name, "path": path})
-
-    def start_git_readonly(self, repo_name: str, operation: str) -> dict:
+    def start_pytest_path(
+        self,
+        repo_name: str,
+        path: str,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict:
         return self._start(
-            "git_readonly", {"repo_name": repo_name, "operation": operation}
+            "pytest_path",
+            {"repo_name": repo_name, "path": path},
+            reserved_run_id=reserved_run_id,
+        )
+
+    def start_git_readonly(
+        self,
+        repo_name: str,
+        operation: str,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict:
+        return self._start(
+            "git_readonly",
+            {"repo_name": repo_name, "operation": operation},
+            reserved_run_id=reserved_run_id,
         )
 
     def get_status(self, run_id: str) -> dict:
@@ -433,7 +475,7 @@ def test_workflow_cancel_requests_active_child_cancellation(tmp_path: Path) -> N
         "cancel workflow",
         [{"id": "one", "type": "project_command", "parameters": {"command_id": "hang"}}],
     )
-    store = FakeWorkflowStore(Path(config.runs_dir))
+    store = WorkflowStore(config.resolve_runs_dir())
     store.update_step(
         started["workflow_id"],
         "one",
@@ -468,7 +510,7 @@ def test_workflow_reconcile_startup_relaunches_stale_worker_once(tmp_path: Path)
     manager = WorkflowManager(
         config,
         config_path,
-        worker_launcher=lambda _config_path, workflow_id: launches.append(workflow_id) or 55,
+        worker_launcher=lambda _config_path, workflow_id, _lease_token, _lease_generation: launches.append(workflow_id) or 55,
         process_checker=lambda pid: pid == 999,
     )
     started = manager.start_workflow(
@@ -476,7 +518,7 @@ def test_workflow_reconcile_startup_relaunches_stale_worker_once(tmp_path: Path)
         "reconcile",
         [{"id": "one", "type": "project_command", "parameters": {"command_id": "ok"}}],
     )
-    store = FakeWorkflowStore(Path(config.runs_dir))
+    store = WorkflowStore(config.resolve_runs_dir())
     store.update_workflow(
         started["workflow_id"],
         status="running",
