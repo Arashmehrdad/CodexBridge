@@ -12,7 +12,9 @@ from codexbridge.config import AppConfig, resolve_repo
 from codexbridge.events import redact_and_truncate
 from codexbridge.process_control import (
     process_group_popen_kwargs,
+    process_identity,
     process_is_running,
+    process_matches_identity,
     terminate_process_tree,
 )
 from codexbridge.run_store import utc_now
@@ -30,6 +32,7 @@ TERMINAL_STATUSES = {
     WorkflowStatus.COMPLETED,
     WorkflowStatus.FAILED,
     WorkflowStatus.CANCELLED,
+    WorkflowStatus.NEEDS_APPROVAL,
     WorkflowStatus.NEEDS_INPUT,
     WorkflowStatus.REPORTED,
 }
@@ -47,7 +50,7 @@ class WorkflowManager:
         config: AppConfig,
         config_path: Path | None,
         *,
-        worker_launcher: Callable[[Path, str], int] | None = None,
+        worker_launcher: Callable[[Path, str, str, int], int] | None = None,
         process_checker: Callable[[int | None], bool] = process_is_running,
     ):
         self.config = config
@@ -78,6 +81,7 @@ class WorkflowManager:
             }
         )
         workflow_id = make_workflow_id()
+        lease_token = uuid4().hex
         persisted = self.store.create_workflow(
             workflow_id=workflow_id,
             repo_name=workflow.repo_name,
@@ -94,6 +98,9 @@ class WorkflowManager:
                 for index, step in enumerate(workflow.steps)
             ],
             status=WorkflowStatus.QUEUED,
+            worker_lease_token=lease_token,
+            lease_generation=1,
+            launch_attempts=1,
         )
         self._append_event(
             workflow_id,
@@ -102,20 +109,68 @@ class WorkflowManager:
             message="Workflow queued",
             data={"step_count": len(workflow.steps)},
         )
-        worker_pid = self.worker_launcher(self.config_path, workflow_id)
-        persisted = self.store.update_workflow(
-            workflow_id,
-            worker_pid=worker_pid,
-            heartbeat_at=utc_now(),
-            status=WorkflowStatus.QUEUED,
-        )
-        self._append_event(
-            workflow_id,
-            level="info",
-            stage="worker",
-            message="Workflow worker process started",
-            data={"worker_pid": worker_pid},
-        )
+        launch_intent = self.store.get_workflow(workflow_id)
+        try:
+            launcher_pid = self.worker_launcher(
+                self.config_path, workflow_id, lease_token, 1
+            )
+            launched = self.store.record_worker_launch(
+                workflow_id,
+                launcher_pid,
+                expected_state_version=launch_intent.state_version,
+                lease_token=lease_token,
+                lease_generation=1,
+            )
+            current = launched or self.store.get_workflow(workflow_id)
+            if not (
+                current.worker_lease_token == lease_token
+                and current.lease_generation == 1
+                and current.status in {WorkflowStatus.QUEUED, WorkflowStatus.RUNNING}
+            ):
+                terminate_process_tree(launcher_pid)
+                raise RuntimeError("Initial workflow worker launch lost lease ownership")
+            persisted = current
+            self._append_event(
+                workflow_id,
+                level="info",
+                stage="worker",
+                message="Workflow worker process started",
+                data={"launcher_pid": launcher_pid, "lease_generation": 1},
+            )
+        except Exception as exc:
+            current = self.store.get_workflow(workflow_id)
+            reason = f"Workflow worker launch failed after durable acceptance: {exc}"
+            failed = self.store.conditional_update_workflow(
+                workflow_id,
+                fields={
+                    "status": WorkflowStatus.FAILED,
+                    "terminal_status": WorkflowStatus.FAILED,
+                    "ended_at": utc_now(),
+                    "failure_summary": reason,
+                    "recommended_next_action": "Review worker startup and retry the workflow.",
+                },
+                expected_statuses=(current.status,),
+                expected_state_version=current.state_version,
+                expected_lease_token=current.worker_lease_token,
+                expected_lease_generation=current.lease_generation,
+                reject_terminal=True,
+            )
+            if failed is not None:
+                self._append_event(
+                    workflow_id,
+                    level="error",
+                    stage="launch_failed",
+                    message=reason,
+                )
+                self._finalize_terminal_workflow(failed)
+            return {
+                "ok": False,
+                "workflow_id": workflow_id,
+                "repo_name": repo_name,
+                "status": WorkflowStatus.FAILED.value,
+                "step_count": len(persisted.steps),
+                "error": reason,
+            }
         return {
             "ok": True,
             "workflow_id": workflow_id,
@@ -145,7 +200,18 @@ class WorkflowManager:
                 "started_at": workflow.started_at,
                 "ended_at": workflow.ended_at,
                 "worker_pid": workflow.worker_pid,
-                "worker_running": self.process_checker(workflow.worker_pid),
+                "worker_running": (
+                    process_matches_identity(
+                        workflow.worker_pid, workflow.worker_identity
+                    )
+                    if workflow.worker_identity
+                    else self.process_checker(
+                        workflow.launcher_pid or workflow.worker_pid
+                    )
+                ),
+                "lease_generation": workflow.lease_generation,
+                "state_version": workflow.state_version,
+                "launch_attempts": workflow.launch_attempts,
                 "active_child_run_id": workflow.active_child_run_id,
                 "failure_summary": workflow.failure_summary,
                 "recommended_next_action": workflow.recommended_next_action,
