@@ -271,6 +271,33 @@ def test_apply_requires_chatgpt_approval_and_rollback_restores_content(
     assert readme.read_text(encoding="utf-8") == "helo world\n"
 
 
+def test_permissive_local_apply_needs_no_approval_record(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    readme = repo / "README.md"
+    readme.write_text("helo world\n", encoding="utf-8")
+    manager = LocalCodingManager(
+        runs_dir=tmp_path / "runs" / "local_coding",
+        config=LocalCodingConfig(
+            local_coding_apply_enabled=True,
+            local_coding_require_approval=False,
+        ),
+        policy_engine=PolicyEngine(approvals_dir=tmp_path / "runs" / "approvals"),
+        command_runner=FakeCommandRunner(),
+    )
+
+    preview = manager.prepare_local_edit(
+        replace_request(repo, "local_edit_permissive")
+    )
+    applied = manager.apply_local_edit("local_edit_permissive")
+
+    assert preview.status == LocalCodingStatus.PREVIEW_READY
+    assert preview.approval_request_path is None
+    assert manager.get("local_edit_permissive").approval_request_id is None
+    assert applied.status == LocalCodingStatus.VALIDATION_PASSED
+    assert readme.read_text(encoding="utf-8") == "hello world\n"
+
+
 def test_apply_rechecks_original_hash_and_unknown_validation_is_blocked(
     tmp_path: Path,
 ) -> None:
