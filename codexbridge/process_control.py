@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -57,6 +58,57 @@ def process_is_running(pid: int | None) -> bool:
         return False
     except Exception:
         return False
+
+
+def process_identity(pid: int | None) -> str:
+    """Return a stable process-start identity for PID reuse protection."""
+    normalized_pid = int(pid or 0)
+    if normalized_pid <= 0 or not process_is_running(normalized_pid):
+        return ""
+    if _is_windows():
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            process_query_limited_information = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                process_query_limited_information, False, normalized_pid
+            )
+            if not handle:
+                return ""
+            try:
+                creation = wintypes.FILETIME()
+                exit_time = wintypes.FILETIME()
+                kernel = wintypes.FILETIME()
+                user = wintypes.FILETIME()
+                if not ctypes.windll.kernel32.GetProcessTimes(
+                    handle,
+                    ctypes.byref(creation),
+                    ctypes.byref(exit_time),
+                    ctypes.byref(kernel),
+                    ctypes.byref(user),
+                ):
+                    return ""
+                marker = (int(creation.dwHighDateTime) << 32) | int(
+                    creation.dwLowDateTime
+                )
+                return f"{normalized_pid}:windows:{marker}"
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return ""
+    try:
+        stat_text = Path(f"/proc/{normalized_pid}/stat").read_text(encoding="utf-8")
+        fields_after_comm = stat_text.rsplit(") ", 1)[1].split()
+        start_ticks = fields_after_comm[19]
+        return f"{normalized_pid}:proc:{start_ticks}"
+    except Exception:
+        return ""
+
+
+def process_matches_identity(pid: int | None, expected_identity: str | None) -> bool:
+    expected = str(expected_identity or "")
+    return bool(expected and process_identity(pid) == expected)
 
 
 def _wait_until_stopped(pid: int, timeout_seconds: float) -> bool:
