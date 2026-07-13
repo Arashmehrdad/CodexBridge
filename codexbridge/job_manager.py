@@ -402,6 +402,8 @@ class JobManager:
         approved_plan: str,
         allowed_files: list[str],
         tests: list[str],
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         validate_repo_relative_paths(repo_root, allowed_files)
@@ -419,7 +421,11 @@ class JobManager:
             "requirement_manifest": requirement_manifest,
         }
         return self._create_and_launch(
-            "codex_implement_task", repo_name, input_data, decision
+            "codex_implement_task",
+            repo_name,
+            input_data,
+            decision,
+            reserved_run_id=reserved_run_id,
         )
 
     def start_project_command(
@@ -444,6 +450,7 @@ class JobManager:
             repo_name,
             {"repo_name": repo_name, "command_id": command_id},
             decision,
+            reserved_run_id=reserved_run_id,
         )
         response.setdefault("repo_name", repo_name)
         response["command_id"] = command_id
@@ -475,6 +482,7 @@ class JobManager:
                 "path": normalized_target,
             },
             decision,
+            reserved_run_id=reserved_run_id,
         )
         response.setdefault("repo_name", repo_name)
         response["command_id"] = PYTEST_PATH_COMMAND_ID
@@ -537,6 +545,7 @@ class JobManager:
                 "operation": operation,
             },
             decision,
+            reserved_run_id=reserved_run_id,
         )
         response.setdefault("repo_name", repo_name)
         response["command_id"] = GIT_READONLY_COMMAND_ID
