@@ -669,9 +669,12 @@ class SupervisorNotificationsConfig(BaseModel):
 
 
 class SupervisorsConfig(BaseModel):
-    default_autonomy_profile: str = "balanced"
+    default_autonomy_profile: str = "permissive"
     autonomy_profiles: Dict[str, SupervisorAutonomyProfile] = Field(
         default_factory=lambda: {
+            "permissive": SupervisorAutonomyProfile(
+                max_plan_tier=3, max_implementation_tier=3
+            ),
             "balanced": SupervisorAutonomyProfile(),
             "conservative": SupervisorAutonomyProfile(
                 max_implementation_tier=1, require_tests_for_non_docs_changes=True
