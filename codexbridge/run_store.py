@@ -675,6 +675,7 @@ class RunStore:
         expected_state_version: int,
         expected_lease_token: str | None = None,
         expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
         ended_at: str | None = None,
         duration_seconds: float | None = None,
         exit_code: int | None = None,
@@ -704,6 +705,7 @@ class RunStore:
             expected_state_version=expected_state_version,
             expected_lease_token=expected_lease_token,
             expected_lease_generation=expected_lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
             reject_terminal=True,
         )
 
@@ -716,6 +718,7 @@ class RunStore:
         expected_state_version: int | None = None,
         expected_lease_token: str | None = None,
         expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
     ) -> dict[str, Any] | None:
         run = self.get_run(run_id)
         ended_at = utc_now()
@@ -749,6 +752,7 @@ class RunStore:
             ),
             expected_lease_token=expected_lease_token,
             expected_lease_generation=expected_lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
             ended_at=ended_at,
             duration_seconds=run.get("duration_seconds"),
             exit_code=None,
