@@ -59,12 +59,12 @@ def apply_policy(task_type: LocalAgentTaskType, objective: str) -> PolicyDecisio
 
     if task_type == LocalAgentTaskType.SOURCE_EDIT:
         return PolicyDecision(
-            routing_decision=RoutingDecision.CODEX_REQUIRED,
+            routing_decision=RoutingDecision.LOCAL_ONLY,
             permission_tier=PermissionTier.WRITE_APPLY_DELEGATED_APPROVAL,
             risk_level=RiskLevel.MEDIUM,
             status=TaskStatus.CLASSIFIED,
             accepted=True,
-            reason="Source-changing work must be delegated to Codex in a future milestone.",
+            reason="Source-changing work is handled locally first; Codex is used only after local options are insufficient.",
         )
 
     if _looks_blocked(text):
