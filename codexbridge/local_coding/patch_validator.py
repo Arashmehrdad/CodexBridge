@@ -49,9 +49,14 @@ def validate_patch(
         blocked.append("target_not_file")
     elif target.stat().st_size > settings.local_coding_max_file_bytes:
         blocked.append("file_too_large")
-    if not _path_allowed(relative, settings.local_coding_allowed_path_globs):
+    if settings.local_coding_allowed_path_globs and not _path_allowed(
+        relative, settings.local_coding_allowed_path_globs
+    ):
         blocked.append("path_not_allowlisted")
-    if target.suffix.lower() not in settings.local_coding_allowed_extensions:
+    if (
+        settings.local_coding_allowed_extensions
+        and target.suffix.lower() not in settings.local_coding_allowed_extensions
+    ):
         blocked.append("extension_not_allowlisted")
     if (
         settings.local_coding_block_source_code

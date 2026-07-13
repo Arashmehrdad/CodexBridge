@@ -23,34 +23,11 @@ SOURCE_EXTENSIONS = {
     ".h",
 }
 BLOCKED_TASK_MARKERS = (
-    "bug fix",
-    "fix bug",
-    "refactor",
-    "create module",
-    "architecture",
-    "security",
-    "production deploy",
-    "deployment",
-    "change tests",
-    "make tests pass",
-    "multi-file",
-    "multiple files",
-    "destructive",
+    "delete volume",
+    "drop database",
+    "format drive",
     "rm -rf",
-    "push main",
-    "push to main",
-    "public release",
-)
-ELIGIBLE_MARKERS = (
-    "typo",
-    "readme",
-    "docs",
-    "documentation",
-    "agents.md",
-    "plans.md",
-    "metadata",
-    "generated report",
-    "non-secret config",
+    "wipe",
 )
 
 
@@ -79,21 +56,19 @@ def classify_local_coding_task(
             operation.target_file
         ):
             blocked.append("test_file_blocked")
-    if not operations and not settings.local_coding_use_local_model:
+    if not operations:
         blocked.append("no_patch_operations")
-    if not any(marker in text for marker in ELIGIBLE_MARKERS) and operations:
-        blocked.append("objective_not_explicitly_tiny")
     if blocked:
         return LocalCodingClassification(
             eligible=False,
             reason="Local coding task is blocked.",
             blocked_reasons=sorted(set(blocked)),
-            suggested_route="codex_or_human",
+            suggested_route="local_repo_tools_or_human",
             risk_level="high",
         )
     return LocalCodingClassification(
         eligible=True,
-        reason="Task is eligible for tiny local-coding preview.",
+        reason="Task is eligible for local-coding preview.",
         risk_level="low",
     )
 
