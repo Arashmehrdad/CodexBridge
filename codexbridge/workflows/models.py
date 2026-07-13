@@ -106,7 +106,9 @@ class WorkflowStepDefinition(WorkflowStepBase):
 class WorkflowStepRecord(WorkflowStepDefinition):
     order_index: int
     status: WorkflowStepStatus = WorkflowStepStatus.PENDING
+    state_version: int = 0
     child_run_id: str | None = None
+    child_launch_attempts: int = 0
     started_at: str | None = None
     ended_at: str | None = None
     summary: str = ""
@@ -179,7 +181,14 @@ class WorkflowRecord(BaseModel):
     updated_at: str
     started_at: str | None = None
     ended_at: str | None = None
+    launcher_pid: int | None = None
     worker_pid: int | None = None
+    worker_lease_token: str = Field(default="", exclude=True)
+    lease_generation: int = 1
+    state_version: int = 0
+    worker_identity: str = ""
+    worker_claimed_at: str | None = None
+    launch_attempts: int = 0
     heartbeat_at: str | None = None
     active_child_run_id: str | None = None
     failure_summary: str = ""
