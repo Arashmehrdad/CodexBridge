@@ -409,16 +409,105 @@ def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
     assert first["stderr"] == ""
 
 
-def test_reconcile_startup_marks_running_failed(tmp_path: Path, monkeypatch) -> None:
+def test_reconcile_startup_contains_legacy_running_record_without_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_plan("sample", "inspect docs")
-    manager.store.update_run(response["run_id"], status="running")
+    manager.store.update_run(
+        response["run_id"],
+        status="running",
+        launcher_pid=None,
+        worker_pid=None,
+        worker_identity="",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
     assert manager.reconcile_startup() == 1
+
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "recovery_pending"
+    assert "no verifiable worker identity" in status["recovery_reason"]
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+
+
+def test_reconcile_startup_adopts_verified_active_worker(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(
+        response["run_id"],
+        status="running",
+        launcher_pid=None,
+        worker_pid=222,
+        worker_identity="222:windows:100",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_matches_identity",
+        lambda pid, identity: pid == 222 and identity == "222:windows:100",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
+    assert manager.reconcile_startup() == 1
+
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "running"
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+    assert any(
+        "identity verified" in event["message"]
+        for event in manager.get_events(response["run_id"])
+    )
+
+
+def test_reconcile_startup_fails_dead_claimed_worker_and_releases_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(
+        response["run_id"],
+        status="running",
+        launcher_pid=None,
+        worker_pid=222,
+        worker_identity="222:windows:100",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_matches_identity",
+        lambda _pid, _identity: False,
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
+    assert manager.reconcile_startup() == 1
+
     assert manager.get_status(response["run_id"])["status"] == "failed"
     result = manager.get_result(response["run_id"])
     assert result["classification"] == "infrastructure_failure"
-    assert result["stdout"] == ""
-    assert result["stderr"] == ""
+    assert manager.locks.find_lock("sample", response["run_id"]) is None
+
+
+def test_reconcile_startup_relaunches_stranded_queued_worker_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(response["run_id"], launcher_pid=None)
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
+    assert manager.reconcile_startup() == 1
+
+    internal = manager.store.get_run(response["run_id"])
+    assert internal["status"] == "queued"
+    assert internal["launch_attempts"] == 2
+    assert internal["launcher_pid"] == 12345
 
 
 def test_unknown_and_malformed_run_ids_are_structured(
@@ -587,7 +676,7 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
 
     cancelled = manager.cancel_run(response["run_id"])
 
-    assert terminated == [222, 111]
+    assert terminated == [222, 111, 12345]
     assert cancelled["ok"] is True
     assert cancelled["cancelled"] is True
     assert cancelled["termination_confirmed"] is True
@@ -633,14 +722,54 @@ def test_get_control_status_reports_process_and_lock_state(
     monkeypatch.setattr(
         "codexbridge.job_manager.process_is_running", lambda pid: pid == 12345
     )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_matches_identity",
+        lambda _pid, _identity: False,
+    )
 
     control = manager.get_control_status(response["run_id"])
 
     assert control["ok"] is True
-    assert control["worker_pid"] == 12345
-    assert control["worker_running"] is True
+    assert control["launcher_pid"] == 12345
+    assert control["launcher_running"] is True
+    assert control["worker_pid"] == 0
+    assert control["worker_running"] is False
     assert control["child_running"] is False
     assert control["lock"]["run_id"] == response["run_id"]
+
+
+def test_launch_failure_after_persistence_is_terminal_and_unlocks(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "codexbridge.job_manager.subprocess.Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("launch boom")),
+    )
+
+    response = manager.start_plan("sample", "inspect docs")
+
+    assert response["accepted"] is False
+    assert response["status"] == "failed"
+    assert response["run_id"]
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "failed"
+    assert "worker_lease_token" not in status
+    assert manager.get_result(response["run_id"])["classification"] == (
+        "infrastructure_failure"
+    )
+    assert manager.locks.find_lock("sample", response["run_id"]) is None
+
+
+def test_public_run_views_hide_worker_lease_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+
+    assert manager.store.get_run(response["run_id"])["worker_lease_token"]
+    assert "worker_lease_token" not in manager.get_status(response["run_id"])
+    assert "worker_lease_token" not in manager.list_runs()[0]
 
 
 def test_list_operation_locks_accepts_canonical_case_filter(
