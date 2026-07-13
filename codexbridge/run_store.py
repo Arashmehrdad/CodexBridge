@@ -372,6 +372,7 @@ class RunStore:
         message: str,
         data: dict[str, Any] | None = None,
         timestamp: str | None = None,
+        update_run_metadata: bool = True,
     ) -> dict[str, Any]:
         validate_run_id(run_id)
         event = {
@@ -382,11 +383,12 @@ class RunStore:
             "message": message,
             "data": data or {},
         }
-        self.update_run(
-            run_id,
-            heartbeat_at=event["timestamp"],
-            current_phase=stage,
-        )
+        if update_run_metadata:
+            self.update_run(
+                run_id,
+                heartbeat_at=event["timestamp"],
+                current_phase=stage,
+            )
         with self.connect() as conn:
             conn.execute(
                 """
@@ -526,6 +528,33 @@ class RunStore:
             reject_terminal=True,
         )
         return updated is not None
+
+    def update_worker_progress(
+        self,
+        run_id: str,
+        *,
+        lease_token: str,
+        lease_generation: int,
+        phase: str,
+        elapsed_seconds: float,
+        progress: dict[str, Any] | None = None,
+    ) -> bool:
+        return (
+            self.conditional_update(
+                run_id,
+                fields={
+                    "current_phase": phase,
+                    "heartbeat_at": utc_now(),
+                    "elapsed_seconds": elapsed_seconds,
+                    "progress_json": progress or {},
+                },
+                expected_statuses=("running",),
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                bump_state_version=False,
+            )
+            is not None
+        )
 
     def heartbeat_worker(
         self,
