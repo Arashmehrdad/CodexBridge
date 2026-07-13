@@ -68,7 +68,13 @@ class RunStore:
                     ended_at TEXT,
                     duration_seconds REAL,
                     pid INTEGER,
+                    launcher_pid INTEGER,
                     worker_pid INTEGER,
+                    worker_lease_token TEXT NOT NULL DEFAULT '',
+                    worker_identity TEXT NOT NULL DEFAULT '',
+                    worker_claimed_at TEXT,
+                    launch_attempts INTEGER NOT NULL DEFAULT 0,
+                    recovery_reason TEXT NOT NULL DEFAULT '',
                     exit_code INTEGER,
                     run_dir TEXT NOT NULL,
                     summary TEXT NOT NULL DEFAULT '',
@@ -116,6 +122,20 @@ class RunStore:
             self._ensure_column(
                 conn, "runs", "progress_json", "TEXT NOT NULL DEFAULT '{}'"
             )
+            self._ensure_column(conn, "runs", "launcher_pid", "INTEGER")
+            self._ensure_column(
+                conn, "runs", "worker_lease_token", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(
+                conn, "runs", "worker_identity", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(conn, "runs", "worker_claimed_at", "TEXT")
+            self._ensure_column(
+                conn, "runs", "launch_attempts", "INTEGER NOT NULL DEFAULT 0"
+            )
+            self._ensure_column(
+                conn, "runs", "recovery_reason", "TEXT NOT NULL DEFAULT ''"
+            )
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -132,6 +152,7 @@ class RunStore:
         risk_level: str = "low",
         requires_human: bool = False,
         status: str = "queued",
+        worker_lease_token: str = "",
     ) -> dict[str, Any]:
         validate_run_id(run_id)
         created_at = utc_now()
@@ -140,8 +161,9 @@ class RunStore:
                 """
                 INSERT INTO runs (
                     run_id, repo_name, tool, status, risk_level, requires_human,
-                    created_at, run_dir, current_phase, heartbeat_at, input_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, run_dir, current_phase, heartbeat_at, input_json,
+                    worker_lease_token
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -155,6 +177,7 @@ class RunStore:
                     "queued",
                     created_at,
                     dumps(input_data),
+                    worker_lease_token,
                 ),
             )
         return self.get_run(run_id)
@@ -299,57 +322,137 @@ class RunStore:
                 ).fetchall()
         return [self._row_to_event(row) for row in rows]
 
-    def mark_stale_running(self) -> int:
-        now = utc_now()
-        updated = 0
+    def list_recoverable_runs(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT run_id, tool FROM runs WHERE status = 'running'"
+                """
+                SELECT * FROM runs
+                WHERE status IN (
+                    'launch_pending', 'queued', 'running',
+                    'cancellation_pending', 'recovery_pending'
+                )
+                ORDER BY created_at ASC
+                """
             ).fetchall()
-            for row in rows:
-                if str(row["tool"] or "") == "ssh_monitored_command":
-                    conn.execute(
-                        """
-                        UPDATE runs
-                        SET status = 'cancellation_pending',
-                            current_phase = 'cancellation_pending',
-                            ended_at = NULL,
-                            error = 'Server restarted while monitored remote execution may still be active',
-                            safety_failure = 1
-                        WHERE run_id = ? AND status = 'running'
-                        """,
-                        (row["run_id"],),
-                    )
-                else:
-                    result = {
-                        "run_id": row["run_id"],
-                        "tool": row["tool"],
-                        "status": "failed",
-                        "classification": "infrastructure_failure",
-                        "process_success": None,
-                        "exit_code": None,
-                        "stdout": "",
-                        "stderr": "",
-                        "started_at": None,
-                        "ended_at": now,
-                        "duration_seconds": None,
-                        "summary": "Server restarted while run was marked running",
-                        "error": "Server restarted while run was marked running",
-                        "cancelled": False,
-                        "timed_out": False,
-                    }
-                    conn.execute(
-                        """
-                        UPDATE runs
-                        SET status = 'failed', ended_at = ?,
-                            error = 'Server restarted while run was marked running',
-                            result_json = ?
-                        WHERE run_id = ? AND status = 'running'
-                        """,
-                        (now, dumps(result), row["run_id"]),
-                    )
-                updated += 1
-        return updated
+        return [self._row_to_run(row) for row in rows]
+
+    def record_worker_launch(self, run_id: str, launcher_pid: int) -> dict[str, Any]:
+        validate_run_id(run_id)
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE runs
+                SET status = 'queued', current_phase = 'queued',
+                    launcher_pid = ?, launch_attempts = launch_attempts + 1,
+                    heartbeat_at = ?, recovery_reason = ''
+                WHERE run_id = ?
+                  AND status IN ('launch_pending', 'queued', 'recovery_pending')
+                """,
+                (int(launcher_pid), now, run_id),
+            )
+        return self.get_run(run_id)
+
+    def claim_worker(
+        self,
+        run_id: str,
+        *,
+        lease_token: str,
+        worker_pid: int,
+        worker_identity: str,
+    ) -> bool:
+        validate_run_id(run_id)
+        now = utc_now()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET status = 'running', current_phase = 'worker',
+                    worker_pid = ?, worker_identity = ?, worker_claimed_at = ?,
+                    started_at = COALESCE(started_at, ?), heartbeat_at = ?,
+                    recovery_reason = ''
+                WHERE run_id = ?
+                  AND worker_lease_token = ?
+                  AND status IN ('launch_pending', 'queued', 'running', 'recovery_pending')
+                """,
+                (
+                    int(worker_pid),
+                    worker_identity,
+                    now,
+                    now,
+                    now,
+                    run_id,
+                    lease_token,
+                ),
+            )
+        return int(cursor.rowcount) == 1
+
+    def heartbeat_worker(
+        self,
+        run_id: str,
+        *,
+        lease_token: str,
+        elapsed_seconds: float,
+        progress_updates: dict[str, Any] | None = None,
+    ) -> bool:
+        current = self.get_run(run_id)
+        progress = dict(current.get("progress") or {})
+        progress.update(progress_updates or {})
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET heartbeat_at = ?, elapsed_seconds = ?, progress_json = ?
+                WHERE run_id = ? AND worker_lease_token = ?
+                """,
+                (utc_now(), elapsed_seconds, dumps(progress), run_id, lease_token),
+            )
+        return int(cursor.rowcount) == 1
+
+    def mark_recovery_pending(self, run_id: str, reason: str) -> dict[str, Any]:
+        return self.update_run(
+            run_id,
+            status="recovery_pending",
+            current_phase="recovery_pending",
+            recovery_reason=reason,
+            error=reason,
+            ended_at=None,
+        )
+
+    def fail_infrastructure(self, run_id: str, reason: str) -> dict[str, Any]:
+        run = self.get_run(run_id)
+        ended_at = utc_now()
+        result = {
+            "run_id": run_id,
+            "repo_name": run["repo_name"],
+            "tool": run["tool"],
+            "status": "failed",
+            "classification": "infrastructure_failure",
+            "process_success": None,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "started_at": run.get("started_at"),
+            "ended_at": ended_at,
+            "duration_seconds": run.get("duration_seconds"),
+            "summary": reason,
+            "error": reason,
+            "cancelled": False,
+            "timed_out": False,
+        }
+        return self.update_run(
+            run_id,
+            status="failed",
+            current_phase="result",
+            ended_at=ended_at,
+            error=reason,
+            recovery_reason=reason,
+            result_json=result,
+        )
+
+    def mark_stale_running(self) -> int:
+        """Deprecated: startup recovery is process-aware in JobManager."""
+        return 0
 
     def set_progress(
         self,
