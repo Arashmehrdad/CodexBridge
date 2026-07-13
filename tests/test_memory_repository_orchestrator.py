@@ -93,7 +93,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_memory(tmp_path: Path) -> Non
         "fix and refactor memory store"
     )
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.memory_result is None
 
 

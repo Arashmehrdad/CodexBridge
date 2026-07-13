@@ -274,7 +274,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_runner(
         runner=LocalAgentCommandRunner(runs_dir=tmp_path / "runs")
     ).handle_task("fix and refactor the runner")
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.command_result is None
     assert result.audit_event.metadata["codex_called"] is False
 
