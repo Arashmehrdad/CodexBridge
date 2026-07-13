@@ -683,24 +683,28 @@ class RunStore:
         error: str = "",
         safety_failure: bool = False,
         recovery_reason: str = "",
+        progress: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if status not in TERMINAL_STATUSES:
             raise ValueError(f"Not a terminal run status: {status}")
         terminal_at = ended_at or utc_now()
+        fields: dict[str, Any] = {
+            "status": status,
+            "current_phase": "result",
+            "ended_at": terminal_at,
+            "duration_seconds": duration_seconds,
+            "exit_code": exit_code,
+            "summary": summary,
+            "error": error,
+            "safety_failure": safety_failure,
+            "result_json": result,
+            "recovery_reason": recovery_reason,
+        }
+        if progress is not None:
+            fields["progress_json"] = progress
         return self.conditional_update(
             run_id,
-            fields={
-                "status": status,
-                "current_phase": "result",
-                "ended_at": terminal_at,
-                "duration_seconds": duration_seconds,
-                "exit_code": exit_code,
-                "summary": summary,
-                "error": error,
-                "safety_failure": safety_failure,
-                "result_json": result,
-                "recovery_reason": recovery_reason,
-            },
+            fields=fields,
             expected_statuses=expected_statuses,
             expected_state_version=expected_state_version,
             expected_lease_token=expected_lease_token,
