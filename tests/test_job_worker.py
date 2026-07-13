@@ -1310,3 +1310,96 @@ def test_worker_rejects_mismatched_lease_before_execution(
     persisted = store.get_run(run_id)
     assert persisted["status"] == "launch_pending"
     assert persisted["worker_pid"] is None
+
+
+def test_stale_worker_cannot_complete_or_release_replacement_lock(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260713T130002Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+        status="launch_pending",
+        worker_lease_token="lease-old",
+    )
+    locks = OperationLockStore(runs_dir)
+    locks.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={"repo_name": "sample", "command_id": "pytest"},
+        run_id=run_id,
+        owner_token="lease-old",
+        lease_generation=1,
+    )
+    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.process_identity",
+        lambda pid: f"{pid}:windows:100",
+    )
+    worker = JobWorker(config_path, run_id, lease_token="lease-old")
+
+    def replace_lease(started_at: str) -> dict:
+        current = store.get_run(run_id)
+        replacement = store.conditional_update(
+            run_id,
+            fields={
+                "status": "launch_pending",
+                "current_phase": "launch_pending",
+                "worker_lease_token": "lease-new",
+                "lease_generation": 2,
+                "worker_pid": None,
+                "worker_identity": "",
+            },
+            expected_statuses=("running",),
+            expected_state_version=current["state_version"],
+            expected_lease_token="lease-old",
+            expected_lease_generation=1,
+            reject_terminal=True,
+        )
+        assert replacement is not None
+        assert locks.release("sample", run_id, "lease-old", 1)
+        assert locks.acquire(
+            repo_name="sample",
+            tool="project_command",
+            normalized_input={"repo_name": "sample", "command_id": "pytest"},
+            run_id=run_id,
+            owner_token="lease-new",
+            lease_generation=2,
+        ).acquired
+        return {
+            "run_id": run_id,
+            "repo_name": "sample",
+            "tool": "project_command",
+            "status": "completed",
+            "exit_code": 0,
+            "started_at": started_at,
+            "ended_at": utc_now(),
+            "duration_seconds": 0.0,
+            "summary": "stale completion",
+            "error": "",
+            "safety_failure": False,
+        }
+
+    monkeypatch.setattr(worker, "_execute_inner", replace_lease)
+
+    assert worker.execute() == 1
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "launch_pending"
+    assert persisted["worker_lease_token"] == "lease-new"
+    assert persisted["lease_generation"] == 2
+    assert persisted["result"] == {}
+    replacement_lock = locks.find_lock("sample", run_id)
+    assert replacement_lock is not None
+    assert replacement_lock["lease_generation"] == 2

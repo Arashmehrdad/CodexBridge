@@ -395,3 +395,51 @@ def test_recovery_transition_loses_to_new_worker_heartbeat(tmp_path: Path) -> No
 
     assert recovered is None
     assert store.get_run(RUN_ID)["status"] == "running"
+
+
+def test_stale_worker_heartbeat_is_rejected_after_lease_replacement(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="running",
+        worker_lease_token="lease-old",
+    )
+    observed = store.get_run(RUN_ID)
+    replacement = store.conditional_update(
+        RUN_ID,
+        fields={
+            "status": "launch_pending",
+            "current_phase": "launch_pending",
+            "worker_lease_token": "lease-new",
+            "lease_generation": 2,
+            "worker_pid": None,
+            "worker_identity": "",
+        },
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token="lease-old",
+        expected_lease_generation=1,
+        reject_terminal=True,
+    )
+    assert replacement is not None
+
+    assert (
+        store.heartbeat_worker(
+            RUN_ID,
+            lease_token="lease-old",
+            lease_generation=1,
+            elapsed_seconds=5.0,
+            progress_updates={"stale": True},
+        )
+        is False
+    )
+    current = store.get_run(RUN_ID)
+    assert current["worker_lease_token"] == "lease-new"
+    assert current["lease_generation"] == 2
+    assert "stale" not in current["progress"]
