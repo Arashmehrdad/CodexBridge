@@ -102,6 +102,7 @@ class JobWorker:
             if lease_token is not None
             else str(self.run.get("worker_lease_token") or "")
         )
+        self.worker_lease_generation = int(self.run.get("lease_generation") or 1)
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
         self._started_monotonic = 0.0
         self._heartbeat_stop = threading.Event()
@@ -110,24 +111,35 @@ class JobWorker:
 
     def event(
         self, level: str, stage: str, message: str, data: dict | None = None
-    ) -> None:
-        self.store.set_progress(
+    ) -> bool:
+        active = self.store.update_worker_progress(
             self.run_id,
+            lease_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
             phase=stage,
             progress=data or {},
             elapsed_seconds=self._elapsed_seconds(),
         )
-        self.locks.heartbeat(
-            self.run["repo_name"], self.run_id, self.worker_lease_token
+        if not active:
+            return False
+        lock_active = self.locks.heartbeat(
+            self.run["repo_name"],
+            self.run_id,
+            self.worker_lease_token,
+            self.worker_lease_generation,
         )
+        if self.worker_lease_token and not lock_active:
+            return False
         event = self.store.append_event(
             self.run_id,
             level=level,
             stage=stage,
             message=message,
             data=redact_and_truncate(data or {}),
+            update_run_metadata=False,
         )
         self.artifacts.append_event(event)
+        return True
 
     def _elapsed_seconds(self) -> float:
         if not self._started_monotonic:
@@ -137,15 +149,22 @@ class JobWorker:
     def _heartbeat_loop(self) -> None:
         while not self._heartbeat_stop.wait(5.0):
             try:
-                self.store.heartbeat_worker(
+                run_active = self.store.heartbeat_worker(
                     self.run_id,
                     lease_token=self.worker_lease_token,
+                    lease_generation=self.worker_lease_generation,
                     elapsed_seconds=self._elapsed_seconds(),
                     progress_updates={"worker_pid": os.getpid()},
                 )
-                self.locks.heartbeat(
-                    self.run["repo_name"], self.run_id, self.worker_lease_token
+                lock_active = self.locks.heartbeat(
+                    self.run["repo_name"],
+                    self.run_id,
+                    self.worker_lease_token,
+                    self.worker_lease_generation,
                 )
+                if not run_active or (self.worker_lease_token and not lock_active):
+                    self._heartbeat_stop.set()
+                    return
             except Exception:
                 continue
 
@@ -157,6 +176,7 @@ class JobWorker:
         self.store.heartbeat_worker(
             self.run_id,
             lease_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
             elapsed_seconds=self._elapsed_seconds(),
             progress_updates={"last_output_at": _utc_now()},
         )
@@ -184,18 +204,32 @@ class JobWorker:
         claimed = self.store.claim_worker(
             self.run_id,
             lease_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
+            expected_state_version=int(current_before_start["state_version"]),
             worker_pid=worker_pid,
             worker_identity=worker_identity,
         )
         if not claimed:
             return 1
-        self.locks.claim_owner(
+        lock_claimed = self.locks.claim_owner(
             current_before_start["repo_name"],
             self.run_id,
             owner_pid=worker_pid,
             owner_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
         )
         self.run = self.store.get_run(self.run_id)
+        if self.worker_lease_token and not lock_claimed:
+            self.store.mark_recovery_pending(
+                self.run_id,
+                "Worker claimed run lease but repository lock ownership did not match",
+                expected_statuses=("running",),
+                expected_state_version=int(self.run["state_version"]),
+                expected_lease_token=self.worker_lease_token,
+                expected_lease_generation=self.worker_lease_generation,
+                expected_heartbeat_at=self.run.get("heartbeat_at"),
+            )
+            return 1
         started_at = str(self.run.get("started_at") or _utc_now())
         self._started_monotonic = time.monotonic()
         self.event(
