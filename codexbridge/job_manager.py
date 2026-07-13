@@ -30,6 +30,7 @@ from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
     process_is_running,
+    process_matches_identity,
     terminate_process_tree,
 )
 from .run_guards import derive_requirement_manifest
@@ -80,9 +81,164 @@ class JobManager:
         self.locks = OperationLockStore(config.resolve_runs_dir())
 
     def reconcile_startup(self) -> int:
-        stale = self.store.mark_stale_running()
+        reconciled = 0
+        for run in self.store.list_recoverable_runs():
+            self._reconcile_run(run)
+            reconciled += 1
         self.locks.recover_stale()
-        return stale
+        return reconciled
+
+    def _worker_command(self, run_id: str, lease_token: str) -> list[str]:
+        return [
+            sys.executable,
+            "-m",
+            "codexbridge.job_worker",
+            "--config",
+            str(self.config_path),
+            "--run-id",
+            run_id,
+            "--lease-token",
+            lease_token,
+        ]
+
+    def _spawn_worker(self, run_id: str, lease_token: str):
+        return subprocess.Popen(
+            self._worker_command(run_id, lease_token),
+            cwd=Path.cwd(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=os.name != "nt",
+            **process_group_popen_kwargs(),
+        )
+
+    def _append_recovery_event(
+        self,
+        run: dict,
+        *,
+        level: str,
+        message: str,
+        data: dict | None = None,
+    ) -> None:
+        event = self.store.append_event(
+            run["run_id"],
+            level=level,
+            stage="reconcile",
+            message=message,
+            data=data or {},
+        )
+        ArtifactWriter(Path(run["run_dir"])).append_event(event)
+
+    def _fail_recovery(self, run: dict, reason: str) -> None:
+        self.store.fail_infrastructure(run["run_id"], reason)
+        self.locks.release(
+            run["repo_name"],
+            run["run_id"],
+            str(run.get("worker_lease_token") or ""),
+        )
+        self._append_recovery_event(run, level="error", message=reason)
+
+    def _reconcile_run(self, run: dict) -> None:
+        run_id = run["run_id"]
+        status = str(run.get("status") or "")
+        lease_token = str(run.get("worker_lease_token") or "")
+        worker_pid = int(run.get("worker_pid") or 0)
+        worker_identity = str(run.get("worker_identity") or "")
+        launcher_pid = int(run.get("launcher_pid") or 0)
+        child_pid = int(run.get("pid") or 0)
+        worker_verified = process_matches_identity(worker_pid, worker_identity)
+        launcher_running = process_is_running(launcher_pid)
+        child_running = process_is_running(child_pid)
+
+        if worker_verified:
+            self.locks.claim_owner(
+                run["repo_name"],
+                run_id,
+                owner_pid=worker_pid,
+                owner_token=lease_token,
+            )
+            self._append_recovery_event(
+                run,
+                level="info",
+                message="Active worker identity verified after server restart",
+                data={"worker_pid": worker_pid},
+            )
+            return
+
+        if run["tool"] == "ssh_monitored_command":
+            reason = (
+                "Server restarted while monitored remote execution may still be active"
+            )
+            self.store.update_run(
+                run_id,
+                status="cancellation_pending",
+                current_phase="cancellation_pending",
+                ended_at=None,
+                error=reason,
+                recovery_reason=reason,
+                safety_failure=True,
+            )
+            self._append_recovery_event(run, level="warning", message=reason)
+            return
+
+        if child_running:
+            reason = "Worker ownership is unavailable while a child process remains active"
+            self.store.mark_recovery_pending(run_id, reason)
+            self._append_recovery_event(
+                run,
+                level="warning",
+                message=reason,
+                data={"child_pid": child_pid},
+            )
+            return
+
+        if status in {"launch_pending", "queued"}:
+            if launcher_running:
+                self._append_recovery_event(
+                    run,
+                    level="warning",
+                    message="Launcher remains active; awaiting canonical worker claim",
+                    data={"launcher_pid": launcher_pid},
+                )
+                return
+            if int(run.get("launch_attempts") or 0) < 2:
+                try:
+                    process = self._spawn_worker(run_id, lease_token)
+                    self.store.record_worker_launch(run_id, process.pid)
+                    self.locks.heartbeat(run["repo_name"], run_id, lease_token)
+                    self._append_recovery_event(
+                        run,
+                        level="warning",
+                        message="Stranded queued worker relaunched once",
+                        data={"launcher_pid": process.pid},
+                    )
+                except Exception as exc:
+                    self._fail_recovery(
+                        run, f"Worker relaunch failed during startup recovery: {exc}"
+                    )
+                return
+            self._fail_recovery(
+                run, "Queued run exhausted its bounded worker launch attempts"
+            )
+            return
+
+        if status == "running":
+            if worker_pid and worker_identity:
+                self._fail_recovery(
+                    run, "Verified worker process is no longer active after restart"
+                )
+                return
+            reason = "Running legacy record has no verifiable worker identity"
+            self.store.mark_recovery_pending(run_id, reason)
+            self._append_recovery_event(run, level="warning", message=reason)
+            return
+
+        if status in {"cancellation_pending", "recovery_pending"}:
+            self._append_recovery_event(
+                run,
+                level="warning",
+                message="Conservative recovery state retained pending operator action",
+            )
 
     def start_plan(self, repo_name: str, task: str, constraints: str = "") -> dict:
         resolve_repo(self.config, repo_name)
@@ -656,12 +812,14 @@ class JobManager:
             }
 
         run_id = make_run_id(tool)
+        lease_token = uuid4().hex
         acquisition = self.locks.acquire(
             repo_name=repo_name,
             tool=tool,
             normalized_input=input_data,
             run_id=run_id,
             owner_pid=os.getpid(),
+            owner_token=lease_token,
         )
         if not acquisition.acquired:
             return {
@@ -676,54 +834,65 @@ class JobManager:
                 "duplicate": acquisition.duplicate,
             }
         run_dir = self.config.resolve_runs_dir() / run_id
-        run_dir.mkdir(parents=True, exist_ok=False)
-        artifacts = ArtifactWriter(run_dir)
-        artifacts.write_json("input.json", input_data)
-        self.store.create_run(
-            run_id=run_id,
-            repo_name=repo_name,
-            tool=tool,
-            run_dir=run_dir,
-            input_data=input_data,
-            risk_level=decision.risk_level,
-            requires_human=decision.requires_human,
-        )
-        event = self.store.append_event(
-            run_id,
-            level="info",
-            stage="queued",
-            message="Run queued",
-            data={"tool": tool},
-        )
-        artifacts.append_event(event)
-        command = [
-            sys.executable,
-            "-m",
-            "codexbridge.job_worker",
-            "--config",
-            str(self.config_path),
-            "--run-id",
-            run_id,
-        ]
-        process = subprocess.Popen(
-            command,
-            cwd=Path.cwd(),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=os.name != "nt",
-            **process_group_popen_kwargs(),
-        )
-        self.store.update_run(run_id, worker_pid=process.pid)
-        self.locks.heartbeat(repo_name, run_id)
-        event = self.store.append_event(
-            run_id,
-            level="info",
-            stage="worker",
-            message="Worker process started",
-            data={"worker_pid": process.pid},
-        )
-        artifacts.append_event(event)
+        run_created = False
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+            artifacts = ArtifactWriter(run_dir)
+            artifacts.write_json("input.json", input_data)
+            self.store.create_run(
+                run_id=run_id,
+                repo_name=repo_name,
+                tool=tool,
+                run_dir=run_dir,
+                input_data=input_data,
+                risk_level=decision.risk_level,
+                requires_human=decision.requires_human,
+                status="launch_pending",
+                worker_lease_token=lease_token,
+            )
+            run_created = True
+            event = self.store.append_event(
+                run_id,
+                level="info",
+                stage="launch_pending",
+                message="Durable worker launch intent recorded",
+                data={"tool": tool},
+            )
+            artifacts.append_event(event)
+            process = self._spawn_worker(run_id, lease_token)
+            self.store.record_worker_launch(run_id, process.pid)
+            self.locks.heartbeat(repo_name, run_id, lease_token)
+            event = self.store.append_event(
+                run_id,
+                level="info",
+                stage="worker",
+                message="Worker launcher process started",
+                data={"launcher_pid": process.pid},
+            )
+            artifacts.append_event(event)
+        except Exception as exc:
+            reason = f"Worker launch failed after durable acceptance: {exc}"
+            if run_created:
+                self.store.fail_infrastructure(run_id, reason)
+                event = self.store.append_event(
+                    run_id,
+                    level="error",
+                    stage="launch_failed",
+                    message=reason,
+                    data={},
+                )
+                ArtifactWriter(run_dir).append_event(event)
+            self.locks.release(repo_name, run_id, lease_token)
+            return {
+                "run_id": run_id if run_created else "",
+                "accepted": False,
+                "status": "failed",
+                "estimated_duration_minutes": 0,
+                "recommended_check_after_minutes": 0,
+                "risk_level": decision.risk_level,
+                "requires_human": False,
+                "reason": reason,
+            }
         response = decision.to_start_response(run_id=run_id, status="queued")
         response["repo_name"] = repo_name
         if requested_repo_name != repo_name:
@@ -779,7 +948,9 @@ class JobManager:
 
     def get_control_status(self, run_id: str) -> dict:
         run = self.store.get_run(run_id)
+        launcher_pid = int(run.get("launcher_pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
+        worker_identity = str(run.get("worker_identity") or "")
         child_pid = int(run.get("pid") or 0)
         progress = dict(run.get("progress") or {})
         return redact_and_truncate(
@@ -794,8 +965,13 @@ class JobManager:
                 "heartbeat_at": run.get("heartbeat_at"),
                 "heartbeat_age_seconds": run.get("heartbeat_age_seconds"),
                 "worker_stale": bool(run.get("worker_stale")),
+                "launcher_pid": launcher_pid,
+                "launcher_running": process_is_running(launcher_pid),
                 "worker_pid": worker_pid,
-                "worker_running": process_is_running(worker_pid),
+                "worker_identity_present": bool(worker_identity),
+                "worker_running": process_matches_identity(
+                    worker_pid, worker_identity
+                ),
                 "child_pid": child_pid,
                 "child_running": process_is_running(child_pid),
                 "last_output_at": progress.get("last_output_at", ""),
@@ -979,9 +1155,15 @@ class JobManager:
         progress["cancellation_requested_at"] = requested_at
         child_pid = int(run.get("pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
+        launcher_pid = int(run.get("launcher_pid") or 0)
 
         if run["tool"] == "ssh_monitored_command":
-            if run["status"] == "queued" and not worker_pid and not child_pid:
+            if (
+                run["status"] == "queued"
+                and not launcher_pid
+                and not worker_pid
+                and not child_pid
+            ):
                 ended_at = datetime.now(timezone.utc).isoformat()
                 error = "Run cancelled before monitored SSH launch"
                 result = self._cancellation_result(run, ended_at, error, progress)
@@ -1126,6 +1308,12 @@ class JobManager:
             pids.append(("child", child_pid))
         if worker_pid > 0 and worker_pid != child_pid:
             pids.append(("worker", worker_pid))
+        if (
+            launcher_pid > 0
+            and launcher_pid != child_pid
+            and launcher_pid != worker_pid
+        ):
+            pids.append(("launcher", launcher_pid))
         reports = []
         for role, pid in pids:
             report = terminate_process_tree(pid)
