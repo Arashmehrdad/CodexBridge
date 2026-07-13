@@ -102,13 +102,24 @@ A plain `GET` returning HTTP `406 Not Acceptable` is only route readiness for th
 Windows service controller:
 
 ```powershell
+# Open the interactive TUI.
+.\codexbridge-service.cmd
+
+# Direct service actions.
 .\codexbridge-service.cmd start
 .\codexbridge-service.cmd stop
 .\codexbridge-service.cmd restart
 .\codexbridge-service.cmd status
 .\codexbridge-service.cmd logs
 .\codexbridge-service.cmd diagnostics
+
+# Inspect or change the supervisor autonomy profile.
+.\codexbridge-service.cmd profile-status
+.\codexbridge-service.cmd profile-set -Profile permissive
+.\codexbridge-service.cmd profile-set -Profile balanced -RestartAfterProfileChange
 ```
+
+The TUI displays the configured supervisor profile and the current server/tunnel process state. Choose **Select supervisor profile** to switch among the profiles defined under `supervisors.autonomy_profiles` in `config.yaml`. The update is validated and rolled back automatically if the resulting configuration is invalid. A running server must be restarted before the new profile takes effect; the TUI offers to do this immediately.
 
 The controller writes service output under `runs\service_logs`. Actions that require elevation use the normal Windows UAC prompt, and the manager verifies process identity before stopping a server or tunnel.
 

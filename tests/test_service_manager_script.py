@@ -1,4 +1,8 @@
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +35,9 @@ def test_manager_exposes_complete_action_surface() -> None:
         "open-logs",
         "validate-config",
         "diagnostics",
+        "profiles",
+        "profile-status",
+        "profile-set",
         "tunnel-start",
         "tunnel-stop",
         "tunnel-restart",
@@ -71,10 +78,97 @@ def test_manager_supports_bounded_uac_and_route_readiness() -> None:
     assert "not a full MCP handshake" in text
 
 
+def test_manager_tui_exposes_profile_selection_and_runtime_state() -> None:
+    text = MANAGER.read_text(encoding="utf-8")
+    assert "Show-SupervisorProfileMenu" in text
+    assert "Select supervisor profile" in text
+    assert "AvailableProfiles" in text
+    assert "[active]" in text
+    assert "Profile: $($profileConfiguration.DefaultProfile)" in text
+    assert "Server:  $serverState    Tunnel: $tunnelState" in text
+    assert "Profile update was rolled back because validation failed" in text
+
+
+POWERSHELL = shutil.which("powershell.exe") or shutil.which("pwsh")
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_profile_status_and_set_actions_update_only_selected_config(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        """repos: {}
+supervisors:
+  default_autonomy_profile: \"permissive\"
+  autonomy_profiles:
+    permissive:
+      stop_on_requires_human: true
+      max_plan_tier: 3
+      max_implementation_tier: 3
+      require_tests_for_non_docs_changes: false
+    balanced:
+      stop_on_requires_human: true
+      max_plan_tier: 1
+      max_implementation_tier: 2
+      require_tests_for_non_docs_changes: false
+""",
+        encoding="utf-8",
+    )
+
+    common = [
+        str(POWERSHELL),
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(MANAGER),
+        "-Config",
+        str(config),
+    ]
+    status = subprocess.run(
+        [*common, "-Action", "profile-status"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert status.returncode == 0, status.stderr or status.stdout
+    assert "Current profile:    permissive" in status.stdout
+    assert "permissive, balanced" in status.stdout
+
+    changed = subprocess.run(
+        [*common, "-Action", "profile-set", "-Profile", "balanced"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert changed.returncode == 0, changed.stderr or changed.stdout
+    assert "Supervisor profile changed from 'permissive' to 'balanced'" in changed.stdout
+
+    updated = config.read_text(encoding="utf-8")
+    assert 'default_autonomy_profile: "balanced"' in updated
+    assert updated.count("default_autonomy_profile:") == 1
+    assert "    permissive:" in updated
+    assert "    balanced:" in updated
+
+
 def test_readme_documents_controller_and_common_actions() -> None:
     text = README.read_text(encoding="utf-8")
     assert ".\\codexbridge-service.cmd" in text
-    for action in ("start", "stop", "restart", "status", "logs", "diagnostics"):
+    for action in (
+        "start",
+        "stop",
+        "restart",
+        "status",
+        "logs",
+        "diagnostics",
+        "profile-status",
+        "profile-set",
+    ):
         assert f"codexbridge-service.cmd {action}" in text
+    assert "Select supervisor profile" in text
     assert "runs\\service_logs" in text
     assert "UAC" in text
