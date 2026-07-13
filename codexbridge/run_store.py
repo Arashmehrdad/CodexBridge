@@ -534,32 +534,160 @@ class RunStore:
         lease_token: str,
         elapsed_seconds: float,
         progress_updates: dict[str, Any] | None = None,
+        lease_generation: int | None = None,
     ) -> bool:
         current = self.get_run(run_id)
+        generation = (
+            int(current["lease_generation"])
+            if lease_generation is None
+            else int(lease_generation)
+        )
         progress = dict(current.get("progress") or {})
         progress.update(progress_updates or {})
-        with self.connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE runs
-                SET heartbeat_at = ?, elapsed_seconds = ?, progress_json = ?
-                WHERE run_id = ? AND worker_lease_token = ?
-                """,
-                (utc_now(), elapsed_seconds, dumps(progress), run_id, lease_token),
-            )
-        return int(cursor.rowcount) == 1
-
-    def mark_recovery_pending(self, run_id: str, reason: str) -> dict[str, Any]:
-        return self.update_run(
+        updated = self.conditional_update(
             run_id,
-            status="recovery_pending",
-            current_phase="recovery_pending",
-            recovery_reason=reason,
-            error=reason,
-            ended_at=None,
+            fields={
+                "heartbeat_at": utc_now(),
+                "elapsed_seconds": elapsed_seconds,
+                "progress_json": progress,
+            },
+            expected_statuses=("running",),
+            expected_lease_token=lease_token,
+            expected_lease_generation=generation,
+            bump_state_version=False,
+        )
+        return updated is not None
+
+    def attach_child_pid(
+        self,
+        run_id: str,
+        *,
+        child_pid: int,
+        lease_token: str,
+        lease_generation: int,
+    ) -> bool:
+        return (
+            self.conditional_update(
+                run_id,
+                fields={"pid": int(child_pid), "heartbeat_at": utc_now()},
+                expected_statuses=("running",),
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+            )
+            is not None
         )
 
-    def fail_infrastructure(self, run_id: str, reason: str) -> dict[str, Any]:
+    def adopt_worker(
+        self,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        lease_token: str,
+        lease_generation: int,
+        expected_heartbeat_at: str | None,
+    ) -> dict[str, Any] | None:
+        return self.conditional_update(
+            run_id,
+            fields={
+                "current_phase": "worker",
+                "heartbeat_at": utc_now(),
+                "recovery_reason": "",
+            },
+            expected_statuses=("running",),
+            expected_state_version=expected_state_version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
+            reject_terminal=True,
+        )
+
+    def mark_recovery_pending(
+        self,
+        run_id: str,
+        reason: str,
+        *,
+        expected_statuses: tuple[str, ...] | list[str] | set[str] | None = None,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
+    ) -> dict[str, Any] | None:
+        current = self.get_run(run_id)
+        statuses = expected_statuses or (str(current["status"]),)
+        version = (
+            int(current["state_version"])
+            if expected_state_version is None
+            else int(expected_state_version)
+        )
+        return self.conditional_update(
+            run_id,
+            fields={
+                "status": "recovery_pending",
+                "current_phase": "recovery_pending",
+                "recovery_reason": reason,
+                "error": reason,
+                "ended_at": None,
+            },
+            expected_statuses=statuses,
+            expected_state_version=version,
+            expected_lease_token=expected_lease_token,
+            expected_lease_generation=expected_lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
+            reject_terminal=True,
+        )
+
+    def transition_terminal(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        result: dict[str, Any],
+        expected_statuses: tuple[str, ...] | list[str] | set[str],
+        expected_state_version: int,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        ended_at: str | None = None,
+        duration_seconds: float | None = None,
+        exit_code: int | None = None,
+        summary: str = "",
+        error: str = "",
+        safety_failure: bool = False,
+        recovery_reason: str = "",
+    ) -> dict[str, Any] | None:
+        if status not in TERMINAL_STATUSES:
+            raise ValueError(f"Not a terminal run status: {status}")
+        terminal_at = ended_at or utc_now()
+        return self.conditional_update(
+            run_id,
+            fields={
+                "status": status,
+                "current_phase": "result",
+                "ended_at": terminal_at,
+                "duration_seconds": duration_seconds,
+                "exit_code": exit_code,
+                "summary": summary,
+                "error": error,
+                "safety_failure": safety_failure,
+                "result_json": result,
+                "recovery_reason": recovery_reason,
+            },
+            expected_statuses=expected_statuses,
+            expected_state_version=expected_state_version,
+            expected_lease_token=expected_lease_token,
+            expected_lease_generation=expected_lease_generation,
+            reject_terminal=True,
+        )
+
+    def fail_infrastructure(
+        self,
+        run_id: str,
+        reason: str,
+        *,
+        expected_statuses: tuple[str, ...] | list[str] | set[str] | None = None,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+    ) -> dict[str, Any] | None:
         run = self.get_run(run_id)
         ended_at = utc_now()
         result = {
@@ -580,14 +708,24 @@ class RunStore:
             "cancelled": False,
             "timed_out": False,
         }
-        return self.update_run(
+        return self.transition_terminal(
             run_id,
             status="failed",
-            current_phase="result",
+            result=result,
+            expected_statuses=expected_statuses or (str(run["status"]),),
+            expected_state_version=(
+                int(run["state_version"])
+                if expected_state_version is None
+                else int(expected_state_version)
+            ),
+            expected_lease_token=expected_lease_token,
+            expected_lease_generation=expected_lease_generation,
             ended_at=ended_at,
+            duration_seconds=run.get("duration_seconds"),
+            exit_code=None,
+            summary=reason,
             error=reason,
             recovery_reason=reason,
-            result_json=result,
         )
 
     def mark_stale_running(self) -> int:
