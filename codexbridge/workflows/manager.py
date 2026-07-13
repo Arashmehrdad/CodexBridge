@@ -487,7 +487,13 @@ class WorkflowManager:
                         self._finalize_terminal_workflow(failed)
         return relaunched
 
-    def _launch_worker_process(self, config_path: Path, workflow_id: str) -> int:
+    def _launch_worker_process(
+        self,
+        config_path: Path,
+        workflow_id: str,
+        lease_token: str,
+        lease_generation: int,
+    ) -> int:
         command = [
             sys.executable,
             "-m",
@@ -496,6 +502,10 @@ class WorkflowManager:
             str(config_path),
             "--workflow-id",
             workflow_id,
+            "--lease-token",
+            lease_token,
+            "--lease-generation",
+            str(int(lease_generation)),
         ]
         process = subprocess.Popen(
             command,
@@ -523,6 +533,7 @@ class WorkflowManager:
             stage=stage,
             message=message,
             data=redact_and_truncate(data or {}),
+            update_workflow_metadata=False,
         )
         workflow = self.store.get_workflow(workflow_id)
         write_workflow_snapshot(
@@ -532,19 +543,28 @@ class WorkflowManager:
         )
 
     def _finalize_terminal_workflow(self, workflow: WorkflowRecord) -> WorkflowRecord:
+        if workflow.status == WorkflowStatus.REPORTED:
+            return workflow
         report = generate_workflow_report(self.config.resolve_runs_dir(), workflow)
-        artifact_paths = [
-            *[str(path) for path in workflow.artifact_paths],
-            str(report.report_path),
-            str(report.resume_prompt_path),
-            str(report.manifest_path),
-        ]
-        updated = self.store.update_workflow(
-            workflow.workflow_id,
-            status=WorkflowStatus.REPORTED,
-            terminal_status=workflow.terminal_status or workflow.status,
-            artifact_paths_json=artifact_paths,
+        artifact_paths = list(
+            dict.fromkeys(
+                [
+                    *[str(path) for path in workflow.artifact_paths],
+                    str(report.report_path),
+                    str(report.resume_prompt_path),
+                    str(report.manifest_path),
+                ]
+            )
         )
+        updated = self.store.mark_reported(
+            workflow.workflow_id,
+            expected_status=workflow.status,
+            expected_state_version=workflow.state_version,
+            terminal_status=workflow.terminal_status or workflow.status,
+            artifact_paths=artifact_paths,
+        )
+        if updated is None:
+            return self.store.get_workflow(workflow.workflow_id)
         self._append_event(
             workflow.workflow_id,
             level="info",
