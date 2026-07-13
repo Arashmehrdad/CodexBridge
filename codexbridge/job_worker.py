@@ -41,7 +41,7 @@ from .process_control import (
     terminate_process_tree,
 )
 from .prompts import build_implementation_prompt, build_plan_prompt
-from .run_store import RunStore
+from .run_store import TERMINAL_STATUSES, RunStore
 from .run_guards import (
     allowed_write_directories,
     assess_implementation_output_against,
