@@ -8,7 +8,8 @@ from typing import Any
 
 from codexbridge.config import AppConfig, load_config
 from codexbridge.events import redact_and_truncate
-from codexbridge.job_manager import JobManager
+from codexbridge.job_manager import JobManager, make_run_id
+from codexbridge.process_control import process_identity
 from codexbridge.run_store import TERMINAL_STATUSES, utc_now
 
 from .manager import WorkflowManager
@@ -33,6 +34,8 @@ class WorkflowWorker:
         config_path: Path,
         workflow_id: str,
         *,
+        lease_token: str | None = None,
+        lease_generation: int | None = None,
         poll_interval_seconds: float = 0.2,
         sleep_fn=time.sleep,
     ):
@@ -40,6 +43,15 @@ class WorkflowWorker:
         self.config: AppConfig = load_config(config_path)
         self.workflow_id = workflow_id
         self.store = WorkflowStore(self.config.resolve_runs_dir())
+        initial = self.store.get_workflow(workflow_id)
+        self.lease_token = (
+            lease_token if lease_token is not None else initial.worker_lease_token
+        )
+        self.lease_generation = (
+            int(lease_generation)
+            if lease_generation is not None
+            else int(initial.lease_generation)
+        )
         self.job_manager = JobManager(self.config, config_path)
         self.workflow_manager = WorkflowManager(self.config, config_path)
         self.poll_interval_seconds = poll_interval_seconds
@@ -50,13 +62,26 @@ class WorkflowWorker:
         if workflow.status in {WorkflowStatus.REPORTED, WorkflowStatus.CANCELLED}:
             return 0
         if workflow.status == WorkflowStatus.QUEUED:
-            workflow = self.store.update_workflow(
+            worker_pid = os_getpid()
+            worker_identity = process_identity(worker_pid)
+            if not self.store.claim_worker(
                 self.workflow_id,
-                status=WorkflowStatus.RUNNING,
-                started_at=workflow.started_at or utc_now(),
-                heartbeat_at=utc_now(),
+                lease_token=self.lease_token,
+                lease_generation=self.lease_generation,
+                expected_state_version=workflow.state_version,
+                worker_pid=worker_pid,
+                worker_identity=worker_identity,
+            ):
+                return 1
+            workflow = self.store.get_workflow(self.workflow_id)
+            self._event(
+                "info",
+                "running",
+                "Workflow worker claimed durable execution lease",
+                {"worker_pid": worker_pid, "worker_identity_recorded": bool(worker_identity)},
             )
-            self._event("info", "running", "Workflow worker started")
+        elif workflow.status == WorkflowStatus.RUNNING:
+            return 1
         while True:
             workflow = self.store.get_workflow(self.workflow_id)
             if workflow.status == WorkflowStatus.REPORTED:
@@ -65,15 +90,18 @@ class WorkflowWorker:
                 WorkflowStatus.CANCELLED,
                 WorkflowStatus.COMPLETED,
                 WorkflowStatus.FAILED,
+                WorkflowStatus.NEEDS_APPROVAL,
                 WorkflowStatus.NEEDS_INPUT,
             }:
                 self.workflow_manager._finalize_terminal_workflow(workflow)
                 return 0
-            self.store.update_workflow(
+            if not self.store.heartbeat_worker(
                 self.workflow_id,
-                heartbeat_at=utc_now(),
+                lease_token=self.lease_token,
+                lease_generation=self.lease_generation,
                 worker_pid=os_getpid(),
-            )
+            ):
+                return 1
             if workflow.active_child_run_id:
                 if self._reconcile_active_child(workflow):
                     continue
@@ -422,13 +450,27 @@ class WorkflowWorker:
 
     def _event(
         self, level: str, stage: str, message: str, data: dict[str, Any] | None = None
-    ) -> None:
+    ) -> bool:
+        workflow = self.store.get_workflow(self.workflow_id)
+        if (
+            workflow.worker_lease_token != self.lease_token
+            or workflow.lease_generation != self.lease_generation
+        ):
+            return False
+        if workflow.status == WorkflowStatus.RUNNING and not self.store.heartbeat_worker(
+            self.workflow_id,
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            worker_pid=os_getpid(),
+        ):
+            return False
         self.store.append_event(
             self.workflow_id,
             level=level,
             stage=stage,
             message=message,
             data=redact_and_truncate(data or {}),
+            update_workflow_metadata=False,
         )
         workflow = self.store.get_workflow(self.workflow_id)
         write_workflow_snapshot(
@@ -436,6 +478,7 @@ class WorkflowWorker:
             workflow,
             [event.to_dict() for event in self.store.get_events(self.workflow_id, 500)],
         )
+        return True
 
 
 def os_getpid() -> int:
@@ -448,12 +491,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the durable workflow worker.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--workflow-id", required=True)
+    parser.add_argument("--lease-token", required=True)
+    parser.add_argument("--lease-generation", required=True, type=int)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    worker = WorkflowWorker(Path(args.config), args.workflow_id)
+    worker = WorkflowWorker(
+        Path(args.config),
+        args.workflow_id,
+        lease_token=args.lease_token,
+        lease_generation=args.lease_generation,
+    )
     return worker.execute()
 
 
