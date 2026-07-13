@@ -71,6 +71,8 @@ class RunStore:
                     launcher_pid INTEGER,
                     worker_pid INTEGER,
                     worker_lease_token TEXT NOT NULL DEFAULT '',
+                    lease_generation INTEGER NOT NULL DEFAULT 1,
+                    state_version INTEGER NOT NULL DEFAULT 0,
                     worker_identity TEXT NOT NULL DEFAULT '',
                     worker_claimed_at TEXT,
                     launch_attempts INTEGER NOT NULL DEFAULT 0,
@@ -125,6 +127,12 @@ class RunStore:
             self._ensure_column(conn, "runs", "launcher_pid", "INTEGER")
             self._ensure_column(
                 conn, "runs", "worker_lease_token", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(
+                conn, "runs", "lease_generation", "INTEGER NOT NULL DEFAULT 1"
+            )
+            self._ensure_column(
+                conn, "runs", "state_version", "INTEGER NOT NULL DEFAULT 0"
             )
             self._ensure_column(
                 conn, "runs", "worker_identity", "TEXT NOT NULL DEFAULT ''"
