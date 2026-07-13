@@ -440,22 +440,50 @@ class RunStore:
             ).fetchall()
         return [self._row_to_run(row) for row in rows]
 
-    def record_worker_launch(self, run_id: str, launcher_pid: int) -> dict[str, Any]:
-        validate_run_id(run_id)
-        now = utc_now()
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE runs
-                SET status = 'queued', current_phase = 'queued',
-                    launcher_pid = ?, launch_attempts = launch_attempts + 1,
-                    heartbeat_at = ?, recovery_reason = ''
-                WHERE run_id = ?
-                  AND status IN ('launch_pending', 'queued', 'recovery_pending')
-                """,
-                (int(launcher_pid), now, run_id),
-            )
-        return self.get_run(run_id)
+    def record_worker_launch(
+        self,
+        run_id: str,
+        launcher_pid: int,
+        *,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        increment_attempt: bool = True,
+    ) -> dict[str, Any] | None:
+        current = self.get_run(run_id)
+        version = (
+            int(current["state_version"])
+            if expected_state_version is None
+            else int(expected_state_version)
+        )
+        lease_token = (
+            str(current["worker_lease_token"])
+            if expected_lease_token is None
+            else expected_lease_token
+        )
+        generation = (
+            int(current["lease_generation"])
+            if expected_lease_generation is None
+            else int(expected_lease_generation)
+        )
+        fields: dict[str, Any] = {
+            "status": "queued",
+            "current_phase": "queued",
+            "launcher_pid": int(launcher_pid),
+            "heartbeat_at": utc_now(),
+            "recovery_reason": "",
+        }
+        if increment_attempt:
+            fields["launch_attempts"] = int(current.get("launch_attempts") or 0) + 1
+        return self.conditional_update(
+            run_id,
+            fields=fields,
+            expected_statuses=("launch_pending",),
+            expected_state_version=version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=generation,
+            reject_terminal=True,
+        )
 
     def claim_worker(
         self,
