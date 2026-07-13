@@ -40,8 +40,9 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.repos["stream_alpha"].allow_push is False
     assert config.repos["stream_alpha"].refuse_unrelated_staged_files is True
     assert config.repos["stream_alpha"].require_commit_report is True
-    assert config.supervisors.default_autonomy_profile == "balanced"
-    assert config.supervisors.effective_profile().max_implementation_tier == 2
+    assert config.supervisors.default_autonomy_profile == "permissive"
+    assert config.supervisors.effective_profile().max_plan_tier == 3
+    assert config.supervisors.effective_profile().max_implementation_tier == 3
     assert config.ssh.enabled is False
     assert config.docker.enabled is False
     assert config.docker.executable == "docker"
@@ -67,7 +68,7 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert watchdog.max_gpu_memory_percent == 95
 
 
-def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
+def test_config_defaults_to_permissive_supervisor_profile(tmp_path: Path) -> None:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
@@ -75,8 +76,15 @@ def test_config_defaults_to_balanced_supervisor_profile(tmp_path: Path) -> None:
     assert config.repos["sample"].allow_push is False
     assert config.repos["sample"].refuse_unrelated_staged_files is True
     assert config.repos["sample"].require_commit_report is True
-    assert config.supervisors.default_autonomy_profile == "balanced"
+    assert config.supervisors.default_autonomy_profile == "permissive"
+    assert set(config.supervisors.autonomy_profiles) == {
+        "permissive",
+        "balanced",
+        "conservative",
+    }
     assert config.supervisors.effective_profile().stop_on_requires_human is True
+    assert config.supervisors.effective_profile().max_plan_tier == 3
+    assert config.supervisors.effective_profile().max_implementation_tier == 3
     assert config.supervisors.notifications.enabled is True
     assert config.supervisors.notifications.file.enabled is False
     assert config.supervisors.notifications.webhook.enabled is False

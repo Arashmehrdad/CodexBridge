@@ -173,8 +173,13 @@ codex:
 gemini:
   enabled: false
 supervisors:
-  default_autonomy_profile: "balanced"
+  default_autonomy_profile: "permissive"
   autonomy_profiles:
+    permissive:
+      stop_on_requires_human: true
+      max_plan_tier: 3
+      max_implementation_tier: 3
+      require_tests_for_non_docs_changes: false
     balanced:
       stop_on_requires_human: true
       max_plan_tier: 1

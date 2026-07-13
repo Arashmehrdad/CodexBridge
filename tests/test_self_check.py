@@ -67,7 +67,12 @@ def test_self_check_reports_supervisor_readiness(monkeypatch, tmp_path: Path) ->
 
     supervisor_config = result["checks"]["supervisor_config"]
     assert supervisor_config["ok"] is True
-    assert supervisor_config["default_autonomy_profile"] == "balanced"
+    assert supervisor_config["default_autonomy_profile"] == "permissive"
+    assert supervisor_config["available_profiles"] == [
+        "balanced",
+        "conservative",
+        "permissive",
+    ]
     assert supervisor_config["notification_sinks"] == {
         "file_enabled": False,
         "webhook_enabled": False,
