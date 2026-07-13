@@ -367,6 +367,292 @@ class WorkflowStore:
             return None
         return self.get_workflow(workflow_id)
 
+    def record_worker_launch(
+        self,
+        workflow_id: str,
+        launcher_pid: int,
+        *,
+        expected_state_version: int,
+        lease_token: str,
+        lease_generation: int,
+    ) -> WorkflowRecord | None:
+        return self.conditional_update_workflow(
+            workflow_id,
+            fields={"launcher_pid": int(launcher_pid), "heartbeat_at": utc_now()},
+            expected_statuses=(WorkflowStatus.QUEUED,),
+            expected_state_version=expected_state_version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            reject_terminal=True,
+        )
+
+    def claim_worker(
+        self,
+        workflow_id: str,
+        *,
+        lease_token: str,
+        lease_generation: int,
+        expected_state_version: int,
+        worker_pid: int,
+        worker_identity: str,
+    ) -> bool:
+        current = self.get_workflow(workflow_id)
+        now = utc_now()
+        updated = self.conditional_update_workflow(
+            workflow_id,
+            fields={
+                "status": WorkflowStatus.RUNNING,
+                "worker_pid": int(worker_pid),
+                "worker_identity": worker_identity,
+                "worker_claimed_at": now,
+                "started_at": current.started_at or now,
+                "heartbeat_at": now,
+            },
+            expected_statuses=(WorkflowStatus.QUEUED,),
+            expected_state_version=expected_state_version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            reject_terminal=True,
+        )
+        return updated is not None
+
+    def heartbeat_worker(
+        self,
+        workflow_id: str,
+        *,
+        lease_token: str,
+        lease_generation: int,
+        worker_pid: int,
+    ) -> bool:
+        updated = self.conditional_update_workflow(
+            workflow_id,
+            fields={"heartbeat_at": utc_now(), "worker_pid": int(worker_pid)},
+            expected_statuses=(WorkflowStatus.RUNNING,),
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            bump_state_version=False,
+        )
+        return updated is not None
+
+    def adopt_worker(
+        self,
+        workflow_id: str,
+        *,
+        expected_state_version: int,
+        lease_token: str,
+        lease_generation: int,
+        expected_heartbeat_at: str | None,
+    ) -> WorkflowRecord | None:
+        return self.conditional_update_workflow(
+            workflow_id,
+            fields={"heartbeat_at": utc_now()},
+            expected_statuses=(WorkflowStatus.RUNNING,),
+            expected_state_version=expected_state_version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
+            reject_terminal=True,
+        )
+
+    def reserve_next_launch(
+        self,
+        workflow_id: str,
+        *,
+        expected_statuses: tuple[WorkflowStatus | str, ...],
+        expected_state_version: int,
+        expected_lease_token: str,
+        expected_lease_generation: int,
+        expected_heartbeat_at: str | None,
+        new_lease_token: str,
+    ) -> WorkflowRecord | None:
+        current = self.get_workflow(workflow_id)
+        return self.conditional_update_workflow(
+            workflow_id,
+            fields={
+                "status": WorkflowStatus.QUEUED,
+                "launcher_pid": None,
+                "worker_pid": None,
+                "worker_lease_token": new_lease_token,
+                "lease_generation": int(expected_lease_generation) + 1,
+                "worker_identity": "",
+                "worker_claimed_at": None,
+                "launch_attempts": int(current.launch_attempts) + 1,
+                "heartbeat_at": utc_now(),
+            },
+            expected_statuses=expected_statuses,
+            expected_state_version=expected_state_version,
+            expected_lease_token=expected_lease_token,
+            expected_lease_generation=expected_lease_generation,
+            expected_heartbeat_at=expected_heartbeat_at,
+            reject_terminal=True,
+        )
+
+    def claim_step(
+        self,
+        workflow_id: str,
+        step_id: str,
+        *,
+        lease_token: str,
+        lease_generation: int,
+        child_run_id: str | None,
+    ) -> WorkflowRecord | None:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            workflow_cursor = conn.execute(
+                """
+                UPDATE workflows
+                SET active_child_run_id = ?, updated_at = ?,
+                    state_version = state_version + 1
+                WHERE workflow_id = ? AND status = ?
+                  AND worker_lease_token = ? AND lease_generation = ?
+                  AND active_child_run_id IS NULL
+                """,
+                (
+                    child_run_id,
+                    now,
+                    workflow_id,
+                    WorkflowStatus.RUNNING.value,
+                    lease_token,
+                    int(lease_generation),
+                ),
+            )
+            if int(workflow_cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            step_cursor = conn.execute(
+                """
+                UPDATE workflow_steps
+                SET status = ?, state_version = state_version + 1,
+                    child_run_id = ?,
+                    child_launch_attempts = child_launch_attempts + ?,
+                    started_at = COALESCE(started_at, ?),
+                    summary = 'Step running', error = ''
+                WHERE workflow_id = ? AND step_id = ? AND status = ?
+                """,
+                (
+                    WorkflowStepStatus.RUNNING.value,
+                    child_run_id,
+                    1 if child_run_id else 0,
+                    now,
+                    workflow_id,
+                    step_id,
+                    WorkflowStepStatus.PENDING.value,
+                ),
+            )
+            if int(step_cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self.get_workflow(workflow_id)
+
+    def conditional_update_step(
+        self,
+        workflow_id: str,
+        step_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_statuses: tuple[WorkflowStepStatus | str, ...],
+        lease_token: str,
+        lease_generation: int,
+        expected_state_version: int | None = None,
+        expected_child_run_id: Any = _UNSET,
+        clear_active_child: bool = False,
+    ) -> WorkflowRecord | None:
+        unknown = set(fields) - _STEP_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unsupported conditional workflow step fields: {sorted(unknown)}")
+        normalized = self._normalize_step_fields(fields)
+        assignments = [f"{key} = ?" for key in normalized]
+        assignments.append("state_version = state_version + 1")
+        params: list[Any] = list(normalized.values())
+        statuses = tuple(
+            status.value if isinstance(status, WorkflowStepStatus) else str(status)
+            for status in expected_statuses
+        )
+        if not statuses:
+            return None
+        where = [
+            "workflow_id = ?",
+            "step_id = ?",
+            "status IN (" + ", ".join("?" for _ in statuses) + ")",
+            "EXISTS (SELECT 1 FROM workflows w WHERE w.workflow_id = workflow_steps.workflow_id AND w.status = ? AND w.worker_lease_token = ? AND w.lease_generation = ?)",
+        ]
+        params.extend(
+            [
+                workflow_id,
+                step_id,
+                *statuses,
+                WorkflowStatus.RUNNING.value,
+                lease_token,
+                int(lease_generation),
+            ]
+        )
+        if expected_state_version is not None:
+            where.append("state_version = ?")
+            params.append(int(expected_state_version))
+        if expected_child_run_id is not _UNSET:
+            if expected_child_run_id is None:
+                where.append("child_run_id IS NULL")
+            else:
+                where.append("child_run_id = ?")
+                params.append(str(expected_child_run_id))
+
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            step_cursor = conn.execute(
+                f"UPDATE workflow_steps SET {', '.join(assignments)} WHERE {' AND '.join(where)}",
+                params,
+            )
+            if int(step_cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            workflow_where = (
+                "workflow_id = ? AND status = ? AND worker_lease_token = ? "
+                "AND lease_generation = ?"
+            )
+            workflow_params: list[Any] = [
+                now,
+                workflow_id,
+                WorkflowStatus.RUNNING.value,
+                lease_token,
+                int(lease_generation),
+            ]
+            active_assignment = ""
+            if clear_active_child:
+                if expected_child_run_id is _UNSET or expected_child_run_id is None:
+                    conn.rollback()
+                    raise ValueError("Clearing an active child requires its expected run ID")
+                active_assignment = "active_child_run_id = NULL, "
+                workflow_where += " AND active_child_run_id = ?"
+                workflow_params.append(str(expected_child_run_id))
+            workflow_cursor = conn.execute(
+                f"""
+                UPDATE workflows
+                SET {active_assignment}updated_at = ?, state_version = state_version + 1
+                WHERE {workflow_where}
+                """,
+                workflow_params,
+            )
+            if int(workflow_cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self.get_workflow(workflow_id)
+
     def update_step(
         self, workflow_id: str, step_id: str, **fields: Any
     ) -> WorkflowRecord:
