@@ -583,11 +583,11 @@ function Set-SupervisorProfile {
     }
 
     $block = $supervisorsMatch.Value
-    $defaultPattern = '(?m)^(?<indent>[ \t]{2})default_autonomy_profile:\s*(?:["''][^"'']*["'']|[^#\r\n]*?)(?<comment>[ \t]*(?:#.*)?)$'
+    $defaultPattern = '(?m)^(?<indent>[ \t]{2})default_autonomy_profile:[ \t]*["\x27]?[A-Za-z0-9_.-]+["\x27]?(?<comment>[ \t]*(?:#[^\r\n]*)?)(?<carriage>\r?)$'
     if (-not [regex]::IsMatch($block, $defaultPattern)) {
         throw "The default supervisor profile line could not be located in $ConfigPath"
     }
-    $replacement = '${indent}default_autonomy_profile: "' + $selectedProfile + '"${comment}'
+    $replacement = '${indent}default_autonomy_profile: "' + $selectedProfile + '"${comment}${carriage}'
     $updatedBlock = [regex]::Replace($block, $defaultPattern, $replacement, 1)
     $updatedText = (
         $originalText.Substring(0, $supervisorsMatch.Index) +
