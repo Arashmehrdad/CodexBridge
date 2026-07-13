@@ -204,7 +204,7 @@ Validation evidence:
 Boundaries not yet claimed:
 
 - The outer startup wrapper in `server.py` still catches reconciliation exceptions; per-run reconciliation failures are now durable, but service-level startup reporting remains a follow-up.
-- Workflow and supervisor launch/attachment recovery remain for D3 and D4.
+- Workflow launch and child attachment recovery were completed in D3; supervisor attachment recovery remains D4.
 - D1 proves direct-run restart adoption for the tested Windows worker path; broader crash races and concurrent ownership transitions remain part of D2.
 
 ### Batch D2 - Conditional transitions and launch-state completion
@@ -238,13 +238,39 @@ Validation evidence:
 
 Boundaries not yet claimed:
 
-- Workflow worker leases and crash-safe child attachment remain D3.
+- Workflow worker leases and crash-safe child attachment were completed in D3.
 - Supervisor child attachment and shared lock unification remain D4.
 - Human-readable result artifacts may still be written before a losing database terminal transition; the database remains authoritative, while atomic artifact reconciliation remains in the later return-loop consistency batch.
 
 ### Batch D3 - Workflow worker lease and child attachment
 
-Harden `codexbridge/workflows/` around crash-safe step claims and idempotent child attachment.
+Status: **implemented and validated**.
+
+Delivered guarantees:
+
+- Workflow workers now use durable lease tokens, lease generations, state versions, recorded process identity, and bounded launch attempts.
+- Initial workflow worker claims and restart relaunches use conditional transitions, preventing stale launchers or duplicate reconcilers from taking ownership.
+- Workflow heartbeats, terminal transitions, step updates, and event writes are scoped to the active lease generation.
+- Child run IDs are reserved before execution and attached atomically when a workflow step is claimed.
+- Direct-run launch APIs accept the reserved run ID, closing the crash window where a child could start before the workflow recorded its identity.
+- A stale workflow worker cannot update a step, clear a newer active child, complete a replacement generation, or overwrite a concurrent terminal transition.
+- Workflow cancellation and terminal reporting use conditional durable state transitions rather than unconditional lifecycle writes.
+- Existing direct-run D2 lease and lock behavior remains intact.
+
+Validation evidence:
+
+- Workflow-focused suite: `6 passed`.
+- Workflow plus direct-run integration suite: `62 passed`.
+- D2+D3 durability suite: `88 passed`.
+- Full repository suite: `890 passed, 1 skipped`.
+- `python -m pip check`: no broken requirements found.
+- The repository worktree was clean after commit `477286c`.
+
+Boundaries not yet claimed:
+
+- Supervisor child attachment and shared repository lock unification remain D4.
+- Legacy unattended-job migration and return-loop delivery-state consistency remain D5.
+- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative until D5 reconciles artifact publication state.
 
 ### Batch D4 - Supervisor child attachment and lock unification
 
