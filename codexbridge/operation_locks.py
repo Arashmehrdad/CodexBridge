@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
+from .process_control import process_is_running, process_matches_identity
 from .run_store import TERMINAL_STATUSES, RunStore, utc_now
 
 
@@ -44,10 +45,17 @@ class OperationLockStore:
                     input_fingerprint TEXT NOT NULL,
                     run_id TEXT NOT NULL,
                     owner_pid INTEGER,
+                    owner_token TEXT NOT NULL DEFAULT '',
                     acquired_at TEXT NOT NULL,
                     heartbeat_at TEXT NOT NULL
                 )
                 """
+            )
+            self.store._ensure_column(
+                conn,
+                "operation_locks",
+                "owner_token",
+                "TEXT NOT NULL DEFAULT ''",
             )
 
     def acquire(
@@ -58,6 +66,7 @@ class OperationLockStore:
         normalized_input: dict[str, Any],
         run_id: str,
         owner_pid: int | None = None,
+        owner_token: str = "",
     ) -> LockAcquisition:
         fingerprint = normalize_input_fingerprint(normalized_input)
         now = utc_now()
@@ -91,10 +100,20 @@ class OperationLockStore:
             conn.execute(
                 """
                 INSERT INTO operation_locks (
-                    repo_name, tool, input_fingerprint, run_id, owner_pid, acquired_at, heartbeat_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    repo_name, tool, input_fingerprint, run_id, owner_pid,
+                    owner_token, acquired_at, heartbeat_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (repo_name, tool, fingerprint, run_id, owner_pid, now, now),
+                (
+                    repo_name,
+                    tool,
+                    fingerprint,
+                    run_id,
+                    owner_pid,
+                    owner_token,
+                    now,
+                    now,
+                ),
             )
         return LockAcquisition(
             acquired=True,
@@ -104,23 +123,49 @@ class OperationLockStore:
             fingerprint=fingerprint,
         )
 
-    def heartbeat(self, repo_name: str, run_id: str) -> None:
+    def claim_owner(
+        self,
+        repo_name: str,
+        run_id: str,
+        *,
+        owner_pid: int,
+        owner_token: str,
+    ) -> bool:
         with self.store.connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 UPDATE operation_locks
-                SET heartbeat_at = ?
-                WHERE repo_name = ? AND run_id = ?
+                SET owner_pid = ?, heartbeat_at = ?
+                WHERE repo_name = ? AND run_id = ? AND owner_token = ?
                 """,
-                (utc_now(), repo_name, run_id),
+                (owner_pid, utc_now(), repo_name, run_id, owner_token),
             )
+        return int(cursor.rowcount) == 1
 
-    def release(self, repo_name: str, run_id: str) -> None:
+    def heartbeat(
+        self, repo_name: str, run_id: str, owner_token: str | None = None
+    ) -> None:
+        where = "repo_name = ? AND run_id = ?"
+        params: list[Any] = [utc_now(), repo_name, run_id]
+        if owner_token is not None:
+            where += " AND owner_token = ?"
+            params.append(owner_token)
         with self.store.connect() as conn:
             conn.execute(
-                "DELETE FROM operation_locks WHERE repo_name = ? AND run_id = ?",
-                (repo_name, run_id),
+                f"UPDATE operation_locks SET heartbeat_at = ? WHERE {where}",
+                params,
             )
+
+    def release(
+        self, repo_name: str, run_id: str, owner_token: str | None = None
+    ) -> None:
+        where = "repo_name = ? AND run_id = ?"
+        params: list[Any] = [repo_name, run_id]
+        if owner_token is not None:
+            where += " AND owner_token = ?"
+            params.append(owner_token)
+        with self.store.connect() as conn:
+            conn.execute(f"DELETE FROM operation_locks WHERE {where}", params)
 
     def list_locks(
         self,
@@ -146,7 +191,10 @@ class OperationLockStore:
                 if stale and not include_stale:
                     continue
                 run = conn.execute(
-                    "SELECT status, worker_pid, pid FROM runs WHERE run_id = ?",
+                    """
+                    SELECT status, launcher_pid, worker_pid, worker_identity, pid
+                    FROM runs WHERE run_id = ?
+                    """,
                     (lock["run_id"],),
                 ).fetchone()
                 heartbeat = datetime.fromisoformat(str(lock["heartbeat_at"]))
@@ -163,7 +211,11 @@ class OperationLockStore:
                         ),
                         "stale": stale,
                         "run_status": str(run["status"] or "") if run else "",
+                        "launcher_pid": int(run["launcher_pid"] or 0) if run else 0,
                         "worker_pid": int(run["worker_pid"] or 0) if run else 0,
+                        "worker_identity_present": bool(
+                            run and str(run["worker_identity"] or "")
+                        ),
                         "child_pid": int(run["pid"] or 0) if run else 0,
                     }
                 )
@@ -191,25 +243,31 @@ class OperationLockStore:
 
     def _is_stale(self, conn, row: dict[str, Any]) -> bool:
         run = conn.execute(
-            "SELECT status, worker_pid, pid FROM runs WHERE run_id = ?",
+            """
+            SELECT status, launcher_pid, worker_pid, worker_identity, pid
+            FROM runs WHERE run_id = ?
+            """,
             (row["run_id"],),
         ).fetchone()
         if run is None:
             owner_pid = row.get("owner_pid")
             return not bool(owner_pid and _pid_is_running(int(owner_pid)))
+
         status = str(run["status"] or "")
+        worker_pid = int(run["worker_pid"] or 0)
+        worker_identity = str(run["worker_identity"] or "")
+        launcher_pid = int(run["launcher_pid"] or 0)
+        child_pid = int(run["pid"] or 0)
+        verified_worker = process_matches_identity(worker_pid, worker_identity)
+        live_launcher = process_is_running(launcher_pid)
+        live_child = process_is_running(child_pid)
+
         if status in TERMINAL_STATUSES:
-            return True
-        if status == "cancellation_pending":
-            # The remote process may outlive the local worker. Keep the lock until
-            # verified remote exit or termination moves the run to a terminal state.
+            return not (verified_worker or live_launcher or live_child)
+        if status in {"cancellation_pending", "recovery_pending"}:
             return False
-        if status == "running":
-            owner_pid = run["worker_pid"] or run["pid"] or row.get("owner_pid")
-        else:
-            owner_pid = row.get("owner_pid") or run["worker_pid"] or run["pid"]
-        if owner_pid and not _pid_is_running(int(owner_pid)):
-            return True
+        # Non-terminal ownership is retained until JobManager reconciliation makes
+        # a process-aware recovery or terminal decision.
         return False
 @contextmanager
 def repository_operation_lock(
@@ -240,21 +298,4 @@ def repository_operation_lock(
 
 
 def _pid_is_running(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        if os.name == "nt":
-            import ctypes
-
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
-            if not handle:
-                return False
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return True
-        os.kill(pid, 0)
-        return True
-    except Exception:
-        return False
+    return process_is_running(pid)
