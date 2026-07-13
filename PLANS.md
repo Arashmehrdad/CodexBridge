@@ -198,13 +198,14 @@ Validation evidence:
 - Full repository suite: 879 passed, 1 skipped.
 - `python -m pip check`: no broken requirements found.
 - Live Windows workers registered canonical PID and process-start identity during validation runs.
+- Live restart/adoption run `20260713T142018Z_project_command_41e46612` preserved worker PID `26696`, recorded the reconciliation event `Active worker identity verified after server restart`, retained the original repository lock while active, completed once with exit code `0`, and released the lock only after terminal persistence.
+- The adopted worker completed the full suite with 879 passed and 1 skipped after the service restart.
 
 Boundaries not yet claimed:
 
-- The MCP service itself was not deliberately terminated and restarted while a child run remained active during this batch; that live restart/adoption smoke test remains required.
-- The currently running MCP process must be restarted or reloaded before all new manager launch and public-response behavior is active in that process.
 - The outer startup wrapper in `server.py` still catches reconciliation exceptions; per-run reconciliation failures are now durable, but service-level startup reporting remains a follow-up.
 - Workflow and supervisor launch/attachment recovery remain for D3 and D4.
+- D1 proves direct-run restart adoption for the tested Windows worker path; broader crash races and concurrent ownership transitions remain part of D2.
 
 ### Batch D2 - Conditional transitions and launch-state completion
 
