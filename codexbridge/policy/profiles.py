@@ -33,6 +33,18 @@ BUILTIN_AUTONOMY_PROFILES = MappingProxyType(
             ],
             human_approval_tiers=[CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION],
         ),
+        "permissive": AutonomyProfileModel(
+            name="permissive",
+            allow_tiers=[
+                CanonicalPermissionTier.T0_READ_ONLY,
+                CanonicalPermissionTier.T1_SAFE_LOCAL_TEST,
+                CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
+                CanonicalPermissionTier.T3_WRITE_PREVIEW_DRY_RUN,
+                CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
+                CanonicalPermissionTier.T5_COMMIT_PRIVATE_BRANCH_CHATGPT_DELEGATED,
+            ],
+            human_approval_tiers=[CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION],
+        ),
         "human_only": AutonomyProfileModel(
             name="human_only",
             allow_tiers=[CanonicalPermissionTier.T0_READ_ONLY],
