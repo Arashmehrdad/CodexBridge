@@ -106,7 +106,7 @@ class LocalPatchValidationResult(BaseModel):
 
 class LocalPatchApplyRequest(BaseModel):
     edit_id: str
-    approval_request_id: str
+    approval_request_id: str = ""
 
 
 class LocalPatchApplyResult(BaseModel):

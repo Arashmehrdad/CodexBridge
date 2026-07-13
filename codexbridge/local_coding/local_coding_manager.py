@@ -95,12 +95,18 @@ class LocalCodingManager:
         if not validation.valid:
             return self._blocked_preview(request, validation.blocked_reasons, diff=diff)
 
+        autonomy_profile = (
+            "chatgpt_delegated"
+            if self.config.local_coding_require_approval
+            else "permissive"
+        )
         preview_policy = self.policy_engine.evaluate(
             PolicyEvaluationRequest(
                 action=_policy_safe_action(request.objective),
                 action_type="local_coding_preview",
                 repo_name=request.repo_name,
                 repo_path=request.repo_path,
+                autonomy_profile=autonomy_profile,
                 permission_tier=CanonicalPermissionTier.T3_WRITE_PREVIEW_DRY_RUN,
             )
         )
@@ -110,15 +116,21 @@ class LocalCodingManager:
                 action_type="local_coding_apply",
                 repo_name=request.repo_name,
                 repo_path=request.repo_path,
+                autonomy_profile=autonomy_profile,
                 permission_tier=CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
             )
         )
-        status = (
-            LocalCodingStatus.BLOCKED
-            if preview_policy.blocked or apply_policy.human_required
-            else LocalCodingStatus.APPROVAL_REQUIRED
+        if preview_policy.blocked or apply_policy.human_required:
+            status = LocalCodingStatus.BLOCKED
+        elif self.config.local_coding_require_approval and apply_policy.approval_required:
+            status = LocalCodingStatus.APPROVAL_REQUIRED
+        else:
+            status = LocalCodingStatus.PREVIEW_READY
+        approval_request_id = (
+            apply_policy.approval_request_id
+            if self.config.local_coding_require_approval
+            else None
         )
-        approval_request_id = apply_policy.approval_request_id
         proposal = LocalEditProposal(
             edit_id=request.edit_id,
             objective=request.objective,
@@ -206,7 +218,7 @@ class LocalCodingManager:
         )
 
     def apply_local_edit(
-        self, edit_id: str, approval_request_id: str
+        self, edit_id: str, approval_request_id: str = ""
     ) -> LocalPatchApplyResult:
         run_dir = self._run_dir(edit_id)
         audit_id = f"local_coding_{uuid4().hex}"
@@ -215,14 +227,17 @@ class LocalCodingManager:
         proposal = LocalEditProposal.model_validate_json(
             (run_dir / "proposal.json").read_text(encoding="utf-8")
         )
-        if proposal.approval_request_id != approval_request_id:
-            return self._apply_blocked(edit_id, "approval_request_mismatch", audit_id)
-        approval = self.policy_engine.approval_store.get(approval_request_id)
-        if (
-            approval.required_approver != "chatgpt"
-            or approval.status != ApprovalStatus.APPROVED
-        ):
-            return self._apply_blocked(edit_id, "approval_not_approved", audit_id)
+        if self.config.local_coding_require_approval:
+            if proposal.approval_request_id != approval_request_id:
+                return self._apply_blocked(
+                    edit_id, "approval_request_mismatch", audit_id
+                )
+            approval = self.policy_engine.approval_store.get(approval_request_id)
+            if (
+                approval.required_approver != "chatgpt"
+                or approval.status != ApprovalStatus.APPROVED
+            ):
+                return self._apply_blocked(edit_id, "approval_not_approved", audit_id)
         target_path = self._target_path(proposal.repo_path, proposal.target_file)
         original = target_path.read_text(encoding="utf-8")
         if sha256_text(original) != proposal.original_sha256:
