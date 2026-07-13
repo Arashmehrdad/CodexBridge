@@ -46,14 +46,14 @@ def test_inspect_project_tests_returns_structured_local_only_result_without_code
     assert payload["audit_metadata"]["codex_called"] is False
 
 
-def test_edit_refactor_fix_task_is_codex_required() -> None:
+def test_edit_refactor_fix_task_is_local_first() -> None:
     assert (
         classify_task("refactor the runner and fix the bug")
         == LocalAgentTaskType.SOURCE_EDIT
     )
 
     result = LocalAgentOrchestrator().handle_task("refactor the runner and fix the bug")
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.permission_tier == PermissionTier.WRITE_APPLY_DELEGATED_APPROVAL
     assert result.status == TaskStatus.CLASSIFIED
 
