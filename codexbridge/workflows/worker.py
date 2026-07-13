@@ -227,44 +227,83 @@ class WorkflowWorker:
         return updated
 
     def _start_step(self, step: WorkflowStepRecord) -> None:
-        self.store.update_step(
+        child_run_id = (
+            None
+            if step.type.value == "local_summary"
+            else make_run_id(
+                "codex_implement_task"
+                if step.type.value == "codex_implement"
+                else "project_command"
+            )
+        )
+        claimed = self.store.claim_step(
             self.workflow_id,
             step.id,
-            status=WorkflowStepStatus.RUNNING,
-            started_at=utc_now(),
-            summary="Step running",
-            error="",
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            child_run_id=child_run_id,
         )
-        self._event("info", "step_running", f"Workflow step {step.id} started")
-        if step.type.value == "local_summary":
-            self._run_local_summary(step)
+        if claimed is None:
             return
-        launch = self._start_child_run(step)
+        claimed_step = next(item for item in claimed.steps if item.id == step.id)
+        self._event(
+            "info",
+            "step_running",
+            f"Workflow step {step.id} claimed",
+            {"child_run_id": child_run_id},
+        )
+        if child_run_id is None:
+            self._run_local_summary(claimed_step)
+            return
+        launch = self._start_child_run(claimed_step, child_run_id)
         if not bool(launch.get("accepted", launch.get("ok", False))):
-            failure = str(launch.get("reason") or launch.get("error") or "Child run launch refused")
+            failure = str(
+                launch.get("reason")
+                or launch.get("error")
+                or "Child run launch refused"
+            )
             required = bool(launch.get("requires_human"))
             self._fail_step(
-                step,
+                claimed_step,
                 summary=failure,
                 error=failure,
                 result=launch,
-                workflow_status=WorkflowStatus.NEEDS_APPROVAL if required else WorkflowStatus.FAILED,
-                recommended_next_action="Approve or adjust the workflow input before retrying."
-                if required
-                else "Review the failed launch response and adjust the workflow definition.",
+                workflow_status=(
+                    WorkflowStatus.NEEDS_APPROVAL
+                    if required
+                    else WorkflowStatus.FAILED
+                ),
+                recommended_next_action=(
+                    "Approve or adjust the workflow input before retrying."
+                    if required
+                    else "Review the failed launch response and adjust the workflow definition."
+                ),
             )
             return
-        child_run_id = str(launch.get("run_id") or "")
-        self.store.update_step(
+        launched_run_id = str(launch.get("run_id") or "")
+        if launched_run_id != child_run_id:
+            self._fail_step(
+                claimed_step,
+                summary="Child launch returned an unexpected run ID",
+                error=f"Expected {child_run_id}, received {launched_run_id or '<empty>'}",
+                result=launch,
+            )
+            return
+        current = self.store.get_workflow(self.workflow_id)
+        active_step = next(item for item in current.steps if item.id == step.id)
+        recorded = self.store.conditional_update_step(
             self.workflow_id,
             step.id,
-            child_run_id=child_run_id,
-            result_json=redact_and_truncate(launch),
+            fields={"result_json": redact_and_truncate(launch)},
+            expected_statuses=(WorkflowStepStatus.RUNNING,),
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            expected_state_version=active_step.state_version,
+            expected_child_run_id=child_run_id,
         )
-        self.store.update_workflow(
-            self.workflow_id,
-            active_child_run_id=child_run_id,
-        )
+        if recorded is None:
+            self.job_manager.cancel_run(child_run_id)
+            return
         self._event(
             "info",
             "child_run_started",
@@ -272,7 +311,9 @@ class WorkflowWorker:
             {"child_run_id": child_run_id},
         )
 
-    def _start_child_run(self, step: WorkflowStepRecord) -> dict[str, Any]:
+    def _start_child_run(
+        self, step: WorkflowStepRecord, reserved_run_id: str
+    ) -> dict[str, Any]:
         workflow = self.store.get_workflow(self.workflow_id)
         if step.type.value == "codex_implement":
             params = CodexImplementParameters.model_validate(step.parameters)
@@ -281,19 +322,28 @@ class WorkflowWorker:
                 params.approved_plan,
                 params.allowed_files,
                 params.tests,
+                reserved_run_id=reserved_run_id,
             )
         if step.type.value == "project_command":
             params = ProjectCommandParameters.model_validate(step.parameters)
             return self.job_manager.start_project_command(
-                workflow.repo_name, params.command_id
+                workflow.repo_name,
+                params.command_id,
+                reserved_run_id=reserved_run_id,
             )
         if step.type.value == "pytest_path":
             params = PytestPathParameters.model_validate(step.parameters)
-            return self.job_manager.start_pytest_path(workflow.repo_name, params.path)
+            return self.job_manager.start_pytest_path(
+                workflow.repo_name,
+                params.path,
+                reserved_run_id=reserved_run_id,
+            )
         if step.type.value == "git_readonly":
             params = GitReadonlyParameters.model_validate(step.parameters)
             return self.job_manager.start_git_readonly(
-                workflow.repo_name, params.operation
+                workflow.repo_name,
+                params.operation,
+                reserved_run_id=reserved_run_id,
             )
         raise ValueError(f"Unsupported workflow step type: {step.type.value}")
 
