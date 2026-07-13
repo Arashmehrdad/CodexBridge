@@ -483,12 +483,18 @@ class SupervisorEngine:
         metadata["plan_result"] = result
         metadata["active_child"] = None
         summary = result.get("summary", "")
-        updated = self.store.update_supervisor(
+        updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
-            status="needs_input",
-            summary=summary,
-            metadata_json=metadata,
+            fields={
+                "status": "needs_input",
+                "summary": summary,
+                "metadata_json": metadata,
+            },
+            expected_statuses=("planning",),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
         self._attach_links_and_write_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
