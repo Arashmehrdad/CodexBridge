@@ -175,20 +175,40 @@ python -m pip check
 
 ### Batch D1 - Worker identity and startup reconciliation
 
-Files expected:
+Status: **implemented and validated**.
 
-- `codexbridge/run_store.py`
-- `codexbridge/job_manager.py`
-- `codexbridge/job_worker.py`
-- `codexbridge/operation_locks.py`
-- `codexbridge/process_control.py`
-- targeted tests
+Delivered:
 
-Do not modify workflows or supervisors in this batch unless required for compatibility.
+- Persist `launch_pending` before worker process creation and record launcher PID separately from the canonical worker PID.
+- Generate a per-run worker lease token before launch; require the worker to present that token before executing work.
+- Register the executing worker's actual PID and process-start identity in canonical run fields.
+- Scope worker heartbeats and repository-lock release to the current lease token.
+- Reconcile `launch_pending`, `queued`, `running`, `cancellation_pending`, and `recovery_pending` records without treating server restart alone as run failure.
+- Adopt a verifiably active worker, contain uncertain legacy records in `recovery_pending`, retain locks while execution may still be active, and fail a verified dead worker deterministically.
+- Relaunch a stranded queued worker at most once, then fail it cleanly if bounded launch attempts are exhausted.
+- Convert post-persistence process-launch failures into structured infrastructure failures and release only the matching owned lock.
+- Record reconciliation exceptions as durable error events and move affected runs to `recovery_pending` rather than silently discarding the failure.
+- Hide worker lease tokens from public run status and list responses.
+- Add deterministic tests plus a real Windows process-start identity check.
 
-### Batch D2 - Launch state machine and conditional transitions
+Validation evidence:
 
-Add launch intent, lease generation, compare-and-swap transitions, and deterministic launch rollback/retry.
+- `tests/test_job_manager.py`: 35 passed.
+- `tests/test_run_store.py`: 11 passed.
+- Full repository suite: 879 passed, 1 skipped.
+- `python -m pip check`: no broken requirements found.
+- Live Windows workers registered canonical PID and process-start identity during validation runs.
+
+Boundaries not yet claimed:
+
+- The MCP service itself was not deliberately terminated and restarted while a child run remained active during this batch; that live restart/adoption smoke test remains required.
+- The currently running MCP process must be restarted or reloaded before all new manager launch and public-response behavior is active in that process.
+- The outer startup wrapper in `server.py` still catches reconciliation exceptions; per-run reconciliation failures are now durable, but service-level startup reporting remains a follow-up.
+- Workflow and supervisor launch/attachment recovery remain for D3 and D4.
+
+### Batch D2 - Conditional transitions and launch-state completion
+
+Add compare-and-swap/versioned ownership transitions for claim, cancellation, completion, timeout, recovery, and lock release. Complete deterministic race handling now that D1 provides durable launch intent, lease tokens, bounded relaunch, and launch-failure rollback.
 
 ### Batch D3 - Workflow worker lease and child attachment
 
