@@ -87,7 +87,15 @@ class JobManager:
                 self._reconcile_run(run)
             except Exception as exc:
                 reason = f"Startup reconciliation failed: {exc}"
-                self.store.mark_recovery_pending(run["run_id"], reason)
+                self.store.mark_recovery_pending(
+                    run["run_id"],
+                    reason,
+                    expected_statuses=(str(run["status"]),),
+                    expected_state_version=int(run.get("state_version") or 0),
+                    expected_lease_token=str(run.get("worker_lease_token") or ""),
+                    expected_lease_generation=int(run.get("lease_generation") or 1),
+                    expected_heartbeat_at=run.get("heartbeat_at"),
+                )
                 self._append_recovery_event(
                     run,
                     level="error",
@@ -136,17 +144,31 @@ class JobManager:
             stage="reconcile",
             message=message,
             data=data or {},
+            update_run_metadata=False,
         )
         ArtifactWriter(Path(run["run_dir"])).append_event(event)
 
-    def _fail_recovery(self, run: dict, reason: str) -> None:
-        self.store.fail_infrastructure(run["run_id"], reason)
+    def _fail_recovery(self, run: dict, reason: str) -> bool:
+        lease_token = str(run.get("worker_lease_token") or "")
+        lease_generation = int(run.get("lease_generation") or 1)
+        failed = self.store.fail_infrastructure(
+            run["run_id"],
+            reason,
+            expected_statuses=(str(run["status"]),),
+            expected_state_version=int(run.get("state_version") or 0),
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+        )
+        if failed is None:
+            return False
         self.locks.release(
             run["repo_name"],
             run["run_id"],
-            str(run.get("worker_lease_token") or ""),
+            lease_token,
+            lease_generation,
         )
         self._append_recovery_event(run, level="error", message=reason)
+        return True
 
     def _reconcile_run(self, run: dict) -> None:
         run_id = run["run_id"]
