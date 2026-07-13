@@ -17,6 +17,33 @@ TERMINAL_STATUSES = {
     "timed_out",
     "needs_input",
 }
+_UNSET = object()
+_CONDITIONAL_UPDATE_FIELDS = frozenset(
+    {
+        "status",
+        "current_phase",
+        "launcher_pid",
+        "worker_pid",
+        "worker_lease_token",
+        "lease_generation",
+        "worker_identity",
+        "worker_claimed_at",
+        "launch_attempts",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "pid",
+        "exit_code",
+        "summary",
+        "error",
+        "safety_failure",
+        "heartbeat_at",
+        "elapsed_seconds",
+        "progress_json",
+        "result_json",
+        "recovery_reason",
+    }
+)
 
 
 def utc_now() -> str:
@@ -242,10 +269,8 @@ class RunStore:
             raise KeyError("No runs found")
         return self._row_to_run(row)
 
-    def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
-        validate_run_id(run_id)
-        if not fields:
-            return self.get_run(run_id)
+    @staticmethod
+    def _normalize_update_values(fields: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(fields)
         if "requires_human" in normalized:
             normalized["requires_human"] = int(bool(normalized["requires_human"]))
@@ -261,10 +286,81 @@ class RunStore:
             normalized["progress_json"], str
         ):
             normalized["progress_json"] = dumps(normalized["progress_json"])
+        return normalized
+
+    def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
+        validate_run_id(run_id)
+        if not fields:
+            return self.get_run(run_id)
+        normalized = self._normalize_update_values(fields)
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), run_id]
         with self.connect() as conn:
             conn.execute(f"UPDATE runs SET {assignments} WHERE run_id = ?", params)
+        return self.get_run(run_id)
+
+    def conditional_update(
+        self,
+        run_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_statuses: list[str] | tuple[str, ...] | set[str] | None = None,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
+        reject_terminal: bool = False,
+        bump_state_version: bool = True,
+    ) -> dict[str, Any] | None:
+        """Apply one ownership-sensitive update only when all observed state matches."""
+        validate_run_id(run_id)
+        unknown = set(fields) - _CONDITIONAL_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unsupported conditional run fields: {sorted(unknown)}")
+        normalized = self._normalize_update_values(fields)
+        if not normalized and not bump_state_version:
+            raise ValueError("Conditional update requires fields or a version bump")
+
+        assignments = [f"{key} = ?" for key in normalized]
+        params: list[Any] = list(normalized.values())
+        if bump_state_version:
+            assignments.append("state_version = state_version + 1")
+
+        where = ["run_id = ?"]
+        params.append(run_id)
+        if expected_statuses is not None:
+            statuses = tuple(str(status) for status in expected_statuses)
+            if not statuses:
+                return None
+            where.append("status IN (" + ", ".join("?" for _ in statuses) + ")")
+            params.extend(statuses)
+        if expected_state_version is not None:
+            where.append("state_version = ?")
+            params.append(int(expected_state_version))
+        if expected_lease_token is not None:
+            where.append("worker_lease_token = ?")
+            params.append(expected_lease_token)
+        if expected_lease_generation is not None:
+            where.append("lease_generation = ?")
+            params.append(int(expected_lease_generation))
+        if expected_heartbeat_at is not _UNSET:
+            if expected_heartbeat_at is None:
+                where.append("heartbeat_at IS NULL")
+            else:
+                where.append("heartbeat_at = ?")
+                params.append(str(expected_heartbeat_at))
+        if reject_terminal:
+            terminal = tuple(sorted(TERMINAL_STATUSES))
+            where.append("status NOT IN (" + ", ".join("?" for _ in terminal) + ")")
+            params.extend(terminal)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE runs SET {', '.join(assignments)} WHERE {' AND '.join(where)}",
+                params,
+            )
+        if int(cursor.rowcount) != 1:
+            return None
         return self.get_run(run_id)
 
     def append_event(
