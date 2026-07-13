@@ -22,8 +22,8 @@ def test_local_agent_routes_explicit_codex_packet_request(tmp_path):
     assert result.job_result is None
 
 
-def test_local_agent_normal_edit_classification_unchanged(tmp_path):
+def test_local_agent_normal_edit_stays_local_until_explicit_escalation(tmp_path):
     result = LocalAgentOrchestrator().handle_task("fix and refactor command runner")
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.codex_router_result is None
