@@ -508,6 +508,7 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     assert internal["status"] == "queued"
     assert internal["launch_attempts"] == 2
     assert internal["launcher_pid"] == 12345
+    assert internal["lease_generation"] == 2
 
 
 def test_reconcile_startup_records_failure_and_retains_lock(
@@ -668,7 +669,7 @@ def test_cancel_run_is_fail_closed_when_termination_is_unconfirmed(
     assert cancelled["cancelled"] is False
     assert cancelled["termination_confirmed"] is False
     status = manager.get_status(response["run_id"])
-    assert status["status"] == "queued"
+    assert status["status"] == "cancellation_pending"
     assert status["current_phase"] == "cancellation_pending"
     assert manager.locks.find_lock("sample", response["run_id"]) is not None
 
@@ -804,3 +805,119 @@ def test_list_operation_locks_accepts_canonical_case_filter(
     locks = manager.list_operation_locks("Sample")
 
     assert [item["run_id"] for item in locks] == [response["run_id"]]
+
+
+def test_duplicate_reconcilers_cannot_both_relaunch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(response["run_id"], launcher_pid=None)
+    observed = manager.store.get_run(response["run_id"])
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+    launches: list[str] = []
+
+    def spawn(run_id: str, lease_token: str):
+        launches.append(lease_token)
+        return FakeProcess()
+
+    monkeypatch.setattr(manager, "_spawn_worker", spawn)
+
+    manager._reconcile_run(observed)
+    manager._reconcile_run(observed)
+
+    current = manager.store.get_run(response["run_id"])
+    assert len(launches) == 1
+    assert current["lease_generation"] == 2
+    assert current["worker_lease_token"] == launches[0]
+    assert current["launch_attempts"] == 2
+
+
+def test_duplicate_reconcilers_record_one_adoption(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(
+        response["run_id"],
+        status="running",
+        launcher_pid=None,
+        worker_pid=222,
+        worker_identity="222:windows:100",
+    )
+    observed = manager.store.get_run(response["run_id"])
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_matches_identity",
+        lambda pid, identity: pid == 222 and identity == "222:windows:100",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
+    manager._reconcile_run(observed)
+    manager._reconcile_run(observed)
+
+    adoption_events = [
+        event
+        for event in manager.get_events(response["run_id"])
+        if "identity verified" in event["message"]
+    ]
+    assert len(adoption_events) == 1
+    assert manager.get_status(response["run_id"])["status"] == "running"
+
+
+def test_cancellation_claim_prevents_late_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(
+        response["run_id"],
+        status="running",
+        launcher_pid=None,
+        worker_pid=None,
+        worker_identity="",
+    )
+    observed = manager.store.get_run(response["run_id"])
+
+    cancelled = manager.cancel_run(response["run_id"])
+    late_completion = manager.store.transition_terminal(
+        response["run_id"],
+        status="completed",
+        result={"status": "completed", "summary": "late"},
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token=observed["worker_lease_token"],
+        expected_lease_generation=observed["lease_generation"],
+    )
+
+    assert cancelled["status"] == "cancellation_pending"
+    assert late_completion is None
+    assert manager.get_status(response["run_id"])["status"] == (
+        "cancellation_pending"
+    )
+
+
+def test_completion_prevents_late_cancellation(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    manager.store.update_run(response["run_id"], status="running")
+    observed = manager.store.get_run(response["run_id"])
+    completed = manager.store.transition_terminal(
+        response["run_id"],
+        status="completed",
+        result={"status": "completed", "summary": "winner"},
+        expected_statuses=("running",),
+        expected_state_version=observed["state_version"],
+        expected_lease_token=observed["worker_lease_token"],
+        expected_lease_generation=observed["lease_generation"],
+    )
+
+    cancelled = manager.cancel_run(response["run_id"])
+
+    assert completed is not None
+    assert cancelled["status"] == "completed"
+    assert cancelled["cancelled"] is False
+    assert manager.get_result(response["run_id"])["summary"] == "winner"
