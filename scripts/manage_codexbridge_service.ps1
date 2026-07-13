@@ -93,10 +93,11 @@ function Test-ServerProcessIdentity {
         return $false
     }
     $line = [string]$Process.CommandLine
+    $pathPattern = '(?i)--path\s+["\x27]?' + [regex]::Escape($McpPath) + '["\x27]?(?:\s|$)'
     return (
         $line -match '(?i)(?:^|\s)-m\s+codexbridge\.server(?:\s|$)' -and
         $line -match "(?i)--port\s+$Port(?:\s|$)" -and
-        $line -match "(?i)--path\s+[`\"']?$([regex]::Escape($McpPath))[`\"']?(?:\s|$)"
+        $line -match $pathPattern
     )
 }
 
