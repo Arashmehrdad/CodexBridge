@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from codexbridge.job_worker import JobWorker
+from codexbridge.operation_locks import OperationLockStore
 from codexbridge.run_store import RunStore, utc_now
 
 
@@ -1208,3 +1209,104 @@ def test_monitored_ssh_worker_persists_structured_result(
     assert result["tool"] == "ssh_monitored_command"
     assert result["status"] == "completed"
     assert result["remote_process"]["pid"] == 123
+
+
+def test_worker_claims_canonical_pid_identity_and_lease(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260713T130000Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+        status="launch_pending",
+        worker_lease_token="lease-1",
+    )
+    locks = OperationLockStore(runs_dir)
+    locks.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={"repo_name": "sample", "command_id": "pytest"},
+        run_id=run_id,
+        owner_token="lease-1",
+    )
+    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.process_identity",
+        lambda pid: f"{pid}:windows:100",
+    )
+    worker = JobWorker(config_path, run_id, lease_token="lease-1")
+    monkeypatch.setattr(
+        worker,
+        "_execute_inner",
+        lambda started_at: {
+            "run_id": run_id,
+            "repo_name": "sample",
+            "tool": "project_command",
+            "status": "completed",
+            "exit_code": 0,
+            "started_at": started_at,
+            "ended_at": utc_now(),
+            "duration_seconds": 0.0,
+            "summary": "done",
+            "error": "",
+            "safety_failure": False,
+        },
+    )
+
+    assert worker.execute() == 0
+
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "completed"
+    assert persisted["worker_pid"] == 4321
+    assert persisted["worker_identity"] == "4321:windows:100"
+    assert persisted["worker_claimed_at"]
+    assert locks.find_lock("sample", run_id) is None
+
+
+def test_worker_rejects_mismatched_lease_before_execution(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260713T130001Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+        status="launch_pending",
+        worker_lease_token="lease-good",
+    )
+    worker = JobWorker(config_path, run_id, lease_token="lease-wrong")
+    monkeypatch.setattr(
+        worker,
+        "_execute_inner",
+        lambda _started_at: (_ for _ in ()).throw(
+            AssertionError("mismatched lease executed work")
+        ),
+    )
+
+    assert worker.execute() == 1
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "launch_pending"
+    assert persisted["worker_pid"] is None
