@@ -26,6 +26,53 @@ def _loads(value: str | None, default: Any) -> Any:
     return json.loads(value)
 
 
+_UNSET = object()
+_WORKFLOW_TERMINAL_STATUSES = frozenset(
+    {
+        WorkflowStatus.NEEDS_APPROVAL.value,
+        WorkflowStatus.NEEDS_INPUT.value,
+        WorkflowStatus.COMPLETED.value,
+        WorkflowStatus.FAILED.value,
+        WorkflowStatus.CANCELLED.value,
+        WorkflowStatus.REPORTED.value,
+    }
+)
+_WORKFLOW_UPDATE_FIELDS = frozenset(
+    {
+        "status",
+        "terminal_status",
+        "started_at",
+        "ended_at",
+        "launcher_pid",
+        "worker_pid",
+        "worker_lease_token",
+        "lease_generation",
+        "worker_identity",
+        "worker_claimed_at",
+        "launch_attempts",
+        "heartbeat_at",
+        "active_child_run_id",
+        "failure_summary",
+        "recommended_next_action",
+        "artifact_paths_json",
+        "result_json",
+    }
+)
+_STEP_UPDATE_FIELDS = frozenset(
+    {
+        "status",
+        "child_run_id",
+        "child_launch_attempts",
+        "started_at",
+        "ended_at",
+        "summary",
+        "error",
+        "artifact_paths_json",
+        "result_json",
+    }
+)
+
+
 class WorkflowStore:
     def __init__(self, runs_dir: Path):
         self.runs_dir = Path(runs_dir)
@@ -216,23 +263,108 @@ class WorkflowStore:
             ).fetchall()
         return self._hydrate_workflow(workflow_row, step_rows)
 
-    def update_workflow(self, workflow_id: str, **fields: Any) -> WorkflowRecord:
-        if not fields:
-            return self.get_workflow(workflow_id)
+    @staticmethod
+    def _normalize_workflow_fields(fields: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(fields)
-        normalized["updated_at"] = utc_now()
         for json_field in ("artifact_paths_json", "result_json"):
             if json_field in normalized and not isinstance(normalized[json_field], str):
                 normalized[json_field] = _dumps(normalized[json_field])
         for enum_field in ("status", "terminal_status"):
             if enum_field in normalized and isinstance(normalized[enum_field], WorkflowStatus):
                 normalized[enum_field] = normalized[enum_field].value
+        return normalized
+
+    @staticmethod
+    def _normalize_step_fields(fields: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(fields)
+        for json_field in (
+            "parameters_json",
+            "depends_on_json",
+            "artifact_paths_json",
+            "result_json",
+        ):
+            if json_field in normalized and not isinstance(normalized[json_field], str):
+                normalized[json_field] = _dumps(normalized[json_field])
+        if "status" in normalized and isinstance(
+            normalized["status"], WorkflowStepStatus
+        ):
+            normalized["status"] = normalized["status"].value
+        return normalized
+
+    def update_workflow(self, workflow_id: str, **fields: Any) -> WorkflowRecord:
+        if not fields:
+            return self.get_workflow(workflow_id)
+        normalized = self._normalize_workflow_fields(fields)
+        normalized["updated_at"] = utc_now()
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), workflow_id]
         with self.connect() as conn:
             conn.execute(
                 f"UPDATE workflows SET {assignments} WHERE workflow_id = ?", params
             )
+        return self.get_workflow(workflow_id)
+
+    def conditional_update_workflow(
+        self,
+        workflow_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_statuses: list[str] | tuple[str, ...] | set[str] | None = None,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
+        reject_terminal: bool = False,
+        bump_state_version: bool = True,
+    ) -> WorkflowRecord | None:
+        unknown = set(fields) - _WORKFLOW_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unsupported conditional workflow fields: {sorted(unknown)}")
+        normalized = self._normalize_workflow_fields(fields)
+        normalized["updated_at"] = utc_now()
+        assignments = [f"{key} = ?" for key in normalized]
+        params: list[Any] = list(normalized.values())
+        if bump_state_version:
+            assignments.append("state_version = state_version + 1")
+
+        where = ["workflow_id = ?"]
+        params.append(workflow_id)
+        if expected_statuses is not None:
+            statuses = tuple(
+                status.value if isinstance(status, WorkflowStatus) else str(status)
+                for status in expected_statuses
+            )
+            if not statuses:
+                return None
+            where.append("status IN (" + ", ".join("?" for _ in statuses) + ")")
+            params.extend(statuses)
+        if expected_state_version is not None:
+            where.append("state_version = ?")
+            params.append(int(expected_state_version))
+        if expected_lease_token is not None:
+            where.append("worker_lease_token = ?")
+            params.append(expected_lease_token)
+        if expected_lease_generation is not None:
+            where.append("lease_generation = ?")
+            params.append(int(expected_lease_generation))
+        if expected_heartbeat_at is not _UNSET:
+            if expected_heartbeat_at is None:
+                where.append("heartbeat_at IS NULL")
+            else:
+                where.append("heartbeat_at = ?")
+                params.append(str(expected_heartbeat_at))
+        if reject_terminal:
+            terminal = tuple(sorted(_WORKFLOW_TERMINAL_STATUSES))
+            where.append("status NOT IN (" + ", ".join("?" for _ in terminal) + ")")
+            params.extend(terminal)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE workflows SET {', '.join(assignments)} WHERE {' AND '.join(where)}",
+                params,
+            )
+        if int(cursor.rowcount) != 1:
+            return None
         return self.get_workflow(workflow_id)
 
     def update_step(
