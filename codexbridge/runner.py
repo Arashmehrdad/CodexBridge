@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -192,18 +193,28 @@ class CodexRunner:
         timeout: int | None = None,
         input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        run_kwargs = {
+            "cwd": cwd,
+            "env": _codex_child_env(),
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "capture_output": True,
+            "timeout": timeout,
+        }
         try:
-            return subprocess.run(
-                args,
-                cwd=cwd,
-                env=_codex_child_env(),
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                capture_output=True,
-                timeout=timeout,
-                input=input_text,
-            )
+            if input_text is None:
+                return subprocess.run(args, stdin=subprocess.DEVNULL, **run_kwargs)
+
+            # Codex's Windows unelevated sandbox can drop anonymous stdin pipes.
+            # A file-backed stdin handle survives the sandbox handoff while still
+            # keeping large multiline prompts out of the Windows command line.
+            with tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", newline="\n"
+            ) as prompt_stream:
+                prompt_stream.write(input_text)
+                prompt_stream.seek(0)
+                return subprocess.run(args, stdin=prompt_stream, **run_kwargs)
         except (OSError, PermissionError) as exc:
             raise RuntimeError(self._subprocess_diagnostics(args, cwd, exc)) from exc
 

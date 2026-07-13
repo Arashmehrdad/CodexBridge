@@ -231,11 +231,14 @@ def test_launch_diagnostics_include_executable_and_cwd(tmp_path: Path) -> None:
     assert "original_exception" in data
 
 
-def test_subprocess_capture_uses_utf8_replace(monkeypatch, tmp_path: Path) -> None:
+def test_subprocess_capture_uses_utf8_replace_and_file_backed_stdin(
+    monkeypatch, tmp_path: Path
+) -> None:
     captured = {}
 
     def fake_run(*args, **kwargs):
         captured.update(kwargs)
+        captured["stdin_text"] = kwargs["stdin"].read()
 
         class Result:
             returncode = 0
@@ -251,7 +254,27 @@ def test_subprocess_capture_uses_utf8_replace(monkeypatch, tmp_path: Path) -> No
     )
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
-    assert captured["input"] == "line one\nline two"
+    assert captured["stdin_text"] == "line one\nline two"
+    assert "input" not in captured
+
+
+def test_subprocess_without_input_uses_devnull(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
+    runner = make_runner(tmp_path)
+    runner._run_subprocess(["codex", "exec", "--help"], tmp_path)
+    assert captured["stdin"] is subprocess.DEVNULL
 
 
 def test_subprocess_env_isolates_unrelated_connector_variables(
