@@ -174,7 +174,7 @@ class RunStore:
                     int(requires_human),
                     created_at,
                     str(run_dir),
-                    "queued",
+                    status,
                     created_at,
                     dumps(input_data),
                     worker_lease_token,
