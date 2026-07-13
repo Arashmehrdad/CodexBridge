@@ -3,9 +3,9 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet(
         "menu", "start", "stop", "restart", "status", "logs", "follow-logs",
-        "open-logs", "validate-config", "diagnostics", "tunnel-start",
-        "tunnel-stop", "tunnel-restart", "tunnel-status", "start-all", "stop-all",
-        "elevated-stop-server", "elevated-stop-tunnel"
+        "open-logs", "validate-config", "diagnostics", "profiles", "profile-status",
+        "profile-set", "tunnel-start", "tunnel-stop", "tunnel-restart", "tunnel-status",
+        "start-all", "stop-all", "elevated-stop-server", "elevated-stop-tunnel"
     )]
     [string]$Action = "menu",
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
@@ -16,6 +16,8 @@ param(
     [string]$TunnelConfig = "$env:USERPROFILE\.cloudflared\codexbridge-mcp.yml",
     [string]$PublicMcpUrl = "https://mcp.spaceshipgames.win/mcp",
     [string]$PythonExecutable = "",
+    [string]$Profile = "",
+    [switch]$RestartAfterProfileChange,
     [int]$Tail = 80,
     [int]$StartupTimeoutSeconds = 30,
     [int]$ExpectedProcessId = 0
@@ -481,6 +483,190 @@ function Get-CodexConfiguration {
     return [pscustomobject]$result
 }
 
+function Get-SupervisorProfileConfiguration {
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        throw "Config file not found: $ConfigPath"
+    }
+
+    $insideSupervisors = $false
+    $insideProfiles = $false
+    $defaultProfile = ""
+    $profiles = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($line in Get-Content -LiteralPath $ConfigPath) {
+        if (-not $insideSupervisors) {
+            if ($line -match '^supervisors:\s*(?:#.*)?$') {
+                $insideSupervisors = $true
+            }
+            continue
+        }
+        if ($line -match '^\S') { break }
+
+        if ($line -match '^\s{2}default_autonomy_profile:\s*["'']?(?<value>[A-Za-z0-9_.-]+)["'']?\s*(?:#.*)?$') {
+            $defaultProfile = $Matches.value
+            continue
+        }
+        if ($line -match '^\s{2}autonomy_profiles:\s*(?:#.*)?$') {
+            $insideProfiles = $true
+            continue
+        }
+        if ($insideProfiles) {
+            if ($line -match '^\s{4}(?<name>[A-Za-z0-9_.-]+):\s*(?:#.*)?$') {
+                $profiles.Add($Matches.name)
+                continue
+            }
+            if ($line -match '^\s{2}\S') {
+                $insideProfiles = $false
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($defaultProfile)) {
+        throw "supervisors.default_autonomy_profile was not found in $ConfigPath"
+    }
+    if ($profiles.Count -eq 0) {
+        throw "supervisors.autonomy_profiles does not define any profiles in $ConfigPath"
+    }
+
+    return [pscustomobject]@{
+        DefaultProfile = $defaultProfile
+        AvailableProfiles = @($profiles)
+    }
+}
+
+function Write-ConfigTextAtomically {
+    param([string]$Content, [bool]$UseUtf8Bom)
+    $temporaryPath = "$ConfigPath.tmp.$([guid]::NewGuid().ToString('N'))"
+    $encoding = [System.Text.UTF8Encoding]::new($UseUtf8Bom)
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, $Content, $encoding)
+        Move-Item -LiteralPath $temporaryPath -Destination $ConfigPath -Force
+    } finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Set-SupervisorProfile {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $configuration = Get-SupervisorProfileConfiguration
+    $resolvedProfile = @($configuration.AvailableProfiles | Where-Object { $_ -ieq $Name } | Select-Object -First 1)
+    if ($resolvedProfile.Count -eq 0) {
+        throw "Unknown supervisor profile '$Name'. Available profiles: $($configuration.AvailableProfiles -join ', ')"
+    }
+    $selectedProfile = [string]$resolvedProfile[0]
+    if ($configuration.DefaultProfile -ceq $selectedProfile) {
+        Write-Info "Supervisor profile is already '$selectedProfile'."
+        return $false
+    }
+
+    $originalBytes = [System.IO.File]::ReadAllBytes($ConfigPath)
+    $useUtf8Bom = (
+        $originalBytes.Length -ge 3 -and
+        $originalBytes[0] -eq 0xEF -and
+        $originalBytes[1] -eq 0xBB -and
+        $originalBytes[2] -eq 0xBF
+    )
+    $originalText = [System.IO.File]::ReadAllText($ConfigPath)
+    $supervisorsPattern = '(?ms)^supervisors:\s*(?:#.*)?\r?\n(?<body>(?:^[ \t].*(?:\r?\n|$))*)'
+    $supervisorsMatch = [regex]::Match($originalText, $supervisorsPattern)
+    if (-not $supervisorsMatch.Success) {
+        throw "The supervisors configuration block could not be located in $ConfigPath"
+    }
+
+    $block = $supervisorsMatch.Value
+    $defaultPattern = '(?m)^(?<indent>[ \t]{2})default_autonomy_profile:\s*(?:["''][^"'']*["'']|[^#\r\n]*?)(?<comment>[ \t]*(?:#.*)?)$'
+    if (-not [regex]::IsMatch($block, $defaultPattern)) {
+        throw "The default supervisor profile line could not be located in $ConfigPath"
+    }
+    $replacement = '${indent}default_autonomy_profile: "' + $selectedProfile + '"${comment}'
+    $updatedBlock = [regex]::Replace($block, $defaultPattern, $replacement, 1)
+    $updatedText = (
+        $originalText.Substring(0, $supervisorsMatch.Index) +
+        $updatedBlock +
+        $originalText.Substring($supervisorsMatch.Index + $supervisorsMatch.Length)
+    )
+
+    try {
+        Write-ConfigTextAtomically -Content $updatedText -UseUtf8Bom $useUtf8Bom
+        Test-CodexBridgeConfig
+    } catch {
+        Write-ConfigTextAtomically -Content $originalText -UseUtf8Bom $useUtf8Bom
+        throw "Profile update was rolled back because validation failed: $($_.Exception.Message)"
+    }
+
+    Write-Success "Supervisor profile changed from '$($configuration.DefaultProfile)' to '$selectedProfile'."
+    return $true
+}
+
+function Show-SupervisorProfileStatus {
+    $configuration = Get-SupervisorProfileConfiguration
+    Write-Host "Supervisor autonomy profiles" -ForegroundColor Cyan
+    Write-Host "  Current profile:    $($configuration.DefaultProfile)"
+    Write-Host "  Available profiles: $($configuration.AvailableProfiles -join ', ')"
+}
+
+function Restart-RunningServerForProfileChange {
+    $running = @(Get-VerifiedServerProcesses)
+    if ($running.Count -eq 0) {
+        Write-Info "The server is stopped; the selected profile will apply on the next start."
+        return
+    }
+    Write-Info "Restarting the running server so the profile change takes effect."
+    Stop-CodexBridgeServer
+    Start-CodexBridgeServer
+}
+
+function Show-SupervisorProfileMenu {
+    while ($true) {
+        $configuration = Get-SupervisorProfileConfiguration
+        Clear-Host
+        Write-Host "CodexBridge Supervisor Profile" -ForegroundColor Cyan
+        Write-Host "Current: $($configuration.DefaultProfile)"
+        Write-Host ""
+
+        $profileItems = [ordered]@{}
+        $index = 1
+        foreach ($profileName in $configuration.AvailableProfiles) {
+            $marker = if ($profileName -ceq $configuration.DefaultProfile) { " [active]" } else { "" }
+            $profileItems[[string]$index] = $profileName
+            Write-Host ("{0,2}. {1}{2}" -f $index, $profileName, $marker)
+            $index += 1
+        }
+        Write-Host " 0. Back to service menu"
+        Write-Host ""
+
+        $choice = Read-Host "Choose a profile"
+        if ($choice -eq "0") { return }
+        if (-not $profileItems.Contains($choice)) {
+            Write-WarningMessage "Invalid selection."
+            Start-Sleep -Seconds 1
+            continue
+        }
+
+        try {
+            $changed = Set-SupervisorProfile -Name $profileItems[$choice]
+            if ($changed) {
+                $running = @(Get-VerifiedServerProcesses)
+                if ($running.Count -gt 0) {
+                    $restartChoice = Read-Host "Restart the running server now to apply it? [Y/n]"
+                    if ([string]::IsNullOrWhiteSpace($restartChoice) -or $restartChoice -match '^(?i)y(?:es)?$') {
+                        Restart-RunningServerForProfileChange
+                    } else {
+                        Write-WarningMessage "The configured profile changed, but the running server still uses the previous profile until restart."
+                    }
+                } else {
+                    Write-Info "The selected profile will apply on the next server start."
+                }
+            }
+        } catch {
+            Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        }
+        Write-Host ""
+        [void](Read-Host "Press Enter to continue")
+    }
+}
+
 function Show-Diagnostics {
     Write-Host "CodexBridge diagnostics" -ForegroundColor Cyan
     Write-Host "  Project root:       $ProjectRoot"
@@ -543,6 +729,19 @@ function Invoke-ServiceAction {
         "open-logs" { Open-ServiceLogDirectory }
         "validate-config" { Test-CodexBridgeConfig }
         "diagnostics" { Show-Diagnostics }
+        "profiles" { Show-SupervisorProfileMenu }
+        "profile-status" { Show-SupervisorProfileStatus }
+        "profile-set" {
+            if ([string]::IsNullOrWhiteSpace($Profile)) {
+                throw "-Profile is required for the profile-set action."
+            }
+            $changed = Set-SupervisorProfile -Name $Profile
+            if ($changed -and $RestartAfterProfileChange) {
+                Restart-RunningServerForProfileChange
+            } elseif ($changed -and @(Get-VerifiedServerProcesses).Count -gt 0) {
+                Write-WarningMessage "Restart the server to apply the new profile, or pass -RestartAfterProfileChange."
+            }
+        }
         "tunnel-start" { Start-CodexBridgeTunnel }
         "tunnel-stop" { Stop-CodexBridgeTunnel }
         "tunnel-restart" { Stop-CodexBridgeTunnel; Start-CodexBridgeTunnel }
@@ -561,27 +760,46 @@ function Show-ServiceMenu {
         "2" = @("Stop server safely", "stop")
         "3" = @("Restart server hidden", "restart")
         "4" = @("Server status/readiness", "status")
-        "5" = @("Show recent logs", "logs")
-        "6" = @("Follow logs", "follow-logs")
-        "7" = @("Open log directory", "open-logs")
-        "8" = @("Validate config.yaml", "validate-config")
-        "9" = @("Diagnostics", "diagnostics")
-        "10" = @("Start Cloudflare tunnel", "tunnel-start")
-        "11" = @("Stop Cloudflare tunnel", "tunnel-stop")
-        "12" = @("Restart Cloudflare tunnel", "tunnel-restart")
-        "13" = @("Tunnel status", "tunnel-status")
-        "14" = @("Start server and tunnel", "start-all")
-        "15" = @("Stop tunnel and server", "stop-all")
+        "5" = @("Select supervisor profile", "profiles")
+        "6" = @("Validate config.yaml", "validate-config")
+        "7" = @("Diagnostics", "diagnostics")
+        "8" = @("Show recent logs", "logs")
+        "9" = @("Follow logs", "follow-logs")
+        "10" = @("Open log directory", "open-logs")
+        "11" = @("Start Cloudflare tunnel", "tunnel-start")
+        "12" = @("Stop Cloudflare tunnel", "tunnel-stop")
+        "13" = @("Restart Cloudflare tunnel", "tunnel-restart")
+        "14" = @("Tunnel status", "tunnel-status")
+        "15" = @("Start server and tunnel", "start-all")
+        "16" = @("Stop tunnel and server", "stop-all")
     }
+    $sections = @(
+        [pscustomobject]@{ Title = "Server and policy"; Keys = @("1", "2", "3", "4", "5", "6", "7") },
+        [pscustomobject]@{ Title = "Logs"; Keys = @("8", "9", "10") },
+        [pscustomobject]@{ Title = "Cloudflare tunnel"; Keys = @("11", "12", "13", "14") },
+        [pscustomobject]@{ Title = "Combined"; Keys = @("15", "16") }
+    )
 
     while ($true) {
         Clear-Host
+        $profileConfiguration = Get-SupervisorProfileConfiguration
+        $serverState = if (@(Get-VerifiedServerProcesses).Count -gt 0) { "running" } else { "stopped" }
+        $tunnelState = if (@(Get-VerifiedTunnelProcesses).Count -gt 0) { "running" } else { "stopped" }
+
         Write-Host "CodexBridge Service Controller" -ForegroundColor Cyan
         Write-Host "Processes stay hidden and keep running when this menu exits."
         Write-Host ""
-        foreach ($key in $items.Keys) {
-            Write-Host ("{0,2}. {1}" -f $key, $items[$key][0])
+        Write-Host "  Profile: $($profileConfiguration.DefaultProfile)" -ForegroundColor Green
+        Write-Host "  Server:  $serverState    Tunnel: $tunnelState"
+
+        foreach ($section in $sections) {
+            Write-Host ""
+            Write-Host $section.Title -ForegroundColor DarkCyan
+            foreach ($key in $section.Keys) {
+                Write-Host ("{0,2}. {1}" -f $key, $items[$key][0])
+            }
         }
+        Write-Host ""
         Write-Host " 0. Exit menu"
         Write-Host ""
         $choice = Read-Host "Choose an action"
@@ -596,8 +814,10 @@ function Show-ServiceMenu {
         } catch {
             Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
         }
-        Write-Host ""
-        [void](Read-Host "Press Enter to return to the menu")
+        if ($items[$choice][1] -ne "profiles") {
+            Write-Host ""
+            [void](Read-Host "Press Enter to return to the menu")
+        }
     }
 }
 
