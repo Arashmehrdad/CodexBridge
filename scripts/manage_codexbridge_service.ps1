@@ -568,7 +568,7 @@ function Set-SupervisorProfile {
         $originalBytes[2] -eq 0xBF
     )
     $originalText = [System.IO.File]::ReadAllText($ConfigPath)
-    $supervisorsPattern = '(?ms)^supervisors:\s*(?:#.*)?\r?\n(?<body>(?:^[ \t].*(?:\r?\n|$))*)'
+    $supervisorsPattern = '(?m)^supervisors:[ \t]*(?:#.*)?\r?\n(?<body>(?:^[ \t]+[^\r\n]*(?:\r?\n|$))*)'
     $supervisorsMatch = [regex]::Match($originalText, $supervisorsPattern)
     if (-not $supervisorsMatch.Success) {
         throw "The supervisors configuration block could not be located in $ConfigPath"
