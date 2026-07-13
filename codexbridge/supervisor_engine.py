@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .config import AppConfig
-from .job_manager import JobManager
+from .job_manager import JobManager, make_run_id
 from .policy import (
     BalancedAutonomyProfile,
     decide_implementation_task,
@@ -24,7 +24,12 @@ ACTIVE_STATES = {"queued", "running"}
 
 class ChildJobBackend(Protocol):
     def start_plan(
-        self, repo_name: str, task: str, constraints: str
+        self,
+        repo_name: str,
+        task: str,
+        constraints: str,
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     def start_implementation(
@@ -33,6 +38,8 @@ class ChildJobBackend(Protocol):
         approved_plan: str,
         allowed_files: list[str],
         tests: list[str],
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     def get_status(self, run_id: str) -> dict[str, Any]: ...
@@ -46,8 +53,20 @@ class JobManagerChildBackend:
     def __init__(self, config: AppConfig, config_path: Path | None):
         self.manager = JobManager(config, config_path)
 
-    def start_plan(self, repo_name: str, task: str, constraints: str) -> dict[str, Any]:
-        return self.manager.start_plan(repo_name, task, constraints)
+    def start_plan(
+        self,
+        repo_name: str,
+        task: str,
+        constraints: str,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.manager.start_plan(
+            repo_name,
+            task,
+            constraints,
+            reserved_run_id=reserved_run_id,
+        )
 
     def start_implementation(
         self,
@@ -55,9 +74,15 @@ class JobManagerChildBackend:
         approved_plan: str,
         allowed_files: list[str],
         tests: list[str],
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict[str, Any]:
         return self.manager.start_implementation(
-            repo_name, approved_plan, allowed_files, tests
+            repo_name,
+            approved_plan,
+            allowed_files,
+            tests,
+            reserved_run_id=reserved_run_id,
         )
 
     def get_status(self, run_id: str) -> dict[str, Any]:
@@ -86,9 +111,18 @@ class FakeChildJobBackend:
         self._counter = 0
         self.jobs: dict[str, FakeChildJob] = {}
 
-    def start_plan(self, repo_name: str, task: str, constraints: str) -> dict[str, Any]:
+    def start_plan(
+        self,
+        repo_name: str,
+        task: str,
+        constraints: str,
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict[str, Any]:
         return self._start(
-            "plan", {"repo_name": repo_name, "task": task, "constraints": constraints}
+            "plan",
+            {"repo_name": repo_name, "task": task, "constraints": constraints},
+            reserved_run_id=reserved_run_id,
         )
 
     def start_implementation(
@@ -97,6 +131,8 @@ class FakeChildJobBackend:
         approved_plan: str,
         allowed_files: list[str],
         tests: list[str],
+        *,
+        reserved_run_id: str | None = None,
     ) -> dict[str, Any]:
         return self._start(
             "implementation",
@@ -106,6 +142,7 @@ class FakeChildJobBackend:
                 "allowed_files": list(allowed_files),
                 "tests": list(tests),
             },
+            reserved_run_id=reserved_run_id,
         )
 
     def get_status(self, run_id: str) -> dict[str, Any]:
@@ -158,9 +195,15 @@ class FakeChildJobBackend:
         job.error = error
         return job
 
-    def _start(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _start(
+        self,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict[str, Any]:
         self._counter += 1
-        run_id = (
+        run_id = reserved_run_id or (
             f"20260428T1200{self._counter:02d}Z_codex_{kind}_task_{self._counter:08x}"
         )
         self.jobs[run_id] = FakeChildJob(
@@ -320,29 +363,21 @@ class SupervisorEngine:
 
         metadata["implementation_lock"] = lock
         metadata["blocked"] = None
-        try:
-            response = self.jobs.start_implementation(
-                supervisor["repo_name"], approved_plan, allowed_files, tests
-            )
-            run_id = self._accepted_run_id(response)
-            metadata["active_child"] = {"run_id": run_id, "kind": "implementation"}
-            updated = self.store.update_supervisor(
-                supervisor_id, status="implementing", metadata_json=metadata
-            )
-            self.store.add_run_link(supervisor_id, run_id, "implementation")
-            self.store.append_event(
-                supervisor_id,
-                level="info",
-                stage="implementing",
-                message="Implementation child run started",
-                data={"run_id": run_id, "lock_id": lock["lock_id"]},
-            )
-            return updated
-        except Exception:
+        run_id = make_run_id("codex_implement_task")
+        attached = self.store.attach_child(
+            supervisor_id,
+            run_id=run_id,
+            link_type="implementation",
+            child_kind="implementation",
+            target_status="implementing",
+            metadata=metadata,
+            expected_statuses=("needs_input",),
+            expected_state_version=int(supervisor["state_version"]),
+        )
+        if attached is None:
             self.store.release_repo_lock(lock["lock_id"])
-            metadata["implementation_lock"] = None
-            self.store.update_supervisor(supervisor_id, metadata_json=metadata)
-            raise
+            return self.store.get_supervisor(supervisor_id)
+        return self._ensure_child_launched(attached, expected_kind="implementation")
 
     def cancel(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self.store.get_supervisor(supervisor_id)
@@ -396,30 +431,27 @@ class SupervisorEngine:
                 supervisor, metadata, stage="plan_policy", policy_result=policy_result
             )
 
-        response = self.jobs.start_plan(
-            supervisor["repo_name"],
-            metadata["plan"]["task"],
-            metadata["plan"].get("constraints", ""),
-        )
-        run_id = self._accepted_run_id(response)
-        metadata["active_child"] = {"run_id": run_id, "kind": "plan"}
-        updated = self.store.update_supervisor(
+        run_id = make_run_id("codex_plan_task")
+        attached = self.store.attach_child(
             supervisor["supervisor_id"],
-            status="planning",
+            run_id=run_id,
+            link_type="plan",
+            child_kind="plan",
+            target_status="planning",
+            metadata=metadata,
+            expected_statuses=("queued",),
+            expected_state_version=int(supervisor["state_version"]),
             started_at=supervisor["started_at"] or utc_now(),
-            metadata_json=metadata,
         )
-        self.store.add_run_link(supervisor["supervisor_id"], run_id, "plan")
-        self.store.append_event(
-            supervisor["supervisor_id"],
-            level="info",
-            stage="planning",
-            message="Plan child run started",
-            data={"run_id": run_id},
-        )
-        return updated
+        if attached is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
+
+        return self._ensure_child_launched(attached, expected_kind="plan")
 
     def _advance_plan(self, supervisor: dict[str, Any]) -> dict[str, Any]:
+        supervisor = self._ensure_child_launched(supervisor, expected_kind="plan")
+        if supervisor["status"] != "planning":
+            return supervisor
         metadata = dict(supervisor["metadata"])
         run_id = self._active_run_id(metadata, expected_kind="plan")
         status = self.jobs.get_status(run_id).get("status")
@@ -457,6 +489,11 @@ class SupervisorEngine:
         return updated
 
     def _advance_implementation(self, supervisor: dict[str, Any]) -> dict[str, Any]:
+        supervisor = self._ensure_child_launched(
+            supervisor, expected_kind="implementation"
+        )
+        if supervisor["status"] != "implementing":
+            return supervisor
         metadata = dict(supervisor["metadata"])
         run_id = self._active_run_id(metadata, expected_kind="implementation")
         status = self.jobs.get_status(run_id).get("status")
@@ -667,6 +704,100 @@ class SupervisorEngine:
         if lock and lock.get("lock_id"):
             self.store.release_repo_lock(lock["lock_id"])
         metadata["implementation_lock"] = None
+
+    def _ensure_child_launched(
+        self,
+        supervisor: dict[str, Any],
+        *,
+        expected_kind: str,
+    ) -> dict[str, Any]:
+        metadata = dict(supervisor["metadata"])
+        active_child = dict(metadata.get("active_child") or {})
+        run_id = self._active_run_id(metadata, expected_kind=expected_kind)
+        if active_child.get("launch_state") == "launched":
+            return supervisor
+
+        try:
+            self.jobs.get_status(run_id)
+            child_exists = True
+        except KeyError:
+            child_exists = False
+
+        if not child_exists:
+            if expected_kind == "plan":
+                plan = metadata["plan"]
+                response = self.jobs.start_plan(
+                    supervisor["repo_name"],
+                    plan["task"],
+                    plan.get("constraints", ""),
+                    reserved_run_id=run_id,
+                )
+            elif expected_kind == "implementation":
+                approval = metadata["approval"]
+                response = self.jobs.start_implementation(
+                    supervisor["repo_name"],
+                    approval["approved_plan"],
+                    list(approval["allowed_files"]),
+                    list(approval["tests"]),
+                    reserved_run_id=run_id,
+                )
+            else:
+                raise ValueError(f"Unsupported child kind: {expected_kind}")
+
+            if response.get("accepted"):
+                accepted_run_id = self._accepted_run_id(response)
+                if accepted_run_id != run_id:
+                    self.jobs.cancel(accepted_run_id)
+                    raise RuntimeError(
+                        "Child launcher returned a different reserved run ID"
+                    )
+            else:
+                try:
+                    self.jobs.get_status(run_id)
+                except KeyError as exc:
+                    raise ValueError(
+                        response.get("reason") or "Child run was not accepted"
+                    ) from exc
+
+        launched_metadata = dict(metadata)
+        launched_metadata["active_child"] = {
+            "run_id": run_id,
+            "kind": expected_kind,
+            "launch_state": "launched",
+        }
+        updated = self.store.conditional_update_supervisor(
+            supervisor["supervisor_id"],
+            fields={"metadata_json": launched_metadata},
+            expected_statuses=(supervisor["status"],),
+            expected_state_version=int(supervisor["state_version"]),
+        )
+        if updated is None:
+            current = self.store.get_supervisor(supervisor["supervisor_id"])
+            current_child = current["metadata"].get("active_child") or {}
+            if current_child.get("run_id") != run_id:
+                try:
+                    self.jobs.cancel(run_id)
+                except KeyError:
+                    pass
+            return current
+
+        event_data = {"run_id": run_id}
+        if expected_kind == "implementation":
+            lock = launched_metadata.get("implementation_lock") or {}
+            if lock.get("lock_id"):
+                event_data["lock_id"] = lock["lock_id"]
+        self.store.append_event(
+            supervisor["supervisor_id"],
+            level="info",
+            stage="planning" if expected_kind == "plan" else "implementing",
+            message=(
+                "Plan child run started"
+                if expected_kind == "plan"
+                else "Implementation child run started"
+            ),
+            data=event_data,
+        )
+        return updated
 
     def _accepted_run_id(self, response: dict[str, Any]) -> str:
         if not response.get("accepted") or not response.get("run_id"):
