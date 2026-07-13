@@ -12,7 +12,6 @@ from codexbridge.config import AppConfig, resolve_repo
 from codexbridge.events import redact_and_truncate
 from codexbridge.process_control import (
     process_group_popen_kwargs,
-    process_identity,
     process_is_running,
     process_matches_identity,
     terminate_process_tree,
@@ -262,6 +261,28 @@ class WorkflowManager:
                 "cancelled": False,
                 "error": "",
             }
+
+        cancelled = self.store.cancel_workflow(
+            workflow_id,
+            expected_statuses=(workflow.status,),
+            expected_state_version=workflow.state_version,
+            expected_lease_token=workflow.worker_lease_token,
+            expected_lease_generation=workflow.lease_generation,
+            result={
+                "cancelled_by_request": True,
+                "active_child_run_id": workflow.active_child_run_id,
+            },
+        )
+        if cancelled is None:
+            winner = self.store.get_workflow(workflow_id)
+            return {
+                "ok": winner.status in TERMINAL_STATUSES,
+                "workflow_id": workflow_id,
+                "status": winner.status.value,
+                "cancelled": winner.terminal_status == WorkflowStatus.CANCELLED,
+                "error": "Cancellation lost a concurrent workflow transition",
+            }
+
         child_cancelled = None
         if workflow.active_child_run_id:
             try:
@@ -272,39 +293,33 @@ class WorkflowManager:
                 ).cancel_run(workflow.active_child_run_id)
             except Exception as exc:
                 child_cancelled = {"ok": False, "error": str(exc)}
-        now = utc_now()
-        artifact_paths = list(workflow.artifact_paths)
-        for step in workflow.steps:
-            if step.status.value == "running":
-                self.store.update_step(
-                    workflow_id,
-                    step.id,
-                    status="cancelled",
-                    ended_at=now,
-                    error="Workflow cancelled",
-                    summary="Cancelled by request",
-                )
-            elif step.status.value == "pending":
-                self.store.update_step(
-                    workflow_id,
-                    step.id,
-                    status="cancelled",
-                    ended_at=now,
-                    error="Workflow cancelled before execution",
-                    summary="Cancelled before execution",
-                )
-        worker_terminated = terminate_process_tree(workflow.worker_pid)
-        updated = self.store.update_workflow(
+
+        termination_reports: list[dict[str, Any]] = []
+        for role, pid in (
+            ("worker", workflow.worker_pid),
+            ("launcher", workflow.launcher_pid),
+        ):
+            if pid and not any(report.get("pid") == pid for report in termination_reports):
+                report = terminate_process_tree(pid)
+                report["role"] = role
+                termination_reports.append(report)
+
+        current = self.store.get_workflow(workflow_id)
+        enriched = self.store.conditional_update_workflow(
             workflow_id,
-            status=WorkflowStatus.CANCELLED,
-            terminal_status=WorkflowStatus.CANCELLED,
-            ended_at=now,
-            active_child_run_id=None,
-            failure_summary=workflow.failure_summary or "Workflow cancelled",
-            recommended_next_action="Review completed work and restart only if needed.",
-            artifact_paths_json=[str(path) for path in artifact_paths],
-            result_json={"cancelled_by_request": True, "child_cancelled": child_cancelled},
+            fields={
+                "result_json": {
+                    "cancelled_by_request": True,
+                    "child_cancelled": child_cancelled,
+                    "termination_reports": termination_reports,
+                }
+            },
+            expected_statuses=(WorkflowStatus.CANCELLED,),
+            expected_state_version=current.state_version,
+            expected_lease_token=current.worker_lease_token,
+            expected_lease_generation=current.lease_generation,
         )
+        updated = enriched or current
         self._append_event(
             workflow_id,
             level="warning",
@@ -312,16 +327,15 @@ class WorkflowManager:
             message="Workflow cancelled",
             data={
                 "active_child_run_id": workflow.active_child_run_id,
-                "worker_terminated": worker_terminated.get("terminated"),
+                "termination_reports": termination_reports,
             },
         )
         self._finalize_terminal_workflow(updated)
+        final = self.store.get_workflow(workflow_id)
         return {
             "ok": True,
             "workflow_id": workflow_id,
-            "status": WorkflowStatus.REPORTED.value
-            if self.store.get_workflow(workflow_id).status == WorkflowStatus.REPORTED
-            else WorkflowStatus.CANCELLED.value,
+            "status": final.status.value,
             "cancelled": True,
             "child_run_id": workflow.active_child_run_id,
             "child_cancel_result": child_cancelled,
@@ -339,28 +353,138 @@ class WorkflowManager:
                 heartbeat_age = (
                     now - datetime.fromisoformat(workflow.heartbeat_at)
                 ).total_seconds()
-            worker_running = self.process_checker(workflow.worker_pid)
-            if worker_running and (heartbeat_age is None or heartbeat_age <= 30.0):
+            worker_verified = process_matches_identity(
+                workflow.worker_pid, workflow.worker_identity
+            )
+            launcher_running = self.process_checker(workflow.launcher_pid)
+
+            if worker_verified:
+                adopted = self.store.adopt_worker(
+                    workflow.workflow_id,
+                    expected_state_version=workflow.state_version,
+                    lease_token=workflow.worker_lease_token,
+                    lease_generation=workflow.lease_generation,
+                    expected_heartbeat_at=workflow.heartbeat_at,
+                )
+                if adopted is not None:
+                    self._append_event(
+                        workflow.workflow_id,
+                        level="info",
+                        stage="reconcile",
+                        message="Active workflow worker identity verified after restart",
+                        data={"worker_pid": workflow.worker_pid},
+                    )
                 continue
-            worker_pid = self.worker_launcher(self.config_path, workflow.workflow_id)
-            self.store.update_workflow(
+
+            if workflow.status == WorkflowStatus.QUEUED and launcher_running:
+                continue
+
+            if workflow.launch_attempts >= 2:
+                reason = "Workflow exhausted its bounded worker launch attempts"
+                failed = self.store.conditional_update_workflow(
+                    workflow.workflow_id,
+                    fields={
+                        "status": WorkflowStatus.FAILED,
+                        "terminal_status": WorkflowStatus.FAILED,
+                        "ended_at": utc_now(),
+                        "failure_summary": reason,
+                        "recommended_next_action": "Review workflow worker startup before retrying.",
+                    },
+                    expected_statuses=(workflow.status,),
+                    expected_state_version=workflow.state_version,
+                    expected_lease_token=workflow.worker_lease_token,
+                    expected_lease_generation=workflow.lease_generation,
+                    expected_heartbeat_at=workflow.heartbeat_at,
+                    reject_terminal=True,
+                )
+                if failed is not None:
+                    self._append_event(
+                        workflow.workflow_id,
+                        level="error",
+                        stage="reconcile",
+                        message=reason,
+                    )
+                    self._finalize_terminal_workflow(failed)
+                continue
+
+            new_lease_token = uuid4().hex
+            reservation = self.store.reserve_next_launch(
                 workflow.workflow_id,
-                worker_pid=worker_pid,
-                heartbeat_at=utc_now(),
+                expected_statuses=(workflow.status,),
+                expected_state_version=workflow.state_version,
+                expected_lease_token=workflow.worker_lease_token,
+                expected_lease_generation=workflow.lease_generation,
+                expected_heartbeat_at=workflow.heartbeat_at,
+                new_lease_token=new_lease_token,
             )
-            self._append_event(
-                workflow.workflow_id,
-                level="warning",
-                stage="reconcile",
-                message="Workflow worker relaunched",
-                data={
-                    "previous_worker_pid": workflow.worker_pid,
-                    "new_worker_pid": worker_pid,
-                    "worker_running": worker_running,
-                    "heartbeat_age_seconds": heartbeat_age,
-                },
-            )
-            relaunched += 1
+            if reservation is None:
+                continue
+            try:
+                launcher_pid = self.worker_launcher(
+                    self.config_path,
+                    workflow.workflow_id,
+                    new_lease_token,
+                    reservation.lease_generation,
+                )
+                launched = self.store.record_worker_launch(
+                    workflow.workflow_id,
+                    launcher_pid,
+                    expected_state_version=reservation.state_version,
+                    lease_token=new_lease_token,
+                    lease_generation=reservation.lease_generation,
+                )
+                current = launched or self.store.get_workflow(workflow.workflow_id)
+                if not (
+                    current.worker_lease_token == new_lease_token
+                    and current.lease_generation == reservation.lease_generation
+                    and current.status in {WorkflowStatus.QUEUED, WorkflowStatus.RUNNING}
+                ):
+                    terminate_process_tree(launcher_pid)
+                    continue
+                self._append_event(
+                    workflow.workflow_id,
+                    level="warning",
+                    stage="reconcile",
+                    message="Workflow worker relaunched with a new lease generation",
+                    data={
+                        "previous_worker_pid": workflow.worker_pid,
+                        "launcher_pid": launcher_pid,
+                        "previous_lease_generation": workflow.lease_generation,
+                        "lease_generation": reservation.lease_generation,
+                        "heartbeat_age_seconds": heartbeat_age,
+                    },
+                )
+                relaunched += 1
+            except Exception as exc:
+                current = self.store.get_workflow(workflow.workflow_id)
+                if (
+                    current.worker_lease_token == new_lease_token
+                    and current.lease_generation == reservation.lease_generation
+                ):
+                    reason = f"Workflow worker relaunch failed: {exc}"
+                    failed = self.store.conditional_update_workflow(
+                        workflow.workflow_id,
+                        fields={
+                            "status": WorkflowStatus.FAILED,
+                            "terminal_status": WorkflowStatus.FAILED,
+                            "ended_at": utc_now(),
+                            "failure_summary": reason,
+                            "recommended_next_action": "Review workflow worker startup before retrying.",
+                        },
+                        expected_statuses=(current.status,),
+                        expected_state_version=current.state_version,
+                        expected_lease_token=new_lease_token,
+                        expected_lease_generation=reservation.lease_generation,
+                        reject_terminal=True,
+                    )
+                    if failed is not None:
+                        self._append_event(
+                            workflow.workflow_id,
+                            level="error",
+                            stage="reconcile",
+                            message=reason,
+                        )
+                        self._finalize_terminal_workflow(failed)
         return relaunched
 
     def _launch_worker_process(self, config_path: Path, workflow_id: str) -> int:
