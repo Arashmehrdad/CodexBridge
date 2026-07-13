@@ -492,32 +492,40 @@ class RunStore:
         lease_token: str,
         worker_pid: int,
         worker_identity: str,
+        lease_generation: int | None = None,
+        expected_state_version: int | None = None,
     ) -> bool:
-        validate_run_id(run_id)
+        current = self.get_run(run_id)
+        generation = (
+            int(current["lease_generation"])
+            if lease_generation is None
+            else int(lease_generation)
+        )
+        version = (
+            int(current["state_version"])
+            if expected_state_version is None
+            else int(expected_state_version)
+        )
         now = utc_now()
-        with self.connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE runs
-                SET status = 'running', current_phase = 'worker',
-                    worker_pid = ?, worker_identity = ?, worker_claimed_at = ?,
-                    started_at = COALESCE(started_at, ?), heartbeat_at = ?,
-                    recovery_reason = ''
-                WHERE run_id = ?
-                  AND worker_lease_token = ?
-                  AND status IN ('launch_pending', 'queued', 'running', 'recovery_pending')
-                """,
-                (
-                    int(worker_pid),
-                    worker_identity,
-                    now,
-                    now,
-                    now,
-                    run_id,
-                    lease_token,
-                ),
-            )
-        return int(cursor.rowcount) == 1
+        updated = self.conditional_update(
+            run_id,
+            fields={
+                "status": "running",
+                "current_phase": "worker",
+                "worker_pid": int(worker_pid),
+                "worker_identity": worker_identity,
+                "worker_claimed_at": now,
+                "started_at": current.get("started_at") or now,
+                "heartbeat_at": now,
+                "recovery_reason": "",
+            },
+            expected_statuses=("launch_pending", "queued"),
+            expected_state_version=version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=generation,
+            reject_terminal=True,
+        )
+        return updated is not None
 
     def heartbeat_worker(
         self,
