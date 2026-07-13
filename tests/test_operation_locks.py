@@ -64,7 +64,7 @@ def test_operation_lock_release_allows_next_task(tmp_path: Path) -> None:
     assert next_lock.acquired is True
 
 
-def test_operation_lock_recovers_stale_dead_worker_before_server_pid(
+def test_operation_lock_retains_nonterminal_run_for_manager_reconciliation(
     tmp_path: Path, monkeypatch
 ) -> None:
     store = OperationLockStore(tmp_path / "runs")
@@ -76,7 +76,9 @@ def test_operation_lock_recovers_stale_dead_worker_before_server_pid(
         input_data={"repo_name": "sample", "command_id": "pytest"},
         status="running",
     )
-    store.store.update_run(RUN_ID, worker_pid=222, pid=333)
+    store.store.update_run(
+        RUN_ID, worker_pid=222, worker_identity="222:windows:1", pid=333
+    )
     store.acquire(
         repo_name="sample",
         tool="project_command",
@@ -84,14 +86,83 @@ def test_operation_lock_recovers_stale_dead_worker_before_server_pid(
         run_id=RUN_ID,
         owner_pid=111,
     )
-
     monkeypatch.setattr(
-        operation_locks,
-        "_pid_is_running",
-        lambda pid: pid in {111},
+        operation_locks, "process_matches_identity", lambda _pid, _identity: False
+    )
+    monkeypatch.setattr(
+        operation_locks, "process_is_running", lambda _pid: False
+    )
+
+    assert store.recover_stale() == 0
+    assert store.find_lock("sample", RUN_ID) is not None
+
+
+def test_operation_lock_removes_terminal_dead_owner(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="failed",
+    )
+    store.store.update_run(
+        RUN_ID, worker_pid=222, worker_identity="222:windows:1"
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_pid=111,
+    )
+    monkeypatch.setattr(
+        operation_locks, "process_matches_identity", lambda _pid, _identity: False
+    )
+    monkeypatch.setattr(
+        operation_locks, "process_is_running", lambda _pid: False
     )
 
     assert store.recover_stale() == 1
+    assert store.find_lock("sample", RUN_ID) is None
+
+
+def test_operation_lock_retains_terminal_run_with_verified_worker(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="failed",
+    )
+    store.store.update_run(
+        RUN_ID, worker_pid=222, worker_identity="222:windows:1"
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_pid=111,
+    )
+    monkeypatch.setattr(
+        operation_locks,
+        "process_matches_identity",
+        lambda pid, identity: pid == 222 and identity == "222:windows:1",
+    )
+    monkeypatch.setattr(
+        operation_locks, "process_is_running", lambda _pid: False
+    )
+
+    assert store.recover_stale() == 0
+    assert store.find_lock("sample", RUN_ID) is not None
 
 
 def test_operation_lock_listing_is_sanitized_and_filterable(tmp_path: Path) -> None:
@@ -118,11 +189,35 @@ def test_operation_lock_listing_is_sanitized_and_filterable(tmp_path: Path) -> N
     assert listed[0]["run_id"] == RUN_ID
     assert listed[0]["run_status"] == "queued"
     assert "input_fingerprint" not in listed[0]
+    assert "owner_token" not in listed[0]
     found = store.find_lock("sample", RUN_ID)
     assert found is not None
     assert found["run_id"] == listed[0]["run_id"]
     assert found["repo_name"] == listed[0]["repo_name"]
     assert found["tool"] == listed[0]["tool"]
+
+
+def test_operation_lock_release_requires_matching_owner_token(tmp_path: Path) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_token="lease-new",
+    )
+
+    store.release("sample", RUN_ID, "lease-old")
+    assert store.find_lock("sample", RUN_ID) is not None
+    store.release("sample", RUN_ID, "lease-new")
+    assert store.find_lock("sample", RUN_ID) is None
 
 
 def test_operation_lock_listing_can_hide_stale_rows(

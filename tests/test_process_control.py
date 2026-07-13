@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import signal
 from types import SimpleNamespace
+
+import pytest
 
 import codexbridge.process_control as process_control
 
@@ -15,6 +18,25 @@ def test_process_group_popen_kwargs_are_platform_specific(monkeypatch) -> None:
         process_control.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False
     )
     assert process_control.process_group_popen_kwargs() == {"creationflags": 512}
+
+
+def test_process_identity_matching_is_exact(monkeypatch) -> None:
+    monkeypatch.setattr(
+        process_control, "process_identity", lambda pid: f"{pid}:test:1"
+    )
+
+    assert process_control.process_matches_identity(123, "123:test:1") is True
+    assert process_control.process_matches_identity(123, "123:test:2") is False
+    assert process_control.process_matches_identity(123, "") is False
+
+
+def test_current_process_identity_is_stable_when_supported() -> None:
+    identity = process_control.process_identity(os.getpid())
+    if not identity:
+        pytest.skip("Process-start identity is unavailable on this platform")
+
+    assert process_control.process_matches_identity(os.getpid(), identity) is True
+    assert process_control.process_matches_identity(os.getpid(), identity + "x") is False
 
 
 def test_terminate_process_tree_returns_already_stopped(monkeypatch) -> None:
