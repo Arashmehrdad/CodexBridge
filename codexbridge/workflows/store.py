@@ -653,17 +653,146 @@ class WorkflowStore:
             conn.close()
         return self.get_workflow(workflow_id)
 
+    def transition_terminal(
+        self,
+        workflow_id: str,
+        *,
+        status: WorkflowStatus,
+        expected_state_version: int,
+        lease_token: str,
+        lease_generation: int,
+        failure_summary: str,
+        recommended_next_action: str,
+    ) -> WorkflowRecord | None:
+        if status.value not in _WORKFLOW_TERMINAL_STATUSES or status == WorkflowStatus.REPORTED:
+            raise ValueError(f"Not a workflow terminal source status: {status.value}")
+        return self.conditional_update_workflow(
+            workflow_id,
+            fields={
+                "status": status,
+                "terminal_status": status,
+                "ended_at": utc_now(),
+                "active_child_run_id": None,
+                "failure_summary": failure_summary,
+                "recommended_next_action": recommended_next_action,
+            },
+            expected_statuses=(WorkflowStatus.RUNNING,),
+            expected_state_version=expected_state_version,
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            reject_terminal=True,
+        )
+
+    def cancel_workflow(
+        self,
+        workflow_id: str,
+        *,
+        expected_statuses: tuple[WorkflowStatus | str, ...],
+        expected_state_version: int,
+        expected_lease_token: str,
+        expected_lease_generation: int,
+        result: dict[str, Any],
+    ) -> WorkflowRecord | None:
+        statuses = tuple(
+            status.value if isinstance(status, WorkflowStatus) else str(status)
+            for status in expected_statuses
+        )
+        if not statuses:
+            return None
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            workflow_cursor = conn.execute(
+                """
+                UPDATE workflows
+                SET status = ?, terminal_status = ?, ended_at = ?,
+                    active_child_run_id = NULL,
+                    failure_summary = CASE
+                        WHEN failure_summary = '' THEN 'Workflow cancelled'
+                        ELSE failure_summary
+                    END,
+                    recommended_next_action = ?, result_json = ?,
+                    updated_at = ?, state_version = state_version + 1
+                WHERE workflow_id = ? AND state_version = ?
+                  AND worker_lease_token = ? AND lease_generation = ?
+                  AND status IN ("""
+                + ", ".join("?" for _ in statuses)
+                + ")",
+                (
+                    WorkflowStatus.CANCELLED.value,
+                    WorkflowStatus.CANCELLED.value,
+                    now,
+                    "Review completed work and restart only if needed.",
+                    _dumps(result),
+                    now,
+                    workflow_id,
+                    int(expected_state_version),
+                    expected_lease_token,
+                    int(expected_lease_generation),
+                    *statuses,
+                ),
+            )
+            if int(workflow_cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            conn.execute(
+                """
+                UPDATE workflow_steps
+                SET status = ?, ended_at = ?,
+                    summary = CASE
+                        WHEN status = ? THEN 'Cancelled by request'
+                        ELSE 'Cancelled before execution'
+                    END,
+                    error = CASE
+                        WHEN status = ? THEN 'Workflow cancelled'
+                        ELSE 'Workflow cancelled before execution'
+                    END,
+                    state_version = state_version + 1
+                WHERE workflow_id = ? AND status IN (?, ?)
+                """,
+                (
+                    WorkflowStepStatus.CANCELLED.value,
+                    now,
+                    WorkflowStepStatus.RUNNING.value,
+                    WorkflowStepStatus.RUNNING.value,
+                    workflow_id,
+                    WorkflowStepStatus.PENDING.value,
+                    WorkflowStepStatus.RUNNING.value,
+                ),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self.get_workflow(workflow_id)
+
+    def mark_reported(
+        self,
+        workflow_id: str,
+        *,
+        expected_status: WorkflowStatus,
+        expected_state_version: int,
+        terminal_status: WorkflowStatus,
+        artifact_paths: list[str],
+    ) -> WorkflowRecord | None:
+        return self.conditional_update_workflow(
+            workflow_id,
+            fields={
+                "status": WorkflowStatus.REPORTED,
+                "terminal_status": terminal_status,
+                "artifact_paths_json": artifact_paths,
+            },
+            expected_statuses=(expected_status,),
+            expected_state_version=expected_state_version,
+        )
+
     def update_step(
         self, workflow_id: str, step_id: str, **fields: Any
     ) -> WorkflowRecord:
-        normalized = dict(fields)
-        for json_field in ("parameters_json", "depends_on_json", "artifact_paths_json", "result_json"):
-            if json_field in normalized and not isinstance(normalized[json_field], str):
-                normalized[json_field] = _dumps(normalized[json_field])
-        if "status" in normalized and isinstance(
-            normalized["status"], WorkflowStepStatus
-        ):
-            normalized["status"] = normalized["status"].value
+        normalized = self._normalize_step_fields(fields)
         assignments = ", ".join(f"{key} = ?" for key in normalized)
         params = [*normalized.values(), workflow_id, step_id]
         with self.connect() as conn:
@@ -686,6 +815,7 @@ class WorkflowStore:
         message: str,
         data: dict[str, Any] | None = None,
         timestamp: str | None = None,
+        update_workflow_metadata: bool = True,
     ) -> WorkflowEvent:
         event = WorkflowEvent(
             timestamp=timestamp or utc_now(),
@@ -711,14 +841,15 @@ class WorkflowStore:
                     _dumps(event.data),
                 ),
             )
-            conn.execute(
-                """
-                UPDATE workflows
-                SET heartbeat_at = ?, updated_at = ?
-                WHERE workflow_id = ?
-                """,
-                (event.timestamp, event.timestamp, workflow_id),
-            )
+            if update_workflow_metadata:
+                conn.execute(
+                    """
+                    UPDATE workflows
+                    SET heartbeat_at = ?, updated_at = ?
+                    WHERE workflow_id = ?
+                    """,
+                    (event.timestamp, event.timestamp, workflow_id),
+                )
         return event
 
     def get_events(self, workflow_id: str, limit: int = 100) -> list[WorkflowEvent]:
