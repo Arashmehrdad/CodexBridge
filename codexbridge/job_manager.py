@@ -934,12 +934,18 @@ class JobManager:
         response["path"] = normalized_target
         return response
 
+    @staticmethod
+    def _public_run(run: dict) -> dict:
+        public = dict(run)
+        public.pop("worker_lease_token", None)
+        return public
+
     def get_status(self, run_id: str) -> dict:
         try:
             run = self.store.get_run(run_id)
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
-        return redact_and_truncate(run)
+        return redact_and_truncate(self._public_run(run))
 
     def get_events(
         self, run_id: str, limit: int = 50, after_id: int | None = None
@@ -1114,13 +1120,12 @@ class JobManager:
         canonical_repo_name = None
         if repo_name:
             canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
-        return redact_and_truncate(
-            self.store.list_runs(
-                repo_name=canonical_repo_name or repo_name or None,
-                status=status or None,
-                limit=limit,
-            )
+        runs = self.store.list_runs(
+            repo_name=canonical_repo_name or repo_name or None,
+            status=status or None,
+            limit=limit,
         )
+        return redact_and_truncate([self._public_run(run) for run in runs])
 
     def latest_result(
         self, repo_name: str | None = None, tool: str | None = None
