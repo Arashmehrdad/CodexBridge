@@ -168,37 +168,90 @@ def test_run_store_repo_filters_are_case_insensitive(tmp_path: Path) -> None:
     assert store.latest_run(repo_name="sample")["repo_name"] == "Sample"
 
 
-def test_mark_stale_running_preserves_monitored_remote_safety_state(
+def test_worker_launch_claim_and_heartbeat_are_lease_scoped(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={"command_id": "pytest"},
+        status="launch_pending",
+        worker_lease_token="lease-1",
+    )
+
+    created = store.get_run(RUN_ID)
+    assert created["status"] == "launch_pending"
+    assert created["current_phase"] == "launch_pending"
+
+    launched = store.record_worker_launch(RUN_ID, 111)
+    assert launched["status"] == "queued"
+    assert launched["launcher_pid"] == 111
+    assert launched["launch_attempts"] == 1
+
+    assert (
+        store.claim_worker(
+            RUN_ID,
+            lease_token="wrong",
+            worker_pid=222,
+            worker_identity="222:windows:1",
+        )
+        is False
+    )
+    assert store.claim_worker(
+        RUN_ID,
+        lease_token="lease-1",
+        worker_pid=222,
+        worker_identity="222:windows:1",
+    )
+    claimed = store.get_run(RUN_ID)
+    assert claimed["status"] == "running"
+    assert claimed["worker_pid"] == 222
+    assert claimed["worker_identity"] == "222:windows:1"
+    assert claimed["worker_claimed_at"]
+
+    assert (
+        store.heartbeat_worker(
+            RUN_ID,
+            lease_token="wrong",
+            elapsed_seconds=1.0,
+            progress_updates={"phase": "ignored"},
+        )
+        is False
+    )
+    assert store.heartbeat_worker(
+        RUN_ID,
+        lease_token="lease-1",
+        elapsed_seconds=2.0,
+        progress_updates={"phase": "active"},
+    )
+    assert store.get_run(RUN_ID)["progress"]["phase"] == "active"
+
+
+def test_recoverable_run_listing_and_legacy_stale_method_are_conservative(
     tmp_path: Path,
 ) -> None:
     store = RunStore(tmp_path / "runs")
-    monitored_id = "20260711T120000Z_ssh_monitored_command_deadbeef"
-    ordinary_id = "20260711T120001Z_project_command_deadbeef"
-    store.create_run(
-        run_id=monitored_id,
-        repo_name="ssh:my_vps",
-        tool="ssh_monitored_command",
-        run_dir=tmp_path / "runs" / monitored_id,
-        input_data={"host_id": "my_vps", "command_id": "uptime"},
-        status="running",
-    )
-    store.create_run(
-        run_id=ordinary_id,
-        repo_name="sample",
-        tool="project_command",
-        run_dir=tmp_path / "runs" / ordinary_id,
-        input_data={"command_id": "pytest"},
-        status="running",
-    )
+    recoverable_statuses = [
+        "launch_pending",
+        "queued",
+        "running",
+        "cancellation_pending",
+        "recovery_pending",
+    ]
+    for index, status in enumerate(recoverable_statuses):
+        run_id = f"20260711T12000{index}Z_project_command_deadbee{index}"
+        store.create_run(
+            run_id=run_id,
+            repo_name="sample",
+            tool="project_command",
+            run_dir=tmp_path / "runs" / run_id,
+            input_data={},
+            status=status,
+        )
 
-    assert store.mark_stale_running() == 2
-
-    monitored = store.get_run(monitored_id)
-    ordinary = store.get_run(ordinary_id)
-    assert monitored["status"] == "cancellation_pending"
-    assert monitored["current_phase"] == "cancellation_pending"
-    assert monitored["ended_at"] is None
-    assert monitored["safety_failure"] is True
-    assert "may still be active" in monitored["error"]
-    assert ordinary["status"] == "failed"
-    assert ordinary["ended_at"] is not None
+    assert [run["status"] for run in store.list_recoverable_runs()] == (
+        recoverable_statuses
+    )
+    assert store.mark_stale_running() == 0
+    assert store.list_runs(status="running")[0]["status"] == "running"
