@@ -165,12 +165,6 @@ def patch_atomic_writes(monkeypatch):
     monkeypatch.setattr(
         "codexbridge.return_loop.atomic_writer.atomic_write_json", write_json
     )
-    monkeypatch.setattr(
-        "codexbridge.workflows.manager.WorkflowStore", FakeWorkflowStore
-    )
-    monkeypatch.setattr(
-        "codexbridge.workflows.worker.WorkflowStore", FakeWorkflowStore
-    )
 
 
 class FakeJobManager:
