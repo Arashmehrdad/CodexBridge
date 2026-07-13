@@ -40,6 +40,17 @@ class WorkflowStore:
         conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
+    @staticmethod
+    def _ensure_column(
+        conn: sqlite3.Connection, table: str, column: str, definition: str
+    ) -> None:
+        columns = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def init_db(self) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -54,7 +65,14 @@ class WorkflowStore:
                     updated_at TEXT NOT NULL,
                     started_at TEXT,
                     ended_at TEXT,
+                    launcher_pid INTEGER,
                     worker_pid INTEGER,
+                    worker_lease_token TEXT NOT NULL DEFAULT '',
+                    lease_generation INTEGER NOT NULL DEFAULT 1,
+                    state_version INTEGER NOT NULL DEFAULT 0,
+                    worker_identity TEXT NOT NULL DEFAULT '',
+                    worker_claimed_at TEXT,
+                    launch_attempts INTEGER NOT NULL DEFAULT 0,
                     heartbeat_at TEXT,
                     active_child_run_id TEXT,
                     failure_summary TEXT NOT NULL DEFAULT '',
@@ -75,7 +93,9 @@ class WorkflowStore:
                     depends_on_json TEXT NOT NULL DEFAULT '[]',
                     on_failure TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    state_version INTEGER NOT NULL DEFAULT 0,
                     child_run_id TEXT,
+                    child_launch_attempts INTEGER NOT NULL DEFAULT 0,
                     started_at TEXT,
                     ended_at TEXT,
                     summary TEXT NOT NULL DEFAULT '',
@@ -101,6 +121,21 @@ class WorkflowStore:
                 )
                 """
             )
+            for column, definition in (
+                ("launcher_pid", "INTEGER"),
+                ("worker_lease_token", "TEXT NOT NULL DEFAULT ''"),
+                ("lease_generation", "INTEGER NOT NULL DEFAULT 1"),
+                ("state_version", "INTEGER NOT NULL DEFAULT 0"),
+                ("worker_identity", "TEXT NOT NULL DEFAULT ''"),
+                ("worker_claimed_at", "TEXT"),
+                ("launch_attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                self._ensure_column(conn, "workflows", column, definition)
+            for column, definition in (
+                ("state_version", "INTEGER NOT NULL DEFAULT 0"),
+                ("child_launch_attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                self._ensure_column(conn, "workflow_steps", column, definition)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status, updated_at)"
             )
@@ -116,16 +151,30 @@ class WorkflowStore:
         objective: str,
         steps: list[dict[str, Any]],
         status: WorkflowStatus = WorkflowStatus.QUEUED,
+        worker_lease_token: str = "",
+        lease_generation: int = 1,
+        launch_attempts: int = 0,
     ) -> WorkflowRecord:
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO workflows (
-                    workflow_id, repo_name, objective, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    workflow_id, repo_name, objective, status, created_at, updated_at,
+                    worker_lease_token, lease_generation, launch_attempts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (workflow_id, repo_name, objective, status.value, now, now),
+                (
+                    workflow_id,
+                    repo_name,
+                    objective,
+                    status.value,
+                    now,
+                    now,
+                    worker_lease_token,
+                    int(lease_generation),
+                    int(launch_attempts),
+                ),
             )
             conn.executemany(
                 """
@@ -316,7 +365,18 @@ class WorkflowStore:
             if workflow_row["started_at"]
             else None,
             ended_at=str(workflow_row["ended_at"]) if workflow_row["ended_at"] else None,
+            launcher_pid=int(workflow_row["launcher_pid"])
+            if workflow_row["launcher_pid"]
+            else None,
             worker_pid=int(workflow_row["worker_pid"]) if workflow_row["worker_pid"] else None,
+            worker_lease_token=str(workflow_row["worker_lease_token"] or ""),
+            lease_generation=int(workflow_row["lease_generation"] or 1),
+            state_version=int(workflow_row["state_version"] or 0),
+            worker_identity=str(workflow_row["worker_identity"] or ""),
+            worker_claimed_at=str(workflow_row["worker_claimed_at"])
+            if workflow_row["worker_claimed_at"]
+            else None,
+            launch_attempts=int(workflow_row["launch_attempts"] or 0),
             heartbeat_at=str(workflow_row["heartbeat_at"])
             if workflow_row["heartbeat_at"]
             else None,
@@ -344,7 +404,9 @@ class WorkflowStore:
             depends_on=_loads(row["depends_on_json"], default=[]),
             on_failure=str(row["on_failure"]),
             status=WorkflowStepStatus(str(row["status"])),
+            state_version=int(row["state_version"] or 0),
             child_run_id=str(row["child_run_id"]) if row["child_run_id"] else None,
+            child_launch_attempts=int(row["child_launch_attempts"] or 0),
             started_at=str(row["started_at"]) if row["started_at"] else None,
             ended_at=str(row["ended_at"]) if row["ended_at"] else None,
             summary=str(row["summary"] or ""),
