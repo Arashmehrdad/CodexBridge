@@ -35,7 +35,11 @@ from .managed_artifacts import (
 )
 from .operation_locks import OperationLockStore
 from .policy import decide_implementation_task, decide_plan_task
-from .process_control import process_group_popen_kwargs, terminate_process_tree
+from .process_control import (
+    process_group_popen_kwargs,
+    process_identity,
+    terminate_process_tree,
+)
 from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import RunStore
 from .run_guards import (
@@ -84,13 +88,20 @@ def _stream_pipe(
 
 
 class JobWorker:
-    def __init__(self, config_path: Path, run_id: str):
+    def __init__(
+        self, config_path: Path, run_id: str, lease_token: str | None = None
+    ):
         self.config_path = config_path
         self.config = load_config(config_path)
         self.store = RunStore(self.config.resolve_runs_dir())
         self.locks = OperationLockStore(self.config.resolve_runs_dir())
         self.run = self.store.get_run(run_id)
         self.run_id = run_id
+        self.worker_lease_token = (
+            str(lease_token)
+            if lease_token is not None
+            else str(self.run.get("worker_lease_token") or "")
+        )
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
         self._started_monotonic = 0.0
         self._heartbeat_stop = threading.Event()
@@ -106,7 +117,9 @@ class JobWorker:
             progress=data or {},
             elapsed_seconds=self._elapsed_seconds(),
         )
-        self.locks.heartbeat(self.run["repo_name"], self.run_id)
+        self.locks.heartbeat(
+            self.run["repo_name"], self.run_id, self.worker_lease_token
+        )
         event = self.store.append_event(
             self.run_id,
             level=level,
@@ -124,12 +137,15 @@ class JobWorker:
     def _heartbeat_loop(self) -> None:
         while not self._heartbeat_stop.wait(5.0):
             try:
-                self.store.heartbeat(
+                self.store.heartbeat_worker(
                     self.run_id,
+                    lease_token=self.worker_lease_token,
                     elapsed_seconds=self._elapsed_seconds(),
                     progress_updates={"worker_pid": os.getpid()},
                 )
-                self.locks.heartbeat(self.run["repo_name"], self.run_id)
+                self.locks.heartbeat(
+                    self.run["repo_name"], self.run_id, self.worker_lease_token
+                )
             except Exception:
                 continue
 
@@ -138,8 +154,9 @@ class JobWorker:
         if now - self._last_output_heartbeat < 1.0:
             return
         self._last_output_heartbeat = now
-        self.store.heartbeat(
+        self.store.heartbeat_worker(
             self.run_id,
+            lease_token=self.worker_lease_token,
             elapsed_seconds=self._elapsed_seconds(),
             progress_updates={"last_output_at": _utc_now()},
         )
@@ -162,10 +179,34 @@ class JobWorker:
         current_before_start = self.store.get_run(self.run_id)
         if current_before_start["status"] == "cancelled":
             return 0
-        started_at = _utc_now()
+        worker_pid = os.getpid()
+        worker_identity = process_identity(worker_pid)
+        claimed = self.store.claim_worker(
+            self.run_id,
+            lease_token=self.worker_lease_token,
+            worker_pid=worker_pid,
+            worker_identity=worker_identity,
+        )
+        if not claimed:
+            return 1
+        self.locks.claim_owner(
+            current_before_start["repo_name"],
+            self.run_id,
+            owner_pid=worker_pid,
+            owner_token=self.worker_lease_token,
+        )
+        self.run = self.store.get_run(self.run_id)
+        started_at = str(self.run.get("started_at") or _utc_now())
         self._started_monotonic = time.monotonic()
-        self.store.update_run(self.run_id, status="running", started_at=started_at)
-        self.event("info", "worker", "Worker started")
+        self.event(
+            "info",
+            "worker",
+            "Worker claimed durable execution lease",
+            {
+                "worker_pid": worker_pid,
+                "worker_identity_recorded": bool(worker_identity),
+            },
+        )
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
             name=f"codexbridge-heartbeat-{self.run_id}",
@@ -321,7 +362,9 @@ class JobWorker:
                 self._heartbeat_thread.join(timeout=2)
             final_status = str(self.store.get_run(self.run_id).get("status") or "")
             if final_status != "cancellation_pending":
-                self.locks.release(self.run["repo_name"], self.run_id)
+                self.locks.release(
+                    self.run["repo_name"], self.run_id, self.worker_lease_token
+                )
 
     def _execute_inner(self, started_at: str) -> dict:
         input_data = self.run["input"]
@@ -1512,12 +1555,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a queued CodexBridge job.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--lease-token", default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    worker = JobWorker(Path(args.config).resolve(), args.run_id)
+    worker = JobWorker(
+        Path(args.config).resolve(), args.run_id, lease_token=args.lease_token
+    )
     raise SystemExit(worker.execute())
 
 
