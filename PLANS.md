@@ -209,7 +209,38 @@ Boundaries not yet claimed:
 
 ### Batch D2 - Conditional transitions and launch-state completion
 
-Add compare-and-swap/versioned ownership transitions for claim, cancellation, completion, timeout, recovery, and lock release. Complete deterministic race handling now that D1 provides durable launch intent, lease tokens, bounded relaunch, and launch-failure rollback.
+Status: **implemented and validated**.
+
+Delivered:
+
+- Added durable `state_version` and `lease_generation` fields to direct-run records, with backward-compatible SQLite migration.
+- Added a trusted-field conditional update primitive that supports expected status, state version, lease token, lease generation, and observed heartbeat predicates and verifies the affected-row count.
+- Made worker claim single-winner and restricted it to the current `launch_pending` or `queued` execution generation.
+- Scoped worker heartbeat, progress, child-PID attachment, completion, timeout, failure, and repository-lock release to the active lease token and generation.
+- Made terminal status and structured `result_json` visible in one conditional database update and prevented stale or duplicate writers from overwriting terminal state.
+- Made cancellation claim `cancellation_pending` before process termination, so cancellation versus completion has one deterministic database winner and unconfirmed termination retains the lock.
+- Made startup adoption and recovery compare the observed state and heartbeat, so a fresh active-worker heartbeat defeats a stale recovery decision.
+- Added an atomic relaunch reservation that rotates the lease token and generation and transfers repository-lock ownership in the same SQLite transaction.
+- Prevented duplicate reconcilers from both adopting or relaunching the same run and rejected late claims from the replaced worker generation.
+- Made operation-lock heartbeat and release return explicit success only for matching run, token, and generation ownership.
+- Preserved D1 Windows worker identity and restart-adoption behaviour while keeping workflow and supervisor execution unchanged for D3 and D4.
+
+Validation evidence:
+
+- `tests/test_run_store.py`: 15 passed.
+- `tests/test_operation_locks.py`: 11 passed.
+- `tests/test_job_manager.py`: 39 passed.
+- `tests/test_job_worker.py`: 17 passed.
+- Full repository suite: 890 passed, 1 skipped.
+- `python -m pip check`: no broken requirements found.
+- Full-suite run `20260713T152727Z_project_command_3e56509b` completed through the hardened lease/version path with exit code `0` and terminal `state_version` `2`.
+- Local Ollama health passed with configured model `qwen2.5-coder:7b`; the local health/inference timeout was increased to 120 seconds to cover cold model loading.
+
+Boundaries not yet claimed:
+
+- Workflow worker leases and crash-safe child attachment remain D3.
+- Supervisor child attachment and shared lock unification remain D4.
+- Human-readable result artifacts may still be written before a losing database terminal transition; the database remains authoritative, while atomic artifact reconciliation remains in the later return-loop consistency batch.
 
 ### Batch D3 - Workflow worker lease and child attachment
 
