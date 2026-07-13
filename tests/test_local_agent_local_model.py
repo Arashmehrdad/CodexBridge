@@ -128,7 +128,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_local_model() -> None:
         "fix this bug in the runner"
     )
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.local_model_result is None
     assert adapter.calls == []
 

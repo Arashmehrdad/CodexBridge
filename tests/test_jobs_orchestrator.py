@@ -66,5 +66,5 @@ def test_orchestrator_does_not_route_edit_tasks_to_job_manager(tmp_path: Path) -
         "fix and refactor the long job manager"
     )
 
-    assert result.routing_decision == RoutingDecision.CODEX_REQUIRED
+    assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.job_result is None
