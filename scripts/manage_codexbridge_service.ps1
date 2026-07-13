@@ -8,7 +8,7 @@ param(
         "start-all", "stop-all", "elevated-stop-server", "elevated-stop-tunnel"
     )]
     [string]$Action = "menu",
-    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectRoot = "",
     [string]$Config = "config.yaml",
     [string]$HostName = "127.0.0.1",
     [int]$Port = 8000,
@@ -26,6 +26,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    if ([string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        throw "Unable to resolve the service controller script path. Pass -ProjectRoot explicitly."
+    }
+    $scriptDirectory = Split-Path -Parent $PSCommandPath
+    $ProjectRoot = Split-Path -Parent $scriptDirectory
+}
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $ConfigPath = if ([System.IO.Path]::IsPathRooted($Config)) {
     [System.IO.Path]::GetFullPath($Config)
