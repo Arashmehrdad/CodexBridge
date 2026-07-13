@@ -1336,49 +1336,132 @@ class JobManager:
                 "termination_confirmed": True,
                 "reason": "Run is already terminal",
             }
+        if run["status"] == "cancellation_pending":
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "status": "cancellation_pending",
+                "cancelled": False,
+                "terminated": False,
+                "termination_confirmed": False,
+                "reason": "Cancellation is already pending",
+            }
 
+        lease_token = str(run.get("worker_lease_token") or "")
+        lease_generation = int(run.get("lease_generation") or 1)
         requested_at = datetime.now(timezone.utc).isoformat()
         progress = dict(run.get("progress") or {})
         progress["cancellation_requested_at"] = requested_at
+        pending = self.store.conditional_update(
+            run_id,
+            fields={
+                "status": "cancellation_pending",
+                "current_phase": "cancellation_pending",
+                "progress_json": progress,
+            },
+            expected_statuses=(str(run["status"]),),
+            expected_state_version=int(run.get("state_version") or 0),
+            expected_lease_token=lease_token,
+            expected_lease_generation=lease_generation,
+            reject_terminal=True,
+        )
+        if pending is None:
+            winner = self.store.get_run(run_id)
+            return {
+                "ok": winner["status"] in TERMINAL_STATUSES,
+                "run_id": run_id,
+                "status": winner["status"],
+                "cancelled": winner["status"] == "cancelled",
+                "terminated": False,
+                "termination_confirmed": winner["status"] in TERMINAL_STATUSES,
+                "reason": "Cancellation lost a concurrent state transition",
+            }
+
         child_pid = int(run.get("pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
         launcher_pid = int(run.get("launcher_pid") or 0)
 
-        if run["tool"] == "ssh_monitored_command":
-            if (
-                run["status"] == "queued"
-                and not launcher_pid
-                and not worker_pid
-                and not child_pid
-            ):
-                ended_at = datetime.now(timezone.utc).isoformat()
-                error = "Run cancelled before monitored SSH launch"
-                result = self._cancellation_result(run, ended_at, error, progress)
-                self.store.update_run(
-                    run_id,
-                    status="cancelled",
-                    ended_at=ended_at,
-                    error=error,
-                    progress_json=progress,
-                    result_json=result,
-                )
-                self.locks.release(run["repo_name"], run_id)
-                return {
-                    "ok": True,
-                    "run_id": run_id,
-                    "status": "cancelled",
-                    "cancelled": True,
-                    "terminated": False,
-                    "termination_confirmed": True,
-                    "termination_reports": [],
-                }
-
-            self.store.update_run(
+        def persist_progress() -> None:
+            self.store.conditional_update(
                 run_id,
-                status="cancellation_pending",
-                current_phase="cancellation_pending",
-                progress_json=progress,
+                fields={
+                    "current_phase": "cancellation_pending",
+                    "progress_json": progress,
+                    "elapsed_seconds": float(run.get("elapsed_seconds") or 0.0),
+                },
+                expected_statuses=("cancellation_pending",),
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                bump_state_version=False,
             )
+
+        def finish_cancel(
+            *,
+            error: str,
+            reports: list[dict],
+            terminated: bool,
+            message: str,
+        ) -> dict:
+            current = self.store.get_run(run_id)
+            ended_at = datetime.now(timezone.utc).isoformat()
+            result = self._cancellation_result(current, ended_at, error, progress)
+            cancelled = self.store.transition_terminal(
+                run_id,
+                status="cancelled",
+                result=result,
+                expected_statuses=("cancellation_pending",),
+                expected_state_version=int(current["state_version"]),
+                expected_lease_token=lease_token,
+                expected_lease_generation=lease_generation,
+                ended_at=ended_at,
+                duration_seconds=current.get("duration_seconds"),
+                exit_code=current.get("exit_code"),
+                summary=error,
+                error=error,
+                progress=progress,
+            )
+            if cancelled is None:
+                winner = self.store.get_run(run_id)
+                return {
+                    "ok": winner["status"] in TERMINAL_STATUSES,
+                    "run_id": run_id,
+                    "status": winner["status"],
+                    "cancelled": winner["status"] == "cancelled",
+                    "terminated": terminated,
+                    "termination_confirmed": winner["status"] in TERMINAL_STATUSES,
+                    "termination_reports": reports,
+                    "reason": "Final cancellation lost a concurrent state transition",
+                }
+            self.locks.release(
+                run["repo_name"], run_id, lease_token, lease_generation
+            )
+            event = self.store.append_event(
+                run_id,
+                level="warning",
+                stage="cancel",
+                message=message,
+                data={"termination_reports": reports},
+                update_run_metadata=False,
+            )
+            ArtifactWriter(Path(run["run_dir"])).append_event(event)
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "status": "cancelled",
+                "cancelled": True,
+                "terminated": terminated,
+                "termination_confirmed": True,
+                "termination_reports": reports,
+            }
+
+        if run["tool"] == "ssh_monitored_command":
+            if not launcher_pid and not worker_pid and not child_pid:
+                return finish_cancel(
+                    error="Run cancelled before monitored SSH launch",
+                    reports=[],
+                    terminated=False,
+                    message="Monitored SSH run cancelled before launch",
+                )
             if worker_pid > 0 and process_is_running(worker_pid):
                 return {
                     "ok": False,
@@ -1412,12 +1495,7 @@ class JobManager:
             )
             progress["remote_termination"] = termination
             if not termination.get("terminated"):
-                self.store.set_progress(
-                    run_id,
-                    phase="cancellation_pending",
-                    progress=progress,
-                    elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
-                )
+                persist_progress()
                 return {
                     "ok": False,
                     "run_id": run_id,
@@ -1429,20 +1507,14 @@ class JobManager:
                     "reason": "Remote termination could not be confirmed; lock retained",
                 }
 
-            reports = []
+            reports: list[dict] = []
             if child_pid > 0 and process_is_running(child_pid):
                 report = terminate_process_tree(child_pid)
                 report["role"] = "child"
                 reports.append(report)
-            local_confirmed = all(bool(report.get("terminated")) for report in reports)
             progress["termination_reports"] = reports
-            if not local_confirmed:
-                self.store.set_progress(
-                    run_id,
-                    phase="cancellation_pending",
-                    progress=progress,
-                    elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
-                )
+            if not all(bool(report.get("terminated")) for report in reports):
+                persist_progress()
                 return {
                     "ok": False,
                     "run_id": run_id,
@@ -1453,43 +1525,13 @@ class JobManager:
                     "termination_reports": [termination, *reports],
                     "reason": "Remote exit confirmed but local SSH termination is unconfirmed; lock retained",
                 }
-
-            ended_at = datetime.now(timezone.utc).isoformat()
-            error = "Run cancelled after verified remote termination"
-            result = self._cancellation_result(run, ended_at, error, progress)
-            self.store.update_run(
-                run_id,
-                status="cancelled",
-                ended_at=ended_at,
-                error=error,
-                progress_json=progress,
-                result_json=result,
-            )
-            self.locks.release(run["repo_name"], run_id)
-            event = self.store.append_event(
-                run_id,
-                level="warning",
-                stage="cancel",
+            return finish_cancel(
+                error="Run cancelled after verified remote termination",
+                reports=[termination, *reports],
+                terminated=True,
                 message="Monitored SSH run cancelled after verified remote termination",
-                data={"termination_reports": [termination, *reports]},
             )
-            ArtifactWriter(Path(run["run_dir"])).append_event(event)
-            return {
-                "ok": True,
-                "run_id": run_id,
-                "status": "cancelled",
-                "cancelled": True,
-                "terminated": True,
-                "termination_confirmed": True,
-                "termination_reports": [termination, *reports],
-            }
 
-        self.store.set_progress(
-            run_id,
-            phase=run.get("current_phase") or "cancellation_pending",
-            progress=progress,
-            elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
-        )
         pids: list[tuple[str, int]] = []
         if child_pid > 0:
             pids.append(("child", child_pid))
@@ -1501,38 +1543,35 @@ class JobManager:
             and launcher_pid != worker_pid
         ):
             pids.append(("launcher", launcher_pid))
-        reports = []
+        reports: list[dict] = []
         for role, pid in pids:
             report = terminate_process_tree(pid)
             report["role"] = role
             reports.append(report)
-        if run["status"] == "queued" and not pids:
-            termination_confirmed = True
-        else:
-            termination_confirmed = bool(reports) and all(
-                bool(report.get("terminated")) for report in reports
-            )
+        termination_confirmed = (
+            not pids
+            and run["status"] in {"launch_pending", "queued", "recovery_pending"}
+        ) or (
+            bool(reports)
+            and all(bool(report.get("terminated")) for report in reports)
+        )
         progress["termination_reports"] = reports
 
         if not termination_confirmed:
-            self.store.set_progress(
-                run_id,
-                phase="cancellation_pending",
-                progress=progress,
-                elapsed_seconds=float(run.get("elapsed_seconds") or 0.0),
-            )
+            persist_progress()
             event = self.store.append_event(
                 run_id,
                 level="error",
                 stage="cancellation_pending",
                 message="Cancellation requested but process termination is unconfirmed",
                 data={"termination_reports": reports},
+                update_run_metadata=False,
             )
             ArtifactWriter(Path(run["run_dir"])).append_event(event)
             return {
                 "ok": False,
                 "run_id": run_id,
-                "status": run["status"],
+                "status": "cancellation_pending",
                 "cancelled": False,
                 "terminated": False,
                 "termination_confirmed": False,
@@ -1540,32 +1579,9 @@ class JobManager:
                 "reason": "Process termination could not be confirmed; lock retained",
             }
 
-        ended_at = datetime.now(timezone.utc).isoformat()
-        error = "Run cancelled by request"
-        result = self._cancellation_result(run, ended_at, error, progress)
-        self.store.update_run(
-            run_id,
-            status="cancelled",
-            ended_at=ended_at,
-            error=error,
-            progress_json=progress,
-            result_json=result,
-        )
-        self.locks.release(run["repo_name"], run_id)
-        event = self.store.append_event(
-            run_id,
-            level="warning",
-            stage="cancel",
+        return finish_cancel(
+            error="Run cancelled by request",
+            reports=reports,
+            terminated=bool(reports),
             message="Run cancelled after process-tree termination was confirmed",
-            data={"termination_reports": reports},
         )
-        ArtifactWriter(Path(run["run_dir"])).append_event(event)
-        return {
-            "ok": True,
-            "run_id": run_id,
-            "status": "cancelled",
-            "cancelled": True,
-            "terminated": bool(reports),
-            "termination_confirmed": True,
-            "termination_reports": reports,
-        }
