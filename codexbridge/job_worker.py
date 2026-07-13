@@ -300,24 +300,66 @@ class JobWorker:
                 artifact_error = f"Could not persist result artifact: {exc}"
                 result["artifact_error"] = artifact_error
             current = self.store.get_run(self.run_id)
-            if current["status"] == "cancelled":
-                self.event(
-                    "warning",
-                    "cancel",
-                    "Worker finished after cancellation; preserving cancelled status",
+            if status in TERMINAL_STATUSES:
+                persisted = self.store.transition_terminal(
+                    self.run_id,
+                    status=status,
+                    result=result,
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=self.worker_lease_token,
+                    expected_lease_generation=self.worker_lease_generation,
+                    ended_at=ended_at,
+                    duration_seconds=result["duration_seconds"],
+                    exit_code=result.get("exit_code"),
+                    summary=result.get("summary", ""),
+                    error=result.get("error", ""),
+                    safety_failure=result.get("safety_failure", False),
                 )
-                return int(result.get("exit_code") or 0)
-            self.store.update_run(
-                self.run_id,
-                status=status,
-                ended_at=None if status == "cancellation_pending" else ended_at,
-                duration_seconds=result["duration_seconds"],
-                exit_code=result.get("exit_code"),
-                summary=result.get("summary", ""),
-                error=result.get("error", ""),
-                safety_failure=result.get("safety_failure", False),
-                result_json=result,
-            )
+            elif status == "cancellation_pending":
+                persisted = self.store.conditional_update(
+                    self.run_id,
+                    fields={
+                        "status": "cancellation_pending",
+                        "current_phase": "cancellation_pending",
+                        "ended_at": None,
+                        "duration_seconds": result["duration_seconds"],
+                        "exit_code": result.get("exit_code"),
+                        "summary": result.get("summary", ""),
+                        "error": result.get("error", ""),
+                        "safety_failure": result.get("safety_failure", False),
+                        "result_json": result,
+                    },
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=self.worker_lease_token,
+                    expected_lease_generation=self.worker_lease_generation,
+                    reject_terminal=True,
+                )
+            else:
+                raise ValueError(f"Unsupported worker result status: {status}")
+            if persisted is None:
+                winner = self.store.get_run(self.run_id)
+                if (
+                    winner.get("worker_lease_token") == self.worker_lease_token
+                    and int(winner.get("lease_generation") or 1)
+                    == self.worker_lease_generation
+                ):
+                    event = self.store.append_event(
+                        self.run_id,
+                        level="warning",
+                        stage="result_race",
+                        message="Worker result lost a conditional state transition",
+                        data={"attempted_status": status, "winner": winner["status"]},
+                        update_run_metadata=False,
+                    )
+                    self.artifacts.append_event(event)
+                return (
+                    int(result.get("exit_code") or 0)
+                    if winner["status"] in TERMINAL_STATUSES
+                    or winner["status"] == "cancellation_pending"
+                    else 1
+                )
             level = (
                 "info"
                 if status == "completed"
@@ -325,12 +367,15 @@ class JobWorker:
                 if status in {"partial", "cancelled", "timed_out"}
                 else "error"
             )
-            self.event(
-                level,
-                "result",
-                f"Run {status}",
-                {"exit_code": result.get("exit_code")},
+            event = self.store.append_event(
+                self.run_id,
+                level=level,
+                stage="result",
+                message=f"Run {status}",
+                data={"exit_code": result.get("exit_code")},
+                update_run_metadata=False,
             )
+            self.artifacts.append_event(event)
             worker_exit_code = int(result.get("exit_code") or 0)
             return (
                 1
@@ -370,25 +415,59 @@ class JobWorker:
                 result["artifact_error"] = (
                     f"Could not persist result artifact: {artifact_exc}"
                 )
-            self.store.update_run(
-                self.run_id,
-                status=failure_status,
-                ended_at=None if remote_identity_known else ended_at,
-                duration_seconds=result["duration_seconds"],
-                exit_code=1,
-                summary=result["summary"],
-                error=result["error"],
-                safety_failure=True,
-                result_json=result,
-            )
-            self.event(
-                "error",
-                "cancellation_pending" if remote_identity_known else "result",
-                "Run requires remote recovery"
-                if remote_identity_known
-                else "Run failed",
-                {"error": str(exc)},
-            )
+            current = self.store.get_run(self.run_id)
+            if remote_identity_known:
+                persisted = self.store.conditional_update(
+                    self.run_id,
+                    fields={
+                        "status": "cancellation_pending",
+                        "current_phase": "cancellation_pending",
+                        "ended_at": None,
+                        "duration_seconds": result["duration_seconds"],
+                        "exit_code": 1,
+                        "summary": result["summary"],
+                        "error": result["error"],
+                        "safety_failure": True,
+                        "result_json": result,
+                    },
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=self.worker_lease_token,
+                    expected_lease_generation=self.worker_lease_generation,
+                    reject_terminal=True,
+                )
+            else:
+                persisted = self.store.transition_terminal(
+                    self.run_id,
+                    status="failed",
+                    result=result,
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=self.worker_lease_token,
+                    expected_lease_generation=self.worker_lease_generation,
+                    ended_at=ended_at,
+                    duration_seconds=result["duration_seconds"],
+                    exit_code=1,
+                    summary=result["summary"],
+                    error=result["error"],
+                    safety_failure=True,
+                )
+            if persisted is not None:
+                event = self.store.append_event(
+                    self.run_id,
+                    level="error",
+                    stage=(
+                        "cancellation_pending" if remote_identity_known else "result"
+                    ),
+                    message=(
+                        "Run requires remote recovery"
+                        if remote_identity_known
+                        else "Run failed"
+                    ),
+                    data={"error": str(exc)},
+                    update_run_metadata=False,
+                )
+                self.artifacts.append_event(event)
             return 1
         finally:
             self._heartbeat_stop.set()
@@ -397,7 +476,10 @@ class JobWorker:
             final_status = str(self.store.get_run(self.run_id).get("status") or "")
             if final_status != "cancellation_pending":
                 self.locks.release(
-                    self.run["repo_name"], self.run_id, self.worker_lease_token
+                    self.run["repo_name"],
+                    self.run_id,
+                    self.worker_lease_token,
+                    self.worker_lease_generation,
                 )
 
     def _execute_inner(self, started_at: str) -> dict:
@@ -506,7 +588,14 @@ class JobWorker:
             stderr=subprocess.PIPE,
             **process_group_popen_kwargs(),
         )
-        self.store.update_run(self.run_id, pid=process.pid)
+        if not self.store.attach_child_pid(
+            self.run_id,
+            child_pid=process.pid,
+            lease_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
+        ):
+            terminate_process_tree(process.pid)
+            raise RuntimeError("Worker lease was lost before child process attachment")
         self.event(
             "info",
             "codex",
