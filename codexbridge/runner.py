@@ -46,6 +46,8 @@ def _path_info(path: str | Path | None) -> dict:
 def _safe_command_args(args: list[str]) -> list[str]:
     if not args:
         return []
+    if args[-1] == "-":
+        return list(args)
     return [*args[:-1], "<prompt>"]
 
 
@@ -183,7 +185,12 @@ class CodexRunner:
         return json.dumps(details, indent=2)
 
     def _run_subprocess(
-        self, args: list[str], cwd: Path, *, timeout: int | None = None
+        self,
+        args: list[str],
+        cwd: Path,
+        *,
+        timeout: int | None = None,
+        input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
@@ -195,6 +202,7 @@ class CodexRunner:
                 errors="replace",
                 capture_output=True,
                 timeout=timeout,
+                input=input_text,
             )
         except (OSError, PermissionError) as exc:
             raise RuntimeError(self._subprocess_diagnostics(args, cwd, exc)) from exc
@@ -242,7 +250,9 @@ class CodexRunner:
         elif "--ask-for-approval" in help_text:
             args.extend(["--ask-for-approval", "never"])
 
-        args.append(prompt)
+        # Pass the prompt through stdin. Multiline prompts are not reliable as a
+        # Windows command-line argument and may be truncated by wrapper scripts.
+        args.append("-")
         return args
 
     def _write_artifacts(
@@ -278,7 +288,10 @@ class CodexRunner:
             executable, sandbox, help_text, prompt, writable_dirs=writable_dirs
         )
         return self._run_subprocess(
-            args, repo_root, timeout=self.config.codex.default_timeout_seconds
+            args,
+            repo_root,
+            timeout=self.config.codex.default_timeout_seconds,
+            input_text=prompt,
         ), args
 
     def plan_task(

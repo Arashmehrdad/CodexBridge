@@ -177,14 +177,47 @@ def test_private_desktop_override_is_included_when_configured(tmp_path: Path) ->
     assert "windows.sandbox_private_desktop=false" in args
 
 
-def test_safe_command_args_redacts_prompt(tmp_path: Path) -> None:
+def test_codex_exec_uses_stdin_marker_instead_of_prompt_argument(tmp_path: Path) -> None:
     runner = make_runner(tmp_path)
+    prompt = "first line\n\nsecond line"
     args = runner._codex_exec_args(
-        "codex.exe", "workspace-write", "--sandbox", "secret prompt"
+        "codex.exe", "workspace-write", "--sandbox", prompt
     )
     from codexbridge.runner import _safe_command_args
 
-    assert _safe_command_args(args)[-1] == "<prompt>"
+    assert args[-1] == "-"
+    assert prompt not in args
+    assert _safe_command_args(args)[-1] == "-"
+
+
+def test_run_codex_sends_full_multiline_prompt_to_stdin(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runner = make_runner(tmp_path)
+    prompt = "first line\n\nsecond line\nthird line"
+    captured: dict = {}
+
+    monkeypatch.setattr(runner, "_resolve_codex_executable", lambda: "codex.exe")
+    monkeypatch.setattr(runner, "_codex_exec_help", lambda _executable: "--sandbox")
+
+    def fake_run(args, cwd, *, timeout=None, input_text=None):
+        captured["args"] = args
+        captured["cwd"] = cwd
+        captured["timeout"] = timeout
+        captured["input_text"] = input_text
+
+        class Result:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(runner, "_run_subprocess", fake_run)
+    runner._run_codex(tmp_path, "read-only", prompt)
+
+    assert captured["args"][-1] == "-"
+    assert captured["input_text"] == prompt
 
 
 def test_launch_diagnostics_include_executable_and_cwd(tmp_path: Path) -> None:
@@ -213,9 +246,12 @@ def test_subprocess_capture_uses_utf8_replace(monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
     runner = make_runner(tmp_path)
-    runner._run_subprocess(["codex", "exec"], tmp_path)
+    runner._run_subprocess(
+        ["codex", "exec", "-"], tmp_path, input_text="line one\nline two"
+    )
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
+    assert captured["input"] == "line one\nline two"
 
 
 def test_subprocess_env_isolates_unrelated_connector_variables(
