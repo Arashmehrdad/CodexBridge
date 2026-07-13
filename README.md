@@ -99,6 +99,19 @@ Helper script:
 
 A plain `GET` returning HTTP `406 Not Acceptable` is only route readiness for the MCP endpoint. It means the route is mounted, not that a full MCP client handshake has completed.
 
+Windows service controller:
+
+```powershell
+.\codexbridge-service.cmd start
+.\codexbridge-service.cmd stop
+.\codexbridge-service.cmd restart
+.\codexbridge-service.cmd status
+.\codexbridge-service.cmd logs
+.\codexbridge-service.cmd diagnostics
+```
+
+The controller writes service output under `runs\service_logs`. Actions that require elevation use the normal Windows UAC prompt, and the manager verifies process identity before stopping a server or tunnel.
+
 If you publish the local MCP route through a tunnel, keep the `/mcp` suffix in the connector URL, for example `https://example-tunnel.trycloudflare.com/mcp` or `https://example.ngrok-free.app/mcp`.
 
 After server code changes, `config.yaml` changes, or MCP tool-surface changes, restart the server and then refresh or reconnect the ChatGPT connector so it picks up the current endpoint and tool definitions.
