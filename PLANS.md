@@ -1,63 +1,234 @@
 # CodexBridge Roadmap Status
 
+## Executive Decision
+
+The next development phase is **Durable Execution Recovery and Ownership**.
+
+The workflow orchestrator, supervisors, direct async runs, return-loop artifacts, and dashboard are implemented foundations, but the latest audit found critical crash and restart windows. Feature expansion is paused until accepted work can be safely reconciled without duplicate execution, premature lock release, orphan children, or incorrect terminal reporting.
+
+This is an execution-layer problem. The policy layer remains separate and should not be weakened to compensate for lifecycle defects.
+
 ## Completed Foundations
 
 - Repository-scoped MCP read/write controls with capability metadata.
-- Durable async child runs through `JobManager` and `RunStore`.
-- Supervisor recovery flow with return-loop report artifacts.
-- Read-only local dashboard for runs, jobs, supervisors, approvals, escalations, and return-loop state.
+- SQLite-backed async run records through `JobManager` and `RunStore`.
+- Supervisor planning/implementation flow with return-loop artifacts.
+- Durable workflow models, persistence, worker, reporter, MCP tools, and dashboard visibility.
+- Read-only local dashboard for runs, jobs, workflows, supervisors, approvals, escalations, and return-loop state.
+- Structured events, results, output artifacts, operation locks, cancellation paths, and heartbeats.
 
-## Current Batch: Durable Workflow Orchestrator
+These foundations are useful but are not proof of restart-safe execution.
 
-Status: implemented in this batch.
+## Current Batch: P0 Durable Execution Recovery and Ownership
 
-Scope delivered:
+Status: planned and ready for implementation.
 
-- Durable workflow models, validation, SQLite-backed persistence, manager, worker, and reporter under `codexbridge/workflows/`.
-- Structured workflow steps for `codex_implement`, `project_command`, `pytest_path`, `git_readonly`, and `local_summary`.
-- Detached workflow worker execution with restart reconciliation and active-child cancellation handling.
-- Workflow result snapshots, event logs, resume/report artifacts, PulseSender manifest discovery, MCP tools, and read-only dashboard visibility.
+### Audit Findings Driving This Batch
 
-## Acceptance Criteria
+1. Startup reconciliation marks ordinary `running` runs failed without first verifying whether the detached worker or child is still active.
+2. Stale-lock recovery can then release the repository lock while the original process continues.
+3. The manager-stored worker PID can differ from the PID reported by the executing worker.
+4. `queued` runs are not reconciled and can remain stranded after partial launch failure.
+5. Workflow and supervisor child launches are split across multiple non-transactional writes, creating orphan/duplicate-child crash windows.
+6. Workflow workers are relaunched without an atomic lease claim.
+7. Supervisor and direct-run repository ownership use separate lock systems.
+8. `LongRunJobManager` keeps live process ownership only in memory and cannot safely recover after manager recreation.
+9. Database state, result artifacts, events, and delivery manifests can diverge across crashes.
 
-- Validate the full workflow graph before launch:
-  - reject duplicate step IDs
-  - reject unknown step types
-  - reject malformed parameters
-  - reject missing dependencies
-  - reject dependency cycles / invalid forward dependencies
-  - reject excessive step counts
-- Persist workflow and step state durably in SQLite plus `runs/workflows/<workflow_id>/result.json` and `events.jsonl`.
-- Advance eligible child runs internally without ChatGPT polling each child run.
-- Generate `workflow_report.md`, `resume_prompt.txt`, and `pulse_manifest.json` when the workflow reaches a terminal/reportable state.
-- Expose MCP tools:
-  - `start_workflow`
-  - `get_workflow_status`
-  - `get_workflow_events`
-  - `get_workflow_result`
-  - `cancel_workflow`
-- Show workflow state in the local dashboard without adding write routes or browser/PulseSender imports.
+## P0 Workstream A - Canonical Worker Identity and Leases
 
-## Implementation Notes
+Goal: make process ownership verifiable rather than PID-only.
 
-- The dashboard task box implemented here is the existing local read-only dashboard surface.
-- This is not the later native ChatGPT Apps SDK live-status component.
-- Workflow reporting reuses the return-loop manifest contract so external PulseSender can discover workflow artifacts alongside jobs and supervisors.
-- Workflow workers launch child runs through existing `JobManager` APIs and keep advancement inside the worker loop.
+Deliverables:
 
-## Validation Evidence
+- Worker registers its real PID in the canonical `worker_pid` field.
+- Add a durable worker lease/ownership token generated before launch and presented by the worker.
+- Persist process-start identity where available so PID reuse is detectable.
+- Store launcher PID separately when a launcher/wrapper exists.
+- Heartbeats update the canonical lease, not only a nested progress field.
+- Control/status output distinguishes launcher, worker, and child identity.
 
-- Targeted workflow/server/dashboard/return-loop tests: pending final run result.
-- Full repository pytest: pending final run result.
-- `pip check`: pending final run result.
+Acceptance criteria:
 
-## Known Limitations
+- A live worker is not misidentified because the launcher PID exited or changed.
+- A reused unrelated PID cannot satisfy ownership validation.
+- Cancellation and reconciliation target the verified worker/child identities.
 
-- Supported workflow step types are intentionally limited to the approved batch.
-- The read-only dashboard shows workflow state from durable artifacts; it does not provide workflow mutation.
-- The local dashboard workflow section is a local operator surface, not the future ChatGPT-native live component.
+## P0 Workstream B - Process-Aware Startup Reconciliation
 
-## Next Batch
+Goal: restart without converting active work into false failure.
 
-- Optional ChatGPT Apps SDK live status component for native workflow visibility.
-- Keep it distinct from the already-implemented local dashboard task box.
+Deliverables:
+
+- Reconcile `queued`, `launch_pending`, `running`, and `cancellation_pending` runs.
+- Adopt a verifiably active worker and refresh its lease.
+- Relaunch an idempotently claimable queued run when no worker ever started.
+- Move uncertain ownership to `recovery_pending` or an equivalent conservative state.
+- Preserve repository locks whenever execution may still be active.
+- Emit durable reconciliation events and expose failures; do not swallow exceptions.
+
+Acceptance criteria:
+
+- Restarting the MCP server while a worker is active does not mark the run failed.
+- A dead worker with no live child reaches a deterministic infrastructure-failure result.
+- A live child with a dead worker remains locked and recoverable/cancellable.
+- A stranded queued run is relaunched once or terminated cleanly.
+
+## P0 Workstream C - Transactional and Idempotent Launch Boundaries
+
+Goal: make partial launches recoverable without duplicate work.
+
+Deliverables:
+
+- Add durable launch-intent/checkpoint state before `Popen` or child-run creation.
+- Associate every launch with an idempotency key and lease generation.
+- On launch failure, atomically record terminal infrastructure failure and release the owned lock.
+- Add compare-and-swap/versioned transitions for claim, start, cancel, complete, timeout, and recovery.
+- Ensure terminal database status and structured result are committed together.
+
+Acceptance criteria:
+
+- A crash before process creation does not strand a lock.
+- A crash after process creation but before attachment does not create an orphan followed by a duplicate.
+- Cancellation and completion races have one deterministic winner and preserve the other event as audit history.
+
+## P0 Workstream D - Workflow and Supervisor Recovery
+
+Goal: recover parent-child orchestration safely.
+
+Deliverables:
+
+- Workflow step states distinguish `pending`, `launch_pending`, `running`, and terminal states.
+- Persist child launch intent before starting a child.
+- Attach child IDs idempotently using the launch key.
+- Recover a `running` or `launch_pending` step with no child ID.
+- Add a single-worker workflow lease with atomic claim/renewal.
+- Apply the same launch/attachment protocol to supervisor plan and implementation children.
+- Add startup reconciliation for active supervisors and their implementation locks.
+
+Acceptance criteria:
+
+- No workflow step can spin forever as `running` without a child or recovery decision.
+- Two reconcilers cannot launch two workers or children for the same workflow state.
+- A supervisor crash after child launch resumes from the attached child rather than starting another.
+
+## P0 Workstream E - Unified Repository Ownership
+
+Goal: one authoritative lock and lease model for repository-changing execution.
+
+Deliverables:
+
+- Define a common repository ownership record for direct runs, workflows, and supervisors.
+- Migrate or bridge `repo_write_locks` and `operation_locks` without opening an overlap window.
+- Associate locks with run/supervisor/workflow lease generation.
+- Make lock release conditional on current ownership.
+- Keep conservative lock retention for monitored remote execution.
+
+Acceptance criteria:
+
+- Direct runs, supervisor implementation, and workflow writes cannot execute concurrently against the same repository unless explicitly permitted.
+- A stale owner cannot release a lock acquired by a newer lease generation.
+
+## P1 Workstream - Unified Durable Jobs and Audit Consistency
+
+Begin only after P0 passes.
+
+- Migrate `LongRunJobManager` workloads onto `JobManager`/`RunStore`, or add equivalent durable process adoption and reconciliation.
+- Use atomic replacement for result/event snapshot artifacts.
+- Preserve PulseSender `delivered` state during report regeneration.
+- Add a durable reconciliation report visible in the dashboard.
+- Define retention/repair tooling for inconsistent historical records.
+
+## Required Validation Matrix
+
+Targeted deterministic tests:
+
+- active worker survives server restart
+- worker death with live child
+- `Popen` failure after run persistence
+- queued worker dies before status transition
+- workflow crash before child launch
+- workflow crash after child launch before attachment
+- concurrent workflow reconciliation
+- cancellation versus completion race
+- supervisor crash after plan launch
+- supervisor crash after implementation launch and lock acquisition
+- stale lease cannot complete or unlock a newer run
+- long-job manager recreation
+- delivered manifest regeneration
+
+Real-process Windows integration tests:
+
+- worker registers canonical PID/lease
+- server process exits while detached worker continues
+- reconciliation adopts or conservatively contains the worker
+- verified process-tree cancellation releases the lock only after exit
+
+Repository validation:
+
+```powershell
+python -m pytest -q
+python -m pip check
+```
+
+## Implementation Batch Order
+
+### Batch D1 - Worker identity and startup reconciliation
+
+Files expected:
+
+- `codexbridge/run_store.py`
+- `codexbridge/job_manager.py`
+- `codexbridge/job_worker.py`
+- `codexbridge/operation_locks.py`
+- `codexbridge/process_control.py`
+- targeted tests
+
+Do not modify workflows or supervisors in this batch unless required for compatibility.
+
+### Batch D2 - Launch state machine and conditional transitions
+
+Add launch intent, lease generation, compare-and-swap transitions, and deterministic launch rollback/retry.
+
+### Batch D3 - Workflow worker lease and child attachment
+
+Harden `codexbridge/workflows/` around crash-safe step claims and idempotent child attachment.
+
+### Batch D4 - Supervisor child attachment and lock unification
+
+Harden `supervisor_engine.py`, `supervisor_service.py`, and the shared repository ownership model.
+
+### Batch D5 - Legacy long-job migration and return-loop consistency
+
+Remove in-memory-only ownership from unattended jobs and preserve delivery state during report regeneration.
+
+Each batch must be independently reviewable, tested, and committed. Do not combine all five into one broad refactor.
+
+## Explicitly Deferred
+
+Do not prioritize these until P0 is complete:
+
+- ChatGPT Apps SDK live-status component
+- new dashboard write controls
+- broader local-model coding permissions
+- additional workflow step types
+- production deployment automation
+- public/main branch push automation
+
+## Exit Gate
+
+The durability gate is complete only when all of the following are true:
+
+- Accepted work has a durable launch intent before execution.
+- Every active process has verified ownership identity and renewable lease state.
+- Startup reconciliation cannot convert an unverified active run into ordinary failure.
+- Repository locks cannot be released by stale or uncertain owners.
+- Workflow/supervisor child launch is idempotent across every tested crash boundary.
+- Queued and running work reaches a deterministic recoverable or terminal state after restart.
+- Legacy unattended jobs are migrated or explicitly blocked from durable routing.
+- Full tests and Windows process integration tests pass.
+- Documentation no longer claims restart safety beyond the proven guarantees.
+
+## Next Feature Batch After the Gate
+
+After P0/P1 completion, reassess the optional ChatGPT-native live-status component. Keep it distinct from the existing local read-only dashboard and do not let UI work precede execution correctness.
