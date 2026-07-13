@@ -386,18 +386,29 @@ class SupervisorEngine:
         metadata = dict(supervisor["metadata"])
         active_child = metadata.get("active_child") or {}
         run_id = active_child.get("run_id")
-        if run_id:
-            self.jobs.cancel(run_id)
-        self._release_implementation_lock(metadata)
+        lock_metadata = dict(metadata)
         metadata["cancelled_child"] = active_child or None
         metadata["active_child"] = None
-        updated = self.store.update_supervisor(
+        metadata["implementation_lock"] = None
+        updated = self.store.conditional_update_supervisor(
             supervisor_id,
-            status="cancelled",
-            ended_at=utc_now(),
-            summary="Supervisor cancelled",
-            metadata_json=metadata,
+            fields={
+                "status": "cancelled",
+                "ended_at": utc_now(),
+                "summary": "Supervisor cancelled",
+                "metadata_json": metadata,
+            },
+            expected_statuses=(supervisor["status"],),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor_id)
+        if run_id:
+            try:
+                self.jobs.cancel(run_id)
+            except KeyError:
+                pass
+        self._release_implementation_lock(lock_metadata)
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor_id,
