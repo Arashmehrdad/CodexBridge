@@ -155,6 +155,36 @@ supervisors:
     assert "    balanced:" in updated
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_interactive_menu_launches_and_displays_profile() -> None:
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(MANAGER),
+            "-Action",
+            "menu",
+            "-Config",
+            str(ROOT / "config.yaml"),
+        ],
+        cwd=ROOT,
+        input="0\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "CodexBridge Service Controller" in output
+    assert "Profile:" in output
+    assert "Select supervisor profile" in output
+
+
 def test_readme_documents_controller_and_common_actions() -> None:
     text = README.read_text(encoding="utf-8")
     assert ".\\codexbridge-service.cmd" in text
