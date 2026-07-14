@@ -572,8 +572,9 @@ def _local_model_task_for_objective(objective: str) -> str | None:
 
 
 def _job_action_for_objective(objective: str) -> tuple[str | None, str]:
-    text = objective.lower().strip()
-    words = text.split()
+    raw = objective.strip()
+    text = raw.lower()
+    words = raw.split()
     if text.startswith("start long job profile ") and len(words) >= 5:
         return "start", words[4]
     if text.startswith("run benchmark job profile ") and len(words) >= 5:
