@@ -104,7 +104,9 @@ def _duration(started_at: str, ended_at: str) -> float:
     return round((ended - started).total_seconds(), 3)
 
 
-_SSH_POLICY_AUDIT_FIELDS = (
+_SSH_POLICY_METADATA_FIELDS = (
+    "autonomy_profile",
+    "execution_mode",
     "permission_tier",
     "policy_decision",
     "policy_authorized",
@@ -130,43 +132,36 @@ def _authorize_persisted_ssh_policy(
     monitored: bool = False,
     high_risk: bool = False,
 ) -> dict[str, object]:
-    present_fields = {
-        field for field in _SSH_POLICY_AUDIT_FIELDS if field in input_data
-    }
-    if present_fields and present_fields != set(_SSH_POLICY_AUDIT_FIELDS):
-        missing = sorted(set(_SSH_POLICY_AUDIT_FIELDS) - present_fields)
+    missing = sorted(
+        field for field in _SSH_POLICY_METADATA_FIELDS if field not in input_data
+    )
+    if missing:
         raise ValueError(
             f"Incomplete persisted SSH policy metadata; missing: {missing}"
         )
 
-    legacy_input = not present_fields
-    approval_source = str(input_data.get("approval_source", ""))
-    if not legacy_input and approval_source not in {"none", "chatgpt", "human"}:
+    approval_source = str(input_data["approval_source"])
+    if approval_source not in {"none", "chatgpt", "human"}:
         raise ValueError(f"Invalid persisted SSH approval_source: {approval_source!r}")
 
     policy = authorize_ssh_action_launch(
-        autonomy_profile=str(
-            input_data.get("autonomy_profile", "chatgpt_delegated")
-        ),
-        execution_mode=str(input_data.get("execution_mode", "structured")),
+        autonomy_profile=str(input_data["autonomy_profile"]),
+        execution_mode=str(input_data["execution_mode"]),
         writes_remote=writes_remote,
         monitored=monitored,
         high_risk=high_risk,
-        chatgpt_approval_granted=(
-            legacy_input or approval_source == "chatgpt"
-        ),
-        human_approval_granted=(
-            (legacy_input and high_risk) or approval_source == "human"
-        ),
+        chatgpt_approval_granted=approval_source == "chatgpt",
+        human_approval_granted=approval_source == "human",
     )
     metadata = _ssh_policy_metadata(policy)
-    if not legacy_input:
-        persisted = {field: input_data.get(field) for field in _SSH_POLICY_AUDIT_FIELDS}
-        canonical = {field: metadata[field] for field in _SSH_POLICY_AUDIT_FIELDS}
-        if persisted != canonical:
-            raise ValueError(
-                "Persisted SSH policy metadata does not match canonical worker revalidation"
-            )
+    persisted = {
+        field: input_data.get(field) for field in _SSH_POLICY_METADATA_FIELDS
+    }
+    canonical = {field: metadata[field] for field in _SSH_POLICY_METADATA_FIELDS}
+    if persisted != canonical:
+        raise ValueError(
+            "Persisted SSH policy metadata does not match canonical worker revalidation"
+        )
     return metadata
 
 
