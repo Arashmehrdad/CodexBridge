@@ -24,17 +24,15 @@ from codexbridge.ssh_policy import (
     ("mode", "profile", "allowed"),
     [
         ("structured", profile, True)
-        for profile in ("readonly", "chatgpt_delegated", "permissive", "human_only")
+        for profile in ("conservative", "balanced", "permissive")
     ]
     + [
-        ("reviewed_script", "readonly", False),
-        ("reviewed_script", "chatgpt_delegated", True),
+        ("reviewed_script", "conservative", False),
+        ("reviewed_script", "balanced", True),
         ("reviewed_script", "permissive", True),
-        ("reviewed_script", "human_only", False),
-        ("root_shell", "readonly", False),
-        ("root_shell", "chatgpt_delegated", False),
+        ("root_shell", "conservative", False),
+        ("root_shell", "balanced", False),
         ("root_shell", "permissive", True),
-        ("root_shell", "human_only", False),
     ],
 )
 def test_full_ssh_policy_matrix(mode: str, profile: str, allowed: bool) -> None:
@@ -48,11 +46,12 @@ def test_full_ssh_policy_matrix(mode: str, profile: str, allowed: bool) -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"execution_mode": "unknown", "autonomy_profile": "readonly"},
+        {"execution_mode": "unknown", "autonomy_profile": "conservative"},
         {"execution_mode": "structured", "autonomy_profile": "unknown"},
+        {"execution_mode": "structured", "autonomy_profile": "chatgpt_delegated"},
         {
             "execution_mode": "structured",
-            "autonomy_profile": "readonly",
+            "autonomy_profile": "conservative",
             "extra": True,
         },
     ],
@@ -70,7 +69,7 @@ def test_canonical_profile_names_stay_synchronized() -> None:
 
 def test_policy_is_repository_independent() -> None:
     request = SSHPolicyRequest(
-        execution_mode="structured", autonomy_profile="readonly"
+        execution_mode="structured", autonomy_profile="conservative"
     )
     assert set(SSHPolicyRequest.model_fields) == {
         "execution_mode",
@@ -130,7 +129,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
     ),
     [
         (
-            "readonly",
+            "conservative",
             False,
             False,
             False,
@@ -138,7 +137,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T0_READ_ONLY,
         ),
         (
-            "readonly",
+            "conservative",
             False,
             True,
             False,
@@ -146,7 +145,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
         ),
         (
-            "chatgpt_delegated",
+            "balanced",
             False,
             True,
             False,
@@ -154,7 +153,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
         ),
         (
-            "chatgpt_delegated",
+            "balanced",
             True,
             False,
             False,
@@ -170,7 +169,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
         ),
         (
-            "human_only",
+            "conservative",
             True,
             False,
             False,
@@ -219,7 +218,7 @@ def test_action_policy_denies_disallowed_mode_before_tier_permission() -> None:
     result = evaluate_ssh_action_policy(
         SSHActionPolicyRequest(
             execution_mode="root_shell",
-            autonomy_profile="chatgpt_delegated",
+            autonomy_profile="balanced",
             writes_remote=False,
         )
     )
@@ -243,7 +242,7 @@ def test_action_policy_contract_is_strict_and_repository_independent() -> None:
 
 def test_action_launch_authorization_requires_matching_approval_evidence() -> None:
     delegated = authorize_ssh_action_launch(
-        autonomy_profile="chatgpt_delegated",
+        autonomy_profile="balanced",
         execution_mode="structured",
         writes_remote=True,
         chatgpt_approval_granted=True,
@@ -261,7 +260,7 @@ def test_action_launch_authorization_requires_matching_approval_evidence() -> No
     assert permissive.decision == PolicyDecisionValue.ALLOWED
 
     human = authorize_ssh_action_launch(
-        autonomy_profile="chatgpt_delegated",
+        autonomy_profile="balanced",
         execution_mode="structured",
         writes_remote=True,
         high_risk=True,
@@ -272,7 +271,7 @@ def test_action_launch_authorization_requires_matching_approval_evidence() -> No
 
     with pytest.raises(ValueError, match="ChatGPT delegated approval"):
         authorize_ssh_action_launch(
-            autonomy_profile="chatgpt_delegated",
+            autonomy_profile="balanced",
             execution_mode="structured",
             writes_remote=True,
         )
@@ -288,21 +287,25 @@ def test_action_launch_authorization_requires_matching_approval_evidence() -> No
 
 def test_launch_authorization_rejects_denied_and_unimplemented_modes() -> None:
     assert authorize_ssh_launch(
-        autonomy_profile="chatgpt_delegated", execution_mode="structured"
+        autonomy_profile="balanced", execution_mode="structured"
     ).allowed
     with pytest.raises(ValueError, match="denied"):
         authorize_ssh_launch(
-            autonomy_profile="readonly", execution_mode="reviewed_script"
+            autonomy_profile="conservative", execution_mode="reviewed_script"
         )
     with pytest.raises(ValueError, match="not implemented"):
         authorize_ssh_launch(
-            autonomy_profile="chatgpt_delegated", execution_mode="reviewed_script"
+            autonomy_profile="balanced", execution_mode="reviewed_script"
         )
 
 
 @pytest.mark.parametrize(
     ("autonomy_profile", "execution_mode"),
-    [("unknown", "structured"), ("chatgpt_delegated", "unknown")],
+    [
+        ("unknown", "structured"),
+        ("balanced", "unknown"),
+        ("chatgpt_delegated", "structured"),
+    ],
 )
 def test_launch_authorization_strictly_validates_policy_fields(
     autonomy_profile: str, execution_mode: str

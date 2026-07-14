@@ -13,7 +13,7 @@ def engine(tmp_path: Path) -> PolicyEngine:
 
 
 def evaluate(
-    tmp_path: Path, action: str, profile: str = "chatgpt_delegated", tier=None
+    tmp_path: Path, action: str, profile: str = "balanced", tier=None
 ):
     return engine(tmp_path).evaluate(
         PolicyEvaluationRequest(
@@ -26,18 +26,18 @@ def evaluate(
     )
 
 
-def test_readonly_profile_allows_read_only_and_requires_human_for_write(
+def test_conservative_profile_allows_read_only_and_requires_human_for_write(
     tmp_path: Path,
 ) -> None:
-    read = evaluate(tmp_path, "git status", profile="readonly")
-    write = evaluate(tmp_path, "edit source file", profile="readonly")
+    read = evaluate(tmp_path, "git status", profile="conservative")
+    write = evaluate(tmp_path, "edit source file", profile="conservative")
 
     assert read.decision == PolicyDecisionValue.ALLOWED
     assert write.decision == PolicyDecisionValue.NEEDS_HUMAN_APPROVAL
     assert write.human_required is True
 
 
-def test_chatgpt_delegated_allows_t0_t1_t2(tmp_path: Path) -> None:
+def test_balanced_profile_allows_t0_t1_t2(tmp_path: Path) -> None:
     assert (
         evaluate(tmp_path, "git status").permission_tier
         == CanonicalPermissionTier.T0_READ_ONLY
@@ -49,7 +49,9 @@ def test_chatgpt_delegated_allows_t0_t1_t2(tmp_path: Path) -> None:
     )
 
 
-def test_chatgpt_delegated_requires_approval_for_t4_and_t5(tmp_path: Path) -> None:
+def test_balanced_profile_requires_chatgpt_approval_for_t4_and_t5(
+    tmp_path: Path,
+) -> None:
     write = evaluate(
         tmp_path,
         "fix bug in repo",
@@ -83,7 +85,7 @@ def test_chatgpt_delegated_requires_approval_for_t4_and_t5(tmp_path: Path) -> No
         "sudo install system package",
     ],
 )
-def test_human_only_or_blocked_boundaries(tmp_path: Path, action: str) -> None:
+def test_human_approval_or_blocked_boundaries(tmp_path: Path, action: str) -> None:
     result = evaluate(tmp_path, action)
 
     assert result.permission_tier == CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION
@@ -92,13 +94,6 @@ def test_human_only_or_blocked_boundaries(tmp_path: Path, action: str) -> None:
         PolicyDecisionValue.NEEDS_HUMAN_APPROVAL,
         PolicyDecisionValue.BLOCKED,
     }
-
-
-def test_human_only_profile_requires_human_for_writes(tmp_path: Path) -> None:
-    result = evaluate(tmp_path, "edit source file", profile="human_only")
-
-    assert result.decision == PolicyDecisionValue.NEEDS_HUMAN_APPROVAL
-    assert result.human_required is True
 
 
 def test_normal_commands_and_jobs_map_to_expected_tiers(tmp_path: Path) -> None:
