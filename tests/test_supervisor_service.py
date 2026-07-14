@@ -196,6 +196,27 @@ def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
     assert len(jobs.jobs) == 1
 
 
+def test_restart_resumes_queued_supervisor_without_duplicate_child(
+    tmp_path: Path,
+) -> None:
+    service, jobs, config = make_service(tmp_path)
+    created = service.store.create_supervisor(
+        repo_name="codexbridge",
+        objective="objective",
+        metadata=supervisor_metadata(),
+    )
+
+    recreated = StubSupervisorService(config, service.config_path, jobs)
+    resumed = recreated.resume(created["supervisor_id"])
+    child_run_id = active_run_id(resumed)
+    resumed_again = recreated.resume(created["supervisor_id"])
+
+    assert resumed["status"] == "planning"
+    assert resumed_again["status"] == "planning"
+    assert active_run_id(resumed_again) == child_run_id
+    assert len(jobs.jobs) == 1
+
+
 def test_resume_planning_and_implementing_advance_after_child_completion(
     tmp_path: Path,
 ) -> None:

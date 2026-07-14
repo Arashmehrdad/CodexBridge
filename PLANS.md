@@ -324,7 +324,7 @@ Delivered guarantees:
 - Explicit `allow_legacy_execution=True` retains compatibility mechanics for deterministic tests only; supplying a custom process factory does not silently enable legacy execution.
 - Recreated managers conservatively move unowned `created`, `queued`, or `running` legacy jobs to `needs_input`, generate report/resume/manifest artifacts, and record an ownership-unavailable event.
 - Cancellation without an owned live process handle no longer falsely reports `cancelled`; it remains `needs_input` pending manual verification.
-- Supervisor resume prompts are published through atomic replacement, and unverified child cancellation remains conservatively resumable after service restart without relaunching the child or duplicating its event.
+- Supervisor resume prompts are published through atomic replacement, unverified child cancellation remains conservatively resumable after service restart without relaunching the child or duplicating its event, and queued supervisors resume after service recreation without attaching a duplicate child.
 - Return-loop manifest regeneration recomputes current file paths, hashes, and sizes while preserving an externally delivered manifest's sent status, delivery metadata, original creation time, and audit identity.
 - Delivered manifests remain undiscoverable as ready after regeneration.
 - Local-agent job command parsing preserves the exact case of opaque job IDs, preventing Windows path lookup from succeeding while in-memory process ownership lookup fails.
@@ -333,6 +333,7 @@ Validation evidence:
 
 - Legacy long-job suite: `15 passed`.
 - Local-agent job orchestration suite: `4 passed`.
+- Supervisor service restart suite: `14 passed`.
 - Existing PulseSender contract suite: `6 passed`.
 - Delivery-regeneration regression: `1 passed`.
 - Full repository suite: `905 passed, 1 skipped`.
