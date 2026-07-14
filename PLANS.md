@@ -285,7 +285,34 @@ Validation evidence:
 
 ### Batch D4 - Supervisor child attachment and lock unification
 
-Harden `supervisor_engine.py`, `supervisor_service.py`, and the shared repository ownership model.
+Status: **implemented and validated**.
+
+Delivered guarantees:
+
+- D4a added supervisor state versions, compare-and-swap lifecycle transitions, reserved child run IDs, durable pre-launch attachment, and restart adoption/relaunch using the same child identity.
+- Supervisor plan and implementation completion, failure, cancellation, and terminal side effects now occur only after the matching supervisor state transition wins.
+- D4b removed the separate supervisor `repo_write_locks` authority and migrates existing databases by dropping its legacy table and index during supervisor-store initialization.
+- Supervisor implementation children now use the same authoritative `operation_locks` record as direct runs, with the child run ID and lease generation recorded in supervisor metadata.
+- Repository contention is reported as a CAS-guarded `needs_input` state without launching a duplicate implementation child.
+- Restarted supervisors retain the same implementation child identity and shared ownership metadata rather than creating a replacement child.
+- Repository-lock release remains owned by the child run's token and lease generation; supervisors no longer perform an unconditional independent unlock.
+- Existing stale-generation protection prevents an older owner from releasing a successor's repository lock.
+
+Validation evidence:
+
+- Supervisor store suite: `9 passed`.
+- Supervisor engine suite: `29 passed`.
+- Shared operation-lock suite: `11 passed`.
+- Supervisor self-check suite: `4 passed`.
+- Supervisor service suite: `12 passed`.
+- Full repository suite: `901 passed, 1 skipped`.
+- `python -m pip check`: no broken requirements found.
+- D4b implementation checkpoints: `c0c7604`, `6a1ecad`, and `92f7706`.
+
+Boundaries not yet claimed:
+
+- Legacy unattended-job migration and return-loop delivery-state consistency remain D5.
+- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative until D5 reconciles artifact publication state.
 
 ### Batch D5 - Legacy long-job migration and return-loop consistency
 
