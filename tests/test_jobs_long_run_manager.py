@@ -39,10 +39,18 @@ def fake_popen(
             artifacts = Path(kwargs["cwd"]) / "artifacts"
             artifacts.mkdir(exist_ok=True)
             (artifacts / "out.txt").write_text("artifact", encoding="utf-8")
-            (artifacts / ".env").write_text("SECRET=value", encoding="utf-8")
+            (artifacts / ".env").write_text("REDACTED=value", encoding="utf-8")
         return FakeProcess(returncode)
 
     return factory, calls
+
+
+def legacy_manager(tmp_path: Path, factory) -> LongRunJobManager:
+    return LongRunJobManager(
+        runs_dir=tmp_path / "runs",
+        popen_factory=factory,
+        allow_legacy_execution=True,
+    )
 
 
 def test_unknown_job_profile_is_blocked_and_does_not_call_subprocess(
@@ -99,11 +107,24 @@ def test_timeout_escalation_above_profile_limit_is_rejected(tmp_path: Path) -> N
     assert calls == []
 
 
-def test_start_job_creates_artifacts_and_initial_result(tmp_path: Path) -> None:
+def test_default_manager_blocks_legacy_execution_even_with_custom_popen(
+    tmp_path: Path,
+) -> None:
     factory, calls = fake_popen(returncode=None)
     result = LongRunJobManager(
         runs_dir=tmp_path / "runs", popen_factory=factory
     ).start_job(profile_id="dummy_success", repo_path=tmp_path)
+
+    assert result.job.status == JobStatus.BLOCKED
+    assert "JobManager" in result.job.next_recommended_action
+    assert calls == []
+
+
+def test_start_job_creates_artifacts_and_initial_result(tmp_path: Path) -> None:
+    factory, calls = fake_popen(returncode=None)
+    result = legacy_manager(tmp_path, factory).start_job(
+        profile_id="dummy_success", repo_path=tmp_path
+    )
 
     assert result.job.status == JobStatus.RUNNING
     assert result.job.result_json_path.match("*/runs/jobs/*/result.json")
@@ -122,7 +143,7 @@ def test_start_job_creates_artifacts_and_initial_result(tmp_path: Path) -> None:
 
 def test_successful_job_transitions_to_completed_and_reported(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=0, stdout_text="done\n", artifact=True)
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="dummy_success", repo_path=tmp_path)
     result = manager.refresh_status(start.job.job_id)
 
@@ -137,7 +158,7 @@ def test_successful_job_transitions_to_completed_and_reported(tmp_path: Path) ->
 
 def test_failing_job_transitions_to_failed(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=2, stderr_text="failed\n")
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="dummy_failure", repo_path=tmp_path)
     result = manager.refresh_status(start.job.job_id)
 
@@ -149,7 +170,7 @@ def test_failing_job_transitions_to_failed(tmp_path: Path) -> None:
 
 def test_timeout_job_transitions_to_timeout(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=None)
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="dummy_timeout", repo_path=tmp_path)
     manager.processes[start.job.job_id]._codexbridge_started_monotonic -= 2
     result = manager.refresh_status(start.job.job_id)
@@ -161,7 +182,7 @@ def test_timeout_job_transitions_to_timeout(tmp_path: Path) -> None:
 
 def test_cancel_job_transitions_to_cancelled(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=None)
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="sleep_short", repo_path=tmp_path)
     cancel = manager.cancel_job(start.job.job_id)
     status = manager.get_status(start.job.job_id)
@@ -172,9 +193,25 @@ def test_cancel_job_transitions_to_cancelled(tmp_path: Path) -> None:
     assert (status.job.result_json_path.parent / "resume_prompt.txt").exists()
 
 
+def test_manager_recreation_contains_unowned_running_job(tmp_path: Path) -> None:
+    factory, _calls = fake_popen(returncode=None)
+    first = legacy_manager(tmp_path, factory)
+    started = first.start_job(profile_id="dummy_success", repo_path=tmp_path)
+
+    recreated = LongRunJobManager(runs_dir=tmp_path / "runs")
+    status = recreated.get_status(started.job.job_id)
+    cancel = recreated.cancel_job(started.job.job_id)
+
+    assert status.job.status == JobStatus.NEEDS_INPUT
+    assert "ownership is unavailable" in status.job.failure_summary
+    assert cancel.status == JobStatus.NEEDS_INPUT
+    assert (status.job.result_json_path.parent / "job_report.md").exists()
+    assert (status.job.result_json_path.parent / "resume_prompt.txt").exists()
+
+
 def test_list_jobs_and_get_status_return_known_jobs(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=None)
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="dummy_success", repo_path=tmp_path)
 
     assert manager.get_status(start.job.job_id).job.job_id == start.job.job_id
@@ -183,7 +220,7 @@ def test_list_jobs_and_get_status_return_known_jobs(tmp_path: Path) -> None:
 
 def test_refresh_status_does_not_block_for_running_job(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=None)
-    manager = LongRunJobManager(runs_dir=tmp_path / "runs", popen_factory=factory)
+    manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="sleep_short", repo_path=tmp_path)
     result = manager.refresh_status(start.job.job_id)
 

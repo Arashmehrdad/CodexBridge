@@ -15,6 +15,7 @@ TERMINAL_JOB_STATUSES = {
     JobStatus.FAILED,
     JobStatus.TIMEOUT,
     JobStatus.CANCELLED,
+    JobStatus.NEEDS_INPUT,
     JobStatus.REPORTED,
     JobStatus.BLOCKED,
     JobStatus.PROFILE_MISSING,
@@ -35,13 +36,7 @@ class JobMonitor:
 
         process = self.processes.get(job_id)
         if process is None:
-            self.store.append_event(
-                job_id,
-                stage="status_refreshed",
-                message="No live process handle for job",
-                data={"status": result.status.value},
-            )
-            return result
+            return self.contain_unowned(job_id)
 
         now = time.monotonic()
         started_monotonic = getattr(process, "_codexbridge_started_monotonic", now)
@@ -68,6 +63,42 @@ class JobMonitor:
             exit_code=int(return_code),
             error="" if return_code == 0 else "Job exited with non-zero status",
         )
+
+    def contain_unowned(
+        self,
+        job_id: str,
+        *,
+        reason: str = (
+            "Legacy job process ownership is unavailable after manager recreation; process state cannot be verified."
+        ),
+    ) -> JobResult:
+        result = self.store.get_job(job_id)
+        if result.status in TERMINAL_JOB_STATUSES:
+            return result
+        updated = self.store.update_status(
+            job_id,
+            JobStatus.NEEDS_INPUT,
+            error=reason,
+            failure_summary=reason,
+            next_recommended_action=(
+                "Verify the process manually and rerun through JobManager and RunStore."
+            ),
+        )
+        report = generate_job_report(updated)
+        self.store.append_event(
+            job_id,
+            stage="job_ownership_unavailable",
+            message="Legacy job contained because process ownership is unavailable",
+            level="warning",
+            data={"reason": reason},
+        )
+        self.store.append_event(
+            job_id,
+            stage="report_generated",
+            message="Job report generated",
+            data=report.model_dump(mode="json"),
+        )
+        return self.store.get_job(job_id)
 
     def _finish(
         self, result: JobResult, status: JobStatus, *, exit_code: int | None, error: str

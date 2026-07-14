@@ -23,6 +23,8 @@ class LongRunJobManager:
         config: AppConfig | None = None,
         runs_dir: Path | None = None,
         popen_factory=None,
+        *,
+        allow_legacy_execution: bool = False,
     ):
         self.config = config
         self.runs_dir = (
@@ -31,7 +33,18 @@ class LongRunJobManager:
         self.store = JobStore(self.runs_dir)
         self.processes: dict[str, object] = {}
         self.popen_factory = popen_factory or subprocess.Popen
+        self.allow_legacy_execution = bool(allow_legacy_execution)
         self.monitor = JobMonitor(self.store, self.processes)
+        self._contain_unowned_jobs()
+
+    def _contain_unowned_jobs(self) -> None:
+        for job in self.store.list_jobs(limit=100):
+            if job.status in {
+                JobStatus.CREATED,
+                JobStatus.QUEUED,
+                JobStatus.RUNNING,
+            } and job.job_id not in self.processes:
+                self.monitor.contain_unowned(job.job_id)
 
     def start_job(
         self,
@@ -116,6 +129,21 @@ class LongRunJobManager:
                 audit.event_id,
                 argv=profile.argv,
             )
+        if not self.allow_legacy_execution:
+            return self._blocked(
+                job_id,
+                profile_id,
+                repo_name,
+                repo_path,
+                JobStatus.BLOCKED,
+                "Legacy in-memory long-run execution is disabled because process ownership cannot survive manager recreation.",
+                created_at,
+                audit.event_id,
+                argv=profile.argv,
+                next_recommended_action=(
+                    "Route unattended work through the durable JobManager and RunStore path."
+                ),
+            )
 
         result = self._new_result(
             job_id=job_id,
@@ -199,11 +227,34 @@ class LongRunJobManager:
             action="job_cancel_requested",
             message="Job cancellation requested",
         )
-        if process is not None and job.status == JobStatus.RUNNING:
-            try:
-                process.terminate()
-            except Exception:
-                pass
+        if process is None and job.status in {
+            JobStatus.CREATED,
+            JobStatus.QUEUED,
+            JobStatus.RUNNING,
+        }:
+            updated = self.monitor.contain_unowned(
+                job_id,
+                reason=(
+                    "Legacy job cancellation cannot be confirmed because the owning process handle is unavailable."
+                ),
+            )
+            return JobCancelResult(
+                job_id=job_id,
+                status=updated.status,
+                message="Cancellation requires manual process verification",
+                audit_event_id=audit.event_id,
+            )
+        if process is None or job.status != JobStatus.RUNNING:
+            return JobCancelResult(
+                job_id=job_id,
+                status=job.status,
+                message=f"Job is already {job.status.value}",
+                audit_event_id=audit.event_id,
+            )
+        try:
+            process.terminate()
+        except Exception:
+            pass
         _close_handles(process)
         updated = self.store.update_status(
             job_id,
@@ -264,6 +315,7 @@ class LongRunJobManager:
         created_at,
         audit_event_id,
         argv=None,
+        next_recommended_action="Use an enabled allowlisted job profile.",
     ) -> JobStatusResult:
         result = self._new_result(
             job_id=job_id,
@@ -279,7 +331,7 @@ class LongRunJobManager:
             working_directory=None,
             error=error,
             failure_summary=error,
-            next_recommended_action="Use an enabled allowlisted job profile.",
+            next_recommended_action=next_recommended_action,
         )
         self.store.create_job(result)
         self.store.append_event(
