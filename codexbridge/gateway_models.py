@@ -6,12 +6,18 @@ validation that executes after a request is accepted.
 """
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .run_query_chunks import encode_list_reference, encode_run_reference
-from .ssh_policy import AutonomyProfile, SSHExecutionMode
+from .ssh_policy import (
+    AutonomyProfile,
+    SSHExecutionMode,
+    SSHPolicyRequest,
+    evaluate_ssh_policy,
+)
 
 
 class GatewayModel(BaseModel):
@@ -596,6 +602,58 @@ class SSHExecutionPolicyGatewayRequest(GatewayModel):
 SSHPolicyGatewayRequest = SSHExecutionPolicyGatewayRequest
 SSHExecutionPolicyRequest = SSHExecutionPolicyGatewayRequest
 
+MAX_REVIEWED_SSH_SCRIPT_BYTES = 64 * 1024
+
+
+class SSHStructuredExecutionGatewayRequest(SSHExecutionPolicyGatewayRequest):
+    """Policy selection for the currently implemented structured SSH paths."""
+
+    execution_mode: Literal["structured"] = "structured"
+
+
+class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
+    """Hash-pinned request contract for a future reviewed-script executor."""
+
+    action: Literal["reviewed_script"]
+    execution_mode: Literal["reviewed_script"] = "reviewed_script"
+    host_id: str = Field(min_length=1, max_length=128)
+    interpreter: Literal["bash", "sh", "python3"]
+    script: str = Field(min_length=1, max_length=MAX_REVIEWED_SSH_SCRIPT_BYTES)
+    script_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    timeout_seconds: int = Field(default=3600, ge=1, le=86_400)
+    writes_remote: bool = True
+    high_risk: bool = False
+
+    @model_validator(mode="after")
+    def validate_reviewed_script(self) -> "SSHReviewedScriptAction":
+        if not self.script.strip():
+            raise ValueError("Reviewed SSH script must contain non-whitespace content")
+        script_bytes = self.script.encode("utf-8")
+        if b"\x00" in script_bytes:
+            raise ValueError("Reviewed SSH script must not contain NUL bytes")
+        if len(script_bytes) > MAX_REVIEWED_SSH_SCRIPT_BYTES:
+            raise ValueError(
+                "Reviewed SSH script exceeds the maximum UTF-8 byte length"
+            )
+        if sha256(script_bytes).hexdigest() != self.script_sha256:
+            raise ValueError("Reviewed SSH script SHA-256 does not match its content")
+        policy = evaluate_ssh_policy(
+            SSHPolicyRequest(
+                autonomy_profile=self.autonomy_profile,
+                execution_mode=self.execution_mode,
+            )
+        )
+        if not policy.allowed:
+            raise ValueError(
+                "SSH execution policy denied profile/mode combination: "
+                f"{self.autonomy_profile}/{self.execution_mode}"
+            )
+        return self
+
 
 class SSHProfilePreviewQuery(GatewayModel):
     operation: Literal["profile_preview"]
@@ -623,13 +681,13 @@ class SSHProfileApplyAction(GatewayModel):
     change_id: str = Field(min_length=1, max_length=128)
 
 
-class SSHCommandAction(SSHExecutionPolicyGatewayRequest):
+class SSHCommandAction(SSHStructuredExecutionGatewayRequest):
     action: Literal["command", "monitored_command"]
     host_id: str = Field(min_length=1, max_length=128)
     command_id: str = Field(min_length=1, max_length=128)
 
 
-class SSHAdministrationAction(SSHExecutionPolicyGatewayRequest):
+class SSHAdministrationAction(SSHStructuredExecutionGatewayRequest):
     action: Literal["administration"]
     host_id: str = Field(min_length=1, max_length=128)
     ssh_action: str = Field(min_length=1, max_length=128)
@@ -646,7 +704,7 @@ class SSHAdministrationAction(SSHExecutionPolicyGatewayRequest):
     confirmation: str = Field(default="", max_length=128)
 
 
-class SSHTransferAction(SSHExecutionPolicyGatewayRequest):
+class SSHTransferAction(SSHStructuredExecutionGatewayRequest):
     action: Literal["transfer"]
     host_id: str = Field(min_length=1, max_length=128)
     repo_name: str = Field(min_length=1, max_length=128)
@@ -658,13 +716,15 @@ class SSHTransferAction(SSHExecutionPolicyGatewayRequest):
     confirmation: str = Field(default="", max_length=128)
 
 
-class SSHDeploymentAction(SSHExecutionPolicyGatewayRequest):
+class SSHDeploymentAction(SSHStructuredExecutionGatewayRequest):
     action: Literal["deployment"]
     host_id: str = Field(min_length=1, max_length=128)
     deployment_id: str = Field(min_length=1, max_length=128)
     confirmation: str = Field(min_length=1, max_length=128)
 
 
+# SSHReviewedScriptAction intentionally remains outside this public union until
+# its executor and worker-side hash revalidation are implemented.
 SSHActionRequest = Annotated[
     SSHProfileApplyAction | SSHCommandAction | SSHAdministrationAction
     | SSHTransferAction | SSHDeploymentAction,

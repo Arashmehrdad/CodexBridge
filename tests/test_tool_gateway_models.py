@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 from pydantic import TypeAdapter, ValidationError
 import pytest
 
@@ -23,6 +25,8 @@ from codexbridge.gateway_models import (
     SSHAdministrationAction,
     SSHCommandAction,
     SSHExecutionPolicyGatewayRequest,
+    SSHReviewedScriptAction,
+    MAX_REVIEWED_SSH_SCRIPT_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
     WorkflowActionRequest,
@@ -299,6 +303,116 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     assert transfer.execution_mode == "structured"
     assert deployment.autonomy_profile == "chatgpt_delegated"
     assert deployment.execution_mode == "structured"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "action": "command",
+            "host_id": "dev",
+            "command_id": "uptime",
+            "execution_mode": "reviewed_script",
+        },
+        {
+            "action": "administration",
+            "host_id": "dev",
+            "ssh_action": "service_restart",
+            "execution_mode": "root_shell",
+        },
+        {
+            "action": "transfer",
+            "host_id": "dev",
+            "repo_name": "repo",
+            "direction": "upload",
+            "local_path": "artifact.bin",
+            "remote_path": "/srv/artifact.bin",
+            "execution_mode": "reviewed_script",
+        },
+        {
+            "action": "deployment",
+            "host_id": "dev",
+            "deployment_id": "app",
+            "confirmation": "confirm",
+            "execution_mode": "root_shell",
+        },
+    ],
+)
+def test_structured_ssh_actions_reject_non_structured_modes(payload: dict) -> None:
+    with pytest.raises(ValidationError):
+        TypeAdapter(SSHActionRequest).validate_python(payload)
+
+
+def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
+    script = "set -euo pipefail\nuptime\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    request = SSHReviewedScriptAction.model_validate(
+        {
+            "action": "reviewed_script",
+            "host_id": "dev",
+            "interpreter": "bash",
+            "script": script,
+            "script_sha256": digest,
+            "autonomy_profile": "chatgpt_delegated",
+        }
+    )
+    assert request.execution_mode == "reviewed_script"
+    assert request.script_sha256 == digest
+    assert request.writes_remote is True
+    assert request.high_risk is False
+
+    permissive = request.model_copy(update={"autonomy_profile": "permissive"})
+    assert SSHReviewedScriptAction.model_validate(
+        permissive.model_dump(mode="python")
+    ).autonomy_profile == "permissive"
+
+    for autonomy_profile in ("readonly", "human_only"):
+        with pytest.raises(ValidationError, match="denied profile/mode"):
+            SSHReviewedScriptAction.model_validate(
+                {
+                    **request.model_dump(mode="python"),
+                    "autonomy_profile": autonomy_profile,
+                }
+            )
+
+    with pytest.raises(ValidationError, match="SHA-256"):
+        SSHReviewedScriptAction.model_validate(
+            {**request.model_dump(mode="python"), "script_sha256": "0" * 64}
+        )
+    with pytest.raises(ValidationError, match="NUL"):
+        nul_script = "echo ok\x00"
+        SSHReviewedScriptAction.model_validate(
+            {
+                **request.model_dump(mode="python"),
+                "script": nul_script,
+                "script_sha256": sha256(nul_script.encode("utf-8")).hexdigest(),
+            }
+        )
+    with pytest.raises(ValidationError, match="UTF-8 byte length"):
+        oversized_script = "é" * ((MAX_REVIEWED_SSH_SCRIPT_BYTES // 2) + 1)
+        SSHReviewedScriptAction.model_validate(
+            {
+                **request.model_dump(mode="python"),
+                "script": oversized_script,
+                "script_sha256": sha256(
+                    oversized_script.encode("utf-8")
+                ).hexdigest(),
+            }
+        )
+
+
+def test_reviewed_script_is_not_yet_a_public_ssh_action() -> None:
+    script = "uptime\n"
+    with pytest.raises(ValidationError):
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                "action": "reviewed_script",
+                "host_id": "dev",
+                "interpreter": "sh",
+                "script": script,
+                "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+            }
+        )
 
 
 def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
