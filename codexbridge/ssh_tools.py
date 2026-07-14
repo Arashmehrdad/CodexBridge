@@ -31,6 +31,11 @@ from .ssh_commands import (
     validate_ssh_command_profile,
     validate_ssh_host_id,
 )
+from .ssh_policy import (
+    CANONICAL_AUTONOMY_PROFILES,
+    IMPLEMENTED_SSH_EXECUTION_MODES,
+    SSH_EXECUTION_POLICY_MATRIX,
+)
 from .ssh_probes import (
     environment_probe_specs,
     evaluate_watchdog,
@@ -1198,8 +1203,20 @@ def enrich_ssh_capabilities(
     config: AppConfig, result: dict[str, Any]
 ) -> dict[str, Any]:
     result = dict(result)
+    execution_modes = [
+        {
+            "execution_mode": execution_mode,
+            "allowed_autonomy_profiles": sorted(allowed_profiles),
+            "implemented": execution_mode in IMPLEMENTED_SSH_EXECUTION_MODES,
+        }
+        for execution_mode, allowed_profiles in SSH_EXECUTION_POLICY_MATRIX.items()
+    ]
     result.update(
         {
+            "execution_policy": {
+                "autonomy_profiles": sorted(CANONICAL_AUTONOMY_PROFILES),
+                "execution_modes": execution_modes,
+            },
             "read_only_operations": list(SSH_INSPECTIONS),
             "structured_probes": ["environment", "gpu_telemetry"],
             "actions": list(SSH_ACTIONS),

@@ -546,6 +546,33 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert "docker_compose_up" in result["actions"]
     assert result["gates"]["allow_deploy"] is True
     assert result["arbitrary_shell_supported"] is False
+    policy = result["execution_policy"]
+    assert set(policy["autonomy_profiles"]) == {
+        "readonly",
+        "chatgpt_delegated",
+        "permissive",
+        "human_only",
+    }
+    modes = {
+        item["execution_mode"]: item for item in policy["execution_modes"]
+    }
+    assert modes["structured"] == {
+        "execution_mode": "structured",
+        "allowed_autonomy_profiles": [
+            "chatgpt_delegated",
+            "human_only",
+            "permissive",
+            "readonly",
+        ],
+        "implemented": True,
+    }
+    assert modes["reviewed_script"]["allowed_autonomy_profiles"] == [
+        "chatgpt_delegated",
+        "permissive",
+    ]
+    assert modes["reviewed_script"]["implemented"] is False
+    assert modes["root_shell"]["allowed_autonomy_profiles"] == ["permissive"]
+    assert modes["root_shell"]["implemented"] is False
     assert result["hosts"][0]["deployments"][0]["deployment_id"] == ("sample_deploy")
     assert result["structured_probes"] == ["environment", "gpu_telemetry"]
     assert result["hosts"][0]["watchdog"]["enforcement_mode"] == "observe_only"
