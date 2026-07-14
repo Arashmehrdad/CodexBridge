@@ -336,9 +336,10 @@ Validation evidence:
 - Supervisor service restart suite: `14 passed`.
 - Existing PulseSender contract suite: `6 passed`.
 - Delivery-regeneration regression: `1 passed`.
-- Full repository suite: `905 passed, 1 skipped`.
+- Full repository suite: `932 passed, 1 skipped`.
 - `python -m pip check`: no broken requirements found.
-- D5 implementation checkpoints: `542abc1`, `d131eb8`, `43f540c`, `2893440`, `bf8dbb9`, `eadcb24`, and `86bab3e`.
+- D5 implementation checkpoints: `542abc1`, `d131eb8`, `43f540c`, `2893440`, `bf8dbb9`, `46d1a9f`, `eadcb24`, `86bab3e`, `1f1a171`, and `da7dcf6`.
+- Final exit-gate rerun: supervisor service restart suite `14 passed`; full suite `932 passed, 1 skipped`; `python -m pip check` found no broken requirements; `git diff --check` passed.
 
 Boundaries not claimed:
 
