@@ -113,7 +113,7 @@ class PolicyEvaluationRequest(BaseModel):
     repo_name: str | None = None
     repo_path: Path | None = None
     requested_by: str = "chatgpt"
-    autonomy_profile: str = "chatgpt_delegated"
+    autonomy_profile: str = "balanced"
     permission_tier: CanonicalPermissionTier | str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

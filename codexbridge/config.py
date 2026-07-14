@@ -540,7 +540,7 @@ class MemoryConfig(BaseModel):
 
 class AutonomyConfig(BaseModel):
     autonomy_enabled: bool = True
-    autonomy_default_profile: str = "chatgpt_delegated"
+    autonomy_default_profile: str = "balanced"
     autonomy_approval_store_path: str | None = None
     autonomy_whitelisted_repos: list[str] = Field(default_factory=list)
     autonomy_allow_private_branch_push: bool = True

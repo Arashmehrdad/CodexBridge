@@ -7,8 +7,8 @@ from .models import AutonomyProfileModel, CanonicalPermissionTier
 
 BUILTIN_AUTONOMY_PROFILES = MappingProxyType(
     {
-        "readonly": AutonomyProfileModel(
-            name="readonly",
+        "conservative": AutonomyProfileModel(
+            name="conservative",
             allow_tiers=[CanonicalPermissionTier.T0_READ_ONLY],
             human_approval_tiers=[
                 CanonicalPermissionTier.T1_SAFE_LOCAL_TEST,
@@ -19,8 +19,8 @@ BUILTIN_AUTONOMY_PROFILES = MappingProxyType(
                 CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION,
             ],
         ),
-        "chatgpt_delegated": AutonomyProfileModel(
-            name="chatgpt_delegated",
+        "balanced": AutonomyProfileModel(
+            name="balanced",
             allow_tiers=[
                 CanonicalPermissionTier.T0_READ_ONLY,
                 CanonicalPermissionTier.T1_SAFE_LOCAL_TEST,
@@ -45,26 +45,12 @@ BUILTIN_AUTONOMY_PROFILES = MappingProxyType(
             ],
             human_approval_tiers=[CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION],
         ),
-        "human_only": AutonomyProfileModel(
-            name="human_only",
-            allow_tiers=[CanonicalPermissionTier.T0_READ_ONLY],
-            human_approval_tiers=[
-                CanonicalPermissionTier.T1_SAFE_LOCAL_TEST,
-                CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
-                CanonicalPermissionTier.T3_WRITE_PREVIEW_DRY_RUN,
-                CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
-                CanonicalPermissionTier.T5_COMMIT_PRIVATE_BRANCH_CHATGPT_DELEGATED,
-                CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION,
-            ],
-        ),
     }
 )
 
 
 def get_autonomy_profile(name: str) -> AutonomyProfileModel:
-    return BUILTIN_AUTONOMY_PROFILES.get(
-        name, BUILTIN_AUTONOMY_PROFILES["chatgpt_delegated"]
-    )
+    return BUILTIN_AUTONOMY_PROFILES.get(name, BUILTIN_AUTONOMY_PROFILES["balanced"])
 
 
 def list_autonomy_profiles() -> dict[str, AutonomyProfileModel]:

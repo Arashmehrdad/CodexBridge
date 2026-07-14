@@ -727,7 +727,7 @@ class JobManager:
         host_id: str,
         command_id: str,
         *,
-        autonomy_profile: str = "chatgpt_delegated",
+        autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
         _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
@@ -769,7 +769,7 @@ class JobManager:
         host_id: str,
         command_id: str,
         *,
-        autonomy_profile: str = "chatgpt_delegated",
+        autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
         host, profile = validate_monitored_command_start(
@@ -832,7 +832,7 @@ class JobManager:
         args: list[str] | None = None,
         force: bool = False,
         confirmation: str = "",
-        autonomy_profile: str = "chatgpt_delegated",
+        autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
         normalized_packages = list(packages or [])
@@ -912,7 +912,7 @@ class JobManager:
         recursive: bool = False,
         overwrite: bool = False,
         confirmation: str = "",
-        autonomy_profile: str = "chatgpt_delegated",
+        autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
         if not self.config.ssh.allow_transfer:
@@ -978,7 +978,7 @@ class JobManager:
         deployment_id: str,
         *,
         confirmation: str,
-        autonomy_profile: str = "chatgpt_delegated",
+        autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
         if not self.config.ssh.allow_deploy:

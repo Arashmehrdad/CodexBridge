@@ -112,7 +112,7 @@ class CodexEscalationRouter:
             )
 
         autonomy_profile = (
-            "chatgpt_delegated"
+            "balanced"
             if self.router_config.codex_router_require_policy_approval
             else "permissive"
         )

@@ -596,7 +596,7 @@ class SSHExecutionPolicyGatewayRequest(GatewayModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     execution_mode: SSHExecutionMode = "structured"
-    autonomy_profile: AutonomyProfile = "chatgpt_delegated"
+    autonomy_profile: AutonomyProfile = "balanced"
 
 
 SSHPolicyGatewayRequest = SSHExecutionPolicyGatewayRequest

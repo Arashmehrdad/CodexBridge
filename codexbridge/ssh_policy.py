@@ -16,9 +16,7 @@ from .policy.profiles import BUILTIN_AUTONOMY_PROFILES
 
 
 SSHExecutionMode = Literal["structured", "reviewed_script", "root_shell"]
-AutonomyProfile = Literal[
-    "readonly", "chatgpt_delegated", "permissive", "human_only"
-]
+AutonomyProfile = Literal["conservative", "balanced", "permissive"]
 
 CANONICAL_SSH_EXECUTION_MODES = frozenset(
     {"structured", "reviewed_script", "root_shell"}
@@ -28,7 +26,7 @@ CANONICAL_AUTONOMY_PROFILES = frozenset(BUILTIN_AUTONOMY_PROFILES)
 SSH_EXECUTION_POLICY_MATRIX: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "structured": CANONICAL_AUTONOMY_PROFILES,
-        "reviewed_script": frozenset({"chatgpt_delegated", "permissive"}),
+        "reviewed_script": frozenset({"balanced", "permissive"}),
         "root_shell": frozenset({"permissive"}),
     }
 )

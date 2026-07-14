@@ -96,7 +96,7 @@ class LocalCodingManager:
             return self._blocked_preview(request, validation.blocked_reasons, diff=diff)
 
         autonomy_profile = (
-            "chatgpt_delegated"
+            "balanced"
             if self.config.local_coding_require_approval
             else "permissive"
         )
