@@ -12,7 +12,6 @@ from codexbridge.job_manager import JobManager, make_run_id
 from codexbridge.process_control import process_identity
 from codexbridge.run_store import TERMINAL_STATUSES, utc_now
 
-from .manager import WorkflowManager
 from .models import (
     CodexImplementParameters,
     GitReadonlyParameters,
@@ -24,7 +23,8 @@ from .models import (
     WorkflowStepRecord,
     WorkflowStepStatus,
 )
-from .reporter import write_workflow_snapshot, workflow_run_dir
+from .publication import publish_workflow
+from .reporter import workflow_run_dir, write_workflow_snapshot
 from .store import WorkflowStore
 
 
@@ -44,56 +44,61 @@ class WorkflowWorker:
         self.workflow_id = workflow_id
         self.store = WorkflowStore(self.config.resolve_runs_dir())
         initial = self.store.get_workflow(workflow_id)
-        self.lease_token = (
-            lease_token if lease_token is not None else initial.worker_lease_token
-        )
-        self.lease_generation = (
-            int(lease_generation)
-            if lease_generation is not None
-            else int(initial.lease_generation)
+        self.lease_token = lease_token if lease_token is not None else initial.worker_lease_token
+        self.lease_generation = int(
+            lease_generation if lease_generation is not None else initial.lease_generation
         )
         self.job_manager = JobManager(self.config, config_path)
-        self.workflow_manager = WorkflowManager(self.config, config_path)
         self.poll_interval_seconds = poll_interval_seconds
         self.sleep_fn = sleep_fn
 
     def execute(self) -> int:
         workflow = self.store.get_workflow(self.workflow_id)
-        if workflow.status in {WorkflowStatus.REPORTED, WorkflowStatus.CANCELLED}:
+        if workflow.status in {
+            WorkflowStatus.CANCELLATION_PENDING,
+            WorkflowStatus.RECOVERY_PENDING,
+        }:
+            return 1
+        if workflow.status in {
+            WorkflowStatus.COMPLETED,
+            WorkflowStatus.FAILED,
+            WorkflowStatus.CANCELLED,
+            WorkflowStatus.NEEDS_APPROVAL,
+            WorkflowStatus.NEEDS_INPUT,
+            WorkflowStatus.REPORTED,
+        }:
+            publish_workflow(self.store, self.config.resolve_runs_dir(), self.workflow_id)
             return 0
         if workflow.status == WorkflowStatus.QUEUED:
             worker_pid = os_getpid()
-            worker_identity = process_identity(worker_pid)
             if not self.store.claim_worker(
                 self.workflow_id,
                 lease_token=self.lease_token,
                 lease_generation=self.lease_generation,
                 expected_state_version=workflow.state_version,
                 worker_pid=worker_pid,
-                worker_identity=worker_identity,
+                worker_identity=process_identity(worker_pid),
             ):
                 return 1
-            workflow = self.store.get_workflow(self.workflow_id)
-            self._event(
-                "info",
-                "running",
-                "Workflow worker claimed durable execution lease",
-                {"worker_pid": worker_pid, "worker_identity_recorded": bool(worker_identity)},
-            )
-        elif workflow.status == WorkflowStatus.RUNNING:
+        elif workflow.status != WorkflowStatus.RUNNING:
             return 1
+
         while True:
             workflow = self.store.get_workflow(self.workflow_id)
-            if workflow.status == WorkflowStatus.REPORTED:
-                return 0
             if workflow.status in {
-                WorkflowStatus.CANCELLED,
+                WorkflowStatus.CANCELLATION_PENDING,
+                WorkflowStatus.RECOVERY_PENDING,
+            }:
+                return 1
+            if workflow.status in {
                 WorkflowStatus.COMPLETED,
                 WorkflowStatus.FAILED,
+                WorkflowStatus.CANCELLED,
                 WorkflowStatus.NEEDS_APPROVAL,
                 WorkflowStatus.NEEDS_INPUT,
+                WorkflowStatus.REPORTED,
             }:
-                self.workflow_manager._finalize_terminal_workflow(workflow)
+                publish_workflow(self.store, self.config.resolve_runs_dir(), self.workflow_id)
                 return 0
             if not self.store.heartbeat_worker(
                 self.workflow_id,
@@ -102,9 +107,12 @@ class WorkflowWorker:
                 worker_pid=os_getpid(),
             ):
                 return 1
+            if self._replay_local_summaries(workflow):
+                continue
+            if workflow.active_child_run_id and self._reconcile_active_child(workflow):
+                continue
             if workflow.active_child_run_id:
-                if self._reconcile_active_child(workflow):
-                    continue
+                return 1
             if self._skip_blocked_steps():
                 continue
             next_step = self._next_pending_step()
@@ -114,46 +122,38 @@ class WorkflowWorker:
                     continue
                 self.sleep_fn(self.poll_interval_seconds)
                 continue
-            self._start_step(next_step)
+            if not self._start_step(next_step):
+                return 1
 
-    def _reconcile_active_child(self, workflow) -> bool:
-        active_step = next(
-            (step for step in workflow.steps if step.child_run_id == workflow.active_child_run_id),
-            None,
-        )
-        if active_step is None:
-            self.store.update_workflow(self.workflow_id, active_child_run_id=None)
-            return True
-        status = self.job_manager.get_status(workflow.active_child_run_id)
-        state = str(status.get("status") or "")
-        if state not in TERMINAL_STATUSES:
-            self.sleep_fn(self.poll_interval_seconds)
-            return True
-        result = self.job_manager.get_result(workflow.active_child_run_id)
+    def _reconcile_active_child(self, workflow: Any) -> bool:
+        child_id = workflow.active_child_run_id
+        active_step = next((step for step in workflow.steps if step.child_run_id == child_id), None)
+        if active_step is None or active_step.status != WorkflowStepStatus.RUNNING:
+            self._mark_recovery("Active child ownership does not match a running workflow step.")
+            return False
+        try:
+            status = self.job_manager.get_status(child_id)
+            state = str(status.get("status") or "")
+            if state not in TERMINAL_STATUSES:
+                self.sleep_fn(self.poll_interval_seconds)
+                return True
+            result = self.job_manager.get_result(child_id)
+        except Exception as exc:
+            self._mark_recovery(f"Unable to reconcile durable child {child_id}: {exc}")
+            return False
         terminal_now = utc_now()
         if state == "completed":
-            self.store.update_step(
-                self.workflow_id,
-                active_step.id,
+            return self._finish_step(
+                active_step,
                 status=WorkflowStepStatus.PASSED,
                 ended_at=terminal_now,
                 summary=str(result.get("summary") or "Step completed"),
                 error="",
-                result_json=redact_and_truncate(result),
+                result=result,
+                clear_child=True,
             )
-            self.store.update_workflow(
-                self.workflow_id,
-                active_child_run_id=None,
-            )
-            self._event(
-                "info",
-                "step_completed",
-                f"Workflow step {active_step.id} passed",
-                {"child_run_id": active_step.child_run_id},
-            )
-            return True
         if state == "needs_input":
-            self._fail_step(
+            return self._fail_step(
                 active_step,
                 summary=str(result.get("summary") or "Child run needs input"),
                 error=str(result.get("error") or "Child run needs input"),
@@ -161,41 +161,44 @@ class WorkflowWorker:
                 workflow_status=WorkflowStatus.NEEDS_INPUT,
                 recommended_next_action="Review the child run result and provide the requested input before resuming.",
             )
-            return True
-        if state == "cancelled" and self.store.get_workflow(self.workflow_id).status == WorkflowStatus.CANCELLED:
-            self.store.update_step(
-                self.workflow_id,
-                active_step.id,
-                status=WorkflowStepStatus.CANCELLED,
-                ended_at=terminal_now,
-                summary="Cancelled with workflow",
-                error="Workflow cancelled",
-                result_json=redact_and_truncate(result),
-            )
-            self.store.update_workflow(self.workflow_id, active_child_run_id=None)
-            return True
-        self._fail_step(
+        if state == "cancelled" and workflow.status == WorkflowStatus.CANCELLATION_PENDING:
+            return False
+        return self._fail_step(
             active_step,
             summary=str(result.get("summary") or f"Child run ended with status {state}"),
             error=str(result.get("error") or f"Child run status {state}"),
             result=result,
         )
-        return True
+
+    def _replay_local_summaries(self, workflow: Any) -> bool:
+        for step in workflow.steps:
+            if step.type.value == "local_summary" and step.status == WorkflowStepStatus.RUNNING:
+                reset = self.store.reset_local_summary(
+                    self.workflow_id,
+                    step.id,
+                    expected_workflow_state_version=workflow.state_version,
+                    expected_step_state_version=step.state_version,
+                    lease_token=self.lease_token,
+                    lease_generation=self.lease_generation,
+                )
+                if reset is None:
+                    return True
+                return True
+        return False
 
     def _next_pending_step(self) -> WorkflowStepRecord | None:
         workflow = self.store.get_workflow(self.workflow_id)
         status_by_id = {step.id: step.status for step in workflow.steps}
         for step in workflow.steps:
-            if step.status != WorkflowStepStatus.PENDING:
-                continue
-            if all(status_by_id.get(dep) == WorkflowStepStatus.PASSED for dep in step.depends_on):
+            if step.status == WorkflowStepStatus.PENDING and all(
+                status_by_id.get(dep) == WorkflowStepStatus.PASSED for dep in step.depends_on
+            ):
                 return step
         return None
 
     def _skip_blocked_steps(self) -> bool:
         workflow = self.store.get_workflow(self.workflow_id)
         status_by_id = {step.id: step.status for step in workflow.steps}
-        updated = False
         for step in workflow.steps:
             if step.status != WorkflowStepStatus.PENDING or not step.depends_on:
                 continue
@@ -209,32 +212,32 @@ class WorkflowWorker:
                 }
                 for state in dependency_states
             ) and any(state != WorkflowStepStatus.PASSED for state in dependency_states):
-                self.store.update_step(
+                updated = self.store.conditional_update_step(
                     self.workflow_id,
                     step.id,
-                    status=WorkflowStepStatus.SKIPPED,
-                    ended_at=utc_now(),
-                    summary="Skipped because a dependency did not pass",
-                    error="Blocked by failed dependency",
+                    fields={
+                        "status": WorkflowStepStatus.SKIPPED,
+                        "ended_at": utc_now(),
+                        "summary": "Skipped because a dependency did not pass",
+                        "error": "Blocked by failed dependency",
+                    },
+                    expected_statuses=(WorkflowStepStatus.PENDING,),
+                    lease_token=self.lease_token,
+                    lease_generation=self.lease_generation,
+                    expected_state_version=step.state_version,
+                    expected_child_run_id=None,
+                    expected_workflow_state_version=workflow.state_version,
                 )
-                self._event(
-                    "warning",
-                    "step_skipped",
-                    f"Workflow step {step.id} skipped due to dependency state",
-                    {"depends_on": step.depends_on},
-                )
-                updated = True
-        return updated
+                if updated is None:
+                    return True
+                self._event("warning", "step_skipped", f"Workflow step {step.id} skipped due to dependency state", {"depends_on": step.depends_on})
+                return True
+        return False
 
-    def _start_step(self, step: WorkflowStepRecord) -> None:
-        child_run_id = (
-            None
-            if step.type.value == "local_summary"
-            else make_run_id(
-                "codex_implement_task"
-                if step.type.value == "codex_implement"
-                else "project_command"
-            )
+    def _start_step(self, step: WorkflowStepRecord) -> bool:
+        workflow = self.store.get_workflow(self.workflow_id)
+        child_run_id = None if step.type.value == "local_summary" else make_run_id(
+            "codex_implement_task" if step.type.value == "codex_implement" else "project_command"
         )
         claimed = self.store.claim_step(
             self.workflow_id,
@@ -242,53 +245,38 @@ class WorkflowWorker:
             lease_token=self.lease_token,
             lease_generation=self.lease_generation,
             child_run_id=child_run_id,
+            expected_workflow_state_version=workflow.state_version,
+            expected_step_state_version=step.state_version,
         )
         if claimed is None:
-            return
+            return False
         claimed_step = next(item for item in claimed.steps if item.id == step.id)
-        self._event(
-            "info",
-            "step_running",
-            f"Workflow step {step.id} claimed",
-            {"child_run_id": child_run_id},
-        )
+        if not self._event("info", "step_running", f"Workflow step {step.id} claimed", {"child_run_id": child_run_id}):
+            return False
         if child_run_id is None:
-            self._run_local_summary(claimed_step)
-            return
-        launch = self._start_child_run(claimed_step, child_run_id)
+            return self._run_local_summary(claimed_step)
+        try:
+            launch = self._start_child_run(claimed_step, child_run_id)
+        except Exception as exc:
+            return self._fail_step(claimed_step, summary="Child run launch failed", error=str(exc), result={"error": str(exc)})
         if not bool(launch.get("accepted", launch.get("ok", False))):
-            failure = str(
-                launch.get("reason")
-                or launch.get("error")
-                or "Child run launch refused"
-            )
-            required = bool(launch.get("requires_human"))
-            self._fail_step(
+            failure = str(launch.get("reason") or launch.get("error") or "Child run launch refused")
+            return self._fail_step(
                 claimed_step,
                 summary=failure,
                 error=failure,
                 result=launch,
-                workflow_status=(
-                    WorkflowStatus.NEEDS_APPROVAL
-                    if required
-                    else WorkflowStatus.FAILED
-                ),
-                recommended_next_action=(
-                    "Approve or adjust the workflow input before retrying."
-                    if required
-                    else "Review the failed launch response and adjust the workflow definition."
-                ),
+                workflow_status=WorkflowStatus.NEEDS_APPROVAL if launch.get("requires_human") else WorkflowStatus.FAILED,
+                recommended_next_action="Approve or adjust the workflow input before retrying." if launch.get("requires_human") else "Review the failed launch response and adjust the workflow definition.",
             )
-            return
         launched_run_id = str(launch.get("run_id") or "")
         if launched_run_id != child_run_id:
-            self._fail_step(
+            return self._fail_step(
                 claimed_step,
                 summary="Child launch returned an unexpected run ID",
                 error=f"Expected {child_run_id}, received {launched_run_id or '<empty>'}",
                 result=launch,
             )
-            return
         current = self.store.get_workflow(self.workflow_id)
         active_step = next(item for item in current.steps if item.id == step.id)
         recorded = self.store.conditional_update_step(
@@ -300,59 +288,33 @@ class WorkflowWorker:
             lease_generation=self.lease_generation,
             expected_state_version=active_step.state_version,
             expected_child_run_id=child_run_id,
+            expected_workflow_state_version=current.state_version,
         )
         if recorded is None:
-            self.job_manager.cancel_run(child_run_id)
-            return
-        self._event(
-            "info",
-            "child_run_started",
-            f"Workflow step {step.id} launched child run",
-            {"child_run_id": child_run_id},
-        )
+            return False
+        self._event("info", "child_run_started", f"Workflow step {step.id} launched child run", {"child_run_id": child_run_id})
+        return True
 
-    def _start_child_run(
-        self, step: WorkflowStepRecord, reserved_run_id: str
-    ) -> dict[str, Any]:
+    def _start_child_run(self, step: WorkflowStepRecord, reserved_run_id: str) -> dict[str, Any]:
         workflow = self.store.get_workflow(self.workflow_id)
         if step.type.value == "codex_implement":
             params = CodexImplementParameters.model_validate(step.parameters)
-            return self.job_manager.start_implementation(
-                workflow.repo_name,
-                params.approved_plan,
-                params.allowed_files,
-                params.tests,
-                reserved_run_id=reserved_run_id,
-            )
+            return self.job_manager.start_implementation(workflow.repo_name, params.approved_plan, params.allowed_files, params.tests, reserved_run_id=reserved_run_id)
         if step.type.value == "project_command":
             params = ProjectCommandParameters.model_validate(step.parameters)
-            return self.job_manager.start_project_command(
-                workflow.repo_name,
-                params.command_id,
-                reserved_run_id=reserved_run_id,
-            )
+            return self.job_manager.start_project_command(workflow.repo_name, params.command_id, reserved_run_id=reserved_run_id)
         if step.type.value == "pytest_path":
             params = PytestPathParameters.model_validate(step.parameters)
-            return self.job_manager.start_pytest_path(
-                workflow.repo_name,
-                params.path,
-                reserved_run_id=reserved_run_id,
-            )
+            return self.job_manager.start_pytest_path(workflow.repo_name, params.path, reserved_run_id=reserved_run_id)
         if step.type.value == "git_readonly":
             params = GitReadonlyParameters.model_validate(step.parameters)
-            return self.job_manager.start_git_readonly(
-                workflow.repo_name,
-                params.operation,
-                reserved_run_id=reserved_run_id,
-            )
+            return self.job_manager.start_git_readonly(workflow.repo_name, params.operation, reserved_run_id=reserved_run_id)
         raise ValueError(f"Unsupported workflow step type: {step.type.value}")
 
-    def _run_local_summary(self, step: WorkflowStepRecord) -> None:
+    def _run_local_summary(self, step: WorkflowStepRecord) -> bool:
         params = LocalSummaryParameters.model_validate(step.parameters)
         workflow = self.store.get_workflow(self.workflow_id)
-        prior_steps = [
-            item for item in workflow.steps if item.order_index < step.order_index
-        ]
+        prior_steps = [item for item in workflow.steps if item.order_index < step.order_index]
         if params.include_step_ids:
             include = set(params.include_step_ids)
             prior_steps = [item for item in prior_steps if item.id in include]
@@ -379,155 +341,138 @@ class WorkflowWorker:
         from codexbridge.return_loop.atomic_writer import atomic_write_json
 
         atomic_write_json(summary_path, redact_and_truncate(summary_payload))
-        self.store.update_step(
+        current = self.store.get_workflow(self.workflow_id)
+        current_step = next(item for item in current.steps if item.id == step.id)
+        artifact_paths = list(dict.fromkeys([str(path) for path in current.artifact_paths] + [str(summary_path)]))
+        updated = self.store.conditional_update_step(
             self.workflow_id,
             step.id,
-            status=WorkflowStepStatus.PASSED,
-            ended_at=utc_now(),
-            summary="Structured local summary written",
-            artifact_paths_json=[str(summary_path)],
-            result_json=summary_payload,
+            fields={
+                "status": WorkflowStepStatus.PASSED,
+                "ended_at": utc_now(),
+                "summary": "Structured local summary written",
+                "artifact_paths_json": [str(summary_path)],
+                "result_json": summary_payload,
+            },
+            expected_statuses=(WorkflowStepStatus.RUNNING,),
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            expected_state_version=current_step.state_version,
+            expected_child_run_id=None,
+            expected_workflow_state_version=current.state_version,
+            workflow_fields={"artifact_paths_json": artifact_paths},
         )
-        workflow = self.store.get_workflow(self.workflow_id)
-        artifact_paths = [*workflow.artifact_paths, summary_path]
-        self.store.update_workflow(
-            self.workflow_id,
-            artifact_paths_json=[str(path) for path in artifact_paths],
-        )
-        self._event(
-            "info",
-            "local_summary",
-            f"Workflow step {step.id} wrote local summary",
-            {"artifact_path": str(summary_path)},
-        )
+        if updated is None:
+            return False
+        self._event("info", "local_summary", f"Workflow step {step.id} wrote local summary", {"artifact_path": str(summary_path)})
+        return True
 
-    def _fail_step(
-        self,
-        step: WorkflowStepRecord,
-        *,
-        summary: str,
-        error: str,
-        result: dict[str, Any],
-        workflow_status: WorkflowStatus | None = None,
-        recommended_next_action: str = "",
-    ) -> None:
-        workflow = self.store.get_workflow(self.workflow_id)
-        self.store.update_step(
+    def _finish_step(self, step: WorkflowStepRecord, *, status: WorkflowStepStatus, ended_at: str, summary: str, error: str, result: dict[str, Any], clear_child: bool) -> bool:
+        current = self.store.get_workflow(self.workflow_id)
+        current_step = next((item for item in current.steps if item.id == step.id), None)
+        if current_step is None:
+            return False
+        return self.store.conditional_update_step(
             self.workflow_id,
             step.id,
-            status=WorkflowStepStatus.FAILED,
-            ended_at=utc_now(),
-            summary=summary,
-            error=error,
-            result_json=redact_and_truncate(result),
-        )
-        self.store.update_workflow(
+            fields={"status": status, "ended_at": ended_at, "summary": summary, "error": error, "result_json": redact_and_truncate(result)},
+            expected_statuses=(WorkflowStepStatus.RUNNING,),
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            expected_state_version=current_step.state_version,
+            expected_child_run_id=step.child_run_id,
+            expected_workflow_state_version=current.state_version,
+            clear_active_child=clear_child,
+        ) is not None
+
+    def _fail_step(self, step: WorkflowStepRecord, *, summary: str, error: str, result: dict[str, Any], workflow_status: WorkflowStatus | None = None, recommended_next_action: str = "") -> bool:
+        current = self.store.get_workflow(self.workflow_id)
+        current_step = next((item for item in current.steps if item.id == step.id), None)
+        if current_step is None or current_step.status != WorkflowStepStatus.RUNNING:
+            return False
+        updated = self.store.conditional_update_step(
             self.workflow_id,
-            active_child_run_id=None,
-            failure_summary=summary,
+            step.id,
+            fields={"status": WorkflowStepStatus.FAILED, "ended_at": utc_now(), "summary": summary, "error": error, "result_json": redact_and_truncate(result)},
+            expected_statuses=(WorkflowStepStatus.RUNNING,),
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
+            expected_state_version=current_step.state_version,
+            expected_child_run_id=current_step.child_run_id,
+            expected_workflow_state_version=current.state_version,
+            clear_active_child=bool(current_step.child_run_id),
+            workflow_fields={"failure_summary": summary},
         )
-        self._event(
-            "error",
-            "step_failed",
-            f"Workflow step {step.id} failed",
-            {"error": error, "child_run_id": step.child_run_id},
-        )
-        target_status = workflow_status
-        if target_status is None:
-            target_status = (
-                WorkflowStatus.FAILED
-                if step.on_failure == StepOnFailure.STOP
-                else None
-            )
+        if updated is None:
+            return False
+        self._event("error", "step_failed", f"Workflow step {step.id} failed", {"error": error, "child_run_id": step.child_run_id})
+        target_status = workflow_status or (WorkflowStatus.FAILED if step.on_failure == StepOnFailure.STOP else None)
         if target_status is not None:
-            self._transition_terminal(
-                target_status,
-                failure_summary=summary,
-                recommended_next_action=recommended_next_action
-                or "Inspect the failing step and adjust the workflow before retrying.",
-            )
+            self._transition_terminal(target_status, failure_summary=summary, recommended_next_action=recommended_next_action or "Inspect the failing step and adjust the workflow before retrying.")
+        return True
 
     def _complete_workflow(self) -> None:
         workflow = self.store.get_workflow(self.workflow_id)
         failed_steps = [step for step in workflow.steps if step.status == WorkflowStepStatus.FAILED]
-        recommended = (
-            "Review the failed step outputs captured in the workflow artifacts."
-            if failed_steps
-            else "No immediate action required."
-        )
         self._transition_terminal(
             WorkflowStatus.COMPLETED,
             failure_summary="; ".join(step.summary for step in failed_steps if step.summary),
-            recommended_next_action=recommended,
+            recommended_next_action="Review the failed step outputs captured in the workflow artifacts." if failed_steps else "No immediate action required.",
         )
 
-    def _transition_terminal(
-        self,
-        status: WorkflowStatus,
-        *,
-        failure_summary: str,
-        recommended_next_action: str,
-    ) -> None:
-        updated = self.store.update_workflow(
+    def _transition_terminal(self, status: WorkflowStatus, *, failure_summary: str, recommended_next_action: str) -> None:
+        current = self.store.get_workflow(self.workflow_id)
+        updated = self.store.transition_terminal(
             self.workflow_id,
             status=status,
-            terminal_status=status,
-            ended_at=utc_now(),
-            active_child_run_id=None,
+            expected_state_version=current.state_version,
+            lease_token=self.lease_token,
+            lease_generation=self.lease_generation,
             failure_summary=failure_summary,
             recommended_next_action=recommended_next_action,
         )
-        self._event(
-            "info" if status == WorkflowStatus.COMPLETED else "warning",
-            "terminal",
-            f"Workflow reached terminal status {status.value}",
-            {"recommended_next_action": recommended_next_action},
-        )
-        self.workflow_manager._finalize_terminal_workflow(updated)
+        if updated is None:
+            return
+        self._event("info" if status == WorkflowStatus.COMPLETED else "warning", "terminal", f"Workflow reached terminal status {status.value}", {"recommended_next_action": recommended_next_action})
+        publish_workflow(self.store, self.config.resolve_runs_dir(), self.workflow_id)
 
     def _all_steps_terminal(self) -> bool:
         workflow = self.store.get_workflow(self.workflow_id)
-        return all(
-            step.status
-            in {
-                WorkflowStepStatus.PASSED,
-                WorkflowStepStatus.FAILED,
-                WorkflowStepStatus.SKIPPED,
-                WorkflowStepStatus.CANCELLED,
-            }
-            for step in workflow.steps
-        )
+        return all(step.status in {WorkflowStepStatus.PASSED, WorkflowStepStatus.FAILED, WorkflowStepStatus.SKIPPED, WorkflowStepStatus.CANCELLED} for step in workflow.steps)
 
-    def _event(
-        self, level: str, stage: str, message: str, data: dict[str, Any] | None = None
-    ) -> bool:
-        workflow = self.store.get_workflow(self.workflow_id)
-        if (
-            workflow.worker_lease_token != self.lease_token
-            or workflow.lease_generation != self.lease_generation
-        ):
-            return False
-        if workflow.status == WorkflowStatus.RUNNING and not self.store.heartbeat_worker(
+    def _mark_recovery(self, reason: str) -> None:
+        current = self.store.get_workflow(self.workflow_id)
+        changed = self.store.mark_recovery_pending(
             self.workflow_id,
-            lease_token=self.lease_token,
-            lease_generation=self.lease_generation,
-            worker_pid=os_getpid(),
-        ):
+            expected_statuses=(WorkflowStatus.RUNNING,),
+            expected_state_version=current.state_version,
+            expected_lease_token=self.lease_token,
+            expected_lease_generation=self.lease_generation,
+            reason=reason,
+        )
+        if changed is not None:
+            self._event("error", "recovery_pending", reason)
+
+    def _event(self, level: str, stage: str, message: str, data: dict[str, Any] | None = None) -> bool:
+        workflow = self.store.get_workflow(self.workflow_id)
+        if workflow.worker_lease_token != self.lease_token or workflow.lease_generation != self.lease_generation:
             return False
-        self.store.append_event(
+        event = self.store.append_event(
             self.workflow_id,
             level=level,
             stage=stage,
             message=message,
             data=redact_and_truncate(data or {}),
             update_workflow_metadata=False,
+            expected_lease_token=self.lease_token,
+            expected_lease_generation=self.lease_generation,
+            expected_statuses=(workflow.status,),
+            expected_state_version=workflow.state_version,
         )
-        workflow = self.store.get_workflow(self.workflow_id)
-        write_workflow_snapshot(
-            self.config.resolve_runs_dir(),
-            workflow,
-            [event.to_dict() for event in self.store.get_events(self.workflow_id, 500)],
-        )
+        if event is None:
+            return False
+        current = self.store.get_workflow(self.workflow_id)
+        write_workflow_snapshot(self.config.resolve_runs_dir(), current, [item.to_dict() for item in self.store.get_events(self.workflow_id, 500)])
         return True
 
 
@@ -548,12 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    worker = WorkflowWorker(
-        Path(args.config),
-        args.workflow_id,
-        lease_token=args.lease_token,
-        lease_generation=args.lease_generation,
-    )
+    worker = WorkflowWorker(Path(args.config), args.workflow_id, lease_token=args.lease_token, lease_generation=args.lease_generation)
     return worker.execute()
 
 

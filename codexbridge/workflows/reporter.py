@@ -14,6 +14,7 @@ TERMINAL_REPORTABLE_STATUSES = {
     WorkflowStatus.COMPLETED,
     WorkflowStatus.FAILED,
     WorkflowStatus.NEEDS_INPUT,
+    WorkflowStatus.NEEDS_APPROVAL,
     WorkflowStatus.CANCELLED,
     WorkflowStatus.REPORTED,
 }
