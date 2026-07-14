@@ -912,6 +912,8 @@ class JobManager:
         recursive: bool = False,
         overwrite: bool = False,
         confirmation: str = "",
+        autonomy_profile: str = "chatgpt_delegated",
+        execution_mode: str = "structured",
     ) -> dict:
         if not self.config.ssh.allow_transfer:
             raise ValueError("SSH transfer capability is disabled by allow_transfer")
@@ -931,6 +933,15 @@ class JobManager:
                 raise ValueError(f"Local upload path does not exist: {local_path}")
             if local.is_dir() and not recursive:
                 raise ValueError("Directory upload requires recursive=true")
+        policy = authorize_ssh_action_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+            writes_remote=direction == "upload",
+            high_risk=overwrite,
+            chatgpt_approval_granted=True,
+            human_approval_granted=overwrite,
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
         decision = PolicyDecision(
             accepted=True,
             tier=3 if overwrite else 2,
@@ -951,12 +962,14 @@ class JobManager:
             "recursive": recursive,
             "overwrite": overwrite,
             "confirmation": confirmation,
+            **policy_metadata,
         }
         response = self._create_and_launch(
             "ssh_transfer", f"ssh:{host_id}", input_data, decision
         )
         response["host_id"] = host_id
         response["direction"] = direction
+        response.update(policy_metadata)
         return response
 
     def start_ssh_deployment(
@@ -965,6 +978,8 @@ class JobManager:
         deployment_id: str,
         *,
         confirmation: str,
+        autonomy_profile: str = "chatgpt_delegated",
+        execution_mode: str = "structured",
     ) -> dict:
         if not self.config.ssh.allow_deploy:
             raise ValueError("SSH deployment capability is disabled by allow_deploy")
@@ -981,6 +996,15 @@ class JobManager:
             )
         resolve_repo(self.config, deployment.repo_name)
         validate_remote_path(host, deployment.remote_root, sensitive=True)
+        policy = authorize_ssh_action_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+            writes_remote=True,
+            high_risk=True,
+            chatgpt_approval_granted=True,
+            human_approval_granted=True,
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
         decision = PolicyDecision(
             accepted=True,
             tier=3,
@@ -996,12 +1020,14 @@ class JobManager:
             "host_id": host_id,
             "deployment_id": deployment_id,
             "confirmation": confirmation,
+            **policy_metadata,
         }
         response = self._create_and_launch(
             "ssh_deployment", f"ssh:{host_id}", input_data, decision
         )
         response["host_id"] = host_id
         response["deployment_id"] = deployment_id
+        response.update(policy_metadata)
         return response
 
     def start_cloudflare_action(

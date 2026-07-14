@@ -395,7 +395,14 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     )
     assert transfer["accepted"] is True
     assert transfer["direction"] == "upload"
-    assert manager.get_status(transfer["run_id"])["tool"] == "ssh_transfer"
+    assert transfer["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert transfer["policy_decision"] == "needs_chatgpt_approval"
+    assert transfer["policy_authorized"] is True
+    assert transfer["approval_source"] == "chatgpt"
+    transfer_status = manager.get_status(transfer["run_id"])
+    assert transfer_status["tool"] == "ssh_transfer"
+    assert transfer_status["input"]["permission_tier"] == transfer["permission_tier"]
+    assert transfer_status["input"]["approval_source"] == "chatgpt"
     manager.locks.release("ssh:my_vps", transfer["run_id"])
 
     deployment = manager.start_ssh_deployment(
@@ -405,9 +412,51 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     )
     assert deployment["accepted"] is True
     assert deployment["deployment_id"] == "sample_app"
+    assert deployment["permission_tier"] == "T6_HUMAN_ONLY_RISKY_ACTION"
+    assert deployment["policy_decision"] == "needs_human_approval"
+    assert deployment["policy_authorized"] is True
+    assert deployment["approval_source"] == "human"
     deployment_status = manager.get_status(deployment["run_id"])
     assert deployment_status["tool"] == "ssh_deployment"
     assert deployment_status["risk_level"] == "high"
+    assert deployment_status["input"]["permission_tier"] == deployment["permission_tier"]
+    assert deployment_status["input"]["approval_source"] == "human"
+
+
+def test_ssh_transfer_profiles_gate_upload_and_allow_download(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    host = manager.config.ssh.hosts["my_vps"]
+    host.allowed_remote_roots = ["/srv/app"]
+    manager.config.ssh.allow_transfer = True
+    local_file = tmp_path / "repo" / "deploy.txt"
+    local_file.write_text("deploy\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="human approval"):
+        manager.start_ssh_transfer(
+            "my_vps",
+            "upload",
+            repo_name="sample",
+            local_path="deploy.txt",
+            remote_path="/srv/app/deploy.txt",
+            autonomy_profile="readonly",
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
+
+    download = manager.start_ssh_transfer(
+        "my_vps",
+        "download",
+        repo_name="sample",
+        local_path="artifact.log",
+        remote_path="/srv/app/artifact.log",
+        autonomy_profile="readonly",
+    )
+    assert download["permission_tier"] == "T0_READ_ONLY"
+    assert download["policy_decision"] == "allowed"
+    assert download["approval_source"] == "none"
 
 
 @pytest.mark.parametrize(

@@ -272,10 +272,33 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
             "execution_mode": "structured",
         }
     )
+    transfer = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "transfer",
+            "host_id": "dev",
+            "repo_name": "repo",
+            "direction": "upload",
+            "local_path": "artifact.bin",
+            "remote_path": "/srv/artifact.bin",
+            "autonomy_profile": "permissive",
+        }
+    )
+    deployment = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "deployment",
+            "host_id": "dev",
+            "deployment_id": "app",
+            "confirmation": "confirm",
+        }
+    )
     assert command.autonomy_profile == "chatgpt_delegated"
     assert command.execution_mode == "structured"
     assert administration.autonomy_profile == "permissive"
     assert administration.execution_mode == "structured"
+    assert transfer.autonomy_profile == "permissive"
+    assert transfer.execution_mode == "structured"
+    assert deployment.autonomy_profile == "chatgpt_delegated"
+    assert deployment.execution_mode == "structured"
 
 
 def test_phase7_system_and_knowledge_models_are_strict() -> None:

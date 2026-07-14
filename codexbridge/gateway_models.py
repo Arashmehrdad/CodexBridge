@@ -646,7 +646,7 @@ class SSHAdministrationAction(SSHExecutionPolicyGatewayRequest):
     confirmation: str = Field(default="", max_length=128)
 
 
-class SSHTransferAction(GatewayModel):
+class SSHTransferAction(SSHExecutionPolicyGatewayRequest):
     action: Literal["transfer"]
     host_id: str = Field(min_length=1, max_length=128)
     repo_name: str = Field(min_length=1, max_length=128)
@@ -658,7 +658,7 @@ class SSHTransferAction(GatewayModel):
     confirmation: str = Field(default="", max_length=128)
 
 
-class SSHDeploymentAction(GatewayModel):
+class SSHDeploymentAction(SSHExecutionPolicyGatewayRequest):
     action: Literal["deployment"]
     host_id: str = Field(min_length=1, max_length=128)
     deployment_id: str = Field(min_length=1, max_length=128)
