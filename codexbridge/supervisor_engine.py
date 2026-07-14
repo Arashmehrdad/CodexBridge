@@ -348,6 +348,39 @@ class SupervisorEngine:
         metadata = dict(supervisor["metadata"])
         active_child = metadata.get("active_child") or {}
         run_id = active_child.get("run_id")
+        if run_id:
+            try:
+                cancellation = self.jobs.cancel(run_id)
+            except KeyError:
+                cancellation = {}
+            if cancellation.get("status") != "cancelled":
+                blocked_metadata = dict(metadata)
+                blocked_metadata["blocked"] = {
+                    "reason": "child_cancellation_unverified",
+                    "run_id": run_id,
+                    "at": utc_now(),
+                }
+                updated = self.store.conditional_update_supervisor(
+                    supervisor_id,
+                    fields={
+                        "status": "needs_input",
+                        "summary": "Child cancellation could not be verified",
+                        "metadata_json": blocked_metadata,
+                    },
+                    expected_statuses=(supervisor["status"],),
+                    expected_state_version=int(supervisor["state_version"]),
+                )
+                if updated is None:
+                    return self.store.get_supervisor(supervisor_id)
+                self._write_resume_prompt(updated)
+                self.store.append_event(
+                    supervisor_id,
+                    level="warning",
+                    stage="cancellation_unverified",
+                    message="Supervisor child cancellation could not be verified",
+                    data={"run_id": run_id},
+                )
+                return updated
         metadata["cancelled_child"] = active_child or None
         metadata["active_child"] = None
         metadata["implementation_lock"] = None
@@ -364,11 +397,6 @@ class SupervisorEngine:
         )
         if updated is None:
             return self.store.get_supervisor(supervisor_id)
-        if run_id:
-            try:
-                self.jobs.cancel(run_id)
-            except KeyError:
-                pass
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor_id,

@@ -474,6 +474,23 @@ def test_cancel_active_implementation_marks_cancelled(tmp_path: Path) -> None:
     assert _store.operation_locks.list_locks("codexbridge") == []
 
 
+def test_cancel_with_unowned_child_requires_manual_verification(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    planning = engine.tick(supervisor["supervisor_id"])
+    run_id = active_run_id(planning)
+    del jobs.jobs[run_id]
+
+    blocked = engine.cancel(supervisor["supervisor_id"])
+
+    assert blocked["status"] == "needs_input"
+    assert blocked["ended_at"] is None
+    assert blocked["metadata"]["active_child"]["run_id"] == run_id
+    assert blocked["metadata"]["blocked"]["reason"] == "child_cancellation_unverified"
+    assert store.get_events(supervisor["supervisor_id"], limit=1)[0]["stage"] == "cancellation_unverified"
+    assert resume_prompt(store, supervisor["supervisor_id"]).exists()
+
+
 def test_reloaded_implementation_keeps_same_child_ownership(
     tmp_path: Path,
 ) -> None:
