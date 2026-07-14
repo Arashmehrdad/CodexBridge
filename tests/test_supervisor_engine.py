@@ -422,3 +422,80 @@ def test_state_survives_store_reload(tmp_path: Path) -> None:
     assert needs_input["status"] == "needs_input"
     assert needs_input["summary"] == "reloaded plan"
     assert needs_input["metadata"]["plan_result"]["run_id"] == active_run_id(planning)
+
+
+def test_reserved_plan_child_relaunches_with_same_run_id(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    run_id = "20260428T120001Z_codex_plan_task_12345678"
+    attached = store.attach_child(
+        supervisor["supervisor_id"],
+        run_id=run_id,
+        link_type="plan",
+        child_kind="plan",
+        target_status="planning",
+        metadata=supervisor["metadata"],
+        expected_statuses=("queued",),
+        expected_state_version=int(supervisor["state_version"]),
+        started_at="2026-04-28T12:00:00+00:00",
+    )
+    assert attached is not None
+    assert attached["metadata"]["active_child"]["launch_state"] == "reserved"
+
+    resumed = engine.tick(supervisor["supervisor_id"])
+
+    assert active_run_id(resumed) == run_id
+    assert resumed["metadata"]["active_child"]["launch_state"] == "launched"
+    assert list(jobs.jobs) == [run_id]
+    assert [link["run_id"] for link in store.list_run_links(supervisor["supervisor_id"])] == [run_id]
+
+
+def test_existing_reserved_plan_child_is_adopted_without_duplicate_launch(
+    tmp_path: Path,
+) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    run_id = "20260428T120001Z_codex_plan_task_87654321"
+    attached = store.attach_child(
+        supervisor["supervisor_id"],
+        run_id=run_id,
+        link_type="plan",
+        child_kind="plan",
+        target_status="planning",
+        metadata=supervisor["metadata"],
+        expected_statuses=("queued",),
+        expected_state_version=int(supervisor["state_version"]),
+        started_at="2026-04-28T12:00:00+00:00",
+    )
+    assert attached is not None
+    jobs.start_plan(
+        "codexbridge",
+        "inspect README",
+        "do not edit",
+        reserved_run_id=run_id,
+    )
+
+    resumed = engine.tick(supervisor["supervisor_id"])
+
+    assert active_run_id(resumed) == run_id
+    assert resumed["metadata"]["active_child"]["launch_state"] == "launched"
+    assert list(jobs.jobs) == [run_id]
+
+
+def test_stale_plan_completion_cannot_emit_duplicate_terminal_effects(
+    tmp_path: Path,
+) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    planning = engine.tick(supervisor["supervisor_id"])
+    stale_planning = dict(planning)
+    stale_planning["metadata"] = dict(planning["metadata"])
+    jobs.complete(active_run_id(planning), summary="done")
+
+    completed = engine.tick(supervisor["supervisor_id"])
+    event_count = len(store.get_events(supervisor["supervisor_id"], limit=100))
+    stale_result = engine._advance_plan(stale_planning)
+
+    assert completed["status"] == "needs_input"
+    assert stale_result["status"] == "needs_input"
+    assert len(store.get_events(supervisor["supervisor_id"], limit=100)) == event_count

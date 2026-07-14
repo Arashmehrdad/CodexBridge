@@ -516,32 +516,46 @@ class SupervisorEngine:
         status = self.jobs.get_status(run_id).get("status")
         if status in ACTIVE_STATES:
             return supervisor
+        lock_metadata = dict(metadata)
         if status == "failed":
             result = self.jobs.get_result(run_id)
-            self._release_implementation_lock(metadata)
-            return self._fail(
+            metadata["implementation_lock"] = None
+            updated = self._fail(
                 supervisor,
                 result.get("error")
                 or result.get("summary")
                 or "Implementation child run failed",
                 metadata=metadata,
             )
+            if updated["status"] == "failed":
+                self._release_implementation_lock(lock_metadata)
+            return updated
         if status == "cancelled":
-            self._release_implementation_lock(metadata)
-            return self._cancel_from_child(supervisor, metadata, run_id)
+            metadata["implementation_lock"] = None
+            updated = self._cancel_from_child(supervisor, metadata, run_id)
+            if updated["status"] == "cancelled":
+                self._release_implementation_lock(lock_metadata)
+            return updated
         if status != "completed":
             raise ValueError(f"Unsupported child run status: {status}")
         result = self.jobs.get_result(run_id)
         metadata["implementation_result"] = result
         metadata["active_child"] = None
-        self._release_implementation_lock(metadata)
-        updated = self.store.update_supervisor(
+        metadata["implementation_lock"] = None
+        updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
-            status="completed",
-            ended_at=utc_now(),
-            summary=result.get("summary", ""),
-            metadata_json=metadata,
+            fields={
+                "status": "completed",
+                "ended_at": utc_now(),
+                "summary": result.get("summary", ""),
+                "metadata_json": metadata,
+            },
+            expected_statuses=("implementing",),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
+        self._release_implementation_lock(lock_metadata)
         self._attach_links_and_write_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
@@ -571,14 +585,20 @@ class SupervisorEngine:
     ) -> dict[str, Any]:
         metadata = dict(metadata or supervisor["metadata"])
         metadata["active_child"] = None
-        updated = self.store.update_supervisor(
+        updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
-            status="failed",
-            ended_at=utc_now(),
-            error=error,
-            summary=error,
-            metadata_json=metadata,
+            fields={
+                "status": "failed",
+                "ended_at": utc_now(),
+                "error": error,
+                "summary": error,
+                "metadata_json": metadata,
+            },
+            expected_statuses=(supervisor["status"],),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
@@ -620,16 +640,22 @@ class SupervisorEngine:
         hard_stop["at"] = utc_now()
         metadata["hard_stop"] = hard_stop
         metadata["active_child"] = None
-        updated = self.store.update_supervisor(
+        updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
-            status="needs_input",
-            policy_tier=policy_result.decision.tier,
-            risk_level=policy_result.decision.risk_level,
-            requires_human=policy_result.decision.requires_human,
-            summary=policy_result.decision.reason
-            or "Supervisor hard-stop requires input",
-            metadata_json=metadata,
+            fields={
+                "status": "needs_input",
+                "policy_tier": policy_result.decision.tier,
+                "risk_level": policy_result.decision.risk_level,
+                "requires_human": policy_result.decision.requires_human,
+                "summary": policy_result.decision.reason
+                or "Supervisor hard-stop requires input",
+                "metadata_json": metadata,
+            },
+            expected_statuses=(supervisor["status"],),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
@@ -654,13 +680,19 @@ class SupervisorEngine:
         self, supervisor: dict[str, Any], metadata: dict[str, Any], run_id: str
     ) -> dict[str, Any]:
         metadata["active_child"] = None
-        updated = self.store.update_supervisor(
+        updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
-            status="cancelled",
-            ended_at=utc_now(),
-            summary="Child run cancelled",
-            metadata_json=metadata,
+            fields={
+                "status": "cancelled",
+                "ended_at": utc_now(),
+                "summary": "Child run cancelled",
+                "metadata_json": metadata,
+            },
+            expected_statuses=(supervisor["status"],),
+            expected_state_version=int(supervisor["state_version"]),
         )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
