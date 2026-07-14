@@ -325,43 +325,6 @@ class SupervisorEngine:
                 policy_result=policy_result,
             )
 
-        lock = self.store.acquire_repo_lock(
-            supervisor["repo_name"],
-            owner_id=supervisor_id,
-            reason="supervisor implementation",
-        )
-        if lock is None:
-            metadata["blocked"] = {
-                "reason": "repo_write_lock_unavailable",
-                "at": utc_now(),
-            }
-            updated = self.store.update_supervisor(
-                supervisor_id, metadata_json=metadata
-            )
-            self.store.append_event(
-                supervisor_id,
-                level="warning",
-                stage="blocked",
-                message="Implementation blocked by repo write lock",
-                data={"repo_name": supervisor["repo_name"]},
-            )
-            self._write_resume_prompt(updated)
-            self._notify(
-                updated,
-                event_stage="blocked",
-                event_level="warning",
-                kind="blocked_by_lock",
-                title="CodexBridge supervisor blocked",
-                message="Implementation is blocked by an active repo write lock.",
-                payload={
-                    "repo_name": supervisor["repo_name"],
-                    "reason": "repo_write_lock_unavailable",
-                },
-                dedupe_key="blocked_by_lock",
-            )
-            return updated
-
-        metadata["implementation_lock"] = lock
         metadata["blocked"] = None
         run_id = make_run_id("codex_implement_task")
         attached = self.store.attach_child(
@@ -375,7 +338,6 @@ class SupervisorEngine:
             expected_state_version=int(supervisor["state_version"]),
         )
         if attached is None:
-            self.store.release_repo_lock(lock["lock_id"])
             return self.store.get_supervisor(supervisor_id)
         return self._ensure_child_launched(attached, expected_kind="implementation")
 
@@ -386,7 +348,6 @@ class SupervisorEngine:
         metadata = dict(supervisor["metadata"])
         active_child = metadata.get("active_child") or {}
         run_id = active_child.get("run_id")
-        lock_metadata = dict(metadata)
         metadata["cancelled_child"] = active_child or None
         metadata["active_child"] = None
         metadata["implementation_lock"] = None
@@ -408,7 +369,6 @@ class SupervisorEngine:
                 self.jobs.cancel(run_id)
             except KeyError:
                 pass
-        self._release_implementation_lock(lock_metadata)
         self._write_resume_prompt(updated)
         self.store.append_event(
             supervisor_id,
@@ -516,7 +476,6 @@ class SupervisorEngine:
         status = self.jobs.get_status(run_id).get("status")
         if status in ACTIVE_STATES:
             return supervisor
-        lock_metadata = dict(metadata)
         if status == "failed":
             result = self.jobs.get_result(run_id)
             metadata["implementation_lock"] = None
@@ -527,14 +486,10 @@ class SupervisorEngine:
                 or "Implementation child run failed",
                 metadata=metadata,
             )
-            if updated["status"] == "failed":
-                self._release_implementation_lock(lock_metadata)
             return updated
         if status == "cancelled":
             metadata["implementation_lock"] = None
             updated = self._cancel_from_child(supervisor, metadata, run_id)
-            if updated["status"] == "cancelled":
-                self._release_implementation_lock(lock_metadata)
             return updated
         if status != "completed":
             raise ValueError(f"Unsupported child run status: {status}")
@@ -555,7 +510,6 @@ class SupervisorEngine:
         )
         if updated is None:
             return self.store.get_supervisor(supervisor["supervisor_id"])
-        self._release_implementation_lock(lock_metadata)
         self._attach_links_and_write_prompt(updated)
         self.store.append_event(
             supervisor["supervisor_id"],
@@ -748,11 +702,61 @@ class SupervisorEngine:
         )
         write_resume_prompt(self.store.runs_dir, enriched)
 
-    def _release_implementation_lock(self, metadata: dict[str, Any]) -> None:
-        lock = metadata.get("implementation_lock")
-        if lock and lock.get("lock_id"):
-            self.store.release_repo_lock(lock["lock_id"])
-        metadata["implementation_lock"] = None
+    def _block_implementation_launch(
+        self,
+        supervisor: dict[str, Any],
+        metadata: dict[str, Any],
+        run_id: str,
+        launch_reason: str,
+    ) -> dict[str, Any]:
+        blocked_metadata = dict(metadata)
+        blocked_metadata["active_child"] = None
+        blocked_metadata["implementation_lock"] = None
+        blocked_metadata["blocked"] = {
+            "reason": "repository_operation_lock_unavailable",
+            "launch_reason": launch_reason,
+            "run_id": run_id,
+            "at": utc_now(),
+        }
+        updated = self.store.conditional_update_supervisor(
+            supervisor["supervisor_id"],
+            fields={
+                "status": "needs_input",
+                "summary": "Implementation blocked by active repository ownership",
+                "metadata_json": blocked_metadata,
+            },
+            expected_statuses=("implementing",),
+            expected_state_version=int(supervisor["state_version"]),
+        )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
+        self.store.append_event(
+            supervisor["supervisor_id"],
+            level="warning",
+            stage="blocked",
+            message="Implementation blocked by shared repository ownership",
+            data={
+                "repo_name": supervisor["repo_name"],
+                "run_id": run_id,
+                "launch_reason": launch_reason,
+            },
+        )
+        self._write_resume_prompt(updated)
+        self._notify(
+            updated,
+            event_stage="blocked",
+            event_level="warning",
+            kind="blocked_by_lock",
+            title="CodexBridge supervisor blocked",
+            message="Implementation is blocked by active repository ownership.",
+            payload={
+                "repo_name": supervisor["repo_name"],
+                "reason": "repository_operation_lock_unavailable",
+                "run_id": run_id,
+            },
+            dedupe_key="blocked_by_lock",
+        )
+        return updated
 
     def _ensure_child_launched(
         self,
@@ -766,8 +770,9 @@ class SupervisorEngine:
         if active_child.get("launch_state") == "launched":
             return supervisor
 
+        child_status: dict[str, Any] | None = None
         try:
-            self.jobs.get_status(run_id)
+            child_status = self.jobs.get_status(run_id)
             child_exists = True
         except KeyError:
             child_exists = False
@@ -801,12 +806,22 @@ class SupervisorEngine:
                         "Child launcher returned a different reserved run ID"
                     )
             else:
+                launch_reason = str(
+                    response.get("reason") or "Child run was not accepted"
+                )
                 try:
-                    self.jobs.get_status(run_id)
+                    child_status = self.jobs.get_status(run_id)
                 except KeyError as exc:
-                    raise ValueError(
-                        response.get("reason") or "Child run was not accepted"
-                    ) from exc
+                    if expected_kind == "implementation" and launch_reason in {
+                        "repository busy",
+                        "duplicate active task",
+                    }:
+                        return self._block_implementation_launch(
+                            supervisor, metadata, run_id, launch_reason
+                        )
+                    raise ValueError(launch_reason) from exc
+            if child_status is None:
+                child_status = self.jobs.get_status(run_id)
 
         launched_metadata = dict(metadata)
         launched_metadata["active_child"] = {
@@ -814,6 +829,15 @@ class SupervisorEngine:
             "kind": expected_kind,
             "launch_state": "launched",
         }
+        if expected_kind == "implementation":
+            launched_metadata["implementation_lock"] = {
+                "authority": "operation_locks",
+                "repo_name": supervisor["repo_name"],
+                "run_id": run_id,
+                "lease_generation": int(
+                    (child_status or {}).get("lease_generation") or 1
+                ),
+            }
         updated = self.store.conditional_update_supervisor(
             supervisor["supervisor_id"],
             fields={"metadata_json": launched_metadata},
@@ -832,9 +856,9 @@ class SupervisorEngine:
 
         event_data = {"run_id": run_id}
         if expected_kind == "implementation":
-            lock = launched_metadata.get("implementation_lock") or {}
-            if lock.get("lock_id"):
-                event_data["lock_id"] = lock["lock_id"]
+            ownership = launched_metadata["implementation_lock"]
+            event_data["lock_authority"] = ownership["authority"]
+            event_data["lease_generation"] = ownership["lease_generation"]
         self.store.append_event(
             supervisor["supervisor_id"],
             level="info",

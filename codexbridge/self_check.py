@@ -184,7 +184,7 @@ def run_self_check(
             "supervisors",
             "supervisor_events",
             "supervisor_run_links",
-            "repo_write_locks",
+            "operation_locks",
             "supervisor_notifications",
         }
         with supervisor_store.connect() as conn:

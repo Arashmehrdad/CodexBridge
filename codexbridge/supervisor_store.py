@@ -9,10 +9,10 @@ from typing import Any
 from uuid import uuid4
 
 from .events import redact_and_truncate
+from .operation_locks import OperationLockStore
 
 
 SUPERVISOR_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_supervisor_[a-f0-9]{8}$")
-LOCK_ID_PATTERN = re.compile(r"^lock_[a-f0-9]{8}$")
 
 
 def utc_now() -> str:
@@ -24,18 +24,9 @@ def make_supervisor_id() -> str:
     return f"{timestamp}_supervisor_{uuid4().hex[:8]}"
 
 
-def make_lock_id() -> str:
-    return f"lock_{uuid4().hex[:8]}"
-
-
 def validate_supervisor_id(supervisor_id: str) -> None:
     if not SUPERVISOR_ID_PATTERN.match(supervisor_id):
         raise ValueError(f"Invalid supervisor_id: {supervisor_id}")
-
-
-def validate_lock_id(lock_id: str) -> None:
-    if not LOCK_ID_PATTERN.match(lock_id):
-        raise ValueError(f"Invalid lock_id: {lock_id}")
 
 
 def dumps(data: dict[str, Any] | list[Any] | None) -> str:
@@ -53,6 +44,7 @@ class SupervisorStore:
         self.runs_dir = runs_dir
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.runs_dir / "codexbridge.sqlite3"
+        self.operation_locks = OperationLockStore(self.runs_dir)
         self.init_db()
 
     def connect(self) -> sqlite3.Connection:
@@ -118,18 +110,6 @@ class SupervisorStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS repo_write_locks (
-                    lock_id TEXT PRIMARY KEY,
-                    repo_name TEXT NOT NULL,
-                    owner_id TEXT NOT NULL,
-                    acquired_at TEXT NOT NULL,
-                    expires_at TEXT,
-                    reason TEXT NOT NULL DEFAULT ''
-                )
-                """
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS supervisor_notifications (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     supervisor_id TEXT NOT NULL,
@@ -161,9 +141,6 @@ class SupervisorStore:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_supervisor_run_links_supervisor ON supervisor_run_links(supervisor_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_repo_write_locks_repo ON repo_write_locks(repo_name)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_supervisor_notifications_supervisor ON supervisor_notifications(supervisor_id, id)"
@@ -511,66 +488,6 @@ class SupervisorStore:
                 (supervisor_id,),
             ).fetchall()
         return [dict(row) for row in rows]
-
-    def acquire_repo_lock(
-        self,
-        repo_name: str,
-        *,
-        owner_id: str,
-        reason: str = "",
-        expires_at: str | None = None,
-        lock_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        lock_id = lock_id or make_lock_id()
-        validate_lock_id(lock_id)
-        now = utc_now()
-        with self.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                "DELETE FROM repo_write_locks WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                (now,),
-            )
-            active = conn.execute(
-                """
-                SELECT * FROM repo_write_locks
-                WHERE repo_name = ? AND (expires_at IS NULL OR expires_at > ?)
-                ORDER BY acquired_at ASC
-                LIMIT 1
-                """,
-                (repo_name, now),
-            ).fetchone()
-            if active is not None:
-                return None
-            conn.execute(
-                """
-                INSERT INTO repo_write_locks (lock_id, repo_name, owner_id, acquired_at, expires_at, reason)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (lock_id, repo_name, owner_id, now, expires_at, reason),
-            )
-        return self.get_repo_lock(repo_name)
-
-    def release_repo_lock(self, lock_id: str) -> bool:
-        validate_lock_id(lock_id)
-        with self.connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM repo_write_locks WHERE lock_id = ?", (lock_id,)
-            )
-        return int(cursor.rowcount) > 0
-
-    def get_repo_lock(self, repo_name: str) -> dict[str, Any] | None:
-        now = utc_now()
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT * FROM repo_write_locks
-                WHERE repo_name = ? AND (expires_at IS NULL OR expires_at > ?)
-                ORDER BY acquired_at ASC
-                LIMIT 1
-                """,
-                (repo_name, now),
-            ).fetchone()
-        return dict(row) if row is not None else None
 
     def create_notification(
         self,
