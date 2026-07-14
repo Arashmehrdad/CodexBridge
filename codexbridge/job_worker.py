@@ -42,6 +42,7 @@ from .process_control import (
 )
 from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import TERMINAL_STATUSES, RunStore
+from .run_publication import publish_run_result
 from .run_guards import (
     allowed_write_directories,
     assess_implementation_output_against,
@@ -298,19 +299,19 @@ class JobWorker:
                         "error": str(exc),
                     }
             ended_at = result["ended_at"]
-            artifact_error = ""
-            try:
-                self.artifacts.write_json("result.json", result)
-            except Exception as exc:
-                artifact_error = f"Could not persist result artifact: {exc}"
-                result["artifact_error"] = artifact_error
             current = self.store.get_run(self.run_id)
             if status in TERMINAL_STATUSES:
+                expected_terminal_statuses = ("running",)
+                if self.run["tool"] == "ssh_monitored_command" and status in {
+                    "cancelled",
+                    "timed_out",
+                }:
+                    expected_terminal_statuses = ("running", "cancellation_pending")
                 persisted = self.store.transition_terminal(
                     self.run_id,
                     status=status,
                     result=result,
-                    expected_statuses=("running",),
+                    expected_statuses=expected_terminal_statuses,
                     expected_state_version=int(current["state_version"]),
                     expected_lease_token=self.worker_lease_token,
                     expected_lease_generation=self.worker_lease_generation,
@@ -345,6 +346,17 @@ class JobWorker:
                 raise ValueError(f"Unsupported worker result status: {status}")
             if persisted is None:
                 winner = self.store.get_run(self.run_id)
+                if winner["status"] in TERMINAL_STATUSES:
+                    publication = publish_run_result(self.store, self.run_id)
+                    if not publication["ok"]:
+                        self.store.append_event(
+                            self.run_id,
+                            level="error",
+                            stage="result_publication",
+                            message="Canonical result publication failed",
+                            data={"error": publication["error"]},
+                            update_run_metadata=False,
+                        )
                 if (
                     winner.get("worker_lease_token") == self.worker_lease_token
                     and int(winner.get("lease_generation") or 1)
@@ -365,6 +377,17 @@ class JobWorker:
                     or winner["status"] == "cancellation_pending"
                     else 1
                 )
+            if status in TERMINAL_STATUSES:
+                publication = publish_run_result(self.store, self.run_id)
+                if not publication["ok"]:
+                    self.store.append_event(
+                        self.run_id,
+                        level="error",
+                        stage="result_publication",
+                        message="Canonical result publication failed",
+                        data={"error": publication["error"]},
+                        update_run_metadata=False,
+                    )
             level = (
                 "info"
                 if status == "completed"
@@ -414,12 +437,6 @@ class JobWorker:
                         "remote_process": remote_process,
                     }
                 )
-            try:
-                self.artifacts.write_json("result.json", result)
-            except Exception as artifact_exc:
-                result["artifact_error"] = (
-                    f"Could not persist result artifact: {artifact_exc}"
-                )
             current = self.store.get_run(self.run_id)
             if remote_identity_known:
                 persisted = self.store.conditional_update(
@@ -458,6 +475,17 @@ class JobWorker:
                     safety_failure=True,
                 )
             if persisted is not None:
+                if failure_status in TERMINAL_STATUSES:
+                    publication = publish_run_result(self.store, self.run_id)
+                    if not publication["ok"]:
+                        self.store.append_event(
+                            self.run_id,
+                            level="error",
+                            stage="result_publication",
+                            message="Canonical result publication failed",
+                            data={"error": publication["error"]},
+                            update_run_metadata=False,
+                        )
                 event = self.store.append_event(
                     self.run_id,
                     level="error",
@@ -473,6 +501,10 @@ class JobWorker:
                     update_run_metadata=False,
                 )
                 self.artifacts.append_event(event)
+            else:
+                winner = self.store.get_run(self.run_id)
+                if winner["status"] in TERMINAL_STATUSES:
+                    publish_run_result(self.store, self.run_id)
             return 1
         finally:
             self._heartbeat_stop.set()
