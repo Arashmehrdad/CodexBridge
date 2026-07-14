@@ -107,6 +107,13 @@ class SSHActionPolicyResult(BaseModel):
     reason: str
 
 
+class SSHActionAuthorizationResult(SSHActionPolicyResult):
+    """Policy decision plus the approval evidence that authorized a launch."""
+
+    authorized: bool
+    approval_source: Literal["none", "chatgpt", "human"]
+
+
 def classify_ssh_permission_tier(
     *,
     writes_remote: bool,
@@ -195,6 +202,71 @@ def evaluate_ssh_action_policy(
         human_required=human_required,
         chatgpt_delegated_allowed=chatgpt_allowed,
         reason=reason,
+    )
+
+
+def authorize_ssh_action_launch(
+    *,
+    autonomy_profile: str,
+    execution_mode: str,
+    writes_remote: bool,
+    monitored: bool = False,
+    high_risk: bool = False,
+    chatgpt_approval_granted: bool = False,
+    human_approval_granted: bool = False,
+    implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
+) -> SSHActionAuthorizationResult:
+    """Authorize one SSH action after validating mode, tier, and approval evidence."""
+
+    request = SSHActionPolicyRequest.model_validate(
+        {
+            "autonomy_profile": autonomy_profile,
+            "execution_mode": execution_mode,
+            "writes_remote": writes_remote,
+            "monitored": monitored,
+            "high_risk": high_risk,
+        }
+    )
+    policy = evaluate_ssh_action_policy(request)
+    if not policy.mode_allowed:
+        raise ValueError(
+            "SSH execution policy denied profile/mode combination: "
+            f"{request.autonomy_profile}/{request.execution_mode}"
+        )
+    if request.execution_mode not in implemented_modes:
+        raise ValueError(
+            "SSH execution mode is not implemented by this launch path: "
+            f"{request.execution_mode}"
+        )
+
+    approval_source: Literal["none", "chatgpt", "human"] = "none"
+    if policy.decision == PolicyDecisionValue.ALLOWED:
+        pass
+    elif (
+        policy.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
+        and chatgpt_approval_granted
+    ):
+        approval_source = "chatgpt"
+    elif (
+        policy.decision == PolicyDecisionValue.NEEDS_HUMAN_APPROVAL
+        and human_approval_granted
+    ):
+        approval_source = "human"
+    elif policy.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL:
+        raise ValueError("SSH action requires ChatGPT delegated approval")
+    elif policy.decision == PolicyDecisionValue.NEEDS_HUMAN_APPROVAL:
+        raise ValueError("SSH action requires human approval")
+    else:
+        raise ValueError(
+            f"SSH action is blocked by canonical policy: {policy.reason}"
+        )
+
+    return SSHActionAuthorizationResult.model_validate(
+        {
+            **policy.model_dump(mode="python"),
+            "authorized": True,
+            "approval_source": approval_source,
+        }
     )
 
 

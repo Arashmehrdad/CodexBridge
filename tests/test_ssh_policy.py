@@ -12,6 +12,7 @@ from codexbridge.ssh_policy import (
     SSH_EXECUTION_POLICY_MATRIX,
     SSHActionPolicyRequest,
     SSHPolicyRequest,
+    authorize_ssh_action_launch,
     authorize_ssh_launch,
     classify_ssh_permission_tier,
     evaluate_ssh_action_policy,
@@ -237,6 +238,51 @@ def test_action_policy_contract_is_strict_and_repository_independent() -> None:
                 "writes_remote": False,
                 "repo_name": "repo",
             }
+        )
+
+
+def test_action_launch_authorization_requires_matching_approval_evidence() -> None:
+    delegated = authorize_ssh_action_launch(
+        autonomy_profile="chatgpt_delegated",
+        execution_mode="structured",
+        writes_remote=True,
+        chatgpt_approval_granted=True,
+    )
+    assert delegated.authorized is True
+    assert delegated.approval_source == "chatgpt"
+    assert delegated.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
+
+    permissive = authorize_ssh_action_launch(
+        autonomy_profile="permissive",
+        execution_mode="structured",
+        writes_remote=True,
+    )
+    assert permissive.approval_source == "none"
+    assert permissive.decision == PolicyDecisionValue.ALLOWED
+
+    human = authorize_ssh_action_launch(
+        autonomy_profile="chatgpt_delegated",
+        execution_mode="structured",
+        writes_remote=True,
+        high_risk=True,
+        human_approval_granted=True,
+    )
+    assert human.approval_source == "human"
+    assert human.permission_tier == CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION
+
+    with pytest.raises(ValueError, match="ChatGPT delegated approval"):
+        authorize_ssh_action_launch(
+            autonomy_profile="chatgpt_delegated",
+            execution_mode="structured",
+            writes_remote=True,
+        )
+    with pytest.raises(ValueError, match="human approval"):
+        authorize_ssh_action_launch(
+            autonomy_profile="permissive",
+            execution_mode="structured",
+            writes_remote=True,
+            high_risk=True,
+            chatgpt_approval_granted=True,
         )
 
 
