@@ -205,7 +205,7 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "1 passed\n"
 
 
-def test_result_artifact_failure_does_not_strand_terminal_database_record(
+def test_terminal_database_record_is_not_stranded_by_legacy_artifact_writer_failure(
     monkeypatch, tmp_path: Path
 ) -> None:
     repo = tmp_path / "repo"
@@ -240,17 +240,16 @@ def test_result_artifact_failure_does_not_strand_terminal_database_record(
     }
     monkeypatch.setattr(worker, "_execute_inner", lambda _started_at: result)
     monkeypatch.setattr(
-        worker.artifacts,
-        "write_json",
+        "codexbridge.run_publication.atomic_write_json",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
 
     assert worker.execute() == 0
     persisted = store.get_run(run_id)
     assert persisted["status"] == "completed"
-    assert persisted["result"]["artifact_error"] == (
-        "Could not persist result artifact: disk full"
-    )
+    assert "artifact_error" not in persisted["result"]
+    assert persisted["result_publication_status"] == "failed"
+    assert "disk full" in persisted["result_publication_error"]
 
 
 def test_docker_action_worker_persists_bounded_result(
@@ -1209,6 +1208,148 @@ def test_monitored_ssh_worker_persists_structured_result(
     assert result["tool"] == "ssh_monitored_command"
     assert result["status"] == "completed"
     assert result["remote_process"]["pid"] == 123
+
+
+def test_attached_monitored_ssh_worker_finalizes_matching_cancellation_pending(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260714T000001Z_ssh_monitored_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        run_dir=run_dir,
+        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        status="launch_pending",
+        worker_lease_token="lease-1",
+    )
+    locks = OperationLockStore(runs_dir)
+    locks.acquire(
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        normalized_input={"host_id": "my_vps", "command_id": "uptime"},
+        run_id=run_id,
+        owner_token="lease-1",
+    )
+    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.process_identity",
+        lambda pid: f"{pid}:windows:100",
+    )
+    worker = JobWorker(config_path, run_id, lease_token="lease-1")
+
+    def finish_after_cancel(started_at: str) -> dict:
+        current = store.get_run(run_id)
+        assert store.conditional_update(
+            run_id,
+            fields={
+                "status": "cancellation_pending",
+                "current_phase": "cancellation_pending",
+            },
+            expected_statuses=("running",),
+            expected_state_version=current["state_version"],
+            expected_lease_token="lease-1",
+            expected_lease_generation=1,
+        )
+        ended_at = utc_now()
+        return {
+            "run_id": run_id,
+            "repo_name": "ssh:my_vps",
+            "tool": "ssh_monitored_command",
+            "status": "cancelled",
+            "exit_code": 0,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": 0.0,
+            "summary": "remote cancellation confirmed",
+            "error": "",
+            "safety_failure": False,
+        }
+
+    monkeypatch.setattr(worker, "_execute_inner", finish_after_cancel)
+
+    assert worker.execute() == 0
+    assert store.get_run(run_id)["status"] == "cancelled"
+
+
+def test_attached_monitored_ssh_worker_cannot_overwrite_cancellation_pending(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260714T000002Z_ssh_monitored_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        run_dir=run_dir,
+        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        status="launch_pending",
+        worker_lease_token="lease-1",
+    )
+    locks = OperationLockStore(runs_dir)
+    locks.acquire(
+        repo_name="ssh:my_vps",
+        tool="ssh_monitored_command",
+        normalized_input={"host_id": "my_vps", "command_id": "uptime"},
+        run_id=run_id,
+        owner_token="lease-1",
+    )
+    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.process_identity",
+        lambda pid: f"{pid}:windows:100",
+    )
+    worker = JobWorker(config_path, run_id, lease_token="lease-1")
+
+    def finish_after_cancel(started_at: str) -> dict:
+        current = store.get_run(run_id)
+        assert store.conditional_update(
+            run_id,
+            fields={
+                "status": "cancellation_pending",
+                "current_phase": "cancellation_pending",
+            },
+            expected_statuses=("running",),
+            expected_state_version=current["state_version"],
+            expected_lease_token="lease-1",
+            expected_lease_generation=1,
+        )
+        ended_at = utc_now()
+        return {
+            "run_id": run_id,
+            "repo_name": "ssh:my_vps",
+            "tool": "ssh_monitored_command",
+            "status": "completed",
+            "exit_code": 0,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": 0.0,
+            "summary": "late ordinary completion",
+            "error": "",
+            "safety_failure": False,
+        }
+
+    monkeypatch.setattr(worker, "_execute_inner", finish_after_cancel)
+
+    assert worker.execute() == 0
+    assert store.get_run(run_id)["status"] == "cancellation_pending"
 
 
 def test_worker_claims_canonical_pid_identity_and_lease(

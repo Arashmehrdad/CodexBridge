@@ -41,6 +41,7 @@ from .run_query_chunks import (
     list_resource_id,
 )
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
+from .run_publication import publish_run_result
 from .safety import (
     reject_destructive_command,
     validate_repo_relative_path,
@@ -88,7 +89,9 @@ class JobManager:
 
     def reconcile_startup(self) -> int:
         reconciled = 0
-        for run in self.store.list_recoverable_runs():
+        recoverable_runs = self.store.list_recoverable_runs()
+        recoverable_ids = {run["run_id"] for run in recoverable_runs}
+        for run in recoverable_runs:
             try:
                 self._reconcile_run(run)
             except Exception as exc:
@@ -102,6 +105,27 @@ class JobManager:
                     expected_lease_generation=int(run.get("lease_generation") or 1),
                     expected_heartbeat_at=run.get("heartbeat_at"),
                 )
+                self._append_recovery_event(
+                    run,
+                    level="error",
+                    message=reason,
+                    data={"exception_type": type(exc).__name__},
+                )
+            reconciled += 1
+        for run in self.store.list_terminal_runs():
+            if run["run_id"] in recoverable_ids:
+                continue
+            try:
+                publication = publish_run_result(self.store, run["run_id"])
+                if not publication["ok"]:
+                    self._append_recovery_event(
+                        run,
+                        level="error",
+                        message="Canonical terminal result publication failed",
+                        data={"error": publication["error"]},
+                    )
+            except Exception as exc:
+                reason = f"Startup result publication repair failed: {exc}"
                 self._append_recovery_event(
                     run,
                     level="error",
@@ -168,6 +192,14 @@ class JobManager:
         )
         if failed is None:
             return False
+        publication = publish_run_result(self.store, run["run_id"])
+        if not publication["ok"]:
+            self._append_recovery_event(
+                run,
+                level="error",
+                message="Canonical terminal result publication failed",
+                data={"error": publication["error"]},
+            )
         self.locks.release(
             run["repo_name"],
             run["run_id"],
@@ -1087,6 +1119,14 @@ class JobManager:
                     expected_heartbeat_at=current.get("heartbeat_at"),
                 )
                 if failed is not None:
+                    publication = publish_run_result(self.store, run_id)
+                    if not publication["ok"]:
+                        self._append_recovery_event(
+                            current,
+                            level="error",
+                            message="Canonical terminal result publication failed",
+                            data={"error": publication["error"]},
+                        )
                     event = self.store.append_event(
                         run_id,
                         level="error",
@@ -1520,6 +1560,14 @@ class JobManager:
                     "termination_reports": reports,
                     "reason": "Final cancellation lost a concurrent state transition",
                 }
+            publication = publish_run_result(self.store, run_id)
+            if not publication["ok"]:
+                self._append_recovery_event(
+                    run,
+                    level="error",
+                    message="Canonical terminal result publication failed",
+                    data={"error": publication["error"]},
+                )
             self.locks.release(
                 run["repo_name"], run_id, lease_token, lease_generation
             )

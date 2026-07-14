@@ -41,6 +41,10 @@ _CONDITIONAL_UPDATE_FIELDS = frozenset(
         "elapsed_seconds",
         "progress_json",
         "result_json",
+        "result_publication_status",
+        "result_published_hash",
+        "result_published_at",
+        "result_publication_error",
         "recovery_reason",
     }
 )
@@ -114,7 +118,11 @@ class RunStore:
                     heartbeat_at TEXT,
                     progress_json TEXT NOT NULL DEFAULT '{}',
                     input_json TEXT NOT NULL DEFAULT '{}',
-                    result_json TEXT NOT NULL DEFAULT '{}'
+                    result_json TEXT NOT NULL DEFAULT '{}',
+                    result_publication_status TEXT NOT NULL DEFAULT 'not_published',
+                    result_published_hash TEXT NOT NULL DEFAULT '',
+                    result_published_at TEXT,
+                    result_publication_error TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -170,6 +178,22 @@ class RunStore:
             )
             self._ensure_column(
                 conn, "runs", "recovery_reason", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(
+                conn,
+                "runs",
+                "result_publication_status",
+                "TEXT NOT NULL DEFAULT 'not_published'",
+            )
+            self._ensure_column(
+                conn, "runs", "result_published_hash", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(conn, "runs", "result_published_at", "TEXT")
+            self._ensure_column(
+                conn,
+                "runs",
+                "result_publication_error",
+                "TEXT NOT NULL DEFAULT ''",
             )
 
     def journal_mode(self) -> str:
@@ -286,6 +310,18 @@ class RunStore:
             normalized["progress_json"], str
         ):
             normalized["progress_json"] = dumps(normalized["progress_json"])
+        if "result_publication_status" in normalized:
+            normalized["result_publication_status"] = str(
+                normalized["result_publication_status"]
+            )[:32]
+        if "result_published_hash" in normalized:
+            normalized["result_published_hash"] = str(
+                normalized["result_published_hash"]
+            )[:128]
+        if "result_publication_error" in normalized:
+            normalized["result_publication_error"] = str(
+                normalized["result_publication_error"]
+            )[:2000]
         return normalized
 
     def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
@@ -439,6 +475,17 @@ class RunStore:
                 )
                 ORDER BY created_at ASC
                 """
+            ).fetchall()
+        return [self._row_to_run(row) for row in rows]
+
+    def list_terminal_runs(self) -> list[dict[str, Any]]:
+        statuses = tuple(sorted(TERMINAL_STATUSES))
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE status IN ("
+                + ", ".join("?" for _ in statuses)
+                + ") ORDER BY created_at ASC",
+                statuses,
             ).fetchall()
         return [self._row_to_run(row) for row in rows]
 
@@ -698,6 +745,10 @@ class RunStore:
             "error": error,
             "safety_failure": safety_failure,
             "result_json": result,
+            "result_publication_status": "pending",
+            "result_published_hash": "",
+            "result_published_at": None,
+            "result_publication_error": "",
             "recovery_reason": recovery_reason,
         }
         if progress is not None:
@@ -711,6 +762,30 @@ class RunStore:
             expected_lease_generation=expected_lease_generation,
             expected_heartbeat_at=expected_heartbeat_at,
             reject_terminal=True,
+        )
+
+    def record_result_publication(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        published_hash: str = "",
+        published_at: str | None = None,
+        error: str = "",
+        expected_state_version: int,
+    ) -> dict[str, Any] | None:
+        if status not in {"published", "failed", "pending"}:
+            raise ValueError(f"Invalid result publication status: {status}")
+        return self.conditional_update(
+            run_id,
+            fields={
+                "result_publication_status": status,
+                "result_published_hash": published_hash,
+                "result_published_at": published_at,
+                "result_publication_error": error,
+            },
+            expected_statuses=tuple(sorted(TERMINAL_STATUSES)),
+            expected_state_version=expected_state_version,
         )
 
     def fail_infrastructure(

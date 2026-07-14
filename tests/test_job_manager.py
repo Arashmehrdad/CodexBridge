@@ -534,6 +534,63 @@ def test_reconcile_startup_records_failure_and_retains_lock(
     )
 
 
+def test_reconcile_startup_repairs_terminal_result_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    results = {
+        "20260714T000010Z_project_command_deadbeef": {
+            "status": "completed",
+            "value": "missing",
+        },
+        "20260714T000011Z_project_command_deadbeef": {
+            "status": "completed",
+            "value": "invalid",
+        },
+        "20260714T000012Z_project_command_deadbeef": {
+            "status": "completed",
+            "value": "contradictory",
+        },
+    }
+    for run_id, result in results.items():
+        run_dir = Path(manager.config.resolve_runs_dir()) / run_id
+        run_dir.mkdir(parents=True)
+        manager.store.create_run(
+            run_id=run_id,
+            repo_name="sample",
+            tool="project_command",
+            run_dir=run_dir,
+            input_data={"repo_name": "sample", "command_id": "pytest"},
+        )
+        current = manager.store.get_run(run_id)
+        assert manager.store.transition_terminal(
+            run_id,
+            status="completed",
+            result=result,
+            expected_statuses=("queued",),
+            expected_state_version=current["state_version"],
+        )
+    (
+        Path(manager.config.resolve_runs_dir()) / list(results)[1] / "result.json"
+    ).write_text("not json", encoding="utf-8")
+    (
+        Path(manager.config.resolve_runs_dir()) / list(results)[2] / "result.json"
+    ).write_text(
+        json.dumps({"status": "completed", "value": "loser"}), encoding="utf-8"
+    )
+
+    assert manager.reconcile_startup() == 3
+
+    for run_id, result in results.items():
+        artifact = (
+            Path(manager.config.resolve_runs_dir()) / run_id / "result.json"
+        )
+        assert json.loads(artifact.read_text(encoding="utf-8")) == result
+        assert (
+            manager.store.get_run(run_id)["result_publication_status"] == "published"
+        )
+
+
 def test_unknown_and_malformed_run_ids_are_structured(
     tmp_path: Path, monkeypatch
 ) -> None:
