@@ -34,6 +34,12 @@ from .process_control import (
     terminate_process_tree,
 )
 from .run_guards import derive_requirement_manifest
+from .run_query_chunks import (
+    chunk_payload,
+    decode_list_reference,
+    decode_run_reference,
+    list_resource_id,
+)
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .safety import (
     reject_destructive_command,
@@ -1155,12 +1161,22 @@ class JobManager:
         public.pop("worker_lease_token", None)
         return public
 
-    def get_status(self, run_id: str) -> dict:
+    def get_status_payload(self, run_id: str) -> dict:
         try:
             run = self.store.get_run(run_id)
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
-        return redact_and_truncate(self._public_run(run))
+        return self._public_run(run)
+
+    def get_status(self, run_id: str) -> dict:
+        reference = decode_run_reference(run_id)
+        actual_run_id = reference.resource_id if reference else run_id
+        payload = self.get_status_payload(actual_run_id)
+        if reference:
+            return chunk_payload(
+                "status", actual_run_id, payload, reference.cursor
+            )
+        return redact_and_truncate(payload)
 
     def get_events(
         self, run_id: str, limit: int = 50, after_id: int | None = None
@@ -1249,41 +1265,49 @@ class JobManager:
             self.locks.list_locks(normalized_name, include_stale=include_stale)
         )
 
-    def get_result(self, run_id: str) -> dict:
+    def get_result_payload(self, run_id: str) -> dict:
         try:
             run = self.store.get_run(run_id)
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
         result = run.get("result") or {}
         if result:
-            return redact_and_truncate(result)
-        return redact_and_truncate(
-            {
-                "run_id": run["run_id"],
-                "repo_name": run["repo_name"],
-                "tool": run["tool"],
-                "status": run["status"],
-                "exit_code": run["exit_code"],
-                "stdout": "",
-                "stderr": "",
-                "process_success": None,
-                "classification": "pending",
-                "started_at": run["started_at"],
-                "ended_at": run["ended_at"],
-                "duration_seconds": run["duration_seconds"],
-                "changed_files": [],
-                "git_status": "",
-                "diff_stat": "",
-                "tests_run": [],
-                "test_results": "",
-                "summary": run["summary"],
-                "remaining_risks": [],
-                "error": run["error"],
-                "safety_failure": run["safety_failure"],
-                "cancelled": False,
-                "timed_out": False,
-            }
-        )
+            return result
+        return {
+            "run_id": run["run_id"],
+            "repo_name": run["repo_name"],
+            "tool": run["tool"],
+            "status": run["status"],
+            "exit_code": run["exit_code"],
+            "stdout": "",
+            "stderr": "",
+            "process_success": None,
+            "classification": "pending",
+            "started_at": run["started_at"],
+            "ended_at": run["ended_at"],
+            "duration_seconds": run["duration_seconds"],
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": "",
+            "summary": run["summary"],
+            "remaining_risks": [],
+            "error": run["error"],
+            "safety_failure": run["safety_failure"],
+            "cancelled": False,
+            "timed_out": False,
+        }
+
+    def get_result(self, run_id: str) -> dict:
+        reference = decode_run_reference(run_id)
+        actual_run_id = reference.resource_id if reference else run_id
+        payload = self.get_result_payload(actual_run_id)
+        if reference:
+            return chunk_payload(
+                "result", actual_run_id, payload, reference.cursor
+            )
+        return redact_and_truncate(payload)
 
     @staticmethod
     def _run_lookup_error(run_id: str, exc: Exception) -> dict:
@@ -1329,7 +1353,7 @@ class JobManager:
             "remaining_risks": [],
         }
 
-    def list_runs(
+    def list_runs_payload(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20
     ) -> list[dict]:
         canonical_repo_name = None
@@ -1340,7 +1364,29 @@ class JobManager:
             status=status or None,
             limit=limit,
         )
-        return redact_and_truncate([self._public_run(run) for run in runs])
+        return [self._public_run(run) for run in runs]
+
+    def list_runs(
+        self, repo_name: str | None = None, status: str | None = None, limit: int = 20
+    ) -> list[dict]:
+        reference = decode_list_reference(repo_name)
+        actual_repo_name = reference.resource_id if reference else repo_name
+        payload = self.list_runs_payload(
+            repo_name=actual_repo_name or None,
+            status=status,
+            limit=limit,
+        )
+        if reference:
+            transported = chunk_payload(
+                "list",
+                list_resource_id(
+                    actual_repo_name or "", status or "", limit
+                ),
+                payload,
+                reference.cursor,
+            )
+            return transported if isinstance(transported, list) else [transported]
+        return redact_and_truncate(payload)
 
     def latest_result(
         self, repo_name: str | None = None, tool: str | None = None

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .run_query_chunks import encode_list_reference, encode_run_reference
 
 
 class GatewayModel(BaseModel):
@@ -51,6 +53,12 @@ SSHInspectRequest = Annotated[
 class RunStatusQuery(GatewayModel):
     operation: Literal["status"]
     run_id: str = Field(min_length=1, max_length=128)
+    cursor: str = Field(default="", max_length=2048)
+
+    @model_validator(mode="after")
+    def encode_chunk_reference(self) -> "RunStatusQuery":
+        self.run_id = encode_run_reference(self.run_id, self.cursor)
+        return self
 
 
 class RunControlQuery(GatewayModel):
@@ -75,6 +83,12 @@ class RunEventsQuery(GatewayModel):
 class RunResultQuery(GatewayModel):
     operation: Literal["result"]
     run_id: str = Field(min_length=1, max_length=128)
+    cursor: str = Field(default="", max_length=2048)
+
+    @model_validator(mode="after")
+    def encode_chunk_reference(self) -> "RunResultQuery":
+        self.run_id = encode_run_reference(self.run_id, self.cursor)
+        return self
 
 
 class RunListQuery(GatewayModel):
@@ -82,6 +96,12 @@ class RunListQuery(GatewayModel):
     repo_name: str = Field(default="", max_length=128)
     status: str = Field(default="", max_length=64)
     limit: int = Field(default=20, ge=1, le=500)
+    cursor: str = Field(default="", max_length=2048)
+
+    @model_validator(mode="after")
+    def encode_chunk_reference(self) -> "RunListQuery":
+        self.repo_name = encode_list_reference(self.repo_name, self.cursor)
+        return self
 
 
 class RunLocksQuery(GatewayModel):
