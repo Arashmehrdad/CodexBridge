@@ -549,7 +549,7 @@ def test_ssh_transfer_worker_revalidates_canonical_upload_policy(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_extended_ssh_config(config_path, repo, runs_dir)
-    run_id = "20260706T030000Z_ssh_transfer_canonical"
+    run_id = "20260706T030000Z_ssh_transfer_a1b2c3d4"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     store = RunStore(runs_dir)
@@ -625,7 +625,7 @@ def test_ssh_transfer_worker_rejects_tampered_policy_before_executor(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_extended_ssh_config(config_path, repo, runs_dir)
-    run_id = f"20260706T040000Z_ssh_transfer_{field}"
+    run_id = "20260706T040000Z_ssh_transfer_deadbeef"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     input_data = _canonical_upload_input()
@@ -667,7 +667,7 @@ def test_ssh_transfer_worker_rejects_partial_policy_metadata(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_extended_ssh_config(config_path, repo, runs_dir)
-    run_id = "20260706T050000Z_ssh_transfer_partial"
+    run_id = "20260706T050000Z_ssh_transfer_deadbeef"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     input_data = _canonical_upload_input()
@@ -711,8 +711,7 @@ def test_ssh_deployment_worker_rejects_invalid_confirmation_before_executor(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_extended_ssh_config(config_path, repo, runs_dir)
-    suffix = "missing" if not confirmation else "invalid"
-    run_id = f"20260706T060000Z_ssh_deployment_{suffix}"
+    run_id = "20260706T060000Z_ssh_deployment_deadbeef"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     store = RunStore(runs_dir)
@@ -751,7 +750,7 @@ def test_ssh_transfer_worker_rejects_invalid_direction_before_executor(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_extended_ssh_config(config_path, repo, runs_dir)
-    run_id = "20260706T070000Z_ssh_transfer_direction"
+    run_id = "20260706T070000Z_ssh_transfer_deadbeef"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     input_data = _canonical_upload_input()
