@@ -14,6 +14,8 @@ class WorkflowStatus(str, Enum):
     CREATED = "created"
     QUEUED = "queued"
     RUNNING = "running"
+    CANCELLATION_PENDING = "cancellation_pending"
+    RECOVERY_PENDING = "recovery_pending"
     NEEDS_APPROVAL = "needs_approval"
     NEEDS_INPUT = "needs_input"
     COMPLETED = "completed"
@@ -182,6 +184,7 @@ class WorkflowRecord(BaseModel):
     started_at: str | None = None
     ended_at: str | None = None
     launcher_pid: int | None = None
+    launcher_identity: str = ""
     worker_pid: int | None = None
     worker_lease_token: str = Field(default="", exclude=True)
     lease_generation: int = 1
@@ -195,6 +198,10 @@ class WorkflowRecord(BaseModel):
     recommended_next_action: str = ""
     artifact_paths: list[Path] = Field(default_factory=list)
     result: dict[str, Any] = Field(default_factory=dict)
+    publication_status: str = "pending"
+    publication_hash: str = ""
+    published_at: str | None = None
+    publication_error: str = ""
     steps: list[WorkflowStepRecord] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
