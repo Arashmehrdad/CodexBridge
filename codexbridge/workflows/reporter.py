@@ -51,7 +51,14 @@ def generate_workflow_report(runs_dir: Path, workflow: WorkflowRecord) -> Workfl
     report_path = run_dir / "workflow_report.md"
     resume_prompt_path = run_dir / "resume_prompt.txt"
     snapshot_path = run_dir / "result.json"
-    artifacts = _artifact_list(workflow)
+    generated_paths = {
+        str(report_path),
+        str(resume_prompt_path),
+        str(snapshot_path),
+        str(run_dir / "pulse_manifest.json"),
+        str(run_dir / "events.jsonl"),
+    }
+    artifacts = _artifact_list(workflow, excluded_paths=generated_paths)
     ordered_outcomes = [
         f"- {step.order_index + 1}. {step.id} [{step.status.value}]"
         f" child_run_id={step.child_run_id or 'none'}"
@@ -124,12 +131,15 @@ def generate_workflow_report(runs_dir: Path, workflow: WorkflowRecord) -> Workfl
     )
 
 
-def _artifact_list(workflow: WorkflowRecord) -> list[str]:
+def _artifact_list(
+    workflow: WorkflowRecord, *, excluded_paths: set[str] | None = None
+) -> list[str]:
+    excluded = excluded_paths or set()
     seen: set[str] = set()
     ordered: list[str] = []
     for path in workflow.artifact_paths:
         text = str(path)
-        if text not in seen:
+        if text not in excluded and text not in seen:
             seen.add(text)
             ordered.append(text)
     for step in workflow.steps:

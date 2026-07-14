@@ -22,6 +22,7 @@ READY_SOURCE_STATUSES = {
     "timeout",
     "cancelled",
     "needs_input",
+    "needs_approval",
     "reported",
     "blocked",
     "approval_required",
