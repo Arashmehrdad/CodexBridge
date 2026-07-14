@@ -42,7 +42,10 @@ def test_orchestrator_routes_explicit_long_job_start_status_and_cancel(
         {"objective": "start long job profile dummy_success", "repo_path": tmp_path}
     )
     job_id = start.job_result.job.job_id
+    assert job_id in manager.processes
     status = orchestrator.handle_task(f"check job status {job_id}")
+    assert job_id in manager.processes
+    assert manager.store.get_job(job_id).status == JobStatus.RUNNING
     cancel = orchestrator.handle_task(f"cancel job {job_id}")
 
     assert start.task_type == LocalAgentTaskType.LONG_RUN_JOB
