@@ -485,7 +485,7 @@ def _apply_exact_text_preserving_newlines(
     normalized_new = _normalize_newlines(new_text)
     candidates: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for newline in ("\n", "\r\n", "\r"):
+    for newline in ("\n", "\r\n"):
         candidate = normalized_old.replace("\n", newline)
         if candidate in seen:
             continue
