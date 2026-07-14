@@ -148,6 +148,15 @@ def _prune_snapshots_locked(now: float) -> None:
                 pass
     if not _SNAPSHOT_ROOT.exists():
         return
+    tracked_paths = {metadata.path for metadata in _SNAPSHOTS.values()}
+    for path in _SNAPSHOT_ROOT.glob("*.json"):
+        if path in tracked_paths:
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
     for path in _SNAPSHOT_ROOT.glob("*.tmp"):
         try:
             if path.stat().st_mtime < cutoff:
