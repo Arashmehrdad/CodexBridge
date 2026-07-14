@@ -471,6 +471,46 @@ def _apply_exact_text_operation(
     return content.replace(normalized_old, normalized_new, 1)
 
 
+def _apply_exact_text_preserving_newlines(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    old_text = op.get("old_text")
+    new_text = op.get("new_text")
+    if old_text is None or not isinstance(old_text, str):
+        raise ValueError(f"op[{idx}]: old_text is required and must be a string")
+    if new_text is None or not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+
+    normalized_old = _normalize_newlines(old_text)
+    normalized_new = _normalize_newlines(new_text)
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for newline in ("\n", "\r\n", "\r"):
+        candidate = normalized_old.replace("\n", newline)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append((candidate, newline))
+
+    matches: list[tuple[str, str, int]] = []
+    for candidate, newline in candidates:
+        occurrences = content.count(candidate)
+        if occurrences:
+            matches.append((candidate, newline, occurrences))
+    total_occurrences = sum(item[2] for item in matches)
+    if total_occurrences == 0:
+        raise ValueError(f"op[{idx}]: old_text not found in '{path_str}'")
+    if total_occurrences > 1:
+        raise ValueError(
+            f"op[{idx}]: old_text appears {total_occurrences} times in "
+            f"'{path_str}'; must be unique"
+        )
+
+    candidate, newline, _ = matches[0]
+    replacement = normalized_new.replace("\n", newline)
+    return content.replace(candidate, replacement, 1)
+
+
 def _apply_line_range_operation(
     content: str, op: dict[str, Any], path_str: str, idx: int
 ) -> str:
@@ -708,6 +748,8 @@ def _validate_operations(
                 "current_bytes": current_bytes,
                 "current_content": current_text,
                 "working_content": _normalize_newlines(current_text),
+                "working_content_preserved": current_text,
+                "newline_mode": "",
                 "dominant_newline": _dominant_newline(current_text),
                 "current_sha256": hashlib.sha256(current_bytes).hexdigest(),
                 "validation_results": [],
@@ -723,11 +765,39 @@ def _validate_operations(
                 f"expected {expected_sha[:12]}… got {current_sha[:12]}…"
             )
             continue
+        operation_type = str(
+            op.get("type") or op.get("operation") or "exact_text"
+        )
+        preserve_newlines = bool(op.get("preserve_newlines", False))
+        requested_newline_mode = "preserved" if preserve_newlines else "normalized"
         try:
-            state["working_content"] = _apply_operation_to_content(
-                state["working_content"], op, path_str, idx
-            )
-            operation_type = str(op.get("type") or op.get("operation") or "exact_text")
+            existing_newline_mode = state["newline_mode"]
+            if existing_newline_mode and existing_newline_mode != requested_newline_mode:
+                raise ValueError(
+                    f"op[{idx}]: cannot mix preserve_newlines and normalized edits "
+                    f"for '{path_str}'"
+                )
+            if preserve_newlines:
+                if operation_type not in {
+                    "exact_text",
+                    "replace_exact",
+                    "modify",
+                    "",
+                }:
+                    raise ValueError(
+                        f"op[{idx}]: preserve_newlines is supported only for "
+                        f"exact_text edits in '{path_str}'"
+                    )
+                state["working_content_preserved"] = (
+                    _apply_exact_text_preserving_newlines(
+                        state["working_content_preserved"], op, path_str, idx
+                    )
+                )
+            else:
+                state["working_content"] = _apply_operation_to_content(
+                    state["working_content"], op, path_str, idx
+                )
+            state["newline_mode"] = requested_newline_mode
             if operation_type in {"exact_text", "replace_exact", "modify", ""}:
                 old_text = _normalize_newlines(str(op.get("old_text", "")))
                 state["applied_exact_old_texts"][old_text] = idx
@@ -777,9 +847,12 @@ def _validate_operations(
             item.get("ok") for item in state["validation_results"]
         ):
             continue
-        new_content = _restore_newlines(
-            state["working_content"], state["dominant_newline"]
-        )
+        if state["newline_mode"] == "preserved":
+            new_content = state["working_content_preserved"]
+        else:
+            new_content = _restore_newlines(
+                state["working_content"], state["dominant_newline"]
+            )
         diff = _unified_diff_for_op(current_text, new_content, path_str)
         changed_lines = _count_changed_lines(diff)
         changed_bytes = abs(

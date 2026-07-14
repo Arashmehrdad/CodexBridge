@@ -287,6 +287,71 @@ def test_preview_and_apply_compose_non_overlapping_same_file_edits(
     )
 
 
+def test_preview_and_apply_preserve_mixed_newline_bytes(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    original = (
+        b"header\r\n"
+        b"def target():\n"
+        b"    return 1\n"
+        b"footer\r\n"
+    )
+    target = repo / "mixed.py"
+    target.write_bytes(original)
+    sha = sha256_file(target)
+    operations = [
+        {
+            "type": "exact_text",
+            "path": "mixed.py",
+            "expected_sha256": sha,
+            "old_text": "def target():\n    return 1\n",
+            "new_text": "def target():\n    return 2\n",
+            "preserve_newlines": True,
+        }
+    ]
+
+    preview = preview_repo_patch(repo, operations, runs)
+
+    assert preview["ok"] is True
+    assert preview["changed_files"] == ["mixed.py"]
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == original.replace(b"return 1", b"return 2")
+
+
+def test_preview_rejects_mixed_newline_edit_modes(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "mixed_modes.py"
+    target.write_bytes(b"alpha\r\nbeta\ngamma\r\n")
+    sha = sha256_file(target)
+
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "exact_text",
+                "path": "mixed_modes.py",
+                "expected_sha256": sha,
+                "old_text": "alpha\n",
+                "new_text": "ALPHA\n",
+                "preserve_newlines": True,
+            },
+            {
+                "type": "exact_text",
+                "path": "mixed_modes.py",
+                "expected_sha256": sha,
+                "old_text": "beta",
+                "new_text": "BETA",
+            },
+        ],
+        runs,
+    )
+
+    assert preview["ok"] is False
+    assert any("cannot mix preserve_newlines" in error for error in preview["validation_errors"])
+
+
 def test_preview_rejects_overlapping_same_file_edits(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
