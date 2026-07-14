@@ -46,7 +46,7 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
         input_data={
             "host_id": "my_vps",
             "command_id": "uptime",
-            "autonomy_profile": "chatgpt_delegated",
+            "autonomy_profile": "balanced",
             "execution_mode": "structured",
             "permission_tier": "T0_READ_ONLY",
             "policy_decision": "allowed",
@@ -84,7 +84,7 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     assert result["repo_name"] == "ssh:my_vps"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T0_READ_ONLY"
     assert result["policy_decision"] == "allowed"
@@ -144,7 +144,7 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
             {
                 "host_id": "my_vps",
                 "command_id": "uptime",
-                "autonomy_profile": "readonly",
+                "autonomy_profile": "conservative",
                 "execution_mode": "reviewed_script",
                 "permission_tier": "T0_READ_ONLY",
                 "policy_decision": "denied",
@@ -159,7 +159,7 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
             {
                 "host_id": "my_vps",
                 "command_id": "uptime",
-                "autonomy_profile": "chatgpt_delegated",
+                "autonomy_profile": "balanced",
                 "execution_mode": "reviewed_script",
                 "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
                 "policy_decision": "allowed",
@@ -249,7 +249,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
             {
                 "host_id": "my_vps",
                 "command_id": "uptime",
-                "autonomy_profile": "chatgpt_delegated",
+                "autonomy_profile": "balanced",
                 "execution_mode": "structured",
                 "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
                 "policy_decision": "allowed",
@@ -264,7 +264,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
             {
                 "host_id": "my_vps",
                 "command_id": "write_marker",
-                "autonomy_profile": "chatgpt_delegated",
+                "autonomy_profile": "balanced",
                 "execution_mode": "structured",
                 "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
                 "policy_decision": "needs_chatgpt_approval",
@@ -357,7 +357,7 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
             "host_id": "my_vps",
             "action": "service_restart",
             "target": "sample.service",
-            "autonomy_profile": "chatgpt_delegated",
+            "autonomy_profile": "balanced",
             "execution_mode": "structured",
             "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
             "policy_decision": "needs_chatgpt_approval",
@@ -390,7 +390,7 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_action"
     assert result["action"] == "service_restart"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
     assert result["policy_decision"] == "needs_chatgpt_approval"
@@ -424,7 +424,7 @@ def test_ssh_transfer_worker_persists_download_metadata(
             "local_repo_name": "sample",
             "local_path": "api.log",
             "remote_path": "/var/log/api.log",
-            "autonomy_profile": "chatgpt_delegated",
+            "autonomy_profile": "balanced",
             "execution_mode": "structured",
             "permission_tier": "T0_READ_ONLY",
             "policy_decision": "allowed",
@@ -459,7 +459,7 @@ def test_ssh_transfer_worker_persists_download_metadata(
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_transfer"
     assert result["direction"] == "download"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T0_READ_ONLY"
     assert result["policy_decision"] == "allowed"
@@ -492,7 +492,7 @@ def test_ssh_deployment_worker_persists_step_evidence(
             "host_id": "my_vps",
             "deployment_id": "sample_app",
             "confirmation": "CONFIRM_SSH_HIGH_RISK",
-            "autonomy_profile": "chatgpt_delegated",
+            "autonomy_profile": "balanced",
             "execution_mode": "structured",
             "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
             "policy_decision": "needs_human_approval",
@@ -528,7 +528,7 @@ def test_ssh_deployment_worker_persists_step_evidence(
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_deployment"
     assert result["deployment_id"] == "sample_app"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T6_HUMAN_ONLY_RISKY_ACTION"
     assert result["policy_decision"] == "needs_human_approval"
@@ -550,7 +550,7 @@ def _canonical_upload_input() -> dict:
         "recursive": False,
         "overwrite": False,
         "confirmation": "",
-        "autonomy_profile": "chatgpt_delegated",
+        "autonomy_profile": "balanced",
         "execution_mode": "structured",
         "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
         "policy_decision": "needs_chatgpt_approval",
@@ -564,7 +564,7 @@ def _canonical_deployment_input(confirmation: str) -> dict:
         "host_id": "my_vps",
         "deployment_id": "sample_app",
         "confirmation": confirmation,
-        "autonomy_profile": "chatgpt_delegated",
+        "autonomy_profile": "balanced",
         "execution_mode": "structured",
         "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
         "policy_decision": "needs_human_approval",

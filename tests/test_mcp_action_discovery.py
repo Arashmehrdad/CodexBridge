@@ -1854,7 +1854,7 @@ def test_start_remote_command_async_delegates(monkeypatch) -> None:
     assert result["run_id"] == "run_remote"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
 
 
@@ -1877,7 +1877,7 @@ def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
 
     assert result["accepted"] is True
     assert result["run_id"] == "run_monitored"
-    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["autonomy_profile"] == "balanced"
     assert result["execution_mode"] == "structured"
 
 

@@ -214,14 +214,14 @@ def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> N
     assert status["input"] == {
         "host_id": "my_vps",
         "command_id": "uptime",
-        "autonomy_profile": "chatgpt_delegated",
+        "autonomy_profile": "balanced",
         "execution_mode": "structured",
         "permission_tier": "T0_READ_ONLY",
         "policy_decision": "allowed",
         "policy_authorized": True,
         "approval_source": "none",
     }
-    assert response["autonomy_profile"] == "chatgpt_delegated"
+    assert response["autonomy_profile"] == "balanced"
     assert response["execution_mode"] == "structured"
     assert response["permission_tier"] == "T0_READ_ONLY"
     assert response["policy_decision"] == "allowed"
@@ -245,14 +245,14 @@ def test_start_ssh_monitored_command_creates_durable_run(
     assert status["input"] == {
         "host_id": "my_vps",
         "command_id": "uptime",
-        "autonomy_profile": "chatgpt_delegated",
+        "autonomy_profile": "balanced",
         "execution_mode": "structured",
         "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
         "policy_decision": "allowed",
         "policy_authorized": True,
         "approval_source": "none",
     }
-    assert response["autonomy_profile"] == "chatgpt_delegated"
+    assert response["autonomy_profile"] == "balanced"
     assert response["execution_mode"] == "structured"
     assert response["permission_tier"] == "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB"
     assert response["policy_decision"] == "allowed"
@@ -298,21 +298,21 @@ def test_ssh_tier_denial_creates_no_run_or_lock(
 
     with pytest.raises(ValueError, match="human approval"):
         manager.start_ssh_command(
-            "my_vps", "write_marker", autonomy_profile="readonly"
+            "my_vps", "write_marker", autonomy_profile="conservative"
         )
 
     assert manager.store.list_runs() == []
     assert manager.locks.list_locks() == []
 
 
-def test_human_only_monitored_read_requires_human_approval_before_launch(
+def test_conservative_monitored_read_requires_human_approval_before_launch(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
 
     with pytest.raises(ValueError, match="human approval"):
         manager.start_ssh_monitored_command(
-            "my_vps", "uptime", autonomy_profile="human_only"
+            "my_vps", "uptime", autonomy_profile="conservative"
         )
 
     assert manager.store.list_runs() == []
@@ -440,7 +440,7 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
             repo_name="sample",
             local_path="deploy.txt",
             remote_path="/srv/app/deploy.txt",
-            autonomy_profile="readonly",
+            autonomy_profile="conservative",
         )
 
     assert manager.store.list_runs() == []
@@ -452,7 +452,7 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
         repo_name="sample",
         local_path="artifact.log",
         remote_path="/srv/app/artifact.log",
-        autonomy_profile="readonly",
+        autonomy_profile="conservative",
     )
     assert download["permission_tier"] == "T0_READ_ONLY"
     assert download["policy_decision"] == "allowed"
@@ -462,8 +462,8 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
 @pytest.mark.parametrize(
     ("autonomy_profile", "execution_mode", "message_category"),
     [
-        ("readonly", "reviewed_script", "denied"),
-        ("chatgpt_delegated", "reviewed_script", "not implemented"),
+        ("conservative", "reviewed_script", "denied"),
+        ("balanced", "reviewed_script", "not implemented"),
     ],
 )
 def test_denied_ssh_launch_creates_no_run_or_lock(

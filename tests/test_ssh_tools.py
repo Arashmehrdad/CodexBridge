@@ -548,10 +548,9 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert result["arbitrary_shell_supported"] is False
     policy = result["execution_policy"]
     assert set(policy["autonomy_profiles"]) == {
-        "readonly",
-        "chatgpt_delegated",
+        "balanced",
+        "conservative",
         "permissive",
-        "human_only",
     }
     modes = {
         item["execution_mode"]: item for item in policy["execution_modes"]
@@ -559,15 +558,14 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert modes["structured"] == {
         "execution_mode": "structured",
         "allowed_autonomy_profiles": [
-            "chatgpt_delegated",
-            "human_only",
+            "balanced",
+            "conservative",
             "permissive",
-            "readonly",
         ],
         "implemented": True,
     }
     assert modes["reviewed_script"]["allowed_autonomy_profiles"] == [
-        "chatgpt_delegated",
+        "balanced",
         "permissive",
     ]
     assert modes["reviewed_script"]["implemented"] is False

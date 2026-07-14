@@ -255,7 +255,7 @@ def test_phase6_domain_models_reject_cross_domain_fields() -> None:
 
 def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     request = SSHExecutionPolicyGatewayRequest()
-    assert request.autonomy_profile == "chatgpt_delegated"
+    assert request.autonomy_profile == "balanced"
     assert request.execution_mode == "structured"
     with pytest.raises(ValidationError):
         SSHExecutionPolicyGatewayRequest.model_validate(
@@ -296,13 +296,13 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
             "confirmation": "confirm",
         }
     )
-    assert command.autonomy_profile == "chatgpt_delegated"
+    assert command.autonomy_profile == "balanced"
     assert command.execution_mode == "structured"
     assert administration.autonomy_profile == "permissive"
     assert administration.execution_mode == "structured"
     assert transfer.autonomy_profile == "permissive"
     assert transfer.execution_mode == "structured"
-    assert deployment.autonomy_profile == "chatgpt_delegated"
+    assert deployment.autonomy_profile == "balanced"
     assert deployment.execution_mode == "structured"
 
 
@@ -354,7 +354,7 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
             "interpreter": "bash",
             "script": script,
             "script_sha256": digest,
-            "autonomy_profile": "chatgpt_delegated",
+            "autonomy_profile": "balanced",
         }
     )
     assert request.execution_mode == "reviewed_script"
@@ -367,7 +367,7 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
         permissive.model_dump(mode="python")
     ).autonomy_profile == "permissive"
 
-    for autonomy_profile in ("readonly", "human_only"):
+    for autonomy_profile in ("conservative",):
         with pytest.raises(ValidationError, match="denied profile/mode"):
             SSHReviewedScriptAction.model_validate(
                 {
@@ -453,7 +453,7 @@ def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
                 "host_id": "dev",
                 "deployment_id": "app",
                 "confirmation": "confirm",
-                "autonomy_profile": "human_only",
+                "autonomy_profile": "conservative",
                 "execution_mode": "structured",
             }
         )
@@ -464,7 +464,7 @@ def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
         "execution_mode": "structured",
     }
     assert calls[1][2] == {
-        "autonomy_profile": "human_only",
+        "autonomy_profile": "conservative",
         "execution_mode": "structured",
     }
 
