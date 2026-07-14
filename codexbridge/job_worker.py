@@ -61,6 +61,7 @@ from .runner import (
 from .repo_wiki import mark_repo_wiki_stale
 from .safety import reject_destructive_command, validate_repo_relative_paths
 from .ssh_commands import resolve_ssh_host, run_ssh_command
+from .ssh_policy import authorize_ssh_launch
 from .ssh_watchdog import start_monitored_ssh_command
 from .ssh_tools import run_ssh_action, run_ssh_deployment, run_ssh_transfer
 
@@ -864,6 +865,12 @@ class JobWorker:
     def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         command_id = str(input_data["command_id"])
+        policy = authorize_ssh_launch(
+            autonomy_profile=str(
+                input_data.get("autonomy_profile", "chatgpt_delegated")
+            ),
+            execution_mode=str(input_data.get("execution_mode", "structured")),
+        )
         self.event(
             "info",
             "ssh",
@@ -902,6 +909,8 @@ class JobWorker:
             "host_id": host_id,
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "command_id": command_id,
+            "autonomy_profile": policy.autonomy_profile,
+            "execution_mode": policy.execution_mode,
             "writes_remote": bool(command_result.get("writes_remote")),
             "remote_state_verified": False,
             "status": "completed" if command_result.get("ok") else "failed",
@@ -927,6 +936,12 @@ class JobWorker:
     def _execute_ssh_monitored_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         command_id = str(input_data["command_id"])
+        policy = authorize_ssh_launch(
+            autonomy_profile=str(
+                input_data.get("autonomy_profile", "chatgpt_delegated")
+            ),
+            execution_mode=str(input_data.get("execution_mode", "structured")),
+        )
         self.event(
             "info",
             "ssh_monitored_command",
@@ -977,6 +992,8 @@ class JobWorker:
             "host_id": host_id,
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "command_id": command_id,
+            "autonomy_profile": policy.autonomy_profile,
+            "execution_mode": policy.execution_mode,
             "writes_remote": bool(command_result.get("writes_remote")),
             "remote_process": dict(command_result.get("remote_process") or {}),
             "watchdog_mode": str(command_result.get("watchdog_mode", "observe_only")),
@@ -1010,6 +1027,12 @@ class JobWorker:
     def _execute_ssh_action(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         action = str(input_data["action"])
+        policy = authorize_ssh_launch(
+            autonomy_profile=str(
+                input_data.get("autonomy_profile", "chatgpt_delegated")
+            ),
+            execution_mode=str(input_data.get("execution_mode", "structured")),
+        )
         kwargs = {
             "target": str(input_data.get("target", "")),
             "source": str(input_data.get("source", "")),
@@ -1050,6 +1073,8 @@ class JobWorker:
             "tool": "ssh_action",
             "host_id": host_id,
             "action": action,
+            "autonomy_profile": policy.autonomy_profile,
+            "execution_mode": policy.execution_mode,
             "writes_remote": bool(command_result.get("writes_remote", True)),
             "high_risk": bool(command_result.get("high_risk", False)),
             "remote_state_verified": False,

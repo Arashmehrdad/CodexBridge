@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codexbridge.job_worker import JobWorker
 from codexbridge.run_store import RunStore
 
@@ -73,6 +75,8 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     assert result["repo_name"] == "ssh:my_vps"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
+    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["execution_mode"] == "structured"
     assert result["writes_remote"] is False
     assert result["changed_files"] == []
     assert result["safety_failure"] is False
@@ -111,6 +115,88 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
         + "\n",
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize(
+    ("tool", "input_data", "executor_name", "message_category"),
+    [
+        (
+            "ssh_command",
+            {
+                "host_id": "my_vps",
+                "command_id": "uptime",
+                "autonomy_profile": "readonly",
+                "execution_mode": "reviewed_script",
+            },
+            "run_ssh_command",
+            "denied",
+        ),
+        (
+            "ssh_monitored_command",
+            {
+                "host_id": "my_vps",
+                "command_id": "uptime",
+                "autonomy_profile": "chatgpt_delegated",
+                "execution_mode": "reviewed_script",
+            },
+            "start_monitored_ssh_command",
+            "not implemented",
+        ),
+        (
+            "ssh_action",
+            {
+                "host_id": "my_vps",
+                "action": "service_restart",
+                "autonomy_profile": "permissive",
+                "execution_mode": "root_shell",
+            },
+            "run_ssh_action",
+            "not implemented",
+        ),
+    ],
+)
+def test_ssh_worker_revalidates_policy_before_executor(
+    monkeypatch,
+    tmp_path: Path,
+    tool: str,
+    input_data: dict,
+    executor_name: str,
+    message_category: str,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_extended_ssh_config(config_path, repo, runs_dir)
+    run_id = "20260706T010000Z_ssh_policy_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool=tool,
+        run_dir=run_dir,
+        input_data=input_data,
+    )
+    executor_called = False
+
+    def unexpected_executor(*args, **kwargs):
+        nonlocal executor_called
+        executor_called = True
+        raise AssertionError("SSH executor must not run after policy rejection")
+
+    monkeypatch.setattr(
+        f"codexbridge.job_worker.{executor_name}", unexpected_executor
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 1
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "failed"
+    assert message_category in persisted["result"]["error"]
+    assert persisted["result"]["safety_failure"] is True
+    assert executor_called is False
 
 
 def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) -> None:
@@ -160,6 +246,8 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_action"
     assert result["action"] == "service_restart"
+    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["execution_mode"] == "structured"
     assert result["remote_state_verified"] is False
     assert "cannot independently verify" in result["remaining_risks"][0]
 
