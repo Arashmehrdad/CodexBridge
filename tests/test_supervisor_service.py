@@ -240,3 +240,38 @@ def test_cancel_supervisor_delegates_engine_cancel(tmp_path: Path) -> None:
     cancelled = service.cancel(supervisor["supervisor_id"])
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(supervisor)).cancel_requested is True
+
+
+def test_restart_preserves_unverified_child_cancellation_state(
+    tmp_path: Path,
+) -> None:
+    service, jobs, config = make_service(tmp_path)
+    supervisor = service.start_supervised_recovery_task(
+        "codexbridge", "objective", "task"
+    )
+    child_run_id = active_run_id(supervisor)
+    jobs.jobs.pop(child_run_id)
+
+    blocked = service.cancel(supervisor["supervisor_id"])
+    events_before_restart = service.get_events(supervisor["supervisor_id"])
+
+    assert blocked["status"] == "needs_input"
+    assert blocked["metadata"]["active_child"]["run_id"] == child_run_id
+    assert sum(
+        event["stage"] == "cancellation_unverified" for event in events_before_restart
+    ) == 1
+
+    recreated = StubSupervisorService(config, service.config_path, jobs)
+    recovered = recreated.get_status(supervisor["supervisor_id"])
+    resumed = recreated.resume(supervisor["supervisor_id"])
+    events_after_restart = recreated.get_events(supervisor["supervisor_id"])
+
+    assert recovered["status"] == "needs_input"
+    assert recovered["metadata"]["active_child"]["run_id"] == child_run_id
+    assert recovered["active_child_status"] == {
+        "run_id": child_run_id,
+        "status": "unknown",
+    }
+    assert resumed["status"] == "needs_input"
+    assert jobs.jobs == {}
+    assert events_after_restart == events_before_restart
