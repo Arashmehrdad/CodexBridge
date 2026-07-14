@@ -156,6 +156,7 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
 
 
 def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
+    monkeypatch.setattr(server, "_repo_context", lambda _repo_name: None)
     monkeypatch.setattr(server, "search_repo_text", lambda *args: {"operation": "search", "args": args})
     monkeypatch.setattr(server, "preview_repo_file_removal", lambda *args: {"operation": "remove", "args": args})
     monkeypatch.setattr(server, "apply_previewed_repo_change", lambda *args: {"operation": "apply", "args": args})
