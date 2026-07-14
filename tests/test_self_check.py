@@ -63,6 +63,7 @@ def test_self_check_reports_supervisor_readiness(monkeypatch, tmp_path: Path) ->
     assert supervisor_store["journal_mode"] == "wal"
     assert supervisor_store["missing_tables"] == []
     assert "supervisors" in supervisor_store["required_tables"]
+    assert "operation_locks" in supervisor_store["required_tables"]
     assert "supervisor_notifications" in supervisor_store["required_tables"]
 
     supervisor_config = result["checks"]["supervisor_config"]
