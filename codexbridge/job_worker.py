@@ -51,7 +51,12 @@ from .run_guards import (
     out_of_scope_workspace_changes,
     snapshot_workspace,
 )
-from .runner import CodexRunner, _safe_command_args
+from .runner import (
+    CodexRunner,
+    _codex_child_env,
+    _safe_command_args,
+    open_codex_prompt_stream,
+)
 from .repo_wiki import mark_repo_wiki_stale
 from .safety import reject_destructive_command, validate_repo_relative_paths
 from .ssh_commands import resolve_ssh_host, run_ssh_command
@@ -573,21 +578,26 @@ class JobWorker:
         )
         temp_root = run_dir / "tmp"
         temp_root.mkdir(parents=True, exist_ok=True)
-        process_env = os.environ.copy()
+        process_env = _codex_child_env()
         process_env.update(
             {"TMP": str(temp_root), "TEMP": str(temp_root), "TMPDIR": str(temp_root)}
         )
-        process = subprocess.Popen(
-            args,
-            cwd=repo_root,
-            env=process_env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **process_group_popen_kwargs(),
-        )
+        prompt_stream = open_codex_prompt_stream(prompt)
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=repo_root,
+                env=process_env,
+                stdin=prompt_stream,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **process_group_popen_kwargs(),
+            )
+        finally:
+            prompt_stream.close()
         if not self.store.attach_child_pid(
             self.run_id,
             child_pid=process.pid,

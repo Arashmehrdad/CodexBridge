@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 from uuid import uuid4
 
 from . import git_tools
@@ -69,6 +70,20 @@ def _codex_child_env() -> dict[str, str]:
         env[key] = value
     env["CODEXBRIDGE_CONNECTOR_ISOLATION"] = "enabled"
     return env
+
+
+def open_codex_prompt_stream(prompt: str) -> TextIO:
+    stream = tempfile.TemporaryFile(
+        mode="w+t", encoding="utf-8", newline="\n"
+    )
+    try:
+        stream.write(prompt)
+        stream.flush()
+        stream.seek(0)
+    except Exception:
+        stream.close()
+        raise
+    return stream
 
 
 def _codex_executable_candidates(executable: str) -> list[str]:
@@ -209,11 +224,7 @@ class CodexRunner:
             # Codex's Windows unelevated sandbox can drop anonymous stdin pipes.
             # A file-backed stdin handle survives the sandbox handoff while still
             # keeping large multiline prompts out of the Windows command line.
-            with tempfile.TemporaryFile(
-                mode="w+t", encoding="utf-8", newline="\n"
-            ) as prompt_stream:
-                prompt_stream.write(input_text)
-                prompt_stream.seek(0)
+            with open_codex_prompt_stream(input_text) as prompt_stream:
                 return subprocess.run(args, stdin=prompt_stream, **run_kwargs)
         except (OSError, PermissionError) as exc:
             raise RuntimeError(self._subprocess_diagnostics(args, cwd, exc)) from exc
