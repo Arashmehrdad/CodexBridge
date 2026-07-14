@@ -29,6 +29,17 @@ READY_SOURCE_STATUSES = {
 }
 
 
+def _read_existing_manifest(manifest_path: Path) -> ReportManifest | None:
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return None
+    try:
+        return ReportManifest.model_validate_json(
+            manifest_path.read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+
+
 def build_job_report_manifest(
     *,
     job_id: str,
@@ -79,6 +90,7 @@ def build_report_manifest(
     settings = config or ReturnLoopConfig()
     now = utc_now()
     manifest_path = resume_prompt_path.parent / "pulse_manifest.json"
+    existing_manifest = _read_existing_manifest(manifest_path)
     status, blocked_reason, sensitivity_flags, hashes, sizes = _evaluate_files(
         report_path=report_path,
         resume_prompt_path=resume_prompt_path,
@@ -119,6 +131,21 @@ def build_report_manifest(
         send_policy="external_pulsesender_only",
         audit_event_id=f"return_loop_{uuid4().hex}",
     )
+    if existing_manifest is not None and (
+        existing_manifest.delivered
+        or existing_manifest.status
+        == ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER
+    ):
+        manifest.status = ReturnLoopStatus.SENT_BY_EXTERNAL_PULSESENDER
+        manifest.ready = False
+        manifest.delivered = True
+        manifest.created_at = existing_manifest.created_at
+        manifest.sent_at = existing_manifest.sent_at
+        manifest.sender_id = existing_manifest.sender_id
+        manifest.delivery_hash = existing_manifest.delivery_hash
+        manifest.audit_event_id = (
+            existing_manifest.audit_event_id or manifest.audit_event_id
+        )
     atomic_write_json(manifest_path, manifest.to_dict())
     return manifest
 
