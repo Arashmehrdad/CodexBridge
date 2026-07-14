@@ -311,14 +311,40 @@ Validation evidence:
 
 Boundaries not yet claimed:
 
-- Legacy unattended-job migration and return-loop delivery-state consistency remain D5.
-- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative until D5 reconciles artifact publication state.
+- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative.
+- Legacy long-job execution is contained in D5 rather than made restart-adoptable.
 
-### Batch D5 - Legacy long-job migration and return-loop consistency
+### Batch D5 - Legacy long-job containment and return-loop consistency
 
-Remove in-memory-only ownership from unattended jobs and preserve delivery state during report regeneration.
+Status: **implemented and validated**.
 
-Each batch must be independently reviewable, tested, and committed. Do not combine all five into one broad refactor.
+Delivered guarantees:
+
+- `LongRunJobManager` is disabled by default so new unattended work cannot enter the in-memory-only ownership path.
+- Explicit `allow_legacy_execution=True` retains compatibility mechanics for deterministic tests only; supplying a custom process factory does not silently enable legacy execution.
+- Recreated managers conservatively move unowned `created`, `queued`, or `running` legacy jobs to `needs_input`, generate report/resume/manifest artifacts, and record an ownership-unavailable event.
+- Cancellation without an owned live process handle no longer falsely reports `cancelled`; it remains `needs_input` pending manual verification.
+- Return-loop manifest regeneration recomputes current file paths, hashes, and sizes while preserving an externally delivered manifest's sent status, delivery metadata, original creation time, and audit identity.
+- Delivered manifests remain undiscoverable as ready after regeneration.
+- Local-agent job command parsing preserves the exact case of opaque job IDs, preventing Windows path lookup from succeeding while in-memory process ownership lookup fails.
+
+Validation evidence:
+
+- Legacy long-job suite: `15 passed`.
+- Local-agent job orchestration suite: `4 passed`.
+- Existing PulseSender contract suite: `6 passed`.
+- Delivery-regeneration regression: `1 passed`.
+- Full repository suite: `905 passed, 1 skipped`.
+- `python -m pip check`: no broken requirements found.
+- D5 implementation checkpoints: `542abc1`, `d131eb8`, `43f540c`, `2893440`, and `bf8dbb9`.
+
+Boundaries not claimed:
+
+- `LongRunJobManager` has not been migrated into a restart-adoptable process manager; it remains compatibility/test-only.
+- Durable remote SSH jobs, permissive shell execution, global transfer roots, absolute cgroup limits, and remote restart adoption are separate follow-up batches.
+- Two live Codex plan/implementation runs failed before editing with `No prompt provided via stdin.` The Codex prompt transport must be repaired before relying on Codex escalation for the SSH implementation.
+
+Each batch must be independently reviewable, tested, and committed. Do not combine the remote-execution expansion into one broad refactor.
 
 ## Explicitly Deferred
 
@@ -345,6 +371,15 @@ The durability gate is complete only when all of the following are true:
 - Full tests and Windows process integration tests pass.
 - Documentation no longer claims restart safety beyond the proven guarantees.
 
-## Next Feature Batch After the Gate
+## Next Feature Batches After the Gate
 
-After P0/P1 completion, reassess the optional ChatGPT-native live-status component. Keep it distinct from the existing local read-only dashboard and do not let UI work precede execution correctness.
+1. **T1 - Codex prompt transport repair**
+   - Reproduce and fix the live `No prompt provided via stdin.` failure for plan and implementation runs.
+   - Add a real CLI integration regression proving that the persisted prompt reaches Codex before any edit-capable work is trusted.
+
+2. **R1 - Global remote policy and request contract**
+   - Connect SSH execution modes to the canonical autonomy profiles.
+   - Preserve structured execution for every profile, reviewed scripts for delegated/permissive use, and unrestricted root shell only for permissive use.
+   - Keep all transport, execution, transfer, monitoring, cancellation, and reconciliation logic repository-independent.
+
+Wan2.2 paid-pod work remains blocked until the complete generic SSH acceptance gate passes. UI expansion remains deferred behind execution correctness.

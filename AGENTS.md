@@ -78,8 +78,14 @@ Required execution invariants:
    - Startup reconciliation failures must produce durable events; never silently swallow them.
 
 9. **Legacy job containment**
-   - `LongRunJobManager` is not restart-safe while process ownership exists only in memory.
-   - Do not route new unattended durable workloads through it unless the requested batch explicitly migrates or hardens it.
+   - `LongRunJobManager` is not a production execution path and is disabled by default.
+   - Its in-memory execution mode is compatibility/test-only and requires explicit `allow_legacy_execution=True` opt-in.
+   - Recreated managers must move unowned nonterminal legacy jobs to `needs_input`; never report them as ordinarily running or falsely cancelled.
+   - Route every new unattended workload through the durable `JobManager`/`RunStore` lease and reconciliation path.
+
+10. **Opaque identifier preservation**
+   - Parsers may match command prefixes case-insensitively, but must preserve run, job, workflow, supervisor, host, and profile identifiers exactly as supplied.
+   - Never lowercase an opaque identifier before process ownership, lock, database, or artifact lookup.
 
 ## Required Crash-Window Tests
 
