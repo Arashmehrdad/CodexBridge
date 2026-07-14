@@ -20,6 +20,8 @@ from codexbridge.gateway_models import (
     RunQueryRequest,
     SSHEnvironmentProbe,
     SSHInspectRequest,
+    SSHAdministrationAction,
+    SSHCommandAction,
     SSHExecutionPolicyGatewayRequest,
     SupervisorActionRequest,
     SupervisorQueryRequest,
@@ -258,6 +260,22 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
         SSHExecutionPolicyGatewayRequest.model_validate(
             {"autonomy_profile": "permissive", "unexpected": True}
         )
+    command = SSHCommandAction.model_validate(
+        {"action": "command", "host_id": "dev", "command_id": "uptime"}
+    )
+    administration = SSHAdministrationAction.model_validate(
+        {
+            "action": "administration",
+            "host_id": "dev",
+            "ssh_action": "service_restart",
+            "autonomy_profile": "permissive",
+            "execution_mode": "structured",
+        }
+    )
+    assert command.autonomy_profile == "chatgpt_delegated"
+    assert command.execution_mode == "structured"
+    assert administration.autonomy_profile == "permissive"
+    assert administration.execution_mode == "structured"
 
 
 def test_phase7_system_and_knowledge_models_are_strict() -> None:

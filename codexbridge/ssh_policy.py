@@ -5,6 +5,7 @@ does not resolve repositories, build commands, or execute transport work.
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from types import MappingProxyType
 from typing import Literal, Mapping
 
@@ -36,6 +37,8 @@ SSH_EXECUTION_POLICY_MATRIX: Mapping[str, frozenset[str]] = MappingProxyType(
 SSH_EXECUTION_MODES = CANONICAL_SSH_EXECUTION_MODES
 AUTONOMY_PROFILES = CANONICAL_AUTONOMY_PROFILES
 SSH_POLICY_MATRIX = SSH_EXECUTION_POLICY_MATRIX
+
+IMPLEMENTED_SSH_EXECUTION_MODES = frozenset({"structured"})
 
 
 class SSHPolicyRequest(BaseModel):
@@ -75,6 +78,34 @@ def evaluate_ssh_policy(request: SSHPolicyRequest) -> SSHPolicyResult:
             else "execution_mode_not_allowed_for_autonomy_profile"
         ),
     )
+
+
+def authorize_ssh_launch(
+    *,
+    autonomy_profile: str,
+    execution_mode: str,
+    implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
+) -> SSHPolicyResult:
+    """Validate and authorize one SSH launch for a caller's mode support."""
+
+    request = SSHPolicyRequest.model_validate(
+        {
+            "autonomy_profile": autonomy_profile,
+            "execution_mode": execution_mode,
+        }
+    )
+    result = evaluate_ssh_policy(request)
+    if not result.allowed:
+        raise ValueError(
+            "SSH execution policy denied profile/mode combination: "
+            f"{request.autonomy_profile}/{request.execution_mode}"
+        )
+    if request.execution_mode not in implemented_modes:
+        raise ValueError(
+            "SSH execution mode is not implemented by this launch path: "
+            f"{request.execution_mode}"
+        )
+    return result
 
 
 # Explicit descriptive aliases for consumers that prefer the full name.

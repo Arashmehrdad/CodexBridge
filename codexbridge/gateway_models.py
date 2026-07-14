@@ -623,13 +623,13 @@ class SSHProfileApplyAction(GatewayModel):
     change_id: str = Field(min_length=1, max_length=128)
 
 
-class SSHCommandAction(GatewayModel):
+class SSHCommandAction(SSHExecutionPolicyGatewayRequest):
     action: Literal["command", "monitored_command"]
     host_id: str = Field(min_length=1, max_length=128)
     command_id: str = Field(min_length=1, max_length=128)
 
 
-class SSHAdministrationAction(GatewayModel):
+class SSHAdministrationAction(SSHExecutionPolicyGatewayRequest):
     action: Literal["administration"]
     host_id: str = Field(min_length=1, max_length=128)
     ssh_action: str = Field(min_length=1, max_length=128)

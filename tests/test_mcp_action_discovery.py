@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from jsonschema import Draft202012Validator, validate
+from pydantic import TypeAdapter
 
 from codexbridge.config import AppConfig, LocalModelConfig, RepoConfig
 from codexbridge.knowledge_tools_integration import register_knowledge_tools
@@ -1832,7 +1833,7 @@ def test_remote_capability_tools_delegate(monkeypatch) -> None:
 def test_start_remote_command_async_delegates(monkeypatch) -> None:
     method_name = "start_ssh_command"
 
-    def start(self, host_id, command_id):
+    def start(self, host_id, command_id, *, autonomy_profile, execution_mode):
         return {
             "run_id": "run_remote",
             "accepted": True,
@@ -1840,6 +1841,8 @@ def test_start_remote_command_async_delegates(monkeypatch) -> None:
             "host_id": host_id,
             "command_id": command_id,
             "writes_remote": False,
+            "autonomy_profile": autonomy_profile,
+            "execution_mode": execution_mode,
         }
 
     fake_manager = type("FakeJobManager", (), {method_name: start})()
@@ -1851,16 +1854,20 @@ def test_start_remote_command_async_delegates(monkeypatch) -> None:
     assert result["run_id"] == "run_remote"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
+    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["execution_mode"] == "structured"
 
 
 def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
-    def start(self, host_id, command_id):
+    def start(self, host_id, command_id, *, autonomy_profile, execution_mode):
         return {
             "run_id": "run_monitored",
             "accepted": True,
             "status": "queued",
             "host_id": host_id,
             "command_id": command_id,
+            "autonomy_profile": autonomy_profile,
+            "execution_mode": execution_mode,
         }
 
     fake_manager = type("FakeJobManager", (), {"start_ssh_monitored_command": start})()
@@ -1870,6 +1877,33 @@ def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
 
     assert result["accepted"] is True
     assert result["run_id"] == "run_monitored"
+    assert result["autonomy_profile"] == "chatgpt_delegated"
+    assert result["execution_mode"] == "structured"
+
+
+def test_remote_ssh_action_gateway_propagates_policy(monkeypatch) -> None:
+    captured = {}
+
+    def start(host_id, action, **kwargs):
+        captured.update(host_id=host_id, action=action, **kwargs)
+        return {"accepted": True, "run_id": "run_admin"}
+
+    monkeypatch.setattr(server, "start_ssh_action_async", start)
+    request = TypeAdapter(server.SSHActionRequest).validate_python(
+        {
+            "action": "administration",
+            "host_id": "my_vps",
+            "ssh_action": "service_restart",
+            "autonomy_profile": "permissive",
+            "execution_mode": "structured",
+        }
+    )
+
+    result = server.ssh_action(request)
+
+    assert result["run_id"] == "run_admin"
+    assert captured["autonomy_profile"] == "permissive"
+    assert captured["execution_mode"] == "structured"
 
 
 def test_remote_tool_input_schemas_are_exact() -> None:

@@ -205,7 +205,14 @@ def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> N
     status = manager.get_status(response["run_id"])
     assert status["repo_name"] == "ssh:my_vps"
     assert status["tool"] == "ssh_command"
-    assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
+    assert status["input"] == {
+        "host_id": "my_vps",
+        "command_id": "uptime",
+        "autonomy_profile": "chatgpt_delegated",
+        "execution_mode": "structured",
+    }
+    assert response["autonomy_profile"] == "chatgpt_delegated"
+    assert response["execution_mode"] == "structured"
 
 
 def test_start_ssh_monitored_command_creates_durable_run(
@@ -221,7 +228,14 @@ def test_start_ssh_monitored_command_creates_durable_run(
     assert response["watchdog_mode"] == "observe_only"
     status = manager.get_status(response["run_id"])
     assert status["tool"] == "ssh_monitored_command"
-    assert status["input"] == {"host_id": "my_vps", "command_id": "uptime"}
+    assert status["input"] == {
+        "host_id": "my_vps",
+        "command_id": "uptime",
+        "autonomy_profile": "chatgpt_delegated",
+        "execution_mode": "structured",
+    }
+    assert response["autonomy_profile"] == "chatgpt_delegated"
+    assert response["execution_mode"] == "structured"
 
 
 def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
@@ -246,10 +260,20 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     local_file.write_text("deploy\n", encoding="utf-8")
 
     action = manager.start_ssh_action(
-        "my_vps", "service_restart", target="sample.service"
+        "my_vps",
+        "service_restart",
+        target="sample.service",
+        autonomy_profile="permissive",
+        execution_mode="structured",
     )
     assert action["accepted"] is True
     assert action["action"] == "service_restart"
+    assert action["autonomy_profile"] == "permissive"
+    assert action["execution_mode"] == "structured"
+    assert (
+        manager.get_status(action["run_id"])["input"]["autonomy_profile"]
+        == "permissive"
+    )
     assert manager.get_status(action["run_id"])["tool"] == "ssh_action"
     manager.locks.release("ssh:my_vps", action["run_id"])
 
@@ -275,6 +299,34 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     deployment_status = manager.get_status(deployment["run_id"])
     assert deployment_status["tool"] == "ssh_deployment"
     assert deployment_status["risk_level"] == "high"
+
+
+@pytest.mark.parametrize(
+    ("autonomy_profile", "execution_mode", "message_category"),
+    [
+        ("readonly", "reviewed_script", "denied"),
+        ("chatgpt_delegated", "reviewed_script", "not implemented"),
+    ],
+)
+def test_denied_ssh_launch_creates_no_run_or_lock(
+    tmp_path: Path,
+    monkeypatch,
+    autonomy_profile: str,
+    execution_mode: str,
+    message_category: str,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match=message_category):
+        manager.start_ssh_command(
+            "my_vps",
+            "uptime",
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
 
 
 def test_ssh_transfer_overwrite_and_deployment_require_confirmation(

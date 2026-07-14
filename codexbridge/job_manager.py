@@ -48,6 +48,7 @@ from .safety import (
     validate_repo_relative_paths,
 )
 from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
+from .ssh_policy import authorize_ssh_launch
 from .ssh_watchdog import (
     terminate_remote_process_group,
     validate_monitored_command_start,
@@ -710,7 +711,18 @@ class JobManager:
             decision,
         )
 
-    def start_ssh_command(self, host_id: str, command_id: str) -> dict:
+    def start_ssh_command(
+        self,
+        host_id: str,
+        command_id: str,
+        *,
+        autonomy_profile: str = "chatgpt_delegated",
+        execution_mode: str = "structured",
+    ) -> dict:
+        policy = authorize_ssh_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+        )
         _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
@@ -725,15 +737,33 @@ class JobManager:
         response = self._create_and_launch(
             "ssh_command",
             f"ssh:{host_id}",
-            {"host_id": host_id, "command_id": command_id},
+            {
+                "host_id": host_id,
+                "command_id": command_id,
+                "autonomy_profile": policy.autonomy_profile,
+                "execution_mode": policy.execution_mode,
+            },
             decision,
         )
         response["host_id"] = host_id
         response["command_id"] = command_id
         response["writes_remote"] = profile.writes_remote
+        response["autonomy_profile"] = policy.autonomy_profile
+        response["execution_mode"] = policy.execution_mode
         return response
 
-    def start_ssh_monitored_command(self, host_id: str, command_id: str) -> dict:
+    def start_ssh_monitored_command(
+        self,
+        host_id: str,
+        command_id: str,
+        *,
+        autonomy_profile: str = "chatgpt_delegated",
+        execution_mode: str = "structured",
+    ) -> dict:
+        policy = authorize_ssh_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+        )
         host, profile = validate_monitored_command_start(
             self.config, host_id, command_id
         )
@@ -750,11 +780,18 @@ class JobManager:
         response = self._create_and_launch(
             "ssh_monitored_command",
             f"ssh:{host_id}",
-            {"host_id": host_id, "command_id": command_id},
+            {
+                "host_id": host_id,
+                "command_id": command_id,
+                "autonomy_profile": policy.autonomy_profile,
+                "execution_mode": policy.execution_mode,
+            },
             decision,
         )
         response["host_id"] = host_id
         response["command_id"] = command_id
+        response["autonomy_profile"] = policy.autonomy_profile
+        response["execution_mode"] = policy.execution_mode
         response["writes_remote"] = profile.writes_remote
         response["watchdog_mode"] = host.watchdog.enforcement_mode
         response["automatic_termination_active"] = bool(
@@ -781,7 +818,13 @@ class JobManager:
         args: list[str] | None = None,
         force: bool = False,
         confirmation: str = "",
+        autonomy_profile: str = "chatgpt_delegated",
+        execution_mode: str = "structured",
     ) -> dict:
+        policy = authorize_ssh_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+        )
         normalized_packages = list(packages or [])
         normalized_args = list(args or [])
         spec = build_ssh_action(
@@ -828,6 +871,8 @@ class JobManager:
             "args": normalized_args,
             "force": force,
             "confirmation": confirmation,
+            "autonomy_profile": policy.autonomy_profile,
+            "execution_mode": policy.execution_mode,
         }
         response = self._create_and_launch(
             "ssh_action", f"ssh:{host_id}", input_data, decision
@@ -835,6 +880,8 @@ class JobManager:
         response["host_id"] = host_id
         response["action"] = action
         response["high_risk"] = spec.high_risk
+        response["autonomy_profile"] = policy.autonomy_profile
+        response["execution_mode"] = policy.execution_mode
         return response
 
     def start_ssh_transfer(

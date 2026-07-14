@@ -1610,18 +1610,38 @@ def start_external_fixture_validation_async(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
-def start_ssh_command_async(host_id: str, command_id: str) -> dict:
+def start_ssh_command_async(
+    host_id: str,
+    command_id: str,
+    autonomy_profile: str = "chatgpt_delegated",
+    execution_mode: str = "structured",
+) -> dict:
     """Write async tool: queue one configured SSH command by host ID and command ID."""
-    return get_job_manager().start_ssh_command(host_id, command_id)
+    return get_job_manager().start_ssh_command(
+        host_id,
+        command_id,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
+    )
 
 
 @_internal_tool(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
-def start_ssh_monitored_command_async(host_id: str, command_id: str) -> dict:
+def start_ssh_monitored_command_async(
+    host_id: str,
+    command_id: str,
+    autonomy_profile: str = "chatgpt_delegated",
+    execution_mode: str = "structured",
+) -> dict:
     """Write async tool: queue one opt-in monitored SSH command by host ID and command ID."""
-    return get_job_manager().start_ssh_monitored_command(host_id, command_id)
+    return get_job_manager().start_ssh_monitored_command(
+        host_id,
+        command_id,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
+    )
 
 
 @_internal_tool(
@@ -1642,6 +1662,8 @@ def start_ssh_action_async(
     args: list[str] = [],
     force: bool = False,
     confirmation: str = "",
+    autonomy_profile: str = "chatgpt_delegated",
+    execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one bounded SSH administration, Git, service, or Compose action."""
     return get_job_manager().start_ssh_action(
@@ -1658,6 +1680,8 @@ def start_ssh_action_async(
         args=args,
         force=force,
         confirmation=confirmation,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
     )
 
 
@@ -1792,9 +1816,19 @@ def ssh_action(request: SSHActionRequest) -> dict:
     if request.action == "profile_apply":
         return apply_ssh_profile_change(request.change_id)
     if request.action == "command":
-        return start_ssh_command_async(request.host_id, request.command_id)
+        return start_ssh_command_async(
+            request.host_id,
+            request.command_id,
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
+        )
     if request.action == "monitored_command":
-        return start_ssh_monitored_command_async(request.host_id, request.command_id)
+        return start_ssh_monitored_command_async(
+            request.host_id,
+            request.command_id,
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
+        )
     if request.action == "administration":
         return start_ssh_action_async(
             request.host_id, request.ssh_action, target=request.target,
@@ -1802,6 +1836,8 @@ def ssh_action(request: SSHActionRequest) -> dict:
             deployment_id=request.deployment_id, command_id=request.command_id,
             packages=request.packages, executable=request.executable, args=request.args,
             force=request.force, confirmation=request.confirmation,
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
         )
     if request.action == "transfer":
         return start_ssh_transfer_async(

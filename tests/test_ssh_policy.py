@@ -10,6 +10,7 @@ from codexbridge.ssh_policy import (
     CANONICAL_SSH_EXECUTION_MODES,
     SSH_EXECUTION_POLICY_MATRIX,
     SSHPolicyRequest,
+    authorize_ssh_launch,
     evaluate_ssh_policy,
 )
 
@@ -71,3 +72,30 @@ def test_policy_is_repository_independent() -> None:
         "autonomy_profile",
     }
     assert "repo_name" not in SSHPolicyRequest.model_fields
+
+
+def test_launch_authorization_rejects_denied_and_unimplemented_modes() -> None:
+    assert authorize_ssh_launch(
+        autonomy_profile="chatgpt_delegated", execution_mode="structured"
+    ).allowed
+    with pytest.raises(ValueError, match="denied"):
+        authorize_ssh_launch(
+            autonomy_profile="readonly", execution_mode="reviewed_script"
+        )
+    with pytest.raises(ValueError, match="not implemented"):
+        authorize_ssh_launch(
+            autonomy_profile="chatgpt_delegated", execution_mode="reviewed_script"
+        )
+
+
+@pytest.mark.parametrize(
+    ("autonomy_profile", "execution_mode"),
+    [("unknown", "structured"), ("chatgpt_delegated", "unknown")],
+)
+def test_launch_authorization_strictly_validates_policy_fields(
+    autonomy_profile: str, execution_mode: str
+) -> None:
+    with pytest.raises(ValidationError):
+        authorize_ssh_launch(
+            autonomy_profile=autonomy_profile, execution_mode=execution_mode
+        )
