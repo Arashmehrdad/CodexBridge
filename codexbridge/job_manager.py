@@ -1171,12 +1171,14 @@ class JobManager:
     def get_status(self, run_id: str) -> dict:
         reference = decode_run_reference(run_id)
         actual_run_id = reference.resource_id if reference else run_id
-        payload = self.get_status_payload(actual_run_id)
         if reference:
             return chunk_payload(
-                "status", actual_run_id, payload, reference.cursor
+                "status",
+                actual_run_id,
+                lambda: self.get_status_payload(actual_run_id),
+                reference.cursor,
             )
-        return redact_and_truncate(payload)
+        return redact_and_truncate(self.get_status_payload(actual_run_id))
 
     def get_events(
         self, run_id: str, limit: int = 50, after_id: int | None = None
@@ -1302,12 +1304,14 @@ class JobManager:
     def get_result(self, run_id: str) -> dict:
         reference = decode_run_reference(run_id)
         actual_run_id = reference.resource_id if reference else run_id
-        payload = self.get_result_payload(actual_run_id)
         if reference:
             return chunk_payload(
-                "result", actual_run_id, payload, reference.cursor
+                "result",
+                actual_run_id,
+                lambda: self.get_result_payload(actual_run_id),
+                reference.cursor,
             )
-        return redact_and_truncate(payload)
+        return redact_and_truncate(self.get_result_payload(actual_run_id))
 
     @staticmethod
     def _run_lookup_error(run_id: str, exc: Exception) -> dict:
@@ -1371,22 +1375,27 @@ class JobManager:
     ) -> list[dict]:
         reference = decode_list_reference(repo_name)
         actual_repo_name = reference.resource_id if reference else repo_name
-        payload = self.list_runs_payload(
-            repo_name=actual_repo_name or None,
-            status=status,
-            limit=limit,
-        )
         if reference:
             transported = chunk_payload(
                 "list",
                 list_resource_id(
                     actual_repo_name or "", status or "", limit
                 ),
-                payload,
+                lambda: self.list_runs_payload(
+                    repo_name=actual_repo_name or None,
+                    status=status,
+                    limit=limit,
+                ),
                 reference.cursor,
             )
             return transported if isinstance(transported, list) else [transported]
-        return redact_and_truncate(payload)
+        return redact_and_truncate(
+            self.list_runs_payload(
+                repo_name=actual_repo_name or None,
+                status=status,
+                limit=limit,
+            )
+        )
 
     def latest_result(
         self, repo_name: str | None = None, tool: str | None = None

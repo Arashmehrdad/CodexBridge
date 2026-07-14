@@ -4,22 +4,44 @@ import base64
 import binascii
 import hashlib
 import json
+import os
+import re
+import tempfile
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .safety import redact_secret_values
 
 
 RUN_QUERY_CHUNK_CHARACTERS = 16 * 1024
-_CURSOR_VERSION = 1
+_CURSOR_VERSION = 2
 _RUN_REFERENCE_PREFIX = "__codexbridge_run_query_run__:"
 _LIST_REFERENCE_PREFIX = "__codexbridge_run_query_list__:"
+_SNAPSHOT_ROOT = Path(tempfile.gettempdir()) / "codexbridge-run-query-snapshots"
+_SNAPSHOT_MAX_AGE_SECONDS = 60 * 60
+_SNAPSHOT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SNAPSHOT_LOCK = threading.Lock()
+_SNAPSHOTS: dict[str, "SnapshotMetadata"] = {}
 
 
 @dataclass(frozen=True)
 class ChunkReference:
     resource_id: str
     cursor: str
+
+
+@dataclass(frozen=True)
+class SnapshotMetadata:
+    operation: str
+    resource_id: str
+    payload_sha256: str
+    total_characters: int
+    path: Path
 
 
 def _urlsafe_encode(payload: dict[str, Any]) -> str:
@@ -105,11 +127,118 @@ def _redact_value(value: Any, key: str = "") -> Any:
     return value
 
 
+def _snapshot_path(snapshot_id: str) -> Path:
+    if not _SNAPSHOT_ID_RE.fullmatch(snapshot_id):
+        raise ValueError("Invalid run-query snapshot identifier")
+    return _SNAPSHOT_ROOT / f"{snapshot_id}.json"
+
+
+def _prune_snapshots_locked(now: float) -> None:
+    cutoff = now - _SNAPSHOT_MAX_AGE_SECONDS
+    for snapshot_id, metadata in list(_SNAPSHOTS.items()):
+        try:
+            expired = metadata.path.stat().st_mtime < cutoff
+        except OSError:
+            expired = True
+        if expired:
+            _SNAPSHOTS.pop(snapshot_id, None)
+            try:
+                metadata.path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if not _SNAPSHOT_ROOT.exists():
+        return
+    for path in _SNAPSHOT_ROOT.glob("*.tmp"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _write_snapshot(
+    operation: str,
+    resource_id: str,
+    payload_sha256: str,
+    data: bytes,
+) -> str:
+    snapshot_id = uuid4().hex
+    snapshot_path = _snapshot_path(snapshot_id)
+    temporary_path = snapshot_path.with_suffix(".tmp")
+    with _SNAPSHOT_LOCK:
+        _SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
+        _prune_snapshots_locked(time.time())
+        file_descriptor = os.open(
+            temporary_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            with os.fdopen(file_descriptor, "wb") as handle:
+                handle.write(data)
+            os.replace(temporary_path, snapshot_path)
+        except Exception:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        _SNAPSHOTS[snapshot_id] = SnapshotMetadata(
+            operation=operation,
+            resource_id=resource_id,
+            payload_sha256=payload_sha256,
+            total_characters=len(data),
+            path=snapshot_path,
+        )
+    return snapshot_id
+
+
+def _read_snapshot_chunk(
+    snapshot_id: str,
+    operation: str,
+    resource_id: str,
+    payload_sha256: str,
+    total_characters: int,
+    offset: int,
+) -> bytes:
+    with _SNAPSHOT_LOCK:
+        metadata = _SNAPSHOTS.get(snapshot_id)
+        if metadata is None:
+            raise FileNotFoundError("Run-query snapshot expired or is unavailable")
+        if (
+            metadata.operation != operation
+            or metadata.resource_id != resource_id
+            or metadata.payload_sha256 != payload_sha256
+            or metadata.total_characters != total_characters
+        ):
+            raise ValueError("Run-query cursor does not match its snapshot")
+        if not metadata.path.is_file() or metadata.path.is_symlink():
+            raise FileNotFoundError("Run-query snapshot expired or is unavailable")
+        if metadata.path.stat().st_size != total_characters:
+            raise ValueError("Run-query snapshot size mismatch")
+        with metadata.path.open("rb") as handle:
+            handle.seek(offset)
+            return handle.read(RUN_QUERY_CHUNK_CHARACTERS)
+
+
+def _delete_snapshot(snapshot_id: str) -> None:
+    with _SNAPSHOT_LOCK:
+        metadata = _SNAPSHOTS.pop(snapshot_id, None)
+        if metadata is None:
+            return
+        try:
+            metadata.path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _encode_cursor(
     operation: str,
     resource_id: str,
     offset: int,
     payload_sha256: str,
+    snapshot_id: str,
+    total_characters: int,
 ) -> str:
     return _urlsafe_encode(
         {
@@ -118,6 +247,8 @@ def _encode_cursor(
             "resource_id": resource_id,
             "offset": int(offset),
             "payload_sha256": payload_sha256,
+            "snapshot_id": snapshot_id,
+            "total_characters": int(total_characters),
         }
     )
 
@@ -151,20 +282,9 @@ def _cursor_error(
 def chunk_payload(
     operation: str,
     resource_id: str,
-    payload: Any,
+    payload: Any | Callable[[], Any],
     cursor: str = "",
 ) -> Any:
-    safe_payload = _redact_value(payload)
-    serialized = json.dumps(
-        safe_payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    payload_sha256 = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-    offset = 0
-
     if cursor:
         try:
             state = _decode_cursor(cursor)
@@ -174,56 +294,119 @@ def chunk_payload(
             ):
                 raise ValueError("Run-query cursor does not match this request")
             offset = int(state.get("offset", -1))
-        except (TypeError, ValueError) as exc:
-            return _cursor_error(operation, resource_id, "invalid_cursor", str(exc))
-        if state.get("payload_sha256") != payload_sha256:
-            return _cursor_error(
+            total_characters = int(state.get("total_characters", -1))
+            payload_sha256 = str(state.get("payload_sha256") or "")
+            snapshot_id = str(state.get("snapshot_id") or "")
+            if offset < 0 or offset > total_characters or total_characters < 0:
+                raise ValueError("Run-query cursor offset is invalid")
+            chunk_bytes = _read_snapshot_chunk(
+                snapshot_id,
                 operation,
                 resource_id,
-                "cursor_stale",
-                "Run data changed; restart from the first chunk",
+                payload_sha256,
+                total_characters,
+                offset,
             )
-
-    if offset < 0 or offset > len(serialized):
-        return _cursor_error(
-            operation,
-            resource_id,
-            "invalid_cursor",
-            "Run-query cursor offset is invalid",
+        except FileNotFoundError as exc:
+            return _cursor_error(
+                operation, resource_id, "cursor_expired", str(exc)
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            return _cursor_error(operation, resource_id, "invalid_cursor", str(exc))
+        chunk = chunk_bytes.decode("ascii")
+        end = offset + len(chunk)
+        complete = end >= total_characters
+        if complete:
+            _delete_snapshot(snapshot_id)
+        next_cursor = (
+            ""
+            if complete
+            else _encode_cursor(
+                operation,
+                resource_id,
+                end,
+                payload_sha256,
+                snapshot_id,
+                total_characters,
+            )
         )
+        return {
+            "ok": True,
+            "transport": "chunked_json",
+            "operation": operation,
+            "resource_id": resource_id,
+            "chunk": chunk,
+            "chunk_index": offset // RUN_QUERY_CHUNK_CHARACTERS,
+            "offset": offset,
+            "next_offset": end,
+            "chunk_characters": len(chunk),
+            "total_characters": total_characters,
+            "payload_sha256": payload_sha256,
+            "complete": complete,
+            "next_cursor": next_cursor,
+            "error": "",
+        }
 
-    if not cursor and len(serialized) <= RUN_QUERY_CHUNK_CHARACTERS:
+    raw_payload = payload() if callable(payload) else payload
+    safe_payload = _redact_value(raw_payload)
+    serialized = json.dumps(
+        safe_payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    serialized_bytes = serialized.encode("ascii")
+    payload_sha256 = hashlib.sha256(serialized_bytes).hexdigest()
+    total_characters = len(serialized)
+
+    if total_characters <= RUN_QUERY_CHUNK_CHARACTERS:
         if isinstance(safe_payload, dict):
             inline = dict(safe_payload)
             inline["_transport"] = {
                 "mode": "inline",
                 "complete": True,
                 "payload_sha256": payload_sha256,
-                "total_characters": len(serialized),
+                "total_characters": total_characters,
             }
             return inline
         return safe_payload
 
-    end = min(offset + RUN_QUERY_CHUNK_CHARACTERS, len(serialized))
-    complete = end >= len(serialized)
-    next_cursor = (
-        ""
-        if complete
-        else _encode_cursor(operation, resource_id, end, payload_sha256)
-    )
+    try:
+        snapshot_id = _write_snapshot(
+            operation,
+            resource_id,
+            payload_sha256,
+            serialized_bytes,
+        )
+    except OSError as exc:
+        return _cursor_error(
+            operation,
+            resource_id,
+            "snapshot_failed",
+            f"Could not persist run-query snapshot: {exc}",
+        )
+    end = RUN_QUERY_CHUNK_CHARACTERS
     return {
         "ok": True,
         "transport": "chunked_json",
         "operation": operation,
         "resource_id": resource_id,
-        "chunk": serialized[offset:end],
-        "chunk_index": offset // RUN_QUERY_CHUNK_CHARACTERS,
-        "offset": offset,
+        "chunk": serialized[:end],
+        "chunk_index": 0,
+        "offset": 0,
         "next_offset": end,
-        "chunk_characters": end - offset,
-        "total_characters": len(serialized),
+        "chunk_characters": end,
+        "total_characters": total_characters,
         "payload_sha256": payload_sha256,
-        "complete": complete,
-        "next_cursor": next_cursor,
+        "complete": False,
+        "next_cursor": _encode_cursor(
+            operation,
+            resource_id,
+            end,
+            payload_sha256,
+            snapshot_id,
+            total_characters,
+        ),
         "error": "",
     }

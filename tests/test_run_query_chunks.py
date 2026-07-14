@@ -95,24 +95,29 @@ def test_large_status_round_trips_without_total_data_loss() -> None:
     assert "worker_lease_token" not in payload
 
 
-def test_status_cursor_rejects_changed_run_payload() -> None:
-    run = make_run("x" * (RUN_QUERY_CHUNK_CHARACTERS + 50))
+def test_status_cursor_uses_frozen_snapshot_when_run_changes() -> None:
+    original_detail = "x" * (RUN_QUERY_CHUNK_CHARACTERS + 50)
+    run = make_run(original_detail)
     manager = make_manager(run)
     first_request = RunStatusQuery(operation="status", run_id=RUN_ID)
     first = manager.get_status(first_request.run_id)
     assert first["complete"] is False
 
     run["input"]["detail"] = "y" * (RUN_QUERY_CHUNK_CHARACTERS + 50)
-    second_request = RunStatusQuery(
-        operation="status",
-        run_id=RUN_ID,
-        cursor=first["next_cursor"],
-    )
-    stale = manager.get_status(second_request.run_id)
+    chunks = [first["chunk"]]
+    cursor = first["next_cursor"]
+    while cursor:
+        next_request = RunStatusQuery(
+            operation="status",
+            run_id=RUN_ID,
+            cursor=cursor,
+        )
+        response = manager.get_status(next_request.run_id)
+        chunks.append(response["chunk"])
+        cursor = response["next_cursor"]
 
-    assert stale["ok"] is False
-    assert stale["status"] == "cursor_stale"
-    assert stale["restart_required"] is True
+    reconstructed = json.loads("".join(chunks))
+    assert reconstructed["input"]["detail"] == original_detail
 
 
 def test_small_public_status_stays_inline_and_redacted() -> None:
