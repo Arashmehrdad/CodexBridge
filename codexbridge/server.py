@@ -1613,7 +1613,7 @@ def start_external_fixture_validation_async(
 def start_ssh_command_async(
     host_id: str,
     command_id: str,
-    autonomy_profile: str = "chatgpt_delegated",
+    autonomy_profile: str = "balanced",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one configured SSH command by host ID and command ID."""
@@ -1632,7 +1632,7 @@ def start_ssh_command_async(
 def start_ssh_monitored_command_async(
     host_id: str,
     command_id: str,
-    autonomy_profile: str = "chatgpt_delegated",
+    autonomy_profile: str = "balanced",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one opt-in monitored SSH command by host ID and command ID."""
@@ -1662,7 +1662,7 @@ def start_ssh_action_async(
     args: list[str] = [],
     force: bool = False,
     confirmation: str = "",
-    autonomy_profile: str = "chatgpt_delegated",
+    autonomy_profile: str = "balanced",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one bounded SSH administration, Git, service, or Compose action."""
@@ -1698,7 +1698,7 @@ def start_ssh_transfer_async(
     recursive: bool = False,
     overwrite: bool = False,
     confirmation: str = "",
-    autonomy_profile: str = "chatgpt_delegated",
+    autonomy_profile: str = "balanced",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue a repository-scoped upload or run-artifact download using SCP."""
@@ -1724,7 +1724,7 @@ def start_ssh_deployment_async(
     host_id: str,
     deployment_id: str,
     confirmation: str,
-    autonomy_profile: str = "chatgpt_delegated",
+    autonomy_profile: str = "balanced",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: deploy a configured repository as an archive release and activate it remotely."""
