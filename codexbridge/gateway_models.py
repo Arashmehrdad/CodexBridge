@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .run_query_chunks import encode_list_reference, encode_run_reference
+from .ssh_policy import AutonomyProfile, SSHExecutionMode
 
 
 class GatewayModel(BaseModel):
@@ -581,6 +582,19 @@ CloudflareActionRequest = Annotated[
 
 class SSHCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
+
+
+class SSHExecutionPolicyGatewayRequest(GatewayModel):
+    """Strict reusable contract for selecting an SSH execution policy."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    execution_mode: SSHExecutionMode = "structured"
+    autonomy_profile: AutonomyProfile = "chatgpt_delegated"
+
+
+SSHPolicyGatewayRequest = SSHExecutionPolicyGatewayRequest
+SSHExecutionPolicyRequest = SSHExecutionPolicyGatewayRequest
 
 
 class SSHProfilePreviewQuery(GatewayModel):

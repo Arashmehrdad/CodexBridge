@@ -20,6 +20,7 @@ from codexbridge.gateway_models import (
     RunQueryRequest,
     SSHEnvironmentProbe,
     SSHInspectRequest,
+    SSHExecutionPolicyGatewayRequest,
     SupervisorActionRequest,
     SupervisorQueryRequest,
     WorkflowActionRequest,
@@ -242,6 +243,20 @@ def test_phase6_domain_models_reject_cross_domain_fields() -> None:
     with pytest.raises(ValidationError):
         TypeAdapter(SSHActionRequest).validate_python(
             {"action": "command", "host_id": "dev", "command_id": "uptime", "remote_path": "/srv"}
+        )
+
+
+def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
+    request = SSHExecutionPolicyGatewayRequest()
+    assert request.autonomy_profile == "chatgpt_delegated"
+    assert request.execution_mode == "structured"
+    with pytest.raises(ValidationError):
+        SSHExecutionPolicyGatewayRequest.model_validate(
+            {"execution_mode": "unknown"}
+        )
+    with pytest.raises(ValidationError):
+        SSHExecutionPolicyGatewayRequest.model_validate(
+            {"autonomy_profile": "permissive", "unexpected": True}
         )
 
 
