@@ -189,11 +189,12 @@ def test_stale_generation_cannot_append_guarded_event(durable_tmp_path: Path) ->
     config, _ = _config(durable_tmp_path)
     store = WorkflowStore(config.resolve_runs_dir())
     workflow = _create(store)
+    lease_token = workflow.worker_lease_token
     reserved = store.reserve_next_launch(
         "workflow",
         expected_statuses=(WorkflowStatus.QUEUED,),
         expected_state_version=workflow.state_version,
-        expected_lease_token="lease-1",
+        expected_lease_token=lease_token,
         expected_lease_generation=1,
         expected_heartbeat_at=workflow.heartbeat_at,
         new_lease_token="lease-2",
@@ -205,7 +206,7 @@ def test_stale_generation_cannot_append_guarded_event(durable_tmp_path: Path) ->
         stage="stale",
         message="stale worker event",
         update_workflow_metadata=False,
-        expected_lease_token="lease-1",
+        expected_lease_token=lease_token,
         expected_lease_generation=1,
         expected_statuses=(WorkflowStatus.QUEUED,),
         expected_state_version=workflow.state_version,
@@ -279,9 +280,10 @@ def test_repeated_startup_does_not_duplicate_replacement_or_durable_child(
         identity_checker=identity_checker,
     )
     workflow = _create(manager.store)
+    lease_token = workflow.worker_lease_token
     assert manager.store.claim_worker(
         "workflow",
-        lease_token="lease-1",
+        lease_token=lease_token,
         lease_generation=1,
         expected_state_version=workflow.state_version,
         worker_pid=10,
@@ -291,7 +293,7 @@ def test_repeated_startup_does_not_duplicate_replacement_or_durable_child(
     claimed = manager.store.claim_step(
         "workflow",
         "one",
-        lease_token="lease-1",
+        lease_token=lease_token,
         lease_generation=1,
         child_run_id="child-1",
         expected_workflow_state_version=current.state_version,
@@ -329,7 +331,7 @@ def test_startup_repairs_terminal_publication_crash_windows_and_corruption(
         },
         expected_statuses=(WorkflowStatus.QUEUED,),
         expected_state_version=workflow.state_version,
-        expected_lease_token="lease-1",
+        expected_lease_token=workflow.worker_lease_token,
         expected_lease_generation=1,
     )
     assert terminal is not None
@@ -374,7 +376,7 @@ def test_stale_finalizer_publishes_only_the_database_winner(
         },
         expected_statuses=(WorkflowStatus.QUEUED,),
         expected_state_version=stale.state_version,
-        expected_lease_token="lease-1",
+        expected_lease_token=stale.worker_lease_token,
         expected_lease_generation=1,
     )
     assert winner is not None
@@ -405,7 +407,7 @@ def test_needs_approval_terminal_is_reported_and_ready(durable_tmp_path: Path) -
         },
         expected_statuses=(WorkflowStatus.QUEUED,),
         expected_state_version=workflow.state_version,
-        expected_lease_token="lease-1",
+        expected_lease_token=workflow.worker_lease_token,
         expected_lease_generation=1,
     )
     assert terminal is not None
