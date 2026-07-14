@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import posixpath
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
 
 from . import git_tools
@@ -25,7 +26,13 @@ from .command_profiles import (
     resolve_command_profile,
     run_command_profile,
 )
-from .config import load_config, resolve_repo, resolve_repo_config
+from .config import (
+    AppConfig,
+    SSHDeploymentProfileConfig,
+    load_config,
+    resolve_repo,
+    resolve_repo_config,
+)
 from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import fetch_validate_and_discard
@@ -59,9 +66,14 @@ from .runner import (
     open_codex_prompt_stream,
 )
 from .repo_wiki import mark_repo_wiki_stale
-from .safety import reject_destructive_command, validate_repo_relative_paths
+from .safety import (
+    reject_destructive_command,
+    validate_repo_relative_path,
+    validate_repo_relative_paths,
+)
 from .ssh_commands import (
     resolve_ssh_command_profile,
+    resolve_ssh_connection,
     resolve_ssh_host,
     run_ssh_command,
 )
@@ -71,10 +83,14 @@ from .ssh_watchdog import (
     validate_monitored_command_start,
 )
 from .ssh_tools import (
+    _is_secret_path,
+    _resolve_deployment,
+    _safe_name,
     build_ssh_action,
     run_ssh_action,
     run_ssh_deployment,
     run_ssh_transfer,
+    validate_remote_path,
 )
 
 
@@ -152,6 +168,132 @@ def _authorize_persisted_ssh_policy(
                 "Persisted SSH policy metadata does not match canonical worker revalidation"
             )
     return metadata
+
+
+def _validate_ssh_transfer_worker_input(
+    config: AppConfig,
+    input_data: dict,
+    run_dir: Path,
+) -> tuple[str, Path, bool, bool]:
+    if not config.ssh.allow_transfer:
+        raise ValueError("SSH transfer capability is disabled by allow_transfer")
+    direction = str(input_data.get("direction", "")).strip().lower()
+    if direction not in {"upload", "download"}:
+        raise ValueError("direction must be 'upload' or 'download'")
+
+    overwrite = bool(input_data.get("overwrite", False))
+    confirmation = str(input_data.get("confirmation", ""))
+    if overwrite and confirmation != config.ssh.confirmation_token:
+        raise ValueError(
+            "Overwrite transfer requires the configured SSH confirmation token"
+        )
+
+    host_id = str(input_data["host_id"])
+    host = resolve_ssh_host(config, host_id)
+    resolve_ssh_connection(host)
+    remote_path = validate_remote_path(
+        host,
+        str(input_data.get("remote_path", "")),
+        sensitive=True,
+    )
+    repo_root = resolve_repo(config, str(input_data["local_repo_name"]))
+    local_path = str(input_data.get("local_path", ""))
+    recursive = bool(input_data.get("recursive", False))
+
+    if direction == "upload":
+        local = validate_repo_relative_path(repo_root, local_path)
+        if not local.exists():
+            raise ValueError(f"Local upload path does not exist: {local_path}")
+        if local.is_dir() and not recursive:
+            raise ValueError("Directory upload requires recursive=true")
+        if _is_secret_path(local.as_posix()):
+            raise ValueError(
+                "Secret-like local files cannot be uploaded through CodexBridge"
+            )
+    else:
+        requested_name = (
+            Path(local_path).name if local_path else PurePosixPath(remote_path).name
+        )
+        if not requested_name or requested_name in {".", ".."}:
+            requested_name = "downloaded-artifact"
+        destination = run_dir / "downloads" / requested_name
+        if destination.exists() and not overwrite:
+            raise ValueError(
+                f"Download destination already exists: {destination.name}"
+            )
+
+    return direction, repo_root, direction == "upload", overwrite
+
+
+def _validate_ssh_deployment_worker_input(
+    config: AppConfig,
+    input_data: dict,
+    run_id: str,
+) -> tuple[SSHDeploymentProfileConfig, Path]:
+    if not config.ssh.allow_deploy:
+        raise ValueError("SSH deployment capability is disabled by allow_deploy")
+    confirmation = str(input_data.get("confirmation", ""))
+    if confirmation != config.ssh.confirmation_token:
+        raise ValueError(
+            "SSH deployment requires the configured confirmation token"
+        )
+
+    host_id = str(input_data["host_id"])
+    deployment_id = str(input_data["deployment_id"])
+    host = resolve_ssh_host(config, host_id)
+    resolve_ssh_connection(host)
+    deployment = _resolve_deployment(host, deployment_id)
+    repo_root = resolve_repo(config, deployment.repo_name)
+    source_root = validate_repo_relative_path(repo_root, deployment.local_subdir)
+    if not source_root.is_dir():
+        raise ValueError("Deployment local_subdir must resolve to a directory")
+
+    release_root = validate_remote_path(
+        host,
+        posixpath.join(deployment.remote_root, "releases", run_id),
+        sensitive=True,
+    )
+    validate_remote_path(
+        host,
+        posixpath.join(deployment.remote_root, "current"),
+        sensitive=True,
+    )
+    validate_remote_path(
+        host,
+        posixpath.join(
+            deployment.remote_root,
+            ".codexbridge",
+            f"{run_id}.tar.gz",
+        ),
+        sensitive=True,
+    )
+    for remote_source, release_target in deployment.shared_files.items():
+        validate_remote_path(host, remote_source, sensitive=True)
+        validate_remote_path(
+            host,
+            posixpath.join(release_root, release_target),
+            sensitive=True,
+        )
+    if deployment.compose_file:
+        validate_remote_path(
+            host,
+            posixpath.join(release_root, deployment.compose_file),
+        )
+    if deployment.compose_project_name:
+        _safe_name(deployment.compose_project_name, "compose_project_name")
+    for service in deployment.compose_services:
+        _safe_name(service, "service")
+    if deployment.env_file:
+        validate_remote_path(host, deployment.env_file, sensitive=True)
+    if deployment.service_name:
+        _safe_name(deployment.service_name, "service_name")
+    if deployment.health_command_id:
+        resolve_ssh_command_profile(
+            config,
+            host_id,
+            deployment.health_command_id,
+        )
+    return deployment, repo_root
 
 
 def _stream_pipe(
@@ -1257,10 +1399,19 @@ class JobWorker:
 
     def _execute_ssh_transfer(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
-        direction = str(input_data["direction"])
-        local_repo_name = str(input_data["local_repo_name"])
-        repo_root = resolve_repo(self.config, local_repo_name)
         run_dir = Path(self.run["run_dir"])
+        direction, repo_root, writes_remote, high_risk = (
+            _validate_ssh_transfer_worker_input(
+                self.config,
+                input_data,
+                run_dir,
+            )
+        )
+        policy_metadata = _authorize_persisted_ssh_policy(
+            input_data,
+            writes_remote=writes_remote,
+            high_risk=high_risk,
+        )
         self.event(
             "warning" if input_data.get("overwrite") else "info",
             "ssh_transfer",
@@ -1302,6 +1453,9 @@ class JobWorker:
             "tool": "ssh_transfer",
             "host_id": host_id,
             "direction": direction,
+            **policy_metadata,
+            "writes_remote": writes_remote,
+            "high_risk": high_risk,
             "status": "completed" if transfer_result.get("ok") else "failed",
             "exit_code": int(transfer_result.get("exit_code", 1)),
             "started_at": started_at,
@@ -1328,12 +1482,17 @@ class JobWorker:
     def _execute_ssh_deployment(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         deployment_id = str(input_data["deployment_id"])
-        host = resolve_ssh_host(self.config, host_id)
-        deployment = host.deployment_profiles.get(deployment_id)
-        if deployment is None:
-            raise ValueError(f"Unknown deployment_id: {deployment_id!r}")
-        repo_root = resolve_repo(self.config, deployment.repo_name)
         run_dir = Path(self.run["run_dir"])
+        deployment, repo_root = _validate_ssh_deployment_worker_input(
+            self.config,
+            input_data,
+            self.run_id,
+        )
+        policy_metadata = _authorize_persisted_ssh_policy(
+            input_data,
+            writes_remote=True,
+            high_risk=True,
+        )
         self.event(
             "warning",
             "ssh_deployment",
@@ -1378,6 +1537,9 @@ class JobWorker:
             "host_id": host_id,
             "deployment_id": deployment_id,
             "source_repo_name": deployment.repo_name,
+            **policy_metadata,
+            "writes_remote": True,
+            "high_risk": True,
             "status": "completed" if deployment_result.get("ok") else "failed",
             "exit_code": int(deployment_result.get("exit_code", 1)),
             "started_at": started_at,
