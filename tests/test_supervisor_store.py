@@ -73,6 +73,83 @@ def test_invalid_supervisor_and_lock_ids_rejected() -> None:
         validate_lock_id("bad-lock")
 
 
+def test_supervisor_conditional_update_rejects_stale_version(
+    tmp_path: Path,
+) -> None:
+    store = make_store(tmp_path)
+    created = store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID,
+        repo_name="codexbridge",
+        objective="conditional update",
+    )
+    assert created["state_version"] == 0
+
+    updated = store.conditional_update_supervisor(
+        SUPERVISOR_ID,
+        fields={"status": "running", "summary": "claimed"},
+        expected_statuses=("queued",),
+        expected_state_version=0,
+    )
+    assert updated is not None
+    assert updated["status"] == "running"
+    assert updated["state_version"] == 1
+
+    stale = store.conditional_update_supervisor(
+        SUPERVISOR_ID,
+        fields={"status": "failed"},
+        expected_statuses=("running",),
+        expected_state_version=0,
+    )
+    assert stale is None
+    assert store.get_supervisor(SUPERVISOR_ID)["status"] == "running"
+
+
+def test_attach_child_is_atomic_and_version_guarded(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    created = store.create_supervisor(
+        supervisor_id=SUPERVISOR_ID,
+        repo_name="codexbridge",
+        objective="attach child",
+        metadata={"active_child": None},
+    )
+    run_id = "20260428T120001Z_codex_plan_task_12345678"
+
+    attached = store.attach_child(
+        SUPERVISOR_ID,
+        run_id=run_id,
+        link_type="plan",
+        child_kind="plan",
+        target_status="planning",
+        metadata=created["metadata"],
+        expected_statuses=("queued",),
+        expected_state_version=0,
+        started_at="2026-04-28T12:00:00+00:00",
+    )
+    assert attached is not None
+    assert attached["state_version"] == 1
+    assert attached["metadata"]["active_child"] == {
+        "run_id": run_id,
+        "kind": "plan",
+        "launch_state": "reserved",
+    }
+    assert [link["run_id"] for link in store.list_run_links(SUPERVISOR_ID)] == [
+        run_id
+    ]
+
+    stale = store.attach_child(
+        SUPERVISOR_ID,
+        run_id="20260428T120002Z_codex_plan_task_87654321",
+        link_type="plan",
+        child_kind="plan",
+        target_status="planning",
+        metadata=created["metadata"],
+        expected_statuses=("queued", "planning"),
+        expected_state_version=0,
+    )
+    assert stale is None
+    assert len(store.list_run_links(SUPERVISOR_ID)) == 1
+
+
 def test_supervisor_events_ordering_and_limit(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     store.create_supervisor(

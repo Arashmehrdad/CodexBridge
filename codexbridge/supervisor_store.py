@@ -79,9 +79,16 @@ class SupervisorStore:
                     ended_at TEXT,
                     summary TEXT NOT NULL DEFAULT '',
                     error TEXT NOT NULL DEFAULT '',
-                    metadata_json TEXT NOT NULL DEFAULT '{}'
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    state_version INTEGER NOT NULL DEFAULT 0
                 )
                 """
+            )
+            self._ensure_column(
+                conn,
+                "supervisors",
+                "state_version",
+                "INTEGER NOT NULL DEFAULT 0",
             )
             conn.execute(
                 """
@@ -245,6 +252,156 @@ class SupervisorStore:
                 f"UPDATE supervisors SET {assignments} WHERE supervisor_id = ?", params
             )
         return self.get_supervisor(supervisor_id)
+
+    def conditional_update_supervisor(
+        self,
+        supervisor_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_statuses: tuple[str, ...] | list[str] | set[str],
+        expected_state_version: int,
+    ) -> dict[str, Any] | None:
+        validate_supervisor_id(supervisor_id)
+        statuses = tuple(str(status) for status in expected_statuses)
+        if not statuses:
+            return None
+        allowed = {
+            "status",
+            "started_at",
+            "ended_at",
+            "summary",
+            "error",
+            "policy_tier",
+            "risk_level",
+            "requires_human",
+            "metadata_json",
+        }
+        unknown = sorted(set(fields) - allowed)
+        if unknown:
+            raise ValueError(f"Unsupported supervisor fields: {unknown}")
+        if not fields:
+            raise ValueError("Conditional supervisor update requires fields")
+
+        normalized = dict(fields)
+        if "requires_human" in normalized:
+            normalized["requires_human"] = int(bool(normalized["requires_human"]))
+        if "metadata_json" in normalized and not isinstance(
+            normalized["metadata_json"], str
+        ):
+            normalized["metadata_json"] = dumps(normalized["metadata_json"])
+
+        assignments = [f"{key} = ?" for key in normalized]
+        assignments.append("state_version = state_version + 1")
+        params: list[Any] = [
+            *normalized.values(),
+            supervisor_id,
+            int(expected_state_version),
+            *statuses,
+        ]
+        placeholders = ", ".join("?" for _ in statuses)
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE supervisors
+                SET {", ".join(assignments)}
+                WHERE supervisor_id = ?
+                  AND state_version = ?
+                  AND status IN ({placeholders})
+                """,
+                params,
+            )
+            if int(cursor.rowcount) != 1:
+                return None
+            row = conn.execute(
+                "SELECT * FROM supervisors WHERE supervisor_id = ?",
+                (supervisor_id,),
+            ).fetchone()
+
+        return self._row_to_supervisor(row) if row is not None else None
+
+    def attach_child(
+        self,
+        supervisor_id: str,
+        *,
+        run_id: str,
+        link_type: str,
+        child_kind: str,
+        target_status: str,
+        metadata: dict[str, Any],
+        expected_statuses: tuple[str, ...] | list[str] | set[str],
+        expected_state_version: int,
+        started_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        validate_supervisor_id(supervisor_id)
+        statuses = tuple(str(status) for status in expected_statuses)
+        if not statuses:
+            return None
+
+        attached_metadata = dict(metadata)
+        attached_metadata["active_child"] = {
+            "run_id": run_id,
+            "kind": child_kind,
+            "launch_state": "reserved",
+        }
+        placeholders = ", ".join("?" for _ in statuses)
+
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                f"""
+                UPDATE supervisors
+                SET status = ?,
+                    started_at = COALESCE(started_at, ?),
+                    metadata_json = ?,
+                    state_version = state_version + 1
+                WHERE supervisor_id = ?
+                  AND state_version = ?
+                  AND status IN ({placeholders})
+                """,
+                (
+                    target_status,
+                    started_at,
+                    dumps(attached_metadata),
+                    supervisor_id,
+                    int(expected_state_version),
+                    *statuses,
+                ),
+            )
+            if int(cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+
+            existing = conn.execute(
+                """
+                SELECT id FROM supervisor_run_links
+                WHERE supervisor_id = ? AND run_id = ? AND link_type = ?
+                """,
+                (supervisor_id, run_id, link_type),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO supervisor_run_links (
+                        supervisor_id, run_id, link_type, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (supervisor_id, run_id, link_type, utc_now()),
+                )
+
+            row = conn.execute(
+                "SELECT * FROM supervisors WHERE supervisor_id = ?",
+                (supervisor_id,),
+            ).fetchone()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return self._row_to_supervisor(row) if row is not None else None
 
     def list_supervisors(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20
@@ -523,6 +680,19 @@ class SupervisorStore:
                 (delivery_status, last_attempt_at, last_error, notification_id),
             )
         return self.get_notification(notification_id)
+
+    @staticmethod
+    def _ensure_column(
+        conn: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _row_to_supervisor(self, row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)

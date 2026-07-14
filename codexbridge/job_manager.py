@@ -386,14 +386,25 @@ class JobManager:
                 message="Conservative recovery state retained pending operator action",
             )
 
-    def start_plan(self, repo_name: str, task: str, constraints: str = "") -> dict:
+    def start_plan(
+        self,
+        repo_name: str,
+        task: str,
+        constraints: str = "",
+        *,
+        reserved_run_id: str | None = None,
+    ) -> dict:
         resolve_repo(self.config, repo_name)
         decision = decide_plan_task(task, constraints)
         if not decision.accepted:
             return decision.to_start_response(status="refused")
         input_data = {"repo_name": repo_name, "task": task, "constraints": constraints}
         return self._create_and_launch(
-            "codex_plan_task", repo_name, input_data, decision
+            "codex_plan_task",
+            repo_name,
+            input_data,
+            decision,
+            reserved_run_id=reserved_run_id,
         )
 
     def start_implementation(
