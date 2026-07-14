@@ -45,7 +45,13 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
                             argv=["uptime"],
                             timeout_seconds=30,
                             watchdog_eligible=True,
-                        )
+                        ),
+                        SSHCommandProfileConfig(
+                            command_id="write_marker",
+                            argv=["touch", "/tmp/codexbridge-marker"],
+                            timeout_seconds=30,
+                            writes_remote=True,
+                        ),
                     ],
                     watchdog={"enabled": True},
                 )
@@ -210,9 +216,17 @@ def test_start_ssh_command_creates_durable_run(tmp_path: Path, monkeypatch) -> N
         "command_id": "uptime",
         "autonomy_profile": "chatgpt_delegated",
         "execution_mode": "structured",
+        "permission_tier": "T0_READ_ONLY",
+        "policy_decision": "allowed",
+        "policy_authorized": True,
+        "approval_source": "none",
     }
     assert response["autonomy_profile"] == "chatgpt_delegated"
     assert response["execution_mode"] == "structured"
+    assert response["permission_tier"] == "T0_READ_ONLY"
+    assert response["policy_decision"] == "allowed"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "none"
 
 
 def test_start_ssh_monitored_command_creates_durable_run(
@@ -233,9 +247,100 @@ def test_start_ssh_monitored_command_creates_durable_run(
         "command_id": "uptime",
         "autonomy_profile": "chatgpt_delegated",
         "execution_mode": "structured",
+        "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
+        "policy_decision": "allowed",
+        "policy_authorized": True,
+        "approval_source": "none",
     }
     assert response["autonomy_profile"] == "chatgpt_delegated"
     assert response["execution_mode"] == "structured"
+    assert response["permission_tier"] == "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB"
+    assert response["policy_decision"] == "allowed"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "none"
+
+
+def test_start_ssh_write_command_records_chatgpt_delegated_approval(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_ssh_command("my_vps", "write_marker")
+
+    status = manager.get_status(response["run_id"])
+    assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert response["policy_decision"] == "needs_chatgpt_approval"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "chatgpt"
+    assert status["input"]["permission_tier"] == response["permission_tier"]
+    assert status["input"]["policy_decision"] == response["policy_decision"]
+    assert status["input"]["approval_source"] == "chatgpt"
+
+
+def test_permissive_ssh_write_command_is_directly_authorized(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_ssh_command(
+        "my_vps", "write_marker", autonomy_profile="permissive"
+    )
+
+    assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert response["policy_decision"] == "allowed"
+    assert response["approval_source"] == "none"
+
+
+def test_ssh_tier_denial_creates_no_run_or_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="human approval"):
+        manager.start_ssh_command(
+            "my_vps", "write_marker", autonomy_profile="readonly"
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
+
+
+def test_human_only_monitored_read_requires_human_approval_before_launch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="human approval"):
+        manager.start_ssh_monitored_command(
+            "my_vps", "uptime", autonomy_profile="human_only"
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
+
+
+def test_confirmed_high_risk_ssh_action_records_human_approval(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.ssh.allow_admin = True
+
+    response = manager.start_ssh_action(
+        "my_vps",
+        "service_stop",
+        target="sample.service",
+        confirmation=manager.config.ssh.confirmation_token,
+        autonomy_profile="permissive",
+    )
+
+    status = manager.get_status(response["run_id"])
+    assert response["high_risk"] is True
+    assert response["permission_tier"] == "T6_HUMAN_ONLY_RISKY_ACTION"
+    assert response["policy_decision"] == "needs_human_approval"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "human"
+    assert status["input"]["permission_tier"] == response["permission_tier"]
+    assert status["input"]["approval_source"] == "human"
 
 
 def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
@@ -270,6 +375,10 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     assert action["action"] == "service_restart"
     assert action["autonomy_profile"] == "permissive"
     assert action["execution_mode"] == "structured"
+    assert action["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert action["policy_decision"] == "allowed"
+    assert action["policy_authorized"] is True
+    assert action["approval_source"] == "none"
     assert (
         manager.get_status(action["run_id"])["input"]["autonomy_profile"]
         == "permissive"

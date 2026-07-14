@@ -48,7 +48,7 @@ from .safety import (
     validate_repo_relative_paths,
 )
 from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
-from .ssh_policy import authorize_ssh_launch
+from .ssh_policy import SSHActionAuthorizationResult, authorize_ssh_action_launch
 from .ssh_watchdog import (
     terminate_remote_process_group,
     validate_monitored_command_start,
@@ -60,6 +60,17 @@ def make_run_id(tool: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_tool = "".join(char if char.isalnum() else "_" for char in tool.lower())
     return f"{timestamp}_{safe_tool}_{uuid4().hex[:8]}"
+
+
+def _ssh_policy_metadata(policy: SSHActionAuthorizationResult) -> dict[str, object]:
+    return {
+        "autonomy_profile": policy.autonomy_profile,
+        "execution_mode": policy.execution_mode,
+        "permission_tier": policy.permission_tier.value,
+        "policy_decision": policy.decision.value,
+        "policy_authorized": policy.authorized,
+        "approval_source": policy.approval_source,
+    }
 
 
 def _read_output_tail(path: Path, tail_bytes: int) -> dict:
@@ -719,11 +730,14 @@ class JobManager:
         autonomy_profile: str = "chatgpt_delegated",
         execution_mode: str = "structured",
     ) -> dict:
-        policy = authorize_ssh_launch(
+        _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
+        policy = authorize_ssh_action_launch(
             autonomy_profile=autonomy_profile,
             execution_mode=execution_mode,
+            writes_remote=profile.writes_remote,
+            chatgpt_approval_granted=True,
         )
-        _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
+        policy_metadata = _ssh_policy_metadata(policy)
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
             accepted=True,
@@ -740,16 +754,14 @@ class JobManager:
             {
                 "host_id": host_id,
                 "command_id": command_id,
-                "autonomy_profile": policy.autonomy_profile,
-                "execution_mode": policy.execution_mode,
+                **policy_metadata,
             },
             decision,
         )
         response["host_id"] = host_id
         response["command_id"] = command_id
         response["writes_remote"] = profile.writes_remote
-        response["autonomy_profile"] = policy.autonomy_profile
-        response["execution_mode"] = policy.execution_mode
+        response.update(policy_metadata)
         return response
 
     def start_ssh_monitored_command(
@@ -760,13 +772,17 @@ class JobManager:
         autonomy_profile: str = "chatgpt_delegated",
         execution_mode: str = "structured",
     ) -> dict:
-        policy = authorize_ssh_launch(
-            autonomy_profile=autonomy_profile,
-            execution_mode=execution_mode,
-        )
         host, profile = validate_monitored_command_start(
             self.config, host_id, command_id
         )
+        policy = authorize_ssh_action_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+            writes_remote=profile.writes_remote,
+            monitored=True,
+            chatgpt_approval_granted=True,
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
         estimated_minutes = max(1, (profile.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
             accepted=True,
@@ -783,15 +799,13 @@ class JobManager:
             {
                 "host_id": host_id,
                 "command_id": command_id,
-                "autonomy_profile": policy.autonomy_profile,
-                "execution_mode": policy.execution_mode,
+                **policy_metadata,
             },
             decision,
         )
         response["host_id"] = host_id
         response["command_id"] = command_id
-        response["autonomy_profile"] = policy.autonomy_profile
-        response["execution_mode"] = policy.execution_mode
+        response.update(policy_metadata)
         response["writes_remote"] = profile.writes_remote
         response["watchdog_mode"] = host.watchdog.enforcement_mode
         response["automatic_termination_active"] = bool(
@@ -821,10 +835,6 @@ class JobManager:
         autonomy_profile: str = "chatgpt_delegated",
         execution_mode: str = "structured",
     ) -> dict:
-        policy = authorize_ssh_launch(
-            autonomy_profile=autonomy_profile,
-            execution_mode=execution_mode,
-        )
         normalized_packages = list(packages or [])
         normalized_args = list(args or [])
         spec = build_ssh_action(
@@ -843,6 +853,15 @@ class JobManager:
             force=force,
             confirmation=confirmation,
         )
+        policy = authorize_ssh_action_launch(
+            autonomy_profile=autonomy_profile,
+            execution_mode=execution_mode,
+            writes_remote=spec.writes_remote,
+            high_risk=spec.high_risk,
+            chatgpt_approval_granted=True,
+            human_approval_granted=spec.high_risk,
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
         estimated_minutes = max(1, (spec.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
             accepted=True,
@@ -871,8 +890,7 @@ class JobManager:
             "args": normalized_args,
             "force": force,
             "confirmation": confirmation,
-            "autonomy_profile": policy.autonomy_profile,
-            "execution_mode": policy.execution_mode,
+            **policy_metadata,
         }
         response = self._create_and_launch(
             "ssh_action", f"ssh:{host_id}", input_data, decision
@@ -880,8 +898,7 @@ class JobManager:
         response["host_id"] = host_id
         response["action"] = action
         response["high_risk"] = spec.high_risk
-        response["autonomy_profile"] = policy.autonomy_profile
-        response["execution_mode"] = policy.execution_mode
+        response.update(policy_metadata)
         return response
 
     def start_ssh_transfer(
