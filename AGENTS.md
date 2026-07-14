@@ -213,6 +213,9 @@ Command execution must:
 - enforce timeouts
 - avoid write-capable behavior by default
 - record canonical worker/child identity and lease ownership for durable runs
+- pass Codex prompts through a UTF-8 file-backed stdin stream; never launch `codex exec -` without attaching that stream
+- use the connector-isolated Codex child environment for both synchronous and durable workers
+- keep full prompts out of command-line arguments and preserve multiline content exactly
 
 Current expected command profiles:
 - `pytest`: `python -m pytest -q`

@@ -342,7 +342,7 @@ Boundaries not claimed:
 
 - `LongRunJobManager` has not been migrated into a restart-adoptable process manager; it remains compatibility/test-only.
 - Durable remote SSH jobs, permissive shell execution, global transfer roots, absolute cgroup limits, and remote restart adoption are separate follow-up batches.
-- Two live Codex plan/implementation runs failed before editing with `No prompt provided via stdin.` The Codex prompt transport must be repaired before relying on Codex escalation for the SSH implementation.
+- The earlier Codex stdin transport failures were repaired and live-validated in T1.
 
 Each batch must be independently reviewable, tested, and committed. Do not combine the remote-execution expansion into one broad refactor.
 
@@ -371,15 +371,37 @@ The durability gate is complete only when all of the following are true:
 - Full tests and Windows process integration tests pass.
 - Documentation no longer claims restart safety beyond the proven guarantees.
 
-## Next Feature Batches After the Gate
+## T1 - Codex prompt transport repair
 
-1. **T1 - Codex prompt transport repair**
-   - Reproduce and fix the live `No prompt provided via stdin.` failure for plan and implementation runs.
-   - Add a real CLI integration regression proving that the persisted prompt reaches Codex before any edit-capable work is trusted.
+Status: **implemented and validated**.
 
-2. **R1 - Global remote policy and request contract**
-   - Connect SSH execution modes to the canonical autonomy profiles.
-   - Preserve structured execution for every profile, reviewed scripts for delegated/permissive use, and unrestricted root shell only for permissive use.
-   - Keep all transport, execution, transfer, monitoring, cancellation, and reconciliation logic repository-independent.
+Delivered guarantees:
+
+- Synchronous and durable Codex execution now share one UTF-8 file-backed prompt-stream helper.
+- Durable plan and implementation workers pass that stream as stdin when invoking `codex exec -`; prompts are no longer omitted or placed on the Windows command line.
+- Durable workers now use the same connector-isolated child environment as the synchronous runner, while preserving run-specific temporary directories.
+- A dedicated durable-worker regression reads the inherited stdin file and verifies the complete multiline plan prompt, trailing `-` argument, connector-variable filtering, and temp environment.
+- Live plan run `20260714T034343Z_codex_plan_task_379223ec` received the exact marker `T1_STDIN_PROBE_20260714`, returned `PLAN_STATUS: ready`, exited `0`, changed no files, and left the branch clean.
+
+Validation evidence:
+
+- Prompt transport regression: `1 passed`.
+- `CodexRunner` suite: `18 passed`.
+- Durable worker suite: `17 passed`.
+- Full repository suite: `906 passed, 1 skipped`.
+- `python -m pip check`: no broken requirements found.
+- T1 implementation checkpoints: `4f0dab8` and `e995386`.
+
+Observed non-blocking CLI noise:
+
+- The live plan logged a Vercel MCP authorization warning and PowerShell profile language-mode warnings, but continued successfully and returned the correct plan. These are external session noise, not prompt-transport failures.
+
+## Next Feature Batch
+
+### R1 - Global remote policy and request contract
+
+- Connect SSH execution modes to the canonical autonomy profiles.
+- Preserve structured execution for every profile, reviewed scripts for delegated/permissive use, and unrestricted root shell only for permissive use.
+- Keep all transport, execution, transfer, monitoring, cancellation, and reconciliation logic repository-independent.
 
 Wan2.2 paid-pod work remains blocked until the complete generic SSH acceptance gate passes. UI expansion remains deferred behind execution correctness.
