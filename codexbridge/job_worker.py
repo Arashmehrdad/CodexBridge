@@ -60,10 +60,22 @@ from .runner import (
 )
 from .repo_wiki import mark_repo_wiki_stale
 from .safety import reject_destructive_command, validate_repo_relative_paths
-from .ssh_commands import resolve_ssh_host, run_ssh_command
-from .ssh_policy import authorize_ssh_launch
-from .ssh_watchdog import start_monitored_ssh_command
-from .ssh_tools import run_ssh_action, run_ssh_deployment, run_ssh_transfer
+from .ssh_commands import (
+    resolve_ssh_command_profile,
+    resolve_ssh_host,
+    run_ssh_command,
+)
+from .ssh_policy import authorize_ssh_action_launch
+from .ssh_watchdog import (
+    start_monitored_ssh_command,
+    validate_monitored_command_start,
+)
+from .ssh_tools import (
+    build_ssh_action,
+    run_ssh_action,
+    run_ssh_deployment,
+    run_ssh_transfer,
+)
 
 
 def _utc_now() -> str:
@@ -74,6 +86,72 @@ def _duration(started_at: str, ended_at: str) -> float:
     started = datetime.fromisoformat(started_at)
     ended = datetime.fromisoformat(ended_at)
     return round((ended - started).total_seconds(), 3)
+
+
+_SSH_POLICY_AUDIT_FIELDS = (
+    "permission_tier",
+    "policy_decision",
+    "policy_authorized",
+    "approval_source",
+)
+
+
+def _ssh_policy_metadata(policy) -> dict[str, object]:
+    return {
+        "autonomy_profile": policy.autonomy_profile,
+        "execution_mode": policy.execution_mode,
+        "permission_tier": policy.permission_tier.value,
+        "policy_decision": policy.decision.value,
+        "policy_authorized": policy.authorized,
+        "approval_source": policy.approval_source,
+    }
+
+
+def _authorize_persisted_ssh_policy(
+    input_data: dict,
+    *,
+    writes_remote: bool,
+    monitored: bool = False,
+    high_risk: bool = False,
+) -> dict[str, object]:
+    present_fields = {
+        field for field in _SSH_POLICY_AUDIT_FIELDS if field in input_data
+    }
+    if present_fields and present_fields != set(_SSH_POLICY_AUDIT_FIELDS):
+        missing = sorted(set(_SSH_POLICY_AUDIT_FIELDS) - present_fields)
+        raise ValueError(
+            f"Incomplete persisted SSH policy metadata; missing: {missing}"
+        )
+
+    legacy_input = not present_fields
+    approval_source = str(input_data.get("approval_source", ""))
+    if not legacy_input and approval_source not in {"none", "chatgpt", "human"}:
+        raise ValueError(f"Invalid persisted SSH approval_source: {approval_source!r}")
+
+    policy = authorize_ssh_action_launch(
+        autonomy_profile=str(
+            input_data.get("autonomy_profile", "chatgpt_delegated")
+        ),
+        execution_mode=str(input_data.get("execution_mode", "structured")),
+        writes_remote=writes_remote,
+        monitored=monitored,
+        high_risk=high_risk,
+        chatgpt_approval_granted=(
+            legacy_input or approval_source == "chatgpt"
+        ),
+        human_approval_granted=(
+            (legacy_input and high_risk) or approval_source == "human"
+        ),
+    )
+    metadata = _ssh_policy_metadata(policy)
+    if not legacy_input:
+        persisted = {field: input_data.get(field) for field in _SSH_POLICY_AUDIT_FIELDS}
+        canonical = {field: metadata[field] for field in _SSH_POLICY_AUDIT_FIELDS}
+        if persisted != canonical:
+            raise ValueError(
+                "Persisted SSH policy metadata does not match canonical worker revalidation"
+            )
+    return metadata
 
 
 def _stream_pipe(
@@ -865,11 +943,10 @@ class JobWorker:
     def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         command_id = str(input_data["command_id"])
-        policy = authorize_ssh_launch(
-            autonomy_profile=str(
-                input_data.get("autonomy_profile", "chatgpt_delegated")
-            ),
-            execution_mode=str(input_data.get("execution_mode", "structured")),
+        _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
+        policy_metadata = _authorize_persisted_ssh_policy(
+            input_data,
+            writes_remote=profile.writes_remote,
         )
         self.event(
             "info",
@@ -909,8 +986,7 @@ class JobWorker:
             "host_id": host_id,
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "command_id": command_id,
-            "autonomy_profile": policy.autonomy_profile,
-            "execution_mode": policy.execution_mode,
+            **policy_metadata,
             "writes_remote": bool(command_result.get("writes_remote")),
             "remote_state_verified": False,
             "status": "completed" if command_result.get("ok") else "failed",
@@ -936,11 +1012,13 @@ class JobWorker:
     def _execute_ssh_monitored_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         command_id = str(input_data["command_id"])
-        policy = authorize_ssh_launch(
-            autonomy_profile=str(
-                input_data.get("autonomy_profile", "chatgpt_delegated")
-            ),
-            execution_mode=str(input_data.get("execution_mode", "structured")),
+        _, profile = validate_monitored_command_start(
+            self.config, host_id, command_id
+        )
+        policy_metadata = _authorize_persisted_ssh_policy(
+            input_data,
+            writes_remote=profile.writes_remote,
+            monitored=True,
         )
         self.event(
             "info",
@@ -992,8 +1070,7 @@ class JobWorker:
             "host_id": host_id,
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "command_id": command_id,
-            "autonomy_profile": policy.autonomy_profile,
-            "execution_mode": policy.execution_mode,
+            **policy_metadata,
             "writes_remote": bool(command_result.get("writes_remote")),
             "remote_process": dict(command_result.get("remote_process") or {}),
             "watchdog_mode": str(command_result.get("watchdog_mode", "observe_only")),
@@ -1027,12 +1104,6 @@ class JobWorker:
     def _execute_ssh_action(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         action = str(input_data["action"])
-        policy = authorize_ssh_launch(
-            autonomy_profile=str(
-                input_data.get("autonomy_profile", "chatgpt_delegated")
-            ),
-            execution_mode=str(input_data.get("execution_mode", "structured")),
-        )
         kwargs = {
             "target": str(input_data.get("target", "")),
             "source": str(input_data.get("source", "")),
@@ -1046,6 +1117,12 @@ class JobWorker:
             "force": bool(input_data.get("force", False)),
             "confirmation": str(input_data.get("confirmation", "")),
         }
+        spec = build_ssh_action(self.config, host_id, action, **kwargs)
+        policy_metadata = _authorize_persisted_ssh_policy(
+            input_data,
+            writes_remote=spec.writes_remote,
+            high_risk=spec.high_risk,
+        )
         self.event(
             "warning" if input_data.get("confirmation") else "info",
             "ssh_action",
@@ -1073,8 +1150,7 @@ class JobWorker:
             "tool": "ssh_action",
             "host_id": host_id,
             "action": action,
-            "autonomy_profile": policy.autonomy_profile,
-            "execution_mode": policy.execution_mode,
+            **policy_metadata,
             "writes_remote": bool(command_result.get("writes_remote", True)),
             "high_risk": bool(command_result.get("high_risk", False)),
             "remote_state_verified": False,

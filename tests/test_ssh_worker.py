@@ -43,7 +43,16 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
         repo_name="ssh:my_vps",
         tool="ssh_command",
         run_dir=run_dir,
-        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        input_data={
+            "host_id": "my_vps",
+            "command_id": "uptime",
+            "autonomy_profile": "chatgpt_delegated",
+            "execution_mode": "structured",
+            "permission_tier": "T0_READ_ONLY",
+            "policy_decision": "allowed",
+            "policy_authorized": True,
+            "approval_source": "none",
+        },
     )
 
     monkeypatch.setattr(
@@ -77,6 +86,10 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     assert result["command_id"] == "uptime"
     assert result["autonomy_profile"] == "chatgpt_delegated"
     assert result["execution_mode"] == "structured"
+    assert result["permission_tier"] == "T0_READ_ONLY"
+    assert result["policy_decision"] == "allowed"
+    assert result["policy_authorized"] is True
+    assert result["approval_source"] == "none"
     assert result["writes_remote"] is False
     assert result["changed_files"] == []
     assert result["safety_failure"] is False
@@ -109,6 +122,10 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
                 "      command_profiles:",
                 "        - command_id: uptime",
                 "          argv: [uptime]",
+                "          watchdog_eligible: true",
+                "        - command_id: write_marker",
+                "          argv: [touch, /tmp/codexbridge-marker]",
+                "          writes_remote: true",
                 f'runs_dir: "{runs_dir.as_posix()}"',
             ]
         )
@@ -199,6 +216,102 @@ def test_ssh_worker_revalidates_policy_before_executor(
     assert executor_called is False
 
 
+@pytest.mark.parametrize(
+    ("tool", "input_data", "executor_name", "message_category"),
+    [
+        (
+            "ssh_command",
+            {
+                "host_id": "my_vps",
+                "command_id": "uptime",
+                "autonomy_profile": "chatgpt_delegated",
+                "execution_mode": "structured",
+                "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
+                "policy_decision": "allowed",
+                "policy_authorized": True,
+                "approval_source": "none",
+            },
+            "run_ssh_command",
+            "does not match canonical",
+        ),
+        (
+            "ssh_command",
+            {
+                "host_id": "my_vps",
+                "command_id": "write_marker",
+                "autonomy_profile": "chatgpt_delegated",
+                "execution_mode": "structured",
+                "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
+                "policy_decision": "needs_chatgpt_approval",
+                "policy_authorized": True,
+                "approval_source": "none",
+            },
+            "run_ssh_command",
+            "requires ChatGPT",
+        ),
+        (
+            "ssh_action",
+            {
+                "host_id": "my_vps",
+                "action": "service_stop",
+                "target": "sample.service",
+                "confirmation": "CONFIRM_SSH_HIGH_RISK",
+                "autonomy_profile": "permissive",
+                "execution_mode": "structured",
+                "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
+                "policy_decision": "needs_human_approval",
+                "policy_authorized": True,
+                "approval_source": "chatgpt",
+            },
+            "run_ssh_action",
+            "requires human approval",
+        ),
+    ],
+)
+def test_ssh_worker_rejects_tampered_policy_metadata_before_executor(
+    monkeypatch,
+    tmp_path: Path,
+    tool: str,
+    input_data: dict,
+    executor_name: str,
+    message_category: str,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_extended_ssh_config(config_path, repo, runs_dir)
+    run_id = "20260706T020000Z_ssh_policy_metadata_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool=tool,
+        run_dir=run_dir,
+        input_data=input_data,
+    )
+    executor_called = False
+
+    def unexpected_executor(*args, **kwargs):
+        nonlocal executor_called
+        executor_called = True
+        raise AssertionError("SSH executor must not run after policy rejection")
+
+    monkeypatch.setattr(
+        f"codexbridge.job_worker.{executor_name}", unexpected_executor
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 1
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "failed"
+    assert message_category in persisted["result"]["error"]
+    assert persisted["result"]["safety_failure"] is True
+    assert executor_called is False
+
+
 def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -248,6 +361,10 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
     assert result["action"] == "service_restart"
     assert result["autonomy_profile"] == "chatgpt_delegated"
     assert result["execution_mode"] == "structured"
+    assert result["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert result["policy_decision"] == "needs_chatgpt_approval"
+    assert result["policy_authorized"] is True
+    assert result["approval_source"] == "chatgpt"
     assert result["remote_state_verified"] is False
     assert "cannot independently verify" in result["remaining_risks"][0]
 
