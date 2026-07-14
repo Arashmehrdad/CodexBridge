@@ -301,6 +301,59 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     assert deployment.execution_mode == "structured"
 
 
+def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, tuple, dict]] = []
+
+    monkeypatch.setattr(
+        server,
+        "start_ssh_transfer_async",
+        lambda *args, **kwargs: calls.append(("transfer", args, kwargs)) or {"ok": True},
+    )
+    monkeypatch.setattr(
+        server,
+        "start_ssh_deployment_async",
+        lambda *args, **kwargs: calls.append(("deployment", args, kwargs)) or {"ok": True},
+    )
+
+    server.ssh_action(
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                "action": "transfer",
+                "host_id": "dev",
+                "repo_name": "repo",
+                "direction": "upload",
+                "local_path": "artifact.bin",
+                "remote_path": "/srv/artifact.bin",
+                "autonomy_profile": "permissive",
+                "execution_mode": "structured",
+            }
+        )
+    )
+    server.ssh_action(
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                "action": "deployment",
+                "host_id": "dev",
+                "deployment_id": "app",
+                "confirmation": "confirm",
+                "autonomy_profile": "human_only",
+                "execution_mode": "structured",
+            }
+        )
+    )
+
+    assert calls[0][2] == {
+        "autonomy_profile": "permissive",
+        "execution_mode": "structured",
+    }
+    assert calls[1][2] == {
+        "autonomy_profile": "human_only",
+        "execution_mode": "structured",
+    }
+
+
 def test_phase7_system_and_knowledge_models_are_strict() -> None:
     assert TypeAdapter(SystemQueryRequest).validate_python(
         {"operation": "reload_status"}

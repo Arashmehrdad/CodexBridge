@@ -1698,6 +1698,8 @@ def start_ssh_transfer_async(
     recursive: bool = False,
     overwrite: bool = False,
     confirmation: str = "",
+    autonomy_profile: str = "chatgpt_delegated",
+    execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue a repository-scoped upload or run-artifact download using SCP."""
     return get_job_manager().start_ssh_transfer(
@@ -1708,6 +1710,8 @@ def start_ssh_transfer_async(
         remote_path=remote_path,
         recursive=recursive,
         overwrite=overwrite,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
         confirmation=confirmation,
     )
 
@@ -1720,11 +1724,15 @@ def start_ssh_deployment_async(
     host_id: str,
     deployment_id: str,
     confirmation: str,
+    autonomy_profile: str = "chatgpt_delegated",
+    execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: deploy a configured repository as an archive release and activate it remotely."""
     return get_job_manager().start_ssh_deployment(
         host_id,
         deployment_id,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
         confirmation=confirmation,
     )
 
@@ -1844,9 +1852,13 @@ def ssh_action(request: SSHActionRequest) -> dict:
             request.host_id, request.direction, request.repo_name,
             request.local_path, request.remote_path, request.recursive,
             request.overwrite, request.confirmation,
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
         )
     return start_ssh_deployment_async(
-        request.host_id, request.deployment_id, request.confirmation
+        request.host_id, request.deployment_id, request.confirmation,
+        autonomy_profile=request.autonomy_profile,
+        execution_mode=request.execution_mode,
     )
 
 
