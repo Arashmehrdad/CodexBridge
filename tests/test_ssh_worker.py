@@ -112,6 +112,8 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
                 "  hosts:",
                 "    my_vps:",
                 "      ssh_alias: my-vps",
+                "      watchdog:",
+                "        enabled: true",
                 "      allowed_remote_roots: [/srv/app, /var/log]",
                 "      allowed_executables: [docker, git, curl]",
                 "      deployment_profiles:",
@@ -164,6 +166,7 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
             {
                 "host_id": "my_vps",
                 "action": "service_restart",
+                "target": "sample.service",
                 "autonomy_profile": "permissive",
                 "execution_mode": "root_shell",
             },
