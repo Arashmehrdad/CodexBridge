@@ -272,6 +272,17 @@ Boundaries not yet claimed:
 - Legacy unattended-job migration and return-loop delivery-state consistency remain D5.
 - Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative until D5 reconciles artifact publication state.
 
+### Large `run_query` transport checkpoint
+
+Status: **live validated**.
+
+Validation evidence:
+
+- A live `run_query list` snapshot contained `16,922,105` serialized characters and returned a bounded first chunk with `offset = 0`, `next_offset = 16384`, and `complete = false`.
+- The returned v2 cursor advanced the same frozen snapshot to `offset = 16384` and `next_offset = 32768` with the same payload SHA-256 (`0bfa6c99f8173bad57711237f5495c0b9c4884e44139e77357e9dd16c4668d76`).
+- The continuation returned no `cursor_stale` error after connector refresh and service restart.
+- Validation stopped after the second chunk; the remaining payload was intentionally not retrieved.
+
 ### Batch D4 - Supervisor child attachment and lock unification
 
 Harden `supervisor_engine.py`, `supervisor_service.py`, and the shared repository ownership model.
