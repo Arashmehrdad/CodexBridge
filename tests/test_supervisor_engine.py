@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from codexbridge.supervisor_engine import FakeChildJobBackend, SupervisorEngine
-from codexbridge.supervisor_resume_prompt import supervisor_prompt_path
+from codexbridge import supervisor_resume_prompt as supervisor_resume_prompt_module
+from codexbridge.supervisor_resume_prompt import supervisor_prompt_path, write_resume_prompt
 from codexbridge.supervisor_store import SupervisorStore
 from codexbridge.policy import BalancedAutonomyProfile
 
@@ -58,6 +59,65 @@ def active_run_id(supervisor: dict) -> str:
 
 def resume_prompt(store: SupervisorStore, supervisor_id: str) -> Path:
     return supervisor_prompt_path(store.runs_dir, supervisor_id)
+
+
+def test_write_resume_prompt_atomically_replaces_existing_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    supervisor = {
+        "supervisor_id": "supervisor-1",
+        "repo_name": "codexbridge",
+        "status": "completed",
+        "summary": "new database-derived content",
+    }
+    path = supervisor_prompt_path(tmp_path, supervisor["supervisor_id"])
+    path.parent.mkdir(parents=True)
+    path.write_text("previous prompt", encoding="utf-8")
+
+    original_replace = supervisor_resume_prompt_module.os.replace
+    observed: dict[str, str] = {}
+
+    def observe_replace(source: str | Path, destination: str | Path) -> None:
+        observed["temporary"] = Path(source).read_text(encoding="utf-8")
+        observed["existing"] = Path(destination).read_text(encoding="utf-8")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(
+        supervisor_resume_prompt_module.os, "replace", observe_replace
+    )
+
+    assert write_resume_prompt(tmp_path, supervisor) == path
+
+    published = path.read_text(encoding="utf-8")
+    assert observed["existing"] == "previous prompt"
+    assert observed["temporary"] == published
+    assert "summary: new database-derived content" in published
+    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+
+
+def test_write_resume_prompt_replace_failure_preserves_existing_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    supervisor = {
+        "supervisor_id": "supervisor-1",
+        "repo_name": "codexbridge",
+        "status": "failed",
+        "error": "new database-derived error",
+    }
+    path = supervisor_prompt_path(tmp_path, supervisor["supervisor_id"])
+    path.parent.mkdir(parents=True)
+    path.write_text("previous prompt", encoding="utf-8")
+
+    def fail_replace(_source: str | Path, _destination: str | Path) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(supervisor_resume_prompt_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        write_resume_prompt(tmp_path, supervisor)
+
+    assert path.read_text(encoding="utf-8") == "previous prompt"
+    assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
 
 def advance_to_needs_input(engine: SupervisorEngine, jobs: FakeChildJobBackend) -> dict:

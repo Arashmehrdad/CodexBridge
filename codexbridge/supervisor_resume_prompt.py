@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +33,25 @@ def write_resume_prompt(
     path = supervisor_prompt_path(runs_dir, supervisor["supervisor_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     prompt = build_resume_prompt(supervisor, child_run_base_dir or runs_dir)
-    path.write_text(prompt, encoding="utf-8")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(prompt)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
     return path
 
 
