@@ -169,39 +169,56 @@ def test_approve_plan_starts_fake_implementation(tmp_path: Path) -> None:
     )
     assert implementing["status"] == "implementing"
     assert implementing["metadata"]["active_child"]["kind"] == "implementation"
-    assert implementing["metadata"]["implementation_lock"]["repo_name"] == "codexbridge"
+    ownership = implementing["metadata"]["implementation_lock"]
+    assert ownership["authority"] == "operation_locks"
+    assert ownership["repo_name"] == "codexbridge"
+    assert ownership["run_id"] == active_run_id(implementing)
+    assert ownership["lease_generation"] == 1
     assert len(jobs.jobs) == 2
 
 
 def test_balanced_profile_preserves_supervisor_happy_path(tmp_path: Path) -> None:
-    engine, store, jobs = make_engine(tmp_path)
+    engine, _store, jobs = make_engine(tmp_path)
     needs_input = advance_to_needs_input(engine, jobs)
     implementing = engine.approve_plan(
         needs_input["supervisor_id"], "edit app", ["app.py"], []
     )
     assert implementing["status"] == "implementing"
-    assert store.get_repo_lock("codexbridge") is not None
+    assert implementing["metadata"]["implementation_lock"]["authority"] == "operation_locks"
     jobs.complete(active_run_id(implementing), summary="done")
     completed = engine.tick(needs_input["supervisor_id"])
     assert completed["status"] == "completed"
 
 
-def test_approval_blocked_when_repo_lock_exists(tmp_path: Path) -> None:
+def test_approval_blocked_when_shared_operation_lock_is_busy(
+    tmp_path: Path, monkeypatch
+) -> None:
     engine, store, jobs = make_engine(tmp_path)
     needs_input = advance_to_needs_input(engine, jobs)
-    existing = store.acquire_repo_lock("codexbridge", owner_id="other", reason="busy")
-    assert existing is not None
+
+    def refuse_implementation(*args, **kwargs) -> dict:
+        return {
+            "run_id": "",
+            "accepted": False,
+            "status": "refused",
+            "reason": "repository busy",
+        }
+
+    monkeypatch.setattr(jobs, "start_implementation", refuse_implementation)
     blocked = engine.approve_plan(
         needs_input["supervisor_id"], "approved", ["README.md"], []
     )
     assert blocked["status"] == "needs_input"
-    assert blocked["metadata"]["blocked"]["reason"] == "repo_write_lock_unavailable"
+    blocked_reason = blocked["metadata"]["blocked"]
+    assert blocked_reason["reason"] == "repository_operation_lock_unavailable"
+    assert blocked_reason["launch_reason"] == "repository busy"
     assert blocked["metadata"]["active_child"] is None
+    assert blocked["metadata"]["implementation_lock"] is None
     assert len(jobs.jobs) == 1
     notifications = store.list_notifications(blocked["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "blocked_by_lock"
-    assert "repo_write_lock_unavailable" in resume_prompt(
+    assert "repository_operation_lock_unavailable" in resume_prompt(
         store, blocked["supervisor_id"]
     ).read_text(encoding="utf-8")
 
@@ -224,7 +241,7 @@ def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(
         "implementation_tier_exceeds_profile"
         in stopped["metadata"]["hard_stop"]["reasons"]
     )
-    assert store.get_repo_lock("codexbridge") is None
+    assert store.operation_locks.list_locks("codexbridge") == []
     assert len(jobs.jobs) == 1
     assert store.list_notifications(stopped["supervisor_id"])[0]["kind"] == "hard_stop"
 
@@ -245,7 +262,7 @@ def test_approve_plan_hard_stops_when_tests_required_for_non_docs_changes(
         "tests_required_for_non_docs_changes"
         in stopped["metadata"]["hard_stop"]["reasons"]
     )
-    assert store.get_repo_lock("codexbridge") is None
+    assert store.operation_locks.list_locks("codexbridge") == []
     assert len(jobs.jobs) == 1
 
 
@@ -307,7 +324,7 @@ def test_completed_implementation_marks_supervisor_completed(tmp_path: Path) -> 
     assert completed["summary"] == "implementation summary"
     assert completed["metadata"]["implementation_result"]["changed_files"] == []
     assert completed["metadata"]["implementation_lock"] is None
-    assert _store.get_repo_lock("codexbridge") is None
+    assert _store.operation_locks.list_locks("codexbridge") == []
     notifications = _store.list_notifications(completed["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "completed"
@@ -352,10 +369,13 @@ def test_implementation_failure_marks_supervisor_failed(tmp_path: Path) -> None:
     failed = engine.tick(needs_input["supervisor_id"])
     assert failed["status"] == "failed"
     assert failed["error"] == "implementation failed"
-    assert _store.get_repo_lock("codexbridge") is None
+    assert failed["metadata"]["implementation_lock"] is None
+    assert _store.operation_locks.list_locks("codexbridge") == []
 
 
-def test_cancelled_implementation_child_releases_lock(tmp_path: Path) -> None:
+def test_cancelled_implementation_child_clears_ownership_metadata(
+    tmp_path: Path,
+) -> None:
     engine, store, jobs = make_engine(tmp_path)
     needs_input = advance_to_needs_input(engine, jobs)
     implementing = engine.approve_plan(
@@ -364,7 +384,8 @@ def test_cancelled_implementation_child_releases_lock(tmp_path: Path) -> None:
     jobs.cancel(active_run_id(implementing))
     cancelled = engine.tick(needs_input["supervisor_id"])
     assert cancelled["status"] == "cancelled"
-    assert store.get_repo_lock("codexbridge") is None
+    assert cancelled["metadata"]["implementation_lock"] is None
+    assert store.operation_locks.list_locks("codexbridge") == []
 
 
 def test_cancel_active_plan_marks_cancelled(tmp_path: Path) -> None:
@@ -389,7 +410,31 @@ def test_cancel_active_implementation_marks_cancelled(tmp_path: Path) -> None:
     cancelled = engine.cancel(needs_input["supervisor_id"])
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(implementing)).status == "cancelled"
-    assert _store.get_repo_lock("codexbridge") is None
+    assert cancelled["metadata"]["implementation_lock"] is None
+    assert _store.operation_locks.list_locks("codexbridge") == []
+
+
+def test_reloaded_implementation_keeps_same_child_ownership(
+    tmp_path: Path,
+) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    needs_input = advance_to_needs_input(engine, jobs)
+    implementing = engine.approve_plan(
+        needs_input["supervisor_id"], "approved", ["README.md"], []
+    )
+    run_id = active_run_id(implementing)
+
+    reloaded = SupervisorEngine(SupervisorStore(tmp_path / "runs"), jobs).tick(
+        needs_input["supervisor_id"]
+    )
+
+    assert reloaded["status"] == "implementing"
+    assert active_run_id(reloaded) == run_id
+    assert reloaded["metadata"]["implementation_lock"] == implementing["metadata"][
+        "implementation_lock"
+    ]
+    assert list(jobs.jobs).count(run_id) == 1
+    assert store.get_supervisor(needs_input["supervisor_id"])["status"] == "implementing"
 
 
 def test_terminal_tick_is_noop(tmp_path: Path) -> None:

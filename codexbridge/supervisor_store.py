@@ -145,6 +145,8 @@ class SupervisorStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_supervisor_notifications_supervisor ON supervisor_notifications(supervisor_id, id)"
             )
+            conn.execute("DROP INDEX IF EXISTS idx_repo_write_locks_repo")
+            conn.execute("DROP TABLE IF EXISTS repo_write_locks")
 
     def journal_mode(self) -> str:
         with self.connect() as conn:

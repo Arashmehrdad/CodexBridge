@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import sqlite3
 from pathlib import Path
 
 import pytest
 
-from codexbridge.supervisor_store import (
-    SupervisorStore,
-    validate_lock_id,
-    validate_supervisor_id,
-)
+from codexbridge.supervisor_store import SupervisorStore, validate_supervisor_id
 
 
 SUPERVISOR_ID = "20260428T120000Z_supervisor_abcdef12"
@@ -34,9 +30,10 @@ def test_supervisor_store_initializes_schema_and_wal(tmp_path: Path) -> None:
         "supervisors",
         "supervisor_events",
         "supervisor_run_links",
-        "repo_write_locks",
+        "operation_locks",
         "supervisor_notifications",
     }.issubset(tables)
+    assert "repo_write_locks" not in tables
 
 
 def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> None:
@@ -66,11 +63,9 @@ def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> No
     )
 
 
-def test_invalid_supervisor_and_lock_ids_rejected() -> None:
+def test_invalid_supervisor_id_rejected() -> None:
     with pytest.raises(ValueError):
         validate_supervisor_id("../bad")
-    with pytest.raises(ValueError):
-        validate_lock_id("bad-lock")
 
 
 def test_supervisor_conditional_update_rejects_stale_version(
@@ -185,48 +180,47 @@ def test_supervisor_run_links_persist_after_reload(tmp_path: Path) -> None:
     assert links[0]["run_id"] == "20260428T120001Z_codex_plan_task_12345678"
 
 
-def test_repo_lock_acquire_release_and_reacquire(tmp_path: Path) -> None:
-    store = make_store(tmp_path)
-    first = store.acquire_repo_lock(
-        "codexbridge", owner_id=SUPERVISOR_ID, reason="test"
-    )
-    assert first is not None
-    assert first["repo_name"] == "codexbridge"
-
-    second = store.acquire_repo_lock("codexbridge", owner_id=SUPERVISOR_ID)
-    assert second is None
-
-    assert store.release_repo_lock(first["lock_id"]) is True
-    third = store.acquire_repo_lock("codexbridge", owner_id=SUPERVISOR_ID)
-    assert third is not None
-    assert third["lock_id"] != first["lock_id"]
-
-
-def test_expired_repo_lock_can_be_replaced(tmp_path: Path) -> None:
-    store = make_store(tmp_path)
-    expired = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-    with store.connect() as conn:
+def test_supervisor_store_removes_legacy_repo_write_lock_schema(
+    tmp_path: Path,
+) -> None:
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir(parents=True)
+    db_path = runs_dir / "codexbridge.sqlite3"
+    with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO repo_write_locks (lock_id, repo_name, owner_id, acquired_at, expires_at, reason)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "lock_11111111",
-                "codexbridge",
-                SUPERVISOR_ID,
-                expired,
-                expired,
-                "expired",
-            ),
+            CREATE TABLE repo_write_locks (
+                lock_id TEXT PRIMARY KEY,
+                repo_name TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                expires_at TEXT,
+                reason TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX idx_repo_write_locks_repo ON repo_write_locks(repo_name)"
         )
 
-    replacement = store.acquire_repo_lock(
-        "codexbridge", owner_id=SUPERVISOR_ID, reason="replacement"
-    )
-    assert replacement is not None
-    assert replacement["lock_id"] != "lock_11111111"
-    assert replacement["reason"] == "replacement"
+    store = SupervisorStore(runs_dir)
+    with store.connect() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        indexes = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+
+    assert "operation_locks" in tables
+    assert "repo_write_locks" not in tables
+    assert "idx_repo_write_locks_repo" not in indexes
 
 
 def test_supervisor_notifications_crud_dedupe_and_delivery_update(
