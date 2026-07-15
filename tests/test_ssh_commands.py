@@ -498,6 +498,44 @@ def test_payload_hash_mismatch_is_rejected_before_ssh_launch(
     assert calls == []
 
 
+def test_reviewed_payload_timeout_preserves_partial_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "sleep 30\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            args[0],
+            kwargs["timeout"],
+            output="partial stdout\n",
+            stderr="partial stderr\n",
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=2,
+        writes_remote=True,
+    )
+
+    assert result["ok"] is False
+    assert result["timed_out"] is True
+    assert result["exit_code"] == 124
+    assert result["stdout"] == "partial stdout\n"
+    assert result["stderr"] == "partial stderr\n"
+    assert result["error"] == "Timed out after 2s"
+    assert payload not in " ".join(result["argv"])
+
+
 def test_payload_builder_rejects_nonfixed_remote_commands(tmp_path: Path) -> None:
     config = make_config(tmp_path)
 

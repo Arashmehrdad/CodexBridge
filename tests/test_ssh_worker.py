@@ -223,6 +223,54 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     assert executor_calls == []
 
 
+def test_reviewed_script_worker_persists_timeout_and_partial_output(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_data = _canonical_reviewed_script_input()
+    config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
+    _block_all_ssh_executors(monkeypatch)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.run_ssh_payload",
+        lambda config, host_id, interpreter, payload, **kwargs: {
+            "ok": False,
+            "host_id": host_id,
+            "ssh_alias": "my-vps",
+            "interpreter": interpreter,
+            "payload_sha256": kwargs["payload_sha256"],
+            "writes_remote": kwargs["writes_remote"],
+            "remote_state_verified": False,
+            "root_identity_verified": False,
+            "argv": ["ssh.exe", "my-vps", "<reviewed script via stdin>"],
+            "exit_code": 124,
+            "timed_out": True,
+            "duration_seconds": 2.0,
+            "stdout": "partial reviewed stdout\n",
+            "stderr": "partial reviewed stderr\n",
+            "output_truncated": False,
+            "error": "Timed out after 2s",
+        },
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 124
+
+    persisted = store.get_run(run_id)
+    result = persisted["result"]
+    run_dir = Path(persisted["run_dir"])
+    assert persisted["status"] == "timed_out"
+    assert result["status"] == "timed_out"
+    assert result["timed_out"] is True
+    assert result["exit_code"] == 124
+    assert result["error"] == "Timed out after 2s"
+    assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == (
+        "partial reviewed stdout\n"
+    )
+    assert (run_dir / "stderr.txt").read_text(encoding="utf-8") == (
+        "partial reviewed stderr\n"
+    )
+    assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(result)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "remove", "message_category"),
     [
