@@ -25,14 +25,13 @@ The immediate program is no longer feature expansion through increasingly narrow
 
 1. finish byte-safe managed editing;
 2. transition active execution development to the `permissive` profile only;
-3. add a generic operator-enabled unrestricted executable substrate;
-4. make unrestricted local PowerShell the primary engineering execution gateway;
-5. add durable fire-and-return parallel command groups that launch multiple independent commands concurrently;
-6. add unrestricted SSH as a direct executable and transport capability, including arbitrary client options, tunnels, transfers, and remote command text;
-7. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
-8. migrate callers and remove redundant restricted execution tools after parity is proven;
-9. complete transfer, durable remote ownership, resource, environment, and acceptance work;
-10. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
+3. add the minimum generic executable substrate required to launch PowerShell durably;
+4. make unrestricted local PowerShell the single arbitrary-command engineering gateway;
+5. allow unrestricted PowerShell to run any command, executable, script, shell, module, cmdlet, or child process available to the service account, including SSH, Git, OpenSSL, Docker, Python, package managers, compilers, and user-installed programs;
+6. add durable fire-and-return parallel PowerShell command groups that launch multiple independent commands concurrently;
+7. migrate callers and remove redundant restricted and per-executable execution tools after parity is proven;
+8. complete transfer, durable remote ownership, resource, environment, and acceptance work;
+9. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
 
 ## Governing Engineering Principles
 
@@ -51,15 +50,15 @@ Every accepted asynchronous operation must have durable launch intent, ownership
 
 The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, CodexBridge should not repeatedly ask for per-invocation approval.
 
-An unrestricted executable profile enforces the configured executable identity and durable lifecycle, but it does not reinterpret or censor the executable's own command language.
+The generic executable substrate exists only to launch the configured PowerShell executable durably and directly. It is not a product-level requirement to create separate unrestricted profiles for every program PowerShell can invoke.
 
-Unrestricted PowerShell is an explicit operator override. It can invoke native executables, other shells, Git, deployment tools, package managers, network clients, service controls, and scripts that bypass restrictions enforced by narrower CodexBridge tools. Once this profile is enabled, the service account, Windows security model, remote credentials, and host permissions are the effective boundaries.
+Unrestricted PowerShell is an explicit operator override and the single arbitrary-command gateway. It can run any command, executable, script, shell, cmdlet, function, module, provider, or child process available to the service account, including SSH, Git, OpenSSL, Docker, Python, package managers, compilers, deployment tools, network clients, service controls, and user-installed programs. CodexBridge must not filter commands by executable name, command type, verb, arguments, path, destination, or purpose after this profile is enabled. The service account, Windows security model, remote credentials, installed software, and host permissions are the effective boundaries.
 
 ### Direct process launch where possible
 
-Dedicated executable gateways launch an absolute configured executable with structured argv and `shell=False`. PowerShell is launched this way too, but PowerShell itself is intentionally an unrestricted command interpreter and may create arbitrary child processes or invoke other shells.
+CodexBridge launches the configured absolute PowerShell executable directly with `shell=False`. PowerShell is intentionally an unrestricted command interpreter and may create arbitrary child processes, invoke other shells, or launch any installed executable available to the service account.
 
-The direct launch prevents an additional accidental `cmd.exe` or local shell layer. It does not restrict what an enabled unrestricted PowerShell process can do.
+The direct launch prevents an additional accidental `cmd.exe` or local shell layer. It does not restrict what an enabled unrestricted PowerShell process can do, and it does not require separate CodexBridge gateways for SSH, Git, OpenSSL, Docker, Python, or other commands.
 
 ### Full evidence, bounded public output
 
@@ -187,9 +186,9 @@ Acceptance:
 - Frozen profiles either preserve their existing behavior unchanged or fail cleanly when disabled.
 - A generated migration inventory identifies every route, config field, test, and document eligible for C1 cleanup.
 
-## X1 - Generic Unrestricted Executable Profile Contract
+## X1 - Minimal Durable PowerShell Launch Contract
 
-Goal: create one reusable direct-executable substrate rather than a one-off OpenSSL wrapper.
+Goal: create the reusable durable process substrate needed to launch unrestricted PowerShell directly. Do not expand this batch into separate unrestricted product gateways for executables that PowerShell can already run.
 
 Build an `ExecutableProfile` contract with:
 
@@ -227,12 +226,12 @@ Engineering boundaries that remain:
 
 Acceptance:
 
-- An enabled permissive profile receives arbitrary argv without filtering or reinterpretation.
+- The enabled permissive PowerShell profile receives arbitrary argv and script content without filtering or reinterpretation.
 - Quoting-sensitive arguments reach the child process exactly.
 - Binary stdin/stdout round-trip without JSON or text corruption.
 - Disabled or unregistered executable profiles fail before process creation.
 
-## X2 - Unrestricted Local PowerShell Gateway
+## X2 - Unrestricted Local PowerShell Any-Command Gateway
 
 Depends on X1.
 
@@ -260,18 +259,19 @@ A separately configured `powershell.exe` profile may be supported for Windows Po
 
 Required capability:
 
+- any command means any command available to the service account: no CodexBridge allowlist or special per-program gateway is required;
 - arbitrary PowerShell argv;
 - arbitrary `-Command`, `-File`, `-EncodedCommand`, and stdin script content;
 - arbitrary scripts, functions, modules, profiles, providers, execution-policy flags, and language features supported by the selected PowerShell executable;
 - arbitrary filesystem, registry, certificate-store, environment, process, service, scheduled-task, WMI/CIM, COM, package-manager, remoting, and network operations available to the service account;
-- arbitrary native child executables, including `cmd.exe`, Bash, Python, Git, OpenSSL, Docker, SSH, compilers, package managers, deployment tools, and user-installed programs;
+- arbitrary native child executables, including `cmd.exe`, Bash, Python, Git, OpenSSL, Docker, SSH, compilers, package managers, deployment tools, user-installed programs, and any other executable available to the service account;
 - arbitrary working directory, paths, environment variables, credentials, and network targets;
 - text or binary stdin and protected input files;
 - bounded public output plus complete protected stdout, stderr, transcript, and binary artifacts;
 - configurable timeout or no timeout;
 - exact process-tree cancellation and durable restart-safe run state.
 
-There must be no cmdlet, verb, module, script-text, argument, path, registry, service, process, child-executable, remoting, or network-target filtering after the permissive PowerShell profile is enabled.
+There must be no cmdlet, verb, module, script-text, argument, path, registry, service, process, child-executable, executable-name, command-type, remoting, or network-target filtering after the permissive PowerShell profile is enabled. If PowerShell can invoke it under the service account, CodexBridge must allow it.
 
 CodexBridge may offer safer helpers for protected secrets, temporary files, transcripts, and environment references, but those helpers must not restrict the commands PowerShell can execute.
 
@@ -286,16 +286,16 @@ Acceptance:
 - no per-command approval is requested after the profile is enabled;
 - no intermediate `cmd.exe` is created unless the submitted PowerShell command explicitly launches it.
 
-## X2A - Durable Parallel Command Fan-Out
+## X2A - Durable Parallel PowerShell Command Fan-Out
 
-Depends on X1 and X2. Direct OpenSSL children become available after X3; remote children become available after R4 and X4.
+Depends on X1 and X2. Remote durability features become available after R4.
 
 Goal: provide a Codex-like parallel execution primitive that starts multiple independent commands at the same time and returns control immediately instead of waiting for any command to finish.
 
 Public contract:
 
 - accept one command group containing multiple child command specifications;
-- support unrestricted PowerShell, direct executable, OpenSSL, root-shell, and eventually remote-controller children;
+- support unrestricted PowerShell children that may themselves run any available command, plus remote-controller children after remote durability is implemented;
 - persist the parent group and reserve every child run ID before launching the first process;
 - launch every eligible child concurrently in `all_at_once` mode;
 - return the group ID and complete child run-ID list as soon as launch intents are durably accepted;
@@ -342,7 +342,7 @@ Acceptance:
 - a group of at least eight commands receives eight reserved child IDs before launch completion;
 - all children enter `launch_pending` or `running` without waiting for the first child to finish;
 - the start call returns while slow children are still running;
-- children can mix PowerShell and direct executable profiles;
+- children can run different arbitrary commands concurrently through independent unrestricted PowerShell processes;
 - one failing child does not stop successful siblings under `continue_all`;
 - individual and whole-group cancellation target exact verified process trees;
 - service restart adopts all surviving children without duplicate launch;
@@ -350,40 +350,13 @@ Acceptance:
 - caller-selected lock-free execution can run multiple commands against the same working tree, with the accepted race risk recorded in durable metadata;
 - group status and final summary accurately report every child outcome and artifact reference.
 
-## X2B - Unrestricted SSH Gateway
+## X3 - Optional Specialist Executable Profiles
 
-Depends on X1 and may be implemented alongside or after X2. Remote durability acceptance additionally depends on R3 and R4.
+Status: **optional after X2 acceptance; not required for unrestricted command capability**.
 
-Goal: expose SSH as an unrestricted direct executable and transport substrate rather than limiting it to predefined aliases, wrappers, administration actions, or command profiles.
+PowerShell already provides unrestricted access to SSH, Git, OpenSSL, Docker, Python, and every other executable available to the service account. Separate direct executable profiles may be added later only when they provide measurable value such as binary-stream ergonomics, exact native argv APIs, lower launch overhead, or specialized artifact handling. They must not be prerequisites for running those commands through PowerShell.
 
-Required capability:
-
-- launch the configured absolute `ssh.exe` directly with `shell=False` and arbitrary argv;
-- arbitrary destinations, users, ports, identities, certificates, agents, jump hosts, proxy commands, configuration files, host-key policies, environment requests, escape settings, and connection options supported by the installed SSH client;
-- arbitrary remote command text and quoting, including shells, PowerShell, scripts, pipelines, redirection, native executables, and detached controllers;
-- interactive and forced-PTY modes, stdin streaming, terminal resize where supported, and non-interactive execution;
-- local, remote, dynamic, and Unix-socket forwarding; multiplexing and control sockets where supported by the platform;
-- unrestricted `scp` and `sftp` companion profiles or equivalent binary-safe transfer paths with arbitrary service-account-accessible local and remote paths;
-- configurable timeout or no timeout, keepalives, exact local process-tree cancellation, and durable output/artifact capture;
-- protected identity material and known-host references without forcing secrets or key material into public events;
-- no destination, option, remote-command, executable, shell, path, tunnel, or transfer allowlist after the permissive SSH profile is enabled.
-
-The direct SSH executable profile and the higher-level CodexBridge remote controller serve different purposes. The direct profile provides complete native SSH client behavior. The remote controller adds durable remote ownership, restart adoption, authoritative remote state, and exact remote process-group cancellation. Neither should silently narrow the command language accepted by the other.
-
-Acceptance:
-
-- quoting-sensitive arbitrary argv reaches the configured SSH executable unchanged;
-- arbitrary remote command text reaches a disposable host unchanged;
-- interactive forced-PTY and non-PTY commands both work;
-- local, remote, and dynamic forwarding pass loopback tests;
-- upload and download paths round-trip binary content without corruption;
-- long-running remote work is handed to the durable remote controller and survives CodexBridge restart without duplicate launch;
-- cancellation targets the verified local SSH process tree and, for controller-owned work, the exact verified remote process group;
-- no per-command approval is requested after the permissive SSH profile is enabled.
-
-## X3 - Unrestricted Local OpenSSL Gateway
-
-Depends on X1. It may be implemented alongside or after X2 as a direct specialist profile.
+The former direct OpenSSL design is retained below only as an optional specialist example, not as a required roadmap gate.
 
 Configuration example:
 
@@ -432,7 +405,7 @@ Acceptance:
 
 ## C1 - Permissive-Only Migration and Tool Cleanup
 
-Depends on X2, X2A, and X3 acceptance. Cleanup must follow replacement, not precede it.
+Depends on X2 and X2A acceptance. Optional specialist executable profiles are not prerequisites. Cleanup must follow replacement, not precede it.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
@@ -454,7 +427,7 @@ Retain these core controls even in permissive-only mode:
 - protected artifacts, return-loop publication, and audit metadata;
 - workflows, supervisors, status, and recovery tooling;
 - durable parallel command groups and independent child-run controls;
-- direct PowerShell and OpenSSL executable profiles.
+- unrestricted PowerShell as the single arbitrary-command gateway; optional specialist executable profiles only where independently justified.
 
 Do not delete durable run history or protected evidence merely because its originating tool was removed. Add an explicit retention/cleanup policy instead.
 
@@ -465,7 +438,7 @@ Acceptance:
 - removed route names have no runtime call sites, schemas, tests, docs, or stale config fields;
 - configuration migration is deterministic and rollback-capable;
 - managed temporary artifacts from removed tools can be previewed and cleaned without deleting durable evidence;
-- full tests, `python -m pip check`, `git diff --check`, and live PowerShell/OpenSSL/parallel-fan-out smoke tests pass after cleanup.
+- full tests, `python -m pip check`, `git diff --check`, and live unrestricted-PowerShell/parallel-fan-out smoke tests pass after cleanup, including PowerShell launching SSH, Git, OpenSSL, and other representative executables.
 
 ## R3 - Transfer Policy and Managed Staging
 
@@ -535,17 +508,17 @@ Acceptance:
 - cancellation kills the verified process group and descendants;
 - terminal evidence is published once.
 
-## X4 - Unrestricted Remote PowerShell and OpenSSL
+## X4 - Unrestricted Remote PowerShell
 
-Depends on X2, X3, R3, and R4.
+Depends on X2, R3, and R4.
 
-Goal: expose the same unrestricted executable contracts on registered permissive remote hosts.
+Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
 Deliverables:
 
-- remote PowerShell and OpenSSL executable identity and version capture;
+- remote PowerShell executable identity and version capture;
 - arbitrary PowerShell command text, argv, scripts, modules, paths, environment, child processes, remoting, and network targets;
-- arbitrary OpenSSL argv, paths, environment, providers, configuration, engines, and network targets;
+- arbitrary SSH, Git, OpenSSL, Docker, Python, package-manager, compiler, deployment, and other executable invocation through PowerShell when available to the remote account;
 - binary-safe staged and streamed input/output;
 - remote protected artifacts and local publication manifests;
 - restart adoption and exact process-group cancellation;
@@ -554,11 +527,10 @@ Deliverables:
 Acceptance:
 
 - local and remote PowerShell profiles share one request/result contract;
-- local and remote OpenSSL profiles share one request/result contract;
 - remote execution survives bridge restart;
 - arbitrary PowerShell child-process and loopback network tests pass on the disposable host;
-- OpenSSL provider/config/key/certificate and loopback TLS tests pass on the disposable host;
-- no PowerShell command text or OpenSSL option is silently removed, rewritten, or filtered.
+- representative SSH, Git, OpenSSL, and other native commands run successfully through PowerShell;
+- no PowerShell command text, child executable, or child argument is silently removed, rewritten, or filtered.
 
 ## R5 - Absolute Resource Enforcement
 
@@ -621,8 +593,8 @@ The generic suite must prove:
 - fire-and-return parallel groups with multiple local and remote children launched concurrently;
 - restart adoption, individual cancellation, group cancellation, mixed outcomes, and aggregate reporting for parallel groups;
 - unrestricted permissive root shell;
-- unrestricted local and remote OpenSSL profiles;
-- arbitrary OpenSSL provider/config/path/network arguments;
+- unrestricted local and remote PowerShell running representative native commands such as SSH, Git, OpenSSL, Docker, and Python without per-program gateways;
+- arbitrary child-executable arguments, paths, environment values, and network targets;
 - binary input/output and protected artifact publication;
 - execution longer than one hour;
 - service restart survival and remote reattachment;
@@ -726,21 +698,6 @@ For documentation-only batches:
 - lock-free same-repository execution is available when explicitly selected and its race risk is recorded;
 - aggregate status and final results preserve mixed child outcomes without obscuring individual evidence.
 
-### Unrestricted SSH gate
-
-- an explicitly enabled permissive profile exposes the configured SSH client with arbitrary argv, destinations, identities, options, tunnels, transfers, PTY modes, and remote command text without filtering;
-- the configured absolute SSH executable is launched directly with `shell=False`;
-- direct SSH preserves exact client behavior while durable controller-owned remote work survives bridge restart and supports exact remote process-group cancellation;
-- binary transfers, forwarding, protected identity references, complete artifacts, and bounded public summaries remain correct;
-- no per-command approval is requested after enablement.
-
-### Unrestricted OpenSSL gate
-
-- an explicitly enabled permissive profile exposes all OpenSSL-native commands and options without filtering;
-- arbitrary paths, environment, providers, config, engines, network targets, and binary I/O work within service-account permissions;
-- execution uses the configured absolute executable and `shell=False`;
-- durable lifecycle, cancellation, and protected artifacts remain correct.
-
 ### Permissive-only cleanup gate
 
 - `permissive` is the only active execution profile;
@@ -751,7 +708,7 @@ For documentation-only batches:
 
 ### Remote execution gate
 
-- registered permissive hosts support unrestricted SSH transport, root shell, PowerShell, and OpenSSL;
+- registered permissive hosts support unrestricted PowerShell that can run any command available to the configured account, plus durable SSH transport and root-shell/controller facilities where remote ownership requires them;
 - long execution survives bridge restart;
 - remote jobs are adopted from fresh authoritative state;
 - exact process groups and descendants can be cancelled;
@@ -759,9 +716,9 @@ For documentation-only batches:
 
 ### Final control-plane gate
 
-- local operations, long jobs, remote jobs, and unrestricted executable profiles do not depend on Codex;
+- local operations, long jobs, remote jobs, and unrestricted PowerShell do not depend on Codex;
 - only the permissive execution profile remains active;
 - ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
 - ChatGPT can launch multiple independent commands concurrently and receive control immediately with durable group and child IDs;
-- unrestricted capabilities are explicit, operator-enabled, auditable, and bounded by their declared engineering and operating-system boundaries rather than command allowlists;
+- unrestricted PowerShell is explicit, operator-enabled, auditable, and permits any command available to the service account without CodexBridge command allowlists;
 - UI and local-model expansion do not outrun execution correctness.
