@@ -39,13 +39,11 @@ _ROOT_PAYLOAD_REMOTE_COMMAND = (
     f"printf '%s\\n' '{_ROOT_EUID_MARKER}' >&2; "
     "exec bash -s --"
 )
-_FIXED_PAYLOAD_REMOTE_COMMANDS = frozenset(
-    {
-        "exec bash -s --",
-        "exec sh -s --",
-        "exec python3 -",
-        _ROOT_PAYLOAD_REMOTE_COMMAND,
-    }
+_FIXED_PAYLOAD_REMOTE_PREFIXES = (
+    ("exec", "bash", "-s", "--"),
+    ("exec", "sh", "-s", "--"),
+    ("exec", "python3", "-"),
+    ("exec", "pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", "-"),
 )
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
@@ -498,6 +496,22 @@ def _run_ssh_argv(
     }
 
 
+def _is_fixed_payload_remote_command(remote_command: str) -> bool:
+    if remote_command == _ROOT_PAYLOAD_REMOTE_COMMAND:
+        return True
+    try:
+        tokens = shlex.split(remote_command, posix=True)
+    except ValueError:
+        return False
+    for prefix in _FIXED_PAYLOAD_REMOTE_PREFIXES:
+        if tuple(tokens[: len(prefix)]) != prefix:
+            continue
+        arguments = tokens[len(prefix) :]
+        canonical = " ".join(prefix) + _quote_payload_arguments(arguments)
+        return remote_command == canonical
+    return False
+
+
 def build_ssh_payload_argv(
     config: AppConfig,
     host_id: str,
@@ -505,7 +519,7 @@ def build_ssh_payload_argv(
 ) -> list[str]:
     """Build hardened SSH argv for a fixed remote command that consumes stdin."""
 
-    if remote_command not in _FIXED_PAYLOAD_REMOTE_COMMANDS:
+    if not _is_fixed_payload_remote_command(remote_command):
         raise ValueError("SSH payload remote command is not a fixed launch envelope")
     host = resolve_ssh_host(config, host_id)
     connection = resolve_ssh_connection(host)
