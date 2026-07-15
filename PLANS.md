@@ -159,16 +159,18 @@ Acceptance:
 
 Depends on G0.
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-16):
 
 - Reviewed-script `arguments` survive both server forwarding hops: `ssh_action` -> `start_ssh_reviewed_script_async` -> `JobManager.start_ssh_reviewed_script`.
 - Permissive `pwsh` arguments are covered through forced-PTY SSH command construction and the durable worker revalidation/execution path.
-- `ssh.active_autonomy_profiles` can make `permissive` the only active SSH execution profile; disabled profiles fail before durable run or lock creation, and capability output distinguishes active from compatibility-only profiles.
-- Implementation commits through `850907fde784707ead0d570acf150d8d70ab38d3`.
+- `ssh.active_autonomy_profiles` makes `permissive` the only active SSH execution profile for this installation; disabled profiles fail before durable run or lock creation, and capability output distinguishes active from compatibility-only profiles.
+- Permissive root-shell execution now writes complete filesystem-protected stdout/stderr artifacts while the durable/public result remains redacted and bounded.
+- `docs/permissive-migration-inventory.md` records the remaining runtime, configuration, test, fixture, documentation, and restricted-wrapper candidates for C1, while preserving the distinction between autonomy profiles and delegated-approval terminology.
+- Implementation commits through `f10fd12b1815b0729d8bfa71d9d90d92a121746d`.
 - Focused validation passed: `tests/test_ssh_worker.py` 37 passed; `tests/test_tool_gateway_models.py` 25 passed; `tests/test_job_manager.py` 56 passed. Earlier adjacent checkpoints also passed `tests/test_ssh_commands.py`, `tests/test_ssh_tools.py`, `tests/test_config.py`, and `tests/test_service_reload.py` for the forced-PTY and profile-activation changes.
-- Next G1 unit: verify permissive root-shell protected full artifacts and bounded public summaries, then generate the route/config/test/document migration inventory required for C1 cleanup.
+- Next roadmap unit: X1 minimal durable PowerShell launch contract.
 
 Goal: close only the server and transport gaps required for the permissive migration. Do not spend roadmap capacity expanding the frozen profiles.
 
