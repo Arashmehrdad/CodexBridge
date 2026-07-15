@@ -125,18 +125,18 @@ The remaining R2 server forwarding change is blocked by a managed-patch defect t
 
 ## G0 - Byte-Safe Managed Patch Engine
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-15):
 
-- Exact-text managed edits preserve existing line-ending bytes by default, including intentionally mixed files.
-- Line-range edits now also preserve untouched bytes by default and use the replaced region's newline style for replacement text.
-- Unified-diff edits now preserve untouched mixed-line-ending bytes by default while retaining explicit legacy normalization through `preserve_newlines: false`.
-- Python-AST replacements and insertions now preserve untouched mixed-line-ending bytes by default and use the target region's newline style; explicit legacy normalization remains available.
-- Callers may explicitly set `preserve_newlines: false` only when legacy whole-file normalization is intended; the public patch schema exposes this control.
-- Latest focused validation: `tests/test_repo_writer.py` 89 passed; changed `repo_writer.py` passed `py_compile`; `git diff --check` passed.
-- Earlier G0 validation remains: `tests/test_capabilities.py` 5 passed; full repository suite `1044 passed, 1 skipped`; `python -m pip check`, `py_compile`, and `git diff --check` passed.
-- Remaining G0 work: newline-only churn reporting/rejection and exact apply/revert hash acceptance against `server.py`.
+- Exact-text, line-range, unified-diff, and Python-AST edits preserve untouched mixed-line-ending bytes by default.
+- Replacement text uses the target region's newline style where applicable; callers may explicitly set `preserve_newlines: false` only for legacy whole-file normalization.
+- Preview results and manifests report raw changed lines, logical changed lines, and newline-only changed lines separately.
+- Preserved-mode previews reject unrelated newline-only churn before any repository write.
+- Focused repository-writer validation passed with `91 passed`; changed `repo_writer.py` passed `py_compile`; `tests/test_capabilities.py` passed with `5 passed`.
+- The live mixed-newline `codexbridge/server.py` acceptance gate changed exactly one semantic line in commit `13479fd4317466bd4b49f34c4809473632d8e08d` and reverted it exactly in commit `ba3272925778938e93240089bfbac159c95b6709`.
+- The reverted `server.py` SHA-256 is `301271cbbe32f2756917643df0bfa38ac4b47b0a65039059144c8f14796331a4`, matching the pre-apply hash; the worktree is clean and no file was rewritten solely to normalize line endings.
+- Earlier full repository validation remains `1044 passed, 1 skipped`; G0 exit validation must remain green before G1 implementation advances.
 
 Goal: managed edits must change only the requested bytes or syntax region, including files with mixed line endings.
 
