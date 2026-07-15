@@ -39,7 +39,9 @@ from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import fetch_validate_and_discard
 from .gateway_models import (
     SSHReviewedScriptAction,
+    SSHRootShellAction,
     validate_reviewed_ssh_script_request,
+    validate_root_ssh_shell_request,
 )
 from .managed_artifacts import (
     cleanup_new_managed_artifacts,
@@ -81,11 +83,13 @@ from .ssh_commands import (
     resolve_ssh_connection,
     resolve_ssh_host,
     run_ssh_command,
+    run_ssh_payload,
 )
 from .ssh_policy import (
     IMPLEMENTED_SSH_EXECUTION_MODES,
     authorize_ssh_action_launch,
     authorize_ssh_reviewed_script_launch,
+    authorize_ssh_root_shell_launch,
 )
 from .ssh_watchdog import (
     start_monitored_ssh_command,
@@ -202,6 +206,20 @@ def _authorize_persisted_ssh_reviewed_script_policy(
     return _validate_persisted_ssh_policy_metadata(input_data, policy)
 
 
+def _authorize_persisted_ssh_root_shell_policy(
+    input_data: dict,
+    request: SSHRootShellAction,
+) -> dict[str, object]:
+    approval_source = _persisted_ssh_approval_source(input_data)
+    if approval_source != "none":
+        raise ValueError("Permissive SSH root shell does not accept approval evidence")
+    policy = authorize_ssh_root_shell_launch(
+        autonomy_profile=request.autonomy_profile,
+        execution_mode=request.execution_mode,
+    )
+    return _validate_persisted_ssh_policy_metadata(input_data, policy)
+
+
 _REVIEWED_SCRIPT_REQUEST_FIELDS = frozenset(SSHReviewedScriptAction.model_fields)
 _REVIEWED_SCRIPT_PERSISTED_FIELDS = (
     _REVIEWED_SCRIPT_REQUEST_FIELDS | frozenset(_SSH_POLICY_METADATA_FIELDS)
@@ -232,6 +250,40 @@ def _validate_ssh_reviewed_script_worker_input(
     host = resolve_ssh_host(config, request.host_id)
     resolve_ssh_connection(host)
     policy_metadata = _authorize_persisted_ssh_reviewed_script_policy(
+        input_data,
+        request,
+    )
+    return request, policy_metadata
+
+
+_ROOT_SHELL_REQUEST_FIELDS = frozenset(SSHRootShellAction.model_fields)
+_ROOT_SHELL_PERSISTED_FIELDS = (
+    _ROOT_SHELL_REQUEST_FIELDS | frozenset(_SSH_POLICY_METADATA_FIELDS)
+)
+
+
+def _validate_ssh_root_shell_worker_input(
+    config: AppConfig,
+    input_data: dict,
+) -> tuple[SSHRootShellAction, dict[str, object]]:
+    missing = sorted(
+        field for field in _ROOT_SHELL_REQUEST_FIELDS if field not in input_data
+    )
+    if missing:
+        raise ValueError(
+            f"Incomplete persisted SSH root shell metadata; missing: {missing}"
+        )
+    unexpected = sorted(set(input_data) - _ROOT_SHELL_PERSISTED_FIELDS)
+    if unexpected:
+        raise ValueError(
+            f"Unexpected persisted SSH root shell metadata fields: {unexpected}"
+        )
+    request = validate_root_ssh_shell_request(
+        {field: input_data[field] for field in _ROOT_SHELL_REQUEST_FIELDS}
+    )
+    host = resolve_ssh_host(config, request.host_id)
+    resolve_ssh_connection(host)
+    policy_metadata = _authorize_persisted_ssh_root_shell_policy(
         input_data,
         request,
     )
@@ -820,6 +872,8 @@ class JobWorker:
             return self._execute_ssh_monitored_command(started_at, input_data)
         if tool == "ssh_reviewed_script":
             return self._execute_ssh_reviewed_script(started_at, input_data)
+        if tool == "ssh_root_shell":
+            return self._execute_ssh_root_shell(started_at, input_data)
         if tool == "ssh_action":
             return self._execute_ssh_action(started_at, input_data)
         if tool == "ssh_transfer":
@@ -1157,7 +1211,6 @@ class JobWorker:
         started_at: str,
         input_data: dict,
     ) -> dict:
-        del started_at
         request, policy_metadata = _validate_ssh_reviewed_script_worker_input(
             self.config,
             input_data,
@@ -1165,7 +1218,7 @@ class JobWorker:
         self.event(
             "info",
             "ssh_reviewed_script",
-            "Reviewed SSH script request revalidated; executor remains disabled",
+            "Starting hash-pinned reviewed SSH script",
             {
                 "host_id": request.host_id,
                 "interpreter": request.interpreter,
@@ -1176,10 +1229,149 @@ class JobWorker:
                 **policy_metadata,
             },
         )
-        raise ValueError(
-            "Reviewed SSH script execution is not implemented; "
-            "the validated script was not executed remotely"
+        command_result = dict(
+            redact_and_truncate(
+                run_ssh_payload(
+                    self.config,
+                    request.host_id,
+                    request.interpreter,
+                    request.script,
+                    timeout_seconds=request.timeout_seconds,
+                )
+            )
         )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        timed_out = bool(command_result.get("timed_out"))
+        status = (
+            "timed_out"
+            if timed_out
+            else "completed"
+            if command_result.get("ok")
+            else "failed"
+        )
+        output_summary = (stdout or stderr).strip()
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{request.host_id}",
+            "tool": "ssh_reviewed_script",
+            "host_id": request.host_id,
+            "ssh_alias": str(command_result.get("ssh_alias", "")),
+            "interpreter": request.interpreter,
+            "script_sha256": request.script_sha256,
+            **policy_metadata,
+            "writes_remote": request.writes_remote,
+            "high_risk": request.high_risk,
+            "remote_state_verified": False,
+            "status": status,
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": output_summary,
+            "summary": output_summary[-4000:] if output_summary else "Reviewed SSH script finished",
+            "remaining_risks": [
+                "CodexBridge cannot independently verify the resulting remote state"
+            ]
+            if request.writes_remote
+            else [],
+            "error": str(command_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": timed_out,
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
+        }
+
+    def _execute_ssh_root_shell(
+        self,
+        started_at: str,
+        input_data: dict,
+    ) -> dict:
+        request, policy_metadata = _validate_ssh_root_shell_worker_input(
+            self.config,
+            input_data,
+        )
+        self.event(
+            "info",
+            "ssh_root_shell",
+            "Starting permissive hash-pinned SSH root shell",
+            {
+                "host_id": request.host_id,
+                "script_sha256": request.script_sha256,
+                "timeout_seconds": request.timeout_seconds,
+                **policy_metadata,
+            },
+        )
+        command_result = dict(
+            redact_and_truncate(
+                run_ssh_payload(
+                    self.config,
+                    request.host_id,
+                    "bash",
+                    request.script,
+                    timeout_seconds=request.timeout_seconds,
+                    root_required=True,
+                )
+            )
+        )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_text("stdout.txt", stdout)
+        self.artifacts.write_text("stderr.txt", stderr)
+        timed_out = bool(command_result.get("timed_out"))
+        status = (
+            "timed_out"
+            if timed_out
+            else "completed"
+            if command_result.get("ok")
+            else "failed"
+        )
+        output_summary = (stdout or stderr).strip()
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{request.host_id}",
+            "tool": "ssh_root_shell",
+            "host_id": request.host_id,
+            "ssh_alias": str(command_result.get("ssh_alias", "")),
+            "interpreter": "bash",
+            "script_sha256": request.script_sha256,
+            **policy_metadata,
+            "writes_remote": True,
+            "high_risk": True,
+            "root_identity_verified": bool(
+                command_result.get("root_identity_verified")
+            ),
+            "remote_state_verified": False,
+            "status": status,
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": output_summary,
+            "summary": output_summary[-4000:] if output_summary else "SSH root shell finished",
+            "remaining_risks": [
+                "CodexBridge cannot independently verify the resulting remote state"
+            ],
+            "error": str(command_result.get("error", "")),
+            "safety_failure": False,
+            "timed_out": timed_out,
+            "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
+        }
 
     def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])

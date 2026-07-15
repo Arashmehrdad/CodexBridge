@@ -25,7 +25,10 @@ from .config import AppConfig, resolve_repo, resolve_repo_config
 from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
-from .gateway_models import validate_reviewed_ssh_script_request
+from .gateway_models import (
+    validate_reviewed_ssh_script_request,
+    validate_root_ssh_shell_request,
+)
 from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
@@ -53,6 +56,7 @@ from .ssh_policy import (
     SSHActionAuthorizationResult,
     authorize_ssh_action_launch,
     authorize_ssh_reviewed_script_launch,
+    authorize_ssh_root_shell_launch,
 )
 from .ssh_watchdog import (
     terminate_remote_process_group,
@@ -868,10 +872,7 @@ class JobManager:
                 else "low"
             ),
             requires_human=False,
-            reason=(
-                "Hash-pinned reviewed SSH script is approved for durable "
-                "validation-only launch"
-            ),
+            reason="Hash-pinned reviewed SSH script is approved for remote execution",
             estimated_duration_minutes=max(1, (request.timeout_seconds + 59) // 60),
             recommended_check_after_minutes=min(
                 2, max(1, (request.timeout_seconds + 59) // 60)
@@ -890,6 +891,61 @@ class JobManager:
         response["script_sha256"] = request.script_sha256
         response["writes_remote"] = request.writes_remote
         response["high_risk"] = request.high_risk
+        response.update(policy_metadata)
+        return response
+
+    def start_ssh_root_shell(
+        self,
+        host_id: str,
+        script: str,
+        script_sha256: str,
+        *,
+        timeout_seconds: int = 3600,
+        autonomy_profile: str = "permissive",
+        execution_mode: str = "root_shell",
+    ) -> dict:
+        request = validate_root_ssh_shell_request(
+            {
+                "action": "root_shell",
+                "host_id": host_id,
+                "script": script,
+                "script_sha256": script_sha256,
+                "timeout_seconds": timeout_seconds,
+                "writes_remote": True,
+                "high_risk": True,
+                "autonomy_profile": autonomy_profile,
+                "execution_mode": execution_mode,
+            }
+        )
+        resolve_ssh_host(self.config, request.host_id)
+        policy = authorize_ssh_root_shell_launch(
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3,
+            risk_level="high",
+            requires_human=False,
+            reason="Permissive hash-pinned root shell is approved for remote execution",
+            estimated_duration_minutes=max(1, (request.timeout_seconds + 59) // 60),
+            recommended_check_after_minutes=min(
+                2, max(1, (request.timeout_seconds + 59) // 60)
+            ),
+        )
+        input_data = request.model_dump(mode="python")
+        input_data.update(policy_metadata)
+        response = self._create_and_launch(
+            "ssh_root_shell",
+            f"ssh:{request.host_id}",
+            input_data,
+            decision,
+        )
+        response["host_id"] = request.host_id
+        response["script_sha256"] = request.script_sha256
+        response["writes_remote"] = True
+        response["high_risk"] = True
         response.update(policy_metadata)
         return response
 
@@ -1224,7 +1280,7 @@ class JobManager:
             run_dir.mkdir(parents=True, exist_ok=False)
             artifacts = ArtifactWriter(run_dir)
             artifact_input = dict(input_data)
-            if tool == "ssh_reviewed_script" and "script" in artifact_input:
+            if tool in {"ssh_reviewed_script", "ssh_root_shell"} and "script" in artifact_input:
                 artifact_input["script"] = "[REDACTED]"
             artifacts.write_json("input.json", artifact_input)
             self.store.create_run(
@@ -1369,7 +1425,7 @@ class JobManager:
     def _public_run(run: dict) -> dict:
         public = dict(run)
         public.pop("worker_lease_token", None)
-        if public.get("tool") == "ssh_reviewed_script":
+        if public.get("tool") in {"ssh_reviewed_script", "ssh_root_shell"}:
             input_data = dict(public.get("input") or {})
             if "script" in input_data:
                 input_data["script"] = "[REDACTED]"
