@@ -119,7 +119,7 @@ Latest focused evidence:
 - `tests/test_job_manager.py`: 55 passed;
 - existing `tests/test_ssh_worker.py` checkpoint: 37 passed.
 
-The remaining R2 server forwarding change is blocked by a managed-patch defect that normalizes mixed line endings in `codexbridge/server.py` and creates unrelated large diffs.
+G0 closed the mixed-line-ending managed-patch blocker. The remaining R2 server forwarding change is the first active G1 unit.
 
 ## Revised Implementation Order
 
@@ -136,7 +136,7 @@ Checkpoint (2026-07-15):
 - Focused repository-writer validation passed with `91 passed`; changed `repo_writer.py` passed `py_compile`; `tests/test_capabilities.py` passed with `5 passed`.
 - The live mixed-newline `codexbridge/server.py` acceptance gate changed exactly one semantic line in commit `13479fd4317466bd4b49f34c4809473632d8e08d` and reverted it exactly in commit `ba3272925778938e93240089bfbac159c95b6709`.
 - The reverted `server.py` SHA-256 is `301271cbbe32f2756917643df0bfa38ac4b47b0a65039059144c8f14796331a4`, matching the pre-apply hash; the worktree is clean and no file was rewritten solely to normalize line endings.
-- Earlier full repository validation remains `1044 passed, 1 skipped`; G0 exit validation must remain green before G1 implementation advances.
+- G0 exit validation passed with the full repository suite at `1053 passed, 1 skipped`; `python -m pip check` found no broken requirements; `repo_writer.py` and `server.py` passed `py_compile`; `git diff --check` passed.
 
 Goal: managed edits must change only the requested bytes or syntax region, including files with mixed line endings.
 
@@ -158,6 +158,8 @@ Acceptance:
 ## G1 - Permissive-Only Transition and Minimal R2 Closure
 
 Depends on G0.
+
+Status: **in progress**.
 
 Goal: close only the server and transport gaps required for the permissive migration. Do not spend roadmap capacity expanding the frozen profiles.
 
