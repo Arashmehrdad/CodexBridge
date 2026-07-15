@@ -402,18 +402,63 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
         )
 
 
-def test_reviewed_script_is_not_yet_a_public_ssh_action() -> None:
+def test_reviewed_script_is_a_dedicated_public_ssh_action() -> None:
     script = "uptime\n"
+    request = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "reviewed_script",
+            "host_id": "dev",
+            "interpreter": "sh",
+            "script": script,
+            "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+        }
+    )
+
+    assert isinstance(request, SSHReviewedScriptAction)
+    assert request.execution_mode == "reviewed_script"
     with pytest.raises(ValidationError):
         TypeAdapter(SSHActionRequest).validate_python(
             {
-                "action": "reviewed_script",
-                "host_id": "dev",
-                "interpreter": "sh",
-                "script": script,
-                "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+                **request.model_dump(mode="python"),
+                "command": "whoami",
             }
         )
+
+
+def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
+    monkeypatch,
+) -> None:
+    script = "set -euo pipefail\nuptime\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def start(*args, **kwargs):
+        captured.update(args=args, kwargs=kwargs)
+        return {"accepted": True, "run_id": "reviewed_run"}
+
+    monkeypatch.setattr(server, "start_ssh_reviewed_script_async", start)
+    request = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "reviewed_script",
+            "host_id": "dev",
+            "interpreter": "bash",
+            "script": script,
+            "script_sha256": digest,
+            "autonomy_profile": "balanced",
+        }
+    )
+
+    result = server.ssh_action(request)
+
+    assert result["run_id"] == "reviewed_run"
+    assert captured["args"] == ("dev", "bash", script, digest)
+    assert captured["kwargs"] == {
+        "timeout_seconds": 3600,
+        "writes_remote": True,
+        "high_risk": False,
+        "autonomy_profile": "balanced",
+        "execution_mode": "reviewed_script",
+    }
 
 
 def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(

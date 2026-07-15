@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -457,6 +458,81 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
     assert download["permission_tier"] == "T0_READ_ONLY"
     assert download["policy_decision"] == "allowed"
     assert download["approval_source"] == "none"
+
+
+def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "set -euo pipefail\nprintf '%s\\n' REVIEWED_SCRIPT_MARKER\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_reviewed_script(
+        "my_vps",
+        "bash",
+        script,
+        digest,
+        autonomy_profile="balanced",
+    )
+
+    assert response["accepted"] is True
+    assert response["script_sha256"] == digest
+    assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert response["policy_decision"] == "needs_chatgpt_approval"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "chatgpt"
+    assert "script" not in response
+
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["tool"] == "ssh_reviewed_script"
+    assert stored["input"]["script"] == script
+    assert stored["input"]["interpreter"] == "bash"
+    assert stored["input"]["script_sha256"] == digest
+    assert stored["input"]["autonomy_profile"] == "balanced"
+    assert stored["input"]["execution_mode"] == "reviewed_script"
+    assert stored["input"]["writes_remote"] is True
+    assert stored["input"]["high_risk"] is False
+    assert stored["input"]["approval_source"] == "chatgpt"
+
+    public = manager.get_status(response["run_id"])
+    assert public["input"]["script"] == "[REDACTED]"
+    artifact = json.loads(
+        (Path(stored["run_dir"]) / "input.json").read_text(encoding="utf-8")
+    )
+    assert artifact["script"] == "[REDACTED]"
+    assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(artifact)
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
+@pytest.mark.parametrize(
+    ("autonomy_profile", "high_risk", "message_category"),
+    [
+        ("conservative", False, "denied profile/mode"),
+        ("permissive", True, "human approval"),
+    ],
+)
+def test_reviewed_script_rejection_creates_no_run_or_lock(
+    tmp_path: Path,
+    monkeypatch,
+    autonomy_profile: str,
+    high_risk: bool,
+    message_category: str,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "uptime\n"
+
+    with pytest.raises(ValueError, match=message_category):
+        manager.start_ssh_reviewed_script(
+            "my_vps",
+            "sh",
+            script,
+            sha256(script.encode("utf-8")).hexdigest(),
+            autonomy_profile=autonomy_profile,
+            high_risk=high_risk,
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
 
 
 @pytest.mark.parametrize(
