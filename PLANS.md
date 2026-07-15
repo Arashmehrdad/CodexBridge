@@ -442,7 +442,14 @@ Boundaries not claimed by R1:
 
 ### R2 - Global execution gateway paths
 
-Status: **next incomplete batch**.
+Status: **in progress**.
+
+Checkpoint (2026-07-15):
+
+- Reviewed-script request, transport, manager, and worker layers now support bounded validated argument lists and the fixed `pwsh` interpreter envelope while retaining exact script hashing and `shell=False` subprocess launches.
+- Canonical fixed-envelope validation permits safely quoted argument data for Bash, `sh`, Python 3, and PowerShell while rejecting alternate launchers and unquoted shell syntax such as command chaining, substitution, and redirection.
+- Focused validation passed: `tests/test_tool_gateway_models.py` (23), `tests/test_ssh_commands.py` (28), and `tests/test_ssh_worker.py` (37).
+- Remaining before this reviewed-script slice is complete: forward arguments through the public server gateway and add argument-specific forced-PTY/server coverage. The current managed patch path must not edit `codexbridge/server.py` until its mixed-line-ending normalization defect is fixed, because previews currently rewrite unrelated lines instead of preserving untouched bytes.
 
 Implement three repository-independent launch paths:
 
