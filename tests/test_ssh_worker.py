@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 from pathlib import Path
 
 import pytest
@@ -95,6 +97,124 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     assert result["safety_failure"] is False
     assert result["remaining_risks"] == []
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "up 1 day\n"
+
+
+def _canonical_reviewed_script_input() -> dict:
+    script = "set -euo pipefail\nprintf '%s\\n' REVIEWED_SCRIPT_MARKER\n"
+    return {
+        "action": "reviewed_script",
+        "host_id": "my_vps",
+        "interpreter": "bash",
+        "script": script,
+        "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+        "timeout_seconds": 3600,
+        "writes_remote": True,
+        "high_risk": False,
+        "autonomy_profile": "balanced",
+        "execution_mode": "reviewed_script",
+        "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
+        "policy_decision": "needs_chatgpt_approval",
+        "policy_authorized": True,
+        "approval_source": "chatgpt",
+    }
+
+
+def _create_reviewed_script_run(
+    tmp_path: Path,
+    input_data: dict,
+) -> tuple[Path, RunStore, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_extended_ssh_config(config_path, repo, runs_dir)
+    run_id = "20260715T000000Z_ssh_reviewed_script_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_reviewed_script",
+        run_dir=run_dir,
+        input_data=input_data,
+    )
+    return config_path, store, run_id
+
+
+def _block_all_ssh_executors(monkeypatch) -> list[str]:
+    called: list[str] = []
+
+    def unexpected(*args, **kwargs):
+        del args, kwargs
+        called.append("executor")
+        raise AssertionError("No SSH executor may run for reviewed-script scaffolding")
+
+    for name in (
+        "run_ssh_command",
+        "start_monitored_ssh_command",
+        "run_ssh_action",
+        "run_ssh_transfer",
+        "run_ssh_deployment",
+    ):
+        monkeypatch.setattr(f"codexbridge.job_worker.{name}", unexpected)
+    return called
+
+
+def test_reviewed_script_worker_revalidates_then_fails_before_remote_execution(
+    monkeypatch, tmp_path: Path
+) -> None:
+    input_data = _canonical_reviewed_script_input()
+    config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
+    executor_calls = _block_all_ssh_executors(monkeypatch)
+
+    assert JobWorker(config_path, run_id).execute() == 1
+
+    result = store.get_run(run_id)["result"]
+    assert result["safety_failure"] is True
+    assert "not implemented" in result["error"]
+    assert "not executed remotely" in result["error"]
+    assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(result)
+    assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(store.get_events(run_id))
+    assert executor_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "remove", "message_category"),
+    [
+        ("script", None, True, "Incomplete persisted reviewed SSH script metadata"),
+        ("script", "echo altered\\n", False, "SHA-256"),
+        ("script_sha256", "0" * 64, False, "SHA-256"),
+        ("autonomy_profile", "conservative", False, "denied profile/mode"),
+        ("execution_mode", "root_shell", False, "reviewed_script"),
+        ("approval_source", None, True, "Incomplete persisted SSH policy metadata"),
+        ("unexpected_command", "whoami", False, "Unexpected persisted"),
+    ],
+)
+def test_reviewed_script_worker_rejects_tampered_metadata_before_executor(
+    monkeypatch,
+    tmp_path: Path,
+    field: str,
+    value: object,
+    remove: bool,
+    message_category: str,
+) -> None:
+    input_data = _canonical_reviewed_script_input()
+    if remove:
+        input_data.pop(field)
+    else:
+        input_data[field] = value
+    config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
+    executor_calls = _block_all_ssh_executors(monkeypatch)
+
+    assert JobWorker(config_path, run_id).execute() == 1
+
+    result = store.get_run(run_id)["result"]
+    assert result["safety_failure"] is True
+    assert message_category in result["error"]
+    assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(result)
+    assert executor_calls == []
 
 
 def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> None:
