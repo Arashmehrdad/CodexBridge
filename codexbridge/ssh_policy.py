@@ -293,7 +293,9 @@ def authorize_ssh_reviewed_script_launch(
     return authorize_ssh_action_launch(
         autonomy_profile=autonomy_profile,
         execution_mode=execution_mode,
-        writes_remote=writes_remote or high_risk,
+        # Every reviewed script uses the dedicated T4 authorization contract.
+        # ``writes_remote`` and ``high_risk`` remain persisted audit metadata.
+        writes_remote=True,
         high_risk=False,
         chatgpt_approval_granted=model_approval_granted,
         human_approval_granted=False,

@@ -300,11 +300,23 @@ def test_reviewed_script_authorization_is_model_driven_even_when_high_risk() -> 
     assert balanced.approval_source == "chatgpt"
     assert balanced.human_required is False
 
+    balanced_read_only = authorize_ssh_reviewed_script_launch(
+        autonomy_profile="balanced",
+        execution_mode="reviewed_script",
+        writes_remote=False,
+        high_risk=False,
+        model_approval_granted=True,
+    )
+    assert balanced_read_only.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
+    assert balanced_read_only.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
+    assert balanced_read_only.approval_source == "chatgpt"
+    assert balanced_read_only.human_required is False
+
     permissive = authorize_ssh_reviewed_script_launch(
         autonomy_profile="permissive",
         execution_mode="reviewed_script",
         writes_remote=False,
-        high_risk=True,
+        high_risk=False,
     )
     assert permissive.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
     assert permissive.decision == PolicyDecisionValue.ALLOWED

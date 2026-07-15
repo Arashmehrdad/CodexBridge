@@ -504,6 +504,43 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 
+def test_reviewed_script_read_only_still_uses_dedicated_model_policy(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "uptime\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+
+    balanced = manager.start_ssh_reviewed_script(
+        "my_vps",
+        "sh",
+        script,
+        digest,
+        writes_remote=False,
+        autonomy_profile="balanced",
+    )
+    assert balanced["writes_remote"] is False
+    assert balanced["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert balanced["policy_decision"] == "needs_chatgpt_approval"
+    assert balanced["approval_source"] == "chatgpt"
+    manager.locks.release("ssh:my_vps", balanced["run_id"])
+
+    permissive = manager.start_ssh_reviewed_script(
+        "my_vps",
+        "sh",
+        script,
+        digest,
+        writes_remote=False,
+        autonomy_profile="permissive",
+    )
+    assert permissive["writes_remote"] is False
+    assert permissive["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert permissive["policy_decision"] == "allowed"
+    assert permissive["approval_source"] == "none"
+    manager.locks.release("ssh:my_vps", permissive["run_id"])
+
+
 def test_reviewed_script_high_risk_classification_uses_model_approval(
     tmp_path: Path, monkeypatch
 ) -> None:
