@@ -1659,7 +1659,7 @@ def start_ssh_reviewed_script_async(
     autonomy_profile: str = "balanced",
     execution_mode: str = "reviewed_script",
 ) -> dict:
-    """Queue one hash-pinned reviewed SSH script for remote execution."""
+    """Queue a hash-pinned reviewed SSH script for remote execution."""
     return get_job_manager().start_ssh_reviewed_script(
         host_id,
         interpreter,
