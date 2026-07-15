@@ -529,6 +529,59 @@ def _apply_line_range_operation(
     return "".join(lines[: start_line - 1] + replacement_lines + lines[end_line:])
 
 
+def _line_ending(line: str) -> str:
+    if line.endswith("\r\n"):
+        return "\r\n"
+    if line.endswith("\n"):
+        return "\n"
+    return ""
+
+
+def _line_range_replacement_newline(
+    content: str,
+    lines: list[str],
+    start_index: int,
+    end_index: int,
+) -> str:
+    for line in lines[start_index:end_index]:
+        newline = _line_ending(line)
+        if newline:
+            return newline
+    for line in reversed(lines[:start_index]):
+        newline = _line_ending(line)
+        if newline:
+            return newline
+    for line in lines[end_index:]:
+        newline = _line_ending(line)
+        if newline:
+            return newline
+    return _dominant_newline(content)
+
+
+def _apply_line_range_preserving_newlines(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    start_line = int(op.get("start_line", 0))
+    end_line = int(op.get("end_line", 0))
+    new_text = op.get("new_text")
+    if start_line < 1 or end_line < start_line:
+        raise ValueError(f"op[{idx}]: invalid line range for '{path_str}'")
+    if not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+
+    lines = content.splitlines(keepends=True)
+    start_index = start_line - 1
+    end_index = end_line
+    newline = _line_range_replacement_newline(
+        content,
+        lines,
+        start_index,
+        end_index,
+    )
+    replacement = _restore_newlines(new_text, newline)
+    return "".join(lines[:start_index] + [replacement] + lines[end_index:])
+
+
 def _parse_unified_hunks(diff_text: str) -> list[tuple[int, list[str]]]:
     hunks: list[tuple[int, list[str]]] = []
     current_start = 0
@@ -774,9 +827,11 @@ def _validate_operations(
             "modify",
             "",
         }
+        line_range_operation = operation_type in {"replace_lines", "line_range"}
+        byte_preserving_operation = exact_text_operation or line_range_operation
         preserve_newlines_value = op.get("preserve_newlines")
         preserve_newlines = (
-            exact_text_operation
+            byte_preserving_operation
             if preserve_newlines_value is None
             else bool(preserve_newlines_value)
         )
@@ -789,21 +844,23 @@ def _validate_operations(
                     f"for '{path_str}'"
                 )
             if preserve_newlines:
-                if operation_type not in {
-                    "exact_text",
-                    "replace_exact",
-                    "modify",
-                    "",
-                }:
+                if exact_text_operation:
+                    state["working_content_preserved"] = (
+                        _apply_exact_text_preserving_newlines(
+                            state["working_content_preserved"], op, path_str, idx
+                        )
+                    )
+                elif line_range_operation:
+                    state["working_content_preserved"] = (
+                        _apply_line_range_preserving_newlines(
+                            state["working_content_preserved"], op, path_str, idx
+                        )
+                    )
+                else:
                     raise ValueError(
                         f"op[{idx}]: preserve_newlines is supported only for "
-                        f"exact_text edits in '{path_str}'"
+                        f"exact_text and line_range edits in '{path_str}'"
                     )
-                state["working_content_preserved"] = (
-                    _apply_exact_text_preserving_newlines(
-                        state["working_content_preserved"], op, path_str, idx
-                    )
-                )
             else:
                 state["working_content"] = _apply_operation_to_content(
                     state["working_content"], op, path_str, idx

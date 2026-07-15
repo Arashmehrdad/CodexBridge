@@ -27,6 +27,7 @@ PATCH_OPERATION_SCHEMA: dict[str, Any] = {
         },
         "target_name": {"type": "string"},
         "insert_if_missing": {"type": "boolean"},
+        "preserve_newlines": {"type": "boolean"},
     },
     "additionalProperties": False,
 }

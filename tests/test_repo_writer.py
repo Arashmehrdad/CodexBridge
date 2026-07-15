@@ -318,6 +318,56 @@ def test_preview_and_apply_preserve_mixed_newline_bytes(tmp_path: Path) -> None:
     assert target.read_bytes() == original.replace(b"return 1", b"return 2")
 
 
+def test_line_range_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "mixed_range.py"
+    original = b"alpha\r\nold\nomega\r\n"
+    target.write_bytes(original)
+    sha = sha256_file(target)
+    operation = {
+        "type": "line_range",
+        "path": "mixed_range.py",
+        "expected_sha256": sha,
+        "start_line": 2,
+        "end_line": 2,
+        "new_text": "new\n",
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+
+    assert preview["ok"] is True
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == b"alpha\r\nnew\nomega\r\n"
+
+
+def test_line_range_can_explicitly_use_legacy_newline_normalization(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "normalized_range.py"
+    target.write_bytes(b"alpha\r\nold\nomega\r\n")
+    sha = sha256_file(target)
+    operation = {
+        "type": "line_range",
+        "path": "normalized_range.py",
+        "expected_sha256": sha,
+        "start_line": 2,
+        "end_line": 2,
+        "new_text": "new\n",
+        "preserve_newlines": False,
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+
+    assert preview["ok"] is True
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == b"alpha\r\nnew\r\nomega\r\n"
+
+
 def test_preview_rejects_mixed_newline_edit_modes(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"

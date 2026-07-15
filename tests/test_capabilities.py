@@ -15,6 +15,11 @@ def test_patch_operation_schema_lists_supported_variants() -> None:
     assert variants == ["exact_text", "line_range", "unified_diff", "python_ast"]
 
 
+def test_patch_operation_schema_exposes_newline_preservation_control() -> None:
+    preserve = PATCH_OPERATION_SCHEMA["properties"]["preserve_newlines"]
+    assert preserve == {"type": "boolean"}
+
+
 def test_schema_hash_is_order_independent_for_objects() -> None:
     assert schema_hash({"b": 2, "a": 1}) == schema_hash({"a": 1, "b": 2})
 
