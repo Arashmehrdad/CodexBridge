@@ -21,13 +21,16 @@ ChatGPT
 
 Codex is currently disabled by operator choice and is not a dependency for this roadmap. Repository changes continue through managed preview/apply tools and explicit local commits.
 
-The immediate program is no longer feature expansion at any cost. It is:
+The immediate program is no longer feature expansion through increasingly narrow wrappers. It is:
 
-1. finish byte-safe managed editing and the incomplete R2 server handoff;
-2. add an operator-enabled unrestricted executable substrate;
-3. make OpenSSL the first unrestricted executable profile;
-4. complete transfer, durable remote ownership, resource, environment, and acceptance work;
-5. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
+1. finish byte-safe managed editing;
+2. transition active execution development to the `permissive` profile only;
+3. add a generic operator-enabled unrestricted executable substrate;
+4. make unrestricted local PowerShell the primary engineering execution gateway;
+5. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
+6. migrate callers and remove redundant restricted execution tools after parity is proven;
+7. complete transfer, durable remote ownership, resource, environment, and acceptance work;
+8. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
 
 ## Governing Engineering Principles
 
@@ -35,24 +38,26 @@ The immediate program is no longer feature expansion at any cost. It is:
 
 Every accepted asynchronous operation must have durable launch intent, ownership identity, lease state, cancellation state, output locations, and terminal publication semantics before it is considered production-ready.
 
-### Explicit capability profiles
+### Permissive-only active execution policy
 
-- `readonly`: inspection and fixed non-destructive commands.
-- `chatgpt_delegated`: structured execution, reviewed scripts, managed writes, and ordinary engineering operations.
-- `permissive`: operator-authorized unrestricted capabilities on explicitly registered machines, hosts, and executable profiles.
-- `human_only`: financial actions, public release, protected-branch push, production infrastructure changes, and external permission grants unless separately reclassified by the operator.
+- `permissive` is the only execution profile receiving new capability work.
+- `readonly` and `chatgpt_delegated` are frozen compatibility profiles. Do not add new commands, transports, policy branches, tests, or documentation solely to expand them.
+- Existing callers may continue to load the frozen profiles until the C1 migration and cleanup batch proves they are unused and removes them safely.
+- `human_only` remains a classification for managed CodexBridge tools. It is not a reliable boundary inside an unrestricted PowerShell session.
 
 ### Operator risk acceptance
 
-The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, CodexBridge should not repeatedly ask for per-invocation approval unless the request crosses a different protected boundary.
+The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, CodexBridge should not repeatedly ask for per-invocation approval.
 
-For an unrestricted executable profile, CodexBridge enforces the identity of the executable and the integrity of its lifecycle. It does not attempt to reinterpret or censor the executable's own command language.
+An unrestricted executable profile enforces the configured executable identity and durable lifecycle, but it does not reinterpret or censor the executable's own command language.
+
+Unrestricted PowerShell is an explicit operator override. It can invoke native executables, other shells, Git, deployment tools, package managers, network clients, service controls, and scripts that bypass restrictions enforced by narrower CodexBridge tools. Once this profile is enabled, the service account, Windows security model, remote credentials, and host permissions are the effective boundaries.
 
 ### Direct process launch where possible
 
-Dedicated executable gateways launch an absolute configured executable with structured argv and `shell=False`. A dedicated root-shell gateway remains separate for actions that genuinely require shell syntax.
+Dedicated executable gateways launch an absolute configured executable with structured argv and `shell=False`. PowerShell is launched this way too, but PowerShell itself is intentionally an unrestricted command interpreter and may create arbitrary child processes or invoke other shells.
 
-This prevents accidental shell injection without limiting the enabled executable's native options.
+The direct launch prevents an additional accidental `cmd.exe` or local shell layer. It does not restrict what an enabled unrestricted PowerShell process can do.
 
 ### Full evidence, bounded public output
 
@@ -60,7 +65,7 @@ The durable run directory may contain complete stdout, stderr, binary output, in
 
 ### Small independent batches
 
-Every completed repository change is locally committed. Each batch must be independently reviewable and validated. Do not combine patch-engine repair, OpenSSL enablement, remote durability, and acceptance testing into one broad refactor. Do not push unless explicitly requested.
+Every completed repository change is locally committed. Each batch must be independently reviewable and validated. Do not combine patch-engine repair, unrestricted PowerShell, OpenSSL enablement, cleanup, remote durability, and acceptance testing into one broad refactor. Do not push unless explicitly requested.
 
 ## Current State
 
@@ -146,27 +151,27 @@ Acceptance:
 - Applying and reverting the patch restores the exact original SHA-256.
 - No repository file is rewritten solely to normalize line endings.
 
-## G1 - Complete R2 Execution Gateway Paths
+## G1 - Permissive-Only Transition and Minimal R2 Closure
 
 Depends on G0.
 
-Goal: close the public server handoff and finish the three execution modes.
+Goal: close only the server and transport gaps required for the permissive migration. Do not spend roadmap capacity expanding the frozen profiles.
 
 Deliverables:
 
-- Forward reviewed-script `arguments` through `ssh_action` and `start_ssh_reviewed_script_async`.
-- Add server-level model and delegation coverage for arguments and `pwsh`.
-- Add argument-bearing forced-PTY coverage.
-- Confirm `structured` execution always uses configured argv and never falls back to shell interpretation.
-- Confirm `reviewed_script` supports hash-pinned Bash, `sh`, Python 3, and PowerShell with explicit arguments.
-- Confirm `root_shell` remains an explicitly permissive, separate gateway with protected full artifacts and bounded public summaries.
+- Forward reviewed-script `arguments` through `ssh_action` and `start_ssh_reviewed_script_async` where the compatibility path is still needed.
+- Add permissive server delegation and forced-PTY coverage for arguments and `pwsh`.
+- Confirm permissive `structured`, `reviewed_script`, and `root_shell` paths remain usable during migration.
+- Add configuration that makes `permissive` the only active execution profile for this installation.
+- Mark `readonly` and `chatgpt_delegated` as compatibility-only and collect their remaining callers for C1 removal.
+- Do not add new feature behavior to either frozen profile.
 
 Acceptance:
 
-- `readonly` rejects reviewed scripts and root shell.
-- `chatgpt_delegated` accepts structured execution and reviewed scripts.
-- `permissive` accepts structured execution, reviewed scripts, and unrestricted registered-host root shell.
-- Request arguments survive model -> server -> manager -> worker -> SSH command unchanged.
+- Permissive request arguments survive model -> server -> manager -> worker -> SSH command unchanged.
+- Permissive root shell retains protected full artifacts and bounded public summaries.
+- Frozen profiles either preserve their existing behavior unchanged or fail cleanly when disabled.
+- A generated migration inventory identifies every route, config field, test, and document eligible for C1 cleanup.
 
 ## X1 - Generic Unrestricted Executable Profile Contract
 
@@ -213,11 +218,63 @@ Acceptance:
 - Binary stdin/stdout round-trip without JSON or text corruption.
 - Disabled or unregistered executable profiles fail before process creation.
 
-## X2 - Unrestricted Local OpenSSL Gateway
+## X2 - Unrestricted Local PowerShell Gateway
 
 Depends on X1.
 
-Status target: first unrestricted executable profile.
+Status target: primary unrestricted local engineering gateway.
+
+Configuration example:
+
+```yaml
+executable_profiles:
+  powershell:
+    enabled: true
+    executable_path: "C:/Program Files/PowerShell/7/pwsh.exe"
+    target: local
+    autonomy_profile: permissive
+    unrestricted_argv: true
+    unrestricted_script_text: true
+    unrestricted_paths: true
+    unrestricted_environment: true
+    unrestricted_network: true
+    unrestricted_child_processes: true
+    allow_no_timeout: true
+```
+
+A separately configured `powershell.exe` profile may be supported for Windows PowerShell compatibility. CodexBridge must use the configured absolute path and must not silently substitute one PowerShell edition for another.
+
+Required capability:
+
+- arbitrary PowerShell argv;
+- arbitrary `-Command`, `-File`, `-EncodedCommand`, and stdin script content;
+- arbitrary scripts, functions, modules, profiles, providers, execution-policy flags, and language features supported by the selected PowerShell executable;
+- arbitrary filesystem, registry, certificate-store, environment, process, service, scheduled-task, WMI/CIM, COM, package-manager, remoting, and network operations available to the service account;
+- arbitrary native child executables, including `cmd.exe`, Bash, Python, Git, OpenSSL, Docker, SSH, compilers, package managers, deployment tools, and user-installed programs;
+- arbitrary working directory, paths, environment variables, credentials, and network targets;
+- text or binary stdin and protected input files;
+- bounded public output plus complete protected stdout, stderr, transcript, and binary artifacts;
+- configurable timeout or no timeout;
+- exact process-tree cancellation and durable restart-safe run state.
+
+There must be no cmdlet, verb, module, script-text, argument, path, registry, service, process, child-executable, remoting, or network-target filtering after the permissive PowerShell profile is enabled.
+
+CodexBridge may offer safer helpers for protected secrets, temporary files, transcripts, and environment references, but those helpers must not restrict the commands PowerShell can execute.
+
+Acceptance:
+
+- literal command text and quoting-sensitive argv reach the configured PowerShell executable unchanged;
+- `-Command`, `-File`, `-EncodedCommand`, and stdin modes work;
+- PowerShell can launch and wait for arbitrary native child processes;
+- arbitrary filesystem paths and environment values work when Windows permissions allow them;
+- a loopback network test and a harmless child-process tree prove monitoring and cancellation;
+- restart reconciliation adopts a live PowerShell run without duplicate launch;
+- no per-command approval is requested after the profile is enabled;
+- no intermediate `cmd.exe` is created unless the submitted PowerShell command explicitly launches it.
+
+## X3 - Unrestricted Local OpenSSL Gateway
+
+Depends on X1. It may be implemented alongside or after X2 as a direct specialist profile.
 
 Configuration example:
 
@@ -256,23 +313,59 @@ Passwords and key material may be supplied by any method OpenSSL supports. Codex
 
 Acceptance:
 
-- `openssl version -a` records executable and library identity.
-- random binary generation round-trips as a protected artifact.
-- key, CSR, and certificate workflows complete in an isolated test directory.
-- custom config and provider options reach OpenSSL unchanged.
-- a local loopback `s_server`/`s_client` test proves network and cancellation behavior without relying on the public internet.
-- arbitrary output paths work when Windows permissions allow them.
-- no shell process is created for ordinary OpenSSL execution.
+- `openssl version -a` records executable and library identity;
+- random binary generation round-trips as a protected artifact;
+- key, CSR, and certificate workflows complete in an isolated test directory;
+- custom config and provider options reach OpenSSL unchanged;
+- a local loopback `s_server`/`s_client` test proves network and cancellation behavior without relying on the public internet;
+- arbitrary output paths work when Windows permissions allow them;
+- no shell process is created for ordinary direct OpenSSL execution.
+
+## C1 - Permissive-Only Migration and Tool Cleanup
+
+Depends on X2 and X3 acceptance. Cleanup must follow replacement, not precede it.
+
+Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
+
+Create a capability and call-site inventory, then migrate active callers to the smallest retained substrate. Candidate removals include:
+
+- `readonly` and `chatgpt_delegated` execution-profile routing, configuration, policy branches, fixtures, and documentation;
+- restricted local command wrappers superseded by unrestricted PowerShell;
+- duplicated reviewed-script wrappers where PowerShell, direct executable profiles, or remote root shell provide complete parity;
+- bounded administration wrappers whose only remaining purpose is command filtering;
+- obsolete command-profile definitions, approval paths, compatibility adapters, tests, and examples;
+- stale generated artifacts and registered temporary files created by removed tools.
+
+Retain these core controls even in permissive-only mode:
+
+- repository query, preview, apply, revert, move, and commit primitives;
+- durable run state, leases, process identity, reconciliation, cancellation, locks, and events;
+- configuration validation and reload;
+- SSH transport, remote controller, transfer, and staging primitives;
+- protected artifacts, return-loop publication, and audit metadata;
+- workflows, supervisors, status, and recovery tooling;
+- direct PowerShell and OpenSSL executable profiles.
+
+Do not delete durable run history or protected evidence merely because its originating tool was removed. Add an explicit retention/cleanup policy instead.
+
+Acceptance:
+
+- a before/after capability matrix proves every removed tool is replaced or intentionally abandoned;
+- active configuration contains only `permissive` execution routing;
+- removed route names have no runtime call sites, schemas, tests, docs, or stale config fields;
+- configuration migration is deterministic and rollback-capable;
+- managed temporary artifacts from removed tools can be previewed and cleaned without deleting durable evidence;
+- full tests, `python -m pip check`, `git diff --check`, and live PowerShell/OpenSSL smoke tests pass after cleanup.
 
 ## R3 - Transfer Policy and Managed Staging
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
-Policies:
+Active policy:
 
-- `repo_only`: local paths remain inside the registered repository; remote paths remain inside configured roots.
-- `configured_roots`: local and remote paths may use explicitly configured roots.
-- `unrestricted`: arbitrary paths available to the service account or registered remote user; permissive only.
+- `unrestricted`: arbitrary paths available to the service account or registered remote user under the enabled permissive profile.
+
+`repo_only` and `configured_roots` remain frozen compatibility policies only until C1 removes them or a retained non-execution subsystem proves it still requires them. Do not add new behavior to either policy.
 
 Deliverables:
 
@@ -332,27 +425,30 @@ Acceptance:
 - cancellation kills the verified process group and descendants;
 - terminal evidence is published once.
 
-## X3 - Unrestricted Remote OpenSSL
+## X4 - Unrestricted Remote PowerShell and OpenSSL
 
-Depends on X2, R3, and R4.
+Depends on X2, X3, R3, and R4.
 
-Goal: expose the same unrestricted OpenSSL profile on a registered permissive remote host.
+Goal: expose the same unrestricted executable contracts on registered permissive remote hosts.
 
 Deliverables:
 
-- remote executable identity and version capture;
-- arbitrary OpenSSL argv, paths, environment, providers, configuration, and network targets;
+- remote PowerShell and OpenSSL executable identity and version capture;
+- arbitrary PowerShell command text, argv, scripts, modules, paths, environment, child processes, remoting, and network targets;
+- arbitrary OpenSSL argv, paths, environment, providers, configuration, engines, and network targets;
 - binary-safe staged and streamed input/output;
 - remote protected artifacts and local publication manifests;
 - restart adoption and exact process-group cancellation;
-- optional root execution only through the separately enabled permissive root-shell or remote-user configuration.
+- optional elevated or root execution only through explicitly configured credentials, remote-user policy, or the separate permissive root-shell gateway.
 
 Acceptance:
 
+- local and remote PowerShell profiles share one request/result contract;
 - local and remote OpenSSL profiles share one request/result contract;
 - remote execution survives bridge restart;
-- provider/config/key/certificate and loopback TLS tests pass on the disposable host;
-- no OpenSSL option is silently removed or rewritten.
+- arbitrary PowerShell child-process and loopback network tests pass on the disposable host;
+- OpenSSL provider/config/key/certificate and loopback TLS tests pass on the disposable host;
+- no PowerShell command text or OpenSSL option is silently removed, rewritten, or filtered.
 
 ## R5 - Absolute Resource Enforcement
 
@@ -392,14 +488,14 @@ Deliverables:
 - protected full diagnostics and bounded public summaries;
 - explicit metadata showing which reference IDs were used without persisting their values.
 
-Permissive OpenSSL remains able to use literal environment values or command-line password options when the operator chooses. Reference delivery is the recommended path, not a forced limitation.
+Permissive PowerShell and OpenSSL remain able to use literal environment values, inline credentials, command-line password options, or any other mechanism their native command languages support when the operator chooses. Reference delivery is the recommended path, not a forced limitation.
 
 Acceptance:
 
 - missing references fail before child launch;
 - secret values do not appear in public events or summaries when references are used;
 - temporary material is removed or conservatively reported for repair after crashes;
-- environment values reach local and remote OpenSSL unchanged.
+- environment values reach local and remote PowerShell and OpenSSL unchanged.
 
 ## R7 - Provider-Neutral Disposable-Host Acceptance Gate
 
@@ -408,9 +504,10 @@ Goal: prove the complete contract on a disposable host before paid or workload-s
 The generic suite must prove:
 
 - native endpoint access and capability discovery;
-- profile and execution-mode enforcement;
-- bounded and unrestricted transfers;
-- reviewed Bash, `sh`, Python 3, and PowerShell scripts;
+- permissive-only active routing and clean rejection of removed profiles;
+- unrestricted transfers;
+- unrestricted local and remote PowerShell profiles;
+- arbitrary PowerShell command text, modules, paths, environment, child processes, and network operations;
 - unrestricted permissive root shell;
 - unrestricted local and remote OpenSSL profiles;
 - arbitrary OpenSSL provider/config/path/network arguments;
@@ -419,7 +516,8 @@ The generic suite must prove:
 - service restart survival and remote reattachment;
 - absolute resource enforcement and permissive overrides;
 - exact verified process-tree cancellation;
-- durable result, report, return-loop, and cleanup evidence.
+- durable result, report, return-loop, and cleanup evidence;
+- absence of runtime references to tools removed by C1.
 
 Run the same provider-neutral contract against RunPod only after the generic suite passes. Core code and tests must contain no workload-specific or provider-specific behavior.
 
@@ -446,7 +544,7 @@ Begin after R7 unless a smaller supporting change is required by an earlier batc
 ### Supervisor and workflow improvements
 
 - local diagnosis before any coding escalation;
-- reusable execution and OpenSSL steps;
+- reusable unrestricted PowerShell, direct executable, and OpenSSL steps;
 - durable pause/resume and needs-input packets;
 - improved recovery reports;
 - no Codex dependency while Codex remains disabled.
@@ -497,6 +595,14 @@ For documentation-only batches:
 - preview/apply/revert restores exact hashes;
 - R2 server forwarding is complete.
 
+### Unrestricted PowerShell gate
+
+- an explicitly enabled permissive profile exposes arbitrary PowerShell command text, argv, scripts, modules, paths, environment, child processes, remoting, and network operations without filtering;
+- the configured absolute PowerShell executable is launched directly with `shell=False`;
+- the service account and operating system are acknowledged as the effective security boundary;
+- durable lifecycle, restart adoption, exact process-tree cancellation, transcripts, and protected artifacts remain correct;
+- no per-command approval is requested after enablement.
+
 ### Unrestricted OpenSSL gate
 
 - an explicitly enabled permissive profile exposes all OpenSSL-native commands and options without filtering;
@@ -504,9 +610,17 @@ For documentation-only batches:
 - execution uses the configured absolute executable and `shell=False`;
 - durable lifecycle, cancellation, and protected artifacts remain correct.
 
+### Permissive-only cleanup gate
+
+- `permissive` is the only active execution profile;
+- frozen profile routes and redundant restricted wrappers are removed after caller migration;
+- core durability, repository, transport, artifact, status, and recovery controls remain;
+- no stale schemas, config fields, tests, docs, or registered temporary artifacts remain for removed tools;
+- durable historical evidence is retained under an explicit retention policy.
+
 ### Remote execution gate
 
-- registered permissive hosts support unrestricted root shell and unrestricted OpenSSL;
+- registered permissive hosts support unrestricted root shell, PowerShell, and OpenSSL;
 - long execution survives bridge restart;
 - remote jobs are adopted from fresh authoritative state;
 - exact process groups and descendants can be cancelled;
@@ -515,6 +629,7 @@ For documentation-only batches:
 ### Final control-plane gate
 
 - local operations, long jobs, remote jobs, and unrestricted executable profiles do not depend on Codex;
+- only the permissive execution profile remains active;
 - ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
-- dangerous capabilities are explicit, operator-enabled, auditable, and bounded only by their declared engineering and operating-system boundaries;
+- unrestricted capabilities are explicit, operator-enabled, auditable, and bounded by their declared engineering and operating-system boundaries rather than command allowlists;
 - UI and local-model expansion do not outrun execution correctness.
