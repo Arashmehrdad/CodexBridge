@@ -544,11 +544,22 @@ def test_reviewed_payload_timeout_preserves_partial_output(
     assert payload not in " ".join(result["argv"])
 
 
-def test_payload_builder_rejects_nonfixed_remote_commands(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "remote_command",
+    [
+        "bash -lc whoami",
+        "exec bash -s -- ; whoami",
+        "exec python3 - $(whoami)",
+        "exec pwsh -NoLogo -NoProfile -NonInteractive -File - > output.txt",
+    ],
+)
+def test_payload_builder_rejects_nonfixed_remote_commands(
+    tmp_path: Path, remote_command: str
+) -> None:
     config = make_config(tmp_path)
 
     with pytest.raises(ValueError, match="fixed launch envelope"):
-        build_ssh_payload_argv(config, "my_vps", "bash -lc whoami")
+        build_ssh_payload_argv(config, "my_vps", remote_command)
 
 
 def test_forced_pty_payload_is_encoded_and_echo_redacted(
