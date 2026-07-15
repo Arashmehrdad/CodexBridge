@@ -168,6 +168,11 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     monkeypatch, tmp_path: Path
 ) -> None:
     input_data = _canonical_reviewed_script_input()
+    input_data.update(
+        interpreter="pwsh",
+        arguments=["safe value", "--mode=test"],
+        autonomy_profile="permissive",
+    )
     config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
     executor_calls = _block_all_ssh_executors(monkeypatch)
     captured: dict = {}
@@ -212,11 +217,11 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     assert result["safety_failure"] is False
     assert result["command_result"]["stdout"] == "reviewed payload finished\n"
     assert captured["host_id"] == "my_vps"
-    assert captured["interpreter"] == "bash"
+    assert captured["interpreter"] == "pwsh"
     assert captured["payload"] == input_data["script"]
     assert captured["kwargs"] == {
         "payload_sha256": input_data["script_sha256"],
-        "arguments": [],
+        "arguments": ["safe value", "--mode=test"],
         "timeout_seconds": 3600,
         "writes_remote": True,
     }
