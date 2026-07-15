@@ -231,7 +231,9 @@ def _validate_ssh_reviewed_script_worker_input(
     input_data: dict,
 ) -> tuple[SSHReviewedScriptAction, dict[str, object]]:
     missing = sorted(
-        field for field in _REVIEWED_SCRIPT_REQUEST_FIELDS if field not in input_data
+        field
+        for field in _REVIEWED_SCRIPT_REQUEST_FIELDS - {"arguments"}
+        if field not in input_data
     )
     if missing:
         raise ValueError(
@@ -244,9 +246,12 @@ def _validate_ssh_reviewed_script_worker_input(
             f"{unexpected}"
         )
 
-    request = validate_reviewed_ssh_script_request(
-        {field: input_data[field] for field in _REVIEWED_SCRIPT_REQUEST_FIELDS}
-    )
+    request_payload = {
+        field: input_data[field]
+        for field in _REVIEWED_SCRIPT_REQUEST_FIELDS
+        if field in input_data
+    }
+    request = validate_reviewed_ssh_script_request(request_payload)
     host = resolve_ssh_host(config, request.host_id)
     resolve_ssh_connection(host)
     policy_metadata = _authorize_persisted_ssh_reviewed_script_policy(
