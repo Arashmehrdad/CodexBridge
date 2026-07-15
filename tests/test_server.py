@@ -360,12 +360,21 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     )
 
     class FakeJobs:
-        def start_ssh_monitored_command(self, host_id, command_id):
+        def start_ssh_monitored_command(
+            self,
+            host_id,
+            command_id,
+            *,
+            autonomy_profile="balanced",
+            execution_mode="structured",
+        ):
             return {
                 "ok": True,
                 "run_id": "run_monitored",
                 "host_id": host_id,
                 "command_id": command_id,
+                "autonomy_profile": autonomy_profile,
+                "execution_mode": execution_mode,
             }
 
         def start_ssh_action(self, host_id, action, **kwargs):
@@ -425,6 +434,8 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     assert deployment["kwargs"]["confirmation"] == "CONFIRM_SSH_HIGH_RISK"
     monitored = server.start_ssh_monitored_command_async("my_vps", "uptime")
     assert monitored["run_id"] == "run_monitored"
+    assert monitored["autonomy_profile"] == "balanced"
+    assert monitored["execution_mode"] == "structured"
 
 
 def test_commit_tool_returns_structured_metadata_rejection(

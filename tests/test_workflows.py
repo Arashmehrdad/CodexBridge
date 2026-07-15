@@ -469,7 +469,14 @@ def test_workflow_worker_stops_on_failure_and_skips_remaining_steps(
 def test_workflow_cancel_requests_active_child_cancellation(tmp_path: Path) -> None:
     FakeJobManager.reset()
     config, config_path = make_config(tmp_path)
-    manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: 11)
+    manager = WorkflowManager(
+        config,
+        config_path,
+        worker_launcher=lambda *_args: 11,
+        process_checker=lambda _pid: False,
+        identity_reader=lambda _pid: "",
+        job_manager_factory=lambda: FakeJobManager(),
+    )
     started = manager.start_workflow(
         "repo",
         "cancel workflow",
@@ -494,9 +501,6 @@ def test_workflow_cancel_requests_active_child_cancellation(tmp_path: Path) -> N
         "summary": "still running",
         "error": "",
     }
-    import codexbridge.job_manager as job_manager_module
-
-    job_manager_module.JobManager = FakeJobManager  # type: ignore[assignment]
     cancelled = manager.cancel_workflow(started["workflow_id"])
     assert cancelled["cancelled"] is True
     assert FakeJobManager.cancelled == ["20260711T203301Z_hang_00000001"]

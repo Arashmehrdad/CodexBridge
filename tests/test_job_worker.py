@@ -1172,7 +1172,16 @@ def test_monitored_ssh_worker_persists_structured_result(
         repo_name="ssh:my_vps",
         tool="ssh_monitored_command",
         run_dir=run_dir,
-        input_data={"host_id": "my_vps", "command_id": "uptime"},
+        input_data={
+            "host_id": "my_vps",
+            "command_id": "uptime",
+            "autonomy_profile": "balanced",
+            "execution_mode": "structured",
+            "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
+            "policy_decision": "allowed",
+            "policy_authorized": True,
+            "approval_source": "none",
+        },
     )
     monkeypatch.setattr(
         "codexbridge.job_worker.start_monitored_ssh_command",
