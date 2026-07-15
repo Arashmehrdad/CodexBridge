@@ -1222,6 +1222,7 @@ class JobWorker:
             {
                 "host_id": request.host_id,
                 "interpreter": request.interpreter,
+                "arguments": list(request.arguments),
                 "script_sha256": request.script_sha256,
                 "timeout_seconds": request.timeout_seconds,
                 "writes_remote": request.writes_remote,
@@ -1237,6 +1238,7 @@ class JobWorker:
                     request.interpreter,
                     request.script,
                     payload_sha256=request.script_sha256,
+                    arguments=request.arguments,
                     timeout_seconds=request.timeout_seconds,
                     writes_remote=request.writes_remote,
                 )
@@ -1263,6 +1265,7 @@ class JobWorker:
             "host_id": request.host_id,
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "interpreter": request.interpreter,
+            "arguments": list(request.arguments),
             "script_sha256": request.script_sha256,
             **policy_metadata,
             "writes_remote": request.writes_remote,

@@ -856,6 +856,7 @@ class JobManager:
         script: str,
         script_sha256: str,
         *,
+        arguments: list[str] | None = None,
         timeout_seconds: int = 3600,
         writes_remote: bool = True,
         high_risk: bool = False,
@@ -867,6 +868,7 @@ class JobManager:
                 "action": "reviewed_script",
                 "host_id": host_id,
                 "interpreter": interpreter,
+                "arguments": list(arguments or []),
                 "script": script,
                 "script_sha256": script_sha256,
                 "timeout_seconds": timeout_seconds,
@@ -913,6 +915,7 @@ class JobManager:
         )
         response["host_id"] = request.host_id
         response["interpreter"] = request.interpreter
+        response["arguments"] = list(request.arguments)
         response["script_sha256"] = request.script_sha256
         response["writes_remote"] = request.writes_remote
         response["high_risk"] = request.high_risk
