@@ -491,6 +491,7 @@ def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
             "interpreter": "bash",
             "script": script,
             "script_sha256": digest,
+            "arguments": ["--mode", "safe value"],
             "autonomy_profile": "balanced",
         }
     )
@@ -500,12 +501,41 @@ def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
     assert result["run_id"] == "reviewed_run"
     assert captured["args"] == ("dev", "bash", script, digest)
     assert captured["kwargs"] == {
+        "arguments": ["--mode", "safe value"],
         "timeout_seconds": 3600,
         "writes_remote": True,
         "high_risk": False,
         "autonomy_profile": "balanced",
         "execution_mode": "reviewed_script",
     }
+
+
+def test_reviewed_script_async_forwards_arguments_to_job_manager(monkeypatch) -> None:
+    script = "printf '%s\\n' \"$1\"\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    class Manager:
+        def start_ssh_reviewed_script(self, *args, **kwargs):
+            captured.update(args=args, kwargs=kwargs)
+            return {"accepted": True, "run_id": "reviewed_run"}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+
+    result = server.start_ssh_reviewed_script_async(
+        "dev",
+        "bash",
+        script,
+        digest,
+        arguments=["first", "safe value"],
+        autonomy_profile="permissive",
+    )
+
+    assert result["run_id"] == "reviewed_run"
+    assert captured["args"] == ("dev", "bash", script, digest)
+    assert captured["kwargs"]["arguments"] == ["first", "safe value"]
+    assert captured["kwargs"]["autonomy_profile"] == "permissive"
+    assert captured["kwargs"]["execution_mode"] == "reviewed_script"
 
 
 def test_root_shell_contract_is_hash_pinned_and_permissive_only() -> None:
