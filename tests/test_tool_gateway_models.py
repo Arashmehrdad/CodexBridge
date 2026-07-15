@@ -538,6 +538,39 @@ def test_reviewed_script_async_forwards_arguments_to_job_manager(monkeypatch) ->
     assert captured["kwargs"]["execution_mode"] == "reviewed_script"
 
 
+def test_permissive_pwsh_gateway_forwards_reviewed_script_arguments(
+    monkeypatch,
+) -> None:
+    script = "Write-Output $args[0]\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def start(*args, **kwargs):
+        captured.update(args=args, kwargs=kwargs)
+        return {"accepted": True, "run_id": "permissive_pwsh_run"}
+
+    monkeypatch.setattr(server, "start_ssh_reviewed_script_async", start)
+    request = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "reviewed_script",
+            "host_id": "dev",
+            "interpreter": "pwsh",
+            "arguments": ["safe value", "--mode=test"],
+            "script": script,
+            "script_sha256": digest,
+            "autonomy_profile": "permissive",
+        }
+    )
+
+    result = server.ssh_action(request)
+
+    assert result["run_id"] == "permissive_pwsh_run"
+    assert captured["args"] == ("dev", "pwsh", script, digest)
+    assert captured["kwargs"]["arguments"] == ["safe value", "--mode=test"]
+    assert captured["kwargs"]["autonomy_profile"] == "permissive"
+    assert captured["kwargs"]["execution_mode"] == "reviewed_script"
+
+
 def test_root_shell_contract_is_hash_pinned_and_permissive_only() -> None:
     script = "id -u\n"
     digest = sha256(script.encode("utf-8")).hexdigest()

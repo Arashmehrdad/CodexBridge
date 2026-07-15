@@ -612,6 +612,59 @@ def test_forced_pty_payload_is_encoded_and_echo_redacted(
     assert result["argv"][-1] == "<reviewed script via stdin>"
 
 
+def test_forced_pty_pwsh_payload_quotes_arguments(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(identity),
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "Write-Output $args[0]\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    arguments = ["safe value", "--mode=test"]
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout="__CODEXBRIDGE_REMOTE_EXIT__=0\r\n",
+            stderr="",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "pwsh",
+        payload,
+        payload_sha256=digest,
+        arguments=arguments,
+        timeout_seconds=30,
+        writes_remote=True,
+    )
+
+    assert "-tt" in captured["argv"]
+    stdin_text = captured["kwargs"]["input"]
+    assert (
+        'pwsh -NoLogo -NoProfile -NonInteractive -File '
+        '"$__codexbridge_payload" \'safe value\' --mode=test'
+        in stdin_text
+    )
+    assert payload not in stdin_text
+    assert result["interpreter"] == "pwsh"
+    assert result["arguments"] == arguments
+    assert result["argv"][-1] == "<reviewed script via stdin>"
+
+
 def test_root_payload_verifies_effective_uid_and_strips_internal_marker(
     tmp_path: Path,
     monkeypatch,
