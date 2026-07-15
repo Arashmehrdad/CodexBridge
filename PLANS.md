@@ -161,6 +161,13 @@ Depends on G0.
 
 Status: **in progress**.
 
+Checkpoint (2026-07-15):
+
+- Reviewed-script `arguments` now survive both server forwarding hops: `ssh_action` -> `start_ssh_reviewed_script_async` -> `JobManager.start_ssh_reviewed_script`.
+- Focused validation passed: `tests/test_tool_gateway_models.py` 24 passed; `codexbridge/server.py` passed `py_compile`; `git diff --check` passed.
+- Implementation commit: `2d66c6076ae37b1567cb3f68c63d93905bba6e93`.
+- Next G1 unit: add permissive forced-PTY coverage for reviewed-script arguments and `pwsh`, then validate the complete model -> server -> manager -> worker -> SSH command chain.
+
 Goal: close only the server and transport gaps required for the permissive migration. Do not spend roadmap capacity expanding the frozen profiles.
 
 Deliverables:
