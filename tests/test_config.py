@@ -101,6 +101,7 @@ def test_config_defaults_to_permissive_supervisor_profile(tmp_path: Path) -> Non
     )
     assert config.autonomy.autonomy_enabled is True
     assert config.autonomy.autonomy_default_profile == "balanced"
+    assert config.codex.enabled is True
     assert config.resolve_approval_store_path() == tmp_path / "runs" / "approvals"
     assert config.codex_router.codex_router_enabled is True
     assert config.codex_router.codex_router_invoke_enabled is False

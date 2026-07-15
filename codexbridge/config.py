@@ -499,6 +499,7 @@ class ExternalFixturesConfig(BaseModel):
 
 
 class CodexConfig(BaseModel):
+    enabled: bool = True
     executable: str = "codex"
     model: str = ""
     windows_sandbox: str = ""

@@ -41,11 +41,13 @@ def make_runner(
     model: str = "",
     windows_sandbox: str = "",
     sandbox_private_desktop: bool | None = None,
+    enabled: bool = True,
 ) -> CodexRunner:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))},
         runs_dir=str(tmp_path / "runs"),
         codex=CodexConfig(
+            enabled=enabled,
             executable=executable,
             model=model,
             windows_sandbox=windows_sandbox,
@@ -55,6 +57,12 @@ def make_runner(
         config_dir=tmp_path,
     )
     return CodexRunner(config)
+
+
+def test_disabled_codex_cannot_resolve_executable(tmp_path: Path) -> None:
+    runner = make_runner(tmp_path, enabled=False)
+    with pytest.raises(RuntimeError, match="disabled by configuration"):
+        runner._resolve_codex_executable()
 
 
 def test_configured_executable_path_is_preferred(tmp_path: Path) -> None:

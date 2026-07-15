@@ -457,6 +457,16 @@ class JobManager:
         *,
         reserved_run_id: str | None = None,
     ) -> dict:
+        if not self.config.codex.enabled:
+            return PolicyDecision(
+                accepted=False,
+                tier=0,
+                risk_level="low",
+                requires_human=False,
+                reason="Codex execution is disabled by configuration",
+                estimated_duration_minutes=0,
+                recommended_check_after_minutes=0,
+            ).to_start_response(status="refused")
         resolve_repo(self.config, repo_name)
         decision = decide_plan_task(task, constraints)
         if not decision.accepted:
@@ -479,6 +489,16 @@ class JobManager:
         *,
         reserved_run_id: str | None = None,
     ) -> dict:
+        if not self.config.codex.enabled:
+            return PolicyDecision(
+                accepted=False,
+                tier=0,
+                risk_level="low",
+                requires_human=False,
+                reason="Codex execution is disabled by configuration",
+                estimated_duration_minutes=0,
+                recommended_check_after_minutes=0,
+            ).to_start_response(status="refused")
         repo_root = resolve_repo(self.config, repo_name)
         validate_repo_relative_paths(repo_root, allowed_files)
         for test in tests:

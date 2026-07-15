@@ -148,6 +148,8 @@ class CodexRunner:
         return run_dir
 
     def _resolve_codex_executable(self) -> str:
+        if not self.config.codex.enabled:
+            raise RuntimeError("Codex execution is disabled by configuration")
         executable = self.config.codex.executable.strip() or "codex"
         configured = Path(executable)
         explicit_path = configured.is_absolute() or configured.parent != Path(".")

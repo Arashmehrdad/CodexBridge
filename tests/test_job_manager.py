@@ -9,6 +9,7 @@ import pytest
 from codexbridge.config import (
     AppConfig,
     CloudflareProfileConfig,
+    CodexConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
@@ -27,7 +28,9 @@ def make_git_repo(path: Path) -> None:
     (path / ".git").mkdir()
 
 
-def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
+def make_manager(
+    tmp_path: Path, monkeypatch, *, codex_enabled: bool = True
+) -> JobManager:
     repo = tmp_path / "repo"
     make_git_repo(repo)
     config_path = tmp_path / "config.yaml"
@@ -35,6 +38,7 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(repo))},
         runs_dir=str(tmp_path / "runs"),
+        codex=CodexConfig(enabled=codex_enabled),
         ssh=SSHConfig(
             enabled=True,
             hosts={
@@ -65,6 +69,23 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
         lambda *args, **kwargs: FakeProcess(),
     )
     return JobManager(config, config_path)
+
+
+def test_codex_disabled_refuses_plan_and_implementation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch, codex_enabled=False)
+
+    plan = manager.start_plan("sample", "inspect docs")
+    implementation = manager.start_implementation(
+        "sample", "edit docs", ["README.md"], []
+    )
+
+    for response in (plan, implementation):
+        assert response["accepted"] is False
+        assert response["status"] == "refused"
+        assert response["run_id"] is None
+        assert response["reason"] == "Codex execution is disabled by configuration"
 
 
 def test_start_async_plan_creates_run_and_event(tmp_path: Path, monkeypatch) -> None:
