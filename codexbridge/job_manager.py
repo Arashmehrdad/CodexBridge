@@ -25,6 +25,7 @@ from .config import AppConfig, resolve_repo, resolve_repo_config
 from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
+from .gateway_models import validate_reviewed_ssh_script_request
 from .operation_locks import OperationLockStore
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
@@ -816,6 +817,80 @@ class JobManager:
         )
         return response
 
+    def start_ssh_reviewed_script(
+        self,
+        host_id: str,
+        interpreter: str,
+        script: str,
+        script_sha256: str,
+        *,
+        timeout_seconds: int = 3600,
+        writes_remote: bool = True,
+        high_risk: bool = False,
+        autonomy_profile: str = "balanced",
+        execution_mode: str = "reviewed_script",
+    ) -> dict:
+        request = validate_reviewed_ssh_script_request(
+            {
+                "action": "reviewed_script",
+                "host_id": host_id,
+                "interpreter": interpreter,
+                "script": script,
+                "script_sha256": script_sha256,
+                "timeout_seconds": timeout_seconds,
+                "writes_remote": writes_remote,
+                "high_risk": high_risk,
+                "autonomy_profile": autonomy_profile,
+                "execution_mode": execution_mode,
+            }
+        )
+        resolve_ssh_host(self.config, request.host_id)
+        policy = authorize_ssh_action_launch(
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
+            writes_remote=request.writes_remote,
+            high_risk=request.high_risk,
+            chatgpt_approval_granted=True,
+            human_approval_granted=False,
+            implemented_modes={"reviewed_script"},
+        )
+        policy_metadata = _ssh_policy_metadata(policy)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3 if request.high_risk else 2 if request.writes_remote else 1,
+            risk_level=(
+                "high"
+                if request.high_risk
+                else "medium"
+                if request.writes_remote
+                else "low"
+            ),
+            requires_human=False,
+            reason=(
+                "Hash-pinned reviewed SSH script is approved for durable "
+                "validation-only launch"
+            ),
+            estimated_duration_minutes=max(1, (request.timeout_seconds + 59) // 60),
+            recommended_check_after_minutes=min(
+                2, max(1, (request.timeout_seconds + 59) // 60)
+            ),
+        )
+        input_data = request.model_dump(mode="python")
+        input_data.update(policy_metadata)
+        response = self._create_and_launch(
+            "ssh_reviewed_script",
+            f"ssh:{request.host_id}",
+            input_data,
+            decision,
+        )
+        response["host_id"] = request.host_id
+        response["interpreter"] = request.interpreter
+        response["script_sha256"] = request.script_sha256
+        response["writes_remote"] = request.writes_remote
+        response["high_risk"] = request.high_risk
+        response.update(policy_metadata)
+        return response
+
     def start_ssh_action(
         self,
         host_id: str,
@@ -1146,7 +1221,10 @@ class JobManager:
         try:
             run_dir.mkdir(parents=True, exist_ok=False)
             artifacts = ArtifactWriter(run_dir)
-            artifacts.write_json("input.json", input_data)
+            artifact_input = dict(input_data)
+            if tool == "ssh_reviewed_script" and "script" in artifact_input:
+                artifact_input["script"] = "[REDACTED]"
+            artifacts.write_json("input.json", artifact_input)
             self.store.create_run(
                 run_id=run_id,
                 repo_name=repo_name,
@@ -1289,6 +1367,11 @@ class JobManager:
     def _public_run(run: dict) -> dict:
         public = dict(run)
         public.pop("worker_lease_token", None)
+        if public.get("tool") == "ssh_reviewed_script":
+            input_data = dict(public.get("input") or {})
+            if "script" in input_data:
+                input_data["script"] = "[REDACTED]"
+            public["input"] = input_data
         return public
 
     def get_status_payload(self, run_id: str) -> dict:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .run_query_chunks import encode_list_reference, encode_run_reference
 from .ssh_policy import (
@@ -612,7 +612,9 @@ class SSHStructuredExecutionGatewayRequest(SSHExecutionPolicyGatewayRequest):
 
 
 class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
-    """Hash-pinned request contract for a future reviewed-script executor."""
+    """Hash-pinned request contract for the reviewed-script launch scaffold."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     action: Literal["reviewed_script"]
     execution_mode: Literal["reviewed_script"] = "reviewed_script"
@@ -653,6 +655,23 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
                 f"{self.autonomy_profile}/{self.execution_mode}"
             )
         return self
+
+
+def validate_reviewed_ssh_script_request(
+    payload: dict[str, Any],
+) -> SSHReviewedScriptAction:
+    """Run the shared reviewed-script validator without echoing script content."""
+
+    try:
+        return SSHReviewedScriptAction.model_validate(payload)
+    except ValidationError as exc:
+        messages = "; ".join(
+            str(error.get("msg", "invalid value"))
+            for error in exc.errors(include_input=False)
+        )
+        raise ValueError(
+            f"Invalid reviewed SSH script request: {messages}"
+        ) from None
 
 
 class SSHProfilePreviewQuery(GatewayModel):
@@ -723,11 +742,11 @@ class SSHDeploymentAction(SSHStructuredExecutionGatewayRequest):
     confirmation: str = Field(min_length=1, max_length=128)
 
 
-# SSHReviewedScriptAction intentionally remains outside this public union until
-# its executor and worker-side hash revalidation are implemented.
+# The reviewed-script variant is public, but its worker path remains a
+# validation-only scaffold until a real executor is implemented.
 SSHActionRequest = Annotated[
-    SSHProfileApplyAction | SSHCommandAction | SSHAdministrationAction
-    | SSHTransferAction | SSHDeploymentAction,
+    SSHProfileApplyAction | SSHCommandAction | SSHReviewedScriptAction
+    | SSHAdministrationAction | SSHTransferAction | SSHDeploymentAction,
     Field(discriminator="action"),
 ]
 

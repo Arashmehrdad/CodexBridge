@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Collection
 import os
 import posixpath
 import subprocess
@@ -36,6 +37,10 @@ from .config import (
 from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import fetch_validate_and_discard
+from .gateway_models import (
+    SSHReviewedScriptAction,
+    validate_reviewed_ssh_script_request,
+)
 from .managed_artifacts import (
     cleanup_new_managed_artifacts,
     snapshot_managed_artifacts,
@@ -77,7 +82,7 @@ from .ssh_commands import (
     resolve_ssh_host,
     run_ssh_command,
 )
-from .ssh_policy import authorize_ssh_action_launch
+from .ssh_policy import IMPLEMENTED_SSH_EXECUTION_MODES, authorize_ssh_action_launch
 from .ssh_watchdog import (
     start_monitored_ssh_command,
     validate_monitored_command_start,
@@ -131,6 +136,7 @@ def _authorize_persisted_ssh_policy(
     writes_remote: bool,
     monitored: bool = False,
     high_risk: bool = False,
+    implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
 ) -> dict[str, object]:
     missing = sorted(
         field for field in _SSH_POLICY_METADATA_FIELDS if field not in input_data
@@ -152,6 +158,7 @@ def _authorize_persisted_ssh_policy(
         high_risk=high_risk,
         chatgpt_approval_granted=approval_source == "chatgpt",
         human_approval_granted=approval_source == "human",
+        implemented_modes=implemented_modes,
     )
     metadata = _ssh_policy_metadata(policy)
     persisted = {
@@ -163,6 +170,44 @@ def _authorize_persisted_ssh_policy(
             "Persisted SSH policy metadata does not match canonical worker revalidation"
         )
     return metadata
+
+
+_REVIEWED_SCRIPT_REQUEST_FIELDS = frozenset(SSHReviewedScriptAction.model_fields)
+_REVIEWED_SCRIPT_PERSISTED_FIELDS = (
+    _REVIEWED_SCRIPT_REQUEST_FIELDS | frozenset(_SSH_POLICY_METADATA_FIELDS)
+)
+
+
+def _validate_ssh_reviewed_script_worker_input(
+    config: AppConfig,
+    input_data: dict,
+) -> tuple[SSHReviewedScriptAction, dict[str, object]]:
+    missing = sorted(
+        field for field in _REVIEWED_SCRIPT_REQUEST_FIELDS if field not in input_data
+    )
+    if missing:
+        raise ValueError(
+            f"Incomplete persisted reviewed SSH script metadata; missing: {missing}"
+        )
+    unexpected = sorted(set(input_data) - _REVIEWED_SCRIPT_PERSISTED_FIELDS)
+    if unexpected:
+        raise ValueError(
+            "Unexpected persisted reviewed SSH script metadata fields: "
+            f"{unexpected}"
+        )
+
+    request = validate_reviewed_ssh_script_request(
+        {field: input_data[field] for field in _REVIEWED_SCRIPT_REQUEST_FIELDS}
+    )
+    host = resolve_ssh_host(config, request.host_id)
+    resolve_ssh_connection(host)
+    policy_metadata = _authorize_persisted_ssh_policy(
+        input_data,
+        writes_remote=request.writes_remote,
+        high_risk=request.high_risk,
+        implemented_modes={"reviewed_script"},
+    )
+    return request, policy_metadata
 
 
 def _validate_ssh_transfer_worker_input(
@@ -745,6 +790,8 @@ class JobWorker:
             return self._execute_ssh_command(started_at, input_data)
         if tool == "ssh_monitored_command":
             return self._execute_ssh_monitored_command(started_at, input_data)
+        if tool == "ssh_reviewed_script":
+            return self._execute_ssh_reviewed_script(started_at, input_data)
         if tool == "ssh_action":
             return self._execute_ssh_action(started_at, input_data)
         if tool == "ssh_transfer":
@@ -1076,6 +1123,35 @@ class JobWorker:
             "codex_command_args": _safe_command_args(args),
             **commit_data,
         }
+
+    def _execute_ssh_reviewed_script(
+        self,
+        started_at: str,
+        input_data: dict,
+    ) -> dict:
+        del started_at
+        request, policy_metadata = _validate_ssh_reviewed_script_worker_input(
+            self.config,
+            input_data,
+        )
+        self.event(
+            "info",
+            "ssh_reviewed_script",
+            "Reviewed SSH script request revalidated; executor remains disabled",
+            {
+                "host_id": request.host_id,
+                "interpreter": request.interpreter,
+                "script_sha256": request.script_sha256,
+                "timeout_seconds": request.timeout_seconds,
+                "writes_remote": request.writes_remote,
+                "high_risk": request.high_risk,
+                **policy_metadata,
+            },
+        )
+        raise ValueError(
+            "Reviewed SSH script execution is not implemented; "
+            "the validated script was not executed remotely"
+        )
 
     def _execute_ssh_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
