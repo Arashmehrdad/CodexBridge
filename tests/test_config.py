@@ -44,6 +44,11 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.supervisors.effective_profile().max_plan_tier == 3
     assert config.supervisors.effective_profile().max_implementation_tier == 3
     assert config.ssh.enabled is False
+    assert config.ssh.active_autonomy_profiles == [
+        "conservative",
+        "balanced",
+        "permissive",
+    ]
     assert config.docker.enabled is False
     assert config.docker.executable == "docker"
     assert config.cloudflare.enabled is False
@@ -140,6 +145,18 @@ def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
         config_dir=tmp_path,
     )
     assert config.supervisors.effective_profile().max_implementation_tier == 1
+
+
+def test_ssh_active_autonomy_profiles_are_canonical_and_unique() -> None:
+    config = SSHConfig(active_autonomy_profiles=["permissive"])
+    assert config.active_autonomy_profiles == ["permissive"]
+
+    with pytest.raises(ValidationError, match="unique"):
+        SSHConfig(active_autonomy_profiles=["permissive", "permissive"])
+    with pytest.raises(ValidationError):
+        SSHConfig(active_autonomy_profiles=[])
+    with pytest.raises(ValidationError):
+        SSHConfig(active_autonomy_profiles=["chatgpt_delegated"])
 
 
 def test_ssh_host_rejects_duplicate_command_ids() -> None:

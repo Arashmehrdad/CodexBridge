@@ -552,12 +552,23 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
         "conservative",
         "permissive",
     }
+    assert set(policy["active_autonomy_profiles"]) == {
+        "balanced",
+        "conservative",
+        "permissive",
+    }
+    assert policy["compatibility_only_autonomy_profiles"] == []
     modes = {
         item["execution_mode"]: item for item in policy["execution_modes"]
     }
     assert modes["structured"] == {
         "execution_mode": "structured",
         "allowed_autonomy_profiles": [
+            "balanced",
+            "conservative",
+            "permissive",
+        ],
+        "active_allowed_autonomy_profiles": [
             "balanced",
             "conservative",
             "permissive",
@@ -571,6 +582,29 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert modes["reviewed_script"]["implemented"] is True
     assert modes["root_shell"]["allowed_autonomy_profiles"] == ["permissive"]
     assert modes["root_shell"]["implemented"] is True
+
+    config.ssh.active_autonomy_profiles = ["permissive"]
+    permissive_only = ssh_tools.enrich_ssh_capabilities(config, base)
+    permissive_policy = permissive_only["execution_policy"]
+    assert permissive_policy["active_autonomy_profiles"] == ["permissive"]
+    assert permissive_policy["compatibility_only_autonomy_profiles"] == [
+        "balanced",
+        "conservative",
+    ]
+    permissive_modes = {
+        item["execution_mode"]: item
+        for item in permissive_policy["execution_modes"]
+    }
+    assert permissive_modes["structured"]["active_allowed_autonomy_profiles"] == [
+        "permissive"
+    ]
+    assert permissive_modes["reviewed_script"][
+        "active_allowed_autonomy_profiles"
+    ] == ["permissive"]
+    assert permissive_modes["root_shell"]["active_allowed_autonomy_profiles"] == [
+        "permissive"
+    ]
+
     assert result["hosts"][0]["deployments"][0]["deployment_id"] == ("sample_deploy")
     assert result["structured_probes"] == ["environment", "gpu_telemetry"]
     assert result["hosts"][0]["watchdog"]["enforcement_mode"] == "observe_only"

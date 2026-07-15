@@ -112,6 +112,14 @@ class JobManager:
         self.store = RunStore(config.resolve_runs_dir())
         self.locks = OperationLockStore(config.resolve_runs_dir())
 
+    def _require_active_ssh_autonomy_profile(self, autonomy_profile: str) -> None:
+        active_profiles = self.config.ssh.active_autonomy_profiles
+        if autonomy_profile not in active_profiles:
+            raise ValueError(
+                f"SSH autonomy profile '{autonomy_profile}' is disabled by configuration; "
+                f"active profiles: {sorted(active_profiles)}"
+            )
+
     def reconcile_startup(self) -> int:
         reconciled = 0
         recoverable_runs = self.store.list_recoverable_runs()
@@ -763,6 +771,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         _, profile = resolve_ssh_command_profile(self.config, host_id, command_id)
         policy = authorize_ssh_action_launch(
             autonomy_profile=autonomy_profile,
@@ -805,6 +814,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         host, profile = validate_monitored_command_start(
             self.config, host_id, command_id
         )
@@ -863,6 +873,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "reviewed_script",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         request = validate_reviewed_ssh_script_request(
             {
                 "action": "reviewed_script",
@@ -932,6 +943,7 @@ class JobManager:
         autonomy_profile: str = "permissive",
         execution_mode: str = "root_shell",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         request = validate_root_ssh_shell_request(
             {
                 "action": "root_shell",
@@ -997,6 +1009,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         normalized_packages = list(packages or [])
         normalized_args = list(args or [])
         spec = build_ssh_action(
@@ -1077,6 +1090,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         if not self.config.ssh.allow_transfer:
             raise ValueError("SSH transfer capability is disabled by allow_transfer")
         direction = str(direction or "").strip().lower()
@@ -1143,6 +1157,7 @@ class JobManager:
         autonomy_profile: str = "balanced",
         execution_mode: str = "structured",
     ) -> dict:
+        self._require_active_ssh_autonomy_profile(autonomy_profile)
         if not self.config.ssh.allow_deploy:
             raise ValueError("SSH deployment capability is disabled by allow_deploy")
         if confirmation != self.config.ssh.confirmation_token:

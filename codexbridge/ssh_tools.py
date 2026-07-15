@@ -1205,10 +1205,15 @@ def enrich_ssh_capabilities(
     config: AppConfig, result: dict[str, Any]
 ) -> dict[str, Any]:
     result = dict(result)
+    active_profiles = frozenset(config.ssh.active_autonomy_profiles)
+    compatibility_only_profiles = CANONICAL_AUTONOMY_PROFILES - active_profiles
     execution_modes = [
         {
             "execution_mode": execution_mode,
             "allowed_autonomy_profiles": sorted(allowed_profiles),
+            "active_allowed_autonomy_profiles": sorted(
+                allowed_profiles & active_profiles
+            ),
             "implemented": (
                 execution_mode in IMPLEMENTED_SSH_EXECUTION_MODES
                 or execution_mode in REVIEWED_SCRIPT_GATEWAY_MODES
@@ -1221,6 +1226,10 @@ def enrich_ssh_capabilities(
         {
             "execution_policy": {
                 "autonomy_profiles": sorted(CANONICAL_AUTONOMY_PROFILES),
+                "active_autonomy_profiles": sorted(active_profiles),
+                "compatibility_only_autonomy_profiles": sorted(
+                    compatibility_only_profiles
+                ),
                 "execution_modes": execution_modes,
             },
             "read_only_operations": list(SSH_INSPECTIONS),

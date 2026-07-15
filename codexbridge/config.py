@@ -262,6 +262,12 @@ class SSHConfig(BaseModel):
     max_output_bytes: int = Field(default=100000, ge=1024, le=5000000)
     max_transfer_bytes: int = Field(default=500000000, ge=1024, le=5000000000)
     transfer_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
+    active_autonomy_profiles: List[
+        Literal["conservative", "balanced", "permissive"]
+    ] = Field(
+        default_factory=lambda: ["conservative", "balanced", "permissive"],
+        min_length=1,
+    )
     allow_transfer: bool = False
     allow_deploy: bool = False
     allow_admin: bool = False
@@ -271,6 +277,14 @@ class SSHConfig(BaseModel):
         default="CONFIRM_SSH_HIGH_RISK", min_length=8, max_length=128
     )
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_active_autonomy_profiles(self) -> "SSHConfig":
+        if len(self.active_autonomy_profiles) != len(
+            set(self.active_autonomy_profiles)
+        ):
+            raise ValueError("SSH active_autonomy_profiles must be unique")
+        return self
 
 
 class CloudflareSecretDestinationConfig(BaseModel):

@@ -481,6 +481,23 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
     assert download["approval_source"] == "none"
 
 
+def test_disabled_ssh_autonomy_profile_creates_no_run_or_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    manager.config.ssh.active_autonomy_profiles = ["permissive"]
+
+    with pytest.raises(ValueError, match="disabled by configuration"):
+        manager.start_ssh_command(
+            "my_vps",
+            "uptime",
+            autonomy_profile="balanced",
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
+
+
 def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     tmp_path: Path, monkeypatch
 ) -> None:
