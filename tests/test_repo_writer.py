@@ -124,7 +124,76 @@ def test_preview_returns_patch_id_and_diff(tmp_path: Path) -> None:
     assert "hello.py" in result["diff"]
     assert result["changed_files"] == ["hello.py"]
     assert result["changed_lines"] >= 2
+    assert result["logical_changed_lines"] == result["changed_lines"]
+    assert result["newline_only_changed_lines"] == 0
     assert result["validation_errors"] == []
+
+
+def test_preview_reports_intentional_newline_only_churn(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "normalized_report.py"
+    target.write_bytes(b"alpha\r\nold\nkeep\nomega\r\n")
+    sha = sha256_file(target)
+    operation = {
+        "path": "normalized_report.py",
+        "expected_sha256": sha,
+        "old_text": "old\n",
+        "new_text": "new\n",
+        "preserve_newlines": False,
+    }
+
+    result = preview_repo_patch(repo, [operation], runs)
+    manifest = json.loads(
+        (runs / "managed_patches" / result["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["changed_lines"] == 4
+    assert result["logical_changed_lines"] == 2
+    assert result["newline_only_changed_lines"] == 2
+    assert manifest["operations"][0]["logical_changed_lines"] == 2
+    assert manifest["operations"][0]["newline_only_changed_lines"] == 2
+
+
+def test_preview_rejects_newline_only_churn_in_preserved_mode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "guarded.py"
+    target.write_bytes(b"alpha\r\nold\nkeep\r\n")
+    sha = sha256_file(target)
+
+    def normalize_unrelated_lines(content, op, path_str, idx):
+        return rw._apply_exact_text_operation(
+            rw._normalize_newlines(content), op, path_str, idx
+        )
+
+    monkeypatch.setattr(
+        rw,
+        "_apply_exact_text_preserving_newlines",
+        normalize_unrelated_lines,
+    )
+    result = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "guarded.py",
+                "expected_sha256": sha,
+                "old_text": "old\n",
+                "new_text": "new\n",
+            }
+        ],
+        runs,
+    )
+
+    assert result["ok"] is False
+    assert result["changed_files"] == []
+    assert any("newline-only changed lines" in error for error in result["validation_errors"])
+    assert target.read_bytes() == b"alpha\r\nold\nkeep\r\n"
 
 
 def test_preview_makes_no_changes(tmp_path: Path) -> None:

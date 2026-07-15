@@ -160,6 +160,19 @@ def _unified_diff_for_op(old_text: str, new_text: str, path: str) -> str:
     return "".join(diff_lines)
 
 
+def _change_line_counts(old_text: str, new_text: str, path: str) -> tuple[int, int, int]:
+    raw_diff = _unified_diff_for_op(old_text, new_text, path)
+    logical_diff = _unified_diff_for_op(
+        _normalize_newlines(old_text),
+        _normalize_newlines(new_text),
+        path,
+    )
+    changed_lines = _count_changed_lines(raw_diff)
+    logical_changed_lines = _count_changed_lines(logical_diff)
+    newline_only_changed_lines = max(0, changed_lines - logical_changed_lines)
+    return changed_lines, logical_changed_lines, newline_only_changed_lines
+
+
 def _normalize_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -428,6 +441,10 @@ def _write_preview_bundle(
             "payload_sha256": "",
             "payload_size_bytes": 0,
             "changed_lines": op["changed_lines"],
+            "logical_changed_lines": op.get(
+                "logical_changed_lines", op["changed_lines"]
+            ),
+            "newline_only_changed_lines": op.get("newline_only_changed_lines", 0),
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
@@ -1047,7 +1064,18 @@ def _validate_operations(
                 state["working_content"], state["dominant_newline"]
             )
         diff = _unified_diff_for_op(current_text, new_content, path_str)
-        changed_lines = _count_changed_lines(diff)
+        (
+            changed_lines,
+            logical_changed_lines,
+            newline_only_changed_lines,
+        ) = _change_line_counts(current_text, new_content, path_str)
+        if state["newline_mode"] == "preserved" and newline_only_changed_lines:
+            errors.append(
+                f"Patch for '{path_str}' introduces "
+                f"{newline_only_changed_lines} newline-only changed lines while "
+                f"preserve_newlines is enabled"
+            )
+            continue
         changed_bytes = abs(
             len(new_content.encode("utf-8")) - len(state["current_bytes"])
         )
@@ -1062,6 +1090,8 @@ def _validate_operations(
                 "new_content": new_content,
                 "diff": diff,
                 "changed_lines": changed_lines,
+                "logical_changed_lines": logical_changed_lines,
+                "newline_only_changed_lines": newline_only_changed_lines,
                 "changed_bytes": changed_bytes,
                 "operation_count": len(state["validation_results"]),
                 "validation_results": list(state["validation_results"]),
@@ -1095,6 +1125,8 @@ def preview_repo_patch(
     combined_diff = ""
     changed_files: list[str] = []
     total_changed_lines = 0
+    total_logical_changed_lines = 0
+    total_newline_only_changed_lines = 0
     total_changed_bytes = 0
     bundle_operations: list[dict[str, Any]] = []
 
@@ -1102,6 +1134,8 @@ def preview_repo_patch(
         combined_diff += op["diff"]
         changed_files.append(op["path"])
         total_changed_lines += op["changed_lines"]
+        total_logical_changed_lines += op["logical_changed_lines"]
+        total_newline_only_changed_lines += op["newline_only_changed_lines"]
         total_changed_bytes += op["changed_bytes"]
         bundle_operations.append(
             {
@@ -1110,6 +1144,8 @@ def preview_repo_patch(
                 "current_sha256": op["current_sha256"],
                 "payload_text": op["new_content"],
                 "changed_lines": op["changed_lines"],
+                "logical_changed_lines": op["logical_changed_lines"],
+                "newline_only_changed_lines": op["newline_only_changed_lines"],
                 "changed_bytes": op["changed_bytes"],
             }
         )
@@ -1131,6 +1167,8 @@ def preview_repo_patch(
         "diff": combined_diff,
         "changed_files": changed_files,
         "changed_lines": total_changed_lines,
+        "logical_changed_lines": total_logical_changed_lines,
+        "newline_only_changed_lines": total_newline_only_changed_lines,
         "changed_bytes": total_changed_bytes,
         "git_head": head,
         "validation_errors": errors,
