@@ -15,6 +15,7 @@ from codexbridge.ssh_policy import (
     authorize_ssh_action_launch,
     authorize_ssh_launch,
     authorize_ssh_reviewed_script_launch,
+    authorize_ssh_root_shell_launch,
     classify_ssh_permission_tier,
     evaluate_ssh_action_policy,
     evaluate_ssh_policy,
@@ -325,6 +326,38 @@ def test_reviewed_script_authorization_is_model_driven_even_when_high_risk() -> 
             high_risk=True,
             model_approval_granted=True,
         )
+
+
+def test_root_shell_authorization_is_permissive_without_approval_gates() -> None:
+    root = authorize_ssh_root_shell_launch(
+        autonomy_profile="permissive",
+        execution_mode="root_shell",
+    )
+
+    assert root.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
+    assert root.decision == PolicyDecisionValue.ALLOWED
+    assert root.authorized is True
+    assert root.approval_required is False
+    assert root.human_required is False
+    assert root.approval_source == "none"
+
+    for profile in ("balanced", "conservative"):
+        with pytest.raises(ValueError, match="requires autonomy_profile='permissive'"):
+            authorize_ssh_root_shell_launch(
+                autonomy_profile=profile,
+                execution_mode="root_shell",
+            )
+
+    for evidence in (
+        {"model_approval_granted": True},
+        {"human_approval_granted": True},
+    ):
+        with pytest.raises(ValueError, match="does not accept approval evidence"):
+            authorize_ssh_root_shell_launch(
+                autonomy_profile="permissive",
+                execution_mode="root_shell",
+                **evidence,
+            )
 
 
 def test_launch_authorization_rejects_denied_and_unimplemented_modes() -> None:

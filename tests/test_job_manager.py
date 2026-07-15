@@ -533,6 +533,68 @@ def test_reviewed_script_high_risk_classification_uses_model_approval(
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 
+def test_root_shell_launch_persists_exact_request_and_redacts_public_views(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "id -u\nprintf '%s\\n' ROOT_SHELL_MARKER\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_root_shell(
+        "my_vps",
+        script,
+        digest,
+    )
+
+    assert response["accepted"] is True
+    assert response["risk_level"] == "high"
+    assert response["requires_human"] is False
+    assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert response["policy_decision"] == "allowed"
+    assert response["policy_authorized"] is True
+    assert response["approval_source"] == "none"
+    assert response["writes_remote"] is True
+    assert response["high_risk"] is True
+    assert "script" not in response
+
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["tool"] == "ssh_root_shell"
+    assert stored["input"]["script"] == script
+    assert stored["input"]["script_sha256"] == digest
+    assert stored["input"]["autonomy_profile"] == "permissive"
+    assert stored["input"]["execution_mode"] == "root_shell"
+    assert stored["input"]["approval_source"] == "none"
+
+    public = manager.get_status(response["run_id"])
+    assert public["input"]["script"] == "[REDACTED]"
+    artifact = json.loads(
+        (Path(stored["run_dir"]) / "input.json").read_text(encoding="utf-8")
+    )
+    assert artifact["script"] == "[REDACTED]"
+    assert "ROOT_SHELL_MARKER" not in json.dumps(artifact)
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
+def test_root_shell_rejects_nonpermissive_profile_without_run_or_lock(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "id -u\n"
+
+    with pytest.raises(ValueError, match="Invalid SSH root shell request"):
+        manager.start_ssh_root_shell(
+            "my_vps",
+            script,
+            sha256(script.encode("utf-8")).hexdigest(),
+            autonomy_profile="balanced",
+        )
+
+    assert manager.store.list_runs() == []
+    assert manager.locks.list_locks() == []
+
+
 def test_reviewed_script_denied_profile_creates_no_run_or_lock(
     tmp_path: Path,
     monkeypatch,

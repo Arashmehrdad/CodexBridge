@@ -26,6 +26,7 @@ from codexbridge.gateway_models import (
     SSHCommandAction,
     SSHExecutionPolicyGatewayRequest,
     SSHReviewedScriptAction,
+    SSHRootShellAction,
     MAX_REVIEWED_SSH_SCRIPT_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
@@ -458,6 +459,77 @@ def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
         "high_risk": False,
         "autonomy_profile": "balanced",
         "execution_mode": "reviewed_script",
+    }
+
+
+def test_root_shell_contract_is_hash_pinned_and_permissive_only() -> None:
+    script = "id -u\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    request = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "root_shell",
+            "host_id": "dev",
+            "script": script,
+            "script_sha256": digest,
+        }
+    )
+
+    assert isinstance(request, SSHRootShellAction)
+    assert request.autonomy_profile == "permissive"
+    assert request.execution_mode == "root_shell"
+    assert request.writes_remote is True
+    assert request.high_risk is True
+
+    with pytest.raises(ValidationError):
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                **request.model_dump(mode="python"),
+                "autonomy_profile": "balanced",
+            }
+        )
+    with pytest.raises(ValidationError, match="SHA-256"):
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                **request.model_dump(mode="python"),
+                "script_sha256": "0" * 64,
+            }
+        )
+    with pytest.raises(ValidationError):
+        TypeAdapter(SSHActionRequest).validate_python(
+            {
+                **request.model_dump(mode="python"),
+                "command": "whoami",
+            }
+        )
+
+
+def test_root_shell_gateway_forwards_only_the_dedicated_variant(monkeypatch) -> None:
+    script = "id -u\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def start(*args, **kwargs):
+        captured.update(args=args, kwargs=kwargs)
+        return {"accepted": True, "run_id": "root_run"}
+
+    monkeypatch.setattr(server, "start_ssh_root_shell_async", start)
+    request = TypeAdapter(SSHActionRequest).validate_python(
+        {
+            "action": "root_shell",
+            "host_id": "dev",
+            "script": script,
+            "script_sha256": digest,
+        }
+    )
+
+    result = server.ssh_action(request)
+
+    assert result["run_id"] == "root_run"
+    assert captured["args"] == ("dev", script, digest)
+    assert captured["kwargs"] == {
+        "timeout_seconds": 3600,
+        "autonomy_profile": "permissive",
+        "execution_mode": "root_shell",
     }
 
 

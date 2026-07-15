@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from base64 import b64encode
+from hashlib import sha256
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,9 +18,11 @@ from codexbridge.config import (
 )
 from codexbridge.ssh_commands import (
     build_ssh_argv,
+    build_ssh_payload_argv,
     list_ssh_capabilities,
     resolve_ssh_command_profile,
     run_ssh_command,
+    run_ssh_payload,
     ssh_host_health,
     validate_ssh_alias,
     validate_ssh_command_profile,
@@ -417,3 +421,244 @@ def test_capability_listing_exposes_metadata_not_remote_argv(tmp_path: Path) -> 
         "watchdog_eligible": False,
     }
     assert "argv" not in command
+
+
+@pytest.mark.parametrize(
+    ("interpreter", "remote_command"),
+    [
+        ("bash", "exec bash -s --"),
+        ("sh", "exec sh -s --"),
+        ("python3", "exec python3 -"),
+    ],
+)
+def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
+    tmp_path: Path,
+    monkeypatch,
+    interpreter: str,
+    remote_command: str,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "printf '%s\\n' PAYLOAD_MARKER\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(stdout="payload finished\n", stderr="", returncode=0)
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        interpreter,
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=False,
+    )
+
+    assert captured["argv"][-2:] == ["my-vps", remote_command]
+    assert captured["kwargs"]["input"] == payload
+    assert captured["kwargs"]["shell"] is False
+    assert "stdin" not in captured["kwargs"]
+    assert payload not in " ".join(captured["argv"])
+    assert result["argv"][-2:] == ["my-vps", "<reviewed script via stdin>"]
+    assert payload not in " ".join(result["argv"])
+    assert result["payload_sha256"] == digest
+    assert result["writes_remote"] is False
+    assert result["stdout"] == "payload finished\n"
+
+
+def test_payload_hash_mismatch_is_rejected_before_ssh_launch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        ssh_commands.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append("run"),
+    )
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        run_ssh_payload(
+            config,
+            "my_vps",
+            "bash",
+            "echo altered\n",
+            payload_sha256="0" * 64,
+            timeout_seconds=30,
+            writes_remote=True,
+        )
+
+    assert calls == []
+
+
+def test_payload_builder_rejects_nonfixed_remote_commands(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+
+    with pytest.raises(ValueError, match="fixed launch envelope"):
+        build_ssh_payload_argv(config, "my_vps", "bash -lc whoami")
+
+
+def test_forced_pty_payload_is_encoded_and_echo_redacted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    identity = tmp_path / "runpod_key"
+    identity.write_text("test-key\n", encoding="utf-8")
+    config = make_config(tmp_path)
+    config.ssh.hosts["my_vps"] = SSHHostConfig(
+        hostname="ssh.runpod.io",
+        user="pod-user-123",
+        identity_file=str(identity),
+    )
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "printf '%s\\n' FORCED_PTY_SECRET\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    encoded = b64encode(payload.encode("utf-8")).decode("ascii")
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout=f"{encoded}\r\n__CODEXBRIDGE_REMOTE_EXIT__=0\r\n",
+            stderr="",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=True,
+    )
+
+    assert captured["argv"][-1] == "pod-user-123@ssh.runpod.io"
+    stdin_text = captured["kwargs"]["input"]
+    assert stdin_text.startswith("stty -echo 2>/dev/null || exit 125\n")
+    assert payload not in stdin_text
+    assert encoded in stdin_text
+    assert payload not in result["stdout"]
+    assert encoded not in result["stdout"]
+    assert "[REDACTED]" in result["stdout"]
+    assert result["argv"][-1] == "<reviewed script via stdin>"
+
+
+def test_root_payload_verifies_effective_uid_and_strips_internal_marker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "printf '%s\\n' ROOT_PAYLOAD_OK\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout="root payload finished\n",
+            stderr="__CODEXBRIDGE_ROOT_EUID__=0\n",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=True,
+        root_required=True,
+    )
+
+    assert "id -u" in captured["argv"][-1]
+    assert captured["kwargs"]["input"] == payload
+    assert result["ok"] is True
+    assert result["root_identity_verified"] is True
+    assert "__CODEXBRIDGE_ROOT_EUID__" not in result["stderr"]
+    assert "__CODEXBRIDGE_ROOT_EUID__" not in result["error"]
+    assert result["argv"][-1] == "<root shell via stdin>"
+
+
+def test_root_payload_fails_when_effective_uid_marker_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "true\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    monkeypatch.setattr(
+        ssh_commands.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(
+            stdout="",
+            stderr="",
+            returncode=0,
+        ),
+    )
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=True,
+        root_required=True,
+    )
+
+    assert result["ok"] is False
+    assert result["root_identity_verified"] is False
+    assert result["error"] == "Remote root identity could not be verified"
+
+
+def test_root_payload_nonzero_exit_has_clean_error_after_marker_removal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "exit 7\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    monkeypatch.setattr(
+        ssh_commands.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(
+            stdout="",
+            stderr="__CODEXBRIDGE_ROOT_EUID__=0\n",
+            returncode=7,
+        ),
+    )
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=True,
+        root_required=True,
+    )
+
+    assert result["ok"] is False
+    assert result["root_identity_verified"] is True
+    assert result["error"] == "Remote command exited with code 7"
