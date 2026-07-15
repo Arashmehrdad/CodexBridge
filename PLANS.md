@@ -161,12 +161,14 @@ Depends on G0.
 
 Status: **in progress**.
 
-Checkpoint (2026-07-15):
+Checkpoint (2026-07-16):
 
-- Reviewed-script `arguments` now survive both server forwarding hops: `ssh_action` -> `start_ssh_reviewed_script_async` -> `JobManager.start_ssh_reviewed_script`.
-- Focused validation passed: `tests/test_tool_gateway_models.py` 24 passed; `codexbridge/server.py` passed `py_compile`; `git diff --check` passed.
-- Implementation commit: `2d66c6076ae37b1567cb3f68c63d93905bba6e93`.
-- Next G1 unit: add permissive forced-PTY coverage for reviewed-script arguments and `pwsh`, then validate the complete model -> server -> manager -> worker -> SSH command chain.
+- Reviewed-script `arguments` survive both server forwarding hops: `ssh_action` -> `start_ssh_reviewed_script_async` -> `JobManager.start_ssh_reviewed_script`.
+- Permissive `pwsh` arguments are covered through forced-PTY SSH command construction and the durable worker revalidation/execution path.
+- `ssh.active_autonomy_profiles` can make `permissive` the only active SSH execution profile; disabled profiles fail before durable run or lock creation, and capability output distinguishes active from compatibility-only profiles.
+- Implementation commits through `850907fde784707ead0d570acf150d8d70ab38d3`.
+- Focused validation passed: `tests/test_ssh_worker.py` 37 passed; `tests/test_tool_gateway_models.py` 25 passed; `tests/test_job_manager.py` 56 passed. Earlier adjacent checkpoints also passed `tests/test_ssh_commands.py`, `tests/test_ssh_tools.py`, `tests/test_config.py`, and `tests/test_service_reload.py` for the forced-PTY and profile-activation changes.
+- Next G1 unit: verify permissive root-shell protected full artifacts and bounded public summaries, then generate the route/config/test/document migration inventory required for C1 cleanup.
 
 Goal: close only the server and transport gaps required for the permissive migration. Do not spend roadmap capacity expanding the frozen profiles.
 
