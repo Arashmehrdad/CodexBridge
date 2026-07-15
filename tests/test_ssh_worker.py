@@ -149,9 +149,10 @@ def _block_all_ssh_executors(monkeypatch) -> list[str]:
     def unexpected(*args, **kwargs):
         del args, kwargs
         called.append("executor")
-        raise AssertionError("No SSH executor may run for reviewed-script scaffolding")
+        raise AssertionError("No SSH executor may run before request revalidation")
 
     for name in (
+        "run_ssh_payload",
         "run_ssh_command",
         "start_monitored_ssh_command",
         "run_ssh_action",
@@ -162,19 +163,61 @@ def _block_all_ssh_executors(monkeypatch) -> list[str]:
     return called
 
 
-def test_reviewed_script_worker_revalidates_then_fails_before_remote_execution(
+def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     monkeypatch, tmp_path: Path
 ) -> None:
     input_data = _canonical_reviewed_script_input()
     config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
     executor_calls = _block_all_ssh_executors(monkeypatch)
+    captured: dict = {}
 
-    assert JobWorker(config_path, run_id).execute() == 1
+    def execute_payload(config, host_id, interpreter, payload, **kwargs):
+        del config
+        captured.update(
+            host_id=host_id,
+            interpreter=interpreter,
+            payload=payload,
+            kwargs=kwargs,
+        )
+        return {
+            "ok": True,
+            "host_id": host_id,
+            "ssh_alias": "my-vps",
+            "interpreter": interpreter,
+            "payload_sha256": kwargs["payload_sha256"],
+            "writes_remote": kwargs["writes_remote"],
+            "remote_state_verified": False,
+            "root_identity_verified": False,
+            "argv": ["ssh.exe", "my-vps", "<reviewed script via stdin>"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 1.0,
+            "stdout": "reviewed payload finished\n",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        }
 
-    result = store.get_run(run_id)["result"]
-    assert result["safety_failure"] is True
-    assert "not implemented" in result["error"]
-    assert "not executed remotely" in result["error"]
+    monkeypatch.setattr("codexbridge.job_worker.run_ssh_payload", execute_payload)
+
+    assert JobWorker(config_path, run_id).execute() == 0
+
+    persisted = store.get_run(run_id)
+    result = persisted["result"]
+    assert persisted["status"] == "completed"
+    assert result["tool"] == "ssh_reviewed_script"
+    assert result["script_sha256"] == input_data["script_sha256"]
+    assert result["approval_source"] == "chatgpt"
+    assert result["safety_failure"] is False
+    assert result["command_result"]["stdout"] == "reviewed payload finished\n"
+    assert captured["host_id"] == "my_vps"
+    assert captured["interpreter"] == "bash"
+    assert captured["payload"] == input_data["script"]
+    assert captured["kwargs"] == {
+        "payload_sha256": input_data["script_sha256"],
+        "timeout_seconds": 3600,
+        "writes_remote": True,
+    }
     assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(result)
     assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(store.get_events(run_id))
     assert executor_calls == []
@@ -215,6 +258,178 @@ def test_reviewed_script_worker_rejects_tampered_metadata_before_executor(
     assert result["safety_failure"] is True
     assert message_category in result["error"]
     assert "REVIEWED_SCRIPT_MARKER" not in json.dumps(result)
+    assert executor_calls == []
+
+
+def _canonical_root_shell_input() -> dict:
+    script = "id -u\nprintf '%s\\n' ROOT_SHELL_MARKER\n"
+    return {
+        "action": "root_shell",
+        "host_id": "my_vps",
+        "script": script,
+        "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+        "timeout_seconds": 3600,
+        "writes_remote": True,
+        "high_risk": True,
+        "autonomy_profile": "permissive",
+        "execution_mode": "root_shell",
+        "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
+        "policy_decision": "allowed",
+        "policy_authorized": True,
+        "approval_source": "none",
+    }
+
+
+def _create_root_shell_run(
+    tmp_path: Path,
+    input_data: dict,
+) -> tuple[Path, RunStore, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_extended_ssh_config(config_path, repo, runs_dir)
+    run_id = "20260715T000000Z_ssh_root_shell_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:my_vps",
+        tool="ssh_root_shell",
+        run_dir=run_dir,
+        input_data=input_data,
+    )
+    return config_path, store, run_id
+
+
+def test_root_shell_worker_revalidates_executes_and_verifies_root_identity(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_data = _canonical_root_shell_input()
+    config_path, store, run_id = _create_root_shell_run(tmp_path, input_data)
+    executor_calls = _block_all_ssh_executors(monkeypatch)
+    captured: dict = {}
+
+    def execute_payload(config, host_id, interpreter, payload, **kwargs):
+        del config
+        captured.update(
+            host_id=host_id,
+            interpreter=interpreter,
+            payload=payload,
+            kwargs=kwargs,
+        )
+        return {
+            "ok": True,
+            "host_id": host_id,
+            "ssh_alias": "my-vps",
+            "interpreter": interpreter,
+            "payload_sha256": kwargs["payload_sha256"],
+            "writes_remote": True,
+            "remote_state_verified": False,
+            "root_identity_verified": True,
+            "argv": ["ssh.exe", "my-vps", "<root shell via stdin>"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 1.0,
+            "stdout": "root payload finished\n",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_worker.run_ssh_payload", execute_payload)
+
+    assert JobWorker(config_path, run_id).execute() == 0
+
+    persisted = store.get_run(run_id)
+    result = persisted["result"]
+    assert persisted["status"] == "completed"
+    assert result["tool"] == "ssh_root_shell"
+    assert result["root_identity_verified"] is True
+    assert result["approval_source"] == "none"
+    assert result["command_result"]["root_identity_verified"] is True
+    assert result["command_result"]["stdout"] == "root payload finished\n"
+    assert captured["host_id"] == "my_vps"
+    assert captured["interpreter"] == "bash"
+    assert captured["payload"] == input_data["script"]
+    assert captured["kwargs"] == {
+        "payload_sha256": input_data["script_sha256"],
+        "timeout_seconds": 3600,
+        "writes_remote": True,
+        "root_required": True,
+    }
+    assert "ROOT_SHELL_MARKER" not in json.dumps(result)
+    assert "ROOT_SHELL_MARKER" not in json.dumps(store.get_events(run_id))
+    assert executor_calls == []
+
+
+def test_root_shell_worker_fails_when_remote_identity_is_not_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_data = _canonical_root_shell_input()
+    config_path, store, run_id = _create_root_shell_run(tmp_path, input_data)
+    _block_all_ssh_executors(monkeypatch)
+
+    monkeypatch.setattr(
+        "codexbridge.job_worker.run_ssh_payload",
+        lambda config, host_id, interpreter, payload, **kwargs: {
+            "ok": False,
+            "host_id": host_id,
+            "ssh_alias": "my-vps",
+            "interpreter": interpreter,
+            "payload_sha256": kwargs["payload_sha256"],
+            "writes_remote": True,
+            "remote_state_verified": False,
+            "root_identity_verified": False,
+            "argv": ["ssh.exe", "my-vps", "<root shell via stdin>"],
+            "exit_code": 126,
+            "timed_out": False,
+            "duration_seconds": 1.0,
+            "stdout": "",
+            "stderr": "CodexBridge root shell requires effective UID 0\n",
+            "output_truncated": False,
+            "error": "CodexBridge root shell requires effective UID 0",
+        },
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 126
+
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "failed"
+    assert persisted["result"]["root_identity_verified"] is False
+    assert "effective UID 0" in persisted["result"]["error"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message_category"),
+    [
+        ("script", "echo altered\\n", "SHA-256"),
+        ("approval_source", "chatgpt", "does not accept approval evidence"),
+        ("unexpected_command", "whoami", "Unexpected persisted"),
+    ],
+)
+def test_root_shell_worker_rejects_tampered_metadata_before_executor(
+    monkeypatch,
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message_category: str,
+) -> None:
+    input_data = _canonical_root_shell_input()
+    input_data[field] = value
+    config_path, store, run_id = _create_root_shell_run(tmp_path, input_data)
+    executor_calls = _block_all_ssh_executors(monkeypatch)
+
+    assert JobWorker(config_path, run_id).execute() == 1
+
+    result = store.get_run(run_id)["result"]
+    assert result["safety_failure"] is True
+    assert message_category in result["error"]
+    assert "ROOT_SHELL_MARKER" not in json.dumps(result)
     assert executor_calls == []
 
 
