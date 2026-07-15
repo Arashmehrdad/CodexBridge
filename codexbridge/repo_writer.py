@@ -647,6 +647,59 @@ def _apply_unified_diff_operation(
     return "\n".join(lines) + ("\n" if content.endswith("\n") or lines else "")
 
 
+def _apply_unified_diff_preserving_newlines(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    diff_text = op.get("diff") or op.get("unified_diff")
+    if not isinstance(diff_text, str) or not diff_text.strip():
+        raise ValueError(f"op[{idx}]: unified diff text is required for '{path_str}'")
+
+    lines = content.splitlines(keepends=True)
+    offset = 0
+    for start_line, hunk_lines in _parse_unified_hunks(_normalize_newlines(diff_text)):
+        hunk_start = max(0, start_line - 1 + offset)
+        pointer = hunk_start
+        newline = _line_range_replacement_newline(
+            content,
+            lines,
+            hunk_start,
+            min(len(lines), hunk_start + max(1, len(hunk_lines))),
+        )
+        rebuilt: list[str] = []
+        for line in hunk_lines:
+            if not line:
+                marker = " "
+                text = ""
+            else:
+                marker = line[0]
+                text = line[1:]
+            if marker == " ":
+                if pointer >= len(lines) or lines[pointer].removesuffix(
+                    _line_ending(lines[pointer])
+                ) != text:
+                    raise ValueError(
+                        f"op[{idx}]: unified diff context mismatch in '{path_str}'"
+                    )
+                rebuilt.append(lines[pointer])
+                pointer += 1
+            elif marker == "-":
+                if pointer >= len(lines) or lines[pointer].removesuffix(
+                    _line_ending(lines[pointer])
+                ) != text:
+                    raise ValueError(
+                        f"op[{idx}]: unified diff removal mismatch in '{path_str}'"
+                    )
+                pointer += 1
+            elif marker == "+":
+                rebuilt.append(f"{text}{newline}")
+            else:
+                raise ValueError(f"op[{idx}]: unsupported diff line in '{path_str}'")
+        consumed = pointer - hunk_start
+        lines[hunk_start:pointer] = rebuilt
+        offset += len(rebuilt) - consumed
+    return "".join(lines)
+
+
 def _node_source_segment(text: str, node: Any) -> str:
     lines = text.splitlines(keepends=True)
     start = getattr(node, "lineno", 1) - 1
@@ -828,7 +881,13 @@ def _validate_operations(
             "",
         }
         line_range_operation = operation_type in {"replace_lines", "line_range"}
-        byte_preserving_operation = exact_text_operation or line_range_operation
+        unified_diff_operation = operation_type in {
+            "unified_diff",
+            "apply_unified_diff",
+        }
+        byte_preserving_operation = (
+            exact_text_operation or line_range_operation or unified_diff_operation
+        )
         preserve_newlines_value = op.get("preserve_newlines")
         preserve_newlines = (
             byte_preserving_operation
@@ -856,10 +915,16 @@ def _validate_operations(
                             state["working_content_preserved"], op, path_str, idx
                         )
                     )
+                elif unified_diff_operation:
+                    state["working_content_preserved"] = (
+                        _apply_unified_diff_preserving_newlines(
+                            state["working_content_preserved"], op, path_str, idx
+                        )
+                    )
                 else:
                     raise ValueError(
                         f"op[{idx}]: preserve_newlines is supported only for "
-                        f"exact_text and line_range edits in '{path_str}'"
+                        f"exact_text, line_range, and unified_diff edits in '{path_str}'"
                     )
             else:
                 state["working_content"] = _apply_operation_to_content(

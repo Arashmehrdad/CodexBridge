@@ -342,6 +342,52 @@ def test_line_range_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> 
     assert target.read_bytes() == b"alpha\r\nnew\nomega\r\n"
 
 
+def test_unified_diff_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "mixed_diff.py"
+    original = b"alpha\r\nold\nomega\r\n"
+    target.write_bytes(original)
+    sha = sha256_file(target)
+    operation = {
+        "type": "unified_diff",
+        "path": "mixed_diff.py",
+        "expected_sha256": sha,
+        "diff": "@@ -2,1 +2,1 @@\n-old\n+new\n",
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+
+    assert preview["ok"] is True
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == b"alpha\r\nnew\nomega\r\n"
+
+
+def test_unified_diff_can_explicitly_use_legacy_newline_normalization(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "normalized_diff.py"
+    target.write_bytes(b"alpha\r\nold\nomega\r\n")
+    sha = sha256_file(target)
+    operation = {
+        "type": "unified_diff",
+        "path": "normalized_diff.py",
+        "expected_sha256": sha,
+        "diff": "@@ -2,1 +2,1 @@\n-old\n+new\n",
+        "preserve_newlines": False,
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+
+    assert preview["ok"] is True
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == b"alpha\r\nnew\r\nomega\r\n"
+
+
 def test_line_range_can_explicitly_use_legacy_newline_normalization(
     tmp_path: Path,
 ) -> None:
