@@ -756,6 +756,55 @@ def _apply_python_ast_operation(
     return content + ("" if content.endswith("\n") or not content else "\n") + insertion
 
 
+def _apply_python_ast_preserving_newlines(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    import ast
+
+    target_type = str(op.get("target_type", "")).strip()
+    target_name = str(op.get("target_name", "")).strip()
+    new_text = op.get("new_text")
+    insert_if_missing = bool(op.get("insert_if_missing"))
+    if target_type not in {"function", "class", "import"}:
+        raise ValueError(
+            f"op[{idx}]: unsupported python_ast target_type for '{path_str}'"
+        )
+    if not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+
+    tree = ast.parse(content or "\n")
+    lines = content.splitlines(keepends=True)
+    for node in tree.body:
+        matches_target = (
+            target_type == "function"
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == target_name
+        ) or (
+            target_type == "class"
+            and isinstance(node, ast.ClassDef)
+            and node.name == target_name
+        )
+        if target_type == "import" and isinstance(node, (ast.Import, ast.ImportFrom)):
+            segment = _normalize_newlines(_node_source_segment(content, node)).strip()
+            matches_target = segment == target_name
+        if matches_target:
+            start = node.lineno - 1
+            end = node.end_lineno
+            newline = _line_range_replacement_newline(content, lines, start, end)
+            replacement = _restore_newlines(new_text, newline)
+            return "".join(lines[:start] + [replacement] + lines[end:])
+
+    if not insert_if_missing:
+        raise ValueError(f"op[{idx}]: python_ast target not found in '{path_str}'")
+    newline = _dominant_newline(content)
+    replacement = _restore_newlines(new_text, newline)
+    insertion = replacement if replacement.endswith(newline) else f"{replacement}{newline}"
+    if target_type == "import":
+        return f"{insertion}{content}"
+    separator = "" if not content or content.endswith(("\n", "\r")) else newline
+    return f"{content}{separator}{insertion}"
+
+
 def _apply_operation_to_content(
     content: str, op: dict[str, Any], path_str: str, idx: int
 ) -> str:
@@ -885,8 +934,12 @@ def _validate_operations(
             "unified_diff",
             "apply_unified_diff",
         }
+        python_ast_operation = operation_type in {"python_ast", "ast_python"}
         byte_preserving_operation = (
-            exact_text_operation or line_range_operation or unified_diff_operation
+            exact_text_operation
+            or line_range_operation
+            or unified_diff_operation
+            or python_ast_operation
         )
         preserve_newlines_value = op.get("preserve_newlines")
         preserve_newlines = (
@@ -921,10 +974,17 @@ def _validate_operations(
                             state["working_content_preserved"], op, path_str, idx
                         )
                     )
+                elif python_ast_operation:
+                    state["working_content_preserved"] = (
+                        _apply_python_ast_preserving_newlines(
+                            state["working_content_preserved"], op, path_str, idx
+                        )
+                    )
                 else:
                     raise ValueError(
                         f"op[{idx}]: preserve_newlines is supported only for "
-                        f"exact_text, line_range, and unified_diff edits in '{path_str}'"
+                        f"exact_text, line_range, unified_diff, and python_ast edits "
+                        f"in '{path_str}'"
                     )
             else:
                 state["working_content"] = _apply_operation_to_content(

@@ -1769,6 +1769,59 @@ def test_preview_supports_python_ast_top_level_replacement(tmp_path: Path) -> No
     ) == "def old():\n    return 2\n"
 
 
+def test_python_ast_preserves_mixed_newlines_by_default(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    path = repo / "ast_mixed.py"
+    path.write_bytes(
+        b"import os\r\n\r\ndef old():\n    return 1\n\r\ndef keep():\r\n    return 3\r\n"
+    )
+    sha = sha256_file(path)
+    operation = {
+        "path": "ast_mixed.py",
+        "expected_sha256": sha,
+        "type": "python_ast",
+        "target_type": "function",
+        "target_name": "old",
+        "new_text": "def old():\n    return 2\n",
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+    assert preview["ok"] is True
+    result = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert path.read_bytes() == (
+        b"import os\r\n\r\ndef old():\n    return 2\n\r\ndef keep():\r\n    return 3\r\n"
+    )
+
+
+def test_python_ast_allows_explicit_legacy_newline_normalization(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    path = repo / "ast_normalized.py"
+    path.write_bytes(b"def old():\r\n    return 1\r\n")
+    sha = sha256_file(path)
+    operation = {
+        "path": "ast_normalized.py",
+        "expected_sha256": sha,
+        "type": "python_ast",
+        "target_type": "function",
+        "target_name": "old",
+        "new_text": "def old():\n    return 2\n",
+        "preserve_newlines": False,
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+    assert preview["ok"] is True
+    result = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
+
+    assert result["ok"] is True
+    assert path.read_bytes() == b"def old():\n    return 2\n"
+
+
 # ---------------------------------------------------------------------------
 # No CodexRunner or local model invocation
 # ---------------------------------------------------------------------------
