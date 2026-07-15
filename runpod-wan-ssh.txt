@@ -1,1 +1,1 @@
-ssh root@69.30.85.213 -p 22150 -i C:/Users/arash/.ssh/id_ed25519
+ssh root@69.30.85.213 -p 22149 -i C:/Users/arash/.ssh/id_ed25519
