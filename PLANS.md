@@ -28,10 +28,11 @@ The immediate program is no longer feature expansion through increasingly narrow
 3. add a generic operator-enabled unrestricted executable substrate;
 4. make unrestricted local PowerShell the primary engineering execution gateway;
 5. add durable fire-and-return parallel command groups that launch multiple independent commands concurrently;
-6. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
-7. migrate callers and remove redundant restricted execution tools after parity is proven;
-8. complete transfer, durable remote ownership, resource, environment, and acceptance work;
-9. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
+6. add unrestricted SSH as a direct executable and transport capability, including arbitrary client options, tunnels, transfers, and remote command text;
+7. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
+8. migrate callers and remove redundant restricted execution tools after parity is proven;
+9. complete transfer, durable remote ownership, resource, environment, and acceptance work;
+10. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
 
 ## Governing Engineering Principles
 
@@ -348,6 +349,37 @@ Acceptance:
 - `max_parallel: null` demonstrates concurrent launch constrained only by the operating system;
 - caller-selected lock-free execution can run multiple commands against the same working tree, with the accepted race risk recorded in durable metadata;
 - group status and final summary accurately report every child outcome and artifact reference.
+
+## X2B - Unrestricted SSH Gateway
+
+Depends on X1 and may be implemented alongside or after X2. Remote durability acceptance additionally depends on R3 and R4.
+
+Goal: expose SSH as an unrestricted direct executable and transport substrate rather than limiting it to predefined aliases, wrappers, administration actions, or command profiles.
+
+Required capability:
+
+- launch the configured absolute `ssh.exe` directly with `shell=False` and arbitrary argv;
+- arbitrary destinations, users, ports, identities, certificates, agents, jump hosts, proxy commands, configuration files, host-key policies, environment requests, escape settings, and connection options supported by the installed SSH client;
+- arbitrary remote command text and quoting, including shells, PowerShell, scripts, pipelines, redirection, native executables, and detached controllers;
+- interactive and forced-PTY modes, stdin streaming, terminal resize where supported, and non-interactive execution;
+- local, remote, dynamic, and Unix-socket forwarding; multiplexing and control sockets where supported by the platform;
+- unrestricted `scp` and `sftp` companion profiles or equivalent binary-safe transfer paths with arbitrary service-account-accessible local and remote paths;
+- configurable timeout or no timeout, keepalives, exact local process-tree cancellation, and durable output/artifact capture;
+- protected identity material and known-host references without forcing secrets or key material into public events;
+- no destination, option, remote-command, executable, shell, path, tunnel, or transfer allowlist after the permissive SSH profile is enabled.
+
+The direct SSH executable profile and the higher-level CodexBridge remote controller serve different purposes. The direct profile provides complete native SSH client behavior. The remote controller adds durable remote ownership, restart adoption, authoritative remote state, and exact remote process-group cancellation. Neither should silently narrow the command language accepted by the other.
+
+Acceptance:
+
+- quoting-sensitive arbitrary argv reaches the configured SSH executable unchanged;
+- arbitrary remote command text reaches a disposable host unchanged;
+- interactive forced-PTY and non-PTY commands both work;
+- local, remote, and dynamic forwarding pass loopback tests;
+- upload and download paths round-trip binary content without corruption;
+- long-running remote work is handed to the durable remote controller and survives CodexBridge restart without duplicate launch;
+- cancellation targets the verified local SSH process tree and, for controller-owned work, the exact verified remote process group;
+- no per-command approval is requested after the permissive SSH profile is enabled.
 
 ## X3 - Unrestricted Local OpenSSL Gateway
 
@@ -694,6 +726,14 @@ For documentation-only batches:
 - lock-free same-repository execution is available when explicitly selected and its race risk is recorded;
 - aggregate status and final results preserve mixed child outcomes without obscuring individual evidence.
 
+### Unrestricted SSH gate
+
+- an explicitly enabled permissive profile exposes the configured SSH client with arbitrary argv, destinations, identities, options, tunnels, transfers, PTY modes, and remote command text without filtering;
+- the configured absolute SSH executable is launched directly with `shell=False`;
+- direct SSH preserves exact client behavior while durable controller-owned remote work survives bridge restart and supports exact remote process-group cancellation;
+- binary transfers, forwarding, protected identity references, complete artifacts, and bounded public summaries remain correct;
+- no per-command approval is requested after enablement.
+
 ### Unrestricted OpenSSL gate
 
 - an explicitly enabled permissive profile exposes all OpenSSL-native commands and options without filtering;
@@ -711,7 +751,7 @@ For documentation-only batches:
 
 ### Remote execution gate
 
-- registered permissive hosts support unrestricted root shell, PowerShell, and OpenSSL;
+- registered permissive hosts support unrestricted SSH transport, root shell, PowerShell, and OpenSSL;
 - long execution survives bridge restart;
 - remote jobs are adopted from fresh authoritative state;
 - exact process groups and descendants can be cancelled;
