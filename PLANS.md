@@ -399,12 +399,152 @@ Observed non-blocking CLI noise:
 
 - The live plan logged a Vercel MCP authorization warning and PowerShell profile language-mode warnings, but continued successfully and returned the correct plan. These are external session noise, not prompt-transport failures.
 
-## Next Feature Batch
+## Accepted Remote-Execution Expansion Baseline
+
+This section is the governing implementation sequence for the remaining remote-execution work. It supersedes older generic sequencing where it is more specific. D5 is a completed prerequisite and must not be reopened unless a confirmed regression invalidates its exit evidence.
+
+Native SSH health, inspection, bounded command, administration, transfer, deployment, and monitored-command endpoints already exist. The remaining work concerns global policy alignment, execution-mode completeness, transfer scope, durable remote ownership, resource enforcement, secret-safe environment delivery, and generic acceptance evidence.
+
+### Canonical profile mapping
+
+- `conservative` maps to the public `readonly` profile: structured inspection and fixed safe commands only.
+- `balanced` maps to the public `chatgpt_delegated` profile: structured execution plus reviewed scripts.
+- `permissive` maps to the public `permissive` profile: structured execution, reviewed scripts, and unrestricted remote root shell.
+- `human_only` remains an internal policy state and is not a user-selectable remote execution profile.
+
+Permissive remote root shell must support `bash -lc`, pipelines, redirects, heredocs, `sudo`, `rm -rf`, command substitution, compound commands, and arbitrary remote paths, but only on a registered permissive remote host. This remote capability must not weaken unrelated local protections for destructive deletion, production deployment, financial actions, public release, or pushes to protected branches.
 
 ### R1 - Global remote policy and request contract
 
-- Connect SSH execution modes to the canonical autonomy profiles.
-- Preserve structured execution for every profile, reviewed scripts for delegated/permissive use, and unrestricted root shell only for permissive use.
-- Keep all transport, execution, transfer, monitoring, cancellation, and reconciliation logic repository-independent.
+Status: **implemented and validated**.
 
-Wan2.2 paid-pod work remains blocked until the complete generic SSH acceptance gate passes. UI expansion remains deferred behind execution correctness.
+Delivered guarantees:
+
+- SSH execution requests carry a canonical autonomy profile and explicit execution mode.
+- Structured execution is available to every public profile, reviewed scripts are restricted to delegated/permissive use, and root shell is restricted to permissive use.
+- Durable SSH runs persist the canonical profile, execution mode, permission tier, policy decision, authorization result, and approval source, then revalidate that metadata in the worker before execution.
+- Reviewed-script and permissive root-shell requests have dedicated request and authorization contracts.
+- SSH capability output reports the implemented reviewed-script and root-shell gateways without advertising arbitrary shell support through the structured command path.
+- The SSH policy contract does not weaken unrelated local human-only boundaries.
+
+Validation and closure evidence:
+
+- Focused SSH policy, request-model, job-manager, worker, capability, server-delegation, and action-discovery suites passed during R1 implementation.
+- Final capability-reporting checkpoint: `8af1331`.
+- Final integration-fixture checkpoint: `70661ee`.
+- The stale `PLANS.md` marker that previously listed R1 as the next feature batch is closed by this baseline update.
+
+Boundaries not claimed by R1:
+
+- R1 establishes request and policy contracts; complete transport behavior, script staging, unrestricted shell launch, transfer policy expansion, restart-adoptable remote ownership, absolute resource limits, and secure environment references remain R2-R6 work.
+
+## Remaining Remote-Execution Batches
+
+### R2 - Global execution gateway paths
+
+Status: **next incomplete batch**.
+
+Implement three repository-independent launch paths:
+
+- `structured`: build argv from configured profiles and execute without a local or remote shell (`shell=False`).
+- `reviewed_script`: support reviewed Python, Bash, and PowerShell scripts with content hashes, managed staging, explicit interpreter and arguments, bounded execution, and structured results.
+- `root_shell`: accept arbitrary shell text only for a registered permissive host and launch it through the dedicated remote shell gateway. Preserve the protected full artifact and expose only a redacted public summary.
+
+Acceptance:
+
+- Conservative/readonly rejects reviewed scripts and root shell.
+- Balanced/chatgpt-delegated accepts structured commands and reviewed scripts.
+- Permissive accepts structured commands, reviewed scripts, and unrestricted remote root shell.
+- Structured execution never silently falls back to shell interpretation.
+
+### R3 - Transfer policy and managed staging
+
+Add explicit transfer policies:
+
+- `repo_only`: local paths remain inside the registered repository and remote paths remain inside configured roots.
+- `configured_roots`: transfers may use explicitly configured local and remote roots.
+- `unrestricted`: arbitrary configured-host paths are available only to the permissive profile.
+
+Reviewed scripts and controller payloads must use managed staging with deterministic paths, hashes, cleanup rules, and audit metadata. Conservative and balanced transfers remain bounded; permissive transfers may use unrestricted remote paths only on a registered permissive host.
+
+### R4 - Durable remote job protocol
+
+Replace local-worker-attached monitoring with a restart-adoptable remote controller protocol.
+
+Remote controller state must include:
+
+- request and execution identity
+- authoritative state and heartbeat
+- stdout and stderr locations
+- result and cancellation state
+- PID, process group ID, and process-start identity
+
+Local durable state must include:
+
+- host ID, remote job ID, remote PID/PGID, and process identity
+- remote state directory and controller fingerprint
+- lease generation, heartbeat, authoritative remote state, and cancellation state
+
+Required behavior:
+
+- Launch returns only after durable remote ownership is established.
+- Remote execution survives CodexBridge service restart and local worker loss.
+- Startup reconciliation adopts a matching live remote job by fresh SSH inspection.
+- Cancellation targets the exact verified remote process group.
+- Duplicate-launch reconciliation is idempotent.
+- Network uncertainty remains conservative: do not relaunch, overwrite terminal state, or claim cancellation without fresh remote evidence.
+- The remote controller is authoritative for execution state; the local `RunStore` remains the bridge lifecycle and publication record.
+
+### R5 - Absolute resource enforcement
+
+Make absolute cgroup thresholds primary:
+
+- hard threshold: `48_000_000_000` bytes
+- graceful threshold: `45_000_000_000` bytes
+- conservative threshold: `40_000_000_000` bytes
+
+Read cgroup v2 files before percentage-based host memory signals. Percentage thresholds remain secondary diagnostics. Retain GPU temperature and memory checks, disk checks, heartbeat checks, CUDA out-of-memory detection, graceful termination, and verified process-group kill escalation.
+
+### R6 - Secure environment references
+
+Add secret-safe environment delivery without persisting secret values in requests, events, results, or public artifacts.
+
+- Persist environment reference identifiers, not values.
+- Resolve references only at launch time.
+- Deliver values through a temporary environment file or inherited environment as appropriate.
+- Delete temporary material after launch or terminal cleanup.
+- Redact secret-derived output and diagnostics.
+- Missing or unauthorized references fail before remote execution begins.
+
+### R7 - Generic disposable-host acceptance gate
+
+Build a provider-neutral disposable-host acceptance suite and then run the same contract against RunPod.
+
+The suite must prove:
+
+- native endpoint access
+- profile/mode enforcement
+- configured and permissive transfer behavior
+- unrestricted permissive root shell
+- execution longer than one hour
+- service restart survival and remote reattachment
+- absolute cgroup enforcement
+- exact verified process-tree cancellation
+- durable result/report publication and cleanup
+
+Wan-specific paid-pod work remains blocked until every mandatory generic acceptance check passes. Core implementation and tests must not contain Wan-specific behavior.
+
+## Final Remote-Execution Exit Gate
+
+The remote-execution expansion is complete only when a registered permissive remote host can:
+
+- execute through the native SSH endpoint
+- transfer through the configured policy, including arbitrary paths where permissive policy allows them
+- run unrestricted root shell without weakening local human-only protections
+- run for more than one hour
+- survive CodexBridge restart and reattach through fresh authoritative remote state
+- enforce the absolute resource thresholds
+- cancel the exact verified remote process group and descendants
+- publish complete durable evidence through the normal return loop
+
+UI expansion remains deferred behind execution correctness.
