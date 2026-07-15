@@ -1320,24 +1320,23 @@ class JobWorker:
                 **policy_metadata,
             },
         )
-        command_result = dict(
-            redact_and_truncate(
-                run_ssh_payload(
-                    self.config,
-                    request.host_id,
-                    "bash",
-                    request.script,
-                    payload_sha256=request.script_sha256,
-                    timeout_seconds=request.timeout_seconds,
-                    writes_remote=True,
-                    root_required=True,
-                )
-            )
+        full_command_result = run_ssh_payload(
+            self.config,
+            request.host_id,
+            "bash",
+            request.script,
+            payload_sha256=request.script_sha256,
+            timeout_seconds=request.timeout_seconds,
+            writes_remote=True,
+            root_required=True,
         )
+        full_stdout = str(full_command_result.get("stdout", ""))
+        full_stderr = str(full_command_result.get("stderr", ""))
+        self.artifacts.write_protected_text("stdout.txt", full_stdout)
+        self.artifacts.write_protected_text("stderr.txt", full_stderr)
+        command_result = dict(redact_and_truncate(full_command_result))
         stdout = str(command_result.get("stdout", ""))
         stderr = str(command_result.get("stderr", ""))
-        self.artifacts.write_text("stdout.txt", stdout)
-        self.artifacts.write_text("stderr.txt", stderr)
         timed_out = bool(command_result.get("timed_out"))
         status = (
             "timed_out"

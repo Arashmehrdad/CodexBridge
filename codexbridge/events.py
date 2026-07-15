@@ -56,5 +56,9 @@ class ArtifactWriter:
     def write_text(self, name: str, text: str) -> None:
         (self.run_dir / name).write_text(redact_and_truncate(text), encoding="utf-8")
 
+    def write_protected_text(self, name: str, text: str) -> None:
+        """Persist complete run evidence for filesystem-protected artifacts."""
+        (self.run_dir / name).write_text(text, encoding="utf-8")
+
     def append_event(self, event: dict[str, Any]) -> None:
         append_jsonl(self.run_dir / "events.jsonl", event)

@@ -391,8 +391,8 @@ def test_root_shell_worker_revalidates_executes_and_verifies_root_identity(
             "exit_code": 0,
             "timed_out": False,
             "duration_seconds": 1.0,
-            "stdout": "root payload finished\n",
-            "stderr": "",
+            "stdout": "root payload finished\n" + ("x" * 25000),
+            "stderr": "full stderr evidence\n" + ("y" * 25000),
             "output_truncated": False,
             "error": "",
         }
@@ -408,7 +408,16 @@ def test_root_shell_worker_revalidates_executes_and_verifies_root_identity(
     assert result["root_identity_verified"] is True
     assert result["approval_source"] == "none"
     assert result["command_result"]["root_identity_verified"] is True
-    assert result["command_result"]["stdout"] == "root payload finished\n"
+    assert result["command_result"]["stdout"].startswith("root payload finished\n")
+    assert "[truncated 5022 characters]" in result["command_result"]["stdout"]
+    assert "[truncated 5021 characters]" in result["command_result"]["stderr"]
+    run_dir = Path(persisted["run_dir"])
+    assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == (
+        "root payload finished\n" + ("x" * 25000)
+    )
+    assert (run_dir / "stderr.txt").read_text(encoding="utf-8") == (
+        "full stderr evidence\n" + ("y" * 25000)
+    )
     assert captured["host_id"] == "my_vps"
     assert captured["interpreter"] == "bash"
     assert captured["payload"] == input_data["script"]
