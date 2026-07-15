@@ -768,7 +768,18 @@ def _validate_operations(
         operation_type = str(
             op.get("type") or op.get("operation") or "exact_text"
         )
-        preserve_newlines = bool(op.get("preserve_newlines", False))
+        exact_text_operation = operation_type in {
+            "exact_text",
+            "replace_exact",
+            "modify",
+            "",
+        }
+        preserve_newlines_value = op.get("preserve_newlines")
+        preserve_newlines = (
+            exact_text_operation
+            if preserve_newlines_value is None
+            else bool(preserve_newlines_value)
+        )
         requested_newline_mode = "preserved" if preserve_newlines else "normalized"
         try:
             existing_newline_mode = state["newline_mode"]

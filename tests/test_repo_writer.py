@@ -306,7 +306,6 @@ def test_preview_and_apply_preserve_mixed_newline_bytes(tmp_path: Path) -> None:
             "expected_sha256": sha,
             "old_text": "def target():\n    return 1\n",
             "new_text": "def target():\n    return 2\n",
-            "preserve_newlines": True,
         }
     ]
 
@@ -343,6 +342,7 @@ def test_preview_rejects_mixed_newline_edit_modes(tmp_path: Path) -> None:
                 "expected_sha256": sha,
                 "old_text": "beta",
                 "new_text": "BETA",
+                "preserve_newlines": False,
             },
         ],
         runs,
