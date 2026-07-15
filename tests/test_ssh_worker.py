@@ -172,6 +172,8 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
         interpreter="pwsh",
         arguments=["safe value", "--mode=test"],
         autonomy_profile="permissive",
+        policy_decision="allowed",
+        approval_source="none",
     )
     config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
     executor_calls = _block_all_ssh_executors(monkeypatch)
@@ -213,7 +215,7 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     assert persisted["status"] == "completed"
     assert result["tool"] == "ssh_reviewed_script"
     assert result["script_sha256"] == input_data["script_sha256"]
-    assert result["approval_source"] == "chatgpt"
+    assert result["approval_source"] == "none"
     assert result["safety_failure"] is False
     assert result["command_result"]["stdout"] == "reviewed payload finished\n"
     assert captured["host_id"] == "my_vps"
