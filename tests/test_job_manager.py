@@ -493,11 +493,13 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
         "bash",
         script,
         digest,
+        arguments=["--mode", "safe value"],
         autonomy_profile="balanced",
     )
 
     assert response["accepted"] is True
     assert response["script_sha256"] == digest
+    assert response["arguments"] == ["--mode", "safe value"]
     assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
     assert response["policy_decision"] == "needs_chatgpt_approval"
     assert response["policy_authorized"] is True
@@ -508,6 +510,7 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     assert stored["tool"] == "ssh_reviewed_script"
     assert stored["input"]["script"] == script
     assert stored["input"]["interpreter"] == "bash"
+    assert stored["input"]["arguments"] == ["--mode", "safe value"]
     assert stored["input"]["script_sha256"] == digest
     assert stored["input"]["autonomy_profile"] == "balanced"
     assert stored["input"]["execution_mode"] == "reviewed_script"

@@ -105,6 +105,7 @@ def _canonical_reviewed_script_input() -> dict:
         "action": "reviewed_script",
         "host_id": "my_vps",
         "interpreter": "bash",
+        "arguments": [],
         "script": script,
         "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
         "timeout_seconds": 3600,
@@ -215,6 +216,7 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     assert captured["payload"] == input_data["script"]
     assert captured["kwargs"] == {
         "payload_sha256": input_data["script_sha256"],
+        "arguments": [],
         "timeout_seconds": 3600,
         "writes_remote": True,
     }
