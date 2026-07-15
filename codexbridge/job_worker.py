@@ -82,7 +82,11 @@ from .ssh_commands import (
     resolve_ssh_host,
     run_ssh_command,
 )
-from .ssh_policy import IMPLEMENTED_SSH_EXECUTION_MODES, authorize_ssh_action_launch
+from .ssh_policy import (
+    IMPLEMENTED_SSH_EXECUTION_MODES,
+    authorize_ssh_action_launch,
+    authorize_ssh_reviewed_script_launch,
+)
 from .ssh_watchdog import (
     start_monitored_ssh_command,
     validate_monitored_command_start,
@@ -130,14 +134,7 @@ def _ssh_policy_metadata(policy) -> dict[str, object]:
     }
 
 
-def _authorize_persisted_ssh_policy(
-    input_data: dict,
-    *,
-    writes_remote: bool,
-    monitored: bool = False,
-    high_risk: bool = False,
-    implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
-) -> dict[str, object]:
+def _persisted_ssh_approval_source(input_data: dict) -> str:
     missing = sorted(
         field for field in _SSH_POLICY_METADATA_FIELDS if field not in input_data
     )
@@ -149,17 +146,13 @@ def _authorize_persisted_ssh_policy(
     approval_source = str(input_data["approval_source"])
     if approval_source not in {"none", "chatgpt", "human"}:
         raise ValueError(f"Invalid persisted SSH approval_source: {approval_source!r}")
+    return approval_source
 
-    policy = authorize_ssh_action_launch(
-        autonomy_profile=str(input_data["autonomy_profile"]),
-        execution_mode=str(input_data["execution_mode"]),
-        writes_remote=writes_remote,
-        monitored=monitored,
-        high_risk=high_risk,
-        chatgpt_approval_granted=approval_source == "chatgpt",
-        human_approval_granted=approval_source == "human",
-        implemented_modes=implemented_modes,
-    )
+
+def _validate_persisted_ssh_policy_metadata(
+    input_data: dict,
+    policy,
+) -> dict[str, object]:
     metadata = _ssh_policy_metadata(policy)
     persisted = {
         field: input_data.get(field) for field in _SSH_POLICY_METADATA_FIELDS
@@ -170,6 +163,43 @@ def _authorize_persisted_ssh_policy(
             "Persisted SSH policy metadata does not match canonical worker revalidation"
         )
     return metadata
+
+
+def _authorize_persisted_ssh_policy(
+    input_data: dict,
+    *,
+    writes_remote: bool,
+    monitored: bool = False,
+    high_risk: bool = False,
+    implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
+) -> dict[str, object]:
+    approval_source = _persisted_ssh_approval_source(input_data)
+    policy = authorize_ssh_action_launch(
+        autonomy_profile=str(input_data["autonomy_profile"]),
+        execution_mode=str(input_data["execution_mode"]),
+        writes_remote=writes_remote,
+        monitored=monitored,
+        high_risk=high_risk,
+        chatgpt_approval_granted=approval_source == "chatgpt",
+        human_approval_granted=approval_source == "human",
+        implemented_modes=implemented_modes,
+    )
+    return _validate_persisted_ssh_policy_metadata(input_data, policy)
+
+
+def _authorize_persisted_ssh_reviewed_script_policy(
+    input_data: dict,
+    request: SSHReviewedScriptAction,
+) -> dict[str, object]:
+    approval_source = _persisted_ssh_approval_source(input_data)
+    policy = authorize_ssh_reviewed_script_launch(
+        autonomy_profile=request.autonomy_profile,
+        execution_mode=request.execution_mode,
+        writes_remote=request.writes_remote,
+        high_risk=request.high_risk,
+        model_approval_granted=approval_source == "chatgpt",
+    )
+    return _validate_persisted_ssh_policy_metadata(input_data, policy)
 
 
 _REVIEWED_SCRIPT_REQUEST_FIELDS = frozenset(SSHReviewedScriptAction.model_fields)
@@ -201,11 +231,9 @@ def _validate_ssh_reviewed_script_worker_input(
     )
     host = resolve_ssh_host(config, request.host_id)
     resolve_ssh_connection(host)
-    policy_metadata = _authorize_persisted_ssh_policy(
+    policy_metadata = _authorize_persisted_ssh_reviewed_script_policy(
         input_data,
-        writes_remote=request.writes_remote,
-        high_risk=request.high_risk,
-        implemented_modes={"reviewed_script"},
+        request,
     )
     return request, policy_metadata
 

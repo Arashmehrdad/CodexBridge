@@ -38,6 +38,7 @@ AUTONOMY_PROFILES = CANONICAL_AUTONOMY_PROFILES
 SSH_POLICY_MATRIX = SSH_EXECUTION_POLICY_MATRIX
 
 IMPLEMENTED_SSH_EXECUTION_MODES = frozenset({"structured"})
+REVIEWED_SCRIPT_SCAFFOLD_MODES = frozenset({"reviewed_script"})
 
 
 class SSHPolicyRequest(BaseModel):
@@ -265,6 +266,37 @@ def authorize_ssh_action_launch(
             "authorized": True,
             "approval_source": approval_source,
         }
+    )
+
+
+def authorize_ssh_reviewed_script_launch(
+    *,
+    autonomy_profile: str,
+    execution_mode: str,
+    writes_remote: bool,
+    high_risk: bool,
+    model_approval_granted: bool = False,
+    implemented_modes: Collection[str] = REVIEWED_SCRIPT_SCAFFOLD_MODES,
+) -> SSHActionAuthorizationResult:
+    """Authorize reviewed-script scaffolding through model-driven policy only.
+
+    The caller persists ``high_risk`` as classification metadata. For this
+    launch path it escalates to the model-controlled T4 tier rather than the
+    generic T6 human-only tier; no human approval evidence is accepted here.
+    """
+
+    if execution_mode != "reviewed_script":
+        raise ValueError(
+            "Reviewed SSH script launch requires execution_mode='reviewed_script'"
+        )
+    return authorize_ssh_action_launch(
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
+        writes_remote=writes_remote or high_risk,
+        high_risk=False,
+        chatgpt_approval_granted=model_approval_granted,
+        human_approval_granted=False,
+        implemented_modes=implemented_modes,
     )
 
 

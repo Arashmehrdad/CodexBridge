@@ -49,7 +49,11 @@ from .safety import (
     validate_repo_relative_paths,
 )
 from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
-from .ssh_policy import SSHActionAuthorizationResult, authorize_ssh_action_launch
+from .ssh_policy import (
+    SSHActionAuthorizationResult,
+    authorize_ssh_action_launch,
+    authorize_ssh_reviewed_script_launch,
+)
 from .ssh_watchdog import (
     terminate_remote_process_group,
     validate_monitored_command_start,
@@ -845,14 +849,12 @@ class JobManager:
             }
         )
         resolve_ssh_host(self.config, request.host_id)
-        policy = authorize_ssh_action_launch(
+        policy = authorize_ssh_reviewed_script_launch(
             autonomy_profile=request.autonomy_profile,
             execution_mode=request.execution_mode,
             writes_remote=request.writes_remote,
             high_risk=request.high_risk,
-            chatgpt_approval_granted=True,
-            human_approval_granted=False,
-            implemented_modes={"reviewed_script"},
+            model_approval_granted=True,
         )
         policy_metadata = _ssh_policy_metadata(policy)
         decision = PolicyDecision(
