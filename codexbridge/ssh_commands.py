@@ -31,7 +31,7 @@ _PTY_EXIT_MARKER = "__CODEXBRIDGE_REMOTE_EXIT__="
 _PTY_EXIT_RE = re.compile(r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+")
 _ROOT_EUID_MARKER = "__CODEXBRIDGE_ROOT_EUID__=0"
 _PAYLOAD_DELIMITER = "__CODEXBRIDGE_PAYLOAD__"
-_PAYLOAD_INTERPRETERS = frozenset({"bash", "sh", "python3"})
+_PAYLOAD_INTERPRETERS = frozenset({"bash", "sh", "python3", "pwsh"})
 _ROOT_PAYLOAD_REMOTE_COMMAND = (
     'if [ "$(id -u)" -ne 0 ]; then '
     "printf '%s\\n' 'CodexBridge root shell requires effective UID 0' >&2; "
@@ -549,12 +549,23 @@ def build_ssh_payload_argv(
     ]
 
 
-def _payload_interpreter_commands(interpreter: str) -> tuple[str, str]:
+def _quote_payload_arguments(arguments: list[str]) -> str:
+    return "".join(f" {shlex.quote(argument)}" for argument in arguments)
+
+
+def _payload_interpreter_commands(
+    interpreter: str,
+    arguments: list[str] | None = None,
+) -> tuple[str, str]:
     if interpreter not in _PAYLOAD_INTERPRETERS:
         raise ValueError(f"Unsupported SSH payload interpreter: {interpreter!r}")
+    argument_suffix = _quote_payload_arguments(list(arguments or []))
     if interpreter == "python3":
-        return "exec python3 -", 'python3 "$__codexbridge_payload"'
-    return f"exec {interpreter} -s --", f'{interpreter} "$__codexbridge_payload"'
+        return f"exec python3 -{argument_suffix}", f'python3 "$__codexbridge_payload"{argument_suffix}'
+    if interpreter == "pwsh":
+        fixed = "pwsh -NoLogo -NoProfile -NonInteractive -File"
+        return f"exec {fixed} -{argument_suffix}", f'{fixed} "$__codexbridge_payload"{argument_suffix}'
+    return f"exec {interpreter} -s --{argument_suffix}", f'{interpreter} "$__codexbridge_payload"{argument_suffix}'
 
 
 def _encoded_payload(payload: str) -> tuple[str, str]:
@@ -568,9 +579,10 @@ def _forced_pty_payload_envelope(
     interpreter: str,
     *,
     root_required: bool,
+    arguments: list[str] | None = None,
 ) -> tuple[str, str, str]:
     encoded, wrapped = _encoded_payload(payload)
-    _, file_command = _payload_interpreter_commands(interpreter)
+    _, file_command = _payload_interpreter_commands(interpreter, arguments)
     lines = ["stty -echo 2>/dev/null || exit 125"]
     if root_required:
         lines.extend(
@@ -635,6 +647,7 @@ def run_ssh_payload(
     payload_sha256: str,
     timeout_seconds: int,
     writes_remote: bool,
+    arguments: list[str] | None = None,
     root_required: bool = False,
 ) -> dict:
     """Execute an exact hash-pinned payload through SSH stdin."""
@@ -643,7 +656,8 @@ def run_ssh_payload(
     if sha256(payload_bytes).hexdigest() != payload_sha256:
         raise ValueError("SSH payload SHA-256 does not match its content")
     host = resolve_ssh_host(config, host_id)
-    stdin_command, _ = _payload_interpreter_commands(interpreter)
+    validated_arguments = list(arguments or [])
+    stdin_command, _ = _payload_interpreter_commands(interpreter, validated_arguments)
     if root_required:
         stdin_command = _ROOT_PAYLOAD_REMOTE_COMMAND
     built_argv = build_ssh_payload_argv(config, host_id, stdin_command)
@@ -660,6 +674,7 @@ def run_ssh_payload(
             payload,
             interpreter,
             root_required=root_required,
+            arguments=validated_arguments,
         )
         expect_exit_marker = True
         safe_argv = [*argv, safe_label]
@@ -702,6 +717,7 @@ def run_ssh_payload(
             "host_id": validate_ssh_host_id(host_id),
             "ssh_alias": built_argv[-2],
             "interpreter": interpreter,
+            "arguments": validated_arguments,
             "payload_sha256": payload_sha256,
             "writes_remote": bool(writes_remote),
             "remote_state_verified": False,

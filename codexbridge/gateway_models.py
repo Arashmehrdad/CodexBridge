@@ -603,6 +603,9 @@ SSHPolicyGatewayRequest = SSHExecutionPolicyGatewayRequest
 SSHExecutionPolicyRequest = SSHExecutionPolicyGatewayRequest
 
 MAX_REVIEWED_SSH_SCRIPT_BYTES = 64 * 1024
+MAX_REVIEWED_SSH_SCRIPT_ARGS = 32
+MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES = 1024
+MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES = 8192
 
 
 class SSHStructuredExecutionGatewayRequest(SSHExecutionPolicyGatewayRequest):
@@ -619,7 +622,8 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
     action: Literal["reviewed_script"]
     execution_mode: Literal["reviewed_script"] = "reviewed_script"
     host_id: str = Field(min_length=1, max_length=128)
-    interpreter: Literal["bash", "sh", "python3"]
+    interpreter: Literal["bash", "sh", "python3", "pwsh"]
+    arguments: list[str] = Field(default_factory=list, max_length=MAX_REVIEWED_SSH_SCRIPT_ARGS)
     script: str = Field(min_length=1, max_length=MAX_REVIEWED_SSH_SCRIPT_BYTES)
     script_sha256: str = Field(
         min_length=64,
@@ -643,6 +647,16 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
             )
         if sha256(script_bytes).hexdigest() != self.script_sha256:
             raise ValueError("Reviewed SSH script SHA-256 does not match its content")
+        total_argument_bytes = 0
+        for argument in self.arguments:
+            encoded_argument = argument.encode("utf-8")
+            if any(byte < 32 or byte == 127 for byte in encoded_argument):
+                raise ValueError("Reviewed SSH script arguments must not contain control characters")
+            if len(encoded_argument) > MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES:
+                raise ValueError("Reviewed SSH script argument exceeds the maximum UTF-8 byte length")
+            total_argument_bytes += len(encoded_argument)
+        if total_argument_bytes > MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES:
+            raise ValueError("Reviewed SSH script arguments exceed the aggregate UTF-8 byte limit")
         policy = evaluate_ssh_policy(
             SSHPolicyRequest(
                 autonomy_profile=self.autonomy_profile,
