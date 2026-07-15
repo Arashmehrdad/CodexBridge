@@ -1,557 +1,512 @@
-# CodexBridge Roadmap Status
+# CodexBridge Unified Engineering Roadmap
 
-## Executive Decision
+## Executive Direction
 
-The next development phase is **Durable Execution Recovery and Ownership**.
+CodexBridge is a local engineering control plane between ChatGPT and the user's machines, repositories, services, and remote hosts.
 
-The workflow orchestrator, supervisors, direct async runs, return-loop artifacts, and dashboard are implemented foundations, but the latest audit found critical crash and restart windows. Feature expansion is paused until accepted work can be safely reconciled without duplicate execution, premature lock release, orphan children, or incorrect terminal reporting.
+The target operating model is:
 
-This is an execution-layer problem. The policy layer remains separate and should not be weakened to compensate for lifecycle defects.
-
-## Completed Foundations
-
-- Repository-scoped MCP read/write controls with capability metadata.
-- SQLite-backed async run records through `JobManager` and `RunStore`.
-- Supervisor planning/implementation flow with return-loop artifacts.
-- Durable workflow models, persistence, worker, reporter, MCP tools, and dashboard visibility.
-- Read-only local dashboard for runs, jobs, workflows, supervisors, approvals, escalations, and return-loop state.
-- Structured events, results, output artifacts, operation locks, cancellation paths, and heartbeats.
-
-These foundations are useful but are not proof of restart-safe execution.
-
-## Current Batch: P0 Durable Execution Recovery and Ownership
-
-Status: planned and ready for implementation.
-
-### Audit Findings Driving This Batch
-
-1. Startup reconciliation marks ordinary `running` runs failed without first verifying whether the detached worker or child is still active.
-2. Stale-lock recovery can then release the repository lock while the original process continues.
-3. The manager-stored worker PID can differ from the PID reported by the executing worker.
-4. `queued` runs are not reconciled and can remain stranded after partial launch failure.
-5. Workflow and supervisor child launches are split across multiple non-transactional writes, creating orphan/duplicate-child crash windows.
-6. Workflow workers are relaunched without an atomic lease claim.
-7. Supervisor and direct-run repository ownership use separate lock systems.
-8. `LongRunJobManager` keeps live process ownership only in memory and cannot safely recover after manager recreation.
-9. Database state, result artifacts, events, and delivery manifests can diverge across crashes.
-
-## P0 Workstream A - Canonical Worker Identity and Leases
-
-Goal: make process ownership verifiable rather than PID-only.
-
-Deliverables:
-
-- Worker registers its real PID in the canonical `worker_pid` field.
-- Add a durable worker lease/ownership token generated before launch and presented by the worker.
-- Persist process-start identity where available so PID reuse is detectable.
-- Store launcher PID separately when a launcher/wrapper exists.
-- Heartbeats update the canonical lease, not only a nested progress field.
-- Control/status output distinguishes launcher, worker, and child identity.
-
-Acceptance criteria:
-
-- A live worker is not misidentified because the launcher PID exited or changed.
-- A reused unrelated PID cannot satisfy ownership validation.
-- Cancellation and reconciliation target the verified worker/child identities.
-
-## P0 Workstream B - Process-Aware Startup Reconciliation
-
-Goal: restart without converting active work into false failure.
-
-Deliverables:
-
-- Reconcile `queued`, `launch_pending`, `running`, and `cancellation_pending` runs.
-- Adopt a verifiably active worker and refresh its lease.
-- Relaunch an idempotently claimable queued run when no worker ever started.
-- Move uncertain ownership to `recovery_pending` or an equivalent conservative state.
-- Preserve repository locks whenever execution may still be active.
-- Emit durable reconciliation events and expose failures; do not swallow exceptions.
-
-Acceptance criteria:
-
-- Restarting the MCP server while a worker is active does not mark the run failed.
-- A dead worker with no live child reaches a deterministic infrastructure-failure result.
-- A live child with a dead worker remains locked and recoverable/cancellable.
-- A stranded queued run is relaunched once or terminated cleanly.
-
-## P0 Workstream C - Transactional and Idempotent Launch Boundaries
-
-Goal: make partial launches recoverable without duplicate work.
-
-Deliverables:
-
-- Add durable launch-intent/checkpoint state before `Popen` or child-run creation.
-- Associate every launch with an idempotency key and lease generation.
-- On launch failure, atomically record terminal infrastructure failure and release the owned lock.
-- Add compare-and-swap/versioned transitions for claim, start, cancel, complete, timeout, and recovery.
-- Ensure terminal database status and structured result are committed together.
-
-Acceptance criteria:
-
-- A crash before process creation does not strand a lock.
-- A crash after process creation but before attachment does not create an orphan followed by a duplicate.
-- Cancellation and completion races have one deterministic winner and preserve the other event as audit history.
-
-## P0 Workstream D - Workflow and Supervisor Recovery
-
-Goal: recover parent-child orchestration safely.
-
-Deliverables:
-
-- Workflow step states distinguish `pending`, `launch_pending`, `running`, and terminal states.
-- Persist child launch intent before starting a child.
-- Attach child IDs idempotently using the launch key.
-- Recover a `running` or `launch_pending` step with no child ID.
-- Add a single-worker workflow lease with atomic claim/renewal.
-- Apply the same launch/attachment protocol to supervisor plan and implementation children.
-- Add startup reconciliation for active supervisors and their implementation locks.
-
-Acceptance criteria:
-
-- No workflow step can spin forever as `running` without a child or recovery decision.
-- Two reconcilers cannot launch two workers or children for the same workflow state.
-- A supervisor crash after child launch resumes from the attached child rather than starting another.
-
-## P0 Workstream E - Unified Repository Ownership
-
-Goal: one authoritative lock and lease model for repository-changing execution.
-
-Deliverables:
-
-- Define a common repository ownership record for direct runs, workflows, and supervisors.
-- Migrate or bridge `repo_write_locks` and `operation_locks` without opening an overlap window.
-- Associate locks with run/supervisor/workflow lease generation.
-- Make lock release conditional on current ownership.
-- Keep conservative lock retention for monitored remote execution.
-
-Acceptance criteria:
-
-- Direct runs, supervisor implementation, and workflow writes cannot execute concurrently against the same repository unless explicitly permitted.
-- A stale owner cannot release a lock acquired by a newer lease generation.
-
-## P1 Workstream - Unified Durable Jobs and Audit Consistency
-
-Begin only after P0 passes.
-
-- Migrate `LongRunJobManager` workloads onto `JobManager`/`RunStore`, or add equivalent durable process adoption and reconciliation.
-- Use atomic replacement for result/event snapshot artifacts.
-- Preserve PulseSender `delivered` state during report regeneration.
-- Add a durable reconciliation report visible in the dashboard.
-- Define retention/repair tooling for inconsistent historical records.
-
-## Required Validation Matrix
-
-Targeted deterministic tests:
-
-- active worker survives server restart
-- worker death with live child
-- `Popen` failure after run persistence
-- queued worker dies before status transition
-- workflow crash before child launch
-- workflow crash after child launch before attachment
-- concurrent workflow reconciliation
-- cancellation versus completion race
-- supervisor crash after plan launch
-- supervisor crash after implementation launch and lock acquisition
-- stale lease cannot complete or unlock a newer run
-- long-job manager recreation
-- delivered manifest regeneration
-
-Real-process Windows integration tests:
-
-- worker registers canonical PID/lease
-- server process exits while detached worker continues
-- reconciliation adopts or conservatively contains the worker
-- verified process-tree cancellation releases the lock only after exit
-
-Repository validation:
-
-```powershell
-python -m pytest -q
-python -m pip check
+```text
+ChatGPT
+  -> CodexBridge MCP
+  -> local policy and orchestration
+      -> repository inspection and managed patching
+      -> durable command and executable runs
+      -> workflows and supervisors
+      -> local model and project memory
+      -> SSH and remote controllers
+      -> return-loop reports
+      -> Codex only when explicitly enabled
 ```
 
-## Implementation Batch Order
-
-### Batch D1 - Worker identity and startup reconciliation
+Codex is currently disabled by operator choice and is not a dependency for this roadmap. Repository changes continue through managed preview/apply tools and explicit local commits.
 
-Status: **implemented and validated**.
+The immediate program is no longer feature expansion at any cost. It is:
 
-Delivered:
+1. finish byte-safe managed editing and the incomplete R2 server handoff;
+2. add an operator-enabled unrestricted executable substrate;
+3. make OpenSSL the first unrestricted executable profile;
+4. complete transfer, durable remote ownership, resource, environment, and acceptance work;
+5. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
 
-- Persist `launch_pending` before worker process creation and record launcher PID separately from the canonical worker PID.
-- Generate a per-run worker lease token before launch; require the worker to present that token before executing work.
-- Register the executing worker's actual PID and process-start identity in canonical run fields.
-- Scope worker heartbeats and repository-lock release to the current lease token.
-- Reconcile `launch_pending`, `queued`, `running`, `cancellation_pending`, and `recovery_pending` records without treating server restart alone as run failure.
-- Adopt a verifiably active worker, contain uncertain legacy records in `recovery_pending`, retain locks while execution may still be active, and fail a verified dead worker deterministically.
-- Relaunch a stranded queued worker at most once, then fail it cleanly if bounded launch attempts are exhausted.
-- Convert post-persistence process-launch failures into structured infrastructure failures and release only the matching owned lock.
-- Record reconciliation exceptions as durable error events and move affected runs to `recovery_pending` rather than silently discarding the failure.
-- Hide worker lease tokens from public run status and list responses.
-- Add deterministic tests plus a real Windows process-start identity check.
+## Governing Engineering Principles
 
-Validation evidence:
+### Durable before powerful
 
-- `tests/test_job_manager.py`: 35 passed.
-- `tests/test_run_store.py`: 11 passed.
-- Full repository suite: 879 passed, 1 skipped.
-- `python -m pip check`: no broken requirements found.
-- Live Windows workers registered canonical PID and process-start identity during validation runs.
-- Live restart/adoption run `20260713T142018Z_project_command_41e46612` preserved worker PID `26696`, recorded the reconciliation event `Active worker identity verified after server restart`, retained the original repository lock while active, completed once with exit code `0`, and released the lock only after terminal persistence.
-- The adopted worker completed the full suite with 879 passed and 1 skipped after the service restart.
+Every accepted asynchronous operation must have durable launch intent, ownership identity, lease state, cancellation state, output locations, and terminal publication semantics before it is considered production-ready.
 
-Boundaries not yet claimed:
+### Explicit capability profiles
 
-- The outer startup wrapper in `server.py` still catches reconciliation exceptions; per-run reconciliation failures are now durable, but service-level startup reporting remains a follow-up.
-- Workflow launch and child attachment recovery were completed in D3; supervisor attachment recovery remains D4.
-- D1 proves direct-run restart adoption for the tested Windows worker path; broader crash races and concurrent ownership transitions remain part of D2.
+- `readonly`: inspection and fixed non-destructive commands.
+- `chatgpt_delegated`: structured execution, reviewed scripts, managed writes, and ordinary engineering operations.
+- `permissive`: operator-authorized unrestricted capabilities on explicitly registered machines, hosts, and executable profiles.
+- `human_only`: financial actions, public release, protected-branch push, production infrastructure changes, and external permission grants unless separately reclassified by the operator.
 
-### Batch D2 - Conditional transitions and launch-state completion
-
-Status: **implemented and validated**.
+### Operator risk acceptance
 
-Delivered:
+The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, CodexBridge should not repeatedly ask for per-invocation approval unless the request crosses a different protected boundary.
 
-- Added durable `state_version` and `lease_generation` fields to direct-run records, with backward-compatible SQLite migration.
-- Added a trusted-field conditional update primitive that supports expected status, state version, lease token, lease generation, and observed heartbeat predicates and verifies the affected-row count.
-- Made worker claim single-winner and restricted it to the current `launch_pending` or `queued` execution generation.
-- Scoped worker heartbeat, progress, child-PID attachment, completion, timeout, failure, and repository-lock release to the active lease token and generation.
-- Made terminal status and structured `result_json` visible in one conditional database update and prevented stale or duplicate writers from overwriting terminal state.
-- Made cancellation claim `cancellation_pending` before process termination, so cancellation versus completion has one deterministic database winner and unconfirmed termination retains the lock.
-- Made startup adoption and recovery compare the observed state and heartbeat, so a fresh active-worker heartbeat defeats a stale recovery decision.
-- Added an atomic relaunch reservation that rotates the lease token and generation and transfers repository-lock ownership in the same SQLite transaction.
-- Prevented duplicate reconcilers from both adopting or relaunching the same run and rejected late claims from the replaced worker generation.
-- Made operation-lock heartbeat and release return explicit success only for matching run, token, and generation ownership.
-- Preserved D1 Windows worker identity and restart-adoption behaviour while keeping workflow and supervisor execution unchanged for D3 and D4.
+For an unrestricted executable profile, CodexBridge enforces the identity of the executable and the integrity of its lifecycle. It does not attempt to reinterpret or censor the executable's own command language.
 
-Validation evidence:
+### Direct process launch where possible
 
-- `tests/test_run_store.py`: 15 passed.
-- `tests/test_operation_locks.py`: 11 passed.
-- `tests/test_job_manager.py`: 39 passed.
-- `tests/test_job_worker.py`: 17 passed.
-- Full repository suite: 890 passed, 1 skipped.
-- `python -m pip check`: no broken requirements found.
-- Full-suite run `20260713T152727Z_project_command_3e56509b` completed through the hardened lease/version path with exit code `0` and terminal `state_version` `2`.
-- Local Ollama health passed with configured model `qwen2.5-coder:7b`; the local health/inference timeout was increased to 120 seconds to cover cold model loading.
+Dedicated executable gateways launch an absolute configured executable with structured argv and `shell=False`. A dedicated root-shell gateway remains separate for actions that genuinely require shell syntax.
 
-Boundaries not yet claimed:
+This prevents accidental shell injection without limiting the enabled executable's native options.
 
-- Workflow worker leases and crash-safe child attachment were completed in D3.
-- Supervisor child attachment and shared lock unification remain D4.
-- Human-readable result artifacts may still be written before a losing database terminal transition; the database remains authoritative, while atomic artifact reconciliation remains in the later return-loop consistency batch.
+### Full evidence, bounded public output
 
-### Batch D3 - Workflow worker lease and child attachment
+The durable run directory may contain complete stdout, stderr, binary output, inputs, hashes, and execution metadata. Public MCP responses remain bounded and may redact sensitive material. Permissive execution does not imply automatic disclosure of private keys, passwords, or binary artifacts in chat.
 
-Status: **implemented and validated**.
+### Small independent batches
 
-Delivered guarantees:
+Every completed repository change is locally committed. Each batch must be independently reviewable and validated. Do not combine patch-engine repair, OpenSSL enablement, remote durability, and acceptance testing into one broad refactor. Do not push unless explicitly requested.
 
-- Workflow workers now use durable lease tokens, lease generations, state versions, recorded process identity, and bounded launch attempts.
-- Initial workflow worker claims and restart relaunches use conditional transitions, preventing stale launchers or duplicate reconcilers from taking ownership.
-- Workflow heartbeats, terminal transitions, step updates, and event writes are scoped to the active lease generation.
-- Child run IDs are reserved before execution and attached atomically when a workflow step is claimed.
-- Direct-run launch APIs accept the reserved run ID, closing the crash window where a child could start before the workflow recorded its identity.
-- A stale workflow worker cannot update a step, clear a newer active child, complete a replacement generation, or overwrite a concurrent terminal transition.
-- Workflow cancellation and terminal reporting use conditional durable state transitions rather than unconditional lifecycle writes.
-- Existing direct-run D2 lease and lock behavior remains intact.
+## Current State
 
-Validation evidence:
+### Reliability foundation - complete
 
-- Workflow-focused suite: `6 passed`.
-- Workflow plus direct-run integration suite: `62 passed`.
-- D2+D3 durability suite: `88 passed`.
-- Full repository suite: `890 passed, 1 skipped`.
-- `python -m pip check`: no broken requirements found.
-- The repository worktree was clean after commit `477286c`.
+Batches D1-D5 established and validated:
 
-Boundaries not yet claimed:
+- durable `launch_pending` state before worker creation;
+- separate launcher, worker, and child process identity;
+- worker lease tokens, lease generations, state versions, and process-start identity;
+- process-aware startup reconciliation and active-worker adoption;
+- conditional terminal transitions and stale-generation rejection;
+- workflow worker leases and idempotent child attachment;
+- supervisor child attachment and unified repository operation locks;
+- conservative legacy long-job containment;
+- atomic return-loop publication and delivered-manifest preservation.
 
-- Supervisor child attachment and shared repository lock unification remain D4.
-- Legacy unattended-job migration and return-loop delivery-state consistency remain D5.
-- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative until D5 reconciles artifact publication state.
+Historical full-suite evidence reached `932 passed, 1 skipped`, with `python -m pip check` and `git diff --check` passing at the D5 exit gate.
 
-### Large `run_query` transport checkpoint
+### Existing control-plane foundations
 
-Status: **live validated**.
+The repository already contains foundations for:
 
-Validation evidence:
+- repository-scoped MCP tools and capability metadata;
+- managed repository preview/apply/commit operations;
+- SQLite-backed runs and durable artifacts;
+- workflows, supervisors, cancellation, events, and heartbeats;
+- local-agent orchestration and an Ollama adapter;
+- project commands and scoped validation runners;
+- return-loop reports and PulseSender-compatible manifests;
+- read-only dashboard visibility;
+- native SSH inspection, commands, administration, transfers, deployments, reviewed scripts, and permissive root shell contracts.
 
-- A live `run_query list` snapshot contained `16,922,105` serialized characters and returned a bounded first chunk with `offset = 0`, `next_offset = 16384`, and `complete = false`.
-- The returned v2 cursor advanced the same frozen snapshot to `offset = 16384` and `next_offset = 32768` with the same payload SHA-256 (`0bfa6c99f8173bad57711237f5495c0b9c4884e44139e77357e9dd16c4668d76`).
-- The continuation returned no `cursor_stale` error after connector refresh and service restart.
-- Validation stopped after the second chunk; the remaining payload was intentionally not retrieved.
+These components should be extended rather than replaced.
 
-### Batch D4 - Supervisor child attachment and lock unification
+### Codex status
 
-Status: **implemented and validated**.
+Codex prompt transport was historically repaired and validated in T1. Codex execution is now intentionally disabled in configuration and hard-blocked before process launch. The roadmap must remain executable without Codex.
 
-Delivered guarantees:
+### Remote execution status
 
-- D4a added supervisor state versions, compare-and-swap lifecycle transitions, reserved child run IDs, durable pre-launch attachment, and restart adoption/relaunch using the same child identity.
-- Supervisor plan and implementation completion, failure, cancellation, and terminal side effects now occur only after the matching supervisor state transition wins.
-- D4b removed the separate supervisor `repo_write_locks` authority and migrates existing databases by dropping its legacy table and index during supervisor-store initialization.
-- Supervisor implementation children now use the same authoritative `operation_locks` record as direct runs, with the child run ID and lease generation recorded in supervisor metadata.
-- Repository contention is reported as a CAS-guarded `needs_input` state without launching a duplicate implementation child.
-- Restarted supervisors retain the same implementation child identity and shared ownership metadata rather than creating a replacement child.
-- Repository-lock release remains owned by the child run's token and lease generation; supervisors no longer perform an unconditional independent unlock.
-- Existing stale-generation protection prevents an older owner from releasing a successor's repository lock.
+R1 policy and request contracts are complete.
 
-Validation evidence:
+R2 is in progress. Reviewed-script model, command, manager, and worker layers now support bounded arguments and `pwsh`. Canonical envelopes allow safely quoted data arguments for Bash, `sh`, Python 3, and PowerShell while rejecting alternate launchers and unquoted shell syntax.
 
-- Supervisor store suite: `9 passed`.
-- Supervisor engine suite: `29 passed`.
-- Shared operation-lock suite: `11 passed`.
-- Supervisor self-check suite: `4 passed`.
-- Supervisor service suite: `12 passed`.
-- Full repository suite: `901 passed, 1 skipped`.
-- `python -m pip check`: no broken requirements found.
-- D4b implementation checkpoints: `c0c7604`, `6a1ecad`, and `92f7706`.
+Latest focused evidence:
 
-Boundaries not yet claimed:
+- `tests/test_tool_gateway_models.py`: 23 passed;
+- `tests/test_ssh_commands.py`: 28 passed;
+- `tests/test_job_manager.py`: 55 passed;
+- existing `tests/test_ssh_worker.py` checkpoint: 37 passed.
 
-- Human-readable report artifacts can still be generated around a losing database transition; the database remains authoritative.
-- Legacy long-job execution is contained in D5 rather than made restart-adoptable.
+The remaining R2 server forwarding change is blocked by a managed-patch defect that normalizes mixed line endings in `codexbridge/server.py` and creates unrelated large diffs.
 
-### Batch D5 - Legacy long-job containment and return-loop consistency
+## Revised Implementation Order
 
-Status: **implemented and validated**.
+## G0 - Byte-Safe Managed Patch Engine
 
-Delivered guarantees:
+Status: **next required batch**.
 
-- `LongRunJobManager` is disabled by default so new unattended work cannot enter the in-memory-only ownership path.
-- Explicit `allow_legacy_execution=True` retains compatibility mechanics for deterministic tests only; supplying a custom process factory does not silently enable legacy execution.
-- Recreated managers conservatively move unowned `created`, `queued`, or `running` legacy jobs to `needs_input`, generate report/resume/manifest artifacts, and record an ownership-unavailable event.
-- Cancellation without an owned live process handle no longer falsely reports `cancelled`; it remains `needs_input` pending manual verification.
-- Supervisor resume prompts are published through atomic replacement, unverified child cancellation remains conservatively resumable after service restart without relaunching the child or duplicating its event, and queued supervisors resume after service recreation without attaching a duplicate child.
-- Return-loop manifest regeneration recomputes current file paths, hashes, and sizes while preserving an externally delivered manifest's sent status, delivery metadata, original creation time, and audit identity.
-- Delivered manifests remain undiscoverable as ready after regeneration.
-- Local-agent job command parsing preserves the exact case of opaque job IDs, preventing Windows path lookup from succeeding while in-memory process ownership lookup fails.
+Goal: managed edits must change only the requested bytes or syntax region, including files with mixed line endings.
 
-Validation evidence:
+Deliverables:
 
-- Legacy long-job suite: `15 passed`.
-- Local-agent job orchestration suite: `4 passed`.
-- Supervisor service restart suite: `14 passed`.
-- Existing PulseSender contract suite: `6 passed`.
-- Delivery-regeneration regression: `1 passed`.
-- Full repository suite: `932 passed, 1 skipped`.
-- `python -m pip check`: no broken requirements found.
-- D5 implementation checkpoints: `542abc1`, `d131eb8`, `43f540c`, `2893440`, `bf8dbb9`, `46d1a9f`, `eadcb24`, `86bab3e`, `1f1a171`, and `da7dcf6`.
-- Final exit-gate rerun: supervisor service restart suite `14 passed`; full suite `932 passed, 1 skipped`; `python -m pip check` found no broken requirements; `git diff --check` passed.
-
-Boundaries not claimed:
-
-- `LongRunJobManager` has not been migrated into a restart-adoptable process manager; it remains compatibility/test-only.
-- Durable remote SSH jobs, permissive shell execution, global transfer roots, absolute cgroup limits, and remote restart adoption are separate follow-up batches.
-- The earlier Codex stdin transport failures were repaired and live-validated in T1.
-
-Each batch must be independently reviewable, tested, and committed. Do not combine the remote-execution expansion into one broad refactor.
-
-## Explicitly Deferred
-
-Do not prioritize these until P0 is complete:
-
-- ChatGPT Apps SDK live-status component
-- new dashboard write controls
-- broader local-model coding permissions
-- additional workflow step types
-- production deployment automation
-- public/main branch push automation
-
-## Exit Gate
-
-The durability gate is complete only when all of the following are true:
-
-- Accepted work has a durable launch intent before execution.
-- Every active process has verified ownership identity and renewable lease state.
-- Startup reconciliation cannot convert an unverified active run into ordinary failure.
-- Repository locks cannot be released by stale or uncertain owners.
-- Workflow/supervisor child launch is idempotent across every tested crash boundary.
-- Queued and running work reaches a deterministic recoverable or terminal state after restart.
-- Legacy unattended jobs are migrated or explicitly blocked from durable routing.
-- Full tests and Windows process integration tests pass.
-- Documentation no longer claims restart safety beyond the proven guarantees.
-
-## T1 - Codex prompt transport repair
-
-Status: **implemented and validated**.
-
-Delivered guarantees:
-
-- Synchronous and durable Codex execution now share one UTF-8 file-backed prompt-stream helper.
-- Durable plan and implementation workers pass that stream as stdin when invoking `codex exec -`; prompts are no longer omitted or placed on the Windows command line.
-- Durable workers now use the same connector-isolated child environment as the synchronous runner, while preserving run-specific temporary directories.
-- A dedicated durable-worker regression reads the inherited stdin file and verifies the complete multiline plan prompt, trailing `-` argument, connector-variable filtering, and temp environment.
-- Live plan run `20260714T034343Z_codex_plan_task_379223ec` received the exact marker `T1_STDIN_PROBE_20260714`, returned `PLAN_STATUS: ready`, exited `0`, changed no files, and left the branch clean.
-
-Validation evidence:
-
-- Prompt transport regression: `1 passed`.
-- `CodexRunner` suite: `18 passed`.
-- Durable worker suite: `17 passed`.
-- Full repository suite: `906 passed, 1 skipped`.
-- `python -m pip check`: no broken requirements found.
-- T1 implementation checkpoints: `4f0dab8` and `e995386`.
-
-Observed non-blocking CLI noise:
-
-- The live plan logged a Vercel MCP authorization warning and PowerShell profile language-mode warnings, but continued successfully and returned the correct plan. These are external session noise, not prompt-transport failures.
-
-## Accepted Remote-Execution Expansion Baseline
-
-This section is the governing implementation sequence for the remaining remote-execution work. It supersedes older generic sequencing where it is more specific. D5 is a completed prerequisite and must not be reopened unless a confirmed regression invalidates its exit evidence.
-
-Native SSH health, inspection, bounded command, administration, transfer, deployment, and monitored-command endpoints already exist. The remaining work concerns global policy alignment, execution-mode completeness, transfer scope, durable remote ownership, resource enforcement, secret-safe environment delivery, and generic acceptance evidence.
-
-### Canonical profile mapping
-
-- `conservative` maps to the public `readonly` profile: structured inspection and fixed safe commands only.
-- `balanced` maps to the public `chatgpt_delegated` profile: structured execution plus reviewed scripts.
-- `permissive` maps to the public `permissive` profile: structured execution, reviewed scripts, and unrestricted remote root shell.
-- `human_only` remains an internal policy state and is not a user-selectable remote execution profile.
-
-Permissive remote root shell must support `bash -lc`, pipelines, redirects, heredocs, `sudo`, `rm -rf`, command substitution, compound commands, and arbitrary remote paths, but only on a registered permissive remote host. This remote capability must not weaken unrelated local protections for destructive deletion, production deployment, financial actions, public release, or pushes to protected branches.
-
-### R1 - Global remote policy and request contract
-
-Status: **implemented and validated**.
-
-Delivered guarantees:
-
-- SSH execution requests carry a canonical autonomy profile and explicit execution mode.
-- Structured execution is available to every public profile, reviewed scripts are restricted to delegated/permissive use, and root shell is restricted to permissive use.
-- Durable SSH runs persist the canonical profile, execution mode, permission tier, policy decision, authorization result, and approval source, then revalidate that metadata in the worker before execution.
-- Reviewed-script and permissive root-shell requests have dedicated request and authorization contracts.
-- SSH capability output reports the implemented reviewed-script and root-shell gateways without advertising arbitrary shell support through the structured command path.
-- The SSH policy contract does not weaken unrelated local human-only boundaries.
-
-Validation and closure evidence:
-
-- Focused SSH policy, request-model, job-manager, worker, capability, server-delegation, and action-discovery suites passed during R1 implementation.
-- Final capability-reporting checkpoint: `8af1331`.
-- Final integration-fixture checkpoint: `70661ee`.
-- The stale `PLANS.md` marker that previously listed R1 as the next feature batch is closed by this baseline update.
-
-Boundaries not claimed by R1:
-
-- R1 establishes request and policy contracts; complete transport behavior, script staging, unrestricted shell launch, transfer policy expansion, restart-adoptable remote ownership, absolute resource limits, and secure environment references remain R2-R6 work.
-
-## Remaining Remote-Execution Batches
-
-### R2 - Global execution gateway paths
-
-Status: **in progress**.
-
-Checkpoint (2026-07-15):
-
-- Reviewed-script request, transport, manager, and worker layers now support bounded validated argument lists and the fixed `pwsh` interpreter envelope while retaining exact script hashing and `shell=False` subprocess launches.
-- Canonical fixed-envelope validation permits safely quoted argument data for Bash, `sh`, Python 3, and PowerShell while rejecting alternate launchers and unquoted shell syntax such as command chaining, substitution, and redirection.
-- Focused validation passed: `tests/test_tool_gateway_models.py` (23), `tests/test_ssh_commands.py` (28), and `tests/test_ssh_worker.py` (37).
-- Remaining before this reviewed-script slice is complete: forward arguments through the public server gateway and add argument-specific forced-PTY/server coverage. The current managed patch path must not edit `codexbridge/server.py` until its mixed-line-ending normalization defect is fixed, because previews currently rewrite unrelated lines instead of preserving untouched bytes.
-
-Implement three repository-independent launch paths:
-
-- `structured`: build argv from configured profiles and execute without a local or remote shell (`shell=False`).
-- `reviewed_script`: support reviewed Python, Bash, and PowerShell scripts with content hashes, managed staging, explicit interpreter and arguments, bounded execution, and structured results.
-- `root_shell`: accept arbitrary shell text only for a registered permissive host and launch it through the dedicated remote shell gateway. Preserve the protected full artifact and expose only a redacted public summary.
+- Preserve untouched bytes for `exact_text`, `line_range`, `unified_diff`, and `python_ast` operations.
+- Define explicit newline behavior for replacement text without normalizing unrelated lines.
+- Reject previews that produce unrelated newline-only churn.
+- Add regression fixtures containing LF, CRLF, and intentionally mixed line endings.
+- Add a preview assertion that reports changed logical lines separately from newline-only changes.
+- Revalidate preview/apply/revert idempotency and rollback hashes.
 
 Acceptance:
 
-- Conservative/readonly rejects reviewed scripts and root shell.
-- Balanced/chatgpt-delegated accepts structured commands and reviewed scripts.
-- Permissive accepts structured commands, reviewed scripts, and unrestricted remote root shell.
-- Structured execution never silently falls back to shell interpretation.
+- A one-line edit to mixed-line-ending `server.py` produces a one-line semantic diff.
+- Applying and reverting the patch restores the exact original SHA-256.
+- No repository file is rewritten solely to normalize line endings.
 
-### R3 - Transfer policy and managed staging
+## G1 - Complete R2 Execution Gateway Paths
 
-Add explicit transfer policies:
+Depends on G0.
 
-- `repo_only`: local paths remain inside the registered repository and remote paths remain inside configured roots.
-- `configured_roots`: transfers may use explicitly configured local and remote roots.
-- `unrestricted`: arbitrary configured-host paths are available only to the permissive profile.
+Goal: close the public server handoff and finish the three execution modes.
 
-Reviewed scripts and controller payloads must use managed staging with deterministic paths, hashes, cleanup rules, and audit metadata. Conservative and balanced transfers remain bounded; permissive transfers may use unrestricted remote paths only on a registered permissive host.
+Deliverables:
 
-### R4 - Durable remote job protocol
+- Forward reviewed-script `arguments` through `ssh_action` and `start_ssh_reviewed_script_async`.
+- Add server-level model and delegation coverage for arguments and `pwsh`.
+- Add argument-bearing forced-PTY coverage.
+- Confirm `structured` execution always uses configured argv and never falls back to shell interpretation.
+- Confirm `reviewed_script` supports hash-pinned Bash, `sh`, Python 3, and PowerShell with explicit arguments.
+- Confirm `root_shell` remains an explicitly permissive, separate gateway with protected full artifacts and bounded public summaries.
 
-Replace local-worker-attached monitoring with a restart-adoptable remote controller protocol.
+Acceptance:
+
+- `readonly` rejects reviewed scripts and root shell.
+- `chatgpt_delegated` accepts structured execution and reviewed scripts.
+- `permissive` accepts structured execution, reviewed scripts, and unrestricted registered-host root shell.
+- Request arguments survive model -> server -> manager -> worker -> SSH command unchanged.
+
+## X1 - Generic Unrestricted Executable Profile Contract
+
+Goal: create one reusable direct-executable substrate rather than a one-off OpenSSL wrapper.
+
+Build an `ExecutableProfile` contract with:
+
+- profile ID and enabled flag;
+- absolute executable path;
+- optional expected executable SHA-256 and signer/version metadata;
+- local or remote execution target;
+- working-directory policy;
+- environment policy;
+- stdin mode: none, text, bytes, file, or protected reference;
+- stdout/stderr mode: text, bytes, file, or protected artifact;
+- timeout policy, including operator-enabled no-timeout runs;
+- cancellation and process-tree policy;
+- public-output and protected-artifact policy;
+- autonomy profile required to invoke it.
+
+Permissive executable profiles may enable:
+
+- arbitrary argv;
+- arbitrary working directory allowed by the service account;
+- arbitrary filesystem paths allowed by the service account;
+- arbitrary environment names and values or references;
+- arbitrary network destinations used by the executable;
+- binary-safe input and output;
+- no subcommand or flag allowlist.
+
+Engineering boundaries that remain:
+
+- launch the configured absolute executable directly with `shell=False`;
+- never resolve the executable from an untrusted working-directory PATH entry;
+- persist the exact executable identity, argv representation, target, timestamps, and exit state;
+- use the durable run/lease/cancellation model;
+- keep shell execution in the separate root-shell gateway;
+- let operating-system permissions remain the final local security boundary.
+
+Acceptance:
+
+- An enabled permissive profile receives arbitrary argv without filtering or reinterpretation.
+- Quoting-sensitive arguments reach the child process exactly.
+- Binary stdin/stdout round-trip without JSON or text corruption.
+- Disabled or unregistered executable profiles fail before process creation.
+
+## X2 - Unrestricted Local OpenSSL Gateway
+
+Depends on X1.
+
+Status target: first unrestricted executable profile.
+
+Configuration example:
+
+```yaml
+executable_profiles:
+  openssl:
+    enabled: true
+    executable_path: "C:/Program Files/OpenSSL-Win64/bin/openssl.exe"
+    target: local
+    autonomy_profile: permissive
+    unrestricted_argv: true
+    unrestricted_paths: true
+    unrestricted_environment: true
+    unrestricted_network: true
+    allow_no_timeout: true
+```
+
+Required capability:
+
+- any OpenSSL command and option;
+- arbitrary command ordering and argument values supported by OpenSSL;
+- arbitrary input and output paths available to the service account;
+- custom `OPENSSL_CONF` and other OpenSSL environment variables;
+- custom providers, provider paths, property queries, modules, engines, and configuration files;
+- certificate, CSR, key, digest, signature, encryption, decryption, CMS, PKCS#7, PKCS#8, PKCS#12, OCSP, CMP, TLS client, TLS server, random, and diagnostic operations;
+- arbitrary network endpoints for commands such as `s_client`, `s_server`, OCSP, and CMP;
+- text or binary stdin;
+- binary-safe stdout and stderr artifacts;
+- configurable timeout or no timeout;
+- arbitrary working directory and filenames;
+- protected full output plus bounded public status.
+
+There must be no OpenSSL subcommand, option, path, provider, engine, configuration-file, key-size, algorithm, or network-target filtering in the permissive profile.
+
+Passwords and key material may be supplied by any method OpenSSL supports. CodexBridge should additionally offer protected stdin, temporary file, and environment-reference paths so the operator is not forced to expose secrets on the process command line. This is an ergonomic protection, not a restriction on OpenSSL capability.
+
+Acceptance:
+
+- `openssl version -a` records executable and library identity.
+- random binary generation round-trips as a protected artifact.
+- key, CSR, and certificate workflows complete in an isolated test directory.
+- custom config and provider options reach OpenSSL unchanged.
+- a local loopback `s_server`/`s_client` test proves network and cancellation behavior without relying on the public internet.
+- arbitrary output paths work when Windows permissions allow them.
+- no shell process is created for ordinary OpenSSL execution.
+
+## R3 - Transfer Policy and Managed Staging
+
+Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
+
+Policies:
+
+- `repo_only`: local paths remain inside the registered repository; remote paths remain inside configured roots.
+- `configured_roots`: local and remote paths may use explicitly configured roots.
+- `unrestricted`: arbitrary paths available to the service account or registered remote user; permissive only.
+
+Deliverables:
+
+- deterministic staging paths and hashes;
+- atomic upload/download publication where possible;
+- cleanup manifests and retry-safe cleanup;
+- binary-safe transfers;
+- executable-profile input/output staging;
+- protected artifact classification;
+- audit metadata linking transfers to the invoking run and lease generation.
+
+Acceptance:
+
+- bounded profiles cannot escape their configured roots;
+- permissive transfers can use arbitrary paths when OS/remote permissions allow them;
+- retries do not duplicate or silently overwrite without the requested overwrite policy;
+- staged content is hash-verified before execution.
+
+## R4 - Durable Remote Job Protocol
+
+Goal: remote work survives CodexBridge restart and local worker loss.
 
 Remote controller state must include:
 
-- request and execution identity
-- authoritative state and heartbeat
-- stdout and stderr locations
-- result and cancellation state
-- PID, process group ID, and process-start identity
+- request ID, execution ID, and idempotency key;
+- authoritative state and heartbeat;
+- controller fingerprint and version;
+- stdout, stderr, input, and result locations;
+- PID, process group ID, and process-start identity;
+- cancellation request and completion evidence;
+- executable or shell identity;
+- resource-monitor state.
 
-Local durable state must include:
+Local state must include:
 
-- host ID, remote job ID, remote PID/PGID, and process identity
-- remote state directory and controller fingerprint
-- lease generation, heartbeat, authoritative remote state, and cancellation state
+- host ID and remote job ID;
+- remote state directory;
+- remote PID/PGID and verified process identity;
+- lease generation and last authoritative heartbeat;
+- publication and cleanup state;
+- uncertainty/reconciliation state.
 
 Required behavior:
 
-- Launch returns only after durable remote ownership is established.
-- Remote execution survives CodexBridge service restart and local worker loss.
-- Startup reconciliation adopts a matching live remote job by fresh SSH inspection.
-- Cancellation targets the exact verified remote process group.
-- Duplicate-launch reconciliation is idempotent.
-- Network uncertainty remains conservative: do not relaunch, overwrite terminal state, or claim cancellation without fresh remote evidence.
-- The remote controller is authoritative for execution state; the local `RunStore` remains the bridge lifecycle and publication record.
+- launch returns only after durable remote ownership is established;
+- service restart adopts a matching live remote controller;
+- local worker loss does not terminate or duplicate remote work;
+- cancellation targets the exact verified remote process group;
+- network uncertainty does not trigger duplicate launch or false terminal state;
+- remote state is authoritative for execution; local `RunStore` remains authoritative for bridge lifecycle and publication.
 
-### R5 - Absolute resource enforcement
+Acceptance:
 
-Make absolute cgroup thresholds primary:
+- remote work runs beyond one hour;
+- CodexBridge restarts during execution and reattaches;
+- duplicate reconcilers cannot start duplicate remote controllers;
+- cancellation kills the verified process group and descendants;
+- terminal evidence is published once.
 
-- hard threshold: `48_000_000_000` bytes
-- graceful threshold: `45_000_000_000` bytes
-- conservative threshold: `40_000_000_000` bytes
+## X3 - Unrestricted Remote OpenSSL
 
-Read cgroup v2 files before percentage-based host memory signals. Percentage thresholds remain secondary diagnostics. Retain GPU temperature and memory checks, disk checks, heartbeat checks, CUDA out-of-memory detection, graceful termination, and verified process-group kill escalation.
+Depends on X2, R3, and R4.
 
-### R6 - Secure environment references
+Goal: expose the same unrestricted OpenSSL profile on a registered permissive remote host.
 
-Add secret-safe environment delivery without persisting secret values in requests, events, results, or public artifacts.
+Deliverables:
 
-- Persist environment reference identifiers, not values.
-- Resolve references only at launch time.
-- Deliver values through a temporary environment file or inherited environment as appropriate.
-- Delete temporary material after launch or terminal cleanup.
-- Redact secret-derived output and diagnostics.
-- Missing or unauthorized references fail before remote execution begins.
+- remote executable identity and version capture;
+- arbitrary OpenSSL argv, paths, environment, providers, configuration, and network targets;
+- binary-safe staged and streamed input/output;
+- remote protected artifacts and local publication manifests;
+- restart adoption and exact process-group cancellation;
+- optional root execution only through the separately enabled permissive root-shell or remote-user configuration.
 
-### R7 - Generic disposable-host acceptance gate
+Acceptance:
 
-Build a provider-neutral disposable-host acceptance suite and then run the same contract against RunPod.
+- local and remote OpenSSL profiles share one request/result contract;
+- remote execution survives bridge restart;
+- provider/config/key/certificate and loopback TLS tests pass on the disposable host;
+- no OpenSSL option is silently removed or rewritten.
 
-The suite must prove:
+## R5 - Absolute Resource Enforcement
 
-- native endpoint access
-- profile/mode enforcement
-- configured and permissive transfer behavior
-- unrestricted permissive root shell
-- execution longer than one hour
-- service restart survival and remote reattachment
-- absolute cgroup enforcement
-- exact verified process-tree cancellation
-- durable result/report publication and cleanup
+Goal: prevent runaway long jobs while preserving explicit permissive overrides.
 
-Wan-specific paid-pod work remains blocked until every mandatory generic acceptance check passes. Core implementation and tests must not contain Wan-specific behavior.
+Default remote cgroup v2 thresholds:
 
-## Final Remote-Execution Exit Gate
+- hard: `48_000_000_000` bytes;
+- graceful: `45_000_000_000` bytes;
+- conservative: `40_000_000_000` bytes.
 
-The remote-execution expansion is complete only when a registered permissive remote host can:
+Deliverables:
 
-- execute through the native SSH endpoint
-- transfer through the configured policy, including arbitrary paths where permissive policy allows them
-- run unrestricted root shell without weakening local human-only protections
-- run for more than one hour
-- survive CodexBridge restart and reattach through fresh authoritative remote state
-- enforce the absolute resource thresholds
-- cancel the exact verified remote process group and descendants
-- publish complete durable evidence through the normal return loop
+- read cgroup v2 absolute values before host percentages;
+- retain GPU temperature/memory, disk, heartbeat, and CUDA OOM signals;
+- graceful termination followed by verified process-group escalation;
+- record the exact threshold, sample, decision, and termination evidence;
+- allow an explicit permissive profile to raise or disable configured thresholds where the host supports it, without weakening identity or cancellation checks.
 
-UI expansion remains deferred behind execution correctness.
+Acceptance:
+
+- each threshold path is deterministically tested;
+- disabled/raised limits are visible in durable metadata;
+- the exact process tree is terminated when enforcement fires.
+
+## R6 - Environment and Secret References
+
+Goal: support both unrestricted environment capability and safer secret delivery.
+
+Deliverables:
+
+- arbitrary environment maps for profiles that explicitly permit them;
+- durable reference identifiers for protected values;
+- launch-time resolution through inherited environment, protected stdin, or temporary files;
+- binary-safe temporary material;
+- cleanup after launch or terminal reconciliation;
+- protected full diagnostics and bounded public summaries;
+- explicit metadata showing which reference IDs were used without persisting their values.
+
+Permissive OpenSSL remains able to use literal environment values or command-line password options when the operator chooses. Reference delivery is the recommended path, not a forced limitation.
+
+Acceptance:
+
+- missing references fail before child launch;
+- secret values do not appear in public events or summaries when references are used;
+- temporary material is removed or conservatively reported for repair after crashes;
+- environment values reach local and remote OpenSSL unchanged.
+
+## R7 - Provider-Neutral Disposable-Host Acceptance Gate
+
+Goal: prove the complete contract on a disposable host before paid or workload-specific use.
+
+The generic suite must prove:
+
+- native endpoint access and capability discovery;
+- profile and execution-mode enforcement;
+- bounded and unrestricted transfers;
+- reviewed Bash, `sh`, Python 3, and PowerShell scripts;
+- unrestricted permissive root shell;
+- unrestricted local and remote OpenSSL profiles;
+- arbitrary OpenSSL provider/config/path/network arguments;
+- binary input/output and protected artifact publication;
+- execution longer than one hour;
+- service restart survival and remote reattachment;
+- absolute resource enforcement and permissive overrides;
+- exact verified process-tree cancellation;
+- durable result, report, return-loop, and cleanup evidence.
+
+Run the same provider-neutral contract against RunPod only after the generic suite passes. Core code and tests must contain no workload-specific or provider-specific behavior.
+
+## P2 - Local Agent and Product Expansion
+
+Begin after R7 unless a smaller supporting change is required by an earlier batch.
+
+### Project memory
+
+- consolidate static, run, artifact, decision, and job memory;
+- retrieve the latest durable task context without relying on ChatGPT conversation memory;
+- add retention and repair tools;
+- keep memory writes auditable and repository-scoped.
+
+### Local model
+
+- summarise logs and failures;
+- compress context;
+- select likely files;
+- draft plans and reports;
+- route tasks without making unrestricted engineering decisions silently;
+- remain optional when Ollama is unavailable.
+
+### Supervisor and workflow improvements
+
+- local diagnosis before any coding escalation;
+- reusable execution and OpenSSL steps;
+- durable pause/resume and needs-input packets;
+- improved recovery reports;
+- no Codex dependency while Codex remains disabled.
+
+### Optional local coding
+
+- use managed patch preview/apply only after G0;
+- start with small, low-risk changes;
+- require diff, validation, rollback identity, and commit evidence;
+- expand scope only from proven acceptance data.
+
+### Dashboard
+
+- preserve visibility-first design;
+- add executable-profile and remote-controller state;
+- show protected-artifact references without exposing their contents;
+- add write controls only after execution gates are complete.
+
+### Codex re-enable path
+
+Codex may be re-enabled later as an optional coding escalation only after an explicit operator decision. Re-enabling requires config validation, process-launch tests, and confirmation that local orchestration remains the default. No current batch depends on it.
+
+## Validation Policy
+
+For code batches:
+
+1. run the smallest affected tests first;
+2. run adjacent integration tests;
+3. run `git diff --check`;
+4. run the full suite and `python -m pip check` at milestone exit gates or when shared runtime behavior changes materially;
+5. perform real Windows process tests for local durable execution;
+6. perform disposable-host tests for remote lifecycle behavior;
+7. commit each completed change locally;
+8. do not push without explicit instruction.
+
+For documentation-only batches:
+
+- inspect the exact diff;
+- run `git diff --check`;
+- confirm a clean worktree after the local commit;
+- do not run the full suite unless the documentation change affects generated/runtime behavior.
+
+## Program Exit Gates
+
+### Managed editing gate
+
+- mixed-line-ending files can be edited without unrelated churn;
+- preview/apply/revert restores exact hashes;
+- R2 server forwarding is complete.
+
+### Unrestricted OpenSSL gate
+
+- an explicitly enabled permissive profile exposes all OpenSSL-native commands and options without filtering;
+- arbitrary paths, environment, providers, config, engines, network targets, and binary I/O work within service-account permissions;
+- execution uses the configured absolute executable and `shell=False`;
+- durable lifecycle, cancellation, and protected artifacts remain correct.
+
+### Remote execution gate
+
+- registered permissive hosts support unrestricted root shell and unrestricted OpenSSL;
+- long execution survives bridge restart;
+- remote jobs are adopted from fresh authoritative state;
+- exact process groups and descendants can be cancelled;
+- transfer, resource, environment, publication, and cleanup evidence is complete.
+
+### Final control-plane gate
+
+- local operations, long jobs, remote jobs, and unrestricted executable profiles do not depend on Codex;
+- ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
+- dangerous capabilities are explicit, operator-enabled, auditable, and bounded only by their declared engineering and operating-system boundaries;
+- UI and local-model expansion do not outrun execution correctness.
