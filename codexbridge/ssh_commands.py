@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from base64 import b64encode
 from dataclasses import dataclass
+from hashlib import sha256
 import os
 import re
 import shlex
@@ -31,6 +32,21 @@ _PTY_EXIT_RE = re.compile(r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[
 _ROOT_EUID_MARKER = "__CODEXBRIDGE_ROOT_EUID__=0"
 _PAYLOAD_DELIMITER = "__CODEXBRIDGE_PAYLOAD__"
 _PAYLOAD_INTERPRETERS = frozenset({"bash", "sh", "python3"})
+_ROOT_PAYLOAD_REMOTE_COMMAND = (
+    'if [ "$(id -u)" -ne 0 ]; then '
+    "printf '%s\\n' 'CodexBridge root shell requires effective UID 0' >&2; "
+    "exit 126; fi; "
+    f"printf '%s\\n' '{_ROOT_EUID_MARKER}' >&2; "
+    "exec bash -s --"
+)
+_FIXED_PAYLOAD_REMOTE_COMMANDS = frozenset(
+    {
+        "exec bash -s --",
+        "exec sh -s --",
+        "exec python3 -",
+        _ROOT_PAYLOAD_REMOTE_COMMAND,
+    }
+)
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
     "cmd",
@@ -489,8 +505,8 @@ def build_ssh_payload_argv(
 ) -> list[str]:
     """Build hardened SSH argv for a fixed remote command that consumes stdin."""
 
-    if not remote_command or _CONTROL_OR_SHELL_META_RE.search(remote_command):
-        raise ValueError("SSH payload remote command is invalid")
+    if remote_command not in _FIXED_PAYLOAD_REMOTE_COMMANDS:
+        raise ValueError("SSH payload remote command is not a fixed launch envelope")
     host = resolve_ssh_host(config, host_id)
     connection = resolve_ssh_connection(host)
     executable = resolve_ssh_executable(config)
@@ -555,7 +571,7 @@ def _forced_pty_payload_envelope(
 ) -> tuple[str, str, str]:
     encoded, wrapped = _encoded_payload(payload)
     _, file_command = _payload_interpreter_commands(interpreter)
-    lines = ["stty -echo 2>/dev/null || true"]
+    lines = ["stty -echo 2>/dev/null || exit 125"]
     if root_required:
         lines.extend(
             [
@@ -616,24 +632,28 @@ def run_ssh_payload(
     interpreter: str,
     payload: str,
     *,
+    payload_sha256: str,
     timeout_seconds: int,
+    writes_remote: bool,
     root_required: bool = False,
 ) -> dict:
-    """Execute an exact payload through SSH stdin without exposing it in argv."""
+    """Execute an exact hash-pinned payload through SSH stdin."""
 
+    payload_bytes = payload.encode("utf-8")
+    if sha256(payload_bytes).hexdigest() != payload_sha256:
+        raise ValueError("SSH payload SHA-256 does not match its content")
     host = resolve_ssh_host(config, host_id)
     stdin_command, _ = _payload_interpreter_commands(interpreter)
     if root_required:
-        stdin_command = (
-            'if [ "$(id -u)" -ne 0 ]; then '
-            "printf '%s\\n' 'CodexBridge root shell requires effective UID 0' >&2; "
-            "exit 126; fi; "
-            f"printf '%s\\n' '{_ROOT_EUID_MARKER}' >&2; "
-            "exec bash -s --"
-        )
+        stdin_command = _ROOT_PAYLOAD_REMOTE_COMMAND
     built_argv = build_ssh_payload_argv(config, host_id, stdin_command)
     force_pty = requires_forced_pty(host, built_argv[-2])
     encoded, wrapped = _encoded_payload(payload)
+    safe_label = (
+        "<root shell via stdin>"
+        if root_required
+        else "<reviewed script via stdin>"
+    )
     if force_pty:
         argv = built_argv[:-1]
         stdin_text, encoded, wrapped = _forced_pty_payload_envelope(
@@ -642,10 +662,12 @@ def run_ssh_payload(
             root_required=root_required,
         )
         expect_exit_marker = True
+        safe_argv = [*argv, safe_label]
     else:
         argv = built_argv
         stdin_text = payload
         expect_exit_marker = False
+        safe_argv = [*argv[:-1], safe_label]
     result = _run_ssh_argv(
         argv,
         cwd=config.config_dir,
@@ -656,26 +678,32 @@ def run_ssh_payload(
     )
     stdout = _redact_payload_echo(str(result.get("stdout", "")), payload, encoded, wrapped)
     stderr = _redact_payload_echo(str(result.get("stderr", "")), payload, encoded, wrapped)
+    error = _redact_payload_echo(str(result.get("error", "")), payload, encoded, wrapped)
     stdout, root_stdout = _strip_root_marker(stdout)
     stderr, root_stderr = _strip_root_marker(stderr)
+    error, _ = _strip_root_marker(error)
     root_identity_verified = root_stdout or root_stderr
     result["stdout"] = stdout
     result["stderr"] = stderr
-    result["error"] = _redact_payload_echo(
-        str(result.get("error", "")), payload, encoded, wrapped
-    )
+    result["error"] = error.strip()
     if root_required and not root_identity_verified and result.get("ok"):
         result["ok"] = False
         result["exit_code"] = 1
         result["error"] = "Remote root identity could not be verified"
-    label = "root shell" if root_required else "reviewed script"
-    result["argv"] = [*argv, f"<{label} via stdin>"]
+    elif not result.get("ok") and not result["error"]:
+        result["error"] = (
+            f"Timed out after {timeout_seconds}s"
+            if result.get("timed_out")
+            else f"Remote command exited with code {int(result.get('exit_code', 1))}"
+        )
+    result["argv"] = safe_argv
     result.update(
         {
             "host_id": validate_ssh_host_id(host_id),
             "ssh_alias": built_argv[-2],
             "interpreter": interpreter,
-            "writes_remote": True,
+            "payload_sha256": payload_sha256,
+            "writes_remote": bool(writes_remote),
             "remote_state_verified": False,
             "root_identity_verified": root_identity_verified,
         }

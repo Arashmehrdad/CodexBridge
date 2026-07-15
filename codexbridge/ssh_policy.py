@@ -38,7 +38,7 @@ AUTONOMY_PROFILES = CANONICAL_AUTONOMY_PROFILES
 SSH_POLICY_MATRIX = SSH_EXECUTION_POLICY_MATRIX
 
 IMPLEMENTED_SSH_EXECUTION_MODES = frozenset({"structured"})
-REVIEWED_SCRIPT_SCAFFOLD_MODES = frozenset({"reviewed_script"})
+REVIEWED_SCRIPT_GATEWAY_MODES = frozenset({"reviewed_script"})
 ROOT_SHELL_GATEWAY_MODES = frozenset({"root_shell"})
 
 
@@ -277,9 +277,9 @@ def authorize_ssh_reviewed_script_launch(
     writes_remote: bool,
     high_risk: bool,
     model_approval_granted: bool = False,
-    implemented_modes: Collection[str] = REVIEWED_SCRIPT_SCAFFOLD_MODES,
+    implemented_modes: Collection[str] = REVIEWED_SCRIPT_GATEWAY_MODES,
 ) -> SSHActionAuthorizationResult:
-    """Authorize reviewed-script scaffolding through model-driven policy only.
+    """Authorize reviewed-script execution through model-driven policy only.
 
     The caller persists ``high_risk`` as classification metadata. For this
     launch path it escalates to the model-controlled T4 tier rather than the
@@ -305,6 +305,8 @@ def authorize_ssh_root_shell_launch(
     *,
     autonomy_profile: str,
     execution_mode: str,
+    model_approval_granted: bool = False,
+    human_approval_granted: bool = False,
     implemented_modes: Collection[str] = ROOT_SHELL_GATEWAY_MODES,
 ) -> SSHActionAuthorizationResult:
     """Authorize the dedicated permissive root-shell gateway without approval gates."""
@@ -314,6 +316,8 @@ def authorize_ssh_root_shell_launch(
             "SSH root shell requires autonomy_profile='permissive' and "
             "execution_mode='root_shell'"
         )
+    if model_approval_granted or human_approval_granted:
+        raise ValueError("Permissive SSH root shell does not accept approval evidence")
     return authorize_ssh_action_launch(
         autonomy_profile=autonomy_profile,
         execution_mode=execution_mode,

@@ -51,7 +51,11 @@ from .safety import (
     validate_repo_relative_path,
     validate_repo_relative_paths,
 )
-from .ssh_commands import resolve_ssh_command_profile, resolve_ssh_host
+from .ssh_commands import (
+    resolve_ssh_command_profile,
+    resolve_ssh_connection,
+    resolve_ssh_host,
+)
 from .ssh_policy import (
     SSHActionAuthorizationResult,
     authorize_ssh_action_launch,
@@ -852,7 +856,8 @@ class JobManager:
                 "execution_mode": execution_mode,
             }
         )
-        resolve_ssh_host(self.config, request.host_id)
+        host = resolve_ssh_host(self.config, request.host_id)
+        resolve_ssh_connection(host)
         policy = authorize_ssh_reviewed_script_launch(
             autonomy_profile=request.autonomy_profile,
             execution_mode=request.execution_mode,
@@ -917,7 +922,8 @@ class JobManager:
                 "execution_mode": execution_mode,
             }
         )
-        resolve_ssh_host(self.config, request.host_id)
+        host = resolve_ssh_host(self.config, request.host_id)
+        resolve_ssh_connection(host)
         policy = authorize_ssh_root_shell_launch(
             autonomy_profile=request.autonomy_profile,
             execution_mode=request.execution_mode,

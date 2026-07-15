@@ -1236,7 +1236,9 @@ class JobWorker:
                     request.host_id,
                     request.interpreter,
                     request.script,
+                    payload_sha256=request.script_sha256,
                     timeout_seconds=request.timeout_seconds,
+                    writes_remote=request.writes_remote,
                 )
             )
         )
@@ -1317,7 +1319,9 @@ class JobWorker:
                     request.host_id,
                     "bash",
                     request.script,
+                    payload_sha256=request.script_sha256,
                     timeout_seconds=request.timeout_seconds,
+                    writes_remote=True,
                     root_required=True,
                 )
             )
