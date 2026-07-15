@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from dataclasses import dataclass
 import os
 import re
@@ -27,6 +28,9 @@ _CONNECTION_COMMAND_RE = re.compile(
 _CONTROL_OR_SHELL_META_RE = re.compile(r"[\x00-\x1f\x7f]")
 _PTY_EXIT_MARKER = "__CODEXBRIDGE_REMOTE_EXIT__="
 _PTY_EXIT_RE = re.compile(r"[\r\n]+__CODEXBRIDGE_REMOTE_EXIT__=(?P<code>[0-9]+)[\r\n]+")
+_ROOT_EUID_MARKER = "__CODEXBRIDGE_ROOT_EUID__=0"
+_PAYLOAD_DELIMITER = "__CODEXBRIDGE_PAYLOAD__"
+_PAYLOAD_INTERPRETERS = frozenset({"bash", "sh", "python3"})
 _BLOCKED_REMOTE_LAUNCHERS = {
     "bash",
     "cmd",
@@ -400,6 +404,7 @@ def _run_ssh_argv(
     timeout_seconds: int,
     output_limit: int,
     stdin_text: str | None = None,
+    expect_exit_marker: bool | None = None,
 ) -> dict:
     started = time.monotonic()
     timed_out = False
@@ -439,7 +444,9 @@ def _run_ssh_argv(
         stdout = ""
         stderr = str(exc)
         exit_code = 1
-    if stdin_text is not None and not timed_out:
+    if expect_exit_marker is None:
+        expect_exit_marker = stdin_text is not None
+    if expect_exit_marker and not timed_out:
         matches = list(_PTY_EXIT_RE.finditer(stdout))
         if matches:
             marker = matches[-1]
@@ -473,6 +480,207 @@ def _run_ssh_argv(
             )
         ),
     }
+
+
+def build_ssh_payload_argv(
+    config: AppConfig,
+    host_id: str,
+    remote_command: str,
+) -> list[str]:
+    """Build hardened SSH argv for a fixed remote command that consumes stdin."""
+
+    if not remote_command or _CONTROL_OR_SHELL_META_RE.search(remote_command):
+        raise ValueError("SSH payload remote command is invalid")
+    host = resolve_ssh_host(config, host_id)
+    connection = resolve_ssh_connection(host)
+    executable = resolve_ssh_executable(config)
+    strict_host_key_checking = (
+        "accept-new" if connection.mode == "connection_file" else "yes"
+    )
+    force_pty = requires_forced_pty(host, connection.destination)
+    return [
+        executable,
+        "-tt" if force_pty else "-T",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        f"StrictHostKeyChecking={strict_host_key_checking}",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "KbdInteractiveAuthentication=no",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "ClearAllForwardings=yes",
+        "-o",
+        "PermitLocalCommand=no",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
+        "-o",
+        "ControlPersist=no",
+        "-o",
+        "ConnectionAttempts=1",
+        "-o",
+        f"ConnectTimeout={host.connect_timeout_seconds}",
+        *build_ssh_connection_options(host, connection=connection),
+        connection.destination,
+        remote_command,
+    ]
+
+
+def _payload_interpreter_commands(interpreter: str) -> tuple[str, str]:
+    if interpreter not in _PAYLOAD_INTERPRETERS:
+        raise ValueError(f"Unsupported SSH payload interpreter: {interpreter!r}")
+    if interpreter == "python3":
+        return "exec python3 -", 'python3 "$__codexbridge_payload"'
+    return f"exec {interpreter} -s --", f'{interpreter} "$__codexbridge_payload"'
+
+
+def _encoded_payload(payload: str) -> tuple[str, str]:
+    encoded = b64encode(payload.encode("utf-8")).decode("ascii")
+    wrapped = "\n".join(encoded[index : index + 76] for index in range(0, len(encoded), 76))
+    return encoded, wrapped
+
+
+def _forced_pty_payload_envelope(
+    payload: str,
+    interpreter: str,
+    *,
+    root_required: bool,
+) -> tuple[str, str, str]:
+    encoded, wrapped = _encoded_payload(payload)
+    _, file_command = _payload_interpreter_commands(interpreter)
+    lines = ["stty -echo 2>/dev/null || true"]
+    if root_required:
+        lines.extend(
+            [
+                'if [ "$(id -u)" -ne 0 ]; then',
+                "  printf '%s\\n' 'CodexBridge root shell requires effective UID 0' >&2",
+                "  exit 126",
+                "fi",
+                f"printf '%s\\n' '{_ROOT_EUID_MARKER}' >&2",
+            ]
+        )
+    lines.extend(
+        [
+            "__codexbridge_payload=$(mktemp) || exit 125",
+            "trap 'rm -f -- \"$__codexbridge_payload\"' EXIT HUP INT TERM",
+            f"if ! base64 -d > \"$__codexbridge_payload\" <<'{_PAYLOAD_DELIMITER}'",
+            wrapped,
+            _PAYLOAD_DELIMITER,
+            "then",
+            "  exit 125",
+            "fi",
+            'chmod 600 "$__codexbridge_payload"',
+            file_command,
+            "__codexbridge_status=$?",
+            'rm -f -- "$__codexbridge_payload"',
+            "trap - EXIT HUP INT TERM",
+            f"printf '\\n{_PTY_EXIT_MARKER}%s\\n' \"$__codexbridge_status\"",
+            'exit "$__codexbridge_status"',
+        ]
+    )
+    return "\n".join(lines) + "\n", encoded, wrapped
+
+
+def _redact_payload_echo(text: str, payload: str, encoded: str, wrapped: str) -> str:
+    redacted = text
+    candidates = {
+        payload,
+        payload.replace("\n", "\r\n"),
+        encoded,
+        wrapped,
+        wrapped.replace("\n", "\r\n"),
+    }
+    for candidate in sorted((item for item in candidates if item), key=len, reverse=True):
+        redacted = redacted.replace(candidate, "[REDACTED]")
+    return redacted
+
+
+def _strip_root_marker(text: str) -> tuple[str, bool]:
+    verified = _ROOT_EUID_MARKER in text
+    cleaned = text.replace(f"{_ROOT_EUID_MARKER}\r\n", "")
+    cleaned = cleaned.replace(f"{_ROOT_EUID_MARKER}\n", "")
+    cleaned = cleaned.replace(_ROOT_EUID_MARKER, "")
+    return cleaned, verified
+
+
+def run_ssh_payload(
+    config: AppConfig,
+    host_id: str,
+    interpreter: str,
+    payload: str,
+    *,
+    timeout_seconds: int,
+    root_required: bool = False,
+) -> dict:
+    """Execute an exact payload through SSH stdin without exposing it in argv."""
+
+    host = resolve_ssh_host(config, host_id)
+    stdin_command, _ = _payload_interpreter_commands(interpreter)
+    if root_required:
+        stdin_command = (
+            'if [ "$(id -u)" -ne 0 ]; then '
+            "printf '%s\\n' 'CodexBridge root shell requires effective UID 0' >&2; "
+            "exit 126; fi; "
+            f"printf '%s\\n' '{_ROOT_EUID_MARKER}' >&2; "
+            "exec bash -s --"
+        )
+    built_argv = build_ssh_payload_argv(config, host_id, stdin_command)
+    force_pty = requires_forced_pty(host, built_argv[-2])
+    encoded, wrapped = _encoded_payload(payload)
+    if force_pty:
+        argv = built_argv[:-1]
+        stdin_text, encoded, wrapped = _forced_pty_payload_envelope(
+            payload,
+            interpreter,
+            root_required=root_required,
+        )
+        expect_exit_marker = True
+    else:
+        argv = built_argv
+        stdin_text = payload
+        expect_exit_marker = False
+    result = _run_ssh_argv(
+        argv,
+        cwd=config.config_dir,
+        timeout_seconds=timeout_seconds,
+        output_limit=config.ssh.max_output_bytes,
+        stdin_text=stdin_text,
+        expect_exit_marker=expect_exit_marker,
+    )
+    stdout = _redact_payload_echo(str(result.get("stdout", "")), payload, encoded, wrapped)
+    stderr = _redact_payload_echo(str(result.get("stderr", "")), payload, encoded, wrapped)
+    stdout, root_stdout = _strip_root_marker(stdout)
+    stderr, root_stderr = _strip_root_marker(stderr)
+    root_identity_verified = root_stdout or root_stderr
+    result["stdout"] = stdout
+    result["stderr"] = stderr
+    result["error"] = _redact_payload_echo(
+        str(result.get("error", "")), payload, encoded, wrapped
+    )
+    if root_required and not root_identity_verified and result.get("ok"):
+        result["ok"] = False
+        result["exit_code"] = 1
+        result["error"] = "Remote root identity could not be verified"
+    label = "root shell" if root_required else "reviewed script"
+    result["argv"] = [*argv, f"<{label} via stdin>"]
+    result.update(
+        {
+            "host_id": validate_ssh_host_id(host_id),
+            "ssh_alias": built_argv[-2],
+            "interpreter": interpreter,
+            "writes_remote": True,
+            "remote_state_verified": False,
+            "root_identity_verified": root_identity_verified,
+        }
+    )
+    return result
 
 
 def run_ssh_command(config: AppConfig, host_id: str, command_id: str) -> dict:

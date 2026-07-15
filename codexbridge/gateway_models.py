@@ -674,6 +674,60 @@ def validate_reviewed_ssh_script_request(
         ) from None
 
 
+class SSHRootShellAction(SSHExecutionPolicyGatewayRequest):
+    """Hash-pinned unrestricted shell request available only to permissive mode."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    action: Literal["root_shell"]
+    execution_mode: Literal["root_shell"] = "root_shell"
+    autonomy_profile: Literal["permissive"] = "permissive"
+    host_id: str = Field(min_length=1, max_length=128)
+    script: str = Field(min_length=1, max_length=MAX_REVIEWED_SSH_SCRIPT_BYTES)
+    script_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    timeout_seconds: int = Field(default=3600, ge=1, le=86_400)
+    writes_remote: Literal[True] = True
+    high_risk: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_root_shell(self) -> "SSHRootShellAction":
+        if not self.script.strip():
+            raise ValueError("SSH root shell script must contain non-whitespace content")
+        script_bytes = self.script.encode("utf-8")
+        if b"\x00" in script_bytes:
+            raise ValueError("SSH root shell script must not contain NUL bytes")
+        if len(script_bytes) > MAX_REVIEWED_SSH_SCRIPT_BYTES:
+            raise ValueError("SSH root shell script exceeds the maximum UTF-8 byte length")
+        if sha256(script_bytes).hexdigest() != self.script_sha256:
+            raise ValueError("SSH root shell script SHA-256 does not match its content")
+        policy = evaluate_ssh_policy(
+            SSHPolicyRequest(
+                autonomy_profile=self.autonomy_profile,
+                execution_mode=self.execution_mode,
+            )
+        )
+        if not policy.allowed:
+            raise ValueError("SSH root shell policy denied the requested profile")
+        return self
+
+
+def validate_root_ssh_shell_request(payload: dict[str, Any]) -> SSHRootShellAction:
+    """Run the shared root-shell validator without echoing script content."""
+
+    try:
+        return SSHRootShellAction.model_validate(payload)
+    except ValidationError as exc:
+        messages = "; ".join(
+            str(error.get("msg", "invalid value"))
+            for error in exc.errors(include_input=False)
+        )
+        raise ValueError(f"Invalid SSH root shell request: {messages}") from None
+
+
 class SSHProfilePreviewQuery(GatewayModel):
     operation: Literal["profile_preview"]
     action: str = Field(min_length=1, max_length=128)
@@ -742,11 +796,10 @@ class SSHDeploymentAction(SSHStructuredExecutionGatewayRequest):
     confirmation: str = Field(min_length=1, max_length=128)
 
 
-# The reviewed-script variant is public, but its worker path remains a
-# validation-only scaffold until a real executor is implemented.
 SSHActionRequest = Annotated[
     SSHProfileApplyAction | SSHCommandAction | SSHReviewedScriptAction
-    | SSHAdministrationAction | SSHTransferAction | SSHDeploymentAction,
+    | SSHRootShellAction | SSHAdministrationAction | SSHTransferAction
+    | SSHDeploymentAction,
     Field(discriminator="action"),
 ]
 

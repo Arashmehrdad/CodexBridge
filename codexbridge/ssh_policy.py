@@ -39,6 +39,7 @@ SSH_POLICY_MATRIX = SSH_EXECUTION_POLICY_MATRIX
 
 IMPLEMENTED_SSH_EXECUTION_MODES = frozenset({"structured"})
 REVIEWED_SCRIPT_SCAFFOLD_MODES = frozenset({"reviewed_script"})
+ROOT_SHELL_GATEWAY_MODES = frozenset({"root_shell"})
 
 
 class SSHPolicyRequest(BaseModel):
@@ -295,6 +296,30 @@ def authorize_ssh_reviewed_script_launch(
         writes_remote=writes_remote or high_risk,
         high_risk=False,
         chatgpt_approval_granted=model_approval_granted,
+        human_approval_granted=False,
+        implemented_modes=implemented_modes,
+    )
+
+
+def authorize_ssh_root_shell_launch(
+    *,
+    autonomy_profile: str,
+    execution_mode: str,
+    implemented_modes: Collection[str] = ROOT_SHELL_GATEWAY_MODES,
+) -> SSHActionAuthorizationResult:
+    """Authorize the dedicated permissive root-shell gateway without approval gates."""
+
+    if autonomy_profile != "permissive" or execution_mode != "root_shell":
+        raise ValueError(
+            "SSH root shell requires autonomy_profile='permissive' and "
+            "execution_mode='root_shell'"
+        )
+    return authorize_ssh_action_launch(
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
+        writes_remote=True,
+        high_risk=False,
+        chatgpt_approval_granted=False,
         human_approval_granted=False,
         implemented_modes=implemented_modes,
     )
