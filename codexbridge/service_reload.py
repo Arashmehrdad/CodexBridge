@@ -175,12 +175,21 @@ def _rebind_server_ssh_helpers() -> None:
         )
 
 
+def _rebind_server_job_manager() -> None:
+    server_module = sys.modules.get("codexbridge.server")
+    job_manager_module = sys.modules.get("codexbridge.job_manager")
+    if server_module is None or job_manager_module is None:
+        return
+    server_module.JobManager = job_manager_module.JobManager
+
+
 RELOADABLE_MODULES = {
     "codexbridge.capabilities",
     "codexbridge.command_profiles",
     "codexbridge.config",
     "codexbridge.git_tools",
     "codexbridge.external_fixtures",
+    "codexbridge.job_manager",
     "codexbridge.managed_artifacts",
     "codexbridge.operation_locks",
     "codexbridge.prompts",
@@ -241,6 +250,8 @@ def reload_service(
             "codexbridge.ssh_tools",
         }:
             _rebind_server_ssh_helpers()
+        if qualified == "codexbridge.job_manager":
+            _rebind_server_job_manager()
         reloaded.append(qualified)
 
     if validated_config is not None:

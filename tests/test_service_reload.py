@@ -48,6 +48,7 @@ def test_reload_service_rebinds_server_ssh_helpers(
         encoding="utf-8",
     )
     fake_server = SimpleNamespace(
+        JobManager=object(),
         _list_ssh_capabilities=object(),
         _ssh_host_health=object(),
         _enrich_ssh_capabilities=object(),
@@ -63,11 +64,12 @@ def test_reload_service_rebinds_server_ssh_helpers(
 
     result = reload_service(
         config_path,
-        modules=["ssh_commands", "ssh_tools"],
+        modules=["ssh_commands", "ssh_tools", "job_manager"],
     )
 
     commands_module = sys.modules["codexbridge.ssh_commands"]
     tools_module = sys.modules["codexbridge.ssh_tools"]
+    job_manager_module = sys.modules["codexbridge.job_manager"]
     assert result["ok"] is True
     assert result["restart_required"] == []
     assert fake_server._list_ssh_capabilities is commands_module.list_ssh_capabilities
@@ -78,6 +80,7 @@ def test_reload_service_rebinds_server_ssh_helpers(
     )
     assert fake_server._run_ssh_gpu_telemetry is tools_module.run_ssh_gpu_telemetry
     assert fake_server._run_ssh_inspection is tools_module.run_ssh_inspection
+    assert fake_server.JobManager is job_manager_module.JobManager
 
 
 def test_reload_binding_covers_python_module_main_server(monkeypatch) -> None:
