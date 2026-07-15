@@ -282,6 +282,14 @@ At the end of each Codex task, report:
 - known limitations
 - recommended next batch
 
+## Documentation-Only Validation Rule
+
+For prose-only changes such as `PLANS.md`, `AGENTS.md`, README files, roadmap/status notes, and other documentation that does not directly drive generated or runtime behavior:
+
+- Never run the full test suite, `pip check`, or any other long-running validation unless Arash explicitly requests it.
+- Use only proportionate checks: review the scoped diff, run `git diff --check`, verify that only the intended documentation files changed, commit those files, and confirm a clean worktree.
+- Prefer the fastest sufficient validation and do not spend minutes validating an ordinary documentation edit.
+
 ## Maintenance Rule
 
 When the user corrects a recurring project rule, update `AGENTS.md` so future Codex sessions inherit the correction.
