@@ -129,11 +129,12 @@ Status: **in progress**.
 
 Checkpoint (2026-07-15):
 
-- Exact-text managed edits now preserve existing line-ending bytes by default, including intentionally mixed files.
-- Callers may explicitly set `preserve_newlines: false` only when legacy normalization is intended.
-- Focused repository-writer coverage passed: `83 passed`.
-- Full repository validation passed: `1044 passed, 1 skipped`; `python -m pip check`, `py_compile`, and `git diff --check` also passed.
-- Remaining G0 work: byte-safe `line_range`, `unified_diff`, and `python_ast` operations, newline-only churn reporting/rejection, and exact apply/revert hash acceptance against `server.py`.
+- Exact-text managed edits preserve existing line-ending bytes by default, including intentionally mixed files.
+- Line-range edits now also preserve untouched bytes by default and use the replaced region's newline style for replacement text.
+- Callers may explicitly set `preserve_newlines: false` only when legacy whole-file normalization is intended; the public patch schema now exposes this control.
+- Latest focused validation: `tests/test_repo_writer.py` 85 passed; `tests/test_capabilities.py` 5 passed; changed modules passed `py_compile`; `git diff --check` passed.
+- Earlier G0 validation remains: full repository suite `1044 passed, 1 skipped`; `python -m pip check`, `py_compile`, and `git diff --check` passed.
+- Remaining G0 work: byte-safe `unified_diff` and `python_ast` operations, newline-only churn reporting/rejection, and exact apply/revert hash acceptance against `server.py`.
 
 Goal: managed edits must change only the requested bytes or syntax region, including files with mixed line endings.
 
