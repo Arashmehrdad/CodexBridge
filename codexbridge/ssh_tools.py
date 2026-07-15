@@ -34,6 +34,8 @@ from .ssh_commands import (
 from .ssh_policy import (
     CANONICAL_AUTONOMY_PROFILES,
     IMPLEMENTED_SSH_EXECUTION_MODES,
+    REVIEWED_SCRIPT_GATEWAY_MODES,
+    ROOT_SHELL_GATEWAY_MODES,
     SSH_EXECUTION_POLICY_MATRIX,
 )
 from .ssh_probes import (
@@ -1207,7 +1209,11 @@ def enrich_ssh_capabilities(
         {
             "execution_mode": execution_mode,
             "allowed_autonomy_profiles": sorted(allowed_profiles),
-            "implemented": execution_mode in IMPLEMENTED_SSH_EXECUTION_MODES,
+            "implemented": (
+                execution_mode in IMPLEMENTED_SSH_EXECUTION_MODES
+                or execution_mode in REVIEWED_SCRIPT_GATEWAY_MODES
+                or execution_mode in ROOT_SHELL_GATEWAY_MODES
+            ),
         }
         for execution_mode, allowed_profiles in SSH_EXECUTION_POLICY_MATRIX.items()
     ]

@@ -568,9 +568,9 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
         "balanced",
         "permissive",
     ]
-    assert modes["reviewed_script"]["implemented"] is False
+    assert modes["reviewed_script"]["implemented"] is True
     assert modes["root_shell"]["allowed_autonomy_profiles"] == ["permissive"]
-    assert modes["root_shell"]["implemented"] is False
+    assert modes["root_shell"]["implemented"] is True
     assert result["hosts"][0]["deployments"][0]["deployment_id"] == ("sample_deploy")
     assert result["structured_probes"] == ["environment", "gpu_telemetry"]
     assert result["hosts"][0]["watchdog"]["enforcement_mode"] == "observe_only"
