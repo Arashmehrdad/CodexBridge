@@ -424,17 +424,23 @@ def test_capability_listing_exposes_metadata_not_remote_argv(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("interpreter", "remote_command"),
+    ("interpreter", "arguments", "remote_command"),
     [
-        ("bash", "exec bash -s --"),
-        ("sh", "exec sh -s --"),
-        ("python3", "exec python3 -"),
+        ("bash", ["--mode", "safe value"], "exec bash -s -- --mode 'safe value'"),
+        ("sh", ["--mode", "safe value"], "exec sh -s -- --mode 'safe value'"),
+        ("python3", ["--mode", "safe value"], "exec python3 - --mode 'safe value'"),
+        (
+            "pwsh",
+            ["--mode", "safe value"],
+            "exec pwsh -NoLogo -NoProfile -NonInteractive -File - --mode 'safe value'",
+        ),
     ],
 )
 def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
     tmp_path: Path,
     monkeypatch,
     interpreter: str,
+    arguments: list[str],
     remote_command: str,
 ) -> None:
     config = make_config(tmp_path)
@@ -456,6 +462,7 @@ def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
         interpreter,
         payload,
         payload_sha256=digest,
+        arguments=arguments,
         timeout_seconds=30,
         writes_remote=False,
     )
@@ -468,6 +475,7 @@ def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
     assert result["argv"][-2:] == ["my-vps", "<reviewed script via stdin>"]
     assert payload not in " ".join(result["argv"])
     assert result["payload_sha256"] == digest
+    assert result["arguments"] == arguments
     assert result["writes_remote"] is False
     assert result["stdout"] == "payload finished\n"
 

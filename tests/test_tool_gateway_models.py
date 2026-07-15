@@ -28,6 +28,9 @@ from codexbridge.gateway_models import (
     SSHReviewedScriptAction,
     SSHRootShellAction,
     MAX_REVIEWED_SSH_SCRIPT_BYTES,
+    MAX_REVIEWED_SSH_SCRIPT_ARGS,
+    MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES,
+    MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
     WorkflowActionRequest,
@@ -352,7 +355,8 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
         {
             "action": "reviewed_script",
             "host_id": "dev",
-            "interpreter": "bash",
+            "interpreter": "pwsh",
+            "arguments": ["--mode", "safe value"],
             "script": script,
             "script_sha256": digest,
             "autonomy_profile": "balanced",
@@ -360,6 +364,8 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
     )
     assert request.execution_mode == "reviewed_script"
     assert request.script_sha256 == digest
+    assert request.interpreter == "pwsh"
+    assert request.arguments == ["--mode", "safe value"]
     assert request.writes_remote is True
     assert request.high_risk is False
 
@@ -400,6 +406,46 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
                     oversized_script.encode("utf-8")
                 ).hexdigest(),
             }
+        )
+
+
+def test_reviewed_script_arguments_are_bounded_and_control_free() -> None:
+    script = "uptime\n"
+    base = {
+        "action": "reviewed_script",
+        "host_id": "dev",
+        "interpreter": "bash",
+        "script": script,
+        "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
+        "autonomy_profile": "balanced",
+    }
+
+    with pytest.raises(ValidationError, match="control characters"):
+        SSHReviewedScriptAction.model_validate(
+            {**base, "arguments": ["safe", "bad\x00value"]}
+        )
+
+    oversized_argument = "é" * ((MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES // 2) + 1)
+    with pytest.raises(ValidationError, match="argument exceeds"):
+        SSHReviewedScriptAction.model_validate(
+            {**base, "arguments": [oversized_argument]}
+        )
+
+    aggregate_arguments = [
+        "x" * MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES
+        for _ in range(
+            (MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES // MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES)
+            + 1
+        )
+    ]
+    with pytest.raises(ValidationError, match="aggregate"):
+        SSHReviewedScriptAction.model_validate(
+            {**base, "arguments": aggregate_arguments}
+        )
+
+    with pytest.raises(ValidationError):
+        SSHReviewedScriptAction.model_validate(
+            {**base, "arguments": ["x"] * (MAX_REVIEWED_SSH_SCRIPT_ARGS + 1)}
         )
 
 
