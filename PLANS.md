@@ -290,7 +290,7 @@ Acceptance:
 
 Depends on X1 and X2. Remote durability features become available after R4.
 
-Goal: provide a Codex-like parallel execution primitive that starts multiple independent commands at the same time and returns control immediately instead of waiting for any command to finish.
+Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
 Public contract:
 
@@ -310,13 +310,14 @@ parallel_execution:
   enabled: true
   autonomy_profile: permissive
   default_mode: all_at_once
-  max_parallel: null
+  max_concurrent_powershell: null
   return_after: launch_accepted
   repository_lock_policy: caller_selected
 ```
 
-- `max_parallel: null` means CodexBridge imposes no product-level concurrency cap and attempts to launch every accepted child immediately; operating-system, account, memory, process, network, and remote-host limits remain effective.
-- An optional integer `max_parallel` may be supplied for a specific group when the operator wants bounded fan-out.
+- `max_concurrent_powershell: null` means CodexBridge imposes no product-level cap on how many unrestricted PowerShell processes may be open concurrently and attempts to launch every accepted child immediately; operating-system, account, memory, process, network, and remote-host limits remain effective.
+- An optional integer `max_concurrent_powershell` sets the maximum number of simultaneously open unrestricted PowerShell processes. Additional accepted children remain durably pending until a process slot becomes available.
+- A command group may request a lower per-group concurrency value, but it may not silently exceed a configured global limit unless the global value is `null`.
 - `repository_lock_policy: none` allows commands to run concurrently against the same repository or directory, accepting race and corruption risk.
 - `repository_lock_policy: exclusive` retains the existing repository ownership behavior where required.
 - `repository_lock_policy: per_child` allows independent locks or lock-free children to be mixed in one group.
@@ -339,14 +340,15 @@ The implementation must use independent durable child runs rather than relying s
 
 Acceptance:
 
-- a group of at least eight commands receives eight reserved child IDs before launch completion;
-- all children enter `launch_pending` or `running` without waiting for the first child to finish;
+- with `max_concurrent_powershell: 8`, eight independent unrestricted PowerShell processes can be opened concurrently and receive eight reserved child IDs before launch completion;
+- when more than eight children are accepted under that configuration, excess children remain durably pending and launch as process slots become available;
+- with `max_concurrent_powershell: null`, all accepted children enter `launch_pending` or `running` without waiting for the first child to finish;
 - the start call returns while slow children are still running;
 - children can run different arbitrary commands concurrently through independent unrestricted PowerShell processes;
 - one failing child does not stop successful siblings under `continue_all`;
 - individual and whole-group cancellation target exact verified process trees;
 - service restart adopts all surviving children without duplicate launch;
-- `max_parallel: null` demonstrates concurrent launch constrained only by the operating system;
+- `max_concurrent_powershell: null` demonstrates that the number of simultaneously open PowerShell processes is constrained only by the operating system and service account;
 - caller-selected lock-free execution can run multiple commands against the same working tree, with the accepted race risk recorded in durable metadata;
 - group status and final summary accurately report every child outcome and artifact reference.
 
@@ -691,7 +693,7 @@ For documentation-only batches:
 
 - one start request can durably reserve and launch multiple independent child commands concurrently;
 - the start response returns group and child IDs without waiting for any child to finish;
-- permissive `all_at_once` mode has no CodexBridge concurrency cap when `max_parallel` is null;
+- `max_concurrent_powershell` controls the number of simultaneously open unrestricted PowerShell processes, and a `null` value removes the CodexBridge product-level cap;
 - each child retains independent process identity, leases, output, artifacts, status, cancellation, and restart adoption;
 - group restart reconciliation does not duplicate surviving children;
 - group and individual cancellation target exact verified process trees;
