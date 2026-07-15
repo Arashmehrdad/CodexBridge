@@ -27,10 +27,11 @@ The immediate program is no longer feature expansion through increasingly narrow
 2. transition active execution development to the `permissive` profile only;
 3. add a generic operator-enabled unrestricted executable substrate;
 4. make unrestricted local PowerShell the primary engineering execution gateway;
-5. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
-6. migrate callers and remove redundant restricted execution tools after parity is proven;
-7. complete transfer, durable remote ownership, resource, environment, and acceptance work;
-8. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
+5. add durable fire-and-return parallel command groups that launch multiple independent commands concurrently;
+6. retain unrestricted OpenSSL as a direct, binary-safe specialist profile;
+7. migrate callers and remove redundant restricted execution tools after parity is proven;
+8. complete transfer, durable remote ownership, resource, environment, and acceptance work;
+9. return to local-model, memory, dashboard, and optional local-coding expansion only after execution correctness is proven.
 
 ## Governing Engineering Principles
 
@@ -272,6 +273,70 @@ Acceptance:
 - no per-command approval is requested after the profile is enabled;
 - no intermediate `cmd.exe` is created unless the submitted PowerShell command explicitly launches it.
 
+## X2A - Durable Parallel Command Fan-Out
+
+Depends on X1 and X2. Direct OpenSSL children become available after X3; remote children become available after R4 and X4.
+
+Goal: provide a Codex-like parallel execution primitive that starts multiple independent commands at the same time and returns control immediately instead of waiting for any command to finish.
+
+Public contract:
+
+- accept one command group containing multiple child command specifications;
+- support unrestricted PowerShell, direct executable, OpenSSL, root-shell, and eventually remote-controller children;
+- persist the parent group and reserve every child run ID before launching the first process;
+- launch every eligible child concurrently in `all_at_once` mode;
+- return the group ID and complete child run-ID list as soon as launch intents are durably accepted;
+- never wait for child completion in the start response;
+- expose separate status, output, events, result, retry, and cancellation operations for the group and each child;
+- publish an eventual aggregate group result without blocking the original launch request.
+
+Configuration and execution modes:
+
+```yaml
+parallel_execution:
+  enabled: true
+  autonomy_profile: permissive
+  default_mode: all_at_once
+  max_parallel: null
+  return_after: launch_accepted
+  repository_lock_policy: caller_selected
+```
+
+- `max_parallel: null` means CodexBridge imposes no product-level concurrency cap and attempts to launch every accepted child immediately; operating-system, account, memory, process, network, and remote-host limits remain effective.
+- An optional integer `max_parallel` may be supplied for a specific group when the operator wants bounded fan-out.
+- `repository_lock_policy: none` allows commands to run concurrently against the same repository or directory, accepting race and corruption risk.
+- `repository_lock_policy: exclusive` retains the existing repository ownership behavior where required.
+- `repository_lock_policy: per_child` allows independent locks or lock-free children to be mixed in one group.
+- There is no implicit ordering or dependency between children in `all_at_once` mode.
+
+Durability and lifecycle:
+
+- create a durable group launch intent before any child process is created;
+- assign each child an idempotency key, run ID, lease token, lease generation, and process identity;
+- track `pending`, `launch_pending`, `running`, `completed`, `failed`, `cancelled`, and `recovery_pending` independently per child;
+- track aggregate counts and group state without treating one child failure as implicit cancellation of the others;
+- support group policies `continue_all`, `cancel_remaining_on_failure`, and `cancel_group_on_request`, with `continue_all` as the permissive default;
+- survive CodexBridge restart by reconciling and adopting every verifiably active child independently;
+- prevent restart reconciliation from launching a duplicate child whose process or remote controller already exists;
+- allow cancellation of one child, all active children, or pending children only;
+- preserve independent stdout, stderr, transcripts, binary artifacts, and terminal results;
+- stream or query interleaved group events without merging child output into an ambiguous shared stream.
+
+The implementation must use independent durable child runs rather than relying solely on PowerShell background jobs inside one host process. A PowerShell child may itself create jobs or processes, but CodexBridge group ownership must remain outside that child so one host failure does not erase the state of the other commands.
+
+Acceptance:
+
+- a group of at least eight commands receives eight reserved child IDs before launch completion;
+- all children enter `launch_pending` or `running` without waiting for the first child to finish;
+- the start call returns while slow children are still running;
+- children can mix PowerShell and direct executable profiles;
+- one failing child does not stop successful siblings under `continue_all`;
+- individual and whole-group cancellation target exact verified process trees;
+- service restart adopts all surviving children without duplicate launch;
+- `max_parallel: null` demonstrates concurrent launch constrained only by the operating system;
+- caller-selected lock-free execution can run multiple commands against the same working tree, with the accepted race risk recorded in durable metadata;
+- group status and final summary accurately report every child outcome and artifact reference.
+
 ## X3 - Unrestricted Local OpenSSL Gateway
 
 Depends on X1. It may be implemented alongside or after X2 as a direct specialist profile.
@@ -323,7 +388,7 @@ Acceptance:
 
 ## C1 - Permissive-Only Migration and Tool Cleanup
 
-Depends on X2 and X3 acceptance. Cleanup must follow replacement, not precede it.
+Depends on X2, X2A, and X3 acceptance. Cleanup must follow replacement, not precede it.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
@@ -344,6 +409,7 @@ Retain these core controls even in permissive-only mode:
 - SSH transport, remote controller, transfer, and staging primitives;
 - protected artifacts, return-loop publication, and audit metadata;
 - workflows, supervisors, status, and recovery tooling;
+- durable parallel command groups and independent child-run controls;
 - direct PowerShell and OpenSSL executable profiles.
 
 Do not delete durable run history or protected evidence merely because its originating tool was removed. Add an explicit retention/cleanup policy instead.
@@ -355,7 +421,7 @@ Acceptance:
 - removed route names have no runtime call sites, schemas, tests, docs, or stale config fields;
 - configuration migration is deterministic and rollback-capable;
 - managed temporary artifacts from removed tools can be previewed and cleaned without deleting durable evidence;
-- full tests, `python -m pip check`, `git diff --check`, and live PowerShell/OpenSSL smoke tests pass after cleanup.
+- full tests, `python -m pip check`, `git diff --check`, and live PowerShell/OpenSSL/parallel-fan-out smoke tests pass after cleanup.
 
 ## R3 - Transfer Policy and Managed Staging
 
@@ -508,6 +574,8 @@ The generic suite must prove:
 - unrestricted transfers;
 - unrestricted local and remote PowerShell profiles;
 - arbitrary PowerShell command text, modules, paths, environment, child processes, and network operations;
+- fire-and-return parallel groups with multiple local and remote children launched concurrently;
+- restart adoption, individual cancellation, group cancellation, mixed outcomes, and aggregate reporting for parallel groups;
 - unrestricted permissive root shell;
 - unrestricted local and remote OpenSSL profiles;
 - arbitrary OpenSSL provider/config/path/network arguments;
@@ -544,7 +612,7 @@ Begin after R7 unless a smaller supporting change is required by an earlier batc
 ### Supervisor and workflow improvements
 
 - local diagnosis before any coding escalation;
-- reusable unrestricted PowerShell, direct executable, and OpenSSL steps;
+- reusable unrestricted PowerShell, direct executable, OpenSSL, and parallel fan-out steps;
 - durable pause/resume and needs-input packets;
 - improved recovery reports;
 - no Codex dependency while Codex remains disabled.
@@ -603,6 +671,17 @@ For documentation-only batches:
 - durable lifecycle, restart adoption, exact process-tree cancellation, transcripts, and protected artifacts remain correct;
 - no per-command approval is requested after enablement.
 
+### Parallel execution gate
+
+- one start request can durably reserve and launch multiple independent child commands concurrently;
+- the start response returns group and child IDs without waiting for any child to finish;
+- permissive `all_at_once` mode has no CodexBridge concurrency cap when `max_parallel` is null;
+- each child retains independent process identity, leases, output, artifacts, status, cancellation, and restart adoption;
+- group restart reconciliation does not duplicate surviving children;
+- group and individual cancellation target exact verified process trees;
+- lock-free same-repository execution is available when explicitly selected and its race risk is recorded;
+- aggregate status and final results preserve mixed child outcomes without obscuring individual evidence.
+
 ### Unrestricted OpenSSL gate
 
 - an explicitly enabled permissive profile exposes all OpenSSL-native commands and options without filtering;
@@ -631,5 +710,6 @@ For documentation-only batches:
 - local operations, long jobs, remote jobs, and unrestricted executable profiles do not depend on Codex;
 - only the permissive execution profile remains active;
 - ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
+- ChatGPT can launch multiple independent commands concurrently and receive control immediately with durable group and child IDs;
 - unrestricted capabilities are explicit, operator-enabled, auditable, and bounded by their declared engineering and operating-system boundaries rather than command allowlists;
 - UI and local-model expansion do not outrun execution correctness.
