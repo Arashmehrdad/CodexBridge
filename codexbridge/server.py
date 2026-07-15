@@ -1648,6 +1648,35 @@ def start_ssh_monitored_command_async(
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
+def start_ssh_reviewed_script_async(
+    host_id: str,
+    interpreter: str,
+    script: str,
+    script_sha256: str,
+    timeout_seconds: int = 3600,
+    writes_remote: bool = True,
+    high_risk: bool = False,
+    autonomy_profile: str = "balanced",
+    execution_mode: str = "reviewed_script",
+) -> dict:
+    """Queue a hash-pinned reviewed-script validation run without enabling execution."""
+    return get_job_manager().start_ssh_reviewed_script(
+        host_id,
+        interpreter,
+        script,
+        script_sha256,
+        timeout_seconds=timeout_seconds,
+        writes_remote=writes_remote,
+        high_risk=high_risk,
+        autonomy_profile=autonomy_profile,
+        execution_mode=execution_mode,
+    )
+
+
+@_internal_tool(
+    output_schema=RUN_RESULT_OUTPUT,
+    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
+)
 def start_ssh_action_async(
     host_id: str,
     action: str,
@@ -1820,7 +1849,7 @@ def ssh_query(request: SSHQueryRequest) -> dict:
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**WRITE_ANNOTATIONS, "openWorldHint": True})
 def ssh_action(request: SSHActionRequest) -> dict:
-    """Write SSH gateway preserving command, administration, transfer, and deployment gates."""
+    """Write SSH gateway for structured actions and reviewed-script validation runs."""
     if request.action == "profile_apply":
         return apply_ssh_profile_change(request.change_id)
     if request.action == "command":
@@ -1834,6 +1863,18 @@ def ssh_action(request: SSHActionRequest) -> dict:
         return start_ssh_monitored_command_async(
             request.host_id,
             request.command_id,
+            autonomy_profile=request.autonomy_profile,
+            execution_mode=request.execution_mode,
+        )
+    if request.action == "reviewed_script":
+        return start_ssh_reviewed_script_async(
+            request.host_id,
+            request.interpreter,
+            request.script,
+            request.script_sha256,
+            timeout_seconds=request.timeout_seconds,
+            writes_remote=request.writes_remote,
+            high_risk=request.high_risk,
             autonomy_profile=request.autonomy_profile,
             execution_mode=request.execution_mode,
         )
