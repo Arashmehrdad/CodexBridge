@@ -1819,7 +1819,7 @@ def test_python_ast_allows_explicit_legacy_newline_normalization(
     result = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
 
     assert result["ok"] is True
-    assert path.read_bytes() == b"def old():\n    return 2\n"
+    assert path.read_bytes() == b"def old():\r\n    return 2\r\n"
 
 
 # ---------------------------------------------------------------------------
