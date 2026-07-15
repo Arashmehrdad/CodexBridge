@@ -504,31 +504,49 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 
-@pytest.mark.parametrize(
-    ("autonomy_profile", "high_risk", "message_category"),
-    [
-        ("conservative", False, "denied profile/mode"),
-        ("permissive", True, "human approval"),
-    ],
-)
-def test_reviewed_script_rejection_creates_no_run_or_lock(
+def test_reviewed_script_high_risk_classification_uses_model_approval(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "set -euo pipefail\nuptime\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_reviewed_script(
+        "my_vps",
+        "bash",
+        script,
+        digest,
+        autonomy_profile="balanced",
+        high_risk=True,
+    )
+
+    assert response["accepted"] is True
+    assert response["risk_level"] == "high"
+    assert response["requires_human"] is False
+    assert response["high_risk"] is True
+    assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
+    assert response["policy_decision"] == "needs_chatgpt_approval"
+    assert response["approval_source"] == "chatgpt"
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["input"]["high_risk"] is True
+    assert stored["input"]["approval_source"] == "chatgpt"
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
+def test_reviewed_script_denied_profile_creates_no_run_or_lock(
     tmp_path: Path,
     monkeypatch,
-    autonomy_profile: str,
-    high_risk: bool,
-    message_category: str,
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     script = "uptime\n"
 
-    with pytest.raises(ValueError, match=message_category):
+    with pytest.raises(ValueError, match="denied profile/mode"):
         manager.start_ssh_reviewed_script(
             "my_vps",
             "sh",
             script,
             sha256(script.encode("utf-8")).hexdigest(),
-            autonomy_profile=autonomy_profile,
-            high_risk=high_risk,
+            autonomy_profile="conservative",
         )
 
     assert manager.store.list_runs() == []

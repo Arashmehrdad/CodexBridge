@@ -109,7 +109,7 @@ def _canonical_reviewed_script_input() -> dict:
         "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
         "timeout_seconds": 3600,
         "writes_remote": True,
-        "high_risk": False,
+        "high_risk": True,
         "autonomy_profile": "balanced",
         "execution_mode": "reviewed_script",
         "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
@@ -189,6 +189,7 @@ def test_reviewed_script_worker_revalidates_then_fails_before_remote_execution(
         ("autonomy_profile", "conservative", False, "denied profile/mode"),
         ("execution_mode", "root_shell", False, "reviewed_script"),
         ("approval_source", None, True, "Incomplete persisted SSH policy metadata"),
+        ("approval_source", "human", False, "ChatGPT delegated approval"),
         ("unexpected_command", "whoami", False, "Unexpected persisted"),
     ],
 )

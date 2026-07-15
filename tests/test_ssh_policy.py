@@ -14,6 +14,7 @@ from codexbridge.ssh_policy import (
     SSHPolicyRequest,
     authorize_ssh_action_launch,
     authorize_ssh_launch,
+    authorize_ssh_reviewed_script_launch,
     classify_ssh_permission_tier,
     evaluate_ssh_action_policy,
     evaluate_ssh_policy,
@@ -282,6 +283,47 @@ def test_action_launch_authorization_requires_matching_approval_evidence() -> No
             writes_remote=True,
             high_risk=True,
             chatgpt_approval_granted=True,
+        )
+
+
+def test_reviewed_script_authorization_is_model_driven_even_when_high_risk() -> None:
+    balanced = authorize_ssh_reviewed_script_launch(
+        autonomy_profile="balanced",
+        execution_mode="reviewed_script",
+        writes_remote=True,
+        high_risk=True,
+        model_approval_granted=True,
+    )
+    assert balanced.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
+    assert balanced.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
+    assert balanced.approval_source == "chatgpt"
+    assert balanced.human_required is False
+
+    permissive = authorize_ssh_reviewed_script_launch(
+        autonomy_profile="permissive",
+        execution_mode="reviewed_script",
+        writes_remote=False,
+        high_risk=True,
+    )
+    assert permissive.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
+    assert permissive.decision == PolicyDecisionValue.ALLOWED
+    assert permissive.approval_source == "none"
+    assert permissive.human_required is False
+
+    with pytest.raises(ValueError, match="ChatGPT delegated approval"):
+        authorize_ssh_reviewed_script_launch(
+            autonomy_profile="balanced",
+            execution_mode="reviewed_script",
+            writes_remote=True,
+            high_risk=True,
+        )
+    with pytest.raises(ValueError, match="requires execution_mode"):
+        authorize_ssh_reviewed_script_launch(
+            autonomy_profile="permissive",
+            execution_mode="root_shell",
+            writes_remote=True,
+            high_risk=True,
+            model_approval_granted=True,
         )
 
 
