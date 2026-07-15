@@ -119,7 +119,15 @@ The remaining R2 server forwarding change is blocked by a managed-patch defect t
 
 ## G0 - Byte-Safe Managed Patch Engine
 
-Status: **next required batch**.
+Status: **in progress**.
+
+Checkpoint (2026-07-15):
+
+- Exact-text managed edits now preserve existing line-ending bytes by default, including intentionally mixed files.
+- Callers may explicitly set `preserve_newlines: false` only when legacy normalization is intended.
+- Focused repository-writer coverage passed: `83 passed`.
+- Full repository validation passed: `1044 passed, 1 skipped`; `python -m pip check`, `py_compile`, and `git diff --check` also passed.
+- Remaining G0 work: byte-safe `line_range`, `unified_diff`, and `python_ast` operations, newline-only churn reporting/rejection, and exact apply/revert hash acceptance against `server.py`.
 
 Goal: managed edits must change only the requested bytes or syntax region, including files with mixed line endings.
 
