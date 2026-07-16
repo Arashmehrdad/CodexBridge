@@ -231,6 +231,28 @@ def test_config_loads_named_supervisor_profiles(tmp_path: Path) -> None:
 def test_ssh_active_autonomy_profiles_are_canonical_and_unique() -> None:
     config = SSHConfig(active_autonomy_profiles=["permissive"])
     assert config.active_autonomy_profiles == ["permissive"]
+    assert config.autonomy_profile_migration_report() == {
+        "migration_id": "ssh_active_autonomy_profiles_v1",
+        "migration_required": False,
+        "configured_profiles": ["permissive"],
+        "legacy_profiles": [],
+        "target_profiles": ["permissive"],
+        "rollback": {"active_autonomy_profiles": ["permissive"]},
+        "replacement": {"active_autonomy_profiles": ["permissive"]},
+        "preserves_durable_history": True,
+    }
+
+    legacy = SSHConfig(active_autonomy_profiles=["balanced", "permissive"])
+    assert legacy.autonomy_profile_migration_report() == {
+        "migration_id": "ssh_active_autonomy_profiles_v1",
+        "migration_required": True,
+        "configured_profiles": ["balanced", "permissive"],
+        "legacy_profiles": ["balanced"],
+        "target_profiles": ["permissive"],
+        "rollback": {"active_autonomy_profiles": ["balanced", "permissive"]},
+        "replacement": {"active_autonomy_profiles": ["permissive"]},
+        "preserves_durable_history": True,
+    }
 
     with pytest.raises(ValidationError, match="unique"):
         SSHConfig(active_autonomy_profiles=["permissive", "permissive"])

@@ -112,6 +112,29 @@ def test_reload_service_marks_unreloadable_modules_restart_required(
     assert result["restart_required"] == ["codexbridge.server"]
 
 
+def test_validate_config_reports_legacy_ssh_profile_migration(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n"
+        "ssh:\n  active_autonomy_profiles:\n    - balanced\n    - permissive\n",
+        encoding="utf-8",
+    )
+
+    result = validate_config_candidate(config_path)
+
+    migration = result["configuration_migrations"]["ssh_autonomy_profiles"]
+    assert migration["migration_required"] is True
+    assert migration["legacy_profiles"] == ["balanced"]
+    assert migration["replacement"] == {"active_autonomy_profiles": ["permissive"]}
+    assert migration["rollback"] == {
+        "active_autonomy_profiles": ["balanced", "permissive"]
+    }
+    assert migration["preserves_durable_history"] is True
+
+
 def test_invalid_candidate_does_not_replace_last_known_good(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     repo = tmp_path / "repo"

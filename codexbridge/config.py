@@ -362,6 +362,25 @@ class SSHConfig(BaseModel):
             raise ValueError("SSH active_autonomy_profiles must be unique")
         return self
 
+    def autonomy_profile_migration_report(self) -> dict[str, object]:
+        configured = list(self.active_autonomy_profiles)
+        legacy = [
+            profile
+            for profile in configured
+            if profile in {"conservative", "balanced"}
+        ]
+        target = ["permissive"]
+        return {
+            "migration_id": "ssh_active_autonomy_profiles_v1",
+            "migration_required": bool(legacy or configured != target),
+            "configured_profiles": configured,
+            "legacy_profiles": legacy,
+            "target_profiles": target,
+            "rollback": {"active_autonomy_profiles": configured},
+            "replacement": {"active_autonomy_profiles": target},
+            "preserves_durable_history": True,
+        }
+
 
 class CloudflareSecretDestinationConfig(BaseModel):
     type: Literal["env_file"] = "env_file"

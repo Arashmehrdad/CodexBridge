@@ -92,6 +92,9 @@ def validate_config_candidate(config_path: Path | None) -> dict[str, object]:
         "validated": True,
         "candidate_config_path": str(resolved),
         "validated_at": timestamp,
+        "configuration_migrations": {
+            "ssh_autonomy_profiles": config.ssh.autonomy_profile_migration_report()
+        },
         "message": "Configuration candidate validated successfully.",
         "error": "",
     }
