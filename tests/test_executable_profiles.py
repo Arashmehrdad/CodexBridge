@@ -7,6 +7,7 @@ import pytest
 
 from codexbridge.config import AppConfig, ExecutableProfileConfig, RepoConfig
 from codexbridge.executable_profiles import (
+    build_local_executable_run_request,
     inspect_executable_identity,
     resolve_executable_profile,
     resolve_verified_local_executable,
@@ -126,3 +127,78 @@ def test_executable_identity_rejects_missing_non_file_symlink_and_hash_mismatch(
     )
     with pytest.raises(ValueError, match="regular non-symlink file"):
         inspect_executable_identity(linked)
+
+
+def test_build_local_executable_run_request_preserves_exact_argv_and_binary_input(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"binary")
+    working_directory = tmp_path / "work dir"
+    working_directory.mkdir()
+    profile = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        working_directory_policy="arbitrary",
+        environment_policy="arbitrary",
+        stdin_mode="bytes",
+        timeout_seconds=None,
+        allow_no_timeout=True,
+        unrestricted_argv=True,
+    )
+    argv = ["-NoProfile", "-Command", "Write-Output 'a b'", "", 'a"b']
+    request = build_local_executable_run_request(
+        make_config(tmp_path, profile),
+        "powershell",
+        argv,
+        working_directory=str(working_directory),
+        environment={"EXACT_VALUE": "a=b c"},
+        stdin_bytes=b"\x00\xffbinary\r\n",
+        timeout_seconds=None,
+    )
+
+    assert request["argv"] == argv
+    assert request["working_directory"] == str(working_directory.resolve())
+    assert request["environment"] == {"EXACT_VALUE": "a=b c"}
+    assert request["stdin_base64"] == "AP9iaW5hcnkNCg=="
+    assert request["stdin_text"] is None
+    assert request["timeout_seconds"] is None
+    assert request["executable_identity"]["executable_path"] == str(
+        executable.resolve()
+    )
+
+
+def test_build_local_executable_run_request_rejects_policy_mismatches(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"binary")
+    profile = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        unrestricted_argv=True,
+    )
+    config = make_config(tmp_path, profile)
+
+    with pytest.raises(ValueError, match="does not accept a working directory"):
+        build_local_executable_run_request(
+            config, "powershell", [], working_directory=str(tmp_path)
+        )
+    with pytest.raises(ValueError, match="does not accept environment overrides"):
+        build_local_executable_run_request(
+            config, "powershell", [], environment={"A": "B"}
+        )
+    with pytest.raises(ValueError, match="not configured for text stdin"):
+        build_local_executable_run_request(
+            config, "powershell", [], stdin_text="Write-Output ok"
+        )
+    with pytest.raises(ValueError, match="must not contain NUL"):
+        build_local_executable_run_request(config, "powershell", ["bad\x00arg"])
+
+    restricted = profile.model_copy(update={"unrestricted_argv": False})
+    with pytest.raises(ValueError, match="does not allow arbitrary argv"):
+        build_local_executable_run_request(
+            make_config(tmp_path, restricted), "powershell", ["-Command"]
+        )
