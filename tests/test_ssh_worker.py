@@ -286,7 +286,12 @@ def test_reviewed_script_worker_persists_timeout_and_partial_output(
         ("script", None, True, "Incomplete persisted reviewed SSH script metadata"),
         ("script", "echo altered\\n", False, "SHA-256"),
         ("script_sha256", "0" * 64, False, "SHA-256"),
-        ("autonomy_profile", "conservative", False, "denied profile/mode"),
+        (
+            "autonomy_profile",
+            "conservative",
+            False,
+            "must be 'permissive'",
+        ),
         ("execution_mode", "root_shell", False, "reviewed_script"),
         ("approval_source", None, True, "Incomplete persisted SSH policy metadata"),
         ("approval_source", "human", False, "ChatGPT delegated approval"),
