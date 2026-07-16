@@ -16,18 +16,17 @@ from .policy.profiles import BUILTIN_AUTONOMY_PROFILES
 
 
 SSHExecutionMode = Literal["structured", "reviewed_script", "root_shell"]
-AutonomyProfile = Literal["conservative", "balanced", "permissive"]
+AutonomyProfile = Literal["permissive"]
 
 CANONICAL_SSH_EXECUTION_MODES = frozenset(
     {"structured", "reviewed_script", "root_shell"}
 )
-CANONICAL_AUTONOMY_PROFILES = frozenset(BUILTIN_AUTONOMY_PROFILES)
+CANONICAL_AUTONOMY_PROFILES = frozenset({"permissive"})
 
 SSH_EXECUTION_POLICY_MATRIX: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "structured": CANONICAL_AUTONOMY_PROFILES,
-        "reviewed_script": frozenset({"balanced", "permissive"}),
-        "root_shell": frozenset({"permissive"}),
+        mode: CANONICAL_AUTONOMY_PROFILES
+        for mode in CANONICAL_SSH_EXECUTION_MODES
     }
 )
 
