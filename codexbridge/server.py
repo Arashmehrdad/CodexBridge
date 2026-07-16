@@ -1780,7 +1780,7 @@ def start_ssh_deployment_async(
     host_id: str,
     deployment_id: str,
     confirmation: str,
-    autonomy_profile: str = "balanced",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: deploy a configured repository as an archive release and activate it remotely."""
