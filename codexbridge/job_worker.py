@@ -180,14 +180,9 @@ def _authorize_persisted_ssh_policy(
     high_risk: bool = False,
     implemented_modes: Collection[str] = IMPLEMENTED_SSH_EXECUTION_MODES,
 ) -> dict[str, object]:
-    autonomy_profile = str(input_data["autonomy_profile"])
-    if autonomy_profile != "permissive":
-        raise ValueError(
-            "Persisted SSH autonomy_profile must be 'permissive'"
-        )
     approval_source = _persisted_ssh_approval_source(input_data)
     policy = authorize_ssh_action_launch(
-        autonomy_profile=autonomy_profile,
+        autonomy_profile=str(input_data["autonomy_profile"]),
         execution_mode=str(input_data["execution_mode"]),
         writes_remote=writes_remote,
         monitored=monitored,
