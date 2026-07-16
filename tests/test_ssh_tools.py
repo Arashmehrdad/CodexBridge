@@ -567,10 +567,7 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     permissive_only = ssh_tools.enrich_ssh_capabilities(config, base)
     permissive_policy = permissive_only["execution_policy"]
     assert permissive_policy["active_autonomy_profiles"] == ["permissive"]
-    assert permissive_policy["compatibility_only_autonomy_profiles"] == [
-        "balanced",
-        "conservative",
-    ]
+    assert permissive_policy["compatibility_only_autonomy_profiles"] == []
     permissive_modes = {
         item["execution_mode"]: item
         for item in permissive_policy["execution_modes"]

@@ -496,8 +496,8 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
         permissive.model_dump(mode="python")
     ).autonomy_profile == "permissive"
 
-    for autonomy_profile in ("conservative",):
-        with pytest.raises(ValidationError, match="denied profile/mode"):
+    for autonomy_profile in ("balanced", "conservative"):
+        with pytest.raises(ValidationError, match="Input should be 'permissive'"):
             SSHReviewedScriptAction.model_validate(
                 {
                     **request.model_dump(mode="python"),
