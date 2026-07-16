@@ -348,7 +348,7 @@ Checkpoint (2026-07-16):
 - Durable aggregate publication now derives group state, per-status counts, terminal counts, timestamps, and ordered child summaries from the authoritative child rows and persists the snapshot in `command_groups.result_json`.
 - Aggregate state is refreshed during slot refill and startup reconciliation, so terminal children cannot leave the parent permanently stale.
 - `JobManager` now exposes durable group status and whole-group cancellation. Whole-group cancellation targets pending children before active children, suppresses intermediate refill, reuses exact child process-tree cancellation, then performs one final refill and aggregate publication. Direct child cancellation also releases a PowerShell slot.
-- Focused validation passed: `tests/test_parallel_groups.py` 10 passed; `tests/test_job_manager.py` 58 passed; `parallel_groups.py` passed `py_compile`.
+- Focused validation passed: `tests/test_parallel_groups.py` 10 passed; `tests/test_job_manager.py` 59 passed; `parallel_groups.py` passed `py_compile`.
 - Aggregate/cancellation implementation commits: `d9eb389a38945832fd7db2e9b43f6fb1e90ea66c`, `d9d3a40288fb35dcad372200846c927682430647`, and `d63eac68c350c60728a090e5682e1b8623b26b05`.
 - Next unit: expose group status/result/cancellation through the public gateway, then run live capped-fan-out and restart acceptance.
 
