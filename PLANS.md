@@ -503,7 +503,9 @@ Checkpoint (2026-07-16):
 - Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_server.py` 27 passed; `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 31 passed.
 - The SSH gateway autonomy-profile type and policy matrix are now permissive-only across structured, reviewed-script, and root-shell modes; removed legacy values fail strict validation before authorization. Capability output no longer advertises compatibility-only SSH profiles. Implementation commits: `786485b348da652ad8eee79cc0a4d4165767c898`, `744de1b73cfdd30dea725f7d637ae0cf60d85394`, `a759e1e76a047ca04f194565e695d7d396f77952`, and `398259dee79a86b7cfbb0877be792950a0fd60cb`.
 - Focused validation passed: `tests/test_ssh_policy.py` 32 passed; `tests/test_tool_gateway_models.py` 29 passed; `tests/test_ssh_tools.py` 13 passed.
-- Next unit: inspect and narrow remaining persisted SSH worker revalidation and server helper annotations, then classify the first local `project_command` caller migration without changing unrelated supervisor autonomy or delegated-approval terminology.
+- Persisted SSH worker fixtures and canonical policy assertions now use `permissive` for active command, reviewed-script, action, transfer, and deployment paths. Removed-profile and tampered-policy cases still prove deterministic rejection, while `T6_HUMAN_ONLY_RISKY_ACTION` deployment evidence remains human-authorized. Implementation commits: `7116775a28ed4c05d8df8af890d0a7c2ed186cf9`, `1b1c44d6a0d4051725cfc5c7580b19c5c5cbd6c8`, and `05a6c095acb436e088877c9b21bf6aa14d9203a4`.
+- Focused validation passed: `tests/test_ssh_worker.py` 37 passed.
+- Next unit: narrow the remaining persisted-worker/server helper annotations and deployment helper default, then classify the first local `project_command` caller migration without changing unrelated supervisor autonomy or delegated-approval terminology.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
