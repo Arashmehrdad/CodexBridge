@@ -333,12 +333,13 @@ Checkpoint (2026-07-16):
 - Every child reservation persists its run ID, position, idempotency key, independent worker lease token, exact executable-profile input, and run-directory identity.
 - Duplicate child run IDs or idempotency keys are rejected, and any database conflict rolls back the parent plus every newly inserted sibling.
 - Added a two-phase PowerShell group launcher that validates every child specification before reservation, reserves the complete group atomically, materializes every protected child input and launch event, and only then spawns eligible workers.
-- `max_concurrent_powershell` and a lower per-group request limit determine the initial eligible set; excess accepted children remain durable in `launch_pending` without a worker.
+- Connected the two-phase launcher to `JobManager.start_powershell_group` and the public `run_start` contract as `operation: powershell_group`, including strict nested child models, per-child text or base64 binary stdin, optional lower requested concurrency, and lock-free policy validation.
+- `max_concurrent_powershell` and a lower per-group request limit determine the initial eligible set; excess accepted children remain durable in `pending` without a worker or startup-reconciliation eligibility.
 - Validation failures occur before group or child persistence, and individual worker-launch failures are recorded against the affected child without preventing later eligible siblings from launching.
-- Full-suite validation after the public PowerShell gateway correction passed with `1078 passed, 1 skipped`.
-- Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed.
-- Implementation commits through `92b3c40ea4e2380247c3d41208e498edc81f5568`.
-- Next unit: connect the two-phase launcher to `JobManager` and the public command-group request model, then add slot release/refill so durable pending children launch as active PowerShell processes finish.
+- Full-suite validation immediately before the public group connection passed with `1082 passed, 1 skipped`.
+- Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed; `tests/test_tool_gateway_models.py` 27 passed; manager delegation regression 1 passed.
+- Implementation commits through `f6a77513ef842dd1de0ac97e313bd2cf940786e5`.
+- Next unit: add atomic slot release/refill so durable pending children transition to `launch_pending` and launch as active PowerShell processes finish, including startup reconciliation and duplicate-launch prevention.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
