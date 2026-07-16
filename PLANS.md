@@ -324,6 +324,18 @@ Acceptance:
 
 Depends on X1 and X2. Remote durability features become available after R4.
 
+Status: **in progress**.
+
+Checkpoint (2026-07-16):
+
+- Added a durable command-group store backed by the existing SQLite run database.
+- Parent group metadata and every child `launch_pending` run row are inserted in one immediate transaction before any worker process can be created.
+- Every child reservation persists its run ID, position, idempotency key, independent worker lease token, exact executable-profile input, and run-directory identity.
+- Duplicate child run IDs or idempotency keys are rejected, and any database conflict rolls back the parent plus every newly inserted sibling.
+- Focused validation passed: `tests/test_parallel_groups.py` 3 passed.
+- Implementation commits through `3207ec6cd820049b326e02a6b670c5e6ab0f3193`.
+- Next unit: integrate validated PowerShell child specifications with group reservation, materialize protected child artifacts, and launch eligible children only after the complete child ID list is durable.
+
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
 Public contract:
