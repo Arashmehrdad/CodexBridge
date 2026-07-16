@@ -2244,7 +2244,9 @@ def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def cancel_run(run_id: str) -> dict:
-    """Write tool: request cancellation of a running async job without deleting artifacts."""
+    """Write tool: request cancellation of one durable run or PowerShell command group."""
+    if "_powershell_group_" in run_id:
+        return get_job_manager().cancel_powershell_group(run_id)
     return get_job_manager().cancel_run(run_id)
 
 
@@ -2261,6 +2263,8 @@ def run_query(request: RunQueryRequest) -> dict:
         return get_run_events(request.run_id, request.limit, request.after_id)
     if request.operation == "result":
         return get_run_result(request.run_id)
+    if request.operation in {"group_status", "group_result"}:
+        return get_job_manager().get_powershell_group(request.group_id)
     if request.operation == "list":
         return list_runs(request.repo_name, request.status, request.limit)
     return list_operation_locks(request.repo_name, request.include_stale)
