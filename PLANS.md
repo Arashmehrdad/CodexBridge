@@ -353,7 +353,13 @@ Checkpoint (2026-07-16):
 - Public group lifecycle access is now exposed through the existing gateways: `run_query` supports strict `group_status` and `group_result` operations, while `cancel_run` routes durable `powershell_group` IDs to exact whole-group cancellation without introducing another public tool.
 - Focused public-gateway validation passed: `tests/test_tool_gateway_models.py` 29 passed and `tests/test_server.py` 27 passed.
 - Public group gateway commits: `abfeb5d5c1d85e0323131a172c5127ae053bc232` and `4535ff92a283cf9a6b5e79843ffd14170982542d`.
-- Next unit: run live capped-fan-out and restart-adoption acceptance, including pending-slot refill and duplicate-launch prevention.
+- Live Windows acceptance now proves capped fan-out leaves excess children durably pending, terminal completion refills the released slot, and every child completes with independent artifacts.
+- The live gate exposed and fixed a lock-policy defect: `repository_lock_policy: none` children no longer require operation-lock claim or heartbeat in the worker, and restart reconciliation no longer forces lock-free adopted workers into `recovery_pending`.
+- Restart acceptance verifies the active child keeps the same worker PID and launch-attempt count, while the pending sibling remains pending until the adopted child releases its slot.
+- Uncapped acceptance with `max_concurrent_powershell: null` launches every child immediately; a deliberate failing child does not stop successful siblings under `continue_all`.
+- Focused validation passed: `tests/test_parallel_groups.py` 11 passed; `tests/test_parallel_powershell_acceptance.py` 3 passed.
+- Live acceptance and lock-free adoption commits: `2e23f69adef94ae0ad26fc7c073bd4dfab2f074e`, `d47fd07ff85526958a55c06d3e85f7ed8e1d2013`, `8eca429f1511107f6c4e23c0bac1cd21e2c3702d`, `0c842866cb1aaacd1d69e390969e55f61cafa8e5`, and `04d0564a77a753c9d114ec6ba1a4ca99293bdef7`.
+- Next unit: add live whole-group and individual-child cancellation acceptance, including exact process-tree termination and final aggregate artifact/result verification.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
