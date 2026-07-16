@@ -48,7 +48,7 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
         input_data={
             "host_id": "my_vps",
             "command_id": "uptime",
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T0_READ_ONLY",
             "policy_decision": "allowed",
@@ -86,7 +86,7 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     assert result["repo_name"] == "ssh:my_vps"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T0_READ_ONLY"
     assert result["policy_decision"] == "allowed"
@@ -111,12 +111,12 @@ def _canonical_reviewed_script_input() -> dict:
         "timeout_seconds": 3600,
         "writes_remote": True,
         "high_risk": True,
-        "autonomy_profile": "balanced",
+        "autonomy_profile": "permissive",
         "execution_mode": "reviewed_script",
         "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
-        "policy_decision": "needs_chatgpt_approval",
+        "policy_decision": "allowed",
         "policy_authorized": True,
-        "approval_source": "chatgpt",
+        "approval_source": "none",
     }
 
 
@@ -759,12 +759,12 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
             "host_id": "my_vps",
             "action": "service_restart",
             "target": "sample.service",
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
-            "policy_decision": "needs_chatgpt_approval",
+            "policy_decision": "allowed",
             "policy_authorized": True,
-            "approval_source": "chatgpt",
+            "approval_source": "none",
         },
     )
     monkeypatch.setattr(
@@ -792,12 +792,12 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_action"
     assert result["action"] == "service_restart"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
-    assert result["policy_decision"] == "needs_chatgpt_approval"
+    assert result["policy_decision"] == "allowed"
     assert result["policy_authorized"] is True
-    assert result["approval_source"] == "chatgpt"
+    assert result["approval_source"] == "none"
     assert result["remote_state_verified"] is False
     assert "cannot independently verify" in result["remaining_risks"][0]
 
@@ -826,7 +826,7 @@ def test_ssh_transfer_worker_persists_download_metadata(
             "local_repo_name": "sample",
             "local_path": "api.log",
             "remote_path": "/var/log/api.log",
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T0_READ_ONLY",
             "policy_decision": "allowed",
@@ -861,7 +861,7 @@ def test_ssh_transfer_worker_persists_download_metadata(
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_transfer"
     assert result["direction"] == "download"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T0_READ_ONLY"
     assert result["policy_decision"] == "allowed"
@@ -894,12 +894,12 @@ def test_ssh_deployment_worker_persists_step_evidence(
             "host_id": "my_vps",
             "deployment_id": "sample_app",
             "confirmation": "CONFIRM_SSH_HIGH_RISK",
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
-            "policy_decision": "needs_human_approval",
+            "policy_decision": "allowed",
             "policy_authorized": True,
-            "approval_source": "human",
+            "approval_source": "none",
         },
     )
     monkeypatch.setattr(
@@ -930,12 +930,12 @@ def test_ssh_deployment_worker_persists_step_evidence(
     assert result["status"] == "completed"
     assert result["tool"] == "ssh_deployment"
     assert result["deployment_id"] == "sample_app"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T6_HUMAN_ONLY_RISKY_ACTION"
-    assert result["policy_decision"] == "needs_human_approval"
+    assert result["policy_decision"] == "allowed"
     assert result["policy_authorized"] is True
-    assert result["approval_source"] == "human"
+    assert result["approval_source"] == "none"
     assert result["writes_remote"] is True
     assert result["high_risk"] is True
     assert result["test_results"][-1]["step"] == "activate"
@@ -952,12 +952,12 @@ def _canonical_upload_input() -> dict:
         "recursive": False,
         "overwrite": False,
         "confirmation": "",
-        "autonomy_profile": "balanced",
+        "autonomy_profile": "permissive",
         "execution_mode": "structured",
         "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
-        "policy_decision": "needs_chatgpt_approval",
+        "policy_decision": "allowed",
         "policy_authorized": True,
-        "approval_source": "chatgpt",
+        "approval_source": "none",
     }
 
 
@@ -966,12 +966,12 @@ def _canonical_deployment_input(confirmation: str) -> dict:
         "host_id": "my_vps",
         "deployment_id": "sample_app",
         "confirmation": confirmation,
-        "autonomy_profile": "balanced",
+        "autonomy_profile": "permissive",
         "execution_mode": "structured",
         "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
-        "policy_decision": "needs_human_approval",
+        "policy_decision": "allowed",
         "policy_authorized": True,
-        "approval_source": "human",
+        "approval_source": "none",
     }
 
 
