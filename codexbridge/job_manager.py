@@ -916,7 +916,7 @@ class JobManager:
         host_id: str,
         command_id: str,
         *,
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "structured",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
@@ -959,7 +959,7 @@ class JobManager:
         host_id: str,
         command_id: str,
         *,
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "structured",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
@@ -1018,7 +1018,7 @@ class JobManager:
         timeout_seconds: int = 3600,
         writes_remote: bool = True,
         high_risk: bool = False,
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "reviewed_script",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
@@ -1154,7 +1154,7 @@ class JobManager:
         args: list[str] | None = None,
         force: bool = False,
         confirmation: str = "",
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "structured",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
@@ -1235,7 +1235,7 @@ class JobManager:
         recursive: bool = False,
         overwrite: bool = False,
         confirmation: str = "",
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "structured",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
@@ -1302,7 +1302,7 @@ class JobManager:
         deployment_id: str,
         *,
         confirmation: str,
-        autonomy_profile: str = "balanced",
+        autonomy_profile: str = "permissive",
         execution_mode: str = "structured",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)

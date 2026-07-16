@@ -653,7 +653,7 @@ class SSHExecutionPolicyGatewayRequest(GatewayModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     execution_mode: SSHExecutionMode = "structured"
-    autonomy_profile: AutonomyProfile = "balanced"
+    autonomy_profile: AutonomyProfile = "permissive"
 
 
 SSHPolicyGatewayRequest = SSHExecutionPolicyGatewayRequest
