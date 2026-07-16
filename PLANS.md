@@ -501,7 +501,9 @@ Checkpoint (2026-07-16):
 - Focused validation: `tests/test_config.py` 22 passed.
 - Retained SSH manager, server, and public gateway defaults now select `permissive`; active behavior tests were migrated accordingly, while removed-profile requests still prove deterministic rejection before durable run or lock creation. Implementation commits: `96e76d95dfa86316b9b5c402b5c17a9f6acb478e`, `9f33d33eaa300e4b1e77af033ab1beb7a7634852`, and `9ada9b7428b57362755c7b5aa71b43cca07b9970`.
 - Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_server.py` 27 passed; `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 31 passed.
-- Next unit: narrow the remaining SSH gateway autonomy-profile type and policy runtime branches to permissive-only, while leaving unrelated supervisor and delegated-approval terminology untouched.
+- The SSH gateway autonomy-profile type and policy matrix are now permissive-only across structured, reviewed-script, and root-shell modes; removed legacy values fail strict validation before authorization. Capability output no longer advertises compatibility-only SSH profiles. Implementation commits: `786485b348da652ad8eee79cc0a4d4165767c898`, `744de1b73cfdd30dea725f7d637ae0cf60d85394`, `a759e1e76a047ca04f194565e695d7d396f77952`, and `398259dee79a86b7cfbb0877be792950a0fd60cb`.
+- Focused validation passed: `tests/test_ssh_policy.py` 32 passed; `tests/test_tool_gateway_models.py` 29 passed; `tests/test_ssh_tools.py` 13 passed.
+- Next unit: inspect and narrow remaining persisted SSH worker revalidation and server helper annotations, then classify the first local `project_command` caller migration without changing unrelated supervisor autonomy or delegated-approval terminology.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
