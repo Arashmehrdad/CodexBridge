@@ -31,7 +31,11 @@ from .gateway_models import (
     validate_root_ssh_shell_request,
 )
 from .operation_locks import OperationLockStore
-from .parallel_groups import launch_powershell_group, refill_powershell_groups
+from .parallel_groups import (
+    ParallelGroupStore,
+    launch_powershell_group,
+    refill_powershell_groups,
+)
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -601,6 +605,41 @@ class JobManager:
             requested_concurrency=requested_concurrency,
             repository_lock_policy=repository_lock_policy,
         )
+
+    def get_powershell_group(self, group_id: str) -> dict:
+        return ParallelGroupStore(self.config.resolve_runs_dir()).refresh_group(group_id)
+
+    def cancel_powershell_group(self, group_id: str) -> dict:
+        store = ParallelGroupStore(self.config.resolve_runs_dir())
+        group = store.get_group(group_id)
+        pending_statuses = {"pending", "launch_pending", "queued", "recovery_pending"}
+        children = sorted(
+            group["children"],
+            key=lambda child: (
+                0 if str(child["status"]) in pending_statuses else 1,
+                int(child["position"]),
+            ),
+        )
+        cancellations: list[dict] = []
+        for child in children:
+            if str(child["status"]) in TERMINAL_STATUSES:
+                continue
+            cancellations.append(
+                self.cancel_run(str(child["run_id"]), suppress_group_refill=True)
+            )
+        refill_powershell_groups(
+            config=self.config,
+            spawn_worker=self._spawn_worker,
+        )
+        refreshed = store.refresh_group(group_id)
+        return {
+            "ok": all(bool(item.get("termination_confirmed")) for item in cancellations),
+            "group_id": group_id,
+            "status": refreshed["status"],
+            "cancelled": refreshed["status"] == "cancelled",
+            "children": cancellations,
+            "result": refreshed["result"],
+        }
 
     def start_project_command(
         self, repo_name: str, command_id: str, *, reserved_run_id: str | None = None
@@ -1796,7 +1835,7 @@ class JobManager:
         )
         return self.get_result(run["run_id"])
 
-    def cancel_run(self, run_id: str) -> dict:
+    def cancel_run(self, run_id: str, *, suppress_group_refill: bool = False) -> dict:
         try:
             validate_run_id(run_id)
             run = self.store.get_run(run_id)
@@ -1927,6 +1966,11 @@ class JobManager:
                 update_run_metadata=False,
             )
             ArtifactWriter(Path(run["run_dir"])).append_event(event)
+            if not suppress_group_refill:
+                refill_powershell_groups(
+                    config=self.config,
+                    spawn_worker=self._spawn_worker,
+                )
             return {
                 "ok": True,
                 "run_id": run_id,
