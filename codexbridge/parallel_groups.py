@@ -216,6 +216,225 @@ class ParallelGroupStore:
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
 
+    def claim_pending_launches(
+        self,
+        *,
+        max_concurrent_powershell: int | None,
+    ) -> list[dict[str, Any]]:
+        """Atomically promote pending children without exceeding global/group limits."""
+        active_statuses = (
+            "launch_pending",
+            "queued",
+            "running",
+            "cancellation_pending",
+            "recovery_pending",
+        )
+        claimed_run_ids: list[str] = []
+        now = utc_now()
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            active_total = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM command_group_children AS child
+                    JOIN runs AS run ON run.run_id = child.run_id
+                    WHERE run.status IN (?, ?, ?, ?, ?)
+                    """,
+                    active_statuses,
+                ).fetchone()[0]
+            )
+            global_slots = (
+                None
+                if max_concurrent_powershell is None
+                else max(0, int(max_concurrent_powershell) - active_total)
+            )
+            groups = conn.execute(
+                """
+                SELECT group_id, requested_concurrency
+                FROM command_groups
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM command_group_children AS child
+                    JOIN runs AS run ON run.run_id = child.run_id
+                    WHERE child.group_id = command_groups.group_id
+                      AND run.status = 'pending'
+                )
+                ORDER BY created_at ASC, group_id ASC
+                """
+            ).fetchall()
+            for group in groups:
+                if global_slots == 0:
+                    break
+                group_id = str(group["group_id"])
+                requested = group["requested_concurrency"]
+                active_group = int(
+                    conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM command_group_children AS child
+                        JOIN runs AS run ON run.run_id = child.run_id
+                        WHERE child.group_id = ?
+                          AND run.status IN (?, ?, ?, ?, ?)
+                        """,
+                        (group_id, *active_statuses),
+                    ).fetchone()[0]
+                )
+                group_slots = (
+                    None
+                    if requested is None
+                    else max(0, int(requested) - active_group)
+                )
+                slots = group_slots
+                if global_slots is not None:
+                    slots = global_slots if slots is None else min(slots, global_slots)
+                if slots == 0:
+                    continue
+                query = """
+                    SELECT run.run_id
+                    FROM command_group_children AS child
+                    JOIN runs AS run ON run.run_id = child.run_id
+                    WHERE child.group_id = ? AND run.status = 'pending'
+                    ORDER BY child.position ASC
+                """
+                params: list[Any] = [group_id]
+                if slots is not None:
+                    query += " LIMIT ?"
+                    params.append(int(slots))
+                candidates = conn.execute(query, params).fetchall()
+                for candidate in candidates:
+                    run_id = str(candidate["run_id"])
+                    updated = conn.execute(
+                        """
+                        UPDATE runs
+                        SET status = 'launch_pending',
+                            current_phase = 'launch_pending',
+                            heartbeat_at = ?,
+                            state_version = state_version + 1
+                        WHERE run_id = ? AND status = 'pending'
+                        """,
+                        (now, run_id),
+                    )
+                    if int(updated.rowcount) != 1:
+                        continue
+                    claimed_run_ids.append(run_id)
+                    if global_slots is not None:
+                        global_slots -= 1
+                        if global_slots == 0:
+                            break
+                if global_slots == 0:
+                    break
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return [self.store.get_run(run_id) for run_id in claimed_run_ids]
+
+
+def _launch_claimed_child(
+    *,
+    store: ParallelGroupStore,
+    group_id: str,
+    run: dict[str, Any],
+    spawn_worker: Callable[[str, str], Any],
+) -> bool:
+    run_id = str(run["run_id"])
+    lease_token = str(run.get("worker_lease_token") or "")
+    run_dir = Path(run["run_dir"])
+    try:
+        process = spawn_worker(run_id, lease_token)
+        launched = store.store.record_worker_launch(
+            run_id,
+            process.pid,
+            expected_state_version=int(run["state_version"]),
+            expected_lease_token=lease_token,
+            expected_lease_generation=int(run["lease_generation"]),
+        )
+        current = launched or store.store.get_run(run_id)
+        if not (
+            str(current.get("worker_lease_token") or "") == lease_token
+            and current["status"] in {"queued", "running"}
+        ):
+            terminate_process_tree(process.pid)
+            raise RuntimeError("Parallel child launch lost durable lease ownership")
+        event = store.store.append_event(
+            run_id,
+            level="info",
+            stage="worker",
+            message="Parallel child worker launcher started",
+            data={"group_id": group_id, "launcher_pid": process.pid},
+        )
+        ArtifactWriter(run_dir).append_event(event)
+        return True
+    except Exception as exc:
+        current = store.store.get_run(run_id)
+        reason = f"Parallel child worker launch failed: {exc}"
+        failed = store.store.fail_infrastructure(
+            run_id,
+            reason,
+            expected_statuses=(str(current["status"]),),
+            expected_state_version=int(current["state_version"]),
+            expected_lease_token=str(current.get("worker_lease_token") or ""),
+            expected_lease_generation=int(current.get("lease_generation") or 1),
+            expected_heartbeat_at=current.get("heartbeat_at"),
+        )
+        if failed is not None:
+            event = store.store.append_event(
+                run_id,
+                level="error",
+                stage="launch_failed",
+                message=reason,
+                data={"group_id": group_id},
+                update_run_metadata=False,
+            )
+            ArtifactWriter(run_dir).append_event(event)
+        return False
+
+
+def refill_powershell_groups(
+    *,
+    config: AppConfig,
+    spawn_worker: Callable[[str, str], Any],
+) -> list[str]:
+    """Claim and launch available durable PowerShell slots exactly once."""
+    parallel = config.parallel_execution
+    if not parallel.enabled:
+        return []
+    store = ParallelGroupStore(config.resolve_runs_dir())
+    claimed = store.claim_pending_launches(
+        max_concurrent_powershell=parallel.max_concurrent_powershell
+    )
+    launched: list[str] = []
+    with store.store.connect() as conn:
+        memberships = {
+            str(row["run_id"]): str(row["group_id"])
+            for row in conn.execute(
+                """
+                SELECT group_id, run_id
+                FROM command_group_children
+                WHERE run_id IN (
+                    SELECT run_id FROM runs WHERE status = 'launch_pending'
+                )
+                """
+            ).fetchall()
+        }
+    for run in claimed:
+        run_id = str(run["run_id"])
+        group_id = memberships.get(run_id)
+        if not group_id:
+            continue
+        if _launch_claimed_child(
+            store=store,
+            group_id=group_id,
+            run=run,
+            spawn_worker=spawn_worker,
+        ):
+            launched.append(run_id)
+    return launched
+
 
 def launch_powershell_group(
     *,
