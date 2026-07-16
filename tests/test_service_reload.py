@@ -125,10 +125,8 @@ def test_validate_config_rejects_legacy_ssh_profiles_deterministically(
         encoding="utf-8",
     )
 
-    result = validate_config_candidate(config_path)
-
-    assert result["ok"] is False
-    assert "permissive" in result["error"]
+    with pytest.raises(ValidationError, match="active_autonomy_profiles"):
+        validate_config_candidate(config_path)
 
 
 def test_invalid_candidate_does_not_replace_last_known_good(tmp_path: Path) -> None:

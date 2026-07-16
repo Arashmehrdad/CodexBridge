@@ -225,7 +225,7 @@ class SupervisorStartAction(GatewayModel):
     task: str = Field(min_length=1, max_length=20_000)
     constraints: str = Field(default="", max_length=20_000)
     source_run_id: str = Field(default="", max_length=128)
-    autonomy_profile: Literal["conservative", "balanced", "permissive"] = "balanced"
+    autonomy_profile: Literal["permissive"] = "permissive"
 
 
 class SupervisorResumeAction(GatewayModel):
