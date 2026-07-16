@@ -57,11 +57,7 @@ from .operation_locks import repository_operation_lock
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_wiki import mark_repo_wiki_stale
-from .command_profiles import (
-    build_git_readonly_profile,
-    resolve_command_profile,
-    run_command_profile,
-)
+from .command_profiles import build_git_readonly_profile
 from .runner import latest_run_result as latest_artifact_result
 from .service_reload import (
     apply_reloaded_config,
@@ -2747,55 +2743,6 @@ def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
             repo_root, patch_id, _get_runs_dir()
         ),
         finalize_commit=True,
-    )
-
-
-@_internal_tool(output_schema=RUN_COMMAND_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def run_project_command(repo_name: str, command_id: str) -> dict:
-    """Run one allowlisted synchronous command under the repository operation lock."""
-    config = get_config()
-    canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    _, repo_config = resolve_repo_config(config, canonical_name)
-    repo_profiles = list(repo_config.command_profiles or [])
-    profile = resolve_command_profile(command_id, repo_profiles)
-    if profile.async_only:
-        result = {
-            "ok": False,
-            "repo_name": canonical_name,
-            "command_id": command_id,
-            "argv": list(profile.argv),
-            "exit_code": 2,
-            "timed_out": False,
-            "duration_seconds": 0.0,
-            "stdout": "",
-            "stderr": "",
-            "output_truncated": False,
-            "status": "async_required",
-            "async_required": True,
-            "error": (
-                f"Command '{command_id}' is configured for durable async "
-                "execution. Use start_project_command_async."
-            ),
-        }
-        if requested_name != canonical_name:
-            result["requested_repo_name"] = requested_name
-        return result
-
-    def run_profile_with_attribution(root: Path) -> dict[str, Any]:
-        dirty_before = set(_changed_files(root))
-        result = dict(run_command_profile(profile, root))
-        dirty_after = _changed_files(root)
-        result["changed_files"] = [
-            path for path in dirty_after if path not in dirty_before
-        ]
-        return result
-
-    return _locked_repo_operation(
-        repo_name,
-        "run_project_command",
-        {"command_id": command_id},
-        run_profile_with_attribution,
-        finalize_commit=profile.writes_files,
     )
 
 

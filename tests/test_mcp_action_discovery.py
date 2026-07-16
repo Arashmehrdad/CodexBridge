@@ -103,7 +103,6 @@ EXPECTED_EXPOSED_ACTIONS = {
     "delete_repo_file",
     "move_repo_file",
     "revert_managed_patch",
-    "run_project_command",
     "git_log",
     "read_repo_files",
     "create_git_branch",
@@ -131,7 +130,6 @@ RETIRED_DIRECT_ACTIONS = {
     "git_diff_summary",
     "read_repo_file",
     "repo_git_status",
-    "run_project_command",
     "get_run_status",
     "get_run_control_status",
     "get_run_output",
@@ -1208,21 +1206,6 @@ REALISTIC_ACTION_OUTPUTS = {
         "reverted_files": ["README.md"],
         "error": "",
     },
-    "run_project_command": {
-        "ok": False,
-        "repo_name": "repo",
-        "command_id": "pytest",
-        "argv": ["python", "-m", "pytest", "-q"],
-        "exit_code": 2,
-        "timed_out": False,
-        "duration_seconds": 0.0,
-        "stdout": "",
-        "stderr": "",
-        "output_truncated": False,
-        "status": "async_required",
-        "async_required": True,
-        "error": "Use start_project_command_async.",
-    },
     "git_log": {
         "ok": True,
         "repo_name": "repo",
@@ -1677,28 +1660,6 @@ def test_local_model_health_malformed_models_response_returns_failed(
     assert result["status"] == "failed"
     assert result["ok"] is False
     assert result["completion_succeeded"] is False
-
-
-def test_sync_pytest_requires_durable_async_execution(monkeypatch, tmp_path) -> None:
-    (tmp_path / ".git").mkdir()
-    config = AppConfig(
-        repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
-    )
-    server.set_config(config, tmp_path / "config.yaml")
-    monkeypatch.setattr(
-        server,
-        "run_command_profile",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("sync pytest must not launch")
-        ),
-    )
-
-    result = server.run_project_command("repo", "pytest")
-
-    assert result["ok"] is False
-    assert result["status"] == "async_required"
-    assert result["async_required"] is True
-    assert "start_project_command_async" in result["error"]
 
 
 def test_start_project_command_async_delegates_to_job_manager(monkeypatch) -> None:
