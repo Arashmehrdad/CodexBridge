@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.config import LocalSupervisorConfig
+from codexbridge.config import AppConfig, LocalSupervisorConfig
+from codexbridge.job_manager import JobManager
 
 from .models import (
     SupervisorResult,
@@ -22,6 +23,9 @@ class LocalSupervisorManager:
         supervisors_dir: Path,
         config: LocalSupervisorConfig | None = None,
         command_runner=None,
+        app_config: AppConfig | None = None,
+        config_path: Path | None = None,
+        job_manager: JobManager | None = None,
         codex_router=None,
         memory_repository=None,
         local_model=None,
@@ -32,6 +36,9 @@ class LocalSupervisorManager:
             store=self.store,
             config=self.config,
             command_runner=command_runner,
+            app_config=app_config,
+            config_path=config_path,
+            job_manager=job_manager,
             codex_router=codex_router,
             memory_repository=memory_repository,
             local_model=local_model,

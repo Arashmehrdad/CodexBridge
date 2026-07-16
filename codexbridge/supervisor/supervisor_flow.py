@@ -3,7 +3,9 @@ from uuid import uuid4
 
 from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRouter
 from codexbridge.codex_router.models import CodexEscalationStatus
-from codexbridge.config import LocalSupervisorConfig
+from codexbridge.config import AppConfig, LocalSupervisorConfig
+from codexbridge.job_manager import JobManager
+from codexbridge.local_agent.durable_command_runner import DurableProjectCommandRunner
 from codexbridge.local_agent.runner import LocalAgentCommandRunner
 from codexbridge.run_store import utc_now
 
@@ -24,15 +26,24 @@ class SupervisorFlow:
         *,
         store: LocalSupervisorStore,
         config: LocalSupervisorConfig | None = None,
-        command_runner: LocalAgentCommandRunner | None = None,
+        command_runner: LocalAgentCommandRunner | DurableProjectCommandRunner | None = None,
+        app_config: AppConfig | None = None,
+        config_path=None,
+        job_manager: JobManager | None = None,
         codex_router: CodexEscalationRouter | None = None,
         memory_repository=None,
         local_model=None,
     ):
         self.store = store
         self.config = config or LocalSupervisorConfig()
-        self.command_runner = command_runner or LocalAgentCommandRunner(
-            runs_dir=store.supervisors_dir.parent
+        self.command_runner = command_runner or (
+            DurableProjectCommandRunner(
+                config=app_config,
+                config_path=config_path,
+                job_manager=job_manager,
+            )
+            if app_config is not None
+            else LocalAgentCommandRunner(runs_dir=store.supervisors_dir.parent)
         )
         self.codex_router = codex_router or CodexEscalationRouter(
             packet_dir=store.supervisors_dir.parent / "codex_escalations"

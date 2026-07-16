@@ -2,7 +2,9 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from codexbridge.config import LocalCodingConfig
+from codexbridge.config import AppConfig, LocalCodingConfig
+from codexbridge.job_manager import JobManager
+from codexbridge.local_agent.durable_command_runner import DurableProjectCommandRunner
 from codexbridge.events import append_jsonl
 from codexbridge.local_agent.models import CommandRunStatus
 from codexbridge.local_agent.runner import LocalAgentCommandRunner
@@ -37,15 +39,24 @@ class LocalCodingManager:
         runs_dir: Path | None = None,
         config: LocalCodingConfig | None = None,
         policy_engine: PolicyEngine | None = None,
-        command_runner: LocalAgentCommandRunner | None = None,
+        command_runner: LocalAgentCommandRunner | DurableProjectCommandRunner | None = None,
+        app_config: AppConfig | None = None,
+        config_path: Path | None = None,
+        job_manager: JobManager | None = None,
         local_model=None,
     ):
         self.config = config or LocalCodingConfig()
         self.runs_dir = Path(runs_dir or Path.cwd() / "runs" / "local_coding").resolve()
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.policy_engine = policy_engine or PolicyEngine()
-        self.command_runner = command_runner or LocalAgentCommandRunner(
-            runs_dir=self.runs_dir.parent
+        self.command_runner = command_runner or (
+            DurableProjectCommandRunner(
+                config=app_config,
+                config_path=config_path,
+                job_manager=job_manager,
+            )
+            if app_config is not None
+            else LocalAgentCommandRunner(runs_dir=self.runs_dir.parent)
         )
         self.local_model = local_model
 
