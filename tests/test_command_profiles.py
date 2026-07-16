@@ -247,6 +247,15 @@ def test_resolve_unknown_id_raises() -> None:
         resolve_command_profile("nonexistent_command")
 
 
+@pytest.mark.parametrize(
+    "command_id",
+    ["ruff_check", "ruff_format_check", "ruff_format", "mypy", "git_diff_check"],
+)
+def test_removed_arbitrary_filtering_builtins_are_rejected(command_id: str) -> None:
+    with pytest.raises(ValueError, match="Unknown command_id"):
+        resolve_command_profile(command_id)
+
+
 def test_resolve_invalid_id_raises() -> None:
     with pytest.raises(ValueError, match="Invalid command_id"):
         resolve_command_profile("bad id with spaces")

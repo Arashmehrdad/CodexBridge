@@ -524,7 +524,9 @@ Checkpoint (2026-07-16):
 - Focused validation passed: `tests/test_durable_command_runner.py` 5 passed; `tests/test_local_agent_runner.py` 6 passed.
 - The public generic `run_start(operation="project_command")` route and its internal server forwarding helper are removed. Durable `JobManager.start_project_command` remains an internal substrate for workflows and `DurableProjectCommandRunner`; typed path validation and unrestricted PowerShell remain public. Implementation commits: `7f2dee8014a3f5e88c774e2d66591b6699fb3bef` and `8b27c73c6eb755fa5ef9fa6c5f1e7ab91040a828`.
 - Focused validation passed: `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 29 passed; `tests/test_server.py` 25 passed.
-- Next unit: classify configured generic command profiles and their workflow/local-agent callers, retaining profiles that provide focused validation semantics and removing public restricted metadata or profiles whose only value is arbitrary-command filtering superseded by unrestricted PowerShell.
+- Built-in `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and duplicate `git_diff_check` profiles are removed after repository-wide call-site inspection found no runtime callers. Unrestricted PowerShell replaces ad hoc lint/format/typecheck execution, while retained `git_readonly(operation="diff_check")` provides the fixed Git validation. Repository-configured profiles remain internal durable workflow contracts because live configuration still uses them for repository-specific validation, repair, and service-management operations. Implementation commit: `21662eb3419fa2a726f20cfc30b100bd36330c32`.
+- Focused validation passed: `tests/test_command_profiles.py` 59 passed.
+- Next unit: inventory active repository-configured project-command IDs against workflow definitions and operational callers, migrate profiles whose behavior is ordinary unrestricted PowerShell, and retain only those requiring durable workflow or service-management semantics.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
