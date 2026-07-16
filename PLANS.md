@@ -350,7 +350,10 @@ Checkpoint (2026-07-16):
 - `JobManager` now exposes durable group status and whole-group cancellation. Whole-group cancellation targets pending children before active children, suppresses intermediate refill, reuses exact child process-tree cancellation, then performs one final refill and aggregate publication. Direct child cancellation also releases a PowerShell slot.
 - Focused validation passed: `tests/test_parallel_groups.py` 10 passed; `tests/test_job_manager.py` 59 passed; `parallel_groups.py` passed `py_compile`.
 - Aggregate/cancellation implementation commits: `d9eb389a38945832fd7db2e9b43f6fb1e90ea66c`, `d9d3a40288fb35dcad372200846c927682430647`, and `d63eac68c350c60728a090e5682e1b8623b26b05`.
-- Next unit: expose group status/result/cancellation through the public gateway, then run live capped-fan-out and restart acceptance.
+- Public group lifecycle access is now exposed through the existing gateways: `run_query` supports strict `group_status` and `group_result` operations, while `cancel_run` routes durable `powershell_group` IDs to exact whole-group cancellation without introducing another public tool.
+- Focused public-gateway validation passed: `tests/test_tool_gateway_models.py` 29 passed and `tests/test_server.py` 27 passed.
+- Public group gateway commits: `abfeb5d5c1d85e0323131a172c5127ae053bc232` and `4535ff92a283cf9a6b5e79843ffd14170982542d`.
+- Next unit: run live capped-fan-out and restart-adoption acceptance, including pending-slot refill and duplicate-launch prevention.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
