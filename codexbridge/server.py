@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import inspect
 import json
 import socket
@@ -2029,9 +2031,51 @@ def start_git_readonly_async(repo_name: str, operation: str) -> dict:
     return get_job_manager().start_git_readonly(repo_name, operation)
 
 
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_local_powershell_async(
+    repo_name: str,
+    profile_id: str,
+    argv: list[str],
+    *,
+    working_directory: str = "",
+    environment: dict[str, str] | None = None,
+    stdin_text: str | None = None,
+    stdin_base64: str | None = None,
+    timeout_seconds: int | None = None,
+) -> dict:
+    """Write async tool: launch unrestricted local PowerShell through an enabled permissive executable profile."""
+    stdin_bytes = None
+    if stdin_base64 is not None:
+        try:
+            stdin_bytes = base64.b64decode(stdin_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("stdin_base64 must contain valid base64") from exc
+    return get_job_manager().start_executable_profile(
+        repo_name,
+        profile_id,
+        argv,
+        working_directory=working_directory,
+        environment=environment,
+        stdin_text=stdin_text,
+        stdin_bytes=stdin_bytes,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_start(request: RunStartRequest) -> dict:
-    """Write gateway for allowlisted project validation and durable run starters."""
+    """Write gateway for durable validation and unrestricted permissive PowerShell runs."""
+    if request.operation == "powershell":
+        return start_local_powershell_async(
+            request.repo_name,
+            request.profile_id,
+            request.argv,
+            working_directory=request.working_directory,
+            environment=request.environment,
+            stdin_text=request.stdin_text,
+            stdin_base64=request.stdin_base64,
+            timeout_seconds=request.timeout_seconds,
+        )
     if request.operation == "project_command":
         return start_project_command_async(request.repo_name, request.command_id)
     if request.operation == "pytest_path":
