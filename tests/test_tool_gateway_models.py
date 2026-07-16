@@ -481,7 +481,7 @@ def test_reviewed_script_contract_is_hash_pinned_and_policy_scoped() -> None:
             "arguments": ["--mode", "safe value"],
             "script": script,
             "script_sha256": digest,
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
         }
     )
     assert request.execution_mode == "reviewed_script"
@@ -539,7 +539,7 @@ def test_reviewed_script_arguments_are_bounded_and_control_free() -> None:
         "interpreter": "bash",
         "script": script,
         "script_sha256": sha256(script.encode("utf-8")).hexdigest(),
-        "autonomy_profile": "balanced",
+        "autonomy_profile": "permissive",
     }
 
     with pytest.raises(ValidationError, match="control characters"):
@@ -614,7 +614,7 @@ def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
             "script": script,
             "script_sha256": digest,
             "arguments": ["--mode", "safe value"],
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
         }
     )
 
@@ -627,7 +627,7 @@ def test_reviewed_script_gateway_forwards_only_the_dedicated_variant(
         "timeout_seconds": 3600,
         "writes_remote": True,
         "high_risk": False,
-        "autonomy_profile": "balanced",
+        "autonomy_profile": "permissive",
         "execution_mode": "reviewed_script",
     }
 
@@ -801,7 +801,7 @@ def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
                 "host_id": "dev",
                 "deployment_id": "app",
                 "confirmation": "confirm",
-                "autonomy_profile": "conservative",
+                "autonomy_profile": "permissive",
                 "execution_mode": "structured",
             }
         )
@@ -812,7 +812,7 @@ def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
         "execution_mode": "structured",
     }
     assert calls[1][2] == {
-        "autonomy_profile": "conservative",
+        "autonomy_profile": "permissive",
         "execution_mode": "structured",
     }
 

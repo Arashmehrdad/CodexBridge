@@ -547,33 +547,19 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert result["gates"]["allow_deploy"] is True
     assert result["arbitrary_shell_supported"] is False
     policy = result["execution_policy"]
-    assert set(policy["autonomy_profiles"]) == {
-        "balanced",
-        "conservative",
-        "permissive",
-    }
+    assert policy["autonomy_profiles"] == ["permissive"]
     assert policy["active_autonomy_profiles"] == ["permissive"]
-    assert policy["compatibility_only_autonomy_profiles"] == [
-        "balanced",
-        "conservative",
-    ]
+    assert policy["compatibility_only_autonomy_profiles"] == []
     modes = {
         item["execution_mode"]: item for item in policy["execution_modes"]
     }
     assert modes["structured"] == {
         "execution_mode": "structured",
-        "allowed_autonomy_profiles": [
-            "balanced",
-            "conservative",
-            "permissive",
-        ],
+        "allowed_autonomy_profiles": ["permissive"],
         "active_allowed_autonomy_profiles": ["permissive"],
         "implemented": True,
     }
-    assert modes["reviewed_script"]["allowed_autonomy_profiles"] == [
-        "balanced",
-        "permissive",
-    ]
+    assert modes["reviewed_script"]["allowed_autonomy_profiles"] == ["permissive"]
     assert modes["reviewed_script"]["implemented"] is True
     assert modes["root_shell"]["allowed_autonomy_profiles"] == ["permissive"]
     assert modes["root_shell"]["implemented"] is True
