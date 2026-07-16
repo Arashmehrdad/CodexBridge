@@ -8,6 +8,82 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
+class ExecutableProfileConfig(BaseModel):
+    profile_id: str
+    enabled: bool = False
+    executable_path: str
+    expected_sha256: str = Field(default="", pattern=r"^[A-Fa-f0-9]{64}$|^$")
+    expected_signer: str = ""
+    expected_version: str = ""
+    target: Literal["local", "remote"] = "local"
+    working_directory_policy: Literal["service_default", "fixed", "arbitrary"] = (
+        "service_default"
+    )
+    fixed_working_directory: str = ""
+    environment_policy: Literal["inherit", "fixed", "arbitrary"] = "inherit"
+    fixed_environment: Dict[str, str] = Field(default_factory=dict)
+    stdin_mode: Literal["none", "text", "bytes", "file", "protected_reference"] = (
+        "none"
+    )
+    stdout_mode: Literal["text", "bytes", "file", "protected_artifact"] = (
+        "protected_artifact"
+    )
+    stderr_mode: Literal["text", "bytes", "file", "protected_artifact"] = (
+        "protected_artifact"
+    )
+    timeout_seconds: int | None = Field(default=600, ge=1, le=604800)
+    allow_no_timeout: bool = False
+    cancellation_policy: Literal["process_only", "process_tree"] = "process_tree"
+    public_output_max_bytes: int = Field(default=100000, ge=1024, le=5000000)
+    preserve_protected_artifacts: bool = True
+    autonomy_profile: Literal["permissive"] = "permissive"
+    unrestricted_argv: bool = False
+    unrestricted_paths: bool = False
+    unrestricted_environment: bool = False
+    unrestricted_network: bool = False
+    unrestricted_child_processes: bool = False
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> "ExecutableProfileConfig":
+        allowed = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
+        if not self.profile_id or any(char not in allowed for char in self.profile_id):
+            raise ValueError(
+                "Executable profile_id must use letters, numbers, _ or -"
+            )
+        executable = Path(self.executable_path)
+        if not (
+            executable.is_absolute()
+            or PureWindowsPath(self.executable_path).is_absolute()
+        ):
+            raise ValueError("Executable profile executable_path must be absolute")
+        if self.working_directory_policy == "fixed":
+            if not self.fixed_working_directory:
+                raise ValueError(
+                    "Fixed working-directory policy requires fixed_working_directory"
+                )
+            working_directory = Path(self.fixed_working_directory)
+            if not (
+                working_directory.is_absolute()
+                or PureWindowsPath(self.fixed_working_directory).is_absolute()
+            ):
+                raise ValueError(
+                    "Executable profile fixed_working_directory must be absolute"
+                )
+        elif self.fixed_working_directory:
+            raise ValueError(
+                "fixed_working_directory is only valid with fixed working-directory policy"
+            )
+        if self.timeout_seconds is None and not self.allow_no_timeout:
+            raise ValueError(
+                "No-timeout executable profiles require allow_no_timeout=true"
+            )
+        if self.expected_sha256:
+            self.expected_sha256 = self.expected_sha256.lower()
+        return self
+
+
 class DockerExecProfileConfig(BaseModel):
     command_id: str
     argv: List[str] = Field(default_factory=list, min_length=1, max_length=64)
@@ -715,6 +791,9 @@ class SupervisorsConfig(BaseModel):
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
+    executable_profiles: Dict[str, ExecutableProfileConfig] = Field(
+        default_factory=dict
+    )
     ssh: SSHConfig = Field(default_factory=SSHConfig)
     docker: DockerConfig = Field(default_factory=DockerConfig)
     cloudflare: CloudflareConfig = Field(default_factory=CloudflareConfig)
@@ -735,6 +814,16 @@ class AppConfig(BaseModel):
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     supervisors: SupervisorsConfig = Field(default_factory=SupervisorsConfig)
     config_dir: Path = Field(default_factory=lambda: Path.cwd(), exclude=True)
+
+    @model_validator(mode="after")
+    def validate_executable_profiles(self) -> "AppConfig":
+        for profile_id, profile in self.executable_profiles.items():
+            if profile_id != profile.profile_id:
+                raise ValueError(
+                    "Executable profile mapping key must match profile_id: "
+                    f"{profile_id!r} != {profile.profile_id!r}"
+                )
+        return self
 
     def resolve_runs_dir(self) -> Path:
         runs = Path(self.runs_dir)

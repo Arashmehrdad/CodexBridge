@@ -12,6 +12,7 @@ from codexbridge.config import (
     CloudflareProfileConfig,
     DockerConfig,
     DockerExecProfileConfig,
+    ExecutableProfileConfig,
     LocalModelConfig,
     RepoConfig,
     SSHCommandProfileConfig,
@@ -43,6 +44,13 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.supervisors.default_autonomy_profile == "permissive"
     assert config.supervisors.effective_profile().max_plan_tier == 3
     assert config.supervisors.effective_profile().max_implementation_tier == 3
+    powershell = config.executable_profiles["powershell"]
+    assert powershell.profile_id == "powershell"
+    assert powershell.enabled is False
+    assert powershell.executable_path == "C:/Program Files/PowerShell/7/pwsh.exe"
+    assert powershell.autonomy_profile == "permissive"
+    assert powershell.unrestricted_argv is True
+    assert powershell.cancellation_policy == "process_tree"
     assert config.ssh.enabled is False
     assert config.ssh.active_autonomy_profiles == [
         "conservative",
@@ -114,6 +122,65 @@ def test_config_defaults_to_permissive_supervisor_profile(tmp_path: Path) -> Non
         config.resolve_codex_router_packet_dir()
         == tmp_path / "runs" / "codex_escalations"
     )
+
+
+def test_executable_profile_contract_accepts_permissive_powershell() -> None:
+    profile = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=r"C:\Program Files\PowerShell\7\pwsh.exe",
+        working_directory_policy="arbitrary",
+        environment_policy="arbitrary",
+        stdin_mode="bytes",
+        stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact",
+        timeout_seconds=None,
+        allow_no_timeout=True,
+        unrestricted_argv=True,
+        unrestricted_paths=True,
+        unrestricted_environment=True,
+        unrestricted_network=True,
+        unrestricted_child_processes=True,
+    )
+
+    assert profile.target == "local"
+    assert profile.autonomy_profile == "permissive"
+    assert profile.timeout_seconds is None
+    assert profile.allow_no_timeout is True
+    assert profile.unrestricted_argv is True
+
+
+def test_executable_profile_contract_rejects_unsafe_configuration(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match="executable_path must be absolute"):
+        ExecutableProfileConfig(
+            profile_id="powershell",
+            executable_path="pwsh.exe",
+        )
+    with pytest.raises(ValidationError, match="allow_no_timeout"):
+        ExecutableProfileConfig(
+            profile_id="powershell",
+            executable_path=str(tmp_path / "pwsh.exe"),
+            timeout_seconds=None,
+        )
+    with pytest.raises(ValidationError, match="requires fixed_working_directory"):
+        ExecutableProfileConfig(
+            profile_id="powershell",
+            executable_path=str(tmp_path / "pwsh.exe"),
+            working_directory_policy="fixed",
+        )
+    with pytest.raises(ValidationError, match="mapping key must match"):
+        AppConfig(
+            repos={"sample": RepoConfig(path=str(tmp_path))},
+            executable_profiles={
+                "pwsh": ExecutableProfileConfig(
+                    profile_id="powershell",
+                    executable_path=str(tmp_path / "pwsh.exe"),
+                )
+            },
+            config_dir=tmp_path,
+        )
 
 
 def test_local_model_config_defaults_and_overrides() -> None:

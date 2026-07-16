@@ -26,6 +26,28 @@ repos:
     require_commit_report: true
     cloudflare_profiles:
       - "second_site_production"
+executable_profiles:
+  powershell:
+    profile_id: "powershell"
+    enabled: false
+    executable_path: "C:/Program Files/PowerShell/7/pwsh.exe"
+    target: "local"
+    working_directory_policy: "arbitrary"
+    environment_policy: "arbitrary"
+    stdin_mode: "bytes"
+    stdout_mode: "protected_artifact"
+    stderr_mode: "protected_artifact"
+    timeout_seconds: 600
+    allow_no_timeout: true
+    cancellation_policy: "process_tree"
+    public_output_max_bytes: 100000
+    preserve_protected_artifacts: true
+    autonomy_profile: "permissive"
+    unrestricted_argv: true
+    unrestricted_paths: true
+    unrestricted_environment: true
+    unrestricted_network: true
+    unrestricted_child_processes: true
 external_fixtures:
   enabled: false
   allowed_hosts:
