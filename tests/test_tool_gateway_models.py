@@ -233,9 +233,6 @@ def test_cancel_run_routes_powershell_groups(monkeypatch) -> None:
 def test_run_start_models_reject_cross_operation_fields() -> None:
     adapter = TypeAdapter(RunStartRequest)
     assert adapter.validate_python(
-        {"operation": "project_command", "repo_name": "repo", "command_id": "pytest"}
-    ).command_id == "pytest"
-    assert adapter.validate_python(
         {"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}
     ).git_operation == "status"
     assert adapter.validate_python(
@@ -276,7 +273,7 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
         "two",
     ]
     invalid = (
-        {"operation": "project_command", "repo_name": "repo", "command_id": "pytest", "path": "x"},
+        {"operation": "project_command", "repo_name": "repo", "command_id": "pytest"},
         {"operation": "pytest_path", "repo_name": "repo", "path": "x", "command_id": "pytest"},
         {"operation": "git_readonly", "repo_name": "repo", "git_operation": "shell"},
         {"operation": "external_fixture_validation", "repo_name": "repo", "url": "http://example.test", "expected_sha256": "a" * 64},
@@ -304,7 +301,6 @@ def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) ->
 
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
     for payload, expected in (
-        ({"operation": "project_command", "repo_name": "repo", "command_id": "pytest"}, "start_project_command"),
         ({"operation": "pytest_path", "repo_name": "repo", "path": "tests"}, "start_pytest_path"),
         ({"operation": "py_compile_path", "repo_name": "repo", "path": "x.py"}, "start_py_compile_path"),
         ({"operation": "bash_syntax_path", "repo_name": "repo", "path": "x.sh"}, "start_bash_n_path"),

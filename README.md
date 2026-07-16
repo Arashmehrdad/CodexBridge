@@ -198,7 +198,7 @@ Command execution rules:
 - Commands execute with `argv` arrays and `shell=False`.
 - When possible, the target repository's `.venv` or `venv` Python interpreter is preferred automatically.
 - New project-specific commands are registered once under `repos.<name>.command_profiles` in `config.yaml`.
-- Project commands run durably through `start_project_command_async`, followed by `get_run_status` and `get_run_result`.
+- Project commands remain an internal durable substrate for workflows and typed validation adapters; unrestricted PowerShell is the public arbitrary-command gateway.
 - Full `pytest` is configured async-only and uses that durable command path.
 - `start_pytest_path_async(repo_name, path)` is the dedicated scoped pytest entrypoint for one validated repo-relative directory or `.py` file target, with optional `::` node selectors.
 - Scoped pytest accepts no arbitrary flags, command strings, environment overrides, or extra argv. CodexBridge validates and normalizes the target before queueing and again in the worker.
@@ -467,7 +467,6 @@ Durable async runs cover:
 - `start_codex_plan_task_async`
 - `start_codex_implement_task_async`
 - `start_workflow`
-- `start_project_command_async`
 - `start_pytest_path_async`
 - `start_external_fixture_validation_async`
 - `start_cloudflare_action_async`

@@ -1991,12 +1991,6 @@ def start_docker_action_async(
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_project_command_async(repo_name: str, command_id: str) -> dict:
-    """Write async tool: queue an allowlisted project command and return a durable run_id immediately."""
-    return get_job_manager().start_project_command(repo_name, command_id)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_pytest_path_async(repo_name: str, path: str) -> dict:
     """Write async tool: queue scoped pytest for one validated repo-relative target and return a durable run_id immediately."""
     return get_job_manager().start_pytest_path(repo_name, path)

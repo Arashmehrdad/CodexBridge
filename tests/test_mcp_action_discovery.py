@@ -712,15 +712,6 @@ REALISTIC_ACTION_OUTPUTS = {
         "result": {},
         "error": "",
     },
-    "start_project_command_async": {
-        "ok": True,
-        "run_id": "run_4",
-        "status": "queued",
-        "repo_name": "repo",
-        "command_id": "pytest",
-        "result": {},
-        "error": "",
-    },
     "start_pytest_path_async": {
         "ok": True,
         "run_id": "run_5",
@@ -1662,26 +1653,6 @@ def test_local_model_health_malformed_models_response_returns_failed(
     assert result["completion_succeeded"] is False
 
 
-def test_start_project_command_async_delegates_to_job_manager(monkeypatch) -> None:
-    class FakeJobManager:
-        def start_project_command(self, repo_name, command_id):
-            return {
-                "run_id": "run_4",
-                "accepted": True,
-                "status": "queued",
-                "repo_name": repo_name,
-                "command_id": command_id,
-            }
-
-    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
-
-    result = server.start_project_command_async("repo", "pytest")
-
-    assert result["accepted"] is True
-    assert result["run_id"] == "run_4"
-    assert result["command_id"] == "pytest"
-
-
 def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
     class FakeJobManager:
         def start_pytest_path(self, repo_name, path):
@@ -1707,7 +1678,7 @@ def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
 def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     schema = actions["run_start"]["inputSchema"]["properties"]["request"]
-    assert len(schema["oneOf"]) == 9
+    assert len(schema["oneOf"]) == 8
     assert actions["run_start"]["annotations"]["readOnlyHint"] is False
     for name in {
         "start_project_command_async", "start_pytest_path_async", "start_py_compile_path_async",

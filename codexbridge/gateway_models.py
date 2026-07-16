@@ -410,12 +410,6 @@ RepoCommitRequest = Annotated[
 ]
 
 
-class ProjectCommandStart(GatewayModel):
-    operation: Literal["project_command"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    command_id: str = Field(min_length=1, max_length=128)
-
-
 class PytestPathStart(GatewayModel):
     operation: Literal["pytest_path"]
     repo_name: str = Field(min_length=1, max_length=128)
@@ -499,7 +493,7 @@ class LocalPowerShellStart(GatewayModel):
 
 
 RunStartRequest = Annotated[
-    ProjectCommandStart | PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
+    PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
     | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
     | LocalPowerShellStart | ParallelPowerShellStart,
     Field(discriminator="operation"),
