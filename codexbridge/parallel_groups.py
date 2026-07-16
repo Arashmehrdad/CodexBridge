@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from uuid import uuid4
 
+from .config import AppConfig, resolve_repo, resolve_repo_config
+from .events import ArtifactWriter
+from .executable_profiles import build_local_executable_run_request
+from .process_control import terminate_process_tree
 from .run_store import RunStore, dumps, loads, utc_now, validate_run_id
+
+
+def _make_group_run_id(tool: str) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_tool = "".join(char if char.isalnum() else "_" for char in tool.lower())
+    return f"{timestamp}_{safe_tool}_{uuid4().hex[:8]}"
 
 
 class ParallelGroupStore:
@@ -195,3 +207,176 @@ class ParallelGroupStore:
         payload["children"] = [dict(child) for child in children]
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
+
+
+def launch_powershell_group(
+    *,
+    config: AppConfig,
+    repo_name: str,
+    children: list[dict[str, Any]],
+    spawn_worker: Callable[[str, str], Any],
+    group_id: str | None = None,
+    requested_concurrency: int | None = None,
+    repository_lock_policy: str = "none",
+) -> dict[str, Any]:
+    """Validate, reserve, materialize, then launch a parallel PowerShell group."""
+    parallel = config.parallel_execution
+    if not parallel.enabled:
+        raise ValueError("Parallel PowerShell execution is disabled")
+    if parallel.autonomy_profile != "permissive":
+        raise ValueError("Parallel PowerShell execution requires permissive autonomy")
+    if repository_lock_policy != "none":
+        raise ValueError("Only lock-free parallel launch is implemented in this batch")
+    if not children:
+        raise ValueError("Parallel PowerShell group requires at least one child")
+
+    resolve_repo(config, repo_name)
+    canonical_repo_name, _ = resolve_repo_config(config, repo_name)
+    configured_limit = parallel.max_concurrent_powershell
+    if requested_concurrency is not None:
+        requested_concurrency = int(requested_concurrency)
+        if requested_concurrency < 1:
+            raise ValueError("requested_concurrency must be positive or null")
+        if configured_limit is not None and requested_concurrency > configured_limit:
+            raise ValueError(
+                "requested_concurrency exceeds max_concurrent_powershell"
+            )
+    effective_limit = requested_concurrency
+    if effective_limit is None:
+        effective_limit = configured_limit
+
+    runs_dir = config.resolve_runs_dir()
+    store = ParallelGroupStore(runs_dir)
+    reserved_children: list[dict[str, Any]] = []
+    for child in children:
+        profile_id = str(child.get("profile_id") or "powershell")
+        argv = child.get("argv")
+        if not isinstance(argv, list):
+            raise ValueError("Every parallel PowerShell child requires argv")
+        request = build_local_executable_run_request(
+            config,
+            profile_id,
+            argv,
+            working_directory=str(child.get("working_directory") or ""),
+            environment=dict(child.get("environment") or {}),
+            stdin_text=child.get("stdin_text"),
+            stdin_bytes=child.get("stdin_bytes"),
+            timeout_seconds=child.get("timeout_seconds"),
+        )
+        run_id = str(child.get("run_id") or _make_group_run_id("executable_profile"))
+        lease_token = uuid4().hex
+        input_data = {
+            "repo_name": canonical_repo_name,
+            "requested_repo_name": repo_name,
+            **request,
+        }
+        reserved_children.append(
+            {
+                "run_id": run_id,
+                "idempotency_key": str(
+                    child.get("idempotency_key") or uuid4().hex
+                ),
+                "run_dir": runs_dir / run_id,
+                "worker_lease_token": lease_token,
+                "input_data": input_data,
+                "risk_level": "high",
+                "requires_human": False,
+            }
+        )
+
+    selected_group_id = group_id or _make_group_run_id("powershell_group")
+    group = store.reserve_group(
+        group_id=selected_group_id,
+        repo_name=canonical_repo_name,
+        children=reserved_children,
+        requested_concurrency=requested_concurrency,
+        repository_lock_policy=repository_lock_policy,
+        input_data={
+            "autonomy_profile": "permissive",
+            "requested_repo_name": repo_name,
+            "child_count": len(reserved_children),
+        },
+    )
+
+    for child in reserved_children:
+        run_dir = Path(child["run_dir"])
+        run_dir.mkdir(parents=True, exist_ok=False)
+        artifacts = ArtifactWriter(run_dir)
+        artifacts.write_json("input.json", child["input_data"])
+        event = store.store.append_event(
+            child["run_id"],
+            level="info",
+            stage="launch_pending",
+            message="Parallel child launch intent recorded",
+            data={"group_id": selected_group_id},
+        )
+        artifacts.append_event(event)
+
+    launched_run_ids: list[str] = []
+    pending_run_ids: list[str] = []
+    eligible_count = len(reserved_children) if effective_limit is None else effective_limit
+    for index, child in enumerate(reserved_children):
+        run_id = child["run_id"]
+        if index >= eligible_count:
+            pending_run_ids.append(run_id)
+            continue
+        run_dir = Path(child["run_dir"])
+        try:
+            launch_intent = store.store.get_run(run_id)
+            process = spawn_worker(run_id, child["worker_lease_token"])
+            launched = store.store.record_worker_launch(
+                run_id,
+                process.pid,
+                expected_state_version=int(launch_intent["state_version"]),
+                expected_lease_token=child["worker_lease_token"],
+                expected_lease_generation=int(launch_intent["lease_generation"]),
+            )
+            current = launched or store.store.get_run(run_id)
+            if not (
+                str(current.get("worker_lease_token") or "")
+                == child["worker_lease_token"]
+                and current["status"] in {"queued", "running"}
+            ):
+                terminate_process_tree(process.pid)
+                raise RuntimeError("Parallel child launch lost durable lease ownership")
+            event = store.store.append_event(
+                run_id,
+                level="info",
+                stage="worker",
+                message="Parallel child worker launcher started",
+                data={"group_id": selected_group_id, "launcher_pid": process.pid},
+            )
+            ArtifactWriter(run_dir).append_event(event)
+            launched_run_ids.append(run_id)
+        except Exception as exc:
+            current = store.store.get_run(run_id)
+            reason = f"Parallel child worker launch failed: {exc}"
+            failed = store.store.fail_infrastructure(
+                run_id,
+                reason,
+                expected_statuses=(str(current["status"]),),
+                expected_state_version=int(current["state_version"]),
+                expected_lease_token=str(current.get("worker_lease_token") or ""),
+                expected_lease_generation=int(current.get("lease_generation") or 1),
+                expected_heartbeat_at=current.get("heartbeat_at"),
+            )
+            if failed is not None:
+                event = store.store.append_event(
+                    run_id,
+                    level="error",
+                    stage="launch_failed",
+                    message=reason,
+                    data={"group_id": selected_group_id},
+                    update_run_metadata=False,
+                )
+                ArtifactWriter(run_dir).append_event(event)
+
+    result = store.get_group(selected_group_id)
+    result.update(
+        {
+            "accepted": True,
+            "launched_run_ids": launched_run_ids,
+            "pending_run_ids": pending_run_ids,
+        }
+    )
+    return result
