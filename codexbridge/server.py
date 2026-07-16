@@ -2105,8 +2105,6 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
         )
-    if request.operation == "project_command":
-        return start_project_command_async(request.repo_name, request.command_id)
     if request.operation == "pytest_path":
         return start_pytest_path_async(request.repo_name, request.path)
     if request.operation == "py_compile_path":
