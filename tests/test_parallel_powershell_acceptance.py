@@ -125,6 +125,51 @@ def test_live_capped_fanout_refills_pending_children(tmp_path: Path) -> None:
         assert (marker_dir / f"child-{index}.txt").read_text(encoding="utf-8") == f"done-{index}"
 
 
+def test_live_eight_process_cap_keeps_excess_children_pending_then_refills(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, max_concurrent=8)
+    marker_dir = tmp_path / "markers"
+    marker_dir.mkdir()
+    children = _children(marker_dir, 10)
+    for child in children:
+        child["argv"][4] = child["argv"][4].replace(
+            "Start-Sleep -Milliseconds 700",
+            "Start-Sleep -Seconds 2",
+        )
+
+    started = manager.start_powershell_group("sample", children)
+
+    assert len(started["launched_run_ids"]) == 8
+    assert len(started["pending_run_ids"]) == 2
+    store = ParallelGroupStore(manager.config.resolve_runs_dir()).store
+    deadline = time.monotonic() + 10
+    statuses = {
+        run_id: store.get_run(run_id)["status"]
+        for run_id in started["launched_run_ids"]
+    }
+    while time.monotonic() < deadline and not all(
+        status == "running" for status in statuses.values()
+    ):
+        time.sleep(0.05)
+        statuses = {
+            run_id: store.get_run(run_id)["status"]
+            for run_id in started["launched_run_ids"]
+        }
+    assert all(status == "running" for status in statuses.values())
+    assert all(
+        store.get_run(run_id)["status"] == "pending"
+        for run_id in started["pending_run_ids"]
+    )
+
+    completed = _wait_for_group(manager, started["group_id"], timeout=45)
+
+    assert completed["status"] == "completed"
+    assert completed["result"]["status_counts"] == {"completed": 10}
+    for index in range(10):
+        assert (marker_dir / f"child-{index}.txt").read_text(encoding="utf-8") == f"done-{index}"
+
+
 def test_live_uncapped_group_continues_successful_siblings_after_failure(
     tmp_path: Path,
 ) -> None:
