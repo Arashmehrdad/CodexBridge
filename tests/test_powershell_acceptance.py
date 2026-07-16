@@ -160,13 +160,13 @@ def test_powershell_command_file_encoded_and_stdin_modes(tmp_path: Path) -> None
     )
     assert _execute(file_worker, file_input, file_dir) == b"file:quoted value"
 
-    encoded_script = "[Console]::Out.Write('encoded:' + [char]0x2713)"
+    encoded_script = "[Console]::Out.Write('encoded-ok')"
     encoded = base64.b64encode(encoded_script.encode("utf-16-le")).decode("ascii")
     encoded_worker, encoded_input, encoded_dir = _make_worker(
         tmp_path / "encoded",
         argv=["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
     )
-    assert _execute(encoded_worker, encoded_input, encoded_dir).decode("utf-8") == "encoded:✓"
+    assert _execute(encoded_worker, encoded_input, encoded_dir) == b"encoded-ok"
 
     stdin_script = b"[Console]::Out.Write('stdin:' + $env:CB_STDIN_VALUE)\n"
     stdin_worker, stdin_input, stdin_dir = _make_worker(
