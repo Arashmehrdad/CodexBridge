@@ -4,7 +4,6 @@ import pytest
 from pydantic import ValidationError
 
 from codexbridge.policy.models import CanonicalPermissionTier, PolicyDecisionValue
-from codexbridge.policy.profiles import BUILTIN_AUTONOMY_PROFILES
 from codexbridge.ssh_policy import (
     AUTONOMY_PROFILES,
     CANONICAL_AUTONOMY_PROFILES,
@@ -23,56 +22,52 @@ from codexbridge.ssh_policy import (
 
 
 @pytest.mark.parametrize(
-    ("mode", "profile", "allowed"),
-    [
-        ("structured", profile, True)
-        for profile in ("conservative", "balanced", "permissive")
-    ]
-    + [
-        ("reviewed_script", "conservative", False),
-        ("reviewed_script", "balanced", True),
-        ("reviewed_script", "permissive", True),
-        ("root_shell", "conservative", False),
-        ("root_shell", "balanced", False),
-        ("root_shell", "permissive", True),
-    ],
+    "mode",
+    ["structured", "reviewed_script", "root_shell"],
 )
-def test_full_ssh_policy_matrix(mode: str, profile: str, allowed: bool) -> None:
+def test_permissive_is_the_only_ssh_policy_profile(mode: str) -> None:
     result = evaluate_ssh_policy(
-        SSHPolicyRequest(execution_mode=mode, autonomy_profile=profile)
+        SSHPolicyRequest(execution_mode=mode, autonomy_profile="permissive")
     )
-    assert result.allowed is allowed
-    assert result.decision == ("allowed" if allowed else "denied")
+    assert result.allowed is True
+    assert result.decision == "allowed"
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"execution_mode": "unknown", "autonomy_profile": "conservative"},
+        {"execution_mode": "unknown", "autonomy_profile": "permissive"},
         {"execution_mode": "structured", "autonomy_profile": "unknown"},
+        {"execution_mode": "structured", "autonomy_profile": "balanced"},
+        {"execution_mode": "structured", "autonomy_profile": "conservative"},
         {"execution_mode": "structured", "autonomy_profile": "chatgpt_delegated"},
         {
             "execution_mode": "structured",
-            "autonomy_profile": "conservative",
+            "autonomy_profile": "permissive",
             "extra": True,
         },
     ],
 )
-def test_policy_request_rejects_unknown_values_and_extra_fields(payload: dict) -> None:
+def test_policy_request_rejects_removed_values_and_extra_fields(payload: dict) -> None:
     with pytest.raises(ValidationError):
         SSHPolicyRequest.model_validate(payload)
 
 
-def test_canonical_profile_names_stay_synchronized() -> None:
-    assert CANONICAL_AUTONOMY_PROFILES == frozenset(BUILTIN_AUTONOMY_PROFILES)
+def test_canonical_profile_names_are_permissive_only() -> None:
+    assert CANONICAL_AUTONOMY_PROFILES == frozenset({"permissive"})
     assert AUTONOMY_PROFILES == CANONICAL_AUTONOMY_PROFILES
     assert CANONICAL_SSH_EXECUTION_MODES == frozenset(SSH_EXECUTION_POLICY_MATRIX)
+    assert all(
+        allowed_profiles == CANONICAL_AUTONOMY_PROFILES
+        for allowed_profiles in SSH_EXECUTION_POLICY_MATRIX.values()
+    )
 
 
 def test_policy_is_repository_independent() -> None:
     request = SSHPolicyRequest(
-        execution_mode="structured", autonomy_profile="conservative"
+        execution_mode="structured", autonomy_profile="permissive"
     )
+    assert request.autonomy_profile == "permissive"
     assert set(SSHPolicyRequest.model_fields) == {
         "execution_mode",
         "autonomy_profile",
@@ -121,17 +116,9 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
 
 
 @pytest.mark.parametrize(
-    (
-        "autonomy_profile",
-        "writes_remote",
-        "monitored",
-        "high_risk",
-        "decision",
-        "tier",
-    ),
+    ("writes_remote", "monitored", "high_risk", "decision", "tier"),
     [
         (
-            "conservative",
             False,
             False,
             False,
@@ -139,15 +126,6 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T0_READ_ONLY,
         ),
         (
-            "conservative",
-            False,
-            True,
-            False,
-            PolicyDecisionValue.NEEDS_HUMAN_APPROVAL,
-            CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
-        ),
-        (
-            "balanced",
             False,
             True,
             False,
@@ -155,15 +133,6 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB,
         ),
         (
-            "balanced",
-            True,
-            False,
-            False,
-            PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL,
-            CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
-        ),
-        (
-            "permissive",
             True,
             False,
             False,
@@ -171,15 +140,6 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
             CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
         ),
         (
-            "conservative",
-            True,
-            False,
-            False,
-            PolicyDecisionValue.NEEDS_HUMAN_APPROVAL,
-            CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED,
-        ),
-        (
-            "permissive",
             True,
             False,
             True,
@@ -188,8 +148,7 @@ def test_structured_ssh_metadata_maps_to_canonical_tiers(
         ),
     ],
 )
-def test_action_policy_uses_canonical_profile_permissions(
-    autonomy_profile: str,
+def test_action_policy_uses_permissive_profile_permissions(
     writes_remote: bool,
     monitored: bool,
     high_risk: bool,
@@ -199,7 +158,7 @@ def test_action_policy_uses_canonical_profile_permissions(
     result = evaluate_ssh_action_policy(
         SSHActionPolicyRequest(
             execution_mode="structured",
-            autonomy_profile=autonomy_profile,
+            autonomy_profile="permissive",
             writes_remote=writes_remote,
             monitored=monitored,
             high_risk=high_risk,
@@ -211,22 +170,7 @@ def test_action_policy_uses_canonical_profile_permissions(
     assert result.human_required is (
         decision == PolicyDecisionValue.NEEDS_HUMAN_APPROVAL
     )
-    assert result.chatgpt_delegated_allowed is (
-        decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
-    )
-
-
-def test_action_policy_denies_disallowed_mode_before_tier_permission() -> None:
-    result = evaluate_ssh_action_policy(
-        SSHActionPolicyRequest(
-            execution_mode="root_shell",
-            autonomy_profile="balanced",
-            writes_remote=False,
-        )
-    )
-    assert result.mode_allowed is False
-    assert result.decision == PolicyDecisionValue.DENIED
-    assert result.blocked is True
+    assert result.chatgpt_delegated_allowed is False
 
 
 def test_action_policy_contract_is_strict_and_repository_independent() -> None:
@@ -242,41 +186,16 @@ def test_action_policy_contract_is_strict_and_repository_independent() -> None:
         )
 
 
-def test_action_launch_authorization_requires_matching_approval_evidence() -> None:
-    delegated = authorize_ssh_action_launch(
-        autonomy_profile="balanced",
-        execution_mode="structured",
-        writes_remote=True,
-        chatgpt_approval_granted=True,
-    )
-    assert delegated.authorized is True
-    assert delegated.approval_source == "chatgpt"
-    assert delegated.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
-
-    permissive = authorize_ssh_action_launch(
+def test_permissive_action_launch_needs_no_delegated_approval() -> None:
+    result = authorize_ssh_action_launch(
         autonomy_profile="permissive",
         execution_mode="structured",
         writes_remote=True,
     )
-    assert permissive.approval_source == "none"
-    assert permissive.decision == PolicyDecisionValue.ALLOWED
+    assert result.authorized is True
+    assert result.approval_source == "none"
+    assert result.decision == PolicyDecisionValue.ALLOWED
 
-    human = authorize_ssh_action_launch(
-        autonomy_profile="balanced",
-        execution_mode="structured",
-        writes_remote=True,
-        high_risk=True,
-        human_approval_granted=True,
-    )
-    assert human.approval_source == "human"
-    assert human.permission_tier == CanonicalPermissionTier.T6_HUMAN_ONLY_RISKY_ACTION
-
-    with pytest.raises(ValueError, match="ChatGPT delegated approval"):
-        authorize_ssh_action_launch(
-            autonomy_profile="balanced",
-            execution_mode="structured",
-            writes_remote=True,
-        )
     with pytest.raises(ValueError, match="human approval"):
         authorize_ssh_action_launch(
             autonomy_profile="permissive",
@@ -287,49 +206,28 @@ def test_action_launch_authorization_requires_matching_approval_evidence() -> No
         )
 
 
-def test_reviewed_script_authorization_is_model_driven_even_when_high_risk() -> None:
-    balanced = authorize_ssh_reviewed_script_launch(
-        autonomy_profile="balanced",
-        execution_mode="reviewed_script",
-        writes_remote=True,
-        high_risk=True,
-        model_approval_granted=True,
-    )
-    assert balanced.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
-    assert balanced.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
-    assert balanced.approval_source == "chatgpt"
-    assert balanced.human_required is False
+@pytest.mark.parametrize("profile", ["balanced", "conservative", "chatgpt_delegated"])
+def test_removed_profiles_fail_before_action_authorization(profile: str) -> None:
+    with pytest.raises(ValidationError):
+        authorize_ssh_action_launch(
+            autonomy_profile=profile,
+            execution_mode="structured",
+            writes_remote=False,
+        )
 
-    balanced_read_only = authorize_ssh_reviewed_script_launch(
-        autonomy_profile="balanced",
-        execution_mode="reviewed_script",
-        writes_remote=False,
-        high_risk=False,
-        model_approval_granted=True,
-    )
-    assert balanced_read_only.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
-    assert balanced_read_only.decision == PolicyDecisionValue.NEEDS_CHATGPT_APPROVAL
-    assert balanced_read_only.approval_source == "chatgpt"
-    assert balanced_read_only.human_required is False
 
-    permissive = authorize_ssh_reviewed_script_launch(
+def test_reviewed_script_authorization_is_permissive_without_approval() -> None:
+    result = authorize_ssh_reviewed_script_launch(
         autonomy_profile="permissive",
         execution_mode="reviewed_script",
         writes_remote=False,
-        high_risk=False,
+        high_risk=True,
     )
-    assert permissive.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
-    assert permissive.decision == PolicyDecisionValue.ALLOWED
-    assert permissive.approval_source == "none"
-    assert permissive.human_required is False
+    assert result.permission_tier == CanonicalPermissionTier.T4_WRITE_APPLY_CHATGPT_DELEGATED
+    assert result.decision == PolicyDecisionValue.ALLOWED
+    assert result.approval_source == "none"
+    assert result.human_required is False
 
-    with pytest.raises(ValueError, match="ChatGPT delegated approval"):
-        authorize_ssh_reviewed_script_launch(
-            autonomy_profile="balanced",
-            execution_mode="reviewed_script",
-            writes_remote=True,
-            high_risk=True,
-        )
     with pytest.raises(ValueError, match="requires execution_mode"):
         authorize_ssh_reviewed_script_launch(
             autonomy_profile="permissive",
@@ -337,6 +235,14 @@ def test_reviewed_script_authorization_is_model_driven_even_when_high_risk() -> 
             writes_remote=True,
             high_risk=True,
             model_approval_granted=True,
+        )
+
+    with pytest.raises(ValidationError):
+        authorize_ssh_reviewed_script_launch(
+            autonomy_profile="balanced",
+            execution_mode="reviewed_script",
+            writes_remote=True,
+            high_risk=False,
         )
 
 
@@ -372,17 +278,13 @@ def test_root_shell_authorization_is_permissive_without_approval_gates() -> None
             )
 
 
-def test_launch_authorization_rejects_denied_and_unimplemented_modes() -> None:
+def test_launch_authorization_accepts_only_permissive_and_supported_mode() -> None:
     assert authorize_ssh_launch(
-        autonomy_profile="balanced", execution_mode="structured"
+        autonomy_profile="permissive", execution_mode="structured"
     ).allowed
-    with pytest.raises(ValueError, match="denied"):
-        authorize_ssh_launch(
-            autonomy_profile="conservative", execution_mode="reviewed_script"
-        )
     with pytest.raises(ValueError, match="not implemented"):
         authorize_ssh_launch(
-            autonomy_profile="balanced", execution_mode="reviewed_script"
+            autonomy_profile="permissive", execution_mode="reviewed_script"
         )
 
 
@@ -390,7 +292,9 @@ def test_launch_authorization_rejects_denied_and_unimplemented_modes() -> None:
     ("autonomy_profile", "execution_mode"),
     [
         ("unknown", "structured"),
-        ("balanced", "unknown"),
+        ("balanced", "structured"),
+        ("conservative", "structured"),
+        ("permissive", "unknown"),
         ("chatgpt_delegated", "structured"),
     ],
 )
