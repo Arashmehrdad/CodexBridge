@@ -43,7 +43,7 @@ def _make_worker(
     timeout_seconds: int | None = 30,
 ) -> tuple[JobWorker, dict, Path]:
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     (repo / ".git").mkdir()
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
