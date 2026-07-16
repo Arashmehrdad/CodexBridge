@@ -345,7 +345,12 @@ Checkpoint (2026-07-16):
 - Worker terminal completion triggers refill without masking the completed child's result; startup reconciliation also refills available slots after active-worker adoption and terminal-result repair.
 - Focused refill validation passed: `tests/test_parallel_groups.py` 8 passed; `tests/test_job_manager.py` 58 passed; `parallel_groups.py` and `job_worker.py` passed `py_compile`.
 - Slot-refill implementation commits: `b49f9af060787ef0ef07087bedd888423da3a568`, `7489f5f651c97a350acfaea2be137554cd2935aa`, and `2b9be8791a68de94fbfe2651073faf1ea00bbda5`.
-- Next unit: add durable aggregate group status/result publication and exact group/child cancellation semantics, then run live capped-fan-out and restart acceptance.
+- Durable aggregate publication now derives group state, per-status counts, terminal counts, timestamps, and ordered child summaries from the authoritative child rows and persists the snapshot in `command_groups.result_json`.
+- Aggregate state is refreshed during slot refill and startup reconciliation, so terminal children cannot leave the parent permanently stale.
+- `JobManager` now exposes durable group status and whole-group cancellation. Whole-group cancellation targets pending children before active children, suppresses intermediate refill, reuses exact child process-tree cancellation, then performs one final refill and aggregate publication. Direct child cancellation also releases a PowerShell slot.
+- Focused validation passed: `tests/test_parallel_groups.py` 10 passed; `tests/test_job_manager.py` 58 passed; `parallel_groups.py` passed `py_compile`.
+- Aggregate/cancellation implementation commits: `d9eb389a38945832fd7db2e9b43f6fb1e90ea66c`, `d9d3a40288fb35dcad372200846c927682430647`, and `d63eac68c350c60728a090e5682e1b8623b26b05`.
+- Next unit: expose group status/result/cancellation through the public gateway, then run live capped-fan-out and restart acceptance.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 

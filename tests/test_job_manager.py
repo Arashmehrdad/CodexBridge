@@ -17,6 +17,7 @@ from codexbridge.config import (
     SSHHostConfig,
 )
 from codexbridge.job_manager import JobManager
+from codexbridge.parallel_groups import ParallelGroupStore
 
 
 class FakeProcess:
@@ -98,6 +99,70 @@ def test_start_powershell_group_delegates_to_two_phase_launcher(
     assert observed["spawn_worker"] == manager._spawn_worker
     assert observed["requested_concurrency"] == 1
     assert observed["repository_lock_policy"] == "none"
+
+
+def test_cancel_powershell_group_cancels_pending_before_active(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    store = ParallelGroupStore(manager.config.resolve_runs_dir())
+    group_id = "20260716T053700Z_powershell_group_a1b2c3d4"
+    children = []
+    for index, suffix in enumerate(("b2c3d4e5", "c3d4e5f6")):
+        run_id = f"20260716T053700Z_executable_profile_{suffix}"
+        run_dir = manager.config.resolve_runs_dir() / run_id
+        run_dir.mkdir(parents=True)
+        children.append(
+            {
+                "run_id": run_id,
+                "idempotency_key": f"child-{index}",
+                "run_dir": run_dir,
+                "worker_lease_token": f"lease-{index}",
+                "input_data": {"repo_name": "sample"},
+                "initial_status": "launch_pending" if index == 0 else "pending",
+            }
+        )
+    store.reserve_group(
+        group_id=group_id,
+        repo_name="sample",
+        children=children,
+    )
+    first = store.store.get_run(children[0]["run_id"])
+    store.store.conditional_update(
+        first["run_id"],
+        fields={"status": "running", "current_phase": "running"},
+        expected_statuses=("launch_pending",),
+        expected_state_version=int(first["state_version"]),
+        expected_lease_token=first["worker_lease_token"],
+        expected_lease_generation=int(first["lease_generation"]),
+    )
+    observed: list[str] = []
+
+    def fake_cancel(run_id: str, *, suppress_group_refill: bool = False) -> dict:
+        assert suppress_group_refill is True
+        observed.append(run_id)
+        run = store.store.get_run(run_id)
+        store.store.transition_terminal(
+            run_id,
+            status="cancelled",
+            result={"run_id": run_id, "status": "cancelled"},
+            expected_statuses=(str(run["status"]),),
+            expected_state_version=int(run["state_version"]),
+            expected_lease_token=run["worker_lease_token"],
+            expected_lease_generation=int(run["lease_generation"]),
+            summary="cancelled",
+        )
+        return {"run_id": run_id, "termination_confirmed": True}
+
+    monkeypatch.setattr(manager, "cancel_run", fake_cancel)
+
+    result = manager.cancel_powershell_group(group_id)
+
+    assert observed == [children[1]["run_id"], children[0]["run_id"]]
+    assert result["ok"] is True
+    assert result["cancelled"] is True
+    assert result["status"] == "cancelled"
+    assert result["result"]["status_counts"] == {"cancelled": 2}
 
 
 def test_codex_disabled_refuses_plan_and_implementation(
