@@ -178,7 +178,7 @@ def _persisted_permissive_ssh_profile(
     autonomy_profile = str(input_data["autonomy_profile"])
     if autonomy_profile != "permissive":
         raise ValueError(
-            "Persisted SSH autonomy_profile must be 'permissive'"
+            "Input should be 'permissive' for persisted SSH autonomy_profile"
         )
     return "permissive"
 
