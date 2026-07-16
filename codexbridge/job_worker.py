@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from base64 import b64decode
 from collections.abc import Collection
 import os
 import posixpath
@@ -36,6 +37,7 @@ from .config import (
 )
 from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
+from .executable_profiles import resolve_verified_local_executable
 from .external_fixtures import fetch_validate_and_discard
 from .gateway_models import (
     SSHReviewedScriptAction,
@@ -434,6 +436,27 @@ def _stream_pipe(
             handle.flush()
             if sum(len(item) for item in sink) < limit:
                 sink.append(line)
+            if on_output is not None:
+                on_output()
+    pipe.close()
+
+
+def _stream_binary_pipe(
+    pipe,
+    output_path: Path,
+    sink: bytearray,
+    limit: int,
+    on_output: Callable[[], None] | None = None,
+) -> None:
+    with output_path.open("wb") as handle:
+        while True:
+            chunk = pipe.read(65536)
+            if not chunk:
+                break
+            handle.write(chunk)
+            handle.flush()
+            if len(sink) < limit:
+                sink.extend(chunk[: max(0, limit - len(sink))])
             if on_output is not None:
                 on_output()
     pipe.close()
@@ -865,10 +888,171 @@ class JobWorker:
                     self.worker_lease_generation,
                 )
 
+    def _execute_executable_profile(self, started_at: str, input_data: dict) -> dict:
+        profile, executable_identity = resolve_verified_local_executable(
+            self.config,
+            str(input_data["profile_id"]),
+        )
+        if input_data.get("executable_identity") != executable_identity:
+            raise ValueError(
+                "Persisted executable identity does not match worker revalidation"
+            )
+        if str(input_data.get("autonomy_profile", "")) != profile.autonomy_profile:
+            raise ValueError("Persisted executable autonomy profile does not match config")
+        if str(input_data.get("target", "")) != "local":
+            raise ValueError("Executable worker only supports local targets")
+
+        argv = input_data.get("argv")
+        if not isinstance(argv, list) or any(not isinstance(item, str) for item in argv):
+            raise ValueError("Persisted executable argv must be a list of strings")
+        command = [str(executable_identity["executable_path"]), *argv]
+        working_directory = str(input_data.get("working_directory") or "")
+        cwd = Path(working_directory) if working_directory else None
+        if cwd is not None and (
+            not cwd.is_absolute() or not cwd.is_dir() or cwd.is_symlink()
+        ):
+            raise ValueError("Persisted executable working directory is invalid")
+
+        environment = input_data.get("environment")
+        if not isinstance(environment, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in environment.items()
+        ):
+            raise ValueError("Persisted executable environment must be string pairs")
+        process_env = os.environ.copy() if input_data.get("inherit_environment") else {}
+        process_env.update(environment)
+
+        stdin_mode = str(input_data.get("stdin_mode", "none"))
+        if stdin_mode == "text":
+            stdin_payload = str(input_data.get("stdin_text") or "").encode("utf-8")
+        elif stdin_mode == "bytes":
+            try:
+                stdin_payload = b64decode(
+                    str(input_data.get("stdin_base64") or ""), validate=True
+                )
+            except Exception as exc:
+                raise ValueError("Persisted executable binary stdin is invalid") from exc
+        elif stdin_mode == "none":
+            stdin_payload = None
+        else:
+            raise ValueError(f"Unsupported executable stdin mode: {stdin_mode}")
+
+        timeout_value = input_data.get("timeout_seconds")
+        timeout_seconds = None if timeout_value is None else int(timeout_value)
+        public_limit = int(input_data.get("public_output_max_bytes") or 40000)
+        run_dir = Path(self.run["run_dir"])
+        stdout_path = run_dir / "stdout.bin"
+        stderr_path = run_dir / "stderr.bin"
+        self.event(
+            "info",
+            "executable",
+            "Starting configured executable directly",
+            {
+                "profile_id": profile.profile_id,
+                "executable_path": executable_identity["executable_path"],
+                "argv_count": len(argv),
+                "shell": False,
+            },
+        )
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=process_env,
+            stdin=subprocess.PIPE if stdin_payload is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            **process_group_popen_kwargs(),
+        )
+        if not self.store.attach_child_pid(
+            self.run_id,
+            child_pid=process.pid,
+            lease_token=self.worker_lease_token,
+            lease_generation=self.worker_lease_generation,
+        ):
+            terminate_process_tree(process.pid)
+            raise RuntimeError("Worker lease was lost before child process attachment")
+        self.event(
+            "info",
+            "executable",
+            "Configured executable process spawned",
+            {"pid": process.pid, "profile_id": profile.profile_id},
+        )
+
+        stdout_buffer = bytearray()
+        stderr_buffer = bytearray()
+        stdout_thread = threading.Thread(
+            target=_stream_binary_pipe,
+            args=(process.stdout, stdout_path, stdout_buffer, public_limit, self._note_output),
+        )
+        stderr_thread = threading.Thread(
+            target=_stream_binary_pipe,
+            args=(process.stderr, stderr_path, stderr_buffer, public_limit, self._note_output),
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        if process.stdin is not None:
+            try:
+                process.stdin.write(stdin_payload or b"")
+                process.stdin.flush()
+            finally:
+                process.stdin.close()
+
+        termination: dict[str, object] = {"terminated": False}
+        timed_out = False
+        try:
+            exit_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            termination = terminate_process_tree(process.pid)
+            exit_code = 124
+            self.event(
+                "error",
+                "executable",
+                "Configured executable timed out; process-tree termination requested",
+                {"pid": process.pid, "termination": termination},
+            )
+        stdout_thread.join(timeout=10)
+        stderr_thread.join(timeout=10)
+        ended_at = _utc_now()
+        stdout = bytes(stdout_buffer).decode("utf-8", errors="replace")
+        stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
+        status = "completed" if exit_code == 0 else "failed"
+        if timed_out and termination.get("terminated"):
+            status = "timed_out"
+        elif timed_out:
+            status = "cancellation_pending"
+        return {
+            "tool": "executable_profile",
+            "profile_id": profile.profile_id,
+            "argv": argv,
+            "executable_identity": executable_identity,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "status": status,
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "termination": termination,
+            "stdout": stdout,
+            "stderr": stderr,
+            "stdout_artifact": stdout_path.name,
+            "stderr_artifact": stderr_path.name,
+            "stdout_bytes": stdout_path.stat().st_size,
+            "stderr_bytes": stderr_path.stat().st_size,
+            "output_truncated": (
+                stdout_path.stat().st_size > len(stdout_buffer)
+                or stderr_path.stat().st_size > len(stderr_buffer)
+            ),
+            "summary": (stdout or stderr).strip()[:public_limit],
+        }
+
     def _execute_inner(self, started_at: str) -> dict:
         input_data = self.run["input"]
         tool = self.run["tool"]
 
+        if tool == "executable_profile":
+            return self._execute_executable_profile(started_at, input_data)
         if tool == "cloudflare_action":
             return self._execute_cloudflare_action(started_at, input_data)
         if tool == "ssh_command":
