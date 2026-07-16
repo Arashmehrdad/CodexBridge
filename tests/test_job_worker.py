@@ -1175,7 +1175,7 @@ def test_monitored_ssh_worker_persists_structured_result(
         input_data={
             "host_id": "my_vps",
             "command_id": "uptime",
-            "autonomy_profile": "balanced",
+            "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
             "policy_decision": "allowed",
