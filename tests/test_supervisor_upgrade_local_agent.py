@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
 from codexbridge.supervisor import SupervisorStatus, SupervisorTaskRequest
 
@@ -103,3 +105,35 @@ def test_local_agent_lists_supervisors_read_only() -> None:
     assert result.supervisor_result == [
         {"supervisor_id": "supervisor_1", "status": "completed"}
     ]
+
+
+def test_local_agent_forwards_durable_context_to_supervisor_manager(monkeypatch) -> None:
+    from codexbridge.local_agent import orchestrator as orchestrator_module
+
+    captured = {}
+
+    def build_manager(**kwargs):
+        captured.update(kwargs)
+        return FakeSupervisorManager()
+
+    monkeypatch.setattr(orchestrator_module, "LocalSupervisorManager", build_manager)
+    app_config = object()
+    job_manager = object()
+    config_path = Path("config.yaml")
+    orchestrator = LocalAgentOrchestrator(
+        app_config=app_config,
+        config_path=config_path,
+        durable_job_manager=job_manager,
+    )
+
+    result = orchestrator.handle_task("list supervisors")
+
+    assert result.supervisor_result == [
+        {"supervisor_id": "supervisor_1", "status": "completed"}
+    ]
+    assert captured == {
+        "supervisors_dir": Path.cwd() / "runs" / "supervisors",
+        "app_config": app_config,
+        "config_path": config_path,
+        "job_manager": job_manager,
+    }

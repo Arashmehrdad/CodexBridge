@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
 from codexbridge.local_coding import LocalCodingStatus
 
@@ -100,3 +102,34 @@ def test_local_agent_routes_local_coding_apply_and_rollback() -> None:
     assert list_result.local_coding_result == [
         {"edit_id": "local_edit_1", "status": "approval_required"}
     ]
+
+
+def test_local_agent_forwards_durable_context_to_local_coding_manager(monkeypatch) -> None:
+    from codexbridge.local_agent import orchestrator as orchestrator_module
+
+    captured = {}
+
+    def build_manager(**kwargs):
+        captured.update(kwargs)
+        return FakeLocalCodingManager()
+
+    monkeypatch.setattr(orchestrator_module, "LocalCodingManager", build_manager)
+    app_config = object()
+    job_manager = object()
+    config_path = Path("config.yaml")
+    orchestrator = LocalAgentOrchestrator(
+        app_config=app_config,
+        config_path=config_path,
+        durable_job_manager=job_manager,
+    )
+
+    result = orchestrator.handle_task("list local edits")
+
+    assert result.local_coding_result == [
+        {"edit_id": "local_edit_1", "status": "approval_required"}
+    ]
+    assert captured == {
+        "app_config": app_config,
+        "config_path": config_path,
+        "job_manager": job_manager,
+    }
