@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ import pytest
 from codexbridge.config import AppConfig, ExecutableProfileConfig, RepoConfig
 from codexbridge.executable_profiles import build_local_executable_run_request
 from codexbridge.job_worker import JobWorker
+from codexbridge.process_control import process_is_running, terminate_process_tree
 from codexbridge.run_store import RunStore, utc_now
 
 
@@ -230,3 +233,49 @@ def test_powershell_loopback_network_round_trip(tmp_path: Path) -> None:
     )
 
     assert _execute(worker, input_data, run_dir) == b"loopback-ok"
+
+
+def test_powershell_process_tree_is_terminated_exactly(tmp_path: Path) -> None:
+    child_pid_path = tmp_path / "child.pid"
+    script = (
+        "$child = Start-Process -FilePath $env:COMSPEC "
+        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -PassThru; "
+        "Set-Content -LiteralPath $env:CB_CHILD_PID -Value $child.Id -NoNewline; "
+        "while ($true) { Start-Sleep -Seconds 1 }"
+    )
+    process = subprocess.Popen(
+        [
+            str(_pwsh_path()),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ],
+        env={**os.environ, "CB_CHILD_PID": str(child_pid_path)},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not child_pid_path.exists():
+            time.sleep(0.05)
+        assert child_pid_path.exists()
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        assert process_is_running(process.pid)
+        assert process_is_running(child_pid)
+
+        termination = terminate_process_tree(process.pid)
+
+        assert termination["terminated"] is True
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (
+            process_is_running(process.pid) or process_is_running(child_pid)
+        ):
+            time.sleep(0.05)
+        assert not process_is_running(process.pid)
+        assert not process_is_running(child_pid)
+    finally:
+        if process_is_running(process.pid):
+            terminate_process_tree(process.pid)
