@@ -21,6 +21,20 @@ def _make_group_run_id(tool: str) -> str:
 class ParallelGroupStore:
     """Durable parent/child reservation for parallel PowerShell command groups."""
 
+    @staticmethod
+    def _child_payload(row) -> dict[str, Any]:
+        payload = dict(row)
+        result = loads(payload.pop("result_json", "{}"))
+        artifacts = {
+            key: result[key]
+            for key in ("stdout_artifact", "stderr_artifact", "transcript_artifact")
+            if result.get(key)
+        }
+        if isinstance(result.get("artifacts"), dict):
+            artifacts.update(result["artifacts"])
+        payload["artifacts"] = artifacts
+        return payload
+
     def __init__(self, runs_dir: Path):
         self.store = RunStore(runs_dir)
         self._ensure_schema()
@@ -214,7 +228,7 @@ class ParallelGroupStore:
                 """
                 SELECT child.position, child.run_id, child.idempotency_key,
                        run.status, run.current_phase, run.summary, run.error,
-                       run.exit_code, run.started_at, run.ended_at
+                       run.exit_code, run.started_at, run.ended_at, run.result_json
                 FROM command_group_children AS child
                 JOIN runs AS run ON run.run_id = child.run_id
                 WHERE child.group_id = ?
@@ -225,7 +239,7 @@ class ParallelGroupStore:
         payload = dict(group)
         payload["input"] = loads(payload.pop("input_json"))
         payload["result"] = loads(payload.pop("result_json"))
-        payload["children"] = [dict(child) for child in children]
+        payload["children"] = [self._child_payload(child) for child in children]
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
 
@@ -263,7 +277,7 @@ class ParallelGroupStore:
                 """
                 SELECT child.position, child.run_id, child.idempotency_key,
                        run.status, run.current_phase, run.summary, run.error,
-                       run.exit_code, run.started_at, run.ended_at
+                       run.exit_code, run.started_at, run.ended_at, run.result_json
                 FROM command_group_children AS child
                 JOIN runs AS run ON run.run_id = child.run_id
                 WHERE child.group_id = ?
@@ -271,7 +285,7 @@ class ParallelGroupStore:
                 """,
                 (group_id,),
             ).fetchall()
-            child_payloads = [dict(child) for child in children]
+            child_payloads = [self._child_payload(child) for child in children]
             statuses = [str(child["status"]) for child in child_payloads]
             counts = {status: statuses.count(status) for status in sorted(set(statuses))}
             terminal_count = sum(status in terminal_statuses for status in statuses)

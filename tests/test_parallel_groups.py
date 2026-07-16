@@ -347,7 +347,12 @@ def test_refresh_group_publishes_durable_aggregate_state(tmp_path: Path) -> None
         store.store.transition_terminal(
             child["run_id"],
             status="completed",
-            result={"run_id": child["run_id"], "status": "completed"},
+            result={
+                "run_id": child["run_id"],
+                "status": "completed",
+                "stdout_artifact": "stdout.bin",
+                "stderr_artifact": "stderr.bin",
+            },
             expected_statuses=("launch_pending",),
             expected_state_version=int(run["state_version"]),
             expected_lease_token=run["worker_lease_token"],
@@ -364,6 +369,10 @@ def test_refresh_group_publishes_durable_aggregate_state(tmp_path: Path) -> None
     assert [child["status"] for child in completed["children"]] == [
         "completed",
         "completed",
+    ]
+    assert [child["artifacts"] for child in completed["children"]] == [
+        {"stdout_artifact": "stdout.bin", "stderr_artifact": "stderr.bin"},
+        {"stdout_artifact": "stdout.bin", "stderr_artifact": "stderr.bin"},
     ]
 
 
