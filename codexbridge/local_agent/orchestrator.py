@@ -26,6 +26,7 @@ from .models import (
     TaskStatus,
 )
 from .policies import apply_policy
+from .durable_command_runner import DurableProjectCommandRunner
 from .runner import LocalAgentCommandRunner
 
 
@@ -134,7 +135,15 @@ class LocalAgentOrchestrator:
         config_path: Path | None = None,
         durable_job_manager: JobManager | None = None,
     ):
-        self.runner = runner or LocalAgentCommandRunner()
+        self.runner = runner or (
+            DurableProjectCommandRunner(
+                config=app_config,
+                config_path=config_path,
+                job_manager=durable_job_manager,
+            )
+            if app_config is not None
+            else LocalAgentCommandRunner()
+        )
         self.local_model = local_model or LocalModelClient()
         self.job_manager = job_manager or LongRunJobManager()
         self.memory_repository = memory_repository
