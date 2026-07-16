@@ -25,6 +25,7 @@ from .config import AppConfig, resolve_repo, resolve_repo_config
 from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
+from .executable_profiles import build_local_executable_run_request
 from .gateway_models import (
     validate_reviewed_ssh_script_request,
     validate_root_ssh_shell_request,
@@ -529,6 +530,53 @@ class JobManager:
             decision,
             reserved_run_id=reserved_run_id,
         )
+
+    def start_executable_profile(
+        self,
+        repo_name: str,
+        profile_id: str,
+        argv: list[str],
+        *,
+        working_directory: str = "",
+        environment: dict[str, str] | None = None,
+        stdin_text: str | None = None,
+        stdin_bytes: bytes | None = None,
+        timeout_seconds: int | None = None,
+        reserved_run_id: str | None = None,
+    ) -> dict:
+        resolve_repo(self.config, repo_name)
+        request = build_local_executable_run_request(
+            self.config,
+            profile_id,
+            argv,
+            working_directory=working_directory,
+            environment=environment,
+            stdin_text=stdin_text,
+            stdin_bytes=stdin_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        timeout = request.get("timeout_seconds")
+        estimated_minutes = 1 if timeout is None else max(1, (int(timeout) + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=4,
+            risk_level="high",
+            requires_human=False,
+            reason="Enabled permissive executable profile is approved for durable execution",
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        input_data = {"repo_name": repo_name, **request}
+        response = self._create_and_launch(
+            "executable_profile",
+            repo_name,
+            input_data,
+            decision,
+            reserved_run_id=reserved_run_id,
+        )
+        response.setdefault("repo_name", repo_name)
+        response["profile_id"] = profile_id
+        return response
 
     def start_project_command(
         self, repo_name: str, command_id: str, *, reserved_run_id: str | None = None
