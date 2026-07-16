@@ -257,6 +257,38 @@ def test_live_whole_group_cancellation_terminates_tree_and_publishes_results(
     assert (active_dir / "stderr.bin").read_bytes() == b""
 
 
+def test_live_cancel_remaining_on_failure_cancels_pending_sibling(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, max_concurrent=1)
+    marker_dir = tmp_path / "markers"
+    marker_dir.mkdir()
+    children = _children(marker_dir, 2)
+    children[0]["argv"] = [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[Console]::Error.Write('expected failure'); exit 9",
+    ]
+
+    started = manager.start_powershell_group(
+        "sample",
+        children,
+        failure_policy="cancel_remaining_on_failure",
+    )
+
+    assert len(started["launched_run_ids"]) == 1
+    assert len(started["pending_run_ids"]) == 1
+    completed = _wait_for_group(manager, started["group_id"])
+    assert completed["status"] == "failed"
+    assert completed["result"]["status_counts"] == {
+        "cancelled": 1,
+        "failed": 1,
+    }
+    assert not (marker_dir / "child-1.txt").exists()
+
+
 def test_live_individual_child_cancellation_refills_slot_and_preserves_sibling(
     tmp_path: Path,
 ) -> None:
