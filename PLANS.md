@@ -522,7 +522,9 @@ Checkpoint (2026-07-16):
 - Focused validation passed: `tests/test_local_agent_runner.py` 6 passed; `tests/test_durable_command_runner.py` 5 passed; `tests/test_local_coding_manager.py` 11 passed; `tests/test_supervisor_upgrade_flow.py` 8 passed. Repository search found no remaining `local_agent.runner` import.
 - The duplicate local-agent command-profile registry and its standalone tests are removed. `DurableProjectCommandRunner` now owns only the local permission and bounded-wait policy, while argv resolution remains authoritative in the durable core command-profile registry. Implementation commits: `76e98280d61fe059e2f09f14dfd6e2db27de6a7d`, `ce4dfa8fc3f0a898d258eb69e9250b0ae43ba3e2`, and `aafaee0015bc646af4bcc83e2e63c3b277c5841e`.
 - Focused validation passed: `tests/test_durable_command_runner.py` 5 passed; `tests/test_local_agent_runner.py` 6 passed.
-- Next unit: classify the remaining public typed-validation starters and generic durable project-command profiles, retaining focused validation primitives while removing restricted public routes that unrestricted PowerShell has replaced.
+- The public generic `run_start(operation="project_command")` route and its internal server forwarding helper are removed. Durable `JobManager.start_project_command` remains an internal substrate for workflows and `DurableProjectCommandRunner`; typed path validation and unrestricted PowerShell remain public. Implementation commits: `7f2dee8014a3f5e88c774e2d66591b6699fb3bef` and `8b27c73c6eb755fa5ef9fa6c5f1e7ab91040a828`.
+- Focused validation passed: `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 29 passed; `tests/test_server.py` 25 passed.
+- Next unit: classify configured generic command profiles and their workflow/local-agent callers, retaining profiles that provide focused validation semantics and removing public restricted metadata or profiles whose only value is arbitrary-command filtering superseded by unrestricted PowerShell.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
