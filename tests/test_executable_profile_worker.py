@@ -100,7 +100,9 @@ def _make_worker(
     return worker, store, input_data, run_dir
 
 
-def test_executable_worker_preserves_quoting_and_binary_streams(tmp_path: Path) -> None:
+def test_executable_worker_preserves_quoting_and_binary_streams(
+    monkeypatch, tmp_path: Path
+) -> None:
     payload = b"\x00\xffbinary\r\ntext"
     sensitive_args = ["a b", "", 'a"b', "'quoted'", "trailing\\"]
     script = (
@@ -113,6 +115,7 @@ def test_executable_worker_preserves_quoting_and_binary_streams(tmp_path: Path) 
         argv=["-c", script, *sensitive_args],
         stdin_bytes=payload,
     )
+    monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: True)
 
     result = worker._execute_executable_profile(utc_now(), input_data)
 
