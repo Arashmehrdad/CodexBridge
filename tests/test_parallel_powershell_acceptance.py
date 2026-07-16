@@ -84,6 +84,7 @@ def _children(marker_dir: Path, count: int) -> list[dict]:
                 "idempotency_key": f"child-{index}",
                 "argv": ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
                 "environment": {"CB_MARKER": str(marker), "CB_VALUE": f"done-{index}"},
+                "working_directory": str(marker_dir.parent),
                 "timeout_seconds": 30,
             }
         )
