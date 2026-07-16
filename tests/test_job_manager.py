@@ -1209,6 +1209,31 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
     assert manager.locks.find_lock("sample", response["run_id"]) is None
 
 
+def test_cancel_pending_parallel_child_without_process_is_terminal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    run_id = "20260716T060000Z_executable_profile_a1b2c3d4"
+    run_dir = manager.config.resolve_runs_dir() / run_id
+    run_dir.mkdir(parents=True)
+    manager.store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="executable_profile",
+        run_dir=run_dir,
+        input_data={"profile_id": "powershell", "argv": ["-Command", "sleep"]},
+        status="pending",
+        worker_lease_token="pending-child-lease",
+    )
+
+    cancelled = manager.cancel_run(run_id)
+
+    assert cancelled["ok"] is True
+    assert cancelled["cancelled"] is True
+    assert cancelled["termination_confirmed"] is True
+    assert manager.get_status(run_id)["status"] == "cancelled"
+
+
 def test_cancel_monitored_run_without_remote_metadata_stays_pending(
     tmp_path: Path, monkeypatch
 ) -> None:

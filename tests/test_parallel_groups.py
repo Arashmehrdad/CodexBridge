@@ -223,7 +223,11 @@ def test_launch_group_respects_global_powershell_concurrency_limit(
     assert result["pending_run_ids"] == [run_ids[1]]
     store = ParallelGroupStore(config.resolve_runs_dir())
     assert store.store.get_run(run_ids[0])["status"] == "queued"
-    assert store.store.get_run(run_ids[1])["status"] == "launch_pending"
+    assert store.store.get_run(run_ids[1])["status"] == "pending"
+    recoverable_ids = {
+        run["run_id"] for run in store.store.list_recoverable_runs()
+    }
+    assert run_ids[1] not in recoverable_ids
 
 
 def test_launch_group_validation_failure_writes_nothing(tmp_path: Path) -> None:

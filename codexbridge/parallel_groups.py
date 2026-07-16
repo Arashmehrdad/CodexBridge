@@ -101,9 +101,15 @@ class ParallelGroupStore:
             lease_token = str(child.get("worker_lease_token") or "")
             if not lease_token:
                 raise ValueError("Every parallel child requires a worker lease token")
-            run_dir = Path(str(child.get("run_dir") or ""))
-            if not str(run_dir):
+            raw_run_dir = child.get("run_dir")
+            if raw_run_dir is None or not str(raw_run_dir).strip():
                 raise ValueError("Every parallel child requires a run_dir")
+            run_dir = Path(str(raw_run_dir))
+            initial_status = str(child.get("initial_status") or "launch_pending")
+            if initial_status not in {"pending", "launch_pending"}:
+                raise ValueError(
+                    "Parallel child initial_status must be pending or launch_pending"
+                )
             normalized_children.append(
                 {
                     "position": position,
@@ -115,6 +121,7 @@ class ParallelGroupStore:
                     "risk_level": str(child.get("risk_level") or "high"),
                     "requires_human": bool(child.get("requires_human", False)),
                     "worker_lease_token": lease_token,
+                    "initial_status": initial_status,
                 }
             )
 
@@ -148,17 +155,18 @@ class ParallelGroupStore:
                         run_id, repo_name, tool, status, risk_level,
                         requires_human, created_at, run_dir, current_phase,
                         heartbeat_at, input_json, worker_lease_token
-                    ) VALUES (?, ?, ?, 'launch_pending', ?, ?, ?, ?,
-                              'launch_pending', ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         child["run_id"],
                         repo_name,
                         child["tool"],
+                        child["initial_status"],
                         child["risk_level"],
                         int(child["requires_human"]),
                         created_at,
                         str(child["run_dir"]),
+                        child["initial_status"],
                         created_at,
                         dumps(child["input_data"]),
                         child["worker_lease_token"],
@@ -247,8 +255,9 @@ def launch_powershell_group(
 
     runs_dir = config.resolve_runs_dir()
     store = ParallelGroupStore(runs_dir)
+    eligible_count = len(children) if effective_limit is None else effective_limit
     reserved_children: list[dict[str, Any]] = []
-    for child in children:
+    for index, child in enumerate(children):
         profile_id = str(child.get("profile_id") or "powershell")
         argv = child.get("argv")
         if not isinstance(argv, list):
@@ -281,6 +290,9 @@ def launch_powershell_group(
                 "input_data": input_data,
                 "risk_level": "high",
                 "requires_human": False,
+                "initial_status": (
+                    "launch_pending" if index < eligible_count else "pending"
+                ),
             }
         )
 
@@ -303,11 +315,16 @@ def launch_powershell_group(
         run_dir.mkdir(parents=True, exist_ok=False)
         artifacts = ArtifactWriter(run_dir)
         artifacts.write_json("input.json", child["input_data"])
+        initial_status = child["initial_status"]
         event = store.store.append_event(
             child["run_id"],
             level="info",
-            stage="launch_pending",
-            message="Parallel child launch intent recorded",
+            stage=initial_status,
+            message=(
+                "Parallel child launch intent recorded"
+                if initial_status == "launch_pending"
+                else "Parallel child reserved pending a concurrency slot"
+            ),
             data={"group_id": selected_group_id},
         )
         artifacts.append_event(event)

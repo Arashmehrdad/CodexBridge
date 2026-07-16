@@ -2009,7 +2009,8 @@ class JobManager:
             reports.append(report)
         termination_confirmed = (
             not pids
-            and run["status"] in {"launch_pending", "queued", "recovery_pending"}
+            and run["status"]
+            in {"pending", "launch_pending", "queued", "recovery_pending"}
         ) or (
             bool(reports)
             and all(bool(report.get("terminated")) for report in reports)
