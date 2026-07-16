@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.parallel_groups import ParallelGroupStore
+from codexbridge.config import (
+    AppConfig,
+    ExecutableProfileConfig,
+    ParallelExecutionConfig,
+    RepoConfig,
+)
+from codexbridge.parallel_groups import ParallelGroupStore, launch_powershell_group
 
 
 def child_spec(runs_dir: Path, suffix: str) -> dict:
@@ -102,3 +108,140 @@ def test_reserve_group_rejects_duplicate_idempotency_keys_before_write(
 
     with pytest.raises(KeyError):
         store.get_group(group_id)
+
+
+def parallel_config(tmp_path: Path, *, max_concurrent: int | None = None) -> AppConfig:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"fake-powershell")
+    return AppConfig(
+        repos={"sample": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        executable_profiles={
+            "powershell": ExecutableProfileConfig(
+                profile_id="powershell",
+                enabled=True,
+                executable_path=str(executable),
+                unrestricted_argv=True,
+                stdin_mode="text",
+            )
+        },
+        parallel_execution=ParallelExecutionConfig(
+            enabled=True,
+            max_concurrent_powershell=max_concurrent,
+        ),
+        config_dir=tmp_path,
+    )
+
+
+class FakeProcess:
+    def __init__(self, pid: int):
+        self.pid = pid
+
+
+def test_launch_group_reserves_and_materializes_every_child_before_first_spawn(
+    tmp_path: Path,
+) -> None:
+    config = parallel_config(tmp_path)
+    runs_dir = config.resolve_runs_dir()
+    run_ids = [
+        "20260716T050000Z_executable_profile_a1b2c3d4",
+        "20260716T050000Z_executable_profile_b2c3d4e5",
+    ]
+    group_id = "20260716T050000Z_powershell_group_c3d4e5f6"
+    observed_spawns: list[str] = []
+
+    def spawn_worker(run_id: str, lease_token: str) -> FakeProcess:
+        assert lease_token
+        store = ParallelGroupStore(runs_dir)
+        for child_run_id in run_ids:
+            assert store.store.get_run(child_run_id)["status"] == "launch_pending"
+            assert (runs_dir / child_run_id / "input.json").is_file()
+            assert (runs_dir / child_run_id / "events.jsonl").is_file()
+        observed_spawns.append(run_id)
+        return FakeProcess(12000 + len(observed_spawns))
+
+    result = launch_powershell_group(
+        config=config,
+        repo_name="sample",
+        group_id=group_id,
+        children=[
+            {
+                "run_id": run_ids[0],
+                "idempotency_key": "first",
+                "argv": ["-NoProfile", "-Command", "Write-Output first"],
+            },
+            {
+                "run_id": run_ids[1],
+                "idempotency_key": "second",
+                "argv": ["-NoProfile", "-Command", "Write-Output second"],
+            },
+        ],
+        spawn_worker=spawn_worker,
+    )
+
+    assert result["accepted"] is True
+    assert result["child_run_ids"] == run_ids
+    assert result["launched_run_ids"] == run_ids
+    assert result["pending_run_ids"] == []
+    assert observed_spawns == run_ids
+    store = ParallelGroupStore(runs_dir)
+    assert [store.store.get_run(run_id)["status"] for run_id in run_ids] == [
+        "queued",
+        "queued",
+    ]
+
+
+def test_launch_group_respects_global_powershell_concurrency_limit(
+    tmp_path: Path,
+) -> None:
+    config = parallel_config(tmp_path, max_concurrent=1)
+    run_ids = [
+        "20260716T050100Z_executable_profile_a1b2c3d4",
+        "20260716T050100Z_executable_profile_b2c3d4e5",
+    ]
+    spawned: list[str] = []
+
+    result = launch_powershell_group(
+        config=config,
+        repo_name="sample",
+        group_id="20260716T050100Z_powershell_group_c3d4e5f6",
+        children=[
+            {"run_id": run_ids[0], "idempotency_key": "first", "argv": ["one"]},
+            {"run_id": run_ids[1], "idempotency_key": "second", "argv": ["two"]},
+        ],
+        spawn_worker=lambda run_id, lease_token: (
+            spawned.append(run_id) or FakeProcess(13000)
+        ),
+    )
+
+    assert spawned == [run_ids[0]]
+    assert result["launched_run_ids"] == [run_ids[0]]
+    assert result["pending_run_ids"] == [run_ids[1]]
+    store = ParallelGroupStore(config.resolve_runs_dir())
+    assert store.store.get_run(run_ids[0])["status"] == "queued"
+    assert store.store.get_run(run_ids[1])["status"] == "launch_pending"
+
+
+def test_launch_group_validation_failure_writes_nothing(tmp_path: Path) -> None:
+    config = parallel_config(tmp_path)
+    group_id = "20260716T050200Z_powershell_group_c3d4e5f6"
+
+    with pytest.raises(ValueError, match="requires argv"):
+        launch_powershell_group(
+            config=config,
+            repo_name="sample",
+            group_id=group_id,
+            children=[
+                {"idempotency_key": "first", "argv": ["one"]},
+                {"idempotency_key": "second", "argv": "not-a-list"},
+            ],
+            spawn_worker=lambda run_id, lease_token: FakeProcess(14000),
+        )
+
+    store = ParallelGroupStore(config.resolve_runs_dir())
+    with pytest.raises(KeyError):
+        store.get_group(group_id)
+    assert not any(config.resolve_runs_dir().glob("*_executable_profile_*"))
