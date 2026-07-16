@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 from uuid import uuid4
 
 from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRouter
@@ -28,7 +29,7 @@ class SupervisorFlow:
         config: LocalSupervisorConfig | None = None,
         command_runner: LocalAgentCommandRunner | DurableProjectCommandRunner | None = None,
         app_config: AppConfig | None = None,
-        config_path=None,
+        config_path: Path | None = None,
         job_manager: JobManager | None = None,
         codex_router: CodexEscalationRouter | None = None,
         memory_repository=None,
