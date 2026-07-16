@@ -192,6 +192,19 @@ Acceptance:
 
 ## X1 - Minimal Durable PowerShell Launch Contract
 
+Status: **complete**.
+
+Checkpoint (2026-07-16):
+
+- Added validated executable-profile configuration for absolute executable identity, target, working directory, environment, stdin/stdout/stderr, timeout, cancellation, protected artifacts, public-output limits, and permissive-only invocation.
+- Executable resolution rejects disabled, missing, remote, symlinked, non-file, and SHA-256-mismatched profiles before child creation.
+- Durable executable requests persist the verified executable identity, exact argv, working directory, environment, binary-safe stdin, timeout policy, and artifact/publication policy before launch.
+- The worker revalidates persisted identity and policy, launches `[absolute_executable, *exact_argv]` directly with `shell=False`, attaches the child PID, streams complete binary stdout/stderr artifacts, bounds public summaries, and applies exact process-tree timeout termination.
+- Lifecycle regressions prove quoting-sensitive argv preservation, binary stdin/stdout round-trip, protected artifact completeness, pre-launch identity-drift rejection, child termination after failed durable attachment, and verified timeout terminal state.
+- Implementation commits through `6383466c69140d524a19b4f9731c942dab2817fe`.
+- Focused validation passed: `tests/test_executable_profile_worker.py` 4 passed; `tests/test_executable_profiles.py` 5 passed; `tests/test_job_manager.py` 56 passed.
+- Next roadmap unit: X2 unrestricted local PowerShell any-command gateway.
+
 Goal: create the reusable durable process substrate needed to launch unrestricted PowerShell directly. Do not expand this batch into separate unrestricted product gateways for executables that PowerShell can already run.
 
 Build an `ExecutableProfile` contract with:
