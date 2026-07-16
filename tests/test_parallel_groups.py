@@ -301,6 +301,26 @@ def test_claim_pending_launches_refills_one_terminal_slot_exactly_once(
     assert store.claim_pending_launches(max_concurrent_powershell=1) == []
 
 
+def test_group_child_repository_lock_policy_defaults_to_required(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ParallelGroupStore(runs_dir)
+    child = child_spec(runs_dir, "a6b7c8d9")
+    store.reserve_group(
+        group_id="20260716T051500Z_powershell_group_b7c8d9e0",
+        repo_name="sample",
+        children=[child],
+        repository_lock_policy="none",
+    )
+
+    assert store.repository_lock_required_for_child(child["run_id"]) is False
+    assert (
+        store.repository_lock_required_for_child(
+            "20260716T051500Z_executable_profile_c8d9e0f1"
+        )
+        is True
+    )
+
+
 def test_refresh_group_publishes_durable_aggregate_state(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     store = ParallelGroupStore(runs_dir)

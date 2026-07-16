@@ -50,7 +50,7 @@ from .managed_artifacts import (
     snapshot_managed_artifacts,
 )
 from .operation_locks import OperationLockStore
-from .parallel_groups import refill_powershell_groups
+from .parallel_groups import ParallelGroupStore, refill_powershell_groups
 from .policy import decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -479,6 +479,9 @@ class JobWorker:
             else str(self.run.get("worker_lease_token") or "")
         )
         self.worker_lease_generation = int(self.run.get("lease_generation") or 1)
+        self.repository_lock_required = ParallelGroupStore(
+            self.config.resolve_runs_dir()
+        ).repository_lock_required_for_child(run_id)
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
         self._started_monotonic = 0.0
         self._heartbeat_stop = threading.Event()
@@ -498,12 +501,14 @@ class JobWorker:
         )
         if not active:
             return False
-        lock_active = self.locks.heartbeat(
-            self.run["repo_name"],
-            self.run_id,
-            self.worker_lease_token,
-            self.worker_lease_generation,
-        )
+        lock_active = True
+        if self.repository_lock_required:
+            lock_active = self.locks.heartbeat(
+                self.run["repo_name"],
+                self.run_id,
+                self.worker_lease_token,
+                self.worker_lease_generation,
+            )
         if self.worker_lease_token and not lock_active:
             return False
         event = self.store.append_event(
@@ -532,12 +537,14 @@ class JobWorker:
                     elapsed_seconds=self._elapsed_seconds(),
                     progress_updates={"worker_pid": os.getpid()},
                 )
-                lock_active = self.locks.heartbeat(
-                    self.run["repo_name"],
-                    self.run_id,
-                    self.worker_lease_token,
-                    self.worker_lease_generation,
-                )
+                lock_active = True
+                if self.repository_lock_required:
+                    lock_active = self.locks.heartbeat(
+                        self.run["repo_name"],
+                        self.run_id,
+                        self.worker_lease_token,
+                        self.worker_lease_generation,
+                    )
                 if not run_active or (self.worker_lease_token and not lock_active):
                     self._heartbeat_stop.set()
                     return
@@ -587,13 +594,15 @@ class JobWorker:
         )
         if not claimed:
             return 1
-        lock_claimed = self.locks.claim_owner(
-            current_before_start["repo_name"],
-            self.run_id,
-            owner_pid=worker_pid,
-            owner_token=self.worker_lease_token,
-            lease_generation=self.worker_lease_generation,
-        )
+        lock_claimed = True
+        if self.repository_lock_required:
+            lock_claimed = self.locks.claim_owner(
+                current_before_start["repo_name"],
+                self.run_id,
+                owner_pid=worker_pid,
+                owner_token=self.worker_lease_token,
+                lease_generation=self.worker_lease_generation,
+            )
         self.run = self.store.get_run(self.run_id)
         if self.worker_lease_token and not lock_claimed:
             self.store.mark_recovery_pending(

@@ -229,6 +229,23 @@ class ParallelGroupStore:
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
 
+    def repository_lock_required_for_child(self, run_id: str) -> bool:
+        """Return whether a child run must own the repository operation lock."""
+        validate_run_id(run_id)
+        with self.store.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT groups.repository_lock_policy
+                FROM command_group_children AS child
+                JOIN command_groups AS groups ON groups.group_id = child.group_id
+                WHERE child.run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return True
+        return str(row["repository_lock_policy"]) != "none"
+
     def refresh_group(self, group_id: str) -> dict[str, Any]:
         """Publish an aggregate snapshot derived only from durable child state."""
         validate_run_id(group_id)
