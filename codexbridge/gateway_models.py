@@ -477,6 +477,7 @@ class ParallelPowerShellStart(GatewayModel):
     children: list[ParallelPowerShellChild] = Field(min_length=1, max_length=1_000)
     requested_concurrency: int | None = Field(default=None, ge=1, le=1_000)
     repository_lock_policy: Literal["none"] = "none"
+    failure_policy: Literal["continue_all", "cancel_remaining_on_failure"] = "continue_all"
 
 
 class LocalPowerShellStart(GatewayModel):

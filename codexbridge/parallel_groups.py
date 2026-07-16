@@ -243,6 +243,17 @@ class ParallelGroupStore:
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
 
+    def get_group_for_child(self, run_id: str) -> dict[str, Any]:
+        validate_run_id(run_id)
+        with self.store.connect() as conn:
+            row = conn.execute(
+                "SELECT group_id FROM command_group_children WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Parallel child is not attached to a command group: {run_id}")
+        return self.get_group(str(row["group_id"]))
+
     def repository_lock_required_for_child(self, run_id: str) -> bool:
         """Return whether a child run must own the repository operation lock."""
         validate_run_id(run_id)
@@ -583,6 +594,7 @@ def launch_powershell_group(
     group_id: str | None = None,
     requested_concurrency: int | None = None,
     repository_lock_policy: str = "none",
+    failure_policy: str = "continue_all",
 ) -> dict[str, Any]:
     """Validate, reserve, materialize, then launch a parallel PowerShell group."""
     parallel = config.parallel_execution
@@ -592,6 +604,8 @@ def launch_powershell_group(
         raise ValueError("Parallel PowerShell execution requires permissive autonomy")
     if repository_lock_policy != "none":
         raise ValueError("Only lock-free parallel launch is implemented in this batch")
+    if failure_policy not in {"continue_all", "cancel_remaining_on_failure"}:
+        raise ValueError("Unsupported parallel PowerShell failure policy")
     if not children:
         raise ValueError("Parallel PowerShell group requires at least one child")
 
@@ -660,10 +674,12 @@ def launch_powershell_group(
         children=reserved_children,
         requested_concurrency=requested_concurrency,
         repository_lock_policy=repository_lock_policy,
+        failure_policy=failure_policy,
         input_data={
             "autonomy_profile": "permissive",
             "requested_repo_name": repo_name,
             "child_count": len(reserved_children),
+            "failure_policy": failure_policy,
         },
     )
 

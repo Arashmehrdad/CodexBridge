@@ -2069,6 +2069,7 @@ def start_local_powershell_group_async(
     *,
     requested_concurrency: int | None = None,
     repository_lock_policy: str = "none",
+    failure_policy: str = "continue_all",
 ) -> dict:
     """Write async tool: durably accept and launch a parallel unrestricted PowerShell command group."""
     decoded_children: list[dict[str, Any]] = []
@@ -2088,6 +2089,7 @@ def start_local_powershell_group_async(
         decoded_children,
         requested_concurrency=requested_concurrency,
         repository_lock_policy=repository_lock_policy,
+        failure_policy=failure_policy,
     )
 
 
@@ -2100,6 +2102,7 @@ def run_start(request: RunStartRequest) -> dict:
             [child.model_dump() for child in request.children],
             requested_concurrency=request.requested_concurrency,
             repository_lock_policy=request.repository_lock_policy,
+            failure_policy=request.failure_policy,
         )
     if request.operation == "powershell":
         return start_local_powershell_async(

@@ -600,6 +600,7 @@ class JobManager:
         *,
         requested_concurrency: int | None = None,
         repository_lock_policy: str = "none",
+        failure_policy: str = "continue_all",
     ) -> dict:
         return launch_powershell_group(
             config=self.config,
@@ -608,6 +609,7 @@ class JobManager:
             spawn_worker=self._spawn_worker,
             requested_concurrency=requested_concurrency,
             repository_lock_policy=repository_lock_policy,
+            failure_policy=failure_policy,
         )
 
     def get_powershell_group(self, group_id: str) -> dict:
