@@ -359,7 +359,11 @@ Checkpoint (2026-07-16):
 - Uncapped acceptance with `max_concurrent_powershell: null` launches every child immediately; a deliberate failing child does not stop successful siblings under `continue_all`.
 - Focused validation passed: `tests/test_parallel_groups.py` 11 passed; `tests/test_parallel_powershell_acceptance.py` 3 passed.
 - Live acceptance and lock-free adoption commits: `2e23f69adef94ae0ad26fc7c073bd4dfab2f074e`, `d47fd07ff85526958a55c06d3e85f7ed8e1d2013`, `8eca429f1511107f6c4e23c0bac1cd21e2c3702d`, `0c842866cb1aaacd1d69e390969e55f61cafa8e5`, and `04d0564a77a753c9d114ec6ba1a4ca99293bdef7`.
-- Next unit: add live whole-group and individual-child cancellation acceptance, including exact process-tree termination and final aggregate artifact/result verification.
+- Live cancellation acceptance now proves whole-group cancellation terminates the exact active PowerShell/native-child process tree, cancels durably pending siblings, publishes terminal child results, and preserves complete protected stdout/stderr artifacts. Individual-child cancellation also releases the slot so a pending sibling launches and completes independently.
+- Aggregate group child summaries now publish bounded protected artifact references derived from each terminal child result without merging child output.
+- Cancellation and aggregate-artifact commits: `e99d4741c7705cafebc68c8b442a7db8f4e73f0d` and `4eea0bc09ee897539de505fdd25ab035b8520347`.
+- Focused validation passed: `tests/test_parallel_powershell_acceptance.py` 5 passed; `tests/test_parallel_groups.py` 11 passed; `parallel_groups.py` passed `py_compile`.
+- Next unit: implement and validate `cancel_remaining_on_failure`, then run the explicit eight-process capped acceptance gate and final X2A milestone validation.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
