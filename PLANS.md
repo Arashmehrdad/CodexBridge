@@ -252,7 +252,7 @@ Acceptance:
 
 Depends on X1.
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-16):
 
@@ -264,7 +264,10 @@ Checkpoint (2026-07-16):
 - Live configured PowerShell 7 acceptance now proves `-Command`, `-File`, `-EncodedCommand`, stdin script execution, explicit native `cmd.exe` child launch, arbitrary working directories and environment values, filesystem paths containing spaces, and loopback TCP networking through the durable worker with complete protected artifacts.
 - Implementation commits for the live acceptance matrix: `580336caa206dce743a33d8560f1da178ceadf56`, `84e02819b4cf57c7445ddd29c1e9ab9a942257b1`, `fbd8f25072404dbe79bf31d96102d1aee353fa1b`, and `1846f676b2df3d4af92e77126007f402353c091d`.
 - Live validation passed: `tests/test_powershell_acceptance.py` 3 passed.
-- Next executable unit: prove exact cancellation of a harmless live PowerShell child-process tree and restart reconciliation/adoption without duplicate launch.
+- Live harmless PowerShell process-tree cancellation now proves the PowerShell parent and its native child are both terminated through exact process-tree control; implementation commit: `eac0148af7dec606ee2f9238251f949b9e1840d1`.
+- Restart reconciliation coverage proves a verified active worker is adopted, its repository lock is reclaimed, and no replacement worker is launched; `tests/test_job_manager.py::test_reconcile_startup_adopts_verified_active_worker` remains the canonical regression.
+- Final X2 validation: `tests/test_powershell_acceptance.py` 4 passed and the adjacent job-manager reconciliation suite passed.
+- Next roadmap unit: X2A durable parallel PowerShell command fan-out.
 
 Status target: primary unrestricted local engineering gateway.
 
