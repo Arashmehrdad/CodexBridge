@@ -31,7 +31,7 @@ def _pwsh_path() -> Path:
     pytest.skip("PowerShell 7 executable is not installed at a configured absolute path")
 
 
-def _manager(tmp_path: Path, *, max_concurrent: int = 2) -> JobManager:
+def _manager(tmp_path: Path, *, max_concurrent: int | None = 2) -> JobManager:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
     (repo / ".git").mkdir()
@@ -60,7 +60,8 @@ def _manager(tmp_path: Path, *, max_concurrent: int = 2) -> JobManager:
                 "parallel_execution:",
                 "  enabled: true",
                 "  autonomy_profile: permissive",
-                f"  max_concurrent_powershell: {max_concurrent}",
+                "  max_concurrent_powershell: "
+                + ("null" if max_concurrent is None else str(max_concurrent)),
                 f'runs_dir: "{runs_dir.as_posix()}"',
             ]
         )
@@ -121,6 +122,33 @@ def test_live_capped_fanout_refills_pending_children(tmp_path: Path) -> None:
     assert completed["result"]["status_counts"] == {"completed": 3}
     for index in range(3):
         assert (marker_dir / f"child-{index}.txt").read_text(encoding="utf-8") == f"done-{index}"
+
+
+def test_live_uncapped_group_continues_successful_siblings_after_failure(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, max_concurrent=None)
+    marker_dir = tmp_path / "markers"
+    marker_dir.mkdir()
+    children = _children(marker_dir, 3)
+    children[1]["argv"] = [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[Console]::Error.Write('expected failure'); exit 7",
+    ]
+
+    started = manager.start_powershell_group("sample", children)
+
+    assert len(started["launched_run_ids"]) == 3
+    assert started["pending_run_ids"] == []
+    completed = _wait_for_group(manager, started["group_id"])
+    assert completed["status"] == "failed"
+    assert completed["result"]["status_counts"] == {"completed": 2, "failed": 1}
+    assert (marker_dir / "child-0.txt").read_text(encoding="utf-8") == "done-0"
+    assert not (marker_dir / "child-1.txt").exists()
+    assert (marker_dir / "child-2.txt").read_text(encoding="utf-8") == "done-2"
 
 
 def test_restart_reconciliation_adopts_active_child_without_duplicate_launch(
