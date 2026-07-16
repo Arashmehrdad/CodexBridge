@@ -16,6 +16,10 @@ from .run_store import RunStore
 from .supervisor_store import SupervisorStore
 
 
+SELF_CHECK_PYTEST_TIMEOUT_SECONDS = 600
+SELF_CHECK_TRANSPORT_TIMEOUT_SECONDS = 60.0
+
+
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> dict:
     started = time.time()
     try:
@@ -98,7 +102,9 @@ def _start_server_probe(
     )
     url = f"http://{host}:{port}{path}"
     try:
-        readiness = _wait_for_endpoint(url)
+        readiness = _wait_for_endpoint(
+            url, timeout_seconds=SELF_CHECK_TRANSPORT_TIMEOUT_SECONDS
+        )
         poll = process.poll()
         process_started = poll is None
         return {
@@ -162,9 +168,25 @@ def run_self_check(
             "CodexBridge workspace is not a git repo; target repos are validated from config."
         )
     if run_tests:
-        checks["pytest"] = _run(
-            [sys.executable, "-m", "pytest", "-q"], root, timeout=300
+        pytest_basetemp = (
+            (config.resolve_runs_dir() if config else root / "runs")
+            / "self-check"
+            / f"pytest-{time.time_ns()}"
         )
+        pytest_basetemp.parent.mkdir(parents=True, exist_ok=True)
+        checks["pytest"] = _run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "--basetemp",
+                str(pytest_basetemp),
+            ],
+            root,
+            timeout=SELF_CHECK_PYTEST_TIMEOUT_SECONDS,
+        )
+        checks["pytest"]["basetemp"] = str(pytest_basetemp)
 
     try:
         store = RunStore(config.resolve_runs_dir() if config else root / "runs")

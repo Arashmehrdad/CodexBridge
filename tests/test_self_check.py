@@ -9,7 +9,7 @@ from codexbridge.config import (
     SupervisorWebhookNotificationSinkConfig,
     SupervisorsConfig,
 )
-from codexbridge.self_check import run_self_check
+from codexbridge.self_check import _start_server_probe, run_self_check
 
 
 def test_self_check_result_structure_without_live_server(
@@ -164,3 +164,80 @@ def test_self_check_reports_transport_readiness(monkeypatch, tmp_path: Path) -> 
     )
     assert result["checks"]["transport"]["transport_ready"] is True
     assert result["checks"]["transport"]["endpoint"]["url"].endswith("/mcp")
+
+
+def test_self_check_uses_isolated_pytest_basetemp(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], cwd: Path, timeout: int = 120) -> dict:
+        if "pytest" in command:
+            captured["command"] = command
+            captured["timeout"] = timeout
+        return {
+            "command": command,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "ok": True,
+        }
+
+    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    config = AppConfig(
+        repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+    )
+
+    result = run_self_check(
+        config=config, config_path=None, run_live_server=False, run_tests=True
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    basetemp_index = command.index("--basetemp") + 1
+    basetemp = Path(command[basetemp_index])
+    assert basetemp.parent == config.resolve_runs_dir() / "self-check"
+    assert captured["timeout"] == 600
+    assert result["checks"]["pytest"]["basetemp"] == str(basetemp)
+
+
+def test_server_probe_uses_extended_readiness_window(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed: dict[str, float] = {}
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.terminated = False
+
+        def poll(self) -> int | None:
+            return 0 if self.terminated else None
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def wait(self, timeout: int) -> int:
+            return 0
+
+        def kill(self) -> None:
+            self.terminated = True
+
+    monkeypatch.setattr(
+        "codexbridge.self_check.subprocess.Popen",
+        lambda *args, **kwargs: FakeProcess(),
+    )
+
+    def fake_wait_for_endpoint(url: str, timeout_seconds: float = 10.0) -> dict:
+        observed["timeout_seconds"] = timeout_seconds
+        return {"url": url, "status": 406, "ok": True}
+
+    monkeypatch.setattr(
+        "codexbridge.self_check._wait_for_endpoint", fake_wait_for_endpoint
+    )
+
+    result = _start_server_probe(
+        tmp_path / "config.yaml", "127.0.0.1", 8765, "/mcp", tmp_path
+    )
+
+    assert observed["timeout_seconds"] == 60.0
+    assert result["ok"] is True
