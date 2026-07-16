@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from typing import Sequence
 
 from fastmcp import FastMCP
@@ -1615,7 +1615,7 @@ def start_external_fixture_validation_async(
 def start_ssh_command_async(
     host_id: str,
     command_id: str,
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one configured SSH command by host ID and command ID."""
@@ -1634,7 +1634,7 @@ def start_ssh_command_async(
 def start_ssh_monitored_command_async(
     host_id: str,
     command_id: str,
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one opt-in monitored SSH command by host ID and command ID."""
@@ -1659,7 +1659,7 @@ def start_ssh_reviewed_script_async(
     timeout_seconds: int = 3600,
     writes_remote: bool = True,
     high_risk: bool = False,
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "reviewed_script",
 ) -> dict:
     """Queue a hash-pinned reviewed SSH script for remote execution."""
@@ -1686,7 +1686,7 @@ def start_ssh_root_shell_async(
     script: str,
     script_sha256: str,
     timeout_seconds: int = 3600,
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "root_shell",
 ) -> dict:
     """Queue a permissive hash-pinned root shell and verify effective UID remotely."""
@@ -1718,7 +1718,7 @@ def start_ssh_action_async(
     args: list[str] = [],
     force: bool = False,
     confirmation: str = "",
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue one bounded SSH administration, Git, service, or Compose action."""
@@ -1754,7 +1754,7 @@ def start_ssh_transfer_async(
     recursive: bool = False,
     overwrite: bool = False,
     confirmation: str = "",
-    autonomy_profile: str = "permissive",
+    autonomy_profile: Literal["permissive"] = "permissive",
     execution_mode: str = "structured",
 ) -> dict:
     """Write async tool: queue a repository-scoped upload or run-artifact download using SCP."""
