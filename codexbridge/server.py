@@ -2062,9 +2062,45 @@ def start_local_powershell_async(
     )
 
 
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_local_powershell_group_async(
+    repo_name: str,
+    children: list[dict[str, Any]],
+    *,
+    requested_concurrency: int | None = None,
+    repository_lock_policy: str = "none",
+) -> dict:
+    """Write async tool: durably accept and launch a parallel unrestricted PowerShell command group."""
+    decoded_children: list[dict[str, Any]] = []
+    for child in children:
+        normalized = dict(child)
+        stdin_base64 = normalized.pop("stdin_base64", None)
+        if stdin_base64 is not None:
+            try:
+                normalized["stdin_bytes"] = base64.b64decode(
+                    stdin_base64, validate=True
+                )
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError("stdin_base64 must contain valid base64") from exc
+        decoded_children.append(normalized)
+    return get_job_manager().start_powershell_group(
+        repo_name,
+        decoded_children,
+        requested_concurrency=requested_concurrency,
+        repository_lock_policy=repository_lock_policy,
+    )
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_start(request: RunStartRequest) -> dict:
     """Write gateway for durable validation and unrestricted permissive PowerShell runs."""
+    if request.operation == "powershell_group":
+        return start_local_powershell_group_async(
+            request.repo_name,
+            [child.model_dump() for child in request.children],
+            requested_concurrency=request.requested_concurrency,
+            repository_lock_policy=request.repository_lock_policy,
+        )
     if request.operation == "powershell":
         return start_local_powershell_async(
             request.repo_name,

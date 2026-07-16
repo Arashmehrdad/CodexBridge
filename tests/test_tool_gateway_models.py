@@ -209,6 +209,22 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
     )
     assert powershell.profile_id == "powershell"
     assert powershell.argv[-1] == "Write-Output 'a b'"
+    powershell_group = adapter.validate_python(
+        {
+            "operation": "powershell_group",
+            "repo_name": "repo",
+            "requested_concurrency": 2,
+            "children": [
+                {"idempotency_key": "one", "argv": ["-Command", "one"]},
+                {"idempotency_key": "two", "argv": ["-Command", "two"]},
+            ],
+        }
+    )
+    assert powershell_group.requested_concurrency == 2
+    assert [child.idempotency_key for child in powershell_group.children] == [
+        "one",
+        "two",
+    ]
     invalid = (
         {"operation": "project_command", "repo_name": "repo", "command_id": "pytest", "path": "x"},
         {"operation": "pytest_path", "repo_name": "repo", "path": "x", "command_id": "pytest"},
@@ -216,6 +232,9 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
         {"operation": "external_fixture_validation", "repo_name": "repo", "url": "http://example.test", "expected_sha256": "a" * 64},
         {"operation": "powershell", "repo_name": "repo", "argv": [], "stdin_text": "x", "stdin_base64": "eA=="},
         {"operation": "powershell", "repo_name": "repo", "argv": [], "command_id": "blocked"},
+        {"operation": "powershell_group", "repo_name": "repo", "children": []},
+        {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": [], "stdin_text": "x", "stdin_base64": "eA=="}]},
+        {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "repository_lock_policy": "exclusive"},
     )
     for payload in invalid:
         with pytest.raises(ValidationError):
@@ -243,14 +262,37 @@ def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) ->
         ({"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}, "start_git_readonly"),
         ({"operation": "external_fixture_validation", "repo_name": "repo", "url": "https://example.test/x", "expected_sha256": "a" * 64}, "start_external_fixture_validation"),
         ({"operation": "powershell", "repo_name": "repo", "argv": ["-Command", "git status"], "environment": {"X": "a b"}, "stdin_base64": "AAE=", "timeout_seconds": 60}, "start_executable_profile"),
+        ({"operation": "powershell_group", "repo_name": "repo", "requested_concurrency": 2, "children": [{"idempotency_key": "one", "argv": ["-Command", "one"], "stdin_base64": "AAE="}]}, "start_powershell_group"),
     ):
         server.run_start(TypeAdapter(RunStartRequest).validate_python(payload))
         assert calls[-1][0] == expected
+    powershell_group_call = calls[-1]
+    assert powershell_group_call[1][0] == "repo"
+    assert powershell_group_call[1][1][0]["idempotency_key"] == "one"
+    assert powershell_group_call[1][1][0]["stdin_bytes"] == b"\x00\x01"
+    assert powershell_group_call[2]["requested_concurrency"] == 2
+    powershell_payload = TypeAdapter(RunStartRequest).validate_python(
+        {"operation": "powershell", "repo_name": "repo", "argv": ["-Command", "git status"], "environment": {"X": "a b"}, "stdin_base64": "AAE=", "timeout_seconds": 60}
+    )
+    server.run_start(powershell_payload)
     powershell_call = calls[-1]
     assert powershell_call[1] == ("repo", "powershell", ["-Command", "git status"])
     assert powershell_call[2]["environment"] == {"X": "a b"}
     assert powershell_call[2]["stdin_bytes"] == b"\x00\x01"
     assert powershell_call[2]["timeout_seconds"] == 60
+
+
+def test_run_start_rejects_invalid_parallel_powershell_binary_stdin(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_job_manager", lambda: object())
+    request = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "powershell_group",
+            "repo_name": "repo",
+            "children": [{"argv": [], "stdin_base64": "not-base64"}],
+        }
+    )
+    with pytest.raises(ValueError, match="valid base64"):
+        server.run_start(request)
 
 
 def test_run_start_rejects_invalid_powershell_binary_stdin(monkeypatch) -> None:

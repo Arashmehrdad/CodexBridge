@@ -71,6 +71,35 @@ def make_manager(
     return JobManager(config, config_path)
 
 
+def test_start_powershell_group_delegates_to_two_phase_launcher(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    observed = {}
+
+    def fake_launch(**kwargs):
+        observed.update(kwargs)
+        return {"accepted": True, "group_id": "group_1"}
+
+    monkeypatch.setattr("codexbridge.job_manager.launch_powershell_group", fake_launch)
+    children = [{"idempotency_key": "one", "argv": ["-Command", "one"]}]
+
+    result = manager.start_powershell_group(
+        "sample",
+        children,
+        requested_concurrency=1,
+        repository_lock_policy="none",
+    )
+
+    assert result == {"accepted": True, "group_id": "group_1"}
+    assert observed["config"] is manager.config
+    assert observed["repo_name"] == "sample"
+    assert observed["children"] == children
+    assert observed["spawn_worker"] == manager._spawn_worker
+    assert observed["requested_concurrency"] == 1
+    assert observed["repository_lock_policy"] == "none"
+
+
 def test_codex_disabled_refuses_plan_and_implementation(
     tmp_path: Path, monkeypatch
 ) -> None:

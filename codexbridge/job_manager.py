@@ -31,6 +31,7 @@ from .gateway_models import (
     validate_root_ssh_shell_request,
 )
 from .operation_locks import OperationLockStore
+from .parallel_groups import launch_powershell_group
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -577,6 +578,23 @@ class JobManager:
         response.setdefault("repo_name", repo_name)
         response["profile_id"] = profile_id
         return response
+
+    def start_powershell_group(
+        self,
+        repo_name: str,
+        children: list[dict],
+        *,
+        requested_concurrency: int | None = None,
+        repository_lock_policy: str = "none",
+    ) -> dict:
+        return launch_powershell_group(
+            config=self.config,
+            repo_name=repo_name,
+            children=children,
+            spawn_worker=self._spawn_worker,
+            requested_concurrency=requested_concurrency,
+            repository_lock_policy=repository_lock_policy,
+        )
 
     def start_project_command(
         self, repo_name: str, command_id: str, *, reserved_run_id: str | None = None

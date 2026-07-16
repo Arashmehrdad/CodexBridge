@@ -442,6 +442,31 @@ class ExternalFixtureValidationStart(GatewayModel):
     validation: Literal["none", "json", "text"] = "none"
 
 
+class ParallelPowerShellChild(GatewayModel):
+    idempotency_key: str = Field(default="", max_length=128)
+    profile_id: str = Field(default="powershell", min_length=1, max_length=128)
+    argv: list[str] = Field(default_factory=list, max_length=10_000)
+    working_directory: str = Field(default="", max_length=32_768)
+    environment: dict[str, str] = Field(default_factory=dict, max_length=10_000)
+    stdin_text: str | None = Field(default=None, max_length=2_000_000)
+    stdin_base64: str | None = Field(default=None, max_length=2_700_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+
+    @model_validator(mode="after")
+    def validate_stdin_mode(self) -> "ParallelPowerShellChild":
+        if self.stdin_text is not None and self.stdin_base64 is not None:
+            raise ValueError("Specify either stdin_text or stdin_base64, not both")
+        return self
+
+
+class ParallelPowerShellStart(GatewayModel):
+    operation: Literal["powershell_group"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    children: list[ParallelPowerShellChild] = Field(min_length=1, max_length=1_000)
+    requested_concurrency: int | None = Field(default=None, ge=1, le=1_000)
+    repository_lock_policy: Literal["none"] = "none"
+
+
 class LocalPowerShellStart(GatewayModel):
     operation: Literal["powershell"]
     repo_name: str = Field(min_length=1, max_length=128)
@@ -463,7 +488,7 @@ class LocalPowerShellStart(GatewayModel):
 RunStartRequest = Annotated[
     ProjectCommandStart | PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
     | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
-    | LocalPowerShellStart,
+    | LocalPowerShellStart | ParallelPowerShellStart,
     Field(discriminator="operation"),
 ]
 
