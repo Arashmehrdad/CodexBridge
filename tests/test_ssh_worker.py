@@ -286,10 +286,10 @@ def test_reviewed_script_worker_persists_timeout_and_partial_output(
         ("script", None, True, "Incomplete persisted reviewed SSH script metadata"),
         ("script", "echo altered\\n", False, "SHA-256"),
         ("script_sha256", "0" * 64, False, "SHA-256"),
-        ("autonomy_profile", "conservative", False, "denied profile/mode"),
+        ("autonomy_profile", "conservative", False, "Input should be 'permissive'"),
         ("execution_mode", "root_shell", False, "reviewed_script"),
         ("approval_source", None, True, "Incomplete persisted SSH policy metadata"),
-        ("approval_source", "human", False, "ChatGPT delegated approval"),
+        ("approval_source", "human", False, "does not match canonical"),
         ("unexpected_command", "whoami", False, "Unexpected persisted"),
     ],
 )
@@ -554,14 +554,14 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
                 "approval_source": "none",
             },
             "run_ssh_command",
-            "denied",
+            "Input should be 'permissive'",
         ),
         (
             "ssh_monitored_command",
             {
                 "host_id": "my_vps",
                 "command_id": "uptime",
-                "autonomy_profile": "balanced",
+                "autonomy_profile": "permissive",
                 "execution_mode": "reviewed_script",
                 "permission_tier": "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB",
                 "policy_decision": "allowed",
@@ -651,7 +651,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
             {
                 "host_id": "my_vps",
                 "command_id": "uptime",
-                "autonomy_profile": "balanced",
+                "autonomy_profile": "permissive",
                 "execution_mode": "structured",
                 "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
                 "policy_decision": "allowed",
@@ -666,7 +666,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
             {
                 "host_id": "my_vps",
                 "command_id": "write_marker",
-                "autonomy_profile": "balanced",
+                "autonomy_profile": "permissive",
                 "execution_mode": "structured",
                 "permission_tier": "T4_WRITE_APPLY_CHATGPT_DELEGATED",
                 "policy_decision": "needs_chatgpt_approval",
