@@ -267,6 +267,7 @@ Checkpoint (2026-07-16):
 - Live harmless PowerShell process-tree cancellation now proves the PowerShell parent and its native child are both terminated through exact process-tree control; implementation commit: `eac0148af7dec606ee2f9238251f949b9e1840d1`.
 - Restart reconciliation coverage proves a verified active worker is adopted, its repository lock is reclaimed, and no replacement worker is launched; `tests/test_job_manager.py::test_reconcile_startup_adopts_verified_active_worker` remains the canonical regression.
 - Final X2 validation: `tests/test_powershell_acceptance.py` 4 passed and the adjacent job-manager reconciliation suite passed.
+- The active local `config.yaml` now enables the absolute PowerShell 7 permissive profile with unrestricted argv, paths, environment, network, child processes, binary input, protected output, no-timeout support, and process-tree cancellation; configuration validation and hot reload passed on 2026-07-16.
 - Next roadmap unit: X2A durable parallel PowerShell command fan-out.
 
 Status target: primary unrestricted local engineering gateway.
@@ -329,16 +330,16 @@ Status: **in progress**.
 Checkpoint (2026-07-16):
 
 - Added a durable command-group store backed by the existing SQLite run database.
-- Parent group metadata and every child `launch_pending` run row are inserted in one immediate transaction before any worker process can be created.
+- Parent group metadata and every child run row are inserted in one immediate transaction before any worker process can be created; initially eligible children use `launch_pending`, while concurrency-throttled children use the non-recoverable `pending` state.
 - Every child reservation persists its run ID, position, idempotency key, independent worker lease token, exact executable-profile input, and run-directory identity.
 - Duplicate child run IDs or idempotency keys are rejected, and any database conflict rolls back the parent plus every newly inserted sibling.
 - Added a two-phase PowerShell group launcher that validates every child specification before reservation, reserves the complete group atomically, materializes every protected child input and launch event, and only then spawns eligible workers.
 - Connected the two-phase launcher to `JobManager.start_powershell_group` and the public `run_start` contract as `operation: powershell_group`, including strict nested child models, per-child text or base64 binary stdin, optional lower requested concurrency, and lock-free policy validation.
 - `max_concurrent_powershell` and a lower per-group request limit determine the initial eligible set; excess accepted children remain durable in `pending` without a worker or startup-reconciliation eligibility.
 - Validation failures occur before group or child persistence, and individual worker-launch failures are recorded against the affected child without preventing later eligible siblings from launching.
-- Full-suite validation immediately before the public group connection passed with `1082 passed, 1 skipped`.
-- Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed; `tests/test_tool_gateway_models.py` 27 passed; manager delegation regression 1 passed.
-- Implementation commits through `f6a77513ef842dd1de0ac97e313bd2cf940786e5`.
+- Full-suite validation after the public group connection and ninth action-discovery variant passed with `1084 passed, 1 skipped`; `python -m pip check` found no broken requirements and `git diff --check` passed.
+- Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed; `tests/test_tool_gateway_models.py` 27 passed; manager delegation regression 1 passed; pending-child cancellation regression 1 passed; public action-discovery regression 1 passed.
+- Implementation commits through `f6a77513ef842dd1de0ac97e313bd2cf940786e5`; roadmap evidence checkpoint `247917750cafedab0b0a1017a8fe2328fbc34b57`.
 - Next unit: add atomic slot release/refill so durable pending children transition to `launch_pending` and launch as active PowerShell processes finish, including startup reconciliation and duplicate-launch prevention.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
