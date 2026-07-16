@@ -196,11 +196,26 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
             "expected_sha256": "a" * 64,
         }
     ).validation == "none"
+    powershell = adapter.validate_python(
+        {
+            "operation": "powershell",
+            "repo_name": "repo",
+            "argv": ["-NoProfile", "-Command", "Write-Output 'a b'"],
+            "working_directory": "C:/work",
+            "environment": {"ARBITRARY_VALUE": "a=b c"},
+            "stdin_base64": "AAEC",
+            "timeout_seconds": 90,
+        }
+    )
+    assert powershell.profile_id == "powershell"
+    assert powershell.argv[-1] == "Write-Output 'a b'"
     invalid = (
         {"operation": "project_command", "repo_name": "repo", "command_id": "pytest", "path": "x"},
         {"operation": "pytest_path", "repo_name": "repo", "path": "x", "command_id": "pytest"},
         {"operation": "git_readonly", "repo_name": "repo", "git_operation": "shell"},
         {"operation": "external_fixture_validation", "repo_name": "repo", "url": "http://example.test", "expected_sha256": "a" * 64},
+        {"operation": "powershell", "repo_name": "repo", "argv": [], "stdin_text": "x", "stdin_base64": "eA=="},
+        {"operation": "powershell", "repo_name": "repo", "argv": [], "command_id": "blocked"},
     )
     for payload in invalid:
         with pytest.raises(ValidationError):
@@ -227,9 +242,24 @@ def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) ->
         ({"operation": "json_validation_path", "repo_name": "repo", "path": "x.json"}, "start_json_validation_path"),
         ({"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}, "start_git_readonly"),
         ({"operation": "external_fixture_validation", "repo_name": "repo", "url": "https://example.test/x", "expected_sha256": "a" * 64}, "start_external_fixture_validation"),
+        ({"operation": "powershell", "repo_name": "repo", "argv": ["-Command", "git status"], "environment": {"X": "a b"}, "stdin_base64": "AAE=", "timeout_seconds": 60}, "start_executable_profile"),
     ):
         server.run_start(TypeAdapter(RunStartRequest).validate_python(payload))
         assert calls[-1][0] == expected
+    powershell_call = calls[-1]
+    assert powershell_call[1] == ("repo", "powershell", ["-Command", "git status"])
+    assert powershell_call[2]["environment"] == {"X": "a b"}
+    assert powershell_call[2]["stdin_bytes"] == b"\x00\x01"
+    assert powershell_call[2]["timeout_seconds"] == 60
+
+
+def test_run_start_rejects_invalid_powershell_binary_stdin(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_job_manager", lambda: object())
+    request = TypeAdapter(RunStartRequest).validate_python(
+        {"operation": "powershell", "repo_name": "repo", "stdin_base64": "not-base64"}
+    )
+    with pytest.raises(ValueError, match="valid base64"):
+        server.run_start(request)
 
 
 def test_phase6_domain_models_reject_cross_domain_fields() -> None:
