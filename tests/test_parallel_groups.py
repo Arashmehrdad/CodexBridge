@@ -230,6 +230,77 @@ def test_launch_group_respects_global_powershell_concurrency_limit(
     assert run_ids[1] not in recoverable_ids
 
 
+def test_claim_pending_launches_respects_global_and_group_limits(
+    tmp_path: Path,
+) -> None:
+    config = parallel_config(tmp_path, max_concurrent=2)
+    runs_dir = config.resolve_runs_dir()
+    store = ParallelGroupStore(runs_dir)
+    first_group = "20260716T051000Z_powershell_group_a1b2c3d4"
+    second_group = "20260716T051001Z_powershell_group_b2c3d4e5"
+    first_children = [
+        child_spec(runs_dir, "c1d2e3f4"),
+        child_spec(runs_dir, "d2e3f4a5"),
+    ]
+    second_children = [child_spec(runs_dir, "e3f4a5b6")]
+    for child in [*first_children, *second_children]:
+        child["initial_status"] = "pending"
+    store.reserve_group(
+        group_id=first_group,
+        repo_name="sample",
+        children=first_children,
+        requested_concurrency=1,
+    )
+    store.reserve_group(
+        group_id=second_group,
+        repo_name="sample",
+        children=second_children,
+    )
+
+    claimed = store.claim_pending_launches(max_concurrent_powershell=2)
+
+    assert [run["run_id"] for run in claimed] == [
+        first_children[0]["run_id"],
+        second_children[0]["run_id"],
+    ]
+    assert store.store.get_run(first_children[0]["run_id"])["status"] == "launch_pending"
+    assert store.store.get_run(first_children[1]["run_id"])["status"] == "pending"
+    assert store.store.get_run(second_children[0]["run_id"])["status"] == "launch_pending"
+    assert store.claim_pending_launches(max_concurrent_powershell=2) == []
+
+
+def test_claim_pending_launches_refills_one_terminal_slot_exactly_once(
+    tmp_path: Path,
+) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ParallelGroupStore(runs_dir)
+    children = [
+        child_spec(runs_dir, "f4a5b6c7"),
+        child_spec(runs_dir, "a5b6c7d8"),
+    ]
+    children[1]["initial_status"] = "pending"
+    store.reserve_group(
+        group_id="20260716T051100Z_powershell_group_b6c7d8e9",
+        repo_name="sample",
+        children=children,
+        requested_concurrency=1,
+    )
+    first = store.store.get_run(children[0]["run_id"])
+    store.store.conditional_update(
+        first["run_id"],
+        fields={"status": "completed", "current_phase": "result"},
+        expected_statuses=("launch_pending",),
+        expected_state_version=int(first["state_version"]),
+        expected_lease_token=first["worker_lease_token"],
+        expected_lease_generation=int(first["lease_generation"]),
+    )
+
+    claimed = store.claim_pending_launches(max_concurrent_powershell=1)
+
+    assert [run["run_id"] for run in claimed] == [children[1]["run_id"]]
+    assert store.claim_pending_launches(max_concurrent_powershell=1) == []
+
+
 def test_launch_group_validation_failure_writes_nothing(tmp_path: Path) -> None:
     config = parallel_config(tmp_path)
     group_id = "20260716T050200Z_powershell_group_c3d4e5f6"
