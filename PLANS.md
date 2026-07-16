@@ -332,9 +332,13 @@ Checkpoint (2026-07-16):
 - Parent group metadata and every child `launch_pending` run row are inserted in one immediate transaction before any worker process can be created.
 - Every child reservation persists its run ID, position, idempotency key, independent worker lease token, exact executable-profile input, and run-directory identity.
 - Duplicate child run IDs or idempotency keys are rejected, and any database conflict rolls back the parent plus every newly inserted sibling.
-- Focused validation passed: `tests/test_parallel_groups.py` 3 passed.
-- Implementation commits through `3207ec6cd820049b326e02a6b670c5e6ab0f3193`.
-- Next unit: integrate validated PowerShell child specifications with group reservation, materialize protected child artifacts, and launch eligible children only after the complete child ID list is durable.
+- Added a two-phase PowerShell group launcher that validates every child specification before reservation, reserves the complete group atomically, materializes every protected child input and launch event, and only then spawns eligible workers.
+- `max_concurrent_powershell` and a lower per-group request limit determine the initial eligible set; excess accepted children remain durable in `launch_pending` without a worker.
+- Validation failures occur before group or child persistence, and individual worker-launch failures are recorded against the affected child without preventing later eligible siblings from launching.
+- Full-suite validation after the public PowerShell gateway correction passed with `1078 passed, 1 skipped`.
+- Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed.
+- Implementation commits through `92b3c40ea4e2380247c3d41208e498edc81f5568`.
+- Next unit: connect the two-phase launcher to `JobManager` and the public command-group request model, then add slot release/refill so durable pending children launch as active PowerShell processes finish.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
