@@ -1830,7 +1830,7 @@ def test_remote_capability_tools_delegate(monkeypatch) -> None:
     assert health["capability_epoch"]
 
 
-def test_start_remote_command_async_delegates(monkeypatch) -> None:
+def test_start_remote_command_async_delegates_with_permissive_default(monkeypatch) -> None:
     method_name = "start_ssh_command"
 
     def start(self, host_id, command_id, *, autonomy_profile, execution_mode):
@@ -1854,7 +1854,7 @@ def test_start_remote_command_async_delegates(monkeypatch) -> None:
     assert result["run_id"] == "run_remote"
     assert result["host_id"] == "my_vps"
     assert result["command_id"] == "uptime"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
 
 
@@ -1877,7 +1877,7 @@ def test_start_remote_monitored_command_async_delegates(monkeypatch) -> None:
 
     assert result["accepted"] is True
     assert result["run_id"] == "run_monitored"
-    assert result["autonomy_profile"] == "balanced"
+    assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
 
 

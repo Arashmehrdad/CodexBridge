@@ -365,7 +365,7 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
             host_id,
             command_id,
             *,
-            autonomy_profile="balanced",
+            autonomy_profile="permissive",
             execution_mode="structured",
         ):
             return {
@@ -434,7 +434,7 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     assert deployment["kwargs"]["confirmation"] == "CONFIRM_SSH_HIGH_RISK"
     monitored = server.start_ssh_monitored_command_async("my_vps", "uptime")
     assert monitored["run_id"] == "run_monitored"
-    assert monitored["autonomy_profile"] == "balanced"
+    assert monitored["autonomy_profile"] == "permissive"
     assert monitored["execution_mode"] == "structured"
 
 

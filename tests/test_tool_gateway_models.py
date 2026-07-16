@@ -381,7 +381,7 @@ def test_phase6_domain_models_reject_cross_domain_fields() -> None:
 
 def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     request = SSHExecutionPolicyGatewayRequest()
-    assert request.autonomy_profile == "balanced"
+    assert request.autonomy_profile == "permissive"
     assert request.execution_mode == "structured"
     with pytest.raises(ValidationError):
         SSHExecutionPolicyGatewayRequest.model_validate(
@@ -422,13 +422,13 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
             "confirmation": "confirm",
         }
     )
-    assert command.autonomy_profile == "balanced"
+    assert command.autonomy_profile == "permissive"
     assert command.execution_mode == "structured"
     assert administration.autonomy_profile == "permissive"
     assert administration.execution_mode == "structured"
     assert transfer.autonomy_profile == "permissive"
     assert transfer.execution_mode == "structured"
-    assert deployment.autonomy_profile == "balanced"
+    assert deployment.autonomy_profile == "permissive"
     assert deployment.execution_mode == "structured"
 
 
