@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Callable, Sequence
+from typing import Callable, Literal, Sequence
 
 from . import git_tools
 from .cloudflare_tools import authorize_cloudflare_profile, run_cloudflare_action
@@ -172,6 +172,17 @@ def _validate_persisted_ssh_policy_metadata(
     return metadata
 
 
+def _persisted_permissive_ssh_profile(
+    input_data: dict,
+) -> Literal["permissive"]:
+    autonomy_profile = str(input_data["autonomy_profile"])
+    if autonomy_profile != "permissive":
+        raise ValueError(
+            "Persisted SSH autonomy_profile must be 'permissive'"
+        )
+    return "permissive"
+
+
 def _authorize_persisted_ssh_policy(
     input_data: dict,
     *,
@@ -182,7 +193,7 @@ def _authorize_persisted_ssh_policy(
 ) -> dict[str, object]:
     approval_source = _persisted_ssh_approval_source(input_data)
     policy = authorize_ssh_action_launch(
-        autonomy_profile=str(input_data["autonomy_profile"]),
+        autonomy_profile=_persisted_permissive_ssh_profile(input_data),
         execution_mode=str(input_data["execution_mode"]),
         writes_remote=writes_remote,
         monitored=monitored,
