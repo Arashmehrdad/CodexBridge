@@ -497,7 +497,8 @@ Checkpoint (2026-07-16):
 - Focused configuration validation passed with `tests/test_config.py` at 22 passed.
 - Configuration validation now emits a deterministic `ssh_active_autonomy_profiles_v1` migration report for explicitly configured legacy SSH profiles, including the configured order, detected legacy values, the permissive-only replacement, rollback data, and an explicit durable-history preservation guarantee.
 - Migration-report validation passed with `tests/test_config.py` at 22 passed and `tests/test_service_reload.py` at 7 passed; implementation commit `6bcf03bdbba17f3032716a301e96ad94c9fddd65`.
-- Next unit: use the migration evidence to narrow the SSH active-profile schema and runtime authorization branches to `permissive`, while preserving clean deterministic rejection of legacy values and retaining unrelated delegated-approval terminology.
+- The SSH active-profile schema and runtime authorization gate are now permissive-only; legacy configured values are rejected deterministically before durable run or lock creation. The public supervisor request schema was also narrowed without changing delegated-approval terminology. Implementation commits: `0e4e0442d3a961d8baf096bbfac82128edbcb44a` and `1d2f1be1e7dace2305fd2fc78e4e85c8f0246d0b`.
+- Focused validation: `tests/test_config.py` 22 passed. The next unit is to convert retained SSH manager/server defaults and compatibility tests from `balanced` to `permissive`, while preserving explicit rejection tests for removed profiles.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 

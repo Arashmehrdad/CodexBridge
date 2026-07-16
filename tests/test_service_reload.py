@@ -5,7 +5,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
-
+from pydantic import ValidationError
 from codexbridge.service_reload import (
     apply_reloaded_config,
     get_reload_status,
