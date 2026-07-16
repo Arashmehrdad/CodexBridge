@@ -31,7 +31,7 @@ from .gateway_models import (
     validate_root_ssh_shell_request,
 )
 from .operation_locks import OperationLockStore
-from .parallel_groups import launch_powershell_group
+from .parallel_groups import launch_powershell_group, refill_powershell_groups
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -169,6 +169,12 @@ class JobManager:
                 )
             reconciled += 1
         self.locks.recover_stale()
+        reconciled += len(
+            refill_powershell_groups(
+                config=self.config,
+                spawn_worker=self._spawn_worker,
+            )
+        )
         return reconciled
 
     def _worker_command(self, run_id: str, lease_token: str) -> list[str]:

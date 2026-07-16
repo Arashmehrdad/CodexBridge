@@ -50,6 +50,7 @@ from .managed_artifacts import (
     snapshot_managed_artifacts,
 )
 from .operation_locks import OperationLockStore
+from .parallel_groups import refill_powershell_groups
 from .policy import decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -2475,10 +2476,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    config_path = Path(args.config).resolve()
     worker = JobWorker(
-        Path(args.config).resolve(), args.run_id, lease_token=args.lease_token
+        config_path, args.run_id, lease_token=args.lease_token
     )
-    raise SystemExit(worker.execute())
+    exit_code = worker.execute()
+    try:
+        config = load_config(config_path)
+
+        def spawn_worker(run_id: str, lease_token: str) -> subprocess.Popen:
+            return subprocess.Popen(
+                [
+                    os.sys.executable,
+                    "-m",
+                    "codexbridge.job_worker",
+                    "--config",
+                    str(config_path),
+                    "--run-id",
+                    run_id,
+                    "--lease-token",
+                    lease_token,
+                ],
+                cwd=Path.cwd(),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=os.name != "nt",
+                **process_group_popen_kwargs(),
+            )
+
+        refill_powershell_groups(config=config, spawn_worker=spawn_worker)
+    except Exception:
+        # Refill is restart-reconciled; never mask the completed child's exit state.
+        pass
+    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
