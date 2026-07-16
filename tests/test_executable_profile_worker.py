@@ -22,6 +22,7 @@ def _write_config(config_path: Path, repo: Path, runs_dir: Path) -> None:
                 f'    path: "{repo.as_posix()}"',
                 "executable_profiles:",
                 "  powershell:",
+                "    profile_id: powershell",
                 "    enabled: true",
                 f'    executable_path: "{Path(sys.executable).as_posix()}"',
                 "    target: local",
