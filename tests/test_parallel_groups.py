@@ -301,6 +301,82 @@ def test_claim_pending_launches_refills_one_terminal_slot_exactly_once(
     assert store.claim_pending_launches(max_concurrent_powershell=1) == []
 
 
+def test_refresh_group_publishes_durable_aggregate_state(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ParallelGroupStore(runs_dir)
+    children = [
+        child_spec(runs_dir, "b7c8d9e0"),
+        child_spec(runs_dir, "c8d9e0f1"),
+    ]
+    group_id = "20260716T052000Z_powershell_group_d9e0f1a2"
+    store.reserve_group(
+        group_id=group_id,
+        repo_name="sample",
+        children=children,
+    )
+
+    running = store.refresh_group(group_id)
+
+    assert running["status"] == "launch_pending"
+    assert running["result"]["child_count"] == 2
+    assert running["result"]["terminal_child_count"] == 0
+    assert running["result"]["status_counts"] == {"launch_pending": 2}
+
+    for child in children:
+        run = store.store.get_run(child["run_id"])
+        store.store.transition_terminal(
+            child["run_id"],
+            status="completed",
+            result={"run_id": child["run_id"], "status": "completed"},
+            expected_statuses=("launch_pending",),
+            expected_state_version=int(run["state_version"]),
+            expected_lease_token=run["worker_lease_token"],
+            expected_lease_generation=int(run["lease_generation"]),
+            summary="completed",
+        )
+
+    completed = store.refresh_group(group_id)
+
+    assert completed["status"] == "completed"
+    assert completed["ended_at"]
+    assert completed["result"]["terminal_child_count"] == 2
+    assert completed["result"]["status_counts"] == {"completed": 2}
+    assert [child["status"] for child in completed["children"]] == [
+        "completed",
+        "completed",
+    ]
+
+
+def test_refresh_group_marks_mixed_terminal_failure(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ParallelGroupStore(runs_dir)
+    children = [
+        child_spec(runs_dir, "d9e0f1a2"),
+        child_spec(runs_dir, "e0f1a2b3"),
+    ]
+    group_id = "20260716T052100Z_powershell_group_f1a2b3c4"
+    store.reserve_group(group_id=group_id, repo_name="sample", children=children)
+
+    for child, status in zip(children, ("completed", "failed"), strict=True):
+        run = store.store.get_run(child["run_id"])
+        store.store.transition_terminal(
+            child["run_id"],
+            status=status,
+            result={"run_id": child["run_id"], "status": status},
+            expected_statuses=("launch_pending",),
+            expected_state_version=int(run["state_version"]),
+            expected_lease_token=run["worker_lease_token"],
+            expected_lease_generation=int(run["lease_generation"]),
+            summary=status,
+            error="boom" if status == "failed" else "",
+        )
+
+    group = store.refresh_group(group_id)
+
+    assert group["status"] == "failed"
+    assert group["result"]["status_counts"] == {"completed": 1, "failed": 1}
+
+
 def test_launch_group_validation_failure_writes_nothing(tmp_path: Path) -> None:
     config = parallel_config(tmp_path)
     group_id = "20260716T050200Z_powershell_group_c3d4e5f6"

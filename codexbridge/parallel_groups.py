@@ -509,6 +509,7 @@ def refill_powershell_groups(
     if not parallel.enabled:
         return []
     store = ParallelGroupStore(config.resolve_runs_dir())
+    store.refresh_all_groups()
     claimed = store.claim_pending_launches(
         max_concurrent_powershell=parallel.max_concurrent_powershell
     )
@@ -538,6 +539,7 @@ def refill_powershell_groups(
             spawn_worker=spawn_worker,
         ):
             launched.append(run_id)
+    store.refresh_all_groups()
     return launched
 
 
