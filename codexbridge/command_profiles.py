@@ -1,5 +1,5 @@
 """
-command_profiles.py — allowlisted command profiles for run_project_command.
+command_profiles.py — allowlisted profiles for durable project-command execution.
 
 Rules:
 - Only command_id is accepted; no arbitrary command text.
