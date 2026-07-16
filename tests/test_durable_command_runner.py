@@ -51,9 +51,9 @@ def _run(tmp_path: Path, *, status: str, exit_code: int | None = 0, error: str =
 def configured_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    local_profile = SimpleNamespace(
+    command_policy = SimpleNamespace(
         permission_tier=PermissionTier.SAFE_LOCAL_TEST,
-        default_timeout_seconds=120,
+        max_wait_seconds=120,
     )
     durable_profile = SimpleNamespace(argv=["python", "-m", "pytest", "-q"])
     monkeypatch.setattr(
@@ -65,8 +65,8 @@ def configured_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         lambda config, repo_name: repo.resolve(),
     )
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner.get_command_profile",
-        lambda command_id: local_profile if command_id == "pytest" else None,
+        "codexbridge.local_agent.durable_command_runner._get_command_policy",
+        lambda command_id: command_policy if command_id == "pytest" else None,
     )
     monkeypatch.setattr(
         "codexbridge.local_agent.durable_command_runner.resolve_command_profile",

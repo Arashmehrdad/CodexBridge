@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -10,7 +11,6 @@ from codexbridge.config import AppConfig, resolve_repo, resolve_repo_config
 from codexbridge.job_manager import JobManager
 from codexbridge.run_store import TERMINAL_STATUSES, utc_now
 
-from .command_profiles import get_command_profile
 from .models import CommandRunResult, CommandRunStatus, PermissionTier
 
 
@@ -25,6 +25,23 @@ class ProjectCommandRunner(Protocol):
         permission_tier: str | PermissionTier | None = None,
         timeout_seconds: int | None = None,
     ) -> CommandRunResult: ...
+
+
+@dataclass(frozen=True)
+class _CommandPolicy:
+    permission_tier: PermissionTier
+    max_wait_seconds: int
+
+
+_COMMAND_POLICIES = {
+    "pytest": _CommandPolicy(PermissionTier.SAFE_LOCAL_TEST, 120),
+    "pip_check": _CommandPolicy(PermissionTier.SAFE_LOCAL_TEST, 60),
+    "git_status": _CommandPolicy(PermissionTier.READ_ONLY, 30),
+}
+
+
+def _get_command_policy(command_id: str) -> _CommandPolicy | None:
+    return _COMMAND_POLICIES.get(command_id)
 
 
 _STATUS_MAP = {
@@ -92,8 +109,8 @@ class DurableProjectCommandRunner:
                 created_at,
                 "repo_path does not match the configured repository path.",
             )
-        local_profile = get_command_profile(command_id)
-        if local_profile is None:
+        command_policy = _get_command_policy(command_id)
+        if command_policy is None:
             return self._blocked(
                 command_id,
                 canonical_name,
@@ -107,9 +124,9 @@ class DurableProjectCommandRunner:
         requested_tier = (
             PermissionTier(permission_tier)
             if permission_tier is not None
-            else local_profile.permission_tier
+            else command_policy.permission_tier
         )
-        expected_tier = local_profile.permission_tier
+        expected_tier = command_policy.permission_tier
         if requested_tier != expected_tier:
             return self._blocked(
                 command_id,
@@ -118,12 +135,12 @@ class DurableProjectCommandRunner:
                 created_at,
                 f"Permission tier mismatch: requested {requested_tier.value}, profile requires {expected_tier.value}",
                 permission_tier=expected_tier,
-                timeout_seconds=local_profile.default_timeout_seconds,
+                timeout_seconds=command_policy.max_wait_seconds,
                 argv=list(profile.argv),
             )
 
-        wait_seconds = timeout_seconds or local_profile.default_timeout_seconds
-        if wait_seconds > local_profile.default_timeout_seconds:
+        wait_seconds = timeout_seconds or command_policy.max_wait_seconds
+        if wait_seconds > command_policy.max_wait_seconds:
             return self._blocked(
                 command_id,
                 canonical_name,
@@ -131,7 +148,7 @@ class DurableProjectCommandRunner:
                 created_at,
                 "Requested timeout exceeds command profile maximum.",
                 permission_tier=expected_tier,
-                timeout_seconds=local_profile.default_timeout_seconds,
+                timeout_seconds=command_policy.max_wait_seconds,
                 argv=list(profile.argv),
             )
 
