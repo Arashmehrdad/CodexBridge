@@ -116,7 +116,14 @@ def test_nonzero_durable_exit_maps_to_failed(configured_runner, tmp_path: Path) 
     assert result.error == "failed"
 
 
-def test_wait_timeout_requests_durable_cancellation(configured_runner, tmp_path: Path) -> None:
+def test_wait_timeout_requests_durable_cancellation(
+    configured_runner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    moments = iter((0.0, 1.0))
+    monkeypatch.setattr(
+        "codexbridge.local_agent.durable_command_runner.time.monotonic",
+        lambda: next(moments),
+    )
     repo, make = configured_runner
     runner, manager = make(
         [
@@ -129,7 +136,7 @@ def test_wait_timeout_requests_durable_cancellation(configured_runner, tmp_path:
         command_id="pytest",
         repo_name="sample",
         repo_path=repo,
-        timeout_seconds=0,
+        timeout_seconds=1,
     )
 
     assert manager.cancelled == ["run_1"]
