@@ -1746,7 +1746,7 @@ def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
 def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     schema = actions["run_start"]["inputSchema"]["properties"]["request"]
-    assert len(schema["oneOf"]) == 8
+    assert len(schema["oneOf"]) == 9
     assert actions["run_start"]["annotations"]["readOnlyHint"] is False
     for name in {
         "start_project_command_async", "start_pytest_path_async", "start_py_compile_path_async",
