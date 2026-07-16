@@ -65,9 +65,28 @@ The following command surfaces are potential cleanup targets only after X2 and X
 
 Repository query, preview, apply, revert, move, commit, validation, durable lifecycle, locks, transfers, remote-controller, artifacts, workflows, supervisors, status, cancellation, recovery, and audit tooling remain retained control-plane primitives.
 
+## Before/after capability matrix
+
+| Current surface | Current active callers | Retained replacement | C1 disposition |
+| --- | --- | --- | --- |
+| SSH `conservative` autonomy routing | Compatibility tests and explicitly configured legacy installations only | `permissive` SSH routing with operating-system and remote-account boundaries | Stop activating by default now; remove schema and runtime routing only after deterministic config migration is implemented. |
+| SSH `balanced` autonomy routing | Compatibility tests and explicitly configured legacy installations only | `permissive` structured, reviewed-script, and root-shell routing | Stop activating by default now; remove with the same migration unit as `conservative`. |
+| Local `project_command` public operation | Workflow worker, local-agent runner, local-coding manager, supervisor flow, scoped validation helpers | Unrestricted PowerShell for arbitrary commands; retained typed validation operations for safe focused checks | Keep until each internal caller is classified; remove only the arbitrary-command use case, not scoped validation primitives. |
+| Local synchronous `run_project_command` compatibility tool | Legacy callers and benchmark/discovery fixtures | Durable `run_start` plus typed validation or unrestricted PowerShell | Remove after confirming no live connector caller depends on synchronous execution. |
+| SSH reviewed-script wrapper | Public SSH gateway and durable worker | Retain temporarily for remote transport and durable ownership until R4/X4 parity exists | Not removable in the first C1 slice. Command filtering alone is not sufficient justification to retain it after remote PowerShell parity. |
+| SSH administration wrappers | Public SSH administration gateway | Transfer/controller primitives and future unrestricted remote PowerShell | Defer until R3/R4/X4 because current wrappers still provide transport and staging behavior. |
+| Durable run history and protected artifacts from removed tools | Run store, result publication, audit and recovery tooling | Existing durable lifecycle and explicit retention policy | Always retain; route removal must never delete historical evidence. |
+
+## First independently removable compatibility unit
+
+1. Default `SSHConfig.active_autonomy_profiles` to `permissive` only.
+2. Update `config.example.yaml` and default-value tests to match.
+3. Continue accepting explicit legacy profile lists during the migration window so existing configuration remains loadable and rollback-capable.
+4. In the next unit, add a deterministic migration report for explicit legacy values before narrowing the schema or deleting runtime branches.
+
 ## C1 execution checklist
 
-1. Produce a before/after capability matrix for every candidate route.
+1. Produce a before/after capability matrix for every candidate route. **Complete for the current candidate set; refine as call sites are migrated.**
 2. Confirm an accepted unrestricted-PowerShell replacement or explicitly abandon the capability.
 3. Migrate active callers and configuration deterministically.
 4. Remove runtime routes, schemas, tests, fixtures, examples, and documentation together.

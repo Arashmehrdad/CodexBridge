@@ -488,6 +488,15 @@ Acceptance:
 
 Depends on X2 and X2A acceptance. Optional specialist executable profiles are not prerequisites. Cleanup must follow replacement, not precede it.
 
+Status: **in progress**.
+
+Checkpoint (2026-07-16):
+
+- Added a before/after capability matrix covering compatibility SSH autonomy routing, local project-command surfaces, reviewed-script and administration wrappers, and durable evidence retention.
+- New `SSHConfig` instances and `config.example.yaml` now activate only `permissive`; explicit legacy profile lists remain loadable during the deterministic migration window.
+- Focused configuration validation passed with `tests/test_config.py` at 22 passed.
+- Next unit: implement deterministic reporting/migration for explicitly configured legacy SSH autonomy profiles, then narrow runtime/schema branches only after rollback evidence exists.
+
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
 Create a capability and call-site inventory, then migrate active callers to the smallest retained substrate. Candidate removals include:
