@@ -2514,6 +2514,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 **process_group_popen_kwargs(),
             )
 
+        from .job_manager import JobManager
+
+        JobManager(config, config_path).enforce_powershell_group_failure_policy(
+            args.run_id
+        )
         refill_powershell_groups(config=config, spawn_worker=spawn_worker)
     except Exception:
         # Refill is restart-reconciled; never mask the completed child's exit state.

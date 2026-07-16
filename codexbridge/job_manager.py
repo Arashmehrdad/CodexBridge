@@ -647,6 +647,38 @@ class JobManager:
             "result": refreshed["result"],
         }
 
+    def enforce_powershell_group_failure_policy(self, run_id: str) -> dict | None:
+        store = ParallelGroupStore(self.config.resolve_runs_dir())
+        try:
+            group = store.get_group_for_child(run_id)
+        except KeyError:
+            return None
+        if str(group.get("failure_policy") or "continue_all") != "cancel_remaining_on_failure":
+            return None
+        failed_child = store.store.get_run(run_id)
+        if str(failed_child.get("status") or "") not in {"failed", "timed_out"}:
+            return None
+        cancellations: list[dict] = []
+        for child in group["children"]:
+            child_run_id = str(child["run_id"])
+            if child_run_id == run_id or str(child["status"]) in TERMINAL_STATUSES:
+                continue
+            cancellations.append(
+                self.cancel_run(child_run_id, suppress_group_refill=True)
+            )
+        refill_powershell_groups(
+            config=self.config,
+            spawn_worker=self._spawn_worker,
+        )
+        refreshed = store.refresh_group(str(group["group_id"]))
+        return {
+            "group_id": str(group["group_id"]),
+            "trigger_run_id": run_id,
+            "cancelled_children": cancellations,
+            "status": refreshed["status"],
+            "result": refreshed["result"],
+        }
+
     def start_project_command(
         self, repo_name: str, command_id: str, *, reserved_run_id: str | None = None
     ) -> dict:
