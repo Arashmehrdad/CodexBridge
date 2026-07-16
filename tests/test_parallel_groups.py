@@ -155,11 +155,12 @@ def test_launch_group_reserves_and_materializes_every_child_before_first_spawn(
 
     def spawn_worker(run_id: str, lease_token: str) -> FakeProcess:
         assert lease_token
-        store = ParallelGroupStore(runs_dir)
-        for child_run_id in run_ids:
-            assert store.store.get_run(child_run_id)["status"] == "launch_pending"
-            assert (runs_dir / child_run_id / "input.json").is_file()
-            assert (runs_dir / child_run_id / "events.jsonl").is_file()
+        if not observed_spawns:
+            store = ParallelGroupStore(runs_dir)
+            for child_run_id in run_ids:
+                assert store.store.get_run(child_run_id)["status"] == "launch_pending"
+                assert (runs_dir / child_run_id / "input.json").is_file()
+                assert (runs_dir / child_run_id / "events.jsonl").is_file()
         observed_spawns.append(run_id)
         return FakeProcess(12000 + len(observed_spawns))
 
