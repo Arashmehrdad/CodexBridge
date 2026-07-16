@@ -325,7 +325,7 @@ Acceptance:
 
 Depends on X1 and X2. Remote durability features become available after R4.
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-16):
 
@@ -363,7 +363,11 @@ Checkpoint (2026-07-16):
 - Aggregate group child summaries now publish bounded protected artifact references derived from each terminal child result without merging child output.
 - Cancellation and aggregate-artifact commits: `e99d4741c7705cafebc68c8b442a7db8f4e73f0d` and `4eea0bc09ee897539de505fdd25ab035b8520347`.
 - Focused validation passed: `tests/test_parallel_powershell_acceptance.py` 5 passed; `tests/test_parallel_groups.py` 11 passed; `parallel_groups.py` passed `py_compile`.
-- Next unit: implement and validate `cancel_remaining_on_failure`, then run the explicit eight-process capped acceptance gate and final X2A milestone validation.
+- Added and passed the explicit `max_concurrent_powershell: 8` live acceptance gate: eight independent PowerShell children reached `running` concurrently, two excess accepted children remained durably `pending`, and all ten completed after ordered slot refill.
+- Final X2A validation passed: `tests/test_parallel_powershell_acceptance.py` 7 passed; full suite 1099 passed, 1 skipped; `python -m pip check` reported no broken requirements; `git diff --check` passed.
+- Eight-process acceptance commit: `e5a6b3101bf784012fa65551f9b581f763a3be6a`.
+- X2A acceptance is complete. Optional X3 specialist executable profiles remain deferred and are not prerequisites.
+- Next roadmap unit: C1 permissive-only migration and tool cleanup.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
