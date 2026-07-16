@@ -552,12 +552,11 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
         "conservative",
         "permissive",
     }
-    assert set(policy["active_autonomy_profiles"]) == {
+    assert policy["active_autonomy_profiles"] == ["permissive"]
+    assert policy["compatibility_only_autonomy_profiles"] == [
         "balanced",
         "conservative",
-        "permissive",
-    }
-    assert policy["compatibility_only_autonomy_profiles"] == []
+    ]
     modes = {
         item["execution_mode"]: item for item in policy["execution_modes"]
     }
@@ -568,11 +567,7 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
             "conservative",
             "permissive",
         ],
-        "active_allowed_autonomy_profiles": [
-            "balanced",
-            "conservative",
-            "permissive",
-        ],
+        "active_allowed_autonomy_profiles": ["permissive"],
         "implemented": True,
     }
     assert modes["reviewed_script"]["allowed_autonomy_profiles"] == [
@@ -583,7 +578,6 @@ def test_capability_listing_exposes_deployments_and_blocks_arbitrary_shell(
     assert modes["root_shell"]["allowed_autonomy_profiles"] == ["permissive"]
     assert modes["root_shell"]["implemented"] is True
 
-    config.ssh.active_autonomy_profiles = ["permissive"]
     permissive_only = ssh_tools.enrich_ssh_capabilities(config, base)
     permissive_policy = permissive_only["execution_policy"]
     assert permissive_policy["active_autonomy_profiles"] == ["permissive"]

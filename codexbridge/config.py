@@ -338,11 +338,10 @@ class SSHConfig(BaseModel):
     max_output_bytes: int = Field(default=100000, ge=1024, le=5000000)
     max_transfer_bytes: int = Field(default=500000000, ge=1024, le=5000000000)
     transfer_timeout_seconds: int = Field(default=1800, ge=1, le=7200)
-    active_autonomy_profiles: List[
-        Literal["conservative", "balanced", "permissive"]
-    ] = Field(
+    active_autonomy_profiles: List[Literal["permissive"]] = Field(
         default_factory=lambda: ["permissive"],
         min_length=1,
+        max_length=1,
     )
     allow_transfer: bool = False
     allow_deploy: bool = False
@@ -354,27 +353,14 @@ class SSHConfig(BaseModel):
     )
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def validate_active_autonomy_profiles(self) -> "SSHConfig":
-        if len(self.active_autonomy_profiles) != len(
-            set(self.active_autonomy_profiles)
-        ):
-            raise ValueError("SSH active_autonomy_profiles must be unique")
-        return self
-
     def autonomy_profile_migration_report(self) -> dict[str, object]:
         configured = list(self.active_autonomy_profiles)
-        legacy = [
-            profile
-            for profile in configured
-            if profile in {"conservative", "balanced"}
-        ]
         target = ["permissive"]
         return {
             "migration_id": "ssh_active_autonomy_profiles_v1",
-            "migration_required": bool(legacy or configured != target),
+            "migration_required": False,
             "configured_profiles": configured,
-            "legacy_profiles": legacy,
+            "legacy_profiles": [],
             "target_profiles": target,
             "rollback": {"active_autonomy_profiles": configured},
             "replacement": {"active_autonomy_profiles": target},

@@ -242,19 +242,9 @@ def test_ssh_active_autonomy_profiles_are_canonical_and_unique() -> None:
         "preserves_durable_history": True,
     }
 
-    legacy = SSHConfig(active_autonomy_profiles=["balanced", "permissive"])
-    assert legacy.autonomy_profile_migration_report() == {
-        "migration_id": "ssh_active_autonomy_profiles_v1",
-        "migration_required": True,
-        "configured_profiles": ["balanced", "permissive"],
-        "legacy_profiles": ["balanced"],
-        "target_profiles": ["permissive"],
-        "rollback": {"active_autonomy_profiles": ["balanced", "permissive"]},
-        "replacement": {"active_autonomy_profiles": ["permissive"]},
-        "preserves_durable_history": True,
-    }
-
-    with pytest.raises(ValidationError, match="unique"):
+    with pytest.raises(ValidationError, match="permissive"):
+        SSHConfig(active_autonomy_profiles=["balanced", "permissive"])
+    with pytest.raises(ValidationError):
         SSHConfig(active_autonomy_profiles=["permissive", "permissive"])
     with pytest.raises(ValidationError):
         SSHConfig(active_autonomy_profiles=[])

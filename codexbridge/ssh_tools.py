@@ -1205,7 +1205,7 @@ def enrich_ssh_capabilities(
     config: AppConfig, result: dict[str, Any]
 ) -> dict[str, Any]:
     result = dict(result)
-    active_profiles = frozenset(config.ssh.active_autonomy_profiles)
+    active_profiles = frozenset({"permissive"})
     compatibility_only_profiles = CANONICAL_AUTONOMY_PROFILES - active_profiles
     execution_modes = [
         {

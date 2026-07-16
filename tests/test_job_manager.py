@@ -579,9 +579,7 @@ def test_disabled_ssh_autonomy_profile_creates_no_run_or_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    manager.config.ssh.active_autonomy_profiles = ["permissive"]
-
-    with pytest.raises(ValueError, match="disabled by configuration"):
+    with pytest.raises(ValueError, match="only 'permissive' is active"):
         manager.start_ssh_command(
             "my_vps",
             "uptime",

@@ -119,11 +119,10 @@ class JobManager:
         self.locks = OperationLockStore(config.resolve_runs_dir())
 
     def _require_active_ssh_autonomy_profile(self, autonomy_profile: str) -> None:
-        active_profiles = self.config.ssh.active_autonomy_profiles
-        if autonomy_profile not in active_profiles:
+        if autonomy_profile != "permissive":
             raise ValueError(
-                f"SSH autonomy profile '{autonomy_profile}' is disabled by configuration; "
-                f"active profiles: {sorted(active_profiles)}"
+                f"SSH autonomy profile '{autonomy_profile}' is not supported; "
+                "only 'permissive' is active"
             )
 
     def reconcile_startup(self) -> int:
