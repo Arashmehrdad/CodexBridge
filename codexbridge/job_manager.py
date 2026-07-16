@@ -288,13 +288,17 @@ class JobManager:
                 )
             ):
                 return
-            lock_claimed = self.locks.claim_owner(
-                run["repo_name"],
-                run_id,
-                owner_pid=int(current.get("worker_pid") or worker_pid),
-                owner_token=lease_token,
-                lease_generation=lease_generation,
-            )
+            lock_claimed = True
+            if ParallelGroupStore(
+                self.config.resolve_runs_dir()
+            ).repository_lock_required_for_child(run_id):
+                lock_claimed = self.locks.claim_owner(
+                    run["repo_name"],
+                    run_id,
+                    owner_pid=int(current.get("worker_pid") or worker_pid),
+                    owner_token=lease_token,
+                    lease_generation=lease_generation,
+                )
             if not lock_claimed:
                 reason = "Verified worker could not reclaim matching repository lock ownership"
                 contained = self.store.mark_recovery_pending(
