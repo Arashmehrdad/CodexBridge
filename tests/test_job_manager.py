@@ -568,7 +568,7 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
         repo_name="sample",
         local_path="artifact.log",
         remote_path="/srv/app/artifact.log",
-        autonomy_profile="conservative",
+        autonomy_profile="permissive",
     )
     assert download["permission_tier"] == "T0_READ_ONLY"
     assert download["policy_decision"] == "allowed"
@@ -603,16 +603,16 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
         script,
         digest,
         arguments=["--mode", "safe value"],
-        autonomy_profile="balanced",
+        autonomy_profile="permissive",
     )
 
     assert response["accepted"] is True
     assert response["script_sha256"] == digest
     assert response["arguments"] == ["--mode", "safe value"]
     assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
-    assert response["policy_decision"] == "needs_chatgpt_approval"
+    assert response["policy_decision"] == "allowed"
     assert response["policy_authorized"] is True
-    assert response["approval_source"] == "chatgpt"
+    assert response["approval_source"] == "none"
     assert "script" not in response
 
     stored = manager.store.get_run(response["run_id"])
@@ -621,11 +621,11 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     assert stored["input"]["interpreter"] == "bash"
     assert stored["input"]["arguments"] == ["--mode", "safe value"]
     assert stored["input"]["script_sha256"] == digest
-    assert stored["input"]["autonomy_profile"] == "balanced"
+    assert stored["input"]["autonomy_profile"] == "permissive"
     assert stored["input"]["execution_mode"] == "reviewed_script"
     assert stored["input"]["writes_remote"] is True
     assert stored["input"]["high_risk"] is False
-    assert stored["input"]["approval_source"] == "chatgpt"
+    assert stored["input"]["approval_source"] == "none"
 
     public = manager.get_status(response["run_id"])
     assert public["input"]["script"] == "[REDACTED]"
@@ -644,20 +644,6 @@ def test_reviewed_script_read_only_still_uses_dedicated_model_policy(
     manager = make_manager(tmp_path, monkeypatch)
     script = "uptime\n"
     digest = sha256(script.encode("utf-8")).hexdigest()
-
-    balanced = manager.start_ssh_reviewed_script(
-        "my_vps",
-        "sh",
-        script,
-        digest,
-        writes_remote=False,
-        autonomy_profile="balanced",
-    )
-    assert balanced["writes_remote"] is False
-    assert balanced["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
-    assert balanced["policy_decision"] == "needs_chatgpt_approval"
-    assert balanced["approval_source"] == "chatgpt"
-    manager.locks.release("ssh:my_vps", balanced["run_id"])
 
     permissive = manager.start_ssh_reviewed_script(
         "my_vps",
@@ -686,7 +672,7 @@ def test_reviewed_script_high_risk_classification_uses_model_approval(
         "bash",
         script,
         digest,
-        autonomy_profile="balanced",
+        autonomy_profile="permissive",
         high_risk=True,
     )
 
@@ -695,11 +681,11 @@ def test_reviewed_script_high_risk_classification_uses_model_approval(
     assert response["requires_human"] is False
     assert response["high_risk"] is True
     assert response["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
-    assert response["policy_decision"] == "needs_chatgpt_approval"
-    assert response["approval_source"] == "chatgpt"
+    assert response["policy_decision"] == "allowed"
+    assert response["approval_source"] == "none"
     stored = manager.store.get_run(response["run_id"])
     assert stored["input"]["high_risk"] is True
-    assert stored["input"]["approval_source"] == "chatgpt"
+    assert stored["input"]["approval_source"] == "none"
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 
@@ -753,7 +739,7 @@ def test_root_shell_rejects_nonpermissive_profile_without_run_or_lock(
     manager = make_manager(tmp_path, monkeypatch)
     script = "id -u\n"
 
-    with pytest.raises(ValueError, match="Invalid SSH root shell request"):
+    with pytest.raises(ValueError, match="only 'permissive' is active"):
         manager.start_ssh_root_shell(
             "my_vps",
             script,
@@ -772,7 +758,7 @@ def test_reviewed_script_denied_profile_creates_no_run_or_lock(
     manager = make_manager(tmp_path, monkeypatch)
     script = "uptime\n"
 
-    with pytest.raises(ValueError, match="denied profile/mode"):
+    with pytest.raises(ValueError, match="only 'permissive' is active"):
         manager.start_ssh_reviewed_script(
             "my_vps",
             "sh",
@@ -788,8 +774,8 @@ def test_reviewed_script_denied_profile_creates_no_run_or_lock(
 @pytest.mark.parametrize(
     ("autonomy_profile", "execution_mode", "message_category"),
     [
-        ("conservative", "reviewed_script", "denied"),
-        ("balanced", "reviewed_script", "not implemented"),
+        ("conservative", "reviewed_script", "only 'permissive' is active"),
+        ("balanced", "reviewed_script", "only 'permissive' is active"),
     ],
 )
 def test_denied_ssh_launch_creates_no_run_or_lock(
