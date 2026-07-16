@@ -135,8 +135,7 @@ def test_powershell_command_file_encoded_and_stdin_modes(tmp_path: Path) -> None
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "[Console]::Out.Write('command:' + $args[0])",
-            "a b",
+            "[Console]::Out.Write('command:a b')",
         ],
     )
     assert _execute(command_worker, command_input, command_dir) == b"command:a b"
