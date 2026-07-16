@@ -98,6 +98,16 @@ class RunResultQuery(GatewayModel):
         return self
 
 
+class PowerShellGroupStatusQuery(GatewayModel):
+    operation: Literal["group_status"]
+    group_id: str = Field(min_length=1, max_length=128)
+
+
+class PowerShellGroupResultQuery(GatewayModel):
+    operation: Literal["group_result"]
+    group_id: str = Field(min_length=1, max_length=128)
+
+
 class RunListQuery(GatewayModel):
     operation: Literal["list"]
     repo_name: str = Field(default="", max_length=128)
@@ -123,6 +133,8 @@ RunQueryRequest = Annotated[
     | RunOutputQuery
     | RunEventsQuery
     | RunResultQuery
+    | PowerShellGroupStatusQuery
+    | PowerShellGroupResultQuery
     | RunListQuery
     | RunLocksQuery,
     Field(discriminator="operation"),

@@ -53,7 +53,18 @@ def test_ssh_inspection_models_are_discriminated_and_strict() -> None:
 def test_gateway_model_requires_operation_specific_fields() -> None:
     adapter = TypeAdapter(RunQueryRequest)
     assert adapter.validate_python({"operation": "events", "run_id": "run_1"}).limit == 50
-    for payload in ({"operation": "events"}, {"operation": "events", "run_id": "run_1", "stream": "stdout"}):
+    assert adapter.validate_python(
+        {"operation": "group_status", "group_id": "group_1"}
+    ).group_id == "group_1"
+    assert adapter.validate_python(
+        {"operation": "group_result", "group_id": "group_1"}
+    ).group_id == "group_1"
+    for payload in (
+        {"operation": "events"},
+        {"operation": "events", "run_id": "run_1", "stream": "stdout"},
+        {"operation": "group_status", "run_id": "run_1"},
+        {"operation": "group_result", "group_id": "group_1", "limit": 1},
+    ):
         try:
             adapter.validate_python(payload)
         except ValidationError:
@@ -178,6 +189,45 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert server.repo_commit(TypeAdapter(RepoCommitRequest).validate_python(
         {"operation": "commit_selected", "repo_name": "repo", "files": ["x"], "title": "fix: x"}
     ))["operation"] == "commit"
+
+
+def test_run_query_dispatches_powershell_group_operations(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class FakeJobs:
+        def get_powershell_group(self, group_id: str) -> dict:
+            calls.append(("get", group_id))
+            return {"ok": True, "group_id": group_id, "status": "running"}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    adapter = TypeAdapter(RunQueryRequest)
+    for operation in ("group_status", "group_result"):
+        result = server.run_query(
+            adapter.validate_python({"operation": operation, "group_id": "group_1"})
+        )
+        assert result["group_id"] == "group_1"
+    assert calls == [("get", "group_1"), ("get", "group_1")]
+
+
+def test_cancel_run_routes_powershell_groups(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class FakeJobs:
+        def cancel_run(self, run_id: str) -> dict:
+            calls.append(("run", run_id))
+            return {"run_id": run_id}
+
+        def cancel_powershell_group(self, group_id: str) -> dict:
+            calls.append(("group", group_id))
+            return {"group_id": group_id}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    assert server.cancel_run("20260716T000000Z_powershell_group_deadbeef")["group_id"]
+    assert server.cancel_run("20260716T000000Z_executable_profile_deadbeef")["run_id"]
+    assert calls == [
+        ("group", "20260716T000000Z_powershell_group_deadbeef"),
+        ("run", "20260716T000000Z_executable_profile_deadbeef"),
+    ]
 
 
 def test_run_start_models_reject_cross_operation_fields() -> None:
