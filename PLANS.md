@@ -498,7 +498,10 @@ Checkpoint (2026-07-16):
 - Configuration validation now emits a deterministic `ssh_active_autonomy_profiles_v1` migration report for explicitly configured legacy SSH profiles, including the configured order, detected legacy values, the permissive-only replacement, rollback data, and an explicit durable-history preservation guarantee.
 - Migration-report validation passed with `tests/test_config.py` at 22 passed and `tests/test_service_reload.py` at 7 passed; implementation commit `6bcf03bdbba17f3032716a301e96ad94c9fddd65`.
 - The SSH active-profile schema and runtime authorization gate are now permissive-only; legacy configured values are rejected deterministically before durable run or lock creation. The public supervisor request schema was also narrowed without changing delegated-approval terminology. Implementation commits: `0e4e0442d3a961d8baf096bbfac82128edbcb44a` and `1d2f1be1e7dace2305fd2fc78e4e85c8f0246d0b`.
-- Focused validation: `tests/test_config.py` 22 passed. The next unit is to convert retained SSH manager/server defaults and compatibility tests from `balanced` to `permissive`, while preserving explicit rejection tests for removed profiles.
+- Focused validation: `tests/test_config.py` 22 passed.
+- Retained SSH manager, server, and public gateway defaults now select `permissive`; active behavior tests were migrated accordingly, while removed-profile requests still prove deterministic rejection before durable run or lock creation. Implementation commits: `96e76d95dfa86316b9b5c402b5c17a9f6acb478e`, `9f33d33eaa300e4b1e77af033ab1beb7a7634852`, and `9ada9b7428b57362755c7b5aa71b43cca07b9970`.
+- Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_server.py` 27 passed; `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 31 passed.
+- Next unit: narrow the remaining SSH gateway autonomy-profile type and policy runtime branches to permissive-only, while leaving unrelated supervisor and delegated-approval terminology untouched.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
