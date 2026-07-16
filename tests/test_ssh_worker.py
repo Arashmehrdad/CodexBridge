@@ -674,7 +674,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
                 "approval_source": "none",
             },
             "run_ssh_command",
-            "requires ChatGPT",
+            "does not match canonical",
         ),
         (
             "ssh_action",
@@ -897,9 +897,9 @@ def test_ssh_deployment_worker_persists_step_evidence(
             "autonomy_profile": "permissive",
             "execution_mode": "structured",
             "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
-            "policy_decision": "allowed",
+            "policy_decision": "needs_human_approval",
             "policy_authorized": True,
-            "approval_source": "none",
+            "approval_source": "human",
         },
     )
     monkeypatch.setattr(
@@ -933,9 +933,9 @@ def test_ssh_deployment_worker_persists_step_evidence(
     assert result["autonomy_profile"] == "permissive"
     assert result["execution_mode"] == "structured"
     assert result["permission_tier"] == "T6_HUMAN_ONLY_RISKY_ACTION"
-    assert result["policy_decision"] == "allowed"
+    assert result["policy_decision"] == "needs_human_approval"
     assert result["policy_authorized"] is True
-    assert result["approval_source"] == "none"
+    assert result["approval_source"] == "human"
     assert result["writes_remote"] is True
     assert result["high_risk"] is True
     assert result["test_results"][-1]["step"] == "activate"
@@ -969,9 +969,9 @@ def _canonical_deployment_input(confirmation: str) -> dict:
         "autonomy_profile": "permissive",
         "execution_mode": "structured",
         "permission_tier": "T6_HUMAN_ONLY_RISKY_ACTION",
-        "policy_decision": "allowed",
+        "policy_decision": "needs_human_approval",
         "policy_authorized": True,
-        "approval_source": "none",
+        "approval_source": "human",
     }
 
 
@@ -1029,9 +1029,9 @@ def test_ssh_transfer_worker_revalidates_canonical_upload_policy(
     assert executor_called is True
     result = store.get_run(run_id)["result"]
     assert result["permission_tier"] == "T4_WRITE_APPLY_CHATGPT_DELEGATED"
-    assert result["policy_decision"] == "needs_chatgpt_approval"
+    assert result["policy_decision"] == "allowed"
     assert result["policy_authorized"] is True
-    assert result["approval_source"] == "chatgpt"
+    assert result["approval_source"] == "none"
     assert result["writes_remote"] is True
     assert result["high_risk"] is False
 
@@ -1039,12 +1039,12 @@ def test_ssh_transfer_worker_revalidates_canonical_upload_policy(
 @pytest.mark.parametrize(
     ("field", "value", "message_category"),
     [
-        ("autonomy_profile", "permissive", "does not match canonical"),
+        ("autonomy_profile", "conservative", "Input should be 'permissive'"),
         ("execution_mode", "reviewed_script", "not implemented"),
         ("permission_tier", "T0_READ_ONLY", "does not match canonical"),
-        ("policy_decision", "allowed", "does not match canonical"),
+        ("policy_decision", "needs_chatgpt_approval", "does not match canonical"),
         ("policy_authorized", False, "does not match canonical"),
-        ("approval_source", "none", "requires ChatGPT"),
+        ("approval_source", "chatgpt", "does not match canonical"),
     ],
 )
 def test_ssh_transfer_worker_rejects_tampered_policy_before_executor(
