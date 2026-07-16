@@ -788,11 +788,23 @@ class SupervisorsConfig(BaseModel):
         return self.autonomy_profiles[self.default_autonomy_profile]
 
 
+class ParallelExecutionConfig(BaseModel):
+    enabled: bool = False
+    autonomy_profile: Literal["permissive"] = "permissive"
+    default_mode: Literal["all_at_once"] = "all_at_once"
+    max_concurrent_powershell: int | None = Field(default=None, ge=1)
+    return_after: Literal["launch_accepted"] = "launch_accepted"
+    repository_lock_policy: Literal["caller_selected"] = "caller_selected"
+
+
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
     executable_profiles: Dict[str, ExecutableProfileConfig] = Field(
         default_factory=dict
+    )
+    parallel_execution: ParallelExecutionConfig = Field(
+        default_factory=ParallelExecutionConfig
     )
     ssh: SSHConfig = Field(default_factory=SSHConfig)
     docker: DockerConfig = Field(default_factory=DockerConfig)

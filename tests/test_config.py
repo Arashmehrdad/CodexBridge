@@ -14,6 +14,7 @@ from codexbridge.config import (
     DockerExecProfileConfig,
     ExecutableProfileConfig,
     LocalModelConfig,
+    ParallelExecutionConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
@@ -51,6 +52,9 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert powershell.autonomy_profile == "permissive"
     assert powershell.unrestricted_argv is True
     assert powershell.cancellation_policy == "process_tree"
+    assert config.parallel_execution.enabled is False
+    assert config.parallel_execution.max_concurrent_powershell is None
+    assert config.parallel_execution.default_mode == "all_at_once"
     assert config.ssh.enabled is False
     assert config.ssh.active_autonomy_profiles == [
         "conservative",
@@ -181,6 +185,20 @@ def test_executable_profile_contract_rejects_unsafe_configuration(
             },
             config_dir=tmp_path,
         )
+
+
+def test_parallel_execution_config_supports_unbounded_or_bounded_powershell() -> None:
+    unbounded = ParallelExecutionConfig(enabled=True, max_concurrent_powershell=None)
+    bounded = ParallelExecutionConfig(enabled=True, max_concurrent_powershell=8)
+
+    assert unbounded.autonomy_profile == "permissive"
+    assert unbounded.max_concurrent_powershell is None
+    assert bounded.max_concurrent_powershell == 8
+
+    with pytest.raises(ValidationError):
+        ParallelExecutionConfig(enabled=True, max_concurrent_powershell=0)
+    with pytest.raises(ValidationError):
+        ParallelExecutionConfig(enabled=True, autonomy_profile="balanced")
 
 
 def test_local_model_config_defaults_and_overrides() -> None:

@@ -48,6 +48,13 @@ executable_profiles:
     unrestricted_environment: true
     unrestricted_network: true
     unrestricted_child_processes: true
+parallel_execution:
+  enabled: false
+  autonomy_profile: "permissive"
+  default_mode: "all_at_once"
+  max_concurrent_powershell: null
+  return_after: "launch_accepted"
+  repository_lock_policy: "caller_selected"
 external_fixtures:
   enabled: false
   allowed_hosts:
