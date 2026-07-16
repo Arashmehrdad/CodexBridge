@@ -9,7 +9,7 @@ from .config import AppConfig, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter
 from .executable_profiles import build_local_executable_run_request
 from .process_control import terminate_process_tree
-from .run_store import RunStore, dumps, loads, utc_now, validate_run_id
+from .run_store import TERMINAL_STATUSES, RunStore, dumps, loads, utc_now, validate_run_id
 
 
 def _make_group_run_id(tool: str) -> str:
@@ -38,7 +38,9 @@ class ParallelGroupStore:
                     repository_lock_policy TEXT NOT NULL,
                     requested_concurrency INTEGER,
                     created_at TEXT NOT NULL,
-                    input_json TEXT NOT NULL DEFAULT '{}'
+                    ended_at TEXT,
+                    input_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT NOT NULL DEFAULT '{}'
                 )
                 """
             )
@@ -61,6 +63,13 @@ class ParallelGroupStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_command_group_children_group "
                 "ON command_group_children(group_id, position)"
+            )
+            self.store._ensure_column(conn, "command_groups", "ended_at", "TEXT")
+            self.store._ensure_column(
+                conn,
+                "command_groups",
+                "result_json",
+                "TEXT NOT NULL DEFAULT '{}'",
             )
 
     def reserve_group(
@@ -203,18 +212,114 @@ class ParallelGroupStore:
                 raise KeyError(f"Command group not found: {group_id}")
             children = conn.execute(
                 """
-                SELECT position, run_id, idempotency_key
-                FROM command_group_children
-                WHERE group_id = ?
-                ORDER BY position ASC
+                SELECT child.position, child.run_id, child.idempotency_key,
+                       run.status, run.current_phase, run.summary, run.error,
+                       run.exit_code, run.started_at, run.ended_at
+                FROM command_group_children AS child
+                JOIN runs AS run ON run.run_id = child.run_id
+                WHERE child.group_id = ?
+                ORDER BY child.position ASC
                 """,
                 (group_id,),
             ).fetchall()
         payload = dict(group)
         payload["input"] = loads(payload.pop("input_json"))
+        payload["result"] = loads(payload.pop("result_json"))
         payload["children"] = [dict(child) for child in children]
         payload["child_run_ids"] = [child["run_id"] for child in payload["children"]]
         return payload
+
+    def refresh_group(self, group_id: str) -> dict[str, Any]:
+        """Publish an aggregate snapshot derived only from durable child state."""
+        validate_run_id(group_id)
+        terminal_statuses = tuple(sorted(TERMINAL_STATUSES))
+        now = utc_now()
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            group = conn.execute(
+                "SELECT * FROM command_groups WHERE group_id = ?", (group_id,)
+            ).fetchone()
+            if group is None:
+                raise KeyError(f"Command group not found: {group_id}")
+            children = conn.execute(
+                """
+                SELECT child.position, child.run_id, child.idempotency_key,
+                       run.status, run.current_phase, run.summary, run.error,
+                       run.exit_code, run.started_at, run.ended_at
+                FROM command_group_children AS child
+                JOIN runs AS run ON run.run_id = child.run_id
+                WHERE child.group_id = ?
+                ORDER BY child.position ASC
+                """,
+                (group_id,),
+            ).fetchall()
+            child_payloads = [dict(child) for child in children]
+            statuses = [str(child["status"]) for child in child_payloads]
+            counts = {status: statuses.count(status) for status in sorted(set(statuses))}
+            terminal_count = sum(status in terminal_statuses for status in statuses)
+            total = len(statuses)
+            if total and terminal_count == total:
+                if all(status == "completed" for status in statuses):
+                    aggregate_status = "completed"
+                elif all(status == "cancelled" for status in statuses):
+                    aggregate_status = "cancelled"
+                elif any(status in {"failed", "timed_out"} for status in statuses):
+                    aggregate_status = "failed"
+                else:
+                    aggregate_status = "partial"
+                ended_at = max(
+                    (str(child.get("ended_at") or "") for child in child_payloads),
+                    default=now,
+                ) or now
+            elif any(
+                status in {
+                    "queued",
+                    "running",
+                    "cancellation_pending",
+                    "recovery_pending",
+                }
+                for status in statuses
+            ):
+                aggregate_status = "running"
+                ended_at = None
+            else:
+                aggregate_status = "launch_pending"
+                ended_at = None
+            result = {
+                "group_id": group_id,
+                "repo_name": str(group["repo_name"]),
+                "status": aggregate_status,
+                "child_count": total,
+                "terminal_child_count": terminal_count,
+                "status_counts": counts,
+                "children": child_payloads,
+            }
+            conn.execute(
+                """
+                UPDATE command_groups
+                SET status = ?, ended_at = ?, result_json = ?
+                WHERE group_id = ?
+                """,
+                (aggregate_status, ended_at, dumps(result), group_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self.get_group(group_id)
+
+    def refresh_all_groups(self) -> list[dict[str, Any]]:
+        with self.store.connect() as conn:
+            group_ids = [
+                str(row["group_id"])
+                for row in conn.execute(
+                    "SELECT group_id FROM command_groups ORDER BY created_at ASC"
+                ).fetchall()
+            ]
+        return [self.refresh_group(group_id) for group_id in group_ids]
 
     def claim_pending_launches(
         self,
