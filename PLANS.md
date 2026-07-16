@@ -495,7 +495,9 @@ Checkpoint (2026-07-16):
 - Added a before/after capability matrix covering compatibility SSH autonomy routing, local project-command surfaces, reviewed-script and administration wrappers, and durable evidence retention.
 - New `SSHConfig` instances and `config.example.yaml` now activate only `permissive`; explicit legacy profile lists remain loadable during the deterministic migration window.
 - Focused configuration validation passed with `tests/test_config.py` at 22 passed.
-- Next unit: implement deterministic reporting/migration for explicitly configured legacy SSH autonomy profiles, then narrow runtime/schema branches only after rollback evidence exists.
+- Configuration validation now emits a deterministic `ssh_active_autonomy_profiles_v1` migration report for explicitly configured legacy SSH profiles, including the configured order, detected legacy values, the permissive-only replacement, rollback data, and an explicit durable-history preservation guarantee.
+- Migration-report validation passed with `tests/test_config.py` at 22 passed and `tests/test_service_reload.py` at 7 passed; implementation commit `6bcf03bdbba17f3032716a301e96ad94c9fddd65`.
+- Next unit: use the migration evidence to narrow the SSH active-profile schema and runtime authorization branches to `permissive`, while preserving clean deterministic rejection of legacy values and retaining unrelated delegated-approval terminology.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 

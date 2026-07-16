@@ -82,7 +82,8 @@ Repository query, preview, apply, revert, move, commit, validation, durable life
 1. Default `SSHConfig.active_autonomy_profiles` to `permissive` only.
 2. Update `config.example.yaml` and default-value tests to match.
 3. Continue accepting explicit legacy profile lists during the migration window so existing configuration remains loadable and rollback-capable.
-4. In the next unit, add a deterministic migration report for explicit legacy values before narrowing the schema or deleting runtime branches.
+4. Configuration validation now emits a deterministic migration report for explicit legacy values before any schema or runtime branch is narrowed. The report preserves the configured profile order as rollback data, identifies legacy values, supplies the permissive-only replacement, and states that durable history is retained.
+5. The next unit may narrow the SSH active-profile schema and runtime authorization branches to `permissive`, while keeping deterministic rejection tests for removed legacy values and leaving delegated-approval terminology untouched.
 
 ## C1 execution checklist
 
