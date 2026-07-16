@@ -340,7 +340,12 @@ Checkpoint (2026-07-16):
 - Full-suite validation after the public group connection and ninth action-discovery variant passed with `1084 passed, 1 skipped`; `python -m pip check` found no broken requirements and `git diff --check` passed.
 - Focused X2A validation passed: `tests/test_parallel_groups.py` 6 passed; `tests/test_tool_gateway_models.py` 27 passed; manager delegation regression 1 passed; pending-child cancellation regression 1 passed; public action-discovery regression 1 passed.
 - Implementation commits through `f6a77513ef842dd1de0ac97e313bd2cf940786e5`; roadmap evidence checkpoint `247917750cafedab0b0a1017a8fe2328fbc34b57`.
-- Next unit: add atomic slot release/refill so durable pending children transition to `launch_pending` and launch as active PowerShell processes finish, including startup reconciliation and duplicate-launch prevention.
+- Added atomic slot refill across all durable command groups. One `BEGIN IMMEDIATE` transaction counts globally active group children, enforces both `max_concurrent_powershell` and lower per-group limits, and promotes only ordered `pending` rows to `launch_pending` with a state-version bump.
+- Claimed children launch through lease- and state-version-checked worker creation. A competing refill cannot claim them twice, and a lost launch claim terminates the duplicate launcher before recording infrastructure failure.
+- Worker terminal completion triggers refill without masking the completed child's result; startup reconciliation also refills available slots after active-worker adoption and terminal-result repair.
+- Focused refill validation passed: `tests/test_parallel_groups.py` 8 passed; `tests/test_job_manager.py` 58 passed; `parallel_groups.py` and `job_worker.py` passed `py_compile`.
+- Slot-refill implementation commits: `b49f9af060787ef0ef07087bedd888423da3a568`, `7489f5f651c97a350acfaea2be137554cd2935aa`, and `2b9be8791a68de94fbfe2651073faf1ea00bbda5`.
+- Next unit: add durable aggregate group status/result publication and exact group/child cancellation semantics, then run live capped-fan-out and restart acceptance.
 
 Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
