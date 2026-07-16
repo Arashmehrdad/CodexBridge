@@ -6,8 +6,10 @@ from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRout
 from codexbridge.codex_router.models import CodexEscalationStatus
 from codexbridge.config import AppConfig, LocalSupervisorConfig
 from codexbridge.job_manager import JobManager
-from codexbridge.local_agent.durable_command_runner import DurableProjectCommandRunner
-from codexbridge.local_agent.runner import LocalAgentCommandRunner
+from codexbridge.local_agent.durable_command_runner import (
+    DurableProjectCommandRunner,
+    ProjectCommandRunner,
+)
 from codexbridge.run_store import utc_now
 
 from .models import (
@@ -27,7 +29,7 @@ class SupervisorFlow:
         *,
         store: LocalSupervisorStore,
         config: LocalSupervisorConfig | None = None,
-        command_runner: LocalAgentCommandRunner | DurableProjectCommandRunner | None = None,
+        command_runner: ProjectCommandRunner | None = None,
         app_config: AppConfig | None = None,
         config_path: Path | None = None,
         job_manager: JobManager | None = None,

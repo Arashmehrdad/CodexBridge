@@ -22,7 +22,6 @@ __all__ = [
     "AuditEvent",
     "CommandRunResult",
     "CommandRunStatus",
-    "LocalAgentCommandRunner",
     "LocalAgentOrchestrator",
     "LocalAgentResult",
     "LocalAgentTask",
@@ -40,7 +39,6 @@ __all__ = [
     "TaskStatus",
     "apply_policy",
     "classify_task",
-    "run_project_command",
 ]
 
 
@@ -51,13 +49,6 @@ def __getattr__(name: str):
         return {
             "LocalAgentOrchestrator": LocalAgentOrchestrator,
             "classify_task": classify_task,
-        }[name]
-    if name == "LocalAgentCommandRunner" or name == "run_project_command":
-        from .runner import LocalAgentCommandRunner, run_project_command
-
-        return {
-            "LocalAgentCommandRunner": LocalAgentCommandRunner,
-            "run_project_command": run_project_command,
         }[name]
     if name == "LocalModelClient":
         from .local_model import LocalModelClient

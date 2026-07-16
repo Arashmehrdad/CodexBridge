@@ -4,10 +4,12 @@ from uuid import uuid4
 
 from codexbridge.config import AppConfig, LocalCodingConfig
 from codexbridge.job_manager import JobManager
-from codexbridge.local_agent.durable_command_runner import DurableProjectCommandRunner
+from codexbridge.local_agent.durable_command_runner import (
+    DurableProjectCommandRunner,
+    ProjectCommandRunner,
+)
 from codexbridge.events import append_jsonl
 from codexbridge.local_agent.models import CommandRunStatus
-from codexbridge.local_agent.runner import LocalAgentCommandRunner
 from codexbridge.policy import PolicyEngine, PolicyEvaluationRequest
 from codexbridge.policy.models import ApprovalStatus, CanonicalPermissionTier
 from codexbridge.return_loop.atomic_writer import atomic_write_json, atomic_write_text
@@ -39,7 +41,7 @@ class LocalCodingManager:
         runs_dir: Path | None = None,
         config: LocalCodingConfig | None = None,
         policy_engine: PolicyEngine | None = None,
-        command_runner: LocalAgentCommandRunner | DurableProjectCommandRunner | None = None,
+        command_runner: ProjectCommandRunner | None = None,
         app_config: AppConfig | None = None,
         config_path: Path | None = None,
         job_manager: JobManager | None = None,

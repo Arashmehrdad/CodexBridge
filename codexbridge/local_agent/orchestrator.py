@@ -26,8 +26,7 @@ from .models import (
     TaskStatus,
 )
 from .policies import apply_policy
-from .durable_command_runner import DurableProjectCommandRunner
-from .runner import LocalAgentCommandRunner
+from .durable_command_runner import DurableProjectCommandRunner, ProjectCommandRunner
 
 
 def classify_task(objective: str) -> LocalAgentTaskType:
@@ -122,7 +121,7 @@ def classify_task(objective: str) -> LocalAgentTaskType:
 class LocalAgentOrchestrator:
     def __init__(
         self,
-        runner: LocalAgentCommandRunner | None = None,
+        runner: ProjectCommandRunner | None = None,
         local_model: LocalModelClient | None = None,
         job_manager: LongRunJobManager | None = None,
         memory_repository: ProjectMemoryRepository | None = None,

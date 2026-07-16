@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
 from codexbridge.command_profiles import resolve_command_profile
@@ -11,6 +12,19 @@ from codexbridge.run_store import TERMINAL_STATUSES, utc_now
 
 from .command_profiles import get_command_profile
 from .models import CommandRunResult, CommandRunStatus, PermissionTier
+
+
+class ProjectCommandRunner(Protocol):
+    def run_project_command(
+        self,
+        *,
+        command_id: str,
+        repo_name: str | None = None,
+        repo_path: str | Path | None = None,
+        args: dict | None = None,
+        permission_tier: str | PermissionTier | None = None,
+        timeout_seconds: int | None = None,
+    ) -> CommandRunResult: ...
 
 
 _STATUS_MAP = {
