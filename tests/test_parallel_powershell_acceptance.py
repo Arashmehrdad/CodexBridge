@@ -9,6 +9,7 @@ import pytest
 from codexbridge.config import load_config
 from codexbridge.job_manager import JobManager
 from codexbridge.parallel_groups import ParallelGroupStore
+from codexbridge.process_control import process_is_running
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell acceptance")
@@ -183,3 +184,110 @@ def test_restart_reconciliation_adopts_active_child_without_duplicate_launch(
     completed = _wait_for_group(restarted, started["group_id"])
     assert completed["status"] == "completed"
     assert completed["result"]["status_counts"] == {"completed": 2}
+
+
+def _long_running_child(marker_dir: Path, index: int) -> dict:
+    parent_pid = marker_dir / f"parent-{index}.pid"
+    child_pid = marker_dir / f"native-{index}.pid"
+    script = (
+        "$child = Start-Process -FilePath $env:COMSPEC "
+        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -PassThru; "
+        "Set-Content -LiteralPath $env:CB_PARENT_PID -Value $PID -NoNewline; "
+        "Set-Content -LiteralPath $env:CB_CHILD_PID -Value $child.Id -NoNewline; "
+        "[Console]::Out.Write('ready-' + $env:CB_INDEX); "
+        "while ($true) { Start-Sleep -Seconds 1 }"
+    )
+    return {
+        "idempotency_key": f"long-{index}",
+        "argv": ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+        "environment": {
+            "CB_PARENT_PID": str(parent_pid),
+            "CB_CHILD_PID": str(child_pid),
+            "CB_INDEX": str(index),
+        },
+        "working_directory": str(marker_dir.parent),
+        "timeout_seconds": 30,
+    }
+
+
+def _wait_for_paths(paths: list[Path], timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if all(path.is_file() and path.stat().st_size for path in paths):
+            return
+        time.sleep(0.05)
+    pytest.fail(f"Expected marker paths were not written: {paths}")
+
+
+def test_live_whole_group_cancellation_terminates_tree_and_publishes_results(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, max_concurrent=1)
+    marker_dir = tmp_path / "markers"
+    marker_dir.mkdir()
+    children = [_long_running_child(marker_dir, index) for index in range(2)]
+    started = manager.start_powershell_group("sample", children)
+    active_id = started["launched_run_ids"][0]
+    pending_id = started["pending_run_ids"][0]
+    parent_pid_path = marker_dir / "parent-0.pid"
+    child_pid_path = marker_dir / "native-0.pid"
+    _wait_for_paths([parent_pid_path, child_pid_path])
+    parent_pid = int(parent_pid_path.read_text(encoding="utf-8"))
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    assert process_is_running(parent_pid)
+    assert process_is_running(child_pid)
+
+    cancelled = manager.cancel_powershell_group(started["group_id"])
+
+    assert cancelled["ok"] is True
+    assert cancelled["cancelled"] is True
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["result"]["status_counts"] == {"cancelled": 2}
+    assert not process_is_running(parent_pid)
+    assert not process_is_running(child_pid)
+    store = ParallelGroupStore(manager.config.resolve_runs_dir()).store
+    for run_id in (active_id, pending_id):
+        run = store.get_run(run_id)
+        run_dir = Path(run["run_dir"])
+        assert run["status"] == "cancelled"
+        assert (run_dir / "input.json").is_file()
+        assert (run_dir / "result.json").is_file()
+    active_dir = Path(store.get_run(active_id)["run_dir"])
+    assert (active_dir / "stdout.bin").read_bytes() == b"ready-0"
+    assert (active_dir / "stderr.bin").read_bytes() == b""
+
+
+def test_live_individual_child_cancellation_refills_slot_and_preserves_sibling(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path, max_concurrent=1)
+    marker_dir = tmp_path / "markers"
+    marker_dir.mkdir()
+    children = [_long_running_child(marker_dir, 0), *_children(marker_dir, 1)]
+    children[1]["idempotency_key"] = "finishing-sibling"
+    started = manager.start_powershell_group("sample", children)
+    active_id = started["launched_run_ids"][0]
+    pending_id = started["pending_run_ids"][0]
+    parent_pid_path = marker_dir / "parent-0.pid"
+    child_pid_path = marker_dir / "native-0.pid"
+    _wait_for_paths([parent_pid_path, child_pid_path])
+    parent_pid = int(parent_pid_path.read_text(encoding="utf-8"))
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+    cancelled = manager.cancel_run(active_id)
+
+    assert cancelled["ok"] is True
+    assert cancelled["cancelled"] is True
+    assert cancelled["termination_confirmed"] is True
+    assert not process_is_running(parent_pid)
+    assert not process_is_running(child_pid)
+    completed = _wait_for_group(manager, started["group_id"])
+    assert completed["status"] == "partial"
+    assert completed["result"]["status_counts"] == {
+        "cancelled": 1,
+        "completed": 1,
+    }
+    assert (marker_dir / "child-0.txt").read_text(encoding="utf-8") == "done-0"
+    store = ParallelGroupStore(manager.config.resolve_runs_dir()).store
+    assert store.get_run(active_id)["status"] == "cancelled"
+    assert store.get_run(pending_id)["status"] == "completed"
