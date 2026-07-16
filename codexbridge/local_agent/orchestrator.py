@@ -135,15 +135,13 @@ class LocalAgentOrchestrator:
         config_path: Path | None = None,
         durable_job_manager: JobManager | None = None,
     ):
-        self.runner = runner or (
-            DurableProjectCommandRunner(
+        self.runner = runner
+        if self.runner is None and app_config is not None:
+            self.runner = DurableProjectCommandRunner(
                 config=app_config,
                 config_path=config_path,
                 job_manager=durable_job_manager,
             )
-            if app_config is not None
-            else LocalAgentCommandRunner()
-        )
         self.local_model = local_model or LocalModelClient()
         self.job_manager = job_manager or LongRunJobManager()
         self.memory_repository = memory_repository
@@ -181,6 +179,11 @@ class LocalAgentOrchestrator:
         local_coding_result = None
         dashboard_result = None
         if command_id is not None and decision.accepted:
+            if self.runner is None:
+                raise RuntimeError(
+                    "Project-command execution requires durable application context "
+                    "or an explicitly injected compatibility runner."
+                )
             command_result = self.runner.run_project_command(
                 command_id=command_id,
                 repo_name=task.repo_name,

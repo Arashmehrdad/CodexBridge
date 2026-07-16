@@ -279,6 +279,15 @@ def test_orchestrator_does_not_route_edit_tasks_to_runner(
     assert result.audit_event.metadata["codex_called"] is False
 
 
+def test_orchestrator_requires_explicit_execution_context_for_project_commands(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeError, match="requires durable application context"):
+        LocalAgentOrchestrator().handle_task(
+            LocalAgentTaskInput(objective="run pytest", repo_path=tmp_path)
+        )
+
+
 def test_orchestrator_uses_durable_runner_when_app_config_is_available(monkeypatch) -> None:
     from codexbridge.local_agent import orchestrator as orchestrator_module
 
