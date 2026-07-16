@@ -49,15 +49,18 @@ class LocalCodingManager:
         self.runs_dir = Path(runs_dir or Path.cwd() / "runs" / "local_coding").resolve()
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.policy_engine = policy_engine or PolicyEngine()
-        self.command_runner = command_runner or (
-            DurableProjectCommandRunner(
+        self.command_runner = command_runner
+        if self.command_runner is None and app_config is not None:
+            self.command_runner = DurableProjectCommandRunner(
                 config=app_config,
                 config_path=config_path,
                 job_manager=job_manager,
             )
-            if app_config is not None
-            else LocalAgentCommandRunner(runs_dir=self.runs_dir.parent)
-        )
+        if self.command_runner is None:
+            raise ValueError(
+                "LocalCodingManager requires durable application context or an "
+                "explicitly injected compatibility runner."
+            )
         self.local_model = local_model
 
     def prepare_local_edit(self, request: LocalCodingRequest) -> LocalPatchPreview:

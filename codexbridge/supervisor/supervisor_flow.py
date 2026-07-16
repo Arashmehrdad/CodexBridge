@@ -37,15 +37,18 @@ class SupervisorFlow:
     ):
         self.store = store
         self.config = config or LocalSupervisorConfig()
-        self.command_runner = command_runner or (
-            DurableProjectCommandRunner(
+        self.command_runner = command_runner
+        if self.command_runner is None and app_config is not None:
+            self.command_runner = DurableProjectCommandRunner(
                 config=app_config,
                 config_path=config_path,
                 job_manager=job_manager,
             )
-            if app_config is not None
-            else LocalAgentCommandRunner(runs_dir=store.supervisors_dir.parent)
-        )
+        if self.command_runner is None:
+            raise ValueError(
+                "SupervisorFlow requires durable application context or an "
+                "explicitly injected compatibility runner."
+            )
         self.codex_router = codex_router or CodexEscalationRouter(
             packet_dir=store.supervisors_dir.parent / "codex_escalations"
         )

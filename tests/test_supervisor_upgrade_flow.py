@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codexbridge.config import LocalSupervisorConfig
 from codexbridge.codex_router.models import CodexEscalationStatus, CodexRouterResult
 from codexbridge.codex_router.models import CodexInvocationResult
@@ -98,6 +100,14 @@ def make_manager(tmp_path: Path, *, runner=None, router=None) -> LocalSupervisor
         command_runner=runner or FakeCommandRunner(),
         codex_router=router or FakeCodexRouter(),
     )
+
+
+def test_supervisor_requires_explicit_execution_context(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires durable application context"):
+        LocalSupervisorManager(
+            supervisors_dir=tmp_path / "runs" / "supervisors",
+            codex_router=FakeCodexRouter(),
+        )
 
 
 def test_local_only_supervisor_completes_without_codex_packet(tmp_path: Path) -> None:

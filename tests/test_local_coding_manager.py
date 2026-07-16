@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codexbridge.config import LocalCodingConfig
 from codexbridge.local_agent.models import (
     CommandRunResult,
@@ -58,6 +60,11 @@ def make_manager(
         policy_engine=PolicyEngine(approvals_dir=tmp_path / "runs" / "approvals"),
         command_runner=runner or FakeCommandRunner(),
     )
+
+
+def test_manager_requires_explicit_execution_context(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires durable application context"):
+        LocalCodingManager(runs_dir=tmp_path / "runs" / "local_coding")
 
 
 def replace_request(
