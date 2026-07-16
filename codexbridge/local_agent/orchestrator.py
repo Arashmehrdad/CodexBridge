@@ -4,6 +4,8 @@ from pathlib import Path
 
 from codexbridge.jobs.long_run_manager import LongRunJobManager
 from codexbridge.jobs.models import JobStatus
+from codexbridge.config import AppConfig
+from codexbridge.job_manager import JobManager
 from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRouter
 from codexbridge.memory.importers import import_runs
 from codexbridge.memory.repository import ProjectMemoryRepository
@@ -128,6 +130,9 @@ class LocalAgentOrchestrator:
         supervisor_manager: LocalSupervisorManager | None = None,
         local_coding_manager: LocalCodingManager | None = None,
         dashboard_runs_dir: Path | None = None,
+        app_config: AppConfig | None = None,
+        config_path: Path | None = None,
+        durable_job_manager: JobManager | None = None,
     ):
         self.runner = runner or LocalAgentCommandRunner()
         self.local_model = local_model or LocalModelClient()
@@ -138,6 +143,9 @@ class LocalAgentOrchestrator:
         self.supervisor_manager = supervisor_manager
         self.local_coding_manager = local_coding_manager
         self.dashboard_runs_dir = dashboard_runs_dir
+        self.app_config = app_config
+        self.config_path = config_path
+        self.durable_job_manager = durable_job_manager
 
     def handle_task(
         self, task_input: LocalAgentTaskInput | dict | str
@@ -443,7 +451,10 @@ class LocalAgentOrchestrator:
 
     def _handle_supervisor_action(self, action: str, value: str, task: LocalAgentTask):
         manager = self.supervisor_manager or LocalSupervisorManager(
-            supervisors_dir=Path.cwd() / "runs" / "supervisors"
+            supervisors_dir=Path.cwd() / "runs" / "supervisors",
+            app_config=self.app_config,
+            config_path=self.config_path,
+            job_manager=self.durable_job_manager,
         )
         if action == "start":
             return manager.start_supervised_task(
@@ -471,7 +482,11 @@ class LocalAgentOrchestrator:
     def _handle_local_coding_action(
         self, action: str, value: str, task: LocalAgentTask
     ):
-        manager = self.local_coding_manager or LocalCodingManager()
+        manager = self.local_coding_manager or LocalCodingManager(
+            app_config=self.app_config,
+            config_path=self.config_path,
+            job_manager=self.durable_job_manager,
+        )
         if action == "prepare":
             repo_path = task.repo_path or Path.cwd()
             return manager.prepare_local_edit(
