@@ -252,6 +252,17 @@ Acceptance:
 
 Depends on X1.
 
+Status: **in progress**.
+
+Checkpoint (2026-07-16):
+
+- Published `operation: powershell` through the public `run_start` gateway, defaulting to the configured `powershell` executable profile while allowing an explicitly selected compatible PowerShell profile.
+- The gateway forwards exact argv, arbitrary working directory, arbitrary environment values, text stdin, strict base64-decoded binary stdin, and timeout/no-timeout selection into the existing durable executable-profile lifecycle without command, cmdlet, path, child-executable, or network filtering.
+- Strict discriminated request validation rejects cross-operation fields and simultaneous text/binary stdin before durable launch; malformed base64 fails before process creation.
+- Implementation commits: `f5933c3bc8b695d6f129e692bc43fbb9619a1476` and `e01cea33dbae7eef0c30002f67990b3a97e55b3c`.
+- Focused validation passed: `tests/test_tool_gateway_models.py` 26 passed; `tests/test_server.py` 27 passed; `tests/test_executable_profiles.py` 5 passed.
+- Next executable unit: add live configured-PowerShell acceptance coverage for `-Command`, `-File`, `-EncodedCommand`, stdin script execution, native child processes, arbitrary paths/environment, loopback networking, and cancellation/restart reconciliation.
+
 Status target: primary unrestricted local engineering gateway.
 
 Configuration example:
