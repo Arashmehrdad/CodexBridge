@@ -261,7 +261,10 @@ Checkpoint (2026-07-16):
 - Strict discriminated request validation rejects cross-operation fields and simultaneous text/binary stdin before durable launch; malformed base64 fails before process creation.
 - Implementation commits: `f5933c3bc8b695d6f129e692bc43fbb9619a1476` and `e01cea33dbae7eef0c30002f67990b3a97e55b3c`.
 - Focused validation passed: `tests/test_tool_gateway_models.py` 26 passed; `tests/test_server.py` 27 passed; `tests/test_executable_profiles.py` 5 passed.
-- Next executable unit: add live configured-PowerShell acceptance coverage for `-Command`, `-File`, `-EncodedCommand`, stdin script execution, native child processes, arbitrary paths/environment, loopback networking, and cancellation/restart reconciliation.
+- Live configured PowerShell 7 acceptance now proves `-Command`, `-File`, `-EncodedCommand`, stdin script execution, explicit native `cmd.exe` child launch, arbitrary working directories and environment values, filesystem paths containing spaces, and loopback TCP networking through the durable worker with complete protected artifacts.
+- Implementation commits for the live acceptance matrix: `580336caa206dce743a33d8560f1da178ceadf56`, `84e02819b4cf57c7445ddd29c1e9ab9a942257b1`, `fbd8f25072404dbe79bf31d96102d1aee353fa1b`, and `1846f676b2df3d4af92e77126007f402353c091d`.
+- Live validation passed: `tests/test_powershell_acceptance.py` 3 passed.
+- Next executable unit: prove exact cancellation of a harmless live PowerShell child-process tree and restart reconciliation/adoption without duplicate launch.
 
 Status target: primary unrestricted local engineering gateway.
 
