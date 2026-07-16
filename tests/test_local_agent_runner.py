@@ -279,6 +279,36 @@ def test_orchestrator_does_not_route_edit_tasks_to_runner(
     assert result.audit_event.metadata["codex_called"] is False
 
 
+def test_orchestrator_uses_durable_runner_when_app_config_is_available(monkeypatch) -> None:
+    from codexbridge.local_agent import orchestrator as orchestrator_module
+
+    captured = {}
+
+    class FakeDurableRunner:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        orchestrator_module, "DurableProjectCommandRunner", FakeDurableRunner
+    )
+    app_config = object()
+    job_manager = object()
+    config_path = Path("config.yaml")
+
+    orchestrator = LocalAgentOrchestrator(
+        app_config=app_config,
+        config_path=config_path,
+        durable_job_manager=job_manager,
+    )
+
+    assert isinstance(orchestrator.runner, FakeDurableRunner)
+    assert captured == {
+        "config": app_config,
+        "config_path": config_path,
+        "job_manager": job_manager,
+    }
+
+
 def test_local_agent_runner_introduces_no_codex_or_local_model_calls() -> None:
     local_agent_files = [
         Path("codexbridge/local_agent/runner.py"),
