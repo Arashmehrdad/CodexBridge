@@ -184,20 +184,15 @@ Repository knowledge is exposed through:
 Built-in command profiles:
 
 - `pytest`
-- `ruff_check`
-- `ruff_format_check`
-- `ruff_format`
-- `mypy`
 - `pip_check`
 - `git_status`
-- `git_diff_check`
 
 Command execution rules:
 
 - Commands run from validated profiles only.
 - Commands execute with `argv` arrays and `shell=False`.
 - When possible, the target repository's `.venv` or `venv` Python interpreter is preferred automatically.
-- New project-specific commands are registered once under `repos.<name>.command_profiles` in `config.yaml`.
+- New project-specific validation commands are registered once under `repos.<name>.command_profiles` in `config.yaml`; unrestricted or ad hoc commands use the public PowerShell gateway instead.
 - Project commands remain an internal durable substrate for workflows and typed validation adapters; unrestricted PowerShell is the public arbitrary-command gateway.
 - Full `pytest` is configured async-only and uses that durable command path.
 - `start_pytest_path_async(repo_name, path)` is the dedicated scoped pytest entrypoint for one validated repo-relative directory or `.py` file target, with optional `::` node selectors.

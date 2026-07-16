@@ -108,31 +108,6 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         description="Run pytest in quiet mode as a durable async command",
         async_only=True,
     ),
-    "ruff_check": CommandProfileSpec(
-        command_id="ruff_check",
-        argv=["python", "-m", "ruff", "check", "."],
-        timeout_seconds=60,
-        description="Run ruff lint check",
-    ),
-    "ruff_format_check": CommandProfileSpec(
-        command_id="ruff_format_check",
-        argv=["python", "-m", "ruff", "format", "--check", "."],
-        timeout_seconds=60,
-        description="Run ruff format check (no changes written)",
-    ),
-    "ruff_format": CommandProfileSpec(
-        command_id="ruff_format",
-        argv=["python", "-m", "ruff", "format", "."],
-        timeout_seconds=60,
-        description="Apply Ruff formatting",
-        writes_files=True,
-    ),
-    "mypy": CommandProfileSpec(
-        command_id="mypy",
-        argv=["python", "-m", "mypy", "."],
-        timeout_seconds=120,
-        description="Run mypy type checking",
-    ),
     "pip_check": CommandProfileSpec(
         command_id="pip_check",
         argv=["python", "-m", "pip", "check"],
@@ -145,12 +120,6 @@ BUILTIN_PROFILES: dict[str, CommandProfileSpec] = {
         timeout_seconds=30,
         description="Read repository branch and working-tree status",
         writes_files=False,
-    ),
-    "git_diff_check": CommandProfileSpec(
-        command_id="git_diff_check",
-        argv=["git", "diff", "--check"],
-        timeout_seconds=30,
-        description="Check for whitespace errors in git diff",
     ),
     GIT_READONLY_COMMAND_ID: CommandProfileSpec(
         command_id=GIT_READONLY_COMMAND_ID,

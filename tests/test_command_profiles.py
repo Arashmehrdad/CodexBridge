@@ -47,16 +47,6 @@ def test_resolve_known_builtin() -> None:
     assert spec.timeout_seconds == 600
 
 
-def test_ruff_format_has_matching_write_profile() -> None:
-    check = resolve_command_profile("ruff_format_check")
-    formatter = resolve_command_profile("ruff_format")
-
-    assert check.argv == ["python", "-m", "ruff", "format", "--check", "."]
-    assert check.writes_files is False
-    assert formatter.argv == ["python", "-m", "ruff", "format", "."]
-    assert formatter.writes_files is True
-
-
 def test_git_status_is_read_only() -> None:
     status = resolve_command_profile("git_status")
 
@@ -69,13 +59,8 @@ def test_git_status_is_read_only() -> None:
 def test_existing_builtin_profile_ids_remain_unchanged() -> None:
     assert set(BUILTIN_PROFILES) == {
         "pytest",
-        "ruff_check",
-        "ruff_format_check",
-        "ruff_format",
-        "mypy",
         "pip_check",
         "git_status",
-        "git_diff_check",
         "git_readonly",
     }
 
