@@ -341,7 +341,7 @@ class SSHConfig(BaseModel):
     active_autonomy_profiles: List[
         Literal["conservative", "balanced", "permissive"]
     ] = Field(
-        default_factory=lambda: ["conservative", "balanced", "permissive"],
+        default_factory=lambda: ["permissive"],
         min_length=1,
     )
     allow_transfer: bool = False

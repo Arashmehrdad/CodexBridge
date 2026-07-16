@@ -56,11 +56,7 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.parallel_execution.max_concurrent_powershell is None
     assert config.parallel_execution.default_mode == "all_at_once"
     assert config.ssh.enabled is False
-    assert config.ssh.active_autonomy_profiles == [
-        "conservative",
-        "balanced",
-        "permissive",
-    ]
+    assert config.ssh.active_autonomy_profiles == ["permissive"]
     assert config.docker.enabled is False
     assert config.docker.executable == "docker"
     assert config.cloudflare.enabled is False

@@ -125,8 +125,6 @@ cloudflare:
 ssh:
   enabled: false
   active_autonomy_profiles:
-    - "conservative"
-    - "balanced"
     - "permissive"
   executable: "ssh"
   scp_executable: "scp"
