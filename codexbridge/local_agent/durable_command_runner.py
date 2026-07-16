@@ -9,6 +9,7 @@ from codexbridge.config import AppConfig, resolve_repo, resolve_repo_config
 from codexbridge.job_manager import JobManager
 from codexbridge.run_store import TERMINAL_STATUSES, utc_now
 
+from .command_profiles import get_command_profile
 from .models import CommandRunResult, CommandRunStatus, PermissionTier
 
 
@@ -77,15 +78,24 @@ class DurableProjectCommandRunner:
                 created_at,
                 "repo_path does not match the configured repository path.",
             )
+        local_profile = get_command_profile(command_id)
+        if local_profile is None:
+            return self._blocked(
+                command_id,
+                canonical_name,
+                repo_root,
+                created_at,
+                f"Unknown command_id: {command_id}",
+            )
         profile = resolve_command_profile(
             command_id, list(repo_config.command_profiles or [])
         )
         requested_tier = (
             PermissionTier(permission_tier)
             if permission_tier is not None
-            else self._permission_tier(profile.writes_files)
+            else local_profile.permission_tier
         )
-        expected_tier = self._permission_tier(profile.writes_files)
+        expected_tier = local_profile.permission_tier
         if requested_tier != expected_tier:
             return self._blocked(
                 command_id,
@@ -94,12 +104,12 @@ class DurableProjectCommandRunner:
                 created_at,
                 f"Permission tier mismatch: requested {requested_tier.value}, profile requires {expected_tier.value}",
                 permission_tier=expected_tier,
-                timeout_seconds=profile.timeout_seconds,
+                timeout_seconds=local_profile.default_timeout_seconds,
                 argv=list(profile.argv),
             )
 
-        wait_seconds = timeout_seconds or profile.timeout_seconds
-        if wait_seconds > profile.timeout_seconds:
+        wait_seconds = timeout_seconds or local_profile.default_timeout_seconds
+        if wait_seconds > local_profile.default_timeout_seconds:
             return self._blocked(
                 command_id,
                 canonical_name,
@@ -107,7 +117,7 @@ class DurableProjectCommandRunner:
                 created_at,
                 "Requested timeout exceeds command profile maximum.",
                 permission_tier=expected_tier,
-                timeout_seconds=profile.timeout_seconds,
+                timeout_seconds=local_profile.default_timeout_seconds,
                 argv=list(profile.argv),
             )
 
@@ -142,14 +152,6 @@ class DurableProjectCommandRunner:
                     forced_timeout=True,
                 )
             time.sleep(self.poll_interval_seconds)
-
-    @staticmethod
-    def _permission_tier(writes_files: bool) -> PermissionTier:
-        return (
-            PermissionTier.WRITE_PREVIEW_DRY_RUN
-            if writes_files
-            else PermissionTier.SAFE_LOCAL_TEST
-        )
 
     def _from_run(
         self,
