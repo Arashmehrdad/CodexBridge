@@ -641,8 +641,12 @@ Checkpoint (2026-07-17):
 - The persisted contract binds request ID, execution ID, idempotency key, host, command, lease generation, controller version/fingerprint, remote state/input/stdout/stderr/result paths, process identity placeholders, authoritative state/heartbeat, cancellation evidence, publication/cleanup state, executable identity, timeout, and resource-monitor state.
 - Local bridge state records the remote job ID and state directory plus remote PID/PGID/start identity placeholders, last authoritative heartbeat, publication/cleanup state, and explicit reconciliation/uncertainty state.
 - Workers rebuild and compare the complete accepted contract before any remote-controller execution, rejecting run, lease, command, argv, timeout, path, fingerprint, or state drift.
-- Focused and adjacent validation passed with `tests/test_remote_controller_state.py`, `tests/test_job_manager.py`, and `tests/test_ssh_worker.py`: **99 passed**; changed modules passed `py_compile`; `git diff --check` passed.
-- Next executable unit: make the remote controller atomically create and update the authoritative remote state directory and state file, returning only after durable ownership and verified PID/PGID/start identity are persisted.
+- The remote controller now creates its state directory and atomically publishes `input.json`, `state.json`, and terminal `result.json` with file and directory fsync before replacing visible state.
+- Launch ownership is reported only after PID, PGID, process-start identity, execution ID, state path, running state, heartbeat, and durable-ownership evidence have been persisted remotely; incomplete or unsafe identity aborts launch.
+- Running controllers refresh the authoritative heartbeat atomically and terminal publication updates both result and state before emitting the verified exit marker.
+- Focused validation passed with `tests/test_ssh_watchdog.py`, `tests/test_remote_controller_state.py`, and `tests/test_ssh_worker.py`: **46 passed**; adjacent validation with those suites plus `tests/test_job_manager.py`: **105 passed**; changed modules passed `py_compile`; `git diff --check` passed.
+- Implementation commits through `f2f712dc2e2c81fbbd9e80f7db30f2c08b7a5cb1`.
+- Next executable unit: add remote-state probing and local reconciliation so restart recovery adopts a matching live controller, records uncertainty without duplicate launch, and publishes terminal remote evidence exactly once.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 
