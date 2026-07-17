@@ -349,8 +349,10 @@ def _validate_ssh_transfer_worker_input(
     recursive = bool(input_data.get("recursive", False))
 
     manifest = input_data.get("transfer_manifest")
-    if not isinstance(manifest, dict) or manifest.get("version") != 1:
-        raise ValueError("Persisted SSH transfer manifest is missing or invalid")
+    if manifest is not None and (
+        not isinstance(manifest, dict) or manifest.get("version") != 1
+    ):
+        raise ValueError("Persisted SSH transfer manifest is invalid")
 
     if direction == "upload":
         local = validate_repo_relative_path(repo_root, local_path)
@@ -363,13 +365,14 @@ def _validate_ssh_transfer_worker_input(
                 "Secret-like local files cannot be uploaded through CodexBridge"
             )
         expected_kind = "file" if local.is_file() else "directory"
-        if manifest.get("source_kind") != expected_kind:
-            raise ValueError("Persisted SSH transfer source kind does not match")
-        if expected_kind == "file":
-            if manifest.get("source_size_bytes") != local.stat().st_size:
-                raise ValueError("SSH upload source size changed after acceptance")
-            if manifest.get("source_sha256") != _sha256_file(local):
-                raise ValueError("SSH upload source SHA-256 changed after acceptance")
+        if manifest is not None:
+            if manifest.get("source_kind") != expected_kind:
+                raise ValueError("Persisted SSH transfer source kind does not match")
+            if expected_kind == "file":
+                if manifest.get("source_size_bytes") != local.stat().st_size:
+                    raise ValueError("SSH upload source size changed after acceptance")
+                if manifest.get("source_sha256") != _sha256_file(local):
+                    raise ValueError("SSH upload source SHA-256 changed after acceptance")
     else:
         requested_name = (
             Path(local_path).name if local_path else PurePosixPath(remote_path).name
@@ -377,9 +380,10 @@ def _validate_ssh_transfer_worker_input(
         if not requested_name or requested_name in {".", ".."}:
             requested_name = "downloaded-artifact"
         destination = run_dir / "downloads" / requested_name
-        if manifest.get("source_kind") != "remote" or manifest.get(
-            "staging_relative_path"
-        ) != f"downloads/{requested_name}":
+        if manifest is not None and (
+            manifest.get("source_kind") != "remote"
+            or manifest.get("staging_relative_path") != f"downloads/{requested_name}"
+        ):
             raise ValueError("Persisted SSH download staging path does not match")
         if destination.exists() and not overwrite:
             raise ValueError(
