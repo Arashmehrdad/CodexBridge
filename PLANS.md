@@ -566,6 +566,19 @@ Acceptance:
 
 ## R3 - Transfer Policy and Managed Staging
 
+Status: **in progress**.
+
+Checkpoint (2026-07-17):
+
+- Newly accepted durable SSH transfers now persist a versioned `transfer_manifest` before worker launch.
+- File uploads record the exact source byte length and SHA-256; the worker revalidates both and rejects source drift before invoking SCP.
+- Downloads record a deterministic run-relative staging destination under `downloads/<name>`; the worker verifies that persisted destination before transfer execution.
+- Existing durable transfer runs created before the manifest contract remain executable, while any present malformed manifest fails before the transfer executor is called.
+- Windows text-file fixtures now derive size and digest from actual bytes, preserving CRLF correctness.
+- Implementation commits: `df22eebdc679c79e0e66425e7cf599b1fecc7afa`, `18b31e47fca665fc5ad0a92bdb79e48a1f743c53`, and `4453c49158bcd523101233c6676d8866fb387492`.
+- Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/job_manager.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: add hash-verified, binary-safe download publication with retry-safe atomic staging, then extend deterministic manifests to recursive directory uploads.
+
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
 Active policy:
