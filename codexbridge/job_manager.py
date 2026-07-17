@@ -57,7 +57,10 @@ from .run_query_chunks import (
 )
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .run_publication import publish_run_result
-from .remote_controller_state import build_remote_controller_state_contract
+from .remote_controller_state import (
+    build_remote_controller_state_contract,
+    reconcile_remote_controller_state,
+)
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
@@ -77,6 +80,7 @@ from .ssh_policy import (
     authorize_ssh_root_shell_launch,
 )
 from .ssh_watchdog import (
+    probe_remote_controller_state,
     terminate_remote_process_group,
     validate_monitored_command_start,
 )
@@ -338,25 +342,135 @@ class JobManager:
             return
 
         if run["tool"] == "ssh_monitored_command":
-            reason = (
-                "Server restarted while monitored remote execution may still be active"
-            )
-            pending = self.store.conditional_update(
+            contract = run.get("input", {}).get("remote_controller_state")
+            if isinstance(contract, dict):
+                probe = probe_remote_controller_state(
+                    self.config,
+                    str(run["input"]["host_id"]),
+                    contract,
+                )
+                observed = probe.get("state") if probe.get("ok") else None
+                if isinstance(observed, dict) and isinstance(probe.get("result"), dict):
+                    observed = dict(observed)
+                    observed["result"] = dict(probe["result"])
+                reconciled_remote = reconcile_remote_controller_state(contract, observed)
+                progress = dict(run.get("progress") or {})
+                progress.update(
+                    {
+                        "remote_reconciliation": reconciled_remote,
+                        "remote_probe_error": str(probe.get("error", "")),
+                    }
+                )
+                remote_process = dict(reconciled_remote.get("remote_process") or {})
+                if remote_process:
+                    progress["remote_process"] = remote_process
+                if reconciled_remote.get("terminal"):
+                    remote_result = dict(reconciled_remote.get("result") or {})
+                    authoritative_state = str(
+                        reconciled_remote.get("authoritative_state") or "failed"
+                    )
+                    terminal_status = (
+                        authoritative_state
+                        if authoritative_state in TERMINAL_STATUSES
+                        else "failed"
+                    )
+                    ended_at = str(remote_result.get("ended_at") or datetime.now(timezone.utc).isoformat())
+                    exit_code = int(remote_result.get("returncode", 1))
+                    result = {
+                        "run_id": run_id,
+                        "repo_name": run["repo_name"],
+                        "tool": "ssh_monitored_command",
+                        "host_id": str(run["input"]["host_id"]),
+                        "command_id": str(run["input"]["command_id"]),
+                        "status": terminal_status,
+                        "exit_code": exit_code,
+                        "started_at": str(run.get("started_at") or run.get("created_at") or ended_at),
+                        "ended_at": ended_at,
+                        "duration_seconds": float(run.get("elapsed_seconds") or 0.0),
+                        "summary": f"Remote controller reported {authoritative_state}",
+                        "error": "" if exit_code == 0 else f"Remote command exited with code {exit_code}",
+                        "safety_failure": False,
+                        "remote_process": remote_process,
+                        "remote_controller_result": remote_result,
+                        "reconciled_after_restart": True,
+                    }
+                    persisted = self.store.transition_terminal(
+                        run_id,
+                        status=terminal_status,
+                        result=result,
+                        expected_statuses=(status,),
+                        expected_state_version=state_version,
+                        expected_lease_token=lease_token,
+                        expected_lease_generation=lease_generation,
+                        ended_at=ended_at,
+                        duration_seconds=result["duration_seconds"],
+                        exit_code=exit_code,
+                        summary=result["summary"],
+                        error=result["error"],
+                        safety_failure=False,
+                    )
+                    if persisted is not None:
+                        publication = publish_run_result(self.store, run_id)
+                        if not publication["ok"]:
+                            self._append_recovery_event(
+                                run,
+                                level="error",
+                                message="Canonical terminal result publication failed",
+                                data={"error": publication["error"]},
+                            )
+                        self.locks.release(
+                            run["repo_name"], run_id, lease_token, lease_generation
+                        )
+                        self._append_recovery_event(
+                            run,
+                            level="info",
+                            message="Terminal remote-controller evidence reconciled after restart",
+                            data={"authoritative_state": authoritative_state},
+                        )
+                    return
+                reason = (
+                    "Matching remote controller adopted after restart"
+                    if reconciled_remote.get("adoptable")
+                    else "Remote controller state remains uncertain after restart"
+                )
+                pending = self.store.conditional_update(
+                    run_id,
+                    fields={
+                        "status": "recovery_pending",
+                        "current_phase": "remote_reconciliation",
+                        "ended_at": None,
+                        "progress_json": progress,
+                        "error": "" if reconciled_remote.get("adoptable") else reason,
+                        "recovery_reason": reason,
+                        "safety_failure": not bool(reconciled_remote.get("adoptable")),
+                    },
+                    expected_statuses=(status,),
+                    expected_state_version=state_version,
+                    expected_lease_token=lease_token,
+                    expected_lease_generation=lease_generation,
+                    expected_heartbeat_at=observed_heartbeat,
+                    reject_terminal=True,
+                )
+                if pending is not None:
+                    self._append_recovery_event(
+                        run,
+                        level="info" if reconciled_remote.get("adoptable") else "warning",
+                        message=reason,
+                        data={
+                            "reconciliation_state": reconciled_remote.get("reconciliation_state"),
+                            "uncertainty_state": reconciled_remote.get("uncertainty_state"),
+                        },
+                    )
+                return
+            reason = "Monitored remote execution lacks a durable controller contract"
+            pending = self.store.mark_recovery_pending(
                 run_id,
-                fields={
-                    "status": "cancellation_pending",
-                    "current_phase": "cancellation_pending",
-                    "ended_at": None,
-                    "error": reason,
-                    "recovery_reason": reason,
-                    "safety_failure": True,
-                },
+                reason,
                 expected_statuses=(status,),
                 expected_state_version=state_version,
                 expected_lease_token=lease_token,
                 expected_lease_generation=lease_generation,
                 expected_heartbeat_at=observed_heartbeat,
-                reject_terminal=True,
             )
             if pending is not None:
                 self._append_recovery_event(run, level="warning", message=reason)
