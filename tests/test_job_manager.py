@@ -517,11 +517,12 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     assert transfer["approval_source"] == "none"
     transfer_status = manager.get_status(transfer["run_id"])
     assert transfer_status["tool"] == "ssh_transfer"
+    upload_bytes = local_file.read_bytes()
     assert transfer_status["input"]["transfer_manifest"] == {
         "version": 1,
         "source_kind": "file",
-        "source_size_bytes": len("deploy\n".encode("utf-8")),
-        "source_sha256": sha256(b"deploy\n").hexdigest(),
+        "source_size_bytes": len(upload_bytes),
+        "source_sha256": sha256(upload_bytes).hexdigest(),
     }
     assert transfer_status["input"]["permission_tier"] == transfer["permission_tier"]
     assert transfer_status["input"]["approval_source"] == "none"
