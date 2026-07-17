@@ -650,8 +650,10 @@ Checkpoint (2026-07-17):
 - Reconciliation/probe validation passed with `tests/test_remote_controller_state.py`, `tests/test_ssh_watchdog.py`, and `tests/test_ssh_worker.py`: **52 passed**; changed modules passed `py_compile`; `git diff --check` passed.
 - Startup recovery now probes the authoritative remote state before changing bridge lifecycle state. Matching live controllers are recorded as adopted without duplicate launch, network/state uncertainty remains non-terminal, and terminal remote evidence is conditionally transitioned and canonically published exactly once.
 - Startup reconciliation validation passed with `tests/test_job_manager.py`, `tests/test_remote_controller_state.py`, and `tests/test_ssh_watchdog.py`: **74 passed**; changed `job_manager.py` passed `py_compile`; `git diff --check` passed.
-- Implementation commits through `8a06753c40524c82f7e4234f516593b83e57314e`.
-- Next executable unit: add monitored-worker re-entry polling so an adopted live controller continues heartbeat/result reconciliation during the same service lifetime and publishes terminal evidence without requiring another restart.
+- Adopted live controllers now receive one deduplicated in-process reconciliation poller per run. The poller reloads durable state before every probe, retains the accepted contract and lease identity, continues remote heartbeat/result reconciliation during the same service lifetime, stops at terminal state or invalid contract/tool state, and allows the existing conditional terminal/publication path to remain the exactly-once authority.
+- Re-entry polling validation passed with the focused regression at **1 passed, 59 deselected** and adjacent `tests/test_job_manager.py`, `tests/test_remote_controller_state.py`, and `tests/test_ssh_watchdog.py` at **75 passed**; changed modules and tests passed `py_compile`; `git diff --check` passed.
+- Implementation commits through `cf52142dee6646fbe69cdd27adf0857227d8f22e`.
+- Next executable unit: integrate exact remote cancellation request/completion state with the authoritative controller contract and prove cancellation targets the verified remote process group without racing terminal publication.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 
