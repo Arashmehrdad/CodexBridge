@@ -27,6 +27,10 @@ from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
 from .executable_profiles import build_local_executable_run_request
+from .executable_staging import (
+    build_executable_staging_manifest,
+    stage_executable_input,
+)
 from .gateway_models import (
     validate_reviewed_ssh_script_request,
     validate_root_ssh_shell_request,
@@ -1469,6 +1473,12 @@ class JobManager:
         run_id = reserved_run_id or make_run_id(tool)
         validate_run_id(run_id)
         lease_token = uuid4().hex
+        if tool == "executable_profile":
+            input_data["staging_manifest"] = build_executable_staging_manifest(
+                input_data,
+                run_id=run_id,
+                lease_generation=1,
+            )
         acquisition = self.locks.acquire(
             repo_name=repo_name,
             tool=tool,
@@ -1495,6 +1505,12 @@ class JobManager:
         try:
             run_dir.mkdir(parents=True, exist_ok=False)
             artifacts = ArtifactWriter(run_dir)
+            if tool == "executable_profile":
+                stage_executable_input(
+                    run_dir,
+                    input_data,
+                    dict(input_data["staging_manifest"]),
+                )
             artifact_input = dict(input_data)
             if tool in {"ssh_reviewed_script", "ssh_root_shell"} and "script" in artifact_input:
                 artifact_input["script"] = "[REDACTED]"
