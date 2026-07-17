@@ -114,6 +114,8 @@ def validate_ssh_staging_manifest(
         if raw.get("classification") != "protected_evidence":
             raise ValueError("SSH staging output classification is invalid")
         relative_path = str(raw.get("relative_path") or "")
+        if relative_path != f"{stream}.txt":
+            raise ValueError("SSH staging output path is invalid")
         output_paths[stream] = _resolve_run_relative_path(run_dir, relative_path)
         normalized.append(
             {

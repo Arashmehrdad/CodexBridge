@@ -358,7 +358,11 @@ def test_start_ssh_monitored_command_creates_durable_run(
     assert response["watchdog_mode"] == "observe_only"
     status = manager.get_status(response["run_id"])
     assert status["tool"] == "ssh_monitored_command"
-    assert status["input"] == {
+    assert {
+        key: value
+        for key, value in status["input"].items()
+        if key != "staging_manifest"
+    } == {
         "host_id": "my_vps",
         "command_id": "uptime",
         "autonomy_profile": "permissive",
@@ -368,6 +372,23 @@ def test_start_ssh_monitored_command_creates_durable_run(
         "policy_authorized": True,
         "approval_source": "none",
     }
+    manifest = status["input"]["staging_manifest"]
+    assert manifest["tool"] == "ssh_monitored_command"
+    assert manifest["invoking_run_id"] == response["run_id"]
+    assert manifest["lease_generation"] == 1
+    assert manifest["inputs"] == []
+    assert manifest["outputs"] == [
+        {
+            "stream": "stdout",
+            "relative_path": "stdout.txt",
+            "classification": "protected_evidence",
+        },
+        {
+            "stream": "stderr",
+            "relative_path": "stderr.txt",
+            "classification": "protected_evidence",
+        },
+    ]
     assert response["autonomy_profile"] == "permissive"
     assert response["execution_mode"] == "structured"
     assert response["permission_tier"] == "T2_LONG_RUNNING_NON_DESTRUCTIVE_JOB"

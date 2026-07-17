@@ -1771,6 +1771,25 @@ class JobWorker:
             writes_remote=profile.writes_remote,
             monitored=True,
         )
+        run_dir = Path(self.run["run_dir"])
+        staging_manifest = input_data.get("staging_manifest")
+        staged_artifacts: list[dict[str, object]] = []
+        if staging_manifest is not None:
+            if not isinstance(staging_manifest, dict):
+                raise ValueError("Persisted SSH staging manifest is invalid")
+            _, output_paths, output_entries = validate_ssh_staging_manifest(
+                run_dir,
+                staging_manifest,
+                tool="ssh_monitored_command",
+                run_id=self.run_id,
+                lease_generation=self.worker_lease_generation,
+            )
+        else:
+            output_paths = {
+                "stdout": run_dir / "stdout.txt",
+                "stderr": run_dir / "stderr.txt",
+            }
+            output_entries = []
         self.event(
             "info",
             "ssh_monitored_command",
@@ -1802,7 +1821,7 @@ class JobWorker:
                     self.config,
                     host_id,
                     command_id,
-                    run_dir=Path(self.run["run_dir"]),
+                    run_dir=run_dir,
                     on_progress=on_progress,
                     on_event=on_event,
                     cancellation_check=cancellation_check,
@@ -1811,8 +1830,19 @@ class JobWorker:
         )
         stdout = str(command_result.get("stdout", ""))
         stderr = str(command_result.get("stderr", ""))
-        self.artifacts.write_text("stdout.txt", stdout)
-        self.artifacts.write_text("stderr.txt", stderr)
+        self.artifacts.write_protected_text("stdout.txt", stdout)
+        self.artifacts.write_protected_text("stderr.txt", stderr)
+        for entry in output_entries:
+            path = output_paths[str(entry["stream"])]
+            staged_artifacts.append(
+                {
+                    **entry,
+                    "size_bytes": path.stat().st_size,
+                    "sha256": _sha256_file(path),
+                    "invoking_run_id": self.run_id,
+                    "lease_generation": self.worker_lease_generation,
+                }
+            )
         ended_at = _utc_now()
         return {
             "run_id": self.run_id,
@@ -1850,6 +1880,7 @@ class JobWorker:
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
             "command_result": command_result,
+            "staged_artifacts": staged_artifacts,
         }
 
     def _execute_ssh_action(self, started_at: str, input_data: dict) -> dict:
