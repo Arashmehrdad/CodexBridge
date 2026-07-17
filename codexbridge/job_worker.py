@@ -97,6 +97,7 @@ from .ssh_policy import (
     authorize_ssh_reviewed_script_launch,
     authorize_ssh_root_shell_launch,
 )
+from .ssh_staging import validate_ssh_staging_manifest
 from .ssh_watchdog import (
     start_monitored_ssh_command,
     validate_monitored_command_start,
@@ -239,7 +240,9 @@ def _authorize_persisted_ssh_root_shell_policy(
 
 _REVIEWED_SCRIPT_REQUEST_FIELDS = frozenset(SSHReviewedScriptAction.model_fields)
 _REVIEWED_SCRIPT_PERSISTED_FIELDS = (
-    _REVIEWED_SCRIPT_REQUEST_FIELDS | frozenset(_SSH_POLICY_METADATA_FIELDS)
+    _REVIEWED_SCRIPT_REQUEST_FIELDS
+    | frozenset(_SSH_POLICY_METADATA_FIELDS)
+    | {"staging_manifest"}
 )
 
 
@@ -1492,6 +1495,26 @@ class JobWorker:
             self.config,
             input_data,
         )
+        run_dir = Path(self.run["run_dir"])
+        staging_manifest = input_data.get("staging_manifest")
+        staged_artifacts: list[dict[str, object]] = []
+        if staging_manifest is not None:
+            if not isinstance(staging_manifest, dict):
+                raise ValueError("Persisted SSH staging manifest is invalid")
+            staged_script, output_paths, output_entries = validate_ssh_staging_manifest(
+                run_dir,
+                staging_manifest,
+                tool="ssh_reviewed_script",
+                run_id=self.run_id,
+                lease_generation=self.worker_lease_generation,
+            )
+            if staged_script is None or sha256(staged_script.encode("utf-8")).hexdigest() != request.script_sha256:
+                raise ValueError("Reviewed-script staged input does not match the approved hash")
+            execution_script = staged_script
+        else:
+            execution_script = request.script
+            output_paths = {"stdout": run_dir / "stdout.txt", "stderr": run_dir / "stderr.txt"}
+            output_entries = []
         self.event(
             "info",
             "ssh_reviewed_script",
@@ -1513,7 +1536,7 @@ class JobWorker:
                     self.config,
                     request.host_id,
                     request.interpreter,
-                    request.script,
+                    execution_script,
                     payload_sha256=request.script_sha256,
                     arguments=request.arguments,
                     timeout_seconds=request.timeout_seconds,
@@ -1523,8 +1546,19 @@ class JobWorker:
         )
         stdout = str(command_result.get("stdout", ""))
         stderr = str(command_result.get("stderr", ""))
-        self.artifacts.write_text("stdout.txt", stdout)
-        self.artifacts.write_text("stderr.txt", stderr)
+        self.artifacts.write_protected_text("stdout.txt", stdout)
+        self.artifacts.write_protected_text("stderr.txt", stderr)
+        for entry in output_entries:
+            path = output_paths[str(entry["stream"])]
+            staged_artifacts.append(
+                {
+                    **entry,
+                    "size_bytes": path.stat().st_size,
+                    "sha256": _sha256_file(path),
+                    "invoking_run_id": self.run_id,
+                    "lease_generation": self.worker_lease_generation,
+                }
+            )
         timed_out = bool(command_result.get("timed_out"))
         status = (
             "timed_out"
@@ -1570,6 +1604,7 @@ class JobWorker:
             "output_truncated": bool(command_result.get("output_truncated")),
             "argv": list(command_result.get("argv", [])),
             "command_result": command_result,
+            "staged_artifacts": staged_artifacts,
         }
 
     def _execute_ssh_root_shell(
