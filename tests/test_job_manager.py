@@ -1370,6 +1370,74 @@ def test_cancel_monitored_run_without_remote_metadata_stays_pending(
     assert "lock retained" in cancelled["reason"]
 
 
+def test_cancel_monitored_run_persists_remote_completion_before_local_terminal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+    run_id = response["run_id"]
+    current = manager.store.get_run(run_id)
+    progress = dict(current.get("progress") or {})
+    progress.update(
+        {
+            "remote_process": {
+                "pid": 321,
+                "pgid": 321,
+                "start_time_ticks": "98765",
+            },
+            "termination_grace_seconds": 5,
+        }
+    )
+    manager.store.update_run(
+        run_id,
+        status="running",
+        launcher_pid=12345,
+        worker_pid=None,
+        pid=None,
+        progress=progress,
+    )
+    observed: dict = {}
+
+    def fake_cancel(config, host_id, contract, remote_process, *, requested_at, grace_seconds):
+        del config
+        observed.update(
+            {
+                "host_id": host_id,
+                "contract": contract,
+                "remote_process": remote_process,
+                "requested_at": requested_at,
+                "grace_seconds": grace_seconds,
+            }
+        )
+        return {
+            "identity_verified": True,
+            "request_persisted": True,
+            "term_sent": True,
+            "kill_sent": False,
+            "terminated": True,
+            "already_exited": False,
+            "identity_changed": False,
+            "completion_persisted": True,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_manager.cancel_remote_controller", fake_cancel)
+
+    cancelled = manager.cancel_run(run_id)
+
+    assert cancelled["ok"] is True
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["termination_confirmed"] is True
+    assert observed["host_id"] == "my_vps"
+    assert observed["contract"] == current["input"]["remote_controller_state"]
+    assert observed["remote_process"]["pid"] == 321
+    assert observed["grace_seconds"] == 5
+    assert observed["requested_at"]
+    terminal = manager.store.get_run(run_id)
+    assert terminal["status"] == "cancelled"
+    assert terminal["progress"]["remote_termination"]["completion_persisted"] is True
+
+
 def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_plan("sample", "inspect docs")

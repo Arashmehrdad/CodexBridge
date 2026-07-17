@@ -238,6 +238,33 @@ def test_remote_state_probe_preserves_network_uncertainty(
     }
 
 
+def test_cancellation_controller_persists_request_and_completion() -> None:
+    contract = build_remote_controller_state_contract(
+        run_id="run-1",
+        host_id="my_vps",
+        command_id="uptime",
+        lease_generation=1,
+        remote_argv=["uptime"],
+        timeout_seconds=30,
+    )
+    source = ssh_watchdog._cancellation_controller_source(
+        contract,
+        {"pid": 321, "pgid": 321, "start_time_ticks": "98765"},
+        "2026-07-17T17:00:00+00:00",
+        5,
+        "RESULT=",
+    )
+
+    assert 'remote["cancellation_requested_at"]=requested_at' in source
+    assert 'remote["authoritative_state"]="cancellation_pending"' in source
+    assert "os.killpg(pgid,signal.SIGTERM)" in source
+    assert "os.killpg(pgid,signal.SIGKILL)" in source
+    assert 'remote["cancellation_completed_at"]=completed' in source
+    assert 'remote["authoritative_state"]="cancelled"' in source
+    assert "atomic_json(result_path,terminal)" in source
+    assert "atomic_json(state_path,state)" in source
+
+
 def test_termination_controller_reverifies_identity_and_escalates() -> None:
     source = ssh_watchdog._termination_controller_source(
         {"pid": 321, "pgid": 321, "start_time_ticks": "98765"},
