@@ -1394,7 +1394,7 @@ def test_cancel_monitored_run_persists_remote_completion_before_local_terminal(
         launcher_pid=12345,
         worker_pid=None,
         pid=None,
-        progress=progress,
+        progress_json=progress,
     )
     observed: dict = {}
 
