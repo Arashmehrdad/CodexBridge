@@ -361,7 +361,7 @@ def test_start_ssh_monitored_command_creates_durable_run(
     assert {
         key: value
         for key, value in status["input"].items()
-        if key != "staging_manifest"
+        if key not in {"staging_manifest", "remote_controller_state"}
     } == {
         "host_id": "my_vps",
         "command_id": "uptime",
@@ -372,6 +372,15 @@ def test_start_ssh_monitored_command_creates_durable_run(
         "policy_authorized": True,
         "approval_source": "none",
     }
+    controller_state = status["input"]["remote_controller_state"]
+    assert controller_state["request_id"] == response["run_id"]
+    assert controller_state["host_id"] == "my_vps"
+    assert controller_state["command_id"] == "uptime"
+    assert controller_state["lease_generation"] == 1
+    assert controller_state["remote"]["authoritative_state"] == "launch_pending"
+    assert controller_state["local"]["reconciliation_state"] == "not_started"
+    assert controller_state["remote"]["state_dir"].startswith(".codexbridge/jobs/")
+    assert controller_state["local"]["remote_job_id"] == controller_state["execution_id"]
     manifest = status["input"]["staging_manifest"]
     assert manifest["tool"] == "ssh_monitored_command"
     assert manifest["invoking_run_id"] == response["run_id"]
