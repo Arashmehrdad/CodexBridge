@@ -60,6 +60,7 @@ from .process_control import (
 )
 from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import TERMINAL_STATUSES, RunStore
+from .transfer_manifests import build_upload_transfer_manifest
 from .run_publication import publish_run_result
 from .run_guards import (
     allowed_write_directories,
@@ -368,11 +369,17 @@ def _validate_ssh_transfer_worker_input(
         if manifest is not None:
             if manifest.get("source_kind") != expected_kind:
                 raise ValueError("Persisted SSH transfer source kind does not match")
-            if expected_kind == "file":
-                if manifest.get("source_size_bytes") != local.stat().st_size:
-                    raise ValueError("SSH upload source size changed after acceptance")
-                if manifest.get("source_sha256") != _sha256_file(local):
+            current_manifest = build_upload_transfer_manifest(local)
+            if manifest != current_manifest:
+                if expected_kind == "file":
+                    if manifest.get("source_size_bytes") != current_manifest.get(
+                        "source_size_bytes"
+                    ):
+                        raise ValueError("SSH upload source size changed after acceptance")
                     raise ValueError("SSH upload source SHA-256 changed after acceptance")
+                raise ValueError(
+                    "SSH recursive upload source changed after acceptance"
+                )
     else:
         requested_name = (
             Path(local_path).name if local_path else PurePosixPath(remote_path).name

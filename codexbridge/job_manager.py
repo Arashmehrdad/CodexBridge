@@ -53,6 +53,7 @@ from .run_query_chunks import (
 )
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .run_publication import publish_run_result
+from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
     reject_destructive_command,
     validate_repo_relative_path,
@@ -1267,20 +1268,7 @@ class JobManager:
                 raise ValueError(f"Local upload path does not exist: {local_path}")
             if local.is_dir() and not recursive:
                 raise ValueError("Directory upload requires recursive=true")
-            if local.is_file():
-                transfer_manifest = {
-                    "version": 1,
-                    "source_kind": "file",
-                    "source_size_bytes": local.stat().st_size,
-                    "source_sha256": _sha256_file(local),
-                }
-            else:
-                transfer_manifest = {
-                    "version": 1,
-                    "source_kind": "directory",
-                    "source_size_bytes": None,
-                    "source_sha256": "",
-                }
+            transfer_manifest = build_upload_transfer_manifest(local)
         else:
             requested_name = (
                 Path(local_path).name if local_path else Path(remote_path).name
