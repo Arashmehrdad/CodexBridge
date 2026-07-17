@@ -645,8 +645,11 @@ Checkpoint (2026-07-17):
 - Launch ownership is reported only after PID, PGID, process-start identity, execution ID, state path, running state, heartbeat, and durable-ownership evidence have been persisted remotely; incomplete or unsafe identity aborts launch.
 - Running controllers refresh the authoritative heartbeat atomically and terminal publication updates both result and state before emitting the verified exit marker.
 - Focused validation passed with `tests/test_ssh_watchdog.py`, `tests/test_remote_controller_state.py`, and `tests/test_ssh_worker.py`: **46 passed**; adjacent validation with those suites plus `tests/test_job_manager.py`: **105 passed**; changed modules passed `py_compile`; `git diff --check` passed.
-- Implementation commits through `f2f712dc2e2c81fbbd9e80f7db30f2c08b7a5cb1`.
-- Next executable unit: add remote-state probing and local reconciliation so restart recovery adopts a matching live controller, records uncertainty without duplicate launch, and publishes terminal remote evidence exactly once.
+- Added deterministic local reconciliation classification for matching live state, terminal state, invalid authoritative state, identity mismatch, and network/state uncertainty.
+- Added a bounded remote-state probe that reads authoritative `state.json` and optional `result.json` without launching a second controller; probe timeouts and transport failures remain explicitly uncertain rather than terminal.
+- Reconciliation/probe validation passed with `tests/test_remote_controller_state.py`, `tests/test_ssh_watchdog.py`, and `tests/test_ssh_worker.py`: **52 passed**; changed modules passed `py_compile`; `git diff --check` passed.
+- Implementation commits through `b61c6a3e86956e96607711d67cb9696172bd8095`.
+- Next executable unit: integrate probe-and-reconcile into startup recovery and monitored-worker re-entry so a matching live controller is adopted without duplicate launch and ready terminal evidence is published exactly once.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 
