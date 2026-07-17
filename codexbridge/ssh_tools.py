@@ -8,6 +8,7 @@ import subprocess
 import tarfile
 import time
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
