@@ -989,12 +989,19 @@ def test_ssh_transfer_worker_revalidates_canonical_upload_policy(
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     store = RunStore(runs_dir)
+    upload_input = _canonical_upload_input()
+    upload_input["transfer_manifest"] = {
+        "version": 1,
+        "source_kind": "file",
+        "source_size_bytes": len(b"deploy\n"),
+        "source_sha256": sha256(b"deploy\n").hexdigest(),
+    }
     store.create_run(
         run_id=run_id,
         repo_name="ssh:my_vps",
         tool="ssh_transfer",
         run_dir=run_dir,
-        input_data=_canonical_upload_input(),
+        input_data=upload_input,
     )
     executor_called = False
 

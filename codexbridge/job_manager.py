@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -73,6 +74,14 @@ from .ssh_watchdog import (
     validate_monitored_command_start,
 )
 from .ssh_tools import build_ssh_action, validate_remote_path
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def make_run_id(tool: str) -> str:
@@ -1251,12 +1260,38 @@ class JobManager:
         host = resolve_ssh_host(self.config, host_id)
         validate_remote_path(host, remote_path, sensitive=True)
         repo_root = resolve_repo(self.config, repo_name)
+        transfer_manifest: dict[str, object]
         if direction == "upload":
             local = validate_repo_relative_path(repo_root, local_path)
             if not local.exists():
                 raise ValueError(f"Local upload path does not exist: {local_path}")
             if local.is_dir() and not recursive:
                 raise ValueError("Directory upload requires recursive=true")
+            if local.is_file():
+                transfer_manifest = {
+                    "version": 1,
+                    "source_kind": "file",
+                    "source_size_bytes": local.stat().st_size,
+                    "source_sha256": _sha256_file(local),
+                }
+            else:
+                transfer_manifest = {
+                    "version": 1,
+                    "source_kind": "directory",
+                    "source_size_bytes": None,
+                    "source_sha256": "",
+                }
+        else:
+            requested_name = (
+                Path(local_path).name if local_path else Path(remote_path).name
+            )
+            if not requested_name or requested_name in {".", ".."}:
+                requested_name = "downloaded-artifact"
+            transfer_manifest = {
+                "version": 1,
+                "source_kind": "remote",
+                "staging_relative_path": f"downloads/{requested_name}",
+            }
         policy = authorize_ssh_action_launch(
             autonomy_profile=autonomy_profile,
             execution_mode=execution_mode,
@@ -1286,6 +1321,7 @@ class JobManager:
             "recursive": recursive,
             "overwrite": overwrite,
             "confirmation": confirmation,
+            "transfer_manifest": transfer_manifest,
             **policy_metadata,
         }
         response = self._create_and_launch(

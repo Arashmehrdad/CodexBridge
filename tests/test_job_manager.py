@@ -517,6 +517,12 @@ def test_start_ssh_action_transfer_and_deployment_create_durable_runs(
     assert transfer["approval_source"] == "none"
     transfer_status = manager.get_status(transfer["run_id"])
     assert transfer_status["tool"] == "ssh_transfer"
+    assert transfer_status["input"]["transfer_manifest"] == {
+        "version": 1,
+        "source_kind": "file",
+        "source_size_bytes": len("deploy\n".encode("utf-8")),
+        "source_sha256": sha256(b"deploy\n").hexdigest(),
+    }
     assert transfer_status["input"]["permission_tier"] == transfer["permission_tier"]
     assert transfer_status["input"]["approval_source"] == "none"
     manager.locks.release("ssh:my_vps", transfer["run_id"])
@@ -570,6 +576,12 @@ def test_ssh_transfer_profiles_gate_upload_and_allow_download(
         remote_path="/srv/app/artifact.log",
         autonomy_profile="permissive",
     )
+    download_status = manager.get_status(download["run_id"])
+    assert download_status["input"]["transfer_manifest"] == {
+        "version": 1,
+        "source_kind": "remote",
+        "staging_relative_path": "downloads/artifact.log",
+    }
     assert download["permission_tier"] == "T0_READ_ONLY"
     assert download["policy_decision"] == "allowed"
     assert download["approval_source"] == "none"
