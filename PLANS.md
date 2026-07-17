@@ -594,7 +594,11 @@ Checkpoint (2026-07-17):
 - Completed output metadata records exact byte length, SHA-256, classification, invoking run ID, and lease generation for each declared stream.
 - Executable-staging implementation commits: `066a13c5ab700ec8ce2a3b23fbaa17017cdc39e5`, `12c31e624df3355f0f43e9420e0a28ee61f2a5bb`, `36abfd3203bbc751733b6d6f4abec11662203cb5`, and `d27ee08acb1d7780df5ceca1ce3b29800fb3e774`.
 - Focused validation passed: `tests/test_executable_staging.py`, `tests/test_executable_profiles.py`, `tests/test_executable_profile_worker.py`, and `tests/test_job_manager.py` completed with **71 passed**; `executable_staging.py`, `executable_profiles.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: extend the same run/lease-linked protected-artifact manifest contract to reviewed scripts and remote-controller staging, then close R3 with overwrite/retry acceptance coverage.
+- Reviewed-script and monitored remote-controller runs now receive versioned staging manifests before durable worker launch. Reviewed scripts are materialized as protected UTF-8 input under `inputs/reviewed-script.bin` with exact size and SHA-256; both tool classes declare protected stdout/stderr evidence bound to the invoking run ID and lease generation.
+- Workers revalidate tool identity, run identity, lease generation, exact run-relative output paths, protected classifications, and reviewed-script bytes before remote execution. Completed outputs publish exact size/SHA-256 metadata, while historical pre-manifest runs remain compatible.
+- SSH staging implementation commits: `7bf668967285251bed64709fe8b11602e57ee959`, `b535bf9c4b89c9a85dafe46a44c571da955817be`, `9d5d8fee92745212c97597e72f3ed86d5c69dd24`, and `4ae85be66221d48bc1b4b6376c82d7a9679df856`.
+- Focused validation passed: `tests/test_job_manager.py` and `tests/test_ssh_worker.py` completed with **96 passed**; `ssh_staging.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: close R3 with explicit overwrite/retry acceptance coverage for existing download publications, stale partial staging, and repeated reviewed-script/remote-controller staging validation.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
