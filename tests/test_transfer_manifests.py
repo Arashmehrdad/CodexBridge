@@ -5,7 +5,53 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.transfer_manifests import build_upload_transfer_manifest
+from codexbridge.transfer_manifests import (
+    build_download_cleanup_manifest,
+    build_upload_transfer_manifest,
+    cleanup_transfer_staging,
+)
+
+
+def test_download_cleanup_manifest_is_retry_safe_and_preserves_publication(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    downloads = run_dir / "downloads"
+    downloads.mkdir(parents=True)
+    partial = downloads / ".artifact.bin.partial"
+    published = downloads / "artifact.bin"
+    partial.write_bytes(b"partial")
+    published.write_bytes(b"published")
+    manifest = build_download_cleanup_manifest("artifact.bin")
+
+    assert cleanup_transfer_staging(run_dir, manifest) == [
+        "downloads/.artifact.bin.partial"
+    ]
+    assert cleanup_transfer_staging(run_dir, manifest) == []
+    assert not partial.exists()
+    assert published.read_bytes() == b"published"
+    assert manifest["protected_entries"] == ["downloads/artifact.bin"]
+
+
+def test_transfer_cleanup_manifest_rejects_escape_and_protected_deletion(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    with pytest.raises(ValueError, match="escapes"):
+        cleanup_transfer_staging(
+            run_dir,
+            {"version": 1, "cleanup_entries": ["../outside"], "protected_entries": []},
+        )
+    with pytest.raises(ValueError, match="protected evidence"):
+        cleanup_transfer_staging(
+            run_dir,
+            {
+                "version": 1,
+                "cleanup_entries": ["downloads/artifact.bin"],
+                "protected_entries": ["downloads/artifact.bin"],
+            },
+        )
 
 
 def test_recursive_upload_manifest_is_stable_and_binary_safe(tmp_path: Path) -> None:

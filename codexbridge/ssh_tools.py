@@ -19,6 +19,7 @@ from .config import (
     SSHHostConfig,
 )
 from .safety import redact_secret_values, validate_repo_relative_path
+from .transfer_manifests import build_download_cleanup_manifest, cleanup_transfer_staging
 from .ssh_commands import (
     _run_ssh_argv,
     build_ssh_argv,
@@ -951,13 +952,15 @@ def run_ssh_transfer(
             requested_name = "downloaded-artifact"
         local = downloads / requested_name
         partial = downloads / f".{requested_name}.partial"
+        cleanup_manifest = build_download_cleanup_manifest(requested_name)
+        cleanup_manifest_path = run_dir / "transfer_cleanup_manifest.json"
+        cleanup_manifest_path.write_text(
+            __import__("json").dumps(cleanup_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         if local.exists() and not overwrite:
             raise ValueError(f"Download destination already exists: {local.name}")
-        if partial.exists():
-            if partial.is_dir():
-                shutil.rmtree(partial)
-            else:
-                partial.unlink()
+        stale_removed = cleanup_transfer_staging(run_dir, cleanup_manifest)
         argv.extend([f"{destination_host}:{remote}", str(partial)])
         cwd = run_dir
         destination = str(local)
@@ -981,11 +984,10 @@ def run_ssh_transfer(
                 result["download_sha256"] = downloaded_sha256
                 result["staging_relative_path"] = f"downloads/{requested_name}"
                 result["publication"] = "atomic_replace"
-        if partial.exists():
-            if partial.is_dir():
-                shutil.rmtree(partial)
-            else:
-                partial.unlink()
+        cleanup_removed = cleanup_transfer_staging(run_dir, cleanup_manifest)
+        result["cleanup_manifest"] = cleanup_manifest
+        result["cleanup_manifest_path"] = cleanup_manifest_path.name
+        result["cleanup_removed"] = [*stale_removed, *cleanup_removed]
     result.update(
         {
             "host_id": host_id,

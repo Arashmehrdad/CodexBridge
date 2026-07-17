@@ -380,6 +380,13 @@ def test_download_is_hash_verified_and_atomically_published(
     assert result["download_sha256"] == sha256(payload).hexdigest()
     assert result["staging_relative_path"] == "downloads/api.log"
     assert result["publication"] == "atomic_replace"
+    assert result["cleanup_manifest"] == {
+        "version": 1,
+        "cleanup_entries": ["downloads/.api.log.partial"],
+        "protected_entries": ["downloads/api.log"],
+    }
+    assert result["cleanup_manifest_path"] == "transfer_cleanup_manifest.json"
+    assert (run_dir / "transfer_cleanup_manifest.json").is_file()
     assert Path(captured["argv"][-1]).name == ".api.log.partial"
     assert not Path(captured["argv"][-1]).exists()
 
@@ -409,6 +416,7 @@ def test_failed_download_removes_partial_staging_artifact(
     )
 
     assert result["ok"] is False
+    assert result["cleanup_removed"] == ["downloads/.api.log.partial"]
     assert not (run_dir / "downloads" / ".api.log.partial").exists()
     assert not (run_dir / "downloads" / "api.log").exists()
 

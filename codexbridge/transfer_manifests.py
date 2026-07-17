@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def sha256_file(path: Path) -> str:
@@ -10,6 +10,58 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def build_download_cleanup_manifest(requested_name: str) -> dict[str, object]:
+    name = PurePosixPath(str(requested_name)).name
+    if not name or name in {".", ".."} or name != str(requested_name):
+        raise ValueError("Download cleanup manifest requires a single artifact name")
+    return {
+        "version": 1,
+        "cleanup_entries": [f"downloads/.{name}.partial"],
+        "protected_entries": [f"downloads/{name}"],
+    }
+
+
+def cleanup_transfer_staging(run_dir: Path, manifest: dict[str, object]) -> list[str]:
+    if manifest.get("version") != 1:
+        raise ValueError("Transfer cleanup manifest version is unsupported")
+    cleanup_entries = manifest.get("cleanup_entries")
+    protected_entries = manifest.get("protected_entries")
+    if not isinstance(cleanup_entries, list) or not isinstance(protected_entries, list):
+        raise ValueError("Transfer cleanup manifest entries are invalid")
+    protected = {str(item) for item in protected_entries}
+    removed: list[str] = []
+    root = run_dir.resolve()
+    for raw_entry in cleanup_entries:
+        entry = str(raw_entry)
+        if entry in protected:
+            raise ValueError("Transfer cleanup manifest cannot delete protected evidence")
+        relative = PurePosixPath(entry)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("Transfer cleanup manifest path escapes the run directory")
+        candidate = (run_dir / Path(*relative.parts)).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Transfer cleanup manifest path escapes the run directory") from exc
+        if not candidate.exists():
+            continue
+        if candidate.is_symlink():
+            raise ValueError("Transfer cleanup refuses symbolic links")
+        if candidate.is_dir():
+            for child in candidate.rglob("*"):
+                if child.is_symlink():
+                    raise ValueError("Transfer cleanup refuses symbolic links")
+            import shutil
+
+            shutil.rmtree(candidate)
+        elif candidate.is_file():
+            candidate.unlink()
+        else:
+            raise ValueError("Transfer cleanup refuses non-regular artifacts")
+        removed.append(entry)
+    return removed
 
 
 def build_upload_transfer_manifest(source: Path) -> dict[str, object]:
