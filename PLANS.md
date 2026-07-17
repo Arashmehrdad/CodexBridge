@@ -41,9 +41,9 @@ Every accepted asynchronous operation must have durable launch intent, ownership
 
 ### Permissive-only active execution policy
 
-- `permissive` is the only execution profile receiving new capability work.
-- `readonly` and `chatgpt_delegated` are frozen compatibility profiles. Do not add new commands, transports, policy branches, tests, or documentation solely to expand them.
-- Existing callers may continue to load the frozen profiles until the C1 migration and cleanup batch proves they are unused and removes them safely.
+- `permissive` is the only active execution profile and the only profile that may receive execution capability work.
+- C1 removed legacy execution-profile routing from active configuration, runtime schemas, policy evaluation, workers, and public capability output. Removed names may remain only in negative validation tests or historical migration evidence.
+- General permission tiers, delegated-approval terminology, and supervisor planning profiles are separate policy concepts and are not compatibility execution routes.
 - `human_only` remains a classification for managed CodexBridge tools. It is not a reliable boundary inside an unrestricted PowerShell session.
 
 ### Operator risk acceptance
@@ -488,9 +488,9 @@ Acceptance:
 
 Depends on X2 and X2A acceptance. Optional specialist executable profiles are not prerequisites. Cleanup must follow replacement, not precede it.
 
-Status: **in progress**.
+Status: **complete**.
 
-Checkpoint (2026-07-16):
+Checkpoint (2026-07-16 through 2026-07-17):
 
 - Added a before/after capability matrix covering compatibility SSH autonomy routing, local project-command surfaces, reviewed-script and administration wrappers, and durable evidence retention.
 - New `SSHConfig` instances and `config.example.yaml` now activate only `permissive`; explicit legacy profile lists remain loadable during the deterministic migration window.
@@ -531,18 +531,16 @@ Checkpoint (2026-07-16):
 - Focused validation passed: `tests/test_config.py` 24 passed; `tests/test_service_reload.py` 8 passed.
 - Live unrestricted-PowerShell replacement smoke evidence (2026-07-17): `typecheck` completed with exit code 0; `vitest` completed with 6 files and 20 tests passed; `frontend_validate` completed with exit code 0. The original `eslint .` replacement exposed an inaccessible pre-existing `.pytest_cache` and then a generated `output/run-production-smoke.mjs` file that is already excluded from version control. A reviewed non-destructive replacement using ESLint `--ignore-pattern .pytest_cache/** --ignore-pattern output/**` completed with exit code 0 without changing ACLs or deleting generated data.
 - The four ordinary Andia validation command profiles (`eslint`, `typecheck`, `vitest`, and `frontend_validate`) are removed from active `config.yaml`. Their prior definitions remain preserved in the deterministic migration report design and roadmap evidence as rollback data; unrestricted PowerShell is now the active replacement and durable historical runs remain untouched.
-- Next unit: validate configuration reload and deterministic absence of the removed ordinary-profile migration report, then continue the C1 inventory with restricted remote wrappers that remain gated on R3/R4/X4 transport and durability parity.
+- Active configuration validation and reload passed after removal. Empty ordinary-profile migrations are omitted entirely, proving deterministic absence after migration. Implementation commit: `f0b5da1e513df51e8ada297bcce2fc5213e28688`.
+- Managed cleanup explicitly rejects the durable `runs` evidence root. Cleanup remains limited to registered scratch roots and requires preview, repository fingerprint, per-file hashes, regular-file validation, and idempotent application. Durable databases, runs, protected artifacts, results, events, and delivered manifests are retained.
+- SSH reviewed-script, administration, transfer, and deployment surfaces remain intentionally assigned to R3/R4/X4 because they still provide remote transport, staging, and ownership behavior without replacement parity; their retention is not an incomplete C1 compatibility route.
+- Final focused validation passed: `tests/test_service_reload.py` 9 passed; `tests/test_managed_artifacts.py` 5 passed; `tests/test_powershell_acceptance.py` 4 passed; `tests/test_parallel_powershell_acceptance.py` 7 passed.
+- Live unrestricted-PowerShell smoke passed for Git 2.53.0, OpenSSH for Windows 9.5p2, Git-for-Windows OpenSSL 3.5.5, and Python 3.12.10. The full C1 exit gate passed with 1103 tests passed and 1 skipped; `python -m pip check` found no broken requirements; `git diff --check` passed.
+- C1 acceptance is complete. The next roadmap unit is R3 transfer policy and managed staging, followed by R4 durable remote ownership and X4 unrestricted remote PowerShell.
 
 Goal: remove restrictive and duplicated execution surfaces that no longer provide value once unrestricted PowerShell and direct executable profiles are proven.
 
-Create a capability and call-site inventory, then migrate active callers to the smallest retained substrate. Candidate removals include:
-
-- `readonly` and `chatgpt_delegated` execution-profile routing, configuration, policy branches, fixtures, and documentation;
-- restricted local command wrappers superseded by unrestricted PowerShell;
-- duplicated reviewed-script wrappers where PowerShell, direct executable profiles, or remote root shell provide complete parity;
-- bounded administration wrappers whose only remaining purpose is command filtering;
-- obsolete command-profile definitions, approval paths, compatibility adapters, tests, and examples;
-- stale generated artifacts and registered temporary files created by removed tools.
+The final capability and call-site inventory is recorded in `docs/permissive-migration-inventory.md`. C1 removed legacy execution-profile routing, redundant local command wrappers, obsolete built-in profiles, duplicate local-agent execution code, and migrated ordinary configured validation commands. Remote SSH transport, staging, reviewed-script, administration, transfer, and deployment surfaces are retained for R3/R4/X4 until durable remote replacement parity is proven.
 
 Retain these core controls even in permissive-only mode:
 
@@ -555,7 +553,7 @@ Retain these core controls even in permissive-only mode:
 - durable parallel command groups and independent child-run controls;
 - unrestricted PowerShell as the single arbitrary-command gateway; optional specialist executable profiles only where independently justified.
 
-Do not delete durable run history or protected evidence merely because its originating tool was removed. Add an explicit retention/cleanup policy instead.
+Durable run history and protected evidence are retained even when their originating tool is removed. The explicit C1 policy excludes `runs/`, databases, protected artifacts, results, events, reports, and delivered manifests from managed cleanup; only registered scratch roots may be previewed and hash-verified for deletion.
 
 Acceptance:
 
@@ -574,7 +572,7 @@ Active policy:
 
 - `unrestricted`: arbitrary paths available to the service account or registered remote user under the enabled permissive profile.
 
-`repo_only` and `configured_roots` remain frozen compatibility policies only until C1 removes them or a retained non-execution subsystem proves it still requires them. Do not add new behavior to either policy.
+`repo_only` and `configured_roots` remain frozen SSH transfer/staging compatibility policies during R3. C1 retained them because current remote transport and staging still require their boundaries; do not add new behavior beyond the R3 migration and acceptance work.
 
 Deliverables:
 
@@ -824,7 +822,7 @@ For documentation-only batches:
 - lock-free same-repository execution is available when explicitly selected and its race risk is recorded;
 - aggregate status and final results preserve mixed child outcomes without obscuring individual evidence.
 
-### Permissive-only cleanup gate
+### Permissive-only cleanup gate — passed
 
 - `permissive` is the only active execution profile;
 - frozen profile routes and redundant restricted wrappers are removed after caller migration;

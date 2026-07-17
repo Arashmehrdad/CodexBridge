@@ -1,115 +1,74 @@
 # Permissive-Only Migration Inventory
 
-This inventory records the compatibility surfaces that remain after G1 and must be evaluated during C1, after unrestricted local PowerShell and parallel fan-out have passed their acceptance gates.
+Status: **C1 complete on 2026-07-17**.
+
+This document is the final C1 capability and retention record. Local unrestricted PowerShell and durable parallel fan-out are the active arbitrary-command substrates. Remote SSH transport, staging, transfer, deployment, reviewed-script, and administration primitives remain intentionally retained for R3, R4, and X4 because equivalent durable remote ownership and staging are not yet available.
 
 ## Active installation state
 
-- `config.yaml` activates only the `permissive` SSH autonomy profile.
-- `JobManager._require_active_ssh_autonomy_profile` rejects disabled SSH profiles before durable run or repository-lock creation.
-- SSH capability output reports both configured active profiles and compatibility-supported profiles.
-- Permissive structured, reviewed-script, and root-shell routes remain active during migration.
+- `config.yaml`, `config.example.yaml`, SSH request models, policy evaluation, manager defaults, worker revalidation, and public capability schemas accept only the `permissive` SSH execution profile.
+- Removed SSH profile names are retained only in negative validation tests or historical migration evidence; they have no positive runtime, configuration, or public-schema route.
+- `supervisor_action` starts with the permissive profile only.
+- Permission-tier names such as `T4_WRITE_APPLY_CHATGPT_DELEGATED` remain part of the general approval model. They are not execution-profile routes and were not removed by C1.
+- Repository query, managed patching, durable runs, locks, protected artifacts, workflows, supervisors, cancellation, recovery, return-loop publication, SSH transport, and configuration lifecycle tools remain retained control-plane primitives.
 
-## Runtime profile-routing candidates
+## Final capability matrix
 
-The following files still carry compatibility routing or policy behavior for `conservative` and `balanced` SSH autonomy profiles and should be reviewed for removal or simplification in C1:
+| Surface reviewed | C1 result | Retained replacement or reason |
+| --- | --- | --- |
+| SSH `conservative`, `balanced`, and `chatgpt_delegated` execution routing | Removed from active configuration, models, policy matrix, manager defaults, workers, and live schemas | Permissive-only SSH execution; deterministic rejection tests preserve migration evidence |
+| Public synchronous `run_project_command` compatibility tool | Removed | Durable typed operations and unrestricted PowerShell |
+| Public `run_start(operation="project_command")` variant and forwarding helper | Removed | Internal `JobManager.start_project_command` remains for workflows and `DurableProjectCommandRunner` only |
+| Direct-subprocess `LocalAgentCommandRunner` and helper | Removed | `DurableProjectCommandRunner` over `JobManager`/`RunStore`; orchestration tests inject structural doubles |
+| Duplicate local-agent command-profile registry and artifact tree | Removed | Canonical durable command-profile registry and durable run artifacts |
+| Built-in `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and duplicate `git_diff_check` | Removed | Unrestricted PowerShell; retained typed `git_readonly(diff_check)` where a fixed validation operation is useful |
+| Ordinary Andia `eslint`, `typecheck`, `vitest`, and `frontend_validate` configured profiles | Removed after live replacement smoke tests | Unrestricted PowerShell with the repository working directory and explicit timeout |
+| CodexBridge inspection, rollback repair, and service-restart configured profiles | Retained | These carry reviewed operational semantics and remain internal durable workflow contracts, not public arbitrary-command gateways |
+| SSH reviewed-script, administration, transfer, and deployment wrappers | Retained and assigned to R3/R4/X4 | They still provide remote transport, staging, controller, and evidence behavior that local PowerShell cannot replace safely before remote durability parity |
+| Durable history and protected evidence from removed routes | Retained | Explicit C1 retention policy below |
 
-- `codexbridge/config.py`: `SSHConfig.active_autonomy_profiles` schema and compatibility defaults.
-- `codexbridge/job_manager.py`: active-profile gate and legacy structured/reviewed-script launch paths.
-- `codexbridge/ssh_policy.py`: mode/profile authorization matrix and delegated-approval metadata.
-- `codexbridge/ssh_tools.py`: capability reporting for active and compatibility-only profiles.
-- `codexbridge/gateway_models.py`: structured, reviewed-script, and root-shell request variants.
-- `codexbridge/server.py`: SSH action delegation and compatibility route forwarding.
-- `codexbridge/job_worker.py`: persisted policy revalidation for structured and reviewed-script runs.
+## Configuration migration result
 
-## Configuration candidates
+- `ssh_active_autonomy_profiles_v1` is deterministic, rollback-capable, and reports no migration requirement for the active permissive-only configuration.
+- `ordinary_validation_command_profiles_v1` preserves complete configured profiles as rollback data and emits exact unrestricted-PowerShell replacements while candidates exist.
+- After the Andia migration and config reload, configuration validation omits the ordinary-profile migration key entirely because no candidates remain.
+- Configuration migration never deletes or mutates historical durable runs.
 
-- `config.example.yaml` still demonstrates all three canonical autonomy profiles and must become permissive-only when C1 migration begins.
-- `codexbridge/config.py` still defaults `active_autonomy_profiles` to all three canonical profiles for compatibility.
-- Existing user configuration migration must preserve rollback information and must not silently delete durable run history.
+## Durable evidence retention policy
 
-## Test and fixture candidates
+C1 route removal does not delete durable evidence.
 
-Compatibility-profile assertions remain primarily in:
+- The configured `runs/` directory, SQLite databases, run directories, protected stdout/stderr artifacts, structured results, events, return-loop reports, and delivered manifests are outside managed cleanup scope.
+- Managed cleanup accepts only the explicit `MANAGED_ARTIFACT_ROOTS` allowlist: `.codex-tmp`, `.pytest_cache`, `.ruff_cache`, and `tests/pytest_tmp_probe`.
+- Cleanup requires a preview manifest, repository fingerprint, per-file SHA-256 verification, regular-file checks, and an idempotent apply transition.
+- Cleanup rejects the `runs` root and every unregistered path.
+- Historical evidence remains readable after its originating public route or compatibility implementation is removed. Any future time-based retention feature requires a separate roadmap unit and explicit operator policy.
 
-- `tests/test_config.py`
-- `tests/test_job_manager.py`
-- `tests/test_ssh_policy.py`
-- `tests/test_ssh_tools.py`
-- `tests/test_ssh_worker.py`
-- `tests/test_tool_gateway_models.py`
+## Validation and acceptance evidence
 
-C1 should replace these with permissive-only assertions where behavior is superseded, while retaining tests for deterministic rejection of removed or disabled legacy values during the migration window.
+Focused closure validation:
 
-## Documentation candidates
+- `tests/test_service_reload.py`: 9 passed;
+- `tests/test_managed_artifacts.py`: 5 passed;
+- `tests/test_powershell_acceptance.py`: 4 passed;
+- `tests/test_parallel_powershell_acceptance.py`: 7 passed.
 
-- `README.md`
-- `config.example.yaml`
-- `docs/domain-tool-gateway-migration.md`
-- `docs/domain-tool-gateway-progress.md`
-- `PLANS.md`
+Live unrestricted-PowerShell evidence:
 
-Documentation must distinguish SSH autonomy profiles from approval terminology.
+- PowerShell launched Git `2.53.0.windows.2`;
+- PowerShell launched OpenSSH for Windows `9.5p2`;
+- PowerShell launched Git-for-Windows OpenSSL `3.5.5` by absolute installed path;
+- PowerShell launched Python `3.12.10`;
+- earlier Andia replacements passed typecheck, 6 Vitest files with 20 tests, frontend validation, and reviewed ESLint validation without changing ACLs or deleting generated data.
 
-## Terminology that is not an autonomy profile
+C1 exit gate:
 
-Strings such as `T4_WRITE_APPLY_CHATGPT_DELEGATED`, `T5_COMMIT_PRIVATE_BRANCH_CHATGPT_DELEGATED`, `allowed_with_chatgpt_delegated_approval`, and `chatgpt_delegated_allowed` belong to the general approval and permission-tier model. They are not SSH autonomy-profile names and must not be removed merely because C1 removes compatibility execution profiles. Any later cleanup of approval terminology requires a separate policy migration and evidence gate.
+- full repository suite: **1103 passed, 1 skipped**;
+- `python -m pip check`: no broken requirements;
+- `git diff --check`: passed;
+- configuration validation and reload: passed;
+- durable protected artifacts and run history: preserved.
 
-## Restricted-wrapper candidates after PowerShell parity
+## Closure decision
 
-The following command surfaces are potential cleanup targets only after X2 and X2A acceptance proves replacement parity:
-
-- restricted local project-command starters and command profiles that PowerShell can invoke directly;
-- legacy reviewed-script wrappers whose only remaining value is command filtering;
-- bounded SSH administration wrappers superseded by unrestricted remote PowerShell or retained root-shell/controller facilities;
-- obsolete command-profile definitions and workflow step adapters tied only to removed wrappers.
-
-Repository query, preview, apply, revert, move, commit, validation, durable lifecycle, locks, transfers, remote-controller, artifacts, workflows, supervisors, status, cancellation, recovery, and audit tooling remain retained control-plane primitives.
-
-## Before/after capability matrix
-
-| Current surface | Current active callers | Retained replacement | C1 disposition |
-| --- | --- | --- | --- |
-| SSH `conservative` autonomy routing | Compatibility tests and explicitly configured legacy installations only | `permissive` SSH routing with operating-system and remote-account boundaries | Stop activating by default now; remove schema and runtime routing only after deterministic config migration is implemented. |
-| SSH `balanced` autonomy routing | Compatibility tests and explicitly configured legacy installations only | `permissive` structured, reviewed-script, and root-shell routing | Stop activating by default now; remove with the same migration unit as `conservative`. |
-| Local `project_command` public operation | Removed; workflows and typed adapters call the durable manager internally | Unrestricted PowerShell for arbitrary commands; retained typed validation operations for safe focused checks | Complete. The public discriminated request variant and server forwarding helper are removed while durable workflow and adapter execution remains internal. |
-| Built-in Ruff, mypy, formatting, and duplicate Git-diff profiles | No runtime callers; only registry tests and README metadata remained | Unrestricted PowerShell for ad hoc lint/format/typecheck commands; `git_readonly(diff_check)` for the retained fixed Git validation | Complete. `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and `git_diff_check` are removed from the built-in registry and now reject as unknown IDs. |
-| Repository-configured project-command profiles | Active durable workflow and operational callers, including repository-specific validation and service-management scripts | Internal durable `JobManager.start_project_command` with persisted profile identity and lifecycle controls | Retain until each configured caller is migrated or explicitly abandoned; these profiles provide durable workflow integration rather than a public arbitrary-command gateway. |
-| `LocalAgentCommandRunner.run_project_command` | Removed; no production caller remained | `DurableProjectCommandRunner` over typed durable project-command operations plus structural injected test doubles | Complete. The direct-subprocess implementation, standalone helper, lazy exports, direct implementation tests, and separate local-agent command artifact path were removed. |
-| Local synchronous `run_project_command` compatibility tool | Removed; no runtime callers existed. | Durable `run_start` plus typed validation or unrestricted PowerShell | Complete in commit `414acbf39d16c9baacc5d4fd4d6af5e984879ad3`; registration, discovery fixtures, direct tests, and README guidance were removed while durable workflows and the local-agent runner were retained. |
-| SSH reviewed-script wrapper | Public SSH gateway and durable worker | Retain temporarily for remote transport and durable ownership until R4/X4 parity exists | Not removable in the first C1 slice. Command filtering alone is not sufficient justification to retain it after remote PowerShell parity. |
-| SSH administration wrappers | Public SSH administration gateway | Transfer/controller primitives and future unrestricted remote PowerShell | Defer until R3/R4/X4 because current wrappers still provide transport and staging behavior. |
-| Durable run history and protected artifacts from removed tools | Run store, result publication, audit and recovery tooling | Existing durable lifecycle and explicit retention policy | Always retain; route removal must never delete historical evidence. |
-
-## First independently removable compatibility unit
-
-1. Default `SSHConfig.active_autonomy_profiles` to `permissive` only.
-2. Update `config.example.yaml` and default-value tests to match.
-3. Continue accepting explicit legacy profile lists during the migration window so existing configuration remains loadable and rollback-capable.
-4. Configuration validation now emits a deterministic migration report for explicit legacy values before any schema or runtime branch is narrowed. The report preserves the configured profile order as rollback data, identifies legacy values, supplies the permissive-only replacement, and states that durable history is retained.
-5. The next unit may narrow the SSH active-profile schema and runtime authorization branches to `permissive`, while keeping deterministic rejection tests for removed legacy values and leaving delegated-approval terminology untouched.
-
-## C1 execution checklist
-
-1. Produce a before/after capability matrix for every candidate route. **Complete for the current candidate set; refine as call sites are migrated.**
-2. Confirm an accepted unrestricted-PowerShell replacement or explicitly abandon the capability.
-3. Migrate active callers and configuration deterministically.
-4. Remove runtime routes, schemas, tests, fixtures, examples, and documentation together.
-5. Preserve durable historical runs and protected evidence under an explicit retention policy.
-6. Run focused tests, the full suite, `python -m pip check`, `git diff --check`, and live PowerShell/parallel acceptance tests before declaring cleanup complete.
-
-## First local `project_command` caller classification
-
-- The synchronous server `run_project_command(repo_name, command_id)` wrapper was removed in commit `414acbf39d16c9baacc5d4fd4d6af5e984879ad3` together with its registration/discovery fixtures, direct tests, and README guidance.
-- Durable workflow steps still call `JobManager.start_project_command` and retain child-run reservation, leases, publication, cancellation, and restart behavior.
-- `DurableProjectCommandRunner` now preserves the immediate-result contract while launching typed validation through durable `JobManager` operations.
-- Local-agent orchestration, local-coding validation, and supervisor validation receive durable application context from their production construction path.
-- No production constructor creates a synchronous compatibility runner; no-context command execution fails explicitly, while tests may inject any object satisfying the structural `ProjectCommandRunner` protocol.
-- `LocalAgentCommandRunner`, its standalone helper, lazy exports, direct subprocess implementation tests, and the separate `runs/local_agent/commands` artifact tree are removed.
-- Immediate-result behavior is retained by `DurableProjectCommandRunner`; orchestration-only tests use lightweight injected doubles without creating a second execution substrate.
-- The duplicate `codexbridge/local_agent/command_profiles.py` registry and its standalone tests are removed. Durable argv and executable metadata remain authoritative in `codexbridge/command_profiles.py`; the adapter retains only local permission-tier and maximum synchronous-wait policy needed by its immediate-result contract.
-- The public generic `run_start(operation="project_command")` request variant and `start_project_command_async` server helper are removed. `JobManager.start_project_command` remains internal for workflow child runs and `DurableProjectCommandRunner`, preserving leases, restart adoption, cancellation, locks, artifacts, and history without exposing a second restricted public command gateway.
-- Built-in `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and `git_diff_check` profiles had no runtime callers and are removed. Ad hoc linting, formatting, and type checking use unrestricted PowerShell; retained fixed Git diff validation uses `git_readonly(operation="diff_check")`.
-- Repository-configured profiles remain internal durable contracts and were classified individually against the live installation. For `codexbridge`, `andia_ssh_config_check` is retained as reviewed SSH inspection, `andia_ssh_alias_repair` is retained as rollback-capable repair, and `codexbridge_service_restart` is retained as service lifecycle management. For `andia_beauty`, `eslint`, `typecheck`, `vitest`, and `frontend_validate` are ordinary local validation commands with no tracked workflow or operational caller in this repository.
-- Configuration validation now emits `ordinary_validation_command_profiles_v1` for those candidates. The report preserves every configured profile as rollback data and supplies the exact unrestricted-PowerShell request, repository working directory, and timeout needed to replace it without deleting durable history.
-- Live replacement smoke evidence on 2026-07-17 passed `typecheck`, `vitest` (6 files, 20 tests), and `frontend_validate`. The original ESLint replacement exposed an inaccessible pre-existing `.pytest_cache` and a generated file under the already ignored `output/` directory. The reviewed non-destructive PowerShell replacement added `--ignore-pattern .pytest_cache/** --ignore-pattern output/**` and passed with exit code 0 without ACL changes or deletion.
-- The active `config.yaml` no longer contains the four ordinary Andia validation profiles. Their previous definitions and exact replacement requests remain represented by the deterministic migration-report contract and roadmap evidence for rollback, while durable run history and protected artifacts are preserved.
+C1 removes redundant local execution surfaces and compatibility execution-profile routing. It does not remove remote transport or staging functionality before replacement durability exists. The next roadmap unit is **R3 - Transfer Policy and Managed Staging**, followed by **R4 - Durable Remote Job Protocol** and **X4 - Unrestricted Remote PowerShell**.

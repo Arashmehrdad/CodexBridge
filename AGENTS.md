@@ -32,13 +32,13 @@ Future Codex sessions must inspect the repository before assuming any roadmap fe
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: Durable Execution Recovery
+## Immediate Priority: Remote Transfer and Ownership
 
-Feature expansion is paused behind the durable-execution gate in `PLANS.md`.
+The local durability foundation, unrestricted local PowerShell, parallel command groups, and C1 permissive-only cleanup are complete. The active roadmap now proceeds through R3 transfer/staging and R4 remote ownership before X4 unrestricted remote PowerShell.
 
-The current execution layer has persistence, but accepted work is not yet fully safe across process crashes, service restarts, launcher PID mismatches, or partial child-launch transitions. Until the gate is complete, do not describe workflows, supervisors, or long-running jobs as production-safe or fully restart-safe.
+Local `JobManager`/`RunStore` execution may be described as restart-safe where its acceptance tests apply. Do not describe remote SSH work as fully restart-safe or independently owned until R4 establishes an authoritative remote controller and reattachment protocol.
 
-Required execution invariants:
+The following execution invariants are permanent requirements for every new local or remote execution path:
 
 1. **Persist before launch**
    - Record the normalized request, stable run ID, launch intent, repository identity, policy decision, and ownership token before starting a worker or child process.
@@ -117,8 +117,9 @@ The local agent should handle:
 - local model summaries
 - Codex escalation packets
 - project memory
-- durable long-running jobs after the durability gate passes
-- supervisor/workflow recovery after the durability gate passes
+- durable local long-running jobs through `JobManager`/`RunStore`
+- supervisor/workflow recovery through the shared durable lifecycle
+- remote transfer and controller work only after the relevant R3/R4 invariants are implemented
 - report/resume prompt generation
 
 The local agent must not perform risky writes, commits, pushes, deployments, or secret handling without the policy layer and proper approval.
