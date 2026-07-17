@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+import json
+from hashlib import sha256
+from typing import Any
+
+REMOTE_CONTROLLER_STATE_VERSION = 1
+REMOTE_CONTROLLER_VERSION = "codexbridge-remote-controller-v1"
+
+
+def _canonical_sha256(payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def build_remote_controller_state_contract(
+    *,
+    run_id: str,
+    host_id: str,
+    command_id: str,
+    lease_generation: int,
+    remote_argv: list[str],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    request_identity = {
+        "host_id": host_id,
+        "command_id": command_id,
+        "remote_argv": list(remote_argv),
+        "timeout_seconds": int(timeout_seconds),
+    }
+    idempotency_key = _canonical_sha256(request_identity)
+    execution_id = _canonical_sha256(
+        {
+            "run_id": run_id,
+            "lease_generation": int(lease_generation),
+            "idempotency_key": idempotency_key,
+        }
+    )[:32]
+    remote_state_dir = f".codexbridge/jobs/{execution_id}"
+    controller_fingerprint = _canonical_sha256(
+        {
+            "version": REMOTE_CONTROLLER_VERSION,
+            "contract_version": REMOTE_CONTROLLER_STATE_VERSION,
+        }
+    )
+    return {
+        "version": REMOTE_CONTROLLER_STATE_VERSION,
+        "request_id": run_id,
+        "execution_id": execution_id,
+        "idempotency_key": idempotency_key,
+        "host_id": host_id,
+        "command_id": command_id,
+        "lease_generation": int(lease_generation),
+        "controller": {
+            "version": REMOTE_CONTROLLER_VERSION,
+            "fingerprint": controller_fingerprint,
+        },
+        "remote": {
+            "state_dir": remote_state_dir,
+            "state_path": f"{remote_state_dir}/state.json",
+            "input_path": f"{remote_state_dir}/input.json",
+            "stdout_path": f"{remote_state_dir}/stdout.bin",
+            "stderr_path": f"{remote_state_dir}/stderr.bin",
+            "result_path": f"{remote_state_dir}/result.json",
+            "pid": None,
+            "pgid": None,
+            "process_start_identity": "",
+            "authoritative_state": "launch_pending",
+            "heartbeat_at": "",
+            "cancellation_requested_at": "",
+            "cancellation_completed_at": "",
+            "publication_state": "pending",
+            "cleanup_state": "pending",
+        },
+        "local": {
+            "remote_job_id": execution_id,
+            "remote_state_dir": remote_state_dir,
+            "remote_pid": None,
+            "remote_pgid": None,
+            "remote_process_start_identity": "",
+            "last_authoritative_heartbeat": "",
+            "publication_state": "pending",
+            "cleanup_state": "pending",
+            "reconciliation_state": "not_started",
+            "uncertainty_state": "none",
+        },
+        "execution": {
+            "argv_sha256": _canonical_sha256(list(remote_argv)),
+            "timeout_seconds": int(timeout_seconds),
+            "executable_identity": str(remote_argv[0]) if remote_argv else "",
+            "shell_identity": "direct_argv",
+            "resource_monitor_state": "not_started",
+        },
+    }
+
+
+def validate_remote_controller_state_contract(
+    contract: dict[str, Any],
+    *,
+    run_id: str,
+    host_id: str,
+    command_id: str,
+    lease_generation: int,
+    remote_argv: list[str],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    expected = build_remote_controller_state_contract(
+        run_id=run_id,
+        host_id=host_id,
+        command_id=command_id,
+        lease_generation=lease_generation,
+        remote_argv=remote_argv,
+        timeout_seconds=timeout_seconds,
+    )
+    if contract != expected:
+        raise ValueError("Remote-controller state contract changed after acceptance")
+    return expected
