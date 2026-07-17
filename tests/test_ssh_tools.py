@@ -343,14 +343,20 @@ def test_transfer_rereads_file_backed_endpoint(tmp_path: Path, monkeypatch) -> N
     )
 
 
-def test_download_is_saved_under_run_artifacts(tmp_path: Path, monkeypatch) -> None:
+def test_download_is_hash_verified_and_atomically_published(
+    tmp_path: Path, monkeypatch
+) -> None:
     config, repo = make_config(tmp_path)
+    payload = b"binary\x00payload\xff\n"
+    captured: dict = {}
     monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")
-    monkeypatch.setattr(
-        ssh_tools.subprocess,
-        "run",
-        lambda argv, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
-    )
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        Path(argv[-1]).write_bytes(payload)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ssh_tools.subprocess, "run", fake_run)
     run_dir = tmp_path / "run"
     run_dir.mkdir()
 
@@ -364,9 +370,46 @@ def test_download_is_saved_under_run_artifacts(tmp_path: Path, monkeypatch) -> N
         run_dir=run_dir,
     )
 
+    published = run_dir / "downloads" / "api.log"
     assert result["ok"] is True
     assert result["writes_remote"] is False
-    assert Path(result["local_path"]) == run_dir / "downloads" / "api.log"
+    assert Path(result["local_path"]) == published
+    assert published.read_bytes() == payload
+    assert result["download_size_bytes"] == len(payload)
+    assert result["download_sha256"] == sha256(payload).hexdigest()
+    assert result["staging_relative_path"] == "downloads/api.log"
+    assert result["publication"] == "atomic_replace"
+    assert Path(captured["argv"][-1]).name == ".api.log.partial"
+    assert not Path(captured["argv"][-1]).exists()
+
+
+def test_failed_download_removes_partial_staging_artifact(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, repo = make_config(tmp_path)
+    monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")
+
+    def fake_run(argv, **kwargs):
+        Path(argv[-1]).write_bytes(b"partial")
+        return SimpleNamespace(returncode=1, stdout="", stderr="transfer failed")
+
+    monkeypatch.setattr(ssh_tools.subprocess, "run", fake_run)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    result = ssh_tools.run_ssh_transfer(
+        config,
+        "sample_host",
+        "download",
+        repo_root=repo,
+        local_path="api.log",
+        remote_path="/var/log/api.log",
+        run_dir=run_dir,
+    )
+
+    assert result["ok"] is False
+    assert not (run_dir / "downloads" / ".api.log.partial").exists()
+    assert not (run_dir / "downloads" / "api.log").exists()
 
 
 def test_deployment_excludes_secrets_links_shared_files_and_activates_last(
