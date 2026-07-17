@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -137,6 +139,8 @@ class JobManager:
         self.config_path = config_path
         self.store = RunStore(config.resolve_runs_dir())
         self.locks = OperationLockStore(config.resolve_runs_dir())
+        self._remote_reconciliation_lock = threading.Lock()
+        self._remote_reconciliation_pollers: set[str] = set()
 
     def _require_active_ssh_autonomy_profile(self, autonomy_profile: str) -> None:
         if autonomy_profile != "permissive":
@@ -199,6 +203,39 @@ class JobManager:
             )
         )
         return reconciled
+
+    def _start_remote_reconciliation_poller(self, run_id: str) -> bool:
+        with self._remote_reconciliation_lock:
+            if run_id in self._remote_reconciliation_pollers:
+                return False
+            self._remote_reconciliation_pollers.add(run_id)
+
+        def poll() -> None:
+            try:
+                while True:
+                    current = self.store.get_run(run_id)
+                    if current["status"] in TERMINAL_STATUSES:
+                        return
+                    if current["tool"] != "ssh_monitored_command":
+                        return
+                    contract = current.get("input", {}).get("remote_controller_state")
+                    if not isinstance(contract, dict):
+                        return
+                    self._reconcile_run(current)
+                    current = self.store.get_run(run_id)
+                    if current["status"] in TERMINAL_STATUSES:
+                        return
+                    time.sleep(5.0)
+            finally:
+                with self._remote_reconciliation_lock:
+                    self._remote_reconciliation_pollers.discard(run_id)
+
+        threading.Thread(
+            target=poll,
+            name=f"codexbridge-remote-reconcile-{run_id}",
+            daemon=True,
+        ).start()
+        return True
 
     def _worker_command(self, run_id: str, lease_token: str) -> list[str]:
         return [
@@ -461,6 +498,8 @@ class JobManager:
                             "uncertainty_state": reconciled_remote.get("uncertainty_state"),
                         },
                     )
+                    if reconciled_remote.get("adoptable"):
+                        self._start_remote_reconciliation_poller(run_id)
                 return
             reason = "Monitored remote execution lacks a durable controller contract"
             pending = self.store.mark_recovery_pending(

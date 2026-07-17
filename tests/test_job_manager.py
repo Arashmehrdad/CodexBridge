@@ -1515,6 +1515,61 @@ def test_duplicate_reconcilers_record_one_adoption(
     assert manager.get_status(response["run_id"])["status"] == "running"
 
 
+def test_remote_reconciliation_poller_deduplicates_and_stops_at_terminal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+    run_id = response["run_id"]
+    current = manager.store.get_run(run_id)
+    manager.store.conditional_update(
+        run_id,
+        fields={"status": "recovery_pending", "current_phase": "remote_reconciliation"},
+        expected_statuses=(str(current["status"]),),
+        expected_state_version=int(current["state_version"]),
+        expected_lease_token=current["worker_lease_token"],
+        expected_lease_generation=int(current["lease_generation"]),
+    )
+    started: list[object] = []
+    released = threading.Event()
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            assert name == f"codexbridge-remote-reconcile-{run_id}"
+            assert daemon is True
+            self.target = target
+
+        def start(self):
+            started.append(self.target)
+
+    monkeypatch.setattr("codexbridge.job_manager.threading.Thread", FakeThread)
+
+    assert manager._start_remote_reconciliation_poller(run_id) is True
+    assert manager._start_remote_reconciliation_poller(run_id) is False
+    assert len(started) == 1
+
+    def fake_reconcile(run: dict) -> None:
+        latest = manager.store.get_run(run_id)
+        manager.store.transition_terminal(
+            run_id,
+            status="completed",
+            result={"run_id": run_id, "status": "completed", "summary": "remote done"},
+            expected_statuses=(str(latest["status"]),),
+            expected_state_version=int(latest["state_version"]),
+            expected_lease_token=latest["worker_lease_token"],
+            expected_lease_generation=int(latest["lease_generation"]),
+            summary="remote done",
+        )
+        released.set()
+
+    monkeypatch.setattr(manager, "_reconcile_run", fake_reconcile)
+    started[0]()
+
+    assert released.is_set()
+    assert manager.store.get_run(run_id)["status"] == "completed"
+    assert run_id not in manager._remote_reconciliation_pollers
+
+
 def test_cancellation_claim_prevents_late_completion(
     tmp_path: Path, monkeypatch
 ) -> None:
