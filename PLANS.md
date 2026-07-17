@@ -585,7 +585,11 @@ Checkpoint (2026-07-17):
 - The worker rebuilds the complete recursive manifest immediately before SCP and rejects any added, removed, renamed, resized, or content-changed file before transfer execution. Historical pre-manifest transfers remain compatible.
 - Recursive-manifest implementation commits: `13d8ba82ff473cebc3199805707850018e53ed9f`, `2c92bcf3555ab83248fccb70f39971e0cdd6c891`, and `69fbb3d91aa59822901505877f953c15d5b35efd`.
 - Focused validation passed: `tests/test_transfer_manifests.py`, `tests/test_job_manager.py`, and `tests/test_ssh_worker.py` completed with **99 passed**; `transfer_manifests.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: add cleanup manifests and retry-safe cleanup for transfer staging, including orphaned download partials and completed transfer staging artifacts without deleting protected durable evidence.
+- Download transfers now persist a versioned cleanup manifest before SCP launch. The manifest explicitly separates the deterministic hidden partial artifact from the published download, marks the published artifact as protected evidence, and permits cleanup only for declared run-relative staging entries.
+- Retry cleanup is idempotent, rejects path traversal, symbolic links, non-regular artifacts, and any attempt to delete a protected publication. Stale partials are removed before retry; failed-transfer partials are removed after execution; completed downloads remain preserved under `downloads/<name>`.
+- Cleanup-manifest implementation commits: `034d2a315eb2a3fc2ed63f641fd0f36b543efb2b` and the following roadmap checkpoint commit.
+- Focused validation passed: `tests/test_transfer_manifests.py`, `tests/test_ssh_tools.py`, and `tests/test_ssh_worker.py` completed with **56 passed**; `transfer_manifests.py`, `ssh_tools.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: add binary-safe executable-profile input/output staging manifests and protected-artifact classification, linking every staged artifact to its invoking run and lease generation.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 

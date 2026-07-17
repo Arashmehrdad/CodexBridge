@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import posixpath
 import re
@@ -955,7 +956,7 @@ def run_ssh_transfer(
         cleanup_manifest = build_download_cleanup_manifest(requested_name)
         cleanup_manifest_path = run_dir / "transfer_cleanup_manifest.json"
         cleanup_manifest_path.write_text(
-            __import__("json").dumps(cleanup_manifest, indent=2, sort_keys=True) + "\n",
+            json.dumps(cleanup_manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         if local.exists() and not overwrite:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
+import shutil
 
 
 def sha256_file(path: Path) -> str:
@@ -53,8 +54,6 @@ def cleanup_transfer_staging(run_dir: Path, manifest: dict[str, object]) -> list
             for child in candidate.rglob("*"):
                 if child.is_symlink():
                     raise ValueError("Transfer cleanup refuses symbolic links")
-            import shutil
-
             shutil.rmtree(candidate)
         elif candidate.is_file():
             candidate.unlink()
