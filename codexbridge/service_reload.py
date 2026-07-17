@@ -87,21 +87,26 @@ def validate_config_candidate(config_path: Path | None) -> dict[str, object]:
     _CONFIG_LIFECYCLE_STATE["last_error"] = ""
     _CONFIG_LIFECYCLE_STATE["last_operation"] = "validate"
     _CONFIG_LIFECYCLE_STATE["last_status"] = "validated"
+    ordinary_profile_migrations: dict[str, dict[str, object]] = {}
+    for repo_name, repo in config.repos.items():
+        migration = repo.command_profile_migration_report(repo_name)
+        if migration["migration_required"]:
+            ordinary_profile_migrations[repo_name] = migration
+
+    configuration_migrations: dict[str, object] = {
+        "ssh_autonomy_profiles": config.ssh.autonomy_profile_migration_report()
+    }
+    if ordinary_profile_migrations:
+        configuration_migrations["ordinary_validation_command_profiles"] = (
+            ordinary_profile_migrations
+        )
+
     result = {
         "ok": True,
         "validated": True,
         "candidate_config_path": str(resolved),
         "validated_at": timestamp,
-        "configuration_migrations": {
-            "ssh_autonomy_profiles": config.ssh.autonomy_profile_migration_report(),
-            "ordinary_validation_command_profiles": {
-                repo_name: repo.command_profile_migration_report(repo_name)
-                for repo_name, repo in config.repos.items()
-                if repo.command_profile_migration_report(repo_name)[
-                    "migration_required"
-                ]
-            },
-        },
+        "configuration_migrations": configuration_migrations,
         "message": "Configuration candidate validated successfully.",
         "error": "",
     }

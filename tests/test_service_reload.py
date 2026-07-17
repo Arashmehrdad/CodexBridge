@@ -140,6 +140,25 @@ def test_validate_config_reports_ordinary_validation_profile_migrations(
     assert report["preserves_durable_history"] is True
 
 
+def test_validate_config_omits_empty_ordinary_profile_migration(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n",
+        encoding="utf-8",
+    )
+
+    result = validate_config_candidate(config_path)
+
+    assert "ordinary_validation_command_profiles" not in result[
+        "configuration_migrations"
+    ]
+
+
 def test_validate_config_rejects_legacy_ssh_profiles_deterministically(
     tmp_path: Path,
 ) -> None:

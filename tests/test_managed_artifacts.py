@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from codexbridge.managed_artifacts import (
+    MANAGED_ARTIFACT_ROOTS,
     apply_managed_artifact_cleanup,
     cleanup_new_managed_artifacts,
     preview_managed_artifact_cleanup,
@@ -42,6 +43,13 @@ def test_cleanup_preview_rejects_unregistered_root(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     with pytest.raises(ValueError, match="Unsupported managed artifact roots"):
         preview_managed_artifact_cleanup(repo, tmp_path / "runs", ["src"])
+
+
+def test_cleanup_never_accepts_durable_run_evidence_root(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    assert "runs" not in MANAGED_ARTIFACT_ROOTS
+    with pytest.raises(ValueError, match="Unsupported managed artifact roots"):
+        preview_managed_artifact_cleanup(repo, tmp_path / "runs", ["runs"])
 
 
 def test_cleanup_apply_is_hash_verified_and_idempotent(tmp_path: Path) -> None:
