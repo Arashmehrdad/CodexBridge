@@ -82,6 +82,7 @@ from .ssh_policy import (
     authorize_ssh_root_shell_launch,
 )
 from .ssh_watchdog import (
+    cancel_remote_controller,
     probe_remote_controller_state,
     terminate_remote_process_group,
     validate_monitored_command_start,
@@ -2272,17 +2273,30 @@ class JobManager:
                     "termination_confirmed": False,
                     "reason": "Worker is unavailable and remote process identity is unknown; lock retained",
                 }
-            termination = terminate_remote_process_group(
+            controller_state = run.get("input", {}).get("remote_controller_state")
+            if not isinstance(controller_state, dict):
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "status": "cancellation_pending",
+                    "cancelled": False,
+                    "terminated": False,
+                    "termination_confirmed": False,
+                    "reason": "Authoritative remote-controller contract is unavailable; lock retained",
+                }
+            termination = cancel_remote_controller(
                 self.config,
                 str(run["input"]["host_id"]),
+                controller_state,
                 {
                     **remote_process,
                     "command_id": str(run["input"]["command_id"]),
                 },
+                requested_at=requested_at,
                 grace_seconds=int(progress.get("termination_grace_seconds") or 5),
             )
             progress["remote_termination"] = termination
-            if not termination.get("terminated"):
+            if not termination.get("terminated") or not termination.get("completion_persisted"):
                 persist_progress()
                 return {
                     "ok": False,

@@ -268,6 +268,222 @@ def probe_remote_controller_state(
     }
 
 
+def _cancellation_controller_source(
+    controller_state: dict[str, Any],
+    remote_process: dict[str, Any],
+    requested_at: str,
+    grace_seconds: int,
+    result_marker: str,
+) -> str:
+    encoded_state = json.dumps(controller_state, sort_keys=True, separators=(",", ":"))
+    pid = int(remote_process["pid"])
+    pgid = int(remote_process["pgid"])
+    start_time = str(remote_process["start_time_ticks"])
+    return f'''import json,os,signal,tempfile,time
+contract=json.loads({encoded_state!r})
+pid={pid}
+pgid={pgid}
+expected={start_time!r}
+requested_at={requested_at!r}
+grace={int(grace_seconds)}
+state_path=contract["remote"]["state_path"]
+result_path=contract["remote"]["result_path"]
+result={{"identity_verified":False,"request_persisted":False,"term_sent":False,"kill_sent":False,"terminated":False,"already_exited":False,"identity_changed":False,"completion_persisted":False,"error":""}}
+def atomic_json(path,payload):
+ parent=os.path.dirname(path) or "."
+ fd,tmp=tempfile.mkstemp(prefix=".codexbridge-",suffix=".tmp",dir=parent)
+ try:
+  with os.fdopen(fd,"w",encoding="utf-8",newline="\\n") as handle:
+   json.dump(payload,handle,sort_keys=True,separators=(",",":"))
+   handle.write("\\n")
+   handle.flush()
+   os.fsync(handle.fileno())
+  os.replace(tmp,path)
+  dir_fd=os.open(parent,os.O_RDONLY)
+  try:
+   os.fsync(dir_fd)
+  finally:
+   os.close(dir_fd)
+ finally:
+  try:
+   os.unlink(tmp)
+  except FileNotFoundError:
+   pass
+def read_ident():
+ try:
+  text=open(f"/proc/{{pid}}/stat","r",encoding="utf-8").read()
+ except FileNotFoundError:
+  return None
+ rest=text[text.rfind(")")+2:].split()
+ return {{"pgid":int(rest[2]),"start_time_ticks":str(rest[19])}}
+def matches(value):
+ return value is not None and value["pgid"]==pgid and value["start_time_ticks"]==expected
+def original_gone():
+ value=read_ident()
+ if value is None:
+  return True
+ if not matches(value):
+  result["identity_changed"]=True
+  return True
+ return False
+try:
+ with open(state_path,"r",encoding="utf-8") as handle:
+  state=json.load(handle)
+except Exception as exc:
+ result["error"]="state unavailable: "+str(exc)[:160]
+ state=None
+if state is not None:
+ if state.get("request_id")!=contract.get("request_id") or state.get("execution_id")!=contract.get("execution_id") or state.get("idempotency_key")!=contract.get("idempotency_key") or state.get("controller")!=contract.get("controller"):
+  result["error"]="remote controller identity mismatch"
+ else:
+  remote=state.get("remote") or {{}}
+  if int(remote.get("pid") or 0)!=pid or int(remote.get("pgid") or 0)!=pgid or str(remote.get("process_start_identity") or "")!=expected:
+   result["error"]="remote persisted process identity mismatch"
+  else:
+   remote["cancellation_requested_at"]=requested_at
+   remote["authoritative_state"]="cancellation_pending"
+   remote["heartbeat_at"]=requested_at
+   state["remote"]=remote
+   atomic_json(state_path,state)
+   result["request_persisted"]=True
+   current=read_ident()
+   if current is None:
+    result["terminated"]=True
+    result["already_exited"]=True
+   elif pid<=1 or pgid<=1 or pid!=pgid or not matches(current):
+    result["error"]="remote identity mismatch"
+   else:
+    result["identity_verified"]=True
+    try:
+     os.killpg(pgid,signal.SIGTERM)
+     result["term_sent"]=True
+    except ProcessLookupError:
+     result["terminated"]=True
+     result["already_exited"]=True
+    except Exception as exc:
+     result["error"]=str(exc)[:200]
+    deadline=time.monotonic()+grace
+    while not result["terminated"] and time.monotonic()<deadline:
+     if original_gone():
+      result["terminated"]=True
+      break
+     time.sleep(0.1)
+    if not result["terminated"] and matches(read_ident()):
+     try:
+      os.killpg(pgid,signal.SIGKILL)
+      result["kill_sent"]=True
+     except ProcessLookupError:
+      result["terminated"]=True
+     except Exception as exc:
+      result["error"]=str(exc)[:200]
+     deadline=time.monotonic()+2.0
+     while not result["terminated"] and time.monotonic()<deadline:
+      if original_gone():
+       result["terminated"]=True
+       break
+      time.sleep(0.1)
+   if result["terminated"]:
+    completed=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+    terminal={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":pid,"pgid":pgid,"process_start_identity":expected,"returncode":-15,"authoritative_state":"cancelled","ended_at":completed,"cancellation_requested_at":requested_at,"cancellation_completed_at":completed}}
+    atomic_json(result_path,terminal)
+    remote["authoritative_state"]="cancelled"
+    remote["heartbeat_at"]=completed
+    remote["cancellation_completed_at"]=completed
+    remote["publication_state"]="ready"
+    state["remote"]=remote
+    atomic_json(state_path,state)
+    result["completion_persisted"]=True
+print({result_marker!r}+json.dumps(result,separators=(",",":")),flush=True)
+'''
+
+
+def cancel_remote_controller(
+    config: AppConfig,
+    host_id: str,
+    controller_state: dict[str, Any],
+    remote_process: dict[str, Any],
+    *,
+    requested_at: str,
+    grace_seconds: int,
+) -> dict[str, Any]:
+    if not _valid_remote_identity(remote_process):
+        return {
+            "identity_verified": False,
+            "request_persisted": False,
+            "term_sent": False,
+            "kill_sent": False,
+            "terminated": False,
+            "already_exited": False,
+            "identity_changed": False,
+            "completion_persisted": False,
+            "error": "Remote process identity is incomplete or unsafe",
+        }
+    host = resolve_ssh_host(config, host_id)
+    nonce = secrets.token_hex(12)
+    result_marker = _marker("REMOTE_CANCELLATION", nonce)
+    profile = _encoded_controller_profile(
+        "monitored_cancel",
+        _cancellation_controller_source(
+            controller_state,
+            remote_process,
+            requested_at,
+            grace_seconds,
+            result_marker,
+        ),
+        max(10, grace_seconds + 8),
+    )
+    built = build_ssh_argv(config, host_id, profile)
+    argv, stdin_text, _ = prepare_ssh_execution(host, built)
+    run_kwargs: dict[str, Any] = {
+        "cwd": config.config_dir,
+        "env": os.environ.copy(),
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "capture_output": True,
+        "shell": False,
+        "timeout": profile.timeout_seconds,
+        "check": False,
+    }
+    if stdin_text is None:
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = stdin_text
+    try:
+        completed = subprocess.run(argv, **run_kwargs)
+        payload = _find_marker_payload(completed.stdout or "", result_marker) or _find_marker_payload(completed.stderr or "", result_marker)
+        error = completed.stderr or ""
+    except subprocess.TimeoutExpired:
+        payload = None
+        error = "Remote cancellation controller timed out"
+    except (OSError, PermissionError) as exc:
+        payload = None
+        error = str(exc)
+    if payload is None:
+        return {
+            "identity_verified": False,
+            "request_persisted": False,
+            "term_sent": False,
+            "kill_sent": False,
+            "terminated": False,
+            "already_exited": False,
+            "identity_changed": False,
+            "completion_persisted": False,
+            "error": (error.strip() or "Remote cancellation result marker was not received")[:300],
+        }
+    return {
+        "identity_verified": bool(payload.get("identity_verified")),
+        "request_persisted": bool(payload.get("request_persisted")),
+        "term_sent": bool(payload.get("term_sent")),
+        "kill_sent": bool(payload.get("kill_sent")),
+        "terminated": bool(payload.get("terminated")),
+        "already_exited": bool(payload.get("already_exited")),
+        "identity_changed": bool(payload.get("identity_changed")),
+        "completion_persisted": bool(payload.get("completion_persisted")),
+        "error": str(payload.get("error", ""))[:300],
+    }
+
+
 def _termination_controller_source(
     remote_process: dict[str, Any],
     grace_seconds: int,
