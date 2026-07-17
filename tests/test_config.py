@@ -252,6 +252,74 @@ def test_ssh_active_autonomy_profiles_are_canonical_and_unique() -> None:
         SSHConfig(active_autonomy_profiles=["chatgpt_delegated"])
 
 
+def test_repo_command_profile_migration_report_is_deterministic(tmp_path: Path) -> None:
+    profile = {
+        "command_id": "eslint",
+        "argv": ["node", "node_modules/eslint/bin/eslint.js", "."],
+        "timeout_seconds": 600,
+        "description": "Run lint",
+        "writes_files": False,
+        "async_only": True,
+    }
+    retained = {
+        "command_id": "service_restart",
+        "argv": ["pwsh.exe", "-File", "restart.ps1"],
+        "timeout_seconds": 180,
+    }
+    config = RepoConfig(
+        path=str(tmp_path),
+        command_profiles=[profile, retained],
+    )
+
+    assert config.command_profile_migration_report("sample") == {
+        "migration_id": "ordinary_validation_command_profiles_v1",
+        "migration_required": True,
+        "repo_name": "sample",
+        "candidate_command_ids": ["eslint"],
+        "candidates": [
+            {
+                "command_id": "eslint",
+                "configured_profile": profile,
+                "replacement": {
+                    "operation": "powershell",
+                    "repo_name": "sample",
+                    "working_directory": str(tmp_path),
+                    "argv": [
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "& 'node' 'node_modules/eslint/bin/eslint.js' '.'; exit $LASTEXITCODE",
+                    ],
+                    "timeout_seconds": 600,
+                },
+            }
+        ],
+        "rollback": {"command_profiles": [profile, retained]},
+        "preserves_durable_history": True,
+    }
+
+
+def test_repo_command_profile_migration_report_escapes_single_quotes(
+    tmp_path: Path,
+) -> None:
+    config = RepoConfig(
+        path=str(tmp_path),
+        command_profiles=[
+            {
+                "command_id": "frontend_validate",
+                "argv": ["node", "odd'file.js"],
+                "timeout_seconds": 60,
+            }
+        ],
+    )
+
+    report = config.command_profile_migration_report("sample")
+    assert report["candidates"][0]["replacement"]["argv"][-1] == (
+        "& 'node' 'odd''file.js'; exit $LASTEXITCODE"
+    )
+
+
 def test_ssh_host_rejects_duplicate_command_ids() -> None:
     profile = SSHCommandProfileConfig(command_id="status", argv=["uptime"])
     with pytest.raises(ValidationError, match="unique"):

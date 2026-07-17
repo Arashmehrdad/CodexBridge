@@ -93,7 +93,14 @@ def validate_config_candidate(config_path: Path | None) -> dict[str, object]:
         "candidate_config_path": str(resolved),
         "validated_at": timestamp,
         "configuration_migrations": {
-            "ssh_autonomy_profiles": config.ssh.autonomy_profile_migration_report()
+            "ssh_autonomy_profiles": config.ssh.autonomy_profile_migration_report(),
+            "ordinary_validation_command_profiles": {
+                repo_name: repo.command_profile_migration_report(repo_name)
+                for repo_name, repo in config.repos.items()
+                if repo.command_profile_migration_report(repo_name)[
+                    "migration_required"
+                ]
+            },
         },
         "message": "Configuration candidate validated successfully.",
         "error": "",

@@ -124,6 +124,15 @@ class DockerConfig(BaseModel):
     )
 
 
+ORDINARY_VALIDATION_COMMAND_IDS = frozenset(
+    {"eslint", "typecheck", "vitest", "frontend_validate"}
+)
+
+
+def _powershell_literal(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 class RepoConfig(BaseModel):
     path: str
     default_tests: List[str] = Field(default_factory=list)
@@ -162,6 +171,46 @@ class RepoConfig(BaseModel):
             raise ValueError("Cloudflare profile IDs must be unique per repository")
         self.cloudflare_profiles = normalized_profiles
         return self
+
+    def command_profile_migration_report(self, repo_name: str) -> dict[str, object]:
+        candidates: list[dict[str, object]] = []
+        for profile in self.command_profiles:
+            command_id = str(profile.get("command_id", ""))
+            if command_id not in ORDINARY_VALIDATION_COMMAND_IDS:
+                continue
+            argv = [str(value) for value in profile.get("argv", [])]
+            invocation = "& " + " ".join(_powershell_literal(value) for value in argv)
+            invocation += "; exit $LASTEXITCODE"
+            candidates.append(
+                {
+                    "command_id": command_id,
+                    "configured_profile": dict(profile),
+                    "replacement": {
+                        "operation": "powershell",
+                        "repo_name": repo_name,
+                        "working_directory": self.path,
+                        "argv": [
+                            "-NoLogo",
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-Command",
+                            invocation,
+                        ],
+                        "timeout_seconds": profile.get("timeout_seconds"),
+                    },
+                }
+            )
+        return {
+            "migration_id": "ordinary_validation_command_profiles_v1",
+            "migration_required": bool(candidates),
+            "repo_name": repo_name,
+            "candidate_command_ids": [
+                str(candidate["command_id"]) for candidate in candidates
+            ],
+            "candidates": candidates,
+            "rollback": {"command_profiles": [dict(item) for item in self.command_profiles]},
+            "preserves_durable_history": True,
+        }
 
 
 class SSHCommandProfileConfig(BaseModel):

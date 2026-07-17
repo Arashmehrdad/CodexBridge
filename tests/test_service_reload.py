@@ -112,6 +112,34 @@ def test_reload_service_marks_unreloadable_modules_restart_required(
     assert result["restart_required"] == ["codexbridge.server"]
 
 
+def test_validate_config_reports_ordinary_validation_profile_migrations(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config_path.write_text(
+        f"repos:\n  sample:\n    path: '{repo.as_posix()}'\n"
+        "    command_profiles:\n"
+        "      - command_id: eslint\n"
+        "        argv: [node, node_modules/eslint/bin/eslint.js, .]\n"
+        "        timeout_seconds: 600\n",
+        encoding="utf-8",
+    )
+
+    result = validate_config_candidate(config_path)
+    report = result["configuration_migrations"][
+        "ordinary_validation_command_profiles"
+    ]["sample"]
+
+    assert report["migration_required"] is True
+    assert report["candidate_command_ids"] == ["eslint"]
+    assert report["candidates"][0]["replacement"]["operation"] == "powershell"
+    assert report["rollback"]["command_profiles"][0]["command_id"] == "eslint"
+    assert report["preserves_durable_history"] is True
+
+
 def test_validate_config_rejects_legacy_ssh_profiles_deterministically(
     tmp_path: Path,
 ) -> None:
