@@ -577,7 +577,11 @@ Checkpoint (2026-07-17):
 - Windows text-file fixtures now derive size and digest from actual bytes, preserving CRLF correctness.
 - Implementation commits: `df22eebdc679c79e0e66425e7cf599b1fecc7afa`, `18b31e47fca665fc5ad0a92bdb79e48a1f743c53`, and `4453c49158bcd523101233c6676d8866fb387492`.
 - Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/job_manager.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: add hash-verified, binary-safe download publication with retry-safe atomic staging, then extend deterministic manifests to recursive directory uploads.
+- Downloads now use a deterministic hidden partial path, remove stale partial state before retry, verify the completed artifact byte length and SHA-256, and publish to the final run-relative destination with `os.replace` only after successful SCP completion.
+- Failed downloads remove partial staging content and never publish an ambiguous final artifact. Binary payload coverage includes NUL and non-UTF-8 bytes.
+- Download-publication implementation commits: `84815e824718a457f69defee9d7d7f70ecfe2b13`, `833140fba1b99eabab87e57fd25dd11233ddb497`, `9b56dce83d3c6f518c7738ef4a401c9f91cb5bb6`, and `9ca4adbe0f7baa52c30934e65ffa49fc6689f353`.
+- Focused validation passed: `tests/test_ssh_tools.py` 14 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/ssh_tools.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: extend deterministic manifests and worker revalidation to recursive directory uploads, including stable relative-path ordering and per-file size/hash evidence.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
