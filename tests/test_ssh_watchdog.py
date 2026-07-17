@@ -158,6 +158,86 @@ def test_unsafe_remote_identity_refuses_without_invoking_ssh(
     assert "incomplete or unsafe" in result["error"]
 
 
+def test_remote_state_probe_returns_persisted_state_and_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = make_config(tmp_path)
+    contract = build_remote_controller_state_contract(
+        run_id="run-1",
+        host_id="my_vps",
+        command_id="uptime",
+        lease_generation=1,
+        remote_argv=["uptime"],
+        timeout_seconds=30,
+    )
+    observed = dict(contract)
+    observed["remote"] = dict(contract["remote"])
+    observed["remote"].update(
+        {
+            "pid": 321,
+            "pgid": 321,
+            "process_start_identity": "456",
+            "authoritative_state": "completed",
+        }
+    )
+    terminal = {"returncode": 0, "authoritative_state": "completed"}
+
+    def fake_run(argv, **kwargs):
+        del argv, kwargs
+        marker = ssh_watchdog._marker("REMOTE_STATE", "fixed")
+        return ssh_watchdog.subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=marker + ssh_watchdog.json.dumps(
+                {"state": observed, "result": terminal, "error": ""},
+                separators=(",", ":"),
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(ssh_watchdog.secrets, "token_hex", lambda _n: "fixed")
+    monkeypatch.setattr(ssh_watchdog.subprocess, "run", fake_run)
+
+    result = ssh_watchdog.probe_remote_controller_state(
+        config, "my_vps", contract
+    )
+
+    assert result["ok"] is True
+    assert result["state"] == observed
+    assert result["result"] == terminal
+    assert result["error"] == ""
+
+
+def test_remote_state_probe_preserves_network_uncertainty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = make_config(tmp_path)
+    contract = build_remote_controller_state_contract(
+        run_id="run-1",
+        host_id="my_vps",
+        command_id="uptime",
+        lease_generation=1,
+        remote_argv=["uptime"],
+        timeout_seconds=30,
+    )
+
+    def timeout(*_args, **_kwargs):
+        raise ssh_watchdog.subprocess.TimeoutExpired(["ssh"], 30)
+
+    monkeypatch.setattr(ssh_watchdog.subprocess, "run", timeout)
+
+    result = ssh_watchdog.probe_remote_controller_state(
+        config, "my_vps", contract
+    )
+
+    assert result == {
+        "ok": False,
+        "state": None,
+        "result": None,
+        "error": "probe_timeout",
+    }
+
+
 def test_termination_controller_reverifies_identity_and_escalates() -> None:
     source = ssh_watchdog._termination_controller_source(
         {"pid": 321, "pgid": 321, "start_time_ticks": "98765"},

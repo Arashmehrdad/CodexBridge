@@ -186,6 +186,88 @@ raise SystemExit(rc)
 '''
 
 
+def _probe_controller_source(
+    controller_state: dict[str, Any],
+    result_marker: str,
+) -> str:
+    encoded_state = json.dumps(controller_state, sort_keys=True, separators=(",", ":"))
+    return f'''import json,os
+contract=json.loads({encoded_state!r})
+state_path=contract["remote"]["state_path"]
+result_path=contract["remote"]["result_path"]
+payload={{"state":None,"result":None,"error":""}}
+try:
+ with open(state_path,"r",encoding="utf-8") as handle:
+  payload["state"]=json.load(handle)
+ try:
+  with open(result_path,"r",encoding="utf-8") as handle:
+   payload["result"]=json.load(handle)
+ except FileNotFoundError:
+  pass
+except FileNotFoundError:
+ payload["error"]="state_not_found"
+except Exception as exc:
+ payload["error"]=str(exc)[:200]
+print({result_marker!r}+json.dumps(payload,separators=(",",":")),flush=True)
+'''
+
+
+def probe_remote_controller_state(
+    config: AppConfig,
+    host_id: str,
+    controller_state: dict[str, Any],
+) -> dict[str, Any]:
+    host = resolve_ssh_host(config, host_id)
+    nonce = secrets.token_hex(12)
+    result_marker = _marker("REMOTE_STATE", nonce)
+    profile = _encoded_controller_profile(
+        "monitored_probe",
+        _probe_controller_source(controller_state, result_marker),
+        30,
+    )
+    built = build_ssh_argv(config, host_id, profile)
+    argv, stdin_text, _ = prepare_ssh_execution(host, built)
+    run_kwargs: dict[str, Any] = {
+        "cwd": config.config_dir,
+        "env": os.environ.copy(),
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "capture_output": True,
+        "shell": False,
+        "timeout": profile.timeout_seconds,
+        "check": False,
+    }
+    if stdin_text is None:
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = stdin_text
+    try:
+        completed = subprocess.run(argv, **run_kwargs)
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        payload = _find_marker_payload(stdout, result_marker) or _find_marker_payload(
+            stderr, result_marker
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "state": None, "result": None, "error": "probe_timeout"}
+    except (OSError, PermissionError) as exc:
+        return {"ok": False, "state": None, "result": None, "error": str(exc)[:300]}
+    if payload is None:
+        return {
+            "ok": False,
+            "state": None,
+            "result": None,
+            "error": (stderr.strip() or "remote_state_marker_missing")[:300],
+        }
+    return {
+        "ok": not bool(payload.get("error")),
+        "state": payload.get("state") if isinstance(payload.get("state"), dict) else None,
+        "result": payload.get("result") if isinstance(payload.get("result"), dict) else None,
+        "error": str(payload.get("error", ""))[:300],
+    }
+
+
 def _termination_controller_source(
     remote_process: dict[str, Any],
     grace_seconds: int,
