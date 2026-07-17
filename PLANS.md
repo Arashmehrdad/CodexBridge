@@ -581,7 +581,11 @@ Checkpoint (2026-07-17):
 - Failed downloads remove partial staging content and never publish an ambiguous final artifact. Binary payload coverage includes NUL and non-UTF-8 bytes.
 - Download-publication implementation commits: `84815e824718a457f69defee9d7d7f70ecfe2b13`, `833140fba1b99eabab87e57fd25dd11233ddb497`, `9b56dce83d3c6f518c7738ef4a401c9f91cb5bb6`, and `9ca4adbe0f7baa52c30934e65ffa49fc6689f353`.
 - Focused validation passed: `tests/test_ssh_tools.py` 14 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/ssh_tools.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: extend deterministic manifests and worker revalidation to recursive directory uploads, including stable relative-path ordering and per-file size/hash evidence.
+- Recursive directory uploads now persist deterministic manifests with stable POSIX relative-path ordering, per-file byte lengths and SHA-256 hashes, aggregate file count, and aggregate byte count. Empty directories produce an explicit zero-file manifest; symbolic links and non-regular entries are rejected before durable launch.
+- The worker rebuilds the complete recursive manifest immediately before SCP and rejects any added, removed, renamed, resized, or content-changed file before transfer execution. Historical pre-manifest transfers remain compatible.
+- Recursive-manifest implementation commits: `13d8ba82ff473cebc3199805707850018e53ed9f`, `2c92bcf3555ab83248fccb70f39971e0cdd6c891`, and `69fbb3d91aa59822901505877f953c15d5b35efd`.
+- Focused validation passed: `tests/test_transfer_manifests.py`, `tests/test_job_manager.py`, and `tests/test_ssh_worker.py` completed with **99 passed**; `transfer_manifests.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: add cleanup manifests and retry-safe cleanup for transfer staging, including orphaned download partials and completed transfer staging artifacts without deleting protected durable evidence.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
