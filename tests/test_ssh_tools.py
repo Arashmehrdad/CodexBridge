@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tarfile
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
