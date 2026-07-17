@@ -648,8 +648,10 @@ Checkpoint (2026-07-17):
 - Added deterministic local reconciliation classification for matching live state, terminal state, invalid authoritative state, identity mismatch, and network/state uncertainty.
 - Added a bounded remote-state probe that reads authoritative `state.json` and optional `result.json` without launching a second controller; probe timeouts and transport failures remain explicitly uncertain rather than terminal.
 - Reconciliation/probe validation passed with `tests/test_remote_controller_state.py`, `tests/test_ssh_watchdog.py`, and `tests/test_ssh_worker.py`: **52 passed**; changed modules passed `py_compile`; `git diff --check` passed.
-- Implementation commits through `b61c6a3e86956e96607711d67cb9696172bd8095`.
-- Next executable unit: integrate probe-and-reconcile into startup recovery and monitored-worker re-entry so a matching live controller is adopted without duplicate launch and ready terminal evidence is published exactly once.
+- Startup recovery now probes the authoritative remote state before changing bridge lifecycle state. Matching live controllers are recorded as adopted without duplicate launch, network/state uncertainty remains non-terminal, and terminal remote evidence is conditionally transitioned and canonically published exactly once.
+- Startup reconciliation validation passed with `tests/test_job_manager.py`, `tests/test_remote_controller_state.py`, and `tests/test_ssh_watchdog.py`: **74 passed**; changed `job_manager.py` passed `py_compile`; `git diff --check` passed.
+- Implementation commits through `8a06753c40524c82f7e4234f516593b83e57314e`.
+- Next executable unit: add monitored-worker re-entry polling so an adopted live controller continues heartbeat/result reconciliation during the same service lifetime and publishes terminal evidence without requiring another restart.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 
