@@ -633,7 +633,7 @@ Acceptance:
 
 ## R4 - Durable Remote Job Protocol
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-17):
 
@@ -659,7 +659,11 @@ Checkpoint (2026-07-17):
 - Regression coverage proves concurrent natural completion wins over cancellation without being overwritten, publishes exactly once, and releases the lock; restart reconciliation of remotely completed cancellation also transitions locally, preserves remote terminal evidence, publishes exactly once, and remains idempotent under duplicate reconciliation.
 - Focused `tests/test_job_manager.py` validation passed with **63 passed**; adjacent `tests/test_ssh_watchdog.py`, `tests/test_remote_controller_state.py`, `tests/test_job_manager.py`, and `tests/test_ssh_worker.py` passed with **116 passed**; changed modules and tests passed `py_compile`; `python -m pip check` and `git diff --check` passed.
 - Implementation commits through `38a54b974abc515683718b62bd9ea0d59748e686`.
-- Next executable unit: perform the controlled live-host R4 exit gate on a disposable registered host, covering execution beyond one hour, service restart and reattachment, duplicate-reconciler resistance, exact descendant process-group cancellation, and one canonical terminal publication; then run the full repository validation before marking R4 complete.
+- Controlled live-host exit gate passed on 2026-07-18 against the isolated QuoteFollow Oracle acceptance fixture. The same durable execution survived local worker loss and service restart, ran for 3,931 seconds, retained execution ID `5ae97707e6257059c325eb6e4b5ee379`, PID/PGID `1567113`, process-start identity `398057789`, and a fresh authoritative heartbeat, while duplicate reconcilers adopted rather than relaunched it.
+- Identity-scoped cancellation verified the persisted remote identity, durably recorded the cancellation request, terminated the exact process group with TERM, removed parent PID `1567113`, child PID `1567114`, and grandchild PID `1567115`, and atomically published remote `cancelled` state/result evidence with return code `-15`.
+- The local run `20260717T222632Z_ssh_monitored_command_fae9475e` converged to one canonical `cancelled` terminal result, published hash `fa0ac0e1e895b1ccf4b71c5988c87f3b7d42a2a65f02a8871757534fa2c48db2` exactly once, released the repository lock, and remained byte-for-byte publication-idempotent across two additional startup reconciliations.
+- Final validation passed: focused R4 suites **116 passed**; full repository suite **1,131 passed, 1 skipped**; `python -m pip check` reported no broken requirements; `git diff --check` passed. Durable evidence is recorded in `docs/r4-live-host-acceptance.md`.
+- R4 is complete. The next executable roadmap unit is X4 unrestricted remote PowerShell over the durable remote controller and managed staging foundation.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 

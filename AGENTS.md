@@ -34,9 +34,9 @@ Future Codex sessions must inspect the repository before assuming any roadmap fe
 
 ## Immediate Priority: Remote Transfer and Ownership
 
-The local durability foundation, unrestricted local PowerShell, parallel command groups, and C1 permissive-only cleanup are complete. The active roadmap now proceeds through R3 transfer/staging and R4 remote ownership before X4 unrestricted remote PowerShell.
+The local durability foundation, unrestricted local PowerShell, parallel command groups, C1 permissive-only cleanup, R3 managed transfer/staging, and R4 durable remote ownership are complete. The active roadmap now proceeds to X4 unrestricted remote PowerShell.
 
-Local `JobManager`/`RunStore` execution may be described as restart-safe where its acceptance tests apply. Do not describe remote SSH work as fully restart-safe or independently owned until R4 establishes an authoritative remote controller and reattachment protocol.
+Local `JobManager`/`RunStore` execution and R4 monitored remote SSH execution may be described as restart-safe where their acceptance tests apply. New remote execution surfaces must reuse the authoritative controller, reattachment, identity-scoped cancellation, and exactly-once publication protocol rather than creating parallel ownership models.
 
 The following execution invariants are permanent requirements for every new local or remote execution path:
 
