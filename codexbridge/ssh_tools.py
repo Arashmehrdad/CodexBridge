@@ -949,9 +949,15 @@ def run_ssh_transfer(
         if not requested_name or requested_name in {".", ".."}:
             requested_name = "downloaded-artifact"
         local = downloads / requested_name
+        partial = downloads / f".{requested_name}.partial"
         if local.exists() and not overwrite:
             raise ValueError(f"Download destination already exists: {local.name}")
-        argv.extend([f"{destination_host}:{remote}", str(local)])
+        if partial.exists():
+            if partial.is_dir():
+                shutil.rmtree(partial)
+            else:
+                partial.unlink()
+        argv.extend([f"{destination_host}:{remote}", str(partial)])
         cwd = run_dir
         destination = str(local)
     result = _run_local_argv(
@@ -960,6 +966,25 @@ def run_ssh_transfer(
         timeout_seconds=config.ssh.transfer_timeout_seconds,
         output_limit=config.ssh.max_output_bytes,
     )
+    if direction == "download":
+        if result.get("ok"):
+            if not partial.is_file():
+                result["ok"] = False
+                result["exit_code"] = 1
+                result["error"] = "Downloaded staging artifact is missing or not a regular file"
+            else:
+                downloaded_size = partial.stat().st_size
+                downloaded_sha256 = sha256(partial.read_bytes()).hexdigest()
+                os.replace(partial, local)
+                result["download_size_bytes"] = downloaded_size
+                result["download_sha256"] = downloaded_sha256
+                result["staging_relative_path"] = f"downloads/{requested_name}"
+                result["publication"] = "atomic_replace"
+        if partial.exists():
+            if partial.is_dir():
+                shutil.rmtree(partial)
+            else:
+                partial.unlink()
     result.update(
         {
             "host_id": host_id,
