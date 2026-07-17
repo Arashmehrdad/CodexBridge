@@ -329,6 +329,23 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
         )
 
 
+def test_ssh_command_profile_supports_remote_runs_beyond_one_hour() -> None:
+    profile = SSHCommandProfileConfig(
+        command_id="r4_live_process_tree",
+        argv=["python3", "/var/tmp/codexbridge-r4/r4_parent.py"],
+        timeout_seconds=4500,
+        watchdog_eligible=True,
+    )
+
+    assert profile.timeout_seconds == 4500
+    with pytest.raises(ValidationError):
+        SSHCommandProfileConfig(
+            command_id="too_long",
+            argv=["python3", "job.py"],
+            timeout_seconds=86401,
+        )
+
+
 def test_ssh_host_supports_alias_file_or_explicit_endpoint(tmp_path: Path) -> None:
     direct = SSHHostConfig(
         hostname="ssh.runpod.io",

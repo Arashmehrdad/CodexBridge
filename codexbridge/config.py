@@ -216,7 +216,7 @@ class RepoConfig(BaseModel):
 class SSHCommandProfileConfig(BaseModel):
     command_id: str
     argv: List[str] = Field(default_factory=list, min_length=1, max_length=64)
-    timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    timeout_seconds: int = Field(default=120, ge=1, le=86400)
     description: str = ""
     writes_remote: bool = False
     watchdog_eligible: bool = False
