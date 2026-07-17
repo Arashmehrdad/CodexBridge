@@ -8,6 +8,7 @@ from codexbridge.remote_controller_state import (
     REMOTE_CONTROLLER_STATE_VERSION,
     REMOTE_CONTROLLER_VERSION,
     build_remote_controller_state_contract,
+    reconcile_remote_controller_state,
     validate_remote_controller_state_contract,
 )
 
@@ -113,3 +114,70 @@ def test_remote_controller_state_contract_rejects_persisted_drift() -> None:
         remote_argv=["python3", "-c", "print('ok')"],
         timeout_seconds=7200,
     ) == contract
+
+
+def test_remote_controller_reconciliation_adopts_matching_live_state() -> None:
+    contract = _build()
+    observed = copy.deepcopy(contract)
+    observed["remote"].update(
+        {
+            "pid": 4312,
+            "pgid": 4312,
+            "process_start_identity": "998877",
+            "authoritative_state": "running",
+            "heartbeat_at": "2026-07-17T14:00:00Z",
+        }
+    )
+
+    result = reconcile_remote_controller_state(contract, observed)
+
+    assert result["reconciliation_state"] == "adopted"
+    assert result["uncertainty_state"] == "none"
+    assert result["adoptable"] is True
+    assert result["terminal"] is False
+    assert result["remote_process"]["pid"] == 4312
+    assert result["remote_process"]["start_time_ticks"] == "998877"
+    assert result["remote_process"]["execution_id"] == contract["execution_id"]
+
+
+def test_remote_controller_reconciliation_returns_terminal_evidence_once_ready() -> None:
+    contract = _build()
+    observed = copy.deepcopy(contract)
+    observed["remote"].update(
+        {
+            "pid": 4312,
+            "pgid": 4312,
+            "process_start_identity": "998877",
+            "authoritative_state": "completed",
+            "heartbeat_at": "2026-07-17T14:01:00Z",
+            "publication_state": "ready",
+        }
+    )
+    observed["result"] = {"returncode": 0, "ended_at": "2026-07-17T14:01:00Z"}
+
+    result = reconcile_remote_controller_state(contract, observed)
+
+    assert result["reconciliation_state"] == "terminal_observed"
+    assert result["terminal"] is True
+    assert result["adoptable"] is False
+    assert result["result"]["returncode"] == 0
+
+
+def test_remote_controller_reconciliation_preserves_network_uncertainty() -> None:
+    contract = _build()
+
+    result = reconcile_remote_controller_state(contract, None)
+
+    assert result["reconciliation_state"] == "uncertain"
+    assert result["uncertainty_state"] == "network_or_state_unavailable"
+    assert result["adoptable"] is False
+    assert result["terminal"] is False
+
+
+def test_remote_controller_reconciliation_rejects_identity_mismatch() -> None:
+    contract = _build()
+    observed = copy.deepcopy(contract)
+    observed["execution_id"] = "different"
+
+    with pytest.raises(ValueError, match="identity does not match"):
+        reconcile_remote_controller_state(contract, observed)

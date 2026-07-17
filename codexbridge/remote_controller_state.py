@@ -99,6 +99,74 @@ def build_remote_controller_state_contract(
     }
 
 
+def reconcile_remote_controller_state(
+    contract: dict[str, Any],
+    observed: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if observed is None:
+        return {
+            "reconciliation_state": "uncertain",
+            "uncertainty_state": "network_or_state_unavailable",
+            "adoptable": False,
+            "terminal": False,
+            "authoritative_state": "unknown",
+            "remote_process": {},
+            "result": {},
+        }
+
+    if (
+        observed.get("request_id") != contract.get("request_id")
+        or observed.get("execution_id") != contract.get("execution_id")
+        or observed.get("idempotency_key") != contract.get("idempotency_key")
+        or observed.get("controller") != contract.get("controller")
+    ):
+        raise ValueError("Remote-controller state identity does not match accepted contract")
+
+    remote = dict(observed.get("remote") or {})
+    authoritative_state = str(remote.get("authoritative_state", "unknown"))
+    process = {
+        "pid": remote.get("pid"),
+        "pgid": remote.get("pgid"),
+        "start_time_ticks": str(remote.get("process_start_identity", "")),
+        "execution_id": observed.get("execution_id"),
+        "state_path": remote.get("state_path"),
+        "authoritative_state": authoritative_state,
+        "heartbeat_at": remote.get("heartbeat_at"),
+        "durable_ownership": bool(remote.get("pid") and remote.get("pgid")),
+    }
+    live = authoritative_state in {"launch_pending", "running", "cancellation_pending"}
+    terminal = authoritative_state in {"completed", "failed", "cancelled", "timed_out"}
+    if live:
+        return {
+            "reconciliation_state": "adopted",
+            "uncertainty_state": "none",
+            "adoptable": True,
+            "terminal": False,
+            "authoritative_state": authoritative_state,
+            "remote_process": process,
+            "result": {},
+        }
+    if terminal:
+        return {
+            "reconciliation_state": "terminal_observed",
+            "uncertainty_state": "none",
+            "adoptable": False,
+            "terminal": True,
+            "authoritative_state": authoritative_state,
+            "remote_process": process,
+            "result": dict(observed.get("result") or {}),
+        }
+    return {
+        "reconciliation_state": "uncertain",
+        "uncertainty_state": "invalid_authoritative_state",
+        "adoptable": False,
+        "terminal": False,
+        "authoritative_state": authoritative_state,
+        "remote_process": process,
+        "result": {},
+    }
+
+
 def validate_remote_controller_state_contract(
     contract: dict[str, Any],
     *,
