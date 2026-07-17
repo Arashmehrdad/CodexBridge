@@ -57,6 +57,7 @@ from .run_query_chunks import (
 )
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .run_publication import publish_run_result
+from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
     reject_destructive_command,
@@ -1479,6 +1480,13 @@ class JobManager:
                 run_id=run_id,
                 lease_generation=1,
             )
+        elif tool in {"ssh_reviewed_script", "ssh_monitored_command"}:
+            input_data["staging_manifest"] = build_ssh_staging_manifest(
+                tool=tool,
+                run_id=run_id,
+                lease_generation=1,
+                script=str(input_data.get("script") or "") if tool == "ssh_reviewed_script" else None,
+            )
         acquisition = self.locks.acquire(
             repo_name=repo_name,
             tool=tool,
@@ -1510,6 +1518,12 @@ class JobManager:
                     run_dir,
                     input_data,
                     dict(input_data["staging_manifest"]),
+                )
+            elif tool in {"ssh_reviewed_script", "ssh_monitored_command"}:
+                stage_ssh_inputs(
+                    run_dir,
+                    script=str(input_data.get("script") or "") if tool == "ssh_reviewed_script" else None,
+                    manifest=dict(input_data["staging_manifest"]),
                 )
             artifact_input = dict(input_data)
             if tool in {"ssh_reviewed_script", "ssh_root_shell"} and "script" in artifact_input:
