@@ -2104,6 +2104,14 @@ class JobManager:
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
         if run["status"] in TERMINAL_STATUSES:
+            publication = publish_run_result(self.store, run_id)
+            if publication["ok"]:
+                self.locks.release(
+                    run["repo_name"],
+                    run_id,
+                    str(run.get("worker_lease_token") or ""),
+                    int(run.get("lease_generation") or 1),
+                )
             return {
                 "ok": True,
                 "run_id": run_id,
@@ -2143,13 +2151,20 @@ class JobManager:
         )
         if pending is None:
             winner = self.store.get_run(run_id)
+            winner_terminal = winner["status"] in TERMINAL_STATUSES
+            if winner_terminal:
+                publication = publish_run_result(self.store, run_id)
+                if publication["ok"]:
+                    self.locks.release(
+                        run["repo_name"], run_id, lease_token, lease_generation
+                    )
             return {
-                "ok": winner["status"] in TERMINAL_STATUSES,
+                "ok": winner_terminal,
                 "run_id": run_id,
                 "status": winner["status"],
                 "cancelled": winner["status"] == "cancelled",
                 "terminated": False,
-                "termination_confirmed": winner["status"] in TERMINAL_STATUSES,
+                "termination_confirmed": winner_terminal,
                 "reason": "Cancellation lost a concurrent state transition",
             }
 
@@ -2198,13 +2213,20 @@ class JobManager:
             )
             if cancelled is None:
                 winner = self.store.get_run(run_id)
+                winner_terminal = winner["status"] in TERMINAL_STATUSES
+                if winner_terminal:
+                    publication = publish_run_result(self.store, run_id)
+                    if publication["ok"]:
+                        self.locks.release(
+                            run["repo_name"], run_id, lease_token, lease_generation
+                        )
                 return {
-                    "ok": winner["status"] in TERMINAL_STATUSES,
+                    "ok": winner_terminal,
                     "run_id": run_id,
                     "status": winner["status"],
                     "cancelled": winner["status"] == "cancelled",
                     "terminated": terminated,
-                    "termination_confirmed": winner["status"] in TERMINAL_STATUSES,
+                    "termination_confirmed": winner_terminal,
                     "termination_reports": reports,
                     "reason": "Final cancellation lost a concurrent state transition",
                 }
