@@ -589,7 +589,12 @@ Checkpoint (2026-07-17):
 - Retry cleanup is idempotent, rejects path traversal, symbolic links, non-regular artifacts, and any attempt to delete a protected publication. Stale partials are removed before retry; failed-transfer partials are removed after execution; completed downloads remain preserved under `downloads/<name>`.
 - Cleanup-manifest implementation commits: `034d2a315eb2a3fc2ed63f641fd0f36b543efb2b` and the following roadmap checkpoint commit.
 - Focused validation passed: `tests/test_transfer_manifests.py`, `tests/test_ssh_tools.py`, and `tests/test_ssh_worker.py` completed with **56 passed**; `transfer_manifests.py`, `ssh_tools.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: add binary-safe executable-profile input/output staging manifests and protected-artifact classification, linking every staged artifact to its invoking run and lease generation.
+- Executable-profile runs now receive a versioned staging manifest before durable launch. Binary or UTF-8 text stdin is materialized under `inputs/stdin.bin`, with exact byte length and SHA-256, while stdout/stderr declarations classify each output as protected evidence or ordinary staged output according to the persisted profile policy.
+- The staging manifest binds every entry to the invoking run ID and lease generation. Workers reject run/lease drift, unsafe run-relative paths, missing or changed input bytes, malformed output declarations, and invalid protected-artifact classifications before child launch. Historical pre-manifest executable runs remain compatible.
+- Completed output metadata records exact byte length, SHA-256, classification, invoking run ID, and lease generation for each declared stream.
+- Executable-staging implementation commits: `066a13c5ab700ec8ce2a3b23fbaa17017cdc39e5`, `12c31e624df3355f0f43e9420e0a28ee61f2a5bb`, `36abfd3203bbc751733b6d6f4abec11662203cb5`, and `d27ee08acb1d7780df5ceca1ce3b29800fb3e774`.
+- Focused validation passed: `tests/test_executable_staging.py`, `tests/test_executable_profiles.py`, `tests/test_executable_profile_worker.py`, and `tests/test_job_manager.py` completed with **71 passed**; `executable_staging.py`, `executable_profiles.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Next unit: extend the same run/lease-linked protected-artifact manifest contract to reviewed scripts and remote-controller staging, then close R3 with overwrite/retry acceptance coverage.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
