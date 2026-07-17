@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from hashlib import sha256
@@ -1436,6 +1437,132 @@ def test_cancel_monitored_run_persists_remote_completion_before_local_terminal(
     terminal = manager.store.get_run(run_id)
     assert terminal["status"] == "cancelled"
     assert terminal["progress"]["remote_termination"]["completion_persisted"] is True
+
+
+def test_cancel_monitored_run_natural_completion_race_publishes_winner_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+    run_id = response["run_id"]
+    current = manager.store.get_run(run_id)
+    progress = dict(current.get("progress") or {})
+    progress["remote_process"] = {
+        "pid": 321,
+        "pgid": 321,
+        "start_time_ticks": "98765",
+    }
+    manager.store.update_run(
+        run_id,
+        status="running",
+        launcher_pid=12345,
+        worker_pid=None,
+        pid=None,
+        progress_json=progress,
+    )
+    publications: list[str] = []
+
+    def fake_publish(store, published_run_id):
+        del store
+        publications.append(published_run_id)
+        return {"ok": True, "error": ""}
+
+    def fake_cancel(config, host_id, contract, remote_process, *, requested_at, grace_seconds):
+        del config, host_id, contract, remote_process, requested_at, grace_seconds
+        pending = manager.store.get_run(run_id)
+        completed = manager.store.transition_terminal(
+            run_id,
+            status="completed",
+            result={"run_id": run_id, "status": "completed", "summary": "remote done"},
+            expected_statuses=("cancellation_pending",),
+            expected_state_version=int(pending["state_version"]),
+            expected_lease_token=pending["worker_lease_token"],
+            expected_lease_generation=int(pending["lease_generation"]),
+            summary="remote done",
+        )
+        assert completed is not None
+        return {
+            "identity_verified": True,
+            "request_persisted": True,
+            "term_sent": False,
+            "kill_sent": False,
+            "terminated": True,
+            "already_exited": True,
+            "identity_changed": False,
+            "completion_persisted": True,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_manager.publish_run_result", fake_publish)
+    monkeypatch.setattr("codexbridge.job_manager.cancel_remote_controller", fake_cancel)
+
+    cancelled = manager.cancel_run(run_id)
+
+    assert cancelled["ok"] is True
+    assert cancelled["status"] == "completed"
+    assert cancelled["cancelled"] is False
+    assert cancelled["termination_confirmed"] is True
+    assert publications == [run_id]
+    assert manager.store.get_run(run_id)["status"] == "completed"
+    assert manager.locks.find_lock("sample", run_id) is None
+
+
+def test_restart_reconciles_completed_remote_cancellation_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_ssh_monitored_command("my_vps", "uptime")
+    run_id = response["run_id"]
+    current = manager.store.get_run(run_id)
+    manager.store.update_run(
+        run_id,
+        status="cancellation_pending",
+        launcher_pid=None,
+        worker_pid=None,
+        pid=None,
+    )
+    observed = copy.deepcopy(current["input"]["remote_controller_state"])
+    observed["remote"].update(
+        {
+            "pid": 321,
+            "pgid": 321,
+            "process_start_identity": "98765",
+            "authoritative_state": "cancelled",
+            "heartbeat_at": "2026-07-17T18:00:00Z",
+            "cancellation_requested_at": "2026-07-17T17:59:00Z",
+            "cancellation_completed_at": "2026-07-17T18:00:00Z",
+            "publication_state": "ready",
+        }
+    )
+    remote_result = {
+        "returncode": -15,
+        "ended_at": "2026-07-17T18:00:00Z",
+        "authoritative_state": "cancelled",
+    }
+    publications: list[str] = []
+
+    monkeypatch.setattr("codexbridge.job_manager.process_matches_identity", lambda *_: False)
+    monkeypatch.setattr("codexbridge.job_manager.process_is_running", lambda *_: False)
+    monkeypatch.setattr(
+        "codexbridge.job_manager.probe_remote_controller_state",
+        lambda *_: {"ok": True, "state": observed, "result": remote_result, "error": ""},
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.publish_run_result",
+        lambda store, published_run_id: (
+            publications.append(published_run_id) or {"ok": True, "error": ""}
+        ),
+    )
+
+    stale = manager.store.get_run(run_id)
+    manager._reconcile_run(stale)
+    manager._reconcile_run(stale)
+
+    terminal = manager.store.get_run(run_id)
+    assert terminal["status"] == "cancelled"
+    assert terminal["result"]["remote_controller_result"] == remote_result
+    assert publications == [run_id]
+    assert manager.locks.find_lock("sample", run_id) is None
 
 
 def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> None:
