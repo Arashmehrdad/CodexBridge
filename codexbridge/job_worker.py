@@ -79,6 +79,7 @@ from .runner import (
     open_codex_prompt_stream,
 )
 from .repo_wiki import mark_repo_wiki_stale
+from .remote_controller_state import validate_remote_controller_state_contract
 from .safety import (
     reject_destructive_command,
     validate_repo_relative_path,
@@ -1771,6 +1772,19 @@ class JobWorker:
             writes_remote=profile.writes_remote,
             monitored=True,
         )
+        remote_controller_state = input_data.get("remote_controller_state")
+        if remote_controller_state is not None:
+            if not isinstance(remote_controller_state, dict):
+                raise ValueError("Persisted remote-controller state contract is invalid")
+            validate_remote_controller_state_contract(
+                remote_controller_state,
+                run_id=self.run_id,
+                host_id=host_id,
+                command_id=command_id,
+                lease_generation=self.worker_lease_generation,
+                remote_argv=list(profile.argv),
+                timeout_seconds=profile.timeout_seconds,
+            )
         run_dir = Path(self.run["run_dir"])
         staging_manifest = input_data.get("staging_manifest")
         staged_artifacts: list[dict[str, object]] = []

@@ -57,6 +57,7 @@ from .run_query_chunks import (
 )
 from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
 from .run_publication import publish_run_result
+from .remote_controller_state import build_remote_controller_state_contract
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
@@ -1487,6 +1488,22 @@ class JobManager:
                 lease_generation=1,
                 script=str(input_data.get("script") or "") if tool == "ssh_reviewed_script" else None,
             )
+            if tool == "ssh_monitored_command":
+                _, monitored_profile = validate_monitored_command_start(
+                    self.config,
+                    str(input_data["host_id"]),
+                    str(input_data["command_id"]),
+                )
+                input_data["remote_controller_state"] = (
+                    build_remote_controller_state_contract(
+                        run_id=run_id,
+                        host_id=str(input_data["host_id"]),
+                        command_id=str(input_data["command_id"]),
+                        lease_generation=1,
+                        remote_argv=list(monitored_profile.argv),
+                        timeout_seconds=monitored_profile.timeout_seconds,
+                    )
+                )
         acquisition = self.locks.acquire(
             repo_name=repo_name,
             tool=tool,
