@@ -421,6 +421,83 @@ def test_failed_download_removes_partial_staging_artifact(
     assert not (run_dir / "downloads" / "api.log").exists()
 
 
+def test_download_rejects_existing_publication_without_overwrite(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, repo = make_config(tmp_path)
+    run_dir = tmp_path / "run"
+    published = run_dir / "downloads" / "api.log"
+    published.parent.mkdir(parents=True)
+    published.write_bytes(b"existing")
+    executor_called = False
+
+    def unexpected_run(*args, **kwargs):
+        nonlocal executor_called
+        del args, kwargs
+        executor_called = True
+        raise AssertionError("SCP must not run without explicit overwrite")
+
+    monkeypatch.setattr(ssh_tools.subprocess, "run", unexpected_run)
+    monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")
+
+    with pytest.raises(ValueError, match="already exists"):
+        ssh_tools.run_ssh_transfer(
+            config,
+            "sample_host",
+            "download",
+            repo_root=repo,
+            local_path="api.log",
+            remote_path="/var/log/api.log",
+            run_dir=run_dir,
+        )
+
+    assert executor_called is False
+    assert published.read_bytes() == b"existing"
+
+
+def test_download_overwrite_retry_cleans_stale_partial_and_replaces_atomically(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, repo = make_config(tmp_path)
+    run_dir = tmp_path / "run"
+    downloads = run_dir / "downloads"
+    downloads.mkdir(parents=True)
+    published = downloads / "api.log"
+    partial = downloads / ".api.log.partial"
+    published.write_bytes(b"old publication")
+    partial.write_bytes(b"stale partial")
+    payload = b"replacement\x00payload\xff"
+    monkeypatch.setattr(ssh_tools.shutil, "which", lambda value: f"{value}.exe")
+
+    def fake_run(argv, **kwargs):
+        del kwargs
+        assert not partial.exists()
+        Path(argv[-1]).write_bytes(payload)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ssh_tools.subprocess, "run", fake_run)
+
+    result = ssh_tools.run_ssh_transfer(
+        config,
+        "sample_host",
+        "download",
+        repo_root=repo,
+        local_path="api.log",
+        remote_path="/var/log/api.log",
+        run_dir=run_dir,
+        overwrite=True,
+        confirmation=config.ssh.confirmation_token,
+    )
+
+    assert result["ok"] is True
+    assert result["publication"] == "atomic_replace"
+    assert result["cleanup_removed"] == ["downloads/.api.log.partial"]
+    assert result["download_size_bytes"] == len(payload)
+    assert result["download_sha256"] == sha256(payload).hexdigest()
+    assert published.read_bytes() == payload
+    assert not partial.exists()
+
+
 def test_deployment_excludes_secrets_links_shared_files_and_activates_last(
     tmp_path: Path, monkeypatch
 ) -> None:
