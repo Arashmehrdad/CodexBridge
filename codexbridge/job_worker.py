@@ -1839,6 +1839,7 @@ class JobWorker:
                     on_progress=on_progress,
                     on_event=on_event,
                     cancellation_check=cancellation_check,
+                    controller_state=remote_controller_state,
                 )
             )
         )

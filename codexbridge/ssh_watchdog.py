@@ -109,10 +109,40 @@ def _start_controller_source(
     remote_argv: list[str],
     start_marker: str,
     exit_marker: str,
+    controller_state: dict[str, Any],
 ) -> str:
     encoded_argv = json.dumps(remote_argv, separators=(",", ":"))
-    return f'''import json,os,subprocess,sys
+    encoded_state = json.dumps(controller_state, sort_keys=True, separators=(",", ":"))
+    return f'''import json,os,subprocess,sys,tempfile,time
 argv=json.loads({encoded_argv!r})
+contract=json.loads({encoded_state!r})
+remote=contract["remote"]
+state_dir=remote["state_dir"]
+state_path=remote["state_path"]
+input_path=remote["input_path"]
+result_path=remote["result_path"]
+os.makedirs(state_dir,mode=0o700,exist_ok=True)
+def atomic_json(path,payload):
+ parent=os.path.dirname(path) or "."
+ fd,tmp=tempfile.mkstemp(prefix=".codexbridge-",suffix=".tmp",dir=parent)
+ try:
+  with os.fdopen(fd,"w",encoding="utf-8",newline="\\n") as handle:
+   json.dump(payload,handle,sort_keys=True,separators=(",",":"))
+   handle.write("\\n")
+   handle.flush()
+   os.fsync(handle.fileno())
+  os.replace(tmp,path)
+  dir_fd=os.open(parent,os.O_RDONLY)
+  try:
+   os.fsync(dir_fd)
+  finally:
+   os.close(dir_fd)
+ finally:
+  try:
+   os.unlink(tmp)
+  except FileNotFoundError:
+   pass
+atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"execution":contract["execution"]}})
 p=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=sys.stdout.buffer,stderr=sys.stderr.buffer,start_new_session=True,close_fds=True)
 def ident(pid):
  text=open(f"/proc/{{pid}}/stat","r",encoding="utf-8").read()
@@ -122,9 +152,25 @@ try:
  meta=ident(p.pid)
 except Exception as exc:
  meta={{"pid":int(p.pid),"pgid":0,"start_time_ticks":"","identity_error":str(exc)[:200]}}
-print({start_marker!r}+json.dumps(meta,separators=(",",":")),flush=True)
+if not (meta.get("pid",0)>1 and meta.get("pid")==meta.get("pgid") and str(meta.get("start_time_ticks","")).isdigit()):
+ p.terminate()
+ raise RuntimeError("remote process identity could not be verified")
+now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+state=dict(contract)
+state["remote"]=dict(remote)
+state["remote"].update({{"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"authoritative_state":"running","heartbeat_at":now}})
+atomic_json(state_path,state)
+start_payload=dict(meta)
+start_payload.update({{"execution_id":contract["execution_id"],"state_path":state_path,"authoritative_state":"running","heartbeat_at":now,"durable_ownership":True}})
+print({start_marker!r}+json.dumps(start_payload,separators=(",",":")),flush=True)
 rc=p.wait()
-print({exit_marker!r}+json.dumps({{"pid":meta.get("pid"),"pgid":meta.get("pgid"),"start_time_ticks":meta.get("start_time_ticks"),"returncode":int(rc)}},separators=(",",":")),flush=True)
+ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+terminal="completed" if rc==0 else "failed"
+result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended}}
+atomic_json(result_path,result)
+state["remote"].update({{"authoritative_state":terminal,"heartbeat_at":ended,"publication_state":"ready"}})
+atomic_json(state_path,state)
+print({exit_marker!r}+json.dumps({{"pid":meta.get("pid"),"pgid":meta.get("pgid"),"start_time_ticks":meta.get("start_time_ticks"),"returncode":int(rc),"execution_id":contract["execution_id"],"state_path":state_path,"authoritative_state":terminal}},separators=(",",":")),flush=True)
 raise SystemExit(rc)
 '''
 
@@ -331,6 +377,7 @@ def start_monitored_ssh_command(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_event: Callable[[str, str, dict[str, Any]], None] | None = None,
     cancellation_check: Callable[[], bool] | None = None,
+    controller_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     host, profile = validate_monitored_command_start(config, host_id, command_id)
     if cancellation_check is not None and cancellation_check():
@@ -341,9 +388,13 @@ def start_monitored_ssh_command(
     nonce = secrets.token_hex(12)
     start_marker = _marker("REMOTE_START", nonce)
     exit_marker = _marker("REMOTE_EXIT", nonce)
+    if controller_state is None:
+        raise ValueError("Monitored SSH command requires a remote-controller state contract")
     controller = _encoded_controller_profile(
         "monitored_start",
-        _start_controller_source(list(profile.argv), start_marker, exit_marker),
+        _start_controller_source(
+            list(profile.argv), start_marker, exit_marker, controller_state
+        ),
         profile.timeout_seconds,
     )
     built = build_ssh_argv(config, host_id, controller)
