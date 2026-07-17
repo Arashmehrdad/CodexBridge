@@ -633,6 +633,17 @@ Acceptance:
 
 ## R4 - Durable Remote Job Protocol
 
+Status: **in progress**.
+
+Checkpoint (2026-07-17):
+
+- Added a deterministic versioned remote-controller state contract before durable monitored-command launch.
+- The persisted contract binds request ID, execution ID, idempotency key, host, command, lease generation, controller version/fingerprint, remote state/input/stdout/stderr/result paths, process identity placeholders, authoritative state/heartbeat, cancellation evidence, publication/cleanup state, executable identity, timeout, and resource-monitor state.
+- Local bridge state records the remote job ID and state directory plus remote PID/PGID/start identity placeholders, last authoritative heartbeat, publication/cleanup state, and explicit reconciliation/uncertainty state.
+- Workers rebuild and compare the complete accepted contract before any remote-controller execution, rejecting run, lease, command, argv, timeout, path, fingerprint, or state drift.
+- Focused and adjacent validation passed with `tests/test_remote_controller_state.py`, `tests/test_job_manager.py`, and `tests/test_ssh_worker.py`: **99 passed**; changed modules passed `py_compile`; `git diff --check` passed.
+- Next executable unit: make the remote controller atomically create and update the authoritative remote state directory and state file, returning only after durable ownership and verified PID/PGID/start identity are persisted.
+
 Goal: remote work survives CodexBridge restart and local worker loss.
 
 Remote controller state must include:
