@@ -566,7 +566,7 @@ Acceptance:
 
 ## R3 - Transfer Policy and Managed Staging
 
-Status: **in progress**.
+Status: **complete**.
 
 Checkpoint (2026-07-17):
 
@@ -598,7 +598,13 @@ Checkpoint (2026-07-17):
 - Workers revalidate tool identity, run identity, lease generation, exact run-relative output paths, protected classifications, and reviewed-script bytes before remote execution. Completed outputs publish exact size/SHA-256 metadata, while historical pre-manifest runs remain compatible.
 - SSH staging implementation commits: `7bf668967285251bed64709fe8b11602e57ee959`, `b535bf9c4b89c9a85dafe46a44c571da955817be`, `9d5d8fee92745212c97597e72f3ed86d5c69dd24`, and `4ae85be66221d48bc1b4b6376c82d7a9679df856`.
 - Focused validation passed: `tests/test_job_manager.py` and `tests/test_ssh_worker.py` completed with **96 passed**; `ssh_staging.py`, `job_manager.py`, and `job_worker.py` passed `py_compile`; `git diff --check` passed.
-- Next unit: close R3 with explicit overwrite/retry acceptance coverage for existing download publications, stale partial staging, and repeated reviewed-script/remote-controller staging validation.
+- Explicit overwrite/retry acceptance now proves an existing published download is preserved and SCP is not invoked without `overwrite=true`; confirmed overwrite removes stale hidden partial staging before retry and atomically replaces the prior publication only after successful binary-safe transfer.
+- Reviewed-script and monitored remote-controller staging manifests are revalidated repeatedly without mutation, preserving the exact staged script bytes, run/lease binding, output paths, and protected-evidence classifications.
+- R3 closure commits: `214e545ecb4bef48aeb5c968084ce475d26ca356` and `e4e0276c4d39a04413c10feb6ee034729211a54a`.
+- Focused closure validation passed: `tests/test_ssh_staging.py`, `tests/test_ssh_tools.py`, and `tests/test_transfer_manifests.py` completed with **23 passed**.
+- Adjacent R3 validation passed: `tests/test_job_manager.py`, `tests/test_ssh_worker.py`, `tests/test_ssh_staging.py`, `tests/test_ssh_tools.py`, and `tests/test_transfer_manifests.py` completed with **119 passed**; changed transfer/staging/manager/worker modules passed `py_compile`; `git diff --check` passed.
+- The full R3 exit gate passed with **1116 passed, 1 skipped**; `python -m pip check` reported no broken requirements; `git diff --check` passed.
+- R3 acceptance is complete. The next roadmap unit is R4: define and persist the authoritative remote-controller state contract, beginning with request/execution identity, idempotency, controller fingerprint/version, remote state paths, process identity, heartbeat, and cancellation/publication fields before remote launch.
 
 Goal: provide predictable transfer scope for reviewed scripts, executable profiles, and remote controllers.
 
