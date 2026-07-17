@@ -163,7 +163,18 @@ atomic_json(state_path,state)
 start_payload=dict(meta)
 start_payload.update({{"execution_id":contract["execution_id"],"state_path":state_path,"authoritative_state":"running","heartbeat_at":now,"durable_ownership":True}})
 print({start_marker!r}+json.dumps(start_payload,separators=(",",":")),flush=True)
-rc=p.wait()
+next_heartbeat=time.monotonic()+5.0
+while True:
+ rc=p.poll()
+ if rc is not None:
+  break
+ now_mono=time.monotonic()
+ if now_mono>=next_heartbeat:
+  heartbeat=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+  state["remote"]["heartbeat_at"]=heartbeat
+  atomic_json(state_path,state)
+  next_heartbeat=now_mono+5.0
+ time.sleep(0.2)
 ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 terminal="completed" if rc==0 else "failed"
 result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended}}
@@ -442,6 +453,11 @@ def start_monitored_ssh_command(
                 "pgid": remote_process.get("pgid"),
                 "start_time_ticks": remote_process.get("start_time_ticks"),
                 "nonce": remote_process.get("nonce"),
+                "execution_id": remote_process.get("execution_id"),
+                "state_path": remote_process.get("state_path"),
+                "authoritative_state": remote_process.get("authoritative_state"),
+                "heartbeat_at": remote_process.get("heartbeat_at"),
+                "durable_ownership": bool(remote_process.get("durable_ownership")),
             }
         with output_lock:
             output_state = dict(output_totals)
@@ -690,6 +706,11 @@ def start_monitored_ssh_command(
             "pgid": identity.get("pgid"),
             "start_time_ticks": identity.get("start_time_ticks"),
             "nonce": identity.get("nonce"),
+            "execution_id": identity.get("execution_id"),
+            "state_path": identity.get("state_path"),
+            "authoritative_state": identity.get("authoritative_state"),
+            "heartbeat_at": identity.get("heartbeat_at"),
+            "durable_ownership": bool(identity.get("durable_ownership")),
         }
         if identity_ready
         else {},

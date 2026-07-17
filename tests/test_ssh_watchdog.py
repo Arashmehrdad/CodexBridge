@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from codexbridge.remote_controller_state import build_remote_controller_state_contract
+
 import codexbridge.ssh_watchdog as ssh_watchdog
 from codexbridge.config import (
     AppConfig,
@@ -87,10 +89,19 @@ def test_monitored_start_refuses_without_watchdog_or_profile_opt_in(
 
 
 def test_encoded_controller_is_validator_safe_and_attached() -> None:
+    contract = build_remote_controller_state_contract(
+        run_id="run-1",
+        host_id="my_vps",
+        command_id="uptime",
+        lease_generation=1,
+        remote_argv=["python3", "-c", "print('ok')"],
+        timeout_seconds=30,
+    )
     source = ssh_watchdog._start_controller_source(
         ["python3", "-c", "print('ok')"],
         "START=",
         "EXIT=",
+        contract,
     )
 
     profile = ssh_watchdog._encoded_controller_profile("controller", source, 30)
@@ -103,7 +114,11 @@ def test_encoded_controller_is_validator_safe_and_attached() -> None:
     assert "start_new_session=True" in decoded
     assert "stdout=sys.stdout.buffer" in decoded
     assert "stderr=sys.stderr.buffer" in decoded
-    assert "rc=p.wait()" in decoded
+    assert "atomic_json(state_path,state)" in decoded
+    assert "durable_ownership" in decoded
+    assert "rc=p.poll()" in decoded
+    assert "os.replace(tmp,path)" in decoded
+    assert "os.fsync(handle.fileno())" in decoded
     assert "stdout=subprocess.DEVNULL" not in decoded
     assert "stderr=subprocess.DEVNULL" not in decoded
 
