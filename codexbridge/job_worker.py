@@ -39,6 +39,7 @@ from .config import (
 from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .executable_profiles import resolve_verified_local_executable
+from .executable_staging import validate_executable_staging_manifest
 from .external_fixtures import fetch_validate_and_discard
 from .gateway_models import (
     SSHReviewedScriptAction,
@@ -979,27 +980,43 @@ class JobWorker:
         process_env = os.environ.copy() if input_data.get("inherit_environment") else {}
         process_env.update(environment)
 
-        stdin_mode = str(input_data.get("stdin_mode", "none"))
-        if stdin_mode == "text":
-            stdin_payload = str(input_data.get("stdin_text") or "").encode("utf-8")
-        elif stdin_mode == "bytes":
-            try:
-                stdin_payload = b64decode(
-                    str(input_data.get("stdin_base64") or ""), validate=True
+        run_dir = Path(self.run["run_dir"])
+        staging_manifest = input_data.get("staging_manifest")
+        output_entries: list[dict[str, object]] = []
+        if staging_manifest is not None:
+            if not isinstance(staging_manifest, dict):
+                raise ValueError("Persisted executable staging manifest is invalid")
+            stdin_payload, output_paths, output_entries = (
+                validate_executable_staging_manifest(
+                    run_dir,
+                    staging_manifest,
+                    run_id=self.run_id,
+                    lease_generation=self.worker_lease_generation,
                 )
-            except Exception as exc:
-                raise ValueError("Persisted executable binary stdin is invalid") from exc
-        elif stdin_mode == "none":
-            stdin_payload = None
+            )
+            stdout_path = output_paths["stdout"]
+            stderr_path = output_paths["stderr"]
         else:
-            raise ValueError(f"Unsupported executable stdin mode: {stdin_mode}")
+            stdin_mode = str(input_data.get("stdin_mode", "none"))
+            if stdin_mode == "text":
+                stdin_payload = str(input_data.get("stdin_text") or "").encode("utf-8")
+            elif stdin_mode == "bytes":
+                try:
+                    stdin_payload = b64decode(
+                        str(input_data.get("stdin_base64") or ""), validate=True
+                    )
+                except Exception as exc:
+                    raise ValueError("Persisted executable binary stdin is invalid") from exc
+            elif stdin_mode == "none":
+                stdin_payload = None
+            else:
+                raise ValueError(f"Unsupported executable stdin mode: {stdin_mode}")
+            stdout_path = run_dir / "stdout.bin"
+            stderr_path = run_dir / "stderr.bin"
 
         timeout_value = input_data.get("timeout_seconds")
         timeout_seconds = None if timeout_value is None else int(timeout_value)
         public_limit = int(input_data.get("public_output_max_bytes") or 40000)
-        run_dir = Path(self.run["run_dir"])
-        stdout_path = run_dir / "stdout.bin"
-        stderr_path = run_dir / "stderr.bin"
         self.event(
             "info",
             "executable",
@@ -1079,6 +1096,19 @@ class JobWorker:
             status = "timed_out"
         elif timed_out:
             status = "cancellation_pending"
+        staged_artifacts = []
+        for entry in output_entries:
+            stream = str(entry["stream"])
+            path = stdout_path if stream == "stdout" else stderr_path
+            staged_artifacts.append(
+                {
+                    **entry,
+                    "size_bytes": path.stat().st_size,
+                    "sha256": _sha256_file(path),
+                    "invoking_run_id": self.run_id,
+                    "lease_generation": self.worker_lease_generation,
+                }
+            )
         return {
             "tool": "executable_profile",
             "profile_id": profile.profile_id,
@@ -1095,6 +1125,7 @@ class JobWorker:
             "stderr": stderr,
             "stdout_artifact": stdout_path.name,
             "stderr_artifact": stderr_path.name,
+            "staged_artifacts": staged_artifacts,
             "stdout_bytes": stdout_path.stat().st_size,
             "stderr_bytes": stderr_path.stat().st_size,
             "output_truncated": (
