@@ -2,6 +2,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -92,15 +93,33 @@ def _run_manager(
     port: int,
     *,
     timeout: int = 90,
+    capture_output: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        _manager_argv(engine, action, project_root, config, port),
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    argv = _manager_argv(engine, action, project_root, config, port)
+    if capture_output:
+        return subprocess.run(
+            argv,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", newline="") as output:
+        completed = subprocess.run(
+            argv,
+            cwd=ROOT,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        output.flush()
+        output.seek(0)
+        text = output.read()
+    return subprocess.CompletedProcess(completed.args, completed.returncode, text, "")
 
 
 def test_service_manager_and_launcher_exist() -> None:
@@ -200,11 +219,15 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
     pid_file = tmp_path / "runs" / "service_logs" / "codexbridge-server.pid"
 
     try:
-        started = _run_manager(engine, "start", tmp_path, config, port)
+        started = _run_manager(
+            engine, "start", tmp_path, config, port, capture_output=False
+        )
         assert started.returncode == 0, started.stdout + started.stderr
         first_pid = int(pid_file.read_text(encoding="ascii").strip())
 
-        restarted = _run_manager(engine, "restart", tmp_path, config, port)
+        restarted = _run_manager(
+            engine, "restart", tmp_path, config, port, capture_output=False
+        )
         restart_output = restarted.stdout + restarted.stderr
         assert restarted.returncode == 0, restart_output
         assert "the Cloudflare tunnel will remain unchanged" in restart_output
@@ -216,7 +239,9 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
         assert "Ready:     True (HTTP 406" in status.stdout
         assert f"PID:       {second_pid}" in status.stdout
     finally:
-        stopped = _run_manager(engine, "stop", tmp_path, config, port)
+        stopped = _run_manager(
+            engine, "stop", tmp_path, config, port, capture_output=False
+        )
 
     assert stopped.returncode == 0, stopped.stdout + stopped.stderr
     assert not pid_file.exists()
@@ -255,17 +280,37 @@ def test_tui_start_restart_stop_on_isolated_port(tmp_path: Path) -> None:
     command_line = subprocess.list2cmdline(launcher_args)
 
     try:
-        result = subprocess.run(
-            [str(CMD), "/d", "/s", "/c", command_line],
-            cwd=ROOT,
-            input="1\n\n3\n\n2\n\n0\n",
-            capture_output=True,
-            text=True,
-            timeout=150,
-            check=False,
+        with tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", newline=""
+        ) as tui_output:
+            completed = subprocess.run(
+                [str(CMD), "/d", "/s", "/c", command_line],
+                cwd=ROOT,
+                input="1\n\n3\n\n2\n\n0\n",
+                stdout=tui_output,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=150,
+                check=False,
+            )
+            tui_output.flush()
+            tui_output.seek(0)
+            output = tui_output.read()
+        result = subprocess.CompletedProcess(
+            completed.args,
+            completed.returncode,
+            output,
+            "",
         )
     finally:
-        cleanup = _run_manager(str(POWERSHELL_5), "stop", tmp_path, config, port)
+        cleanup = _run_manager(
+            str(POWERSHELL_5),
+            "stop",
+            tmp_path,
+            config,
+            port,
+            capture_output=False,
+        )
 
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
