@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture; H1B is the next executable unit.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation is complete; the pinned companion executable adapter is the next executable unit.
 
 Known observations, not yet separate repair programs:
 
@@ -108,7 +108,7 @@ R5 satisfies deterministic threshold paths, visible overrides, exact termination
 
 ## H1 - ChatGPT-Controlled Hermes Tool Runtime
 
-Status: **in progress; H1A feasibility audit complete, H1B companion handshake and read-only search/describe are next**.
+Status: **in progress; H1A feasibility audit and the H1B protocol foundation are complete**.
 
 ### H1A - Feasibility audit
 
@@ -132,7 +132,16 @@ H1A decision (2026-07-18):
 - Generic detached or long-running tools remain unsupported initially because the registry has no provider-neutral external ownership and cancellation contract.
 - The accepted implementation scope and evidence are recorded in [`docs/hermes-tool-runtime-feasibility.md`](docs/hermes-tool-runtime-feasibility.md).
 
-Next executable unit: define and test the companion handshake and read-only `tool_search`/`tool_describe` protocol with revision pinning, registry-generation/schema-hash binding, bounded output, explicit interface-drift failure, and proof that no model client is initialized.
+H1B protocol foundation completed on 2026-07-18:
+
+- added a versioned companion handshake bound to Hermes revision `862b1b37bf0aadba3a98b3756c7d71779379b53b`;
+- bound registry generation and deterministic effective-schema hash into handshake, search, and describe responses;
+- added deterministic interface-drift failures for protocol, revision, registry-generation, and schema changes;
+- added bounded `tool_search` summaries and exact `tool_describe` schema identity;
+- added fail-closed evidence that no Hermes model-runtime module was initialized;
+- focused validation: `tests/test_hermes_companion_protocol.py` reported `5 passed`, the protocol module compiled, and `git diff --check` passed.
+
+Next executable unit: implement the pinned Hermes companion executable adapter over stdio, initialize only the effective registry and discovery paths, emit the accepted handshake, and route read-only search/describe through the protocol without importing Hermes into the CodexBridge service process.
 
 ### H1B - Minimal external surface
 
