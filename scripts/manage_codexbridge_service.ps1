@@ -204,6 +204,21 @@ function Get-VerifiedTunnelProcesses {
     return @($found.Values)
 }
 
+function Get-HttpStatusCodeFromException {
+    param([object]$Exception)
+    if (-not $Exception) { return 0 }
+
+    $responseProperty = $Exception.PSObject.Properties["Response"]
+    if (-not $responseProperty -or -not $responseProperty.Value) { return 0 }
+    $statusProperty = $responseProperty.Value.PSObject.Properties["StatusCode"]
+    if (-not $statusProperty -or $null -eq $statusProperty.Value) { return 0 }
+    try {
+        return [int]$statusProperty.Value
+    } catch {
+        return 0
+    }
+}
+
 function Test-EndpointReadiness {
     param([string]$Url, [int]$TimeoutSeconds = 3)
     $statusCode = 0
@@ -213,10 +228,7 @@ function Test-EndpointReadiness {
         $statusCode = [int]$response.StatusCode
     } catch {
         $errorText = $_.Exception.Message
-        $responseObject = $_.Exception.Response
-        if ($responseObject -and $responseObject.StatusCode) {
-            $statusCode = [int]$responseObject.StatusCode
-        }
+        $statusCode = Get-HttpStatusCodeFromException -Exception $_.Exception
     }
     return [pscustomobject]@{
         Ready = ($statusCode -eq 406)
@@ -356,6 +368,12 @@ function Stop-CodexBridgeServer {
         Stop-VerifiedProcess -Process $process -InternalAction "elevated-stop-server"
     }
     Remove-PidFile -Path $ServerPidFile
+}
+
+function Restart-CodexBridgeServer {
+    Write-Info "Restarting CodexBridge server only; the Cloudflare tunnel will remain unchanged."
+    Stop-CodexBridgeServer
+    Start-CodexBridgeServer
 }
 
 function Start-CodexBridgeTunnel {
@@ -621,8 +639,7 @@ function Restart-RunningServerForProfileChange {
         return
     }
     Write-Info "Restarting the running server so the profile change takes effect."
-    Stop-CodexBridgeServer
-    Start-CodexBridgeServer
+    Restart-CodexBridgeServer
 }
 
 function Show-SupervisorProfileMenu {
@@ -730,7 +747,7 @@ function Invoke-ServiceAction {
     switch ($SelectedAction) {
         "start" { Start-CodexBridgeServer }
         "stop" { Stop-CodexBridgeServer }
-        "restart" { Stop-CodexBridgeServer; Start-CodexBridgeServer }
+        "restart" { Restart-CodexBridgeServer }
         "status" { Show-ServerStatus }
         "logs" { Show-RecentLogs }
         "follow-logs" { Follow-ServiceLogs }
@@ -764,9 +781,9 @@ function Invoke-ServiceAction {
 
 function Show-ServiceMenu {
     $items = [ordered]@{
-        "1" = @("Start server hidden", "start")
-        "2" = @("Stop server safely", "stop")
-        "3" = @("Restart server hidden", "restart")
+        "1" = @("Start server hidden (tunnel unchanged)", "start")
+        "2" = @("Stop server safely (tunnel unchanged)", "stop")
+        "3" = @("Restart server hidden (tunnel unchanged)", "restart")
         "4" = @("Server status/readiness", "status")
         "5" = @("Select supervisor profile", "profiles")
         "6" = @("Validate config.yaml", "validate-config")

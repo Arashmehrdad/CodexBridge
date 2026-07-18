@@ -121,6 +121,8 @@ Windows service controller:
 
 The TUI displays the configured supervisor profile and the current server/tunnel process state. Choose **Select supervisor profile** to switch among the profiles defined under `supervisors.autonomy_profiles` in `config.yaml`. The update is validated and rolled back automatically if the resulting configuration is invalid. A running server must be restarted before the new profile takes effect; the TUI offers to do this immediately.
 
+Server `start`, `stop`, and `restart` actions manage only the local CodexBridge server. They never stop or restart the Cloudflare tunnel. Use the separate tunnel actions or the explicit combined actions when both processes should change. The lifecycle controller supports both Windows PowerShell 5.1 and PowerShell 7, including the normal connection-refused period while a stopped server is starting.
+
 The controller writes service output under `runs\service_logs`. Actions that require elevation use the normal Windows UAC prompt, and the manager verifies process identity before stopping a server or tunnel.
 
 If you publish the local MCP route through a tunnel, keep the `/mcp` suffix in the connector URL, for example `https://example-tunnel.trycloudflare.com/mcp` or `https://example.ngrok-free.app/mcp`.

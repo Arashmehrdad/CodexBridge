@@ -20,6 +20,21 @@ function Write-Step {
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $Message"
 }
 
+function Get-HttpStatusCodeFromException {
+    param([object]$Exception)
+    if (-not $Exception) { return 0 }
+
+    $responseProperty = $Exception.PSObject.Properties["Response"]
+    if (-not $responseProperty -or -not $responseProperty.Value) { return 0 }
+    $statusProperty = $responseProperty.Value.PSObject.Properties["StatusCode"]
+    if (-not $statusProperty -or $null -eq $statusProperty.Value) { return 0 }
+    try {
+        return [int]$statusProperty.Value
+    } catch {
+        return 0
+    }
+}
+
 function Test-McpEndpoint {
     param(
         [string]$Url,
@@ -33,10 +48,7 @@ function Test-McpEndpoint {
             Error = ""
         }
     } catch {
-        $statusCode = 0
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-            $statusCode = [int]$_.Exception.Response.StatusCode
-        }
+        $statusCode = Get-HttpStatusCodeFromException -Exception $_.Exception
         return @{
             Ok = $statusCode -eq 406
             StatusCode = $statusCode
