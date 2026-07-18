@@ -719,7 +719,12 @@ Checkpoint (2026-07-18):
 - `JobManager.start_remote_powershell` now validates the registered host and persists the exact request envelope, R4 binding, and authoritative controller state before worker launch and repository-lock acquisition.
 - The shared R4 controller contract now preserves an explicit no-timeout policy as `null` instead of coercing it to an integer; focused controller-state validation passed with **8 passed** and manager validation passed with **64 passed**.
 - Implementation commits through `49e130dc4907e95e9d95063c4a8c2441b26b14c2`.
-- Next executable unit: add worker dispatch and monitored remote-controller execution for the persisted `remote_powershell` tool, including exact working-directory, environment, and binary-stdin delivery through the existing R4 lifecycle.
+- The durable worker now revalidates the complete X4 payload and dispatches `remote_powershell` through the existing R4 monitored-controller lifecycle without a second ownership model.
+- Remote controller launch preserves exact executable argv, arbitrary working directory and environment values, binary stdin bytes, and explicit no-timeout semantics; controller input evidence records the delivered working directory, environment, and stdin byte count before child launch.
+- Startup adoption, in-process reconciliation polling, terminal publication, and exact remote cancellation now include `remote_powershell` alongside monitored SSH commands.
+- Focused validation passed: `tests/test_remote_powershell.py` **11 passed**; `tests/test_ssh_watchdog.py` **9 passed**; `tests/test_job_manager.py` **64 passed**; changed worker and watchdog modules passed `py_compile`.
+- Worker-dispatch implementation commits: `4053d66ce835e483719c0a47bde9681d2d010b93`, `003bc9a92fa840e8f583cc2e9a1860a1deb4dc4b`, `cbd5d6b35f13607d77c6248c8ca4ef3b64416ce1`, and `66bdb51037695e13096458152cb739a31f3cdfb8`.
+- Next executable unit: add protected remote stdout/stderr publication manifests and binary-safe local artifact retrieval for X4, then expose the public remote-PowerShell start contract through the existing gateway.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
