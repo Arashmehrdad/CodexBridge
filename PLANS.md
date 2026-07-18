@@ -769,7 +769,11 @@ Checkpoint (2026-07-18):
 - Permissive policy metadata can explicitly raise or disable thresholds while preserving validation and visibility.
 - Implementation commits: `4ad26247afd84ffeeb8f7a2af7121772d1a36150` and `8b6ce72e00fff829c54af8582779e385d6cb841d`.
 - Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `codexbridge/remote_resource_enforcement.py` passed `py_compile`.
-- Next executable unit: bind the policy and current cgroup-v2 sample into the authoritative R4 remote-controller state and heartbeat evidence before adding termination behavior.
+- The accepted memory policy is now part of every new authoritative R4 controller contract before launch. Remote controller input and running state persist the exact policy, current cgroup memory sample, source path, deterministic decision, sample timestamp, and explicit absolute-cgroup-first evidence.
+- Every authoritative remote heartbeat refreshes the resource-monitor evidence atomically with the heartbeat while leaving termination behavior disabled for this unit. Missing or inaccessible cgroup files are recorded as `unavailable` rather than inferred from host percentages or treated as terminal.
+- Implementation commits: `753746db272f83552fb0b1cd05a6c603f71f671c`, `fc5d665a4799a498ba05bdf4a7d4d3281491fe83`, and `817c3586a6fbdced3c34abbc7c0938c4a84da309`.
+- Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `tests/test_remote_controller_state.py` **8 passed**; `tests/test_ssh_watchdog.py` **9 passed**; changed controller-state and watchdog modules passed `py_compile`; `git diff --check` passed.
+- Next executable unit: add graceful resource-triggered termination followed by verified process-group escalation, persisting the exact triggering sample, threshold, decision, signal evidence, and terminal outcome.
 
 Goal: prevent runaway long jobs while preserving explicit permissive overrides.
 
