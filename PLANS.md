@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation and pinned read-only stdio companion adapter are complete; durable CodexBridge launch and client routing are the next executable unit.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation, pinned read-only stdio companion adapter, and durable one-request executable client contract are complete; public gateway routing and terminal-result publication are the next executable unit.
 
 Known observations, not yet separate repair programs:
 
@@ -150,7 +150,14 @@ Pinned companion executable adapter completed on 2026-07-18:
 - rejects any observed Hermes model-runtime import before serving requests;
 - focused validation: `tests/test_hermes_companion.py` reported `5 passed`, `tests/test_hermes_companion_protocol.py` reported `5 passed`, the adapter compiled, and `git diff --check` passed.
 
-Next executable unit: add the CodexBridge-side durable companion launcher and client request contract, using the existing executable lifecycle with protected stdout/stderr, exact pinned checkout identity, handshake verification, bounded one-request execution, and no Hermes import in the service process.
+Durable companion client contract completed on 2026-07-19:
+
+- added bounded one-request handshake/search/describe launch construction over the existing durable executable-profile lifecycle;
+- persisted the pinned Hermes revision, checkout, operation, and expected registry/schema identity in the accepted client metadata;
+- added exact one-response parsing with handshake and bound catalog-identity verification;
+- focused validation: `tests/test_hermes_companion_client.py` reported `5 passed`, the client module compiled, and `git diff --check` passed.
+
+Next executable unit: expose the durable read-only Hermes handshake/search/describe path through the public gateway, publish verified terminal response metadata and protected stdout/stderr references, and add adjacent server/job-manager integration coverage.
 
 ### H1B - Minimal external surface
 
