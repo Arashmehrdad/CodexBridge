@@ -714,10 +714,12 @@ Checkpoint (2026-07-18):
 
 - Added the provider-neutral, versioned remote PowerShell request envelope with absolute remote `pwsh`/`powershell` executable identity, exact argv, arbitrary working directory and environment values, binary-safe stdin, optional no-timeout operation, and deterministic request fingerprinting.
 - The envelope does not filter or reinterpret PowerShell command text, child executable names, arguments, paths, or environment values.
-- Focused `tests/test_remote_powershell.py` validation passed with **8 passed** before the durable-input unit.
+- Focused `tests/test_remote_powershell.py` validation passed with **10 passed** through the durable-input unit.
 - Added strict persisted-envelope revalidation and a deterministic R4 controller binding that preserves the exact executable argv, request fingerprint, run identity, lease generation, and timeout policy without introducing a second ownership model.
-- Implementation commits through `a403879bbad314d8ece6b132857976916da3bb8d`.
-- Next executable unit: persist the validated remote PowerShell envelope, binding, and authoritative R4 controller state as one exact durable pre-launch payload, then connect manager launch and worker dispatch through the existing R4 lifecycle.
+- `JobManager.start_remote_powershell` now validates the registered host and persists the exact request envelope, R4 binding, and authoritative controller state before worker launch and repository-lock acquisition.
+- The shared R4 controller contract now preserves an explicit no-timeout policy as `null` instead of coercing it to an integer; focused controller-state validation passed with **8 passed** and manager validation passed with **64 passed**.
+- Implementation commits through `49e130dc4907e95e9d95063c4a8c2441b26b14c2`.
+- Next executable unit: add worker dispatch and monitored remote-controller execution for the persisted `remote_powershell` tool, including exact working-directory, environment, and binary-stdin delivery through the existing R4 lifecycle.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
