@@ -46,6 +46,12 @@ Every accepted asynchronous operation must persist launch intent, request identi
 - Remote PowerShell remains optional for hosts that already provide it.
 - Existing human-only boundaries continue to apply to real-money, credential, destructive, and production-impacting actions.
 
+### No paid infrastructure for validation
+
+- Do not start, rent, or retain RunPod or any other paid remote/GPU host solely for CodexBridge testing, acceptance, or roadmap evidence.
+- Prefer local Windows validation, deterministic mocks and replayed fixtures, existing free CI, or infrastructure already running for an actual user-requested workload.
+- OS-, provider-, or hardware-specific execution evidence that cannot be obtained without new cost is non-blocking deferred evidence. Collect it opportunistically during real work rather than making it a roadmap gate.
+
 ### Evidence before Roadmap V3
 
 After the Hermes integration reaches its bounded gate, architectural feature expansion pauses. CodexBridge will be exercised on real projects before another broad reliability roadmap is created.
@@ -90,12 +96,12 @@ Implemented:
 
 Current unit:
 
-1. Run `tests/test_ssh_watchdog_execution.py` on disposable Linux and confirm all four POSIX cases execute rather than skip.
-2. Add GPU temperature/memory, disk, heartbeat, and CUDA OOM signals to authoritative controller evidence.
-3. Preserve absolute-memory-first precedence and exact process identity.
-4. Run focused adjacent validation and `git diff --check`.
+1. Add GPU temperature/memory, disk, heartbeat, and CUDA OOM signals to authoritative controller evidence using deterministic mocks, replayed fixtures, and the existing local harness; no live paid GPU host is required.
+2. Preserve absolute-memory-first precedence and exact process identity.
+3. Run focused adjacent validation and `git diff --check`.
+4. Run `tests/test_ssh_watchdog_execution.py` on local or free CI Linux only when such an environment is available. Until then, keep the real POSIX execution cases as non-blocking deferred evidence rather than provisioning a paid host.
 
-Exit requires deterministic threshold paths, visible overrides, exact termination targeting, passing Linux execution tests with no orphan or duplicate enforcement, and durable remaining-signal evidence.
+Exit requires deterministic threshold paths, visible overrides, exact termination targeting, passing contract and available local execution tests with no orphan or duplicate enforcement, and durable remaining-signal evidence. Paid Linux or GPU infrastructure is not an exit condition.
 
 ## H1 - ChatGPT-Controlled Hermes Tool Runtime
 
@@ -152,11 +158,11 @@ Status: **blocked on R5 and H1 acceptance**.
 
 After H1, freeze architectural expansion and exercise:
 
-- a fresh Wan2.2 or comparable GPU-host setup;
-- ordinary repository work;
+- ordinary local repository and service work that requires no newly rented infrastructure;
 - parallel build or test work;
 - repeated connector use across separate ChatGPT sessions;
-- Hermes-backed reads and approved reversible external actions.
+- Hermes-backed reads and approved reversible external actions;
+- optional remote or GPU-host work only when that infrastructure is already running for an actual user-requested workload, never provisioned solely for the pilot.
 
 Create a separate pilot evidence log. Each entry records timestamp, project, expected outcome, HEAD/build identity, relevant run/tool identities, exact failure, lost or duplicated work, recovery, attribution, reproduction frequency, and artifacts.
 
@@ -170,6 +176,7 @@ Attribute connector 502s before repair. Treat external fixture loss as infrastru
 
 ## Deferred Work
 
+- paid RunPod or other paid remote/GPU validation; evidence may be collected only opportunistically during actual user-requested workloads;
 - broad environment and secret-reference expansion beyond H1 needs;
 - a large provider-neutral synthetic acceptance matrix;
 - project-memory and local-model expansion;
