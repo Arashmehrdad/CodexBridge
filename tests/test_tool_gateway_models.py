@@ -191,6 +191,64 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     ))["operation"] == "commit"
 
 
+def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeJobs:
+        def start_remote_powershell(self, host_id, executable_path, argv, **kwargs):
+            calls.append(
+                {
+                    "host_id": host_id,
+                    "executable_path": executable_path,
+                    "argv": argv,
+                    **kwargs,
+                }
+            )
+            return {"accepted": True, "run_id": "remote_run"}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    request = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "remote_powershell",
+            "host_id": "remote_windows",
+            "executable_path": "/opt/microsoft/powershell/7/pwsh",
+            "argv": ["-NoProfile", "-Command", "Write-Output ok"],
+            "working_directory": "/tmp/a b",
+            "environment": {"VALUE": "a=b c"},
+            "stdin_base64": "AP8=",
+            "timeout_seconds": None,
+        }
+    )
+
+    result = server.run_start(request)
+
+    assert result["run_id"] == "remote_run"
+    assert calls == [
+        {
+            "host_id": "remote_windows",
+            "executable_path": "/opt/microsoft/powershell/7/pwsh",
+            "argv": ["-NoProfile", "-Command", "Write-Output ok"],
+            "working_directory": "/tmp/a b",
+            "environment": {"VALUE": "a=b c"},
+            "stdin_bytes": b"\x00\xff",
+            "timeout_seconds": None,
+        }
+    ]
+
+
+def test_run_start_rejects_invalid_remote_powershell_binary_input() -> None:
+    request = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "remote_powershell",
+            "host_id": "remote_windows",
+            "executable_path": "/usr/bin/pwsh",
+            "stdin_base64": "not-base64",
+        }
+    )
+    with pytest.raises(ValueError, match="valid base64"):
+        server.run_start(request)
+
+
 def test_run_query_dispatches_powershell_group_operations(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 

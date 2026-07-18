@@ -2053,6 +2053,35 @@ def start_local_powershell_async(
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def start_remote_powershell_async(
+    host_id: str,
+    executable_path: str,
+    argv: list[str],
+    *,
+    working_directory: str = "",
+    environment: dict[str, str] | None = None,
+    stdin_base64: str | None = None,
+    timeout_seconds: int | None = None,
+) -> dict:
+    """Write async tool: launch unrestricted PowerShell on a registered permissive remote host."""
+    stdin_bytes = None
+    if stdin_base64 is not None:
+        try:
+            stdin_bytes = base64.b64decode(stdin_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("stdin_base64 must contain valid base64") from exc
+    return get_job_manager().start_remote_powershell(
+        host_id,
+        executable_path,
+        argv,
+        working_directory=working_directory,
+        environment=environment,
+        stdin_bytes=stdin_bytes,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_local_powershell_group_async(
     repo_name: str,
     children: list[dict[str, Any]],
@@ -2086,6 +2115,16 @@ def start_local_powershell_group_async(
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_start(request: RunStartRequest) -> dict:
     """Write gateway for durable validation and unrestricted permissive PowerShell runs."""
+    if request.operation == "remote_powershell":
+        return start_remote_powershell_async(
+            request.host_id,
+            request.executable_path,
+            request.argv,
+            working_directory=request.working_directory,
+            environment=request.environment,
+            stdin_base64=request.stdin_base64,
+            timeout_seconds=request.timeout_seconds,
+        )
     if request.operation == "powershell_group":
         return start_local_powershell_group_async(
             request.repo_name,

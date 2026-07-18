@@ -492,10 +492,21 @@ class LocalPowerShellStart(GatewayModel):
         return self
 
 
+class RemotePowerShellStart(GatewayModel):
+    operation: Literal["remote_powershell"]
+    host_id: str = Field(min_length=1, max_length=128)
+    executable_path: str = Field(min_length=1, max_length=32_768)
+    argv: list[str] = Field(default_factory=list, max_length=10_000)
+    working_directory: str = Field(default="", max_length=32_768)
+    environment: dict[str, str] = Field(default_factory=dict, max_length=10_000)
+    stdin_base64: str | None = Field(default=None, max_length=2_700_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+
+
 RunStartRequest = Annotated[
     PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
     | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
-    | LocalPowerShellStart | ParallelPowerShellStart,
+    | LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart,
     Field(discriminator="operation"),
 ]
 
