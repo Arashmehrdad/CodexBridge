@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from codexbridge.job_worker import JobWorker
 from codexbridge.remote_powershell import (
     bind_remote_powershell_controller_request,
     build_remote_powershell_durable_input,
@@ -10,6 +13,7 @@ from codexbridge.remote_powershell import (
     validate_remote_powershell_durable_input,
     validate_remote_powershell_request,
 )
+from codexbridge.run_store import RunStore
 
 
 def test_remote_powershell_envelope_preserves_exact_values_and_binary_stdin() -> None:
@@ -142,6 +146,102 @@ def test_remote_powershell_durable_input_binds_request_and_controller_before_lau
     assert durable["remote_powershell_request"] == request
     assert durable["remote_powershell_binding"]["request_fingerprint"] == request["request_fingerprint"]
     assert durable["remote_controller_state"]["execution"]["executable_identity"] == "/usr/bin/pwsh"
+
+
+def test_remote_powershell_worker_dispatches_exact_controller_inputs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "repos:",
+                "  sample:",
+                f'    path: "{repo.as_posix()}"',
+                "ssh:",
+                "  enabled: true",
+                "  hosts:",
+                "    remote_windows:",
+                "      ssh_alias: remote-windows",
+                f'runs_dir: "{runs_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_id = "20260718T000000Z_remote_powershell_deadbeef"
+    request = build_remote_powershell_request(
+        host_id="remote_windows",
+        executable_path="/opt/microsoft/powershell/7/pwsh",
+        argv=["-NoProfile", "-Command", "[Console]::OpenStandardInput().ReadByte()"],
+        working_directory="/tmp/a b",
+        environment={"ARBITRARY_VALUE": "a=b c"},
+        stdin_bytes=b"\x00\xffinput",
+        timeout_seconds=None,
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id=run_id,
+        lease_generation=1,
+    )
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="ssh:remote_windows",
+        tool="remote_powershell",
+        run_dir=run_dir,
+        input_data=durable,
+    )
+    captured: dict = {}
+
+    def execute_remote(config, host_id, command_id, **kwargs):
+        del config
+        captured.update(host_id=host_id, command_id=command_id, kwargs=kwargs)
+        return {
+            "ok": True,
+            "status": "completed",
+            "exit_code": 0,
+            "timed_out": False,
+            "stdout": "remote powershell finished\n",
+            "stderr": "",
+            "host_id": host_id,
+            "ssh_alias": "remote-windows",
+            "command_id": command_id,
+            "writes_remote": True,
+            "watchdog_mode": "observe_only",
+            "automatic_termination_active": False,
+            "remote_process": {"pid": 101, "pgid": 101},
+            "remote_exit_confirmed": True,
+            "watchdog_samples": [],
+            "termination": {},
+            "safety_failure": False,
+            "output_truncated": False,
+            "error": "",
+            "argv": ["ssh.exe", "remote-windows"],
+        }
+
+    monkeypatch.setattr("codexbridge.job_worker.start_monitored_ssh_command", execute_remote)
+
+    assert JobWorker(config_path, run_id).execute() == 0
+    result = store.get_run(run_id)["result"]
+    assert result["tool"] == "remote_powershell"
+    assert result["request_fingerprint"] == request["request_fingerprint"]
+    assert captured["host_id"] == "remote_windows"
+    assert captured["command_id"] == "remote_powershell"
+    assert captured["kwargs"]["remote_argv"] == [
+        "/opt/microsoft/powershell/7/pwsh",
+        *request["argv"],
+    ]
+    assert captured["kwargs"]["working_directory"] == "/tmp/a b"
+    assert captured["kwargs"]["environment"] == {"ARBITRARY_VALUE": "a=b c"}
+    assert captured["kwargs"]["stdin_bytes"] == b"\x00\xffinput"
+    assert captured["kwargs"]["timeout_seconds"] is None
 
 
 def test_remote_powershell_durable_input_rejects_controller_drift() -> None:
