@@ -32,9 +32,11 @@ Future Codex sessions must inspect the repository before assuming any roadmap fe
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: Remote Transfer and Ownership
+## Immediate Priority: Absolute Resource Enforcement
 
-The local durability foundation, unrestricted local PowerShell, parallel command groups, C1 permissive-only cleanup, R3 managed transfer/staging, and R4 durable remote ownership are complete. The active roadmap now proceeds to X4 unrestricted remote PowerShell.
+The local durability foundation, unrestricted local PowerShell, parallel command groups, C1 permissive-only cleanup, R3 managed transfer/staging, R4 durable remote ownership, and the optional X4 remote PowerShell capability are complete. The active roadmap now proceeds to R5 absolute resource enforcement.
+
+Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. CodexBridge does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
 
 Local `JobManager`/`RunStore` execution and R4 monitored remote SSH execution may be described as restart-safe where their acceptance tests apply. New remote execution surfaces must reuse the authoritative controller, reattachment, identity-scoped cancellation, and exactly-once publication protocol rather than creating parallel ownership models.
 

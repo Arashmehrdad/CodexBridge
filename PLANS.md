@@ -663,7 +663,7 @@ Checkpoint (2026-07-17):
 - Identity-scoped cancellation verified the persisted remote identity, durably recorded the cancellation request, terminated the exact process group with TERM, removed parent PID `1567113`, child PID `1567114`, and grandchild PID `1567115`, and atomically published remote `cancelled` state/result evidence with return code `-15`.
 - The local run `20260717T222632Z_ssh_monitored_command_fae9475e` converged to one canonical `cancelled` terminal result, published hash `fa0ac0e1e895b1ccf4b71c5988c87f3b7d42a2a65f02a8871757534fa2c48db2` exactly once, released the repository lock, and remained byte-for-byte publication-idempotent across two additional startup reconciliations.
 - Final validation passed: focused R4 suites **116 passed**; full repository suite **1,131 passed, 1 skipped**; `python -m pip check` reported no broken requirements; `git diff --check` passed. Durable evidence is recorded in `docs/r4-live-host-acceptance.md`.
-- R4 is complete. The next executable roadmap unit is X4 unrestricted remote PowerShell over the durable remote controller and managed staging foundation.
+- R4 is complete. Its durable remote controller and managed staging foundation are available to monitored Linux-native SSH work and the optional X4 remote PowerShell capability.
 
 Goal: remote work survives CodexBridge restart and local worker loss.
 
@@ -708,7 +708,7 @@ Acceptance:
 
 Depends on X2, R3, and R4.
 
-Status: **in progress**.
+Status: **complete (optional capability)**.
 
 Checkpoint (2026-07-18):
 
@@ -733,7 +733,9 @@ Checkpoint (2026-07-18):
 - Binary-publication implementation commit: `c4190ce5946e79f110311540a9605bbcbaf3f5aa`. Focused validation passed: `tests/test_remote_powershell.py` **14 passed**; adjacent `tests/test_job_manager.py` **64 passed**; changed worker and contract modules passed `py_compile`; `git diff --check` passed.
 - The remote controller now captures the requested and resolved PowerShell executable paths, exact byte length, SHA-256, and PowerShell version before launching the accepted command. The evidence is persisted in authoritative remote input/state/result files, re-probed after terminal completion, and bound to the accepted request fingerprint and R4 execution identity in the protected terminal result.
 - Identity/version implementation commit: `2c4ebf745375064d88d7555a0f11a46024b31b3b`. Focused validation passed: `tests/test_remote_powershell.py` **16 passed**; adjacent `tests/test_ssh_watchdog.py` **9 passed**; `codexbridge/remote_powershell.py` passed `py_compile`.
-- Next executable unit: add representative unrestricted native-command acceptance coverage through remote PowerShell, beginning with Git, SSH, OpenSSL, Python, child-process, and loopback network behavior on a disposable registered host.
+- Operator scope decision (2026-07-18): the deployed VPS fleet uses Linux-native SSH, Bash, Python, and direct executable tooling. Remote PowerShell remains available as an optional feature for registered hosts that already provide `pwsh` or `powershell`; installing or staging PowerShell on Linux hosts solely for acceptance is not required.
+- The live remote-PowerShell native-command and loopback-network gate is removed as a roadmap blocker. Existing focused automated contract, gateway, worker, staging, artifact, identity, reconciliation, and cancellation coverage remains authoritative for the optional feature.
+- X4 is complete under this scope decision. The next executable roadmap unit is R5 absolute resource enforcement.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
@@ -749,11 +751,11 @@ Deliverables:
 
 Acceptance:
 
-- local and remote PowerShell profiles share one request/result contract;
-- remote execution survives bridge restart;
-- arbitrary PowerShell child-process and loopback network tests pass on the disposable host;
-- representative SSH, Git, OpenSSL, and other native commands run successfully through PowerShell;
-- no PowerShell command text, child executable, or child argument is silently removed, rewritten, or filtered.
+- the public remote PowerShell request and result contract remains deterministic and binary-safe;
+- remote PowerShell reuses the accepted R4 restart-adoption, reconciliation, exact cancellation, and exactly-once publication protocol;
+- focused automated tests verify request preservation, gateway dispatch, durable input, protected artifact publication, and executable identity evidence;
+- no PowerShell command text, child executable, or child argument is silently removed, rewritten, or filtered;
+- live remote PowerShell smoke testing is optional and applies only when a registered host already provides `pwsh` or `powershell`; its absence does not block Linux VPS operation or roadmap progress.
 
 ## R5 - Absolute Resource Enforcement
 
@@ -800,7 +802,7 @@ Acceptance:
 - missing references fail before child launch;
 - secret values do not appear in public events or summaries when references are used;
 - temporary material is removed or conservatively reported for repair after crashes;
-- environment values reach local and remote PowerShell and OpenSSL unchanged.
+- environment values reach local PowerShell and supported Linux-native remote execution paths unchanged; remote PowerShell is included only when a registered host already provides it.
 
 ## R7 - Provider-Neutral Disposable-Host Acceptance Gate
 
@@ -811,12 +813,13 @@ The generic suite must prove:
 - native endpoint access and capability discovery;
 - permissive-only active routing and clean rejection of removed profiles;
 - unrestricted transfers;
-- unrestricted local and remote PowerShell profiles;
-- arbitrary PowerShell command text, modules, paths, environment, child processes, and network operations;
-- fire-and-return parallel groups with multiple local and remote children launched concurrently;
+- unrestricted local PowerShell profiles and Linux-native remote SSH execution;
+- arbitrary local PowerShell command text, modules, paths, environment, child processes, and network operations;
+- fire-and-return parallel groups for the supported local and remote execution substrates;
 - restart adoption, individual cancellation, group cancellation, mixed outcomes, and aggregate reporting for parallel groups;
 - unrestricted permissive root shell;
-- unrestricted local and remote PowerShell running representative native commands such as SSH, Git, OpenSSL, Docker, and Python without per-program gateways;
+- unrestricted local PowerShell and Linux-native remote execution running representative native commands such as SSH, Git, OpenSSL, Docker, and Python without per-program gateways;
+- optional remote PowerShell smoke coverage only when a registered target already provides `pwsh` or `powershell`; absence of PowerShell on Linux hosts is not a gate failure;
 - arbitrary child-executable arguments, paths, environment values, and network targets;
 - binary input/output and protected artifact publication;
 - execution longer than one hour;
