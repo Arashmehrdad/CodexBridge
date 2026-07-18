@@ -7,9 +7,11 @@ import pytest
 from codexbridge.job_worker import JobWorker
 from codexbridge.remote_powershell import (
     bind_remote_powershell_controller_request,
+    build_remote_powershell_artifact_manifest,
     build_remote_powershell_durable_input,
     build_remote_powershell_request,
     decode_remote_powershell_stdin,
+    validate_remote_powershell_artifact_manifest,
     validate_remote_powershell_durable_input,
     validate_remote_powershell_request,
 )
@@ -146,6 +148,70 @@ def test_remote_powershell_durable_input_binds_request_and_controller_before_lau
     assert durable["remote_powershell_request"] == request
     assert durable["remote_powershell_binding"]["request_fingerprint"] == request["request_fingerprint"]
     assert durable["remote_controller_state"]["execution"]["executable_identity"] == "/usr/bin/pwsh"
+
+
+def test_remote_powershell_artifact_manifest_binds_remote_and_local_binary_evidence() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=["-Command", "[Console]::OpenStandardOutput().WriteByte(255)"],
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_artifacts",
+        lease_generation=4,
+    )
+    manifest = durable["remote_powershell_artifact_manifest"]
+
+    assert validate_remote_powershell_artifact_manifest(
+        manifest,
+        run_id="20260718T000000Z_remote_powershell_artifacts",
+        lease_generation=4,
+        controller_state=durable["remote_controller_state"],
+    ) == manifest
+    assert manifest["execution_id"] == durable["remote_controller_state"]["execution_id"]
+    assert manifest["streams"] == [
+        {
+            "stream": "stdout",
+            "remote_path": durable["remote_controller_state"]["remote"]["stdout_path"],
+            "local_relative_path": "artifacts/remote-stdout.bin",
+            "classification": "protected_evidence",
+            "transfer_encoding": "binary",
+            "publication_state": "pending",
+        },
+        {
+            "stream": "stderr",
+            "remote_path": durable["remote_controller_state"]["remote"]["stderr_path"],
+            "local_relative_path": "artifacts/remote-stderr.bin",
+            "classification": "protected_evidence",
+            "transfer_encoding": "binary",
+            "publication_state": "pending",
+        },
+    ]
+
+
+def test_remote_powershell_artifact_manifest_rejects_path_drift() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=[],
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_artifacts",
+        lease_generation=1,
+    )
+    manifest = dict(durable["remote_powershell_artifact_manifest"])
+    manifest["streams"] = [dict(item) for item in manifest["streams"]]
+    manifest["streams"][0]["local_relative_path"] = "../stdout.bin"
+
+    with pytest.raises(ValueError, match="artifact manifest changed"):
+        validate_remote_powershell_artifact_manifest(
+            manifest,
+            run_id="20260718T000000Z_remote_powershell_artifacts",
+            lease_generation=1,
+            controller_state=durable["remote_controller_state"],
+        )
 
 
 def test_remote_powershell_worker_dispatches_exact_controller_inputs(

@@ -9,6 +9,7 @@ from typing import Any
 from .remote_controller_state import build_remote_controller_state_contract
 
 REMOTE_POWERSHELL_CONTRACT_VERSION = 1
+REMOTE_POWERSHELL_ARTIFACT_MANIFEST_VERSION = 1
 _ALLOWED_EXECUTABLE_NAMES = {"pwsh", "pwsh.exe", "powershell", "powershell.exe"}
 
 
@@ -112,6 +113,57 @@ def validate_remote_powershell_request(request: dict[str, Any]) -> dict[str, Any
     return expected
 
 
+def build_remote_powershell_artifact_manifest(
+    *,
+    run_id: str,
+    lease_generation: int,
+    controller_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Declare protected remote and local binary output evidence for X4."""
+    remote = dict(controller_state.get("remote") or {})
+    streams = []
+    for stream in ("stdout", "stderr"):
+        remote_path = str(remote.get(f"{stream}_path") or "")
+        if not remote_path:
+            raise ValueError(f"Remote PowerShell controller is missing {stream}_path")
+        streams.append(
+            {
+                "stream": stream,
+                "remote_path": remote_path,
+                "local_relative_path": f"artifacts/remote-{stream}.bin",
+                "classification": "protected_evidence",
+                "transfer_encoding": "binary",
+                "publication_state": "pending",
+            }
+        )
+    return {
+        "version": REMOTE_POWERSHELL_ARTIFACT_MANIFEST_VERSION,
+        "tool": "remote_powershell",
+        "invoking_run_id": run_id,
+        "lease_generation": int(lease_generation),
+        "execution_id": str(controller_state.get("execution_id") or ""),
+        "streams": streams,
+    }
+
+
+def validate_remote_powershell_artifact_manifest(
+    manifest: dict[str, Any],
+    *,
+    run_id: str,
+    lease_generation: int,
+    controller_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Reject artifact path, identity, classification, or encoding drift."""
+    expected = build_remote_powershell_artifact_manifest(
+        run_id=run_id,
+        lease_generation=lease_generation,
+        controller_state=controller_state,
+    )
+    if manifest != expected:
+        raise ValueError("Remote PowerShell artifact manifest changed after acceptance")
+    return expected
+
+
 def build_remote_powershell_durable_input(
     request: dict[str, Any],
     *,
@@ -133,12 +185,18 @@ def build_remote_powershell_durable_input(
         remote_argv=list(binding["remote_argv"]),
         timeout_seconds=binding["timeout_seconds"],
     )
+    artifact_manifest = build_remote_powershell_artifact_manifest(
+        run_id=run_id,
+        lease_generation=lease_generation,
+        controller_state=controller_state,
+    )
     return {
         "host_id": validated["host_id"],
         "command_id": binding["command_id"],
         "remote_powershell_request": validated,
         "remote_powershell_binding": binding,
         "remote_controller_state": controller_state,
+        "remote_powershell_artifact_manifest": artifact_manifest,
     }
 
 
