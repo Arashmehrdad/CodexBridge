@@ -708,9 +708,15 @@ def start_monitored_ssh_command(
     stdin_bytes: bytes = b"",
     timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
-    host, profile = validate_monitored_command_start(config, host_id, command_id)
-    execution_argv = list(profile.argv) if remote_argv is None else list(remote_argv)
-    execution_timeout = profile.timeout_seconds if timeout_seconds is None else timeout_seconds
+    if remote_argv is None:
+        host, profile = validate_monitored_command_start(config, host_id, command_id)
+        execution_argv = list(profile.argv)
+        execution_timeout = profile.timeout_seconds
+    else:
+        host = resolve_ssh_host(config, host_id)
+        profile = None
+        execution_argv = list(remote_argv)
+        execution_timeout = timeout_seconds
     if cancellation_check is not None and cancellation_check():
         return _cancelled_before_launch(
             host_id, command_id, host.watchdog.enforcement_mode
@@ -918,6 +924,7 @@ def start_monitored_ssh_command(
             if (
                 breached
                 and breach_streak >= host.watchdog.consecutive_breaches
+                and profile is not None
                 and watchdog_termination_active(config, host_id, command_id)
             ):
                 termination_reason = termination_reason or "watchdog"
@@ -1022,10 +1029,10 @@ def start_monitored_ssh_command(
         "host_id": host_id,
         "ssh_alias": destination,
         "command_id": command_id,
-        "writes_remote": bool(profile.writes_remote),
+        "writes_remote": True if profile is None else bool(profile.writes_remote),
         "watchdog_mode": host.watchdog.enforcement_mode,
-        "automatic_termination_active": watchdog_termination_active(
-            config, host_id, command_id
+        "automatic_termination_active": bool(
+            profile is not None and watchdog_termination_active(config, host_id, command_id)
         ),
         "remote_process": {
             "pid": identity.get("pid"),
