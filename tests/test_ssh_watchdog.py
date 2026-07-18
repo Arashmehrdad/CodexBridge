@@ -121,7 +121,7 @@ def test_encoded_controller_is_validator_safe_and_attached() -> None:
     assert 'action not in {"graceful_terminate","hard_terminate"}' in decoded
     assert 'os.killpg(meta["pgid"],__import__("signal").SIGTERM)' in decoded
     assert 'os.killpg(meta["pgid"],__import__("signal").SIGKILL)' in decoded
-    assert 'state["execution"]["resource_enforcement"]=enforcement' in decoded
+    assert 'state["execution"]["resource_enforcement"]=record' in decoded
     assert '"resource_enforcement":resource_enforcement' in decoded
     assert "durable_ownership" in decoded
     assert "rc=p.poll()" in decoded
