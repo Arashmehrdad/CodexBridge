@@ -64,3 +64,66 @@ def decode_remote_powershell_stdin(request: dict[str, Any]) -> bytes:
     if len(decoded) != int(request.get("stdin_size_bytes", -1)):
         raise ValueError("Remote PowerShell stdin size does not match the envelope")
     return decoded
+
+
+def validate_remote_powershell_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild an accepted X4 envelope and reject any persisted-field drift."""
+    if not isinstance(request, dict):
+        raise ValueError("Persisted remote PowerShell request is invalid")
+    required = {
+        "version",
+        "host_id",
+        "executable_path",
+        "argv",
+        "working_directory",
+        "environment",
+        "stdin_base64",
+        "stdin_size_bytes",
+        "timeout_seconds",
+        "request_fingerprint",
+    }
+    if set(request) != required:
+        raise ValueError("Persisted remote PowerShell request fields are invalid")
+    if request.get("version") != REMOTE_POWERSHELL_CONTRACT_VERSION:
+        raise ValueError("Persisted remote PowerShell request version is invalid")
+    argv = request.get("argv")
+    environment = request.get("environment")
+    if not isinstance(argv, list) or any(not isinstance(item, str) for item in argv):
+        raise ValueError("Persisted remote PowerShell argv must be a list of strings")
+    if not isinstance(environment, dict) or any(
+        not isinstance(name, str) or not isinstance(value, str)
+        for name, value in environment.items()
+    ):
+        raise ValueError("Persisted remote PowerShell environment must contain string pairs")
+    stdin_bytes = decode_remote_powershell_stdin(request)
+    expected = build_remote_powershell_request(
+        host_id=str(request["host_id"]),
+        executable_path=str(request["executable_path"]),
+        argv=list(argv),
+        working_directory=str(request["working_directory"]),
+        environment=dict(environment),
+        stdin_bytes=stdin_bytes,
+        timeout_seconds=request["timeout_seconds"],
+    )
+    if request != expected:
+        raise ValueError("Remote PowerShell request changed after acceptance")
+    return expected
+
+
+def bind_remote_powershell_controller_request(
+    request: dict[str, Any],
+    *,
+    run_id: str,
+    lease_generation: int,
+) -> dict[str, Any]:
+    """Create the exact R4 controller input identity for one accepted X4 request."""
+    validated = validate_remote_powershell_request(request)
+    timeout = validated["timeout_seconds"]
+    return {
+        "command_id": "remote_powershell",
+        "remote_argv": [validated["executable_path"], *validated["argv"]],
+        "timeout_seconds": timeout,
+        "request_fingerprint": validated["request_fingerprint"],
+        "request_id": run_id,
+        "lease_generation": int(lease_generation),
+    }
