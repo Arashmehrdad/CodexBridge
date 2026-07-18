@@ -75,7 +75,7 @@ def _run_controller(
 def test_generated_controller_gracefully_terminates_process_group(tmp_path: Path) -> None:
     completed, state, result = _run_controller(
         tmp_path,
-        child_source="import signal,time; signal.signal(signal.SIGTERM, lambda *_: raise SystemExit(0)); time.sleep(30)",
+        child_source="import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); time.sleep(30)",
         policy=RemoteMemoryPolicy(conservative_bytes=None, graceful_bytes=1, hard_bytes=None),
     )
 
