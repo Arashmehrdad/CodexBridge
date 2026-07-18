@@ -14,6 +14,7 @@ from typing import Any, Callable
 from .config import AppConfig, SSHCommandProfileConfig
 from .process_control import process_group_popen_kwargs, terminate_process_tree
 from .ssh_commands import (
+    MAX_INTERNAL_CONTROLLER_COMMAND_BYTES,
     build_ssh_argv,
     prepare_ssh_execution,
     resolve_ssh_command_profile,
@@ -68,7 +69,10 @@ def _encoded_controller_profile(
         argv=["python3", "-c", _CONTROLLER_LOADER, *chunks],
         timeout_seconds=timeout_seconds,
     )
-    return validate_ssh_command_profile(profile)
+    return validate_ssh_command_profile(
+        profile,
+        max_total_bytes=MAX_INTERNAL_CONTROLLER_COMMAND_BYTES,
+    )
 
 
 def _marker(prefix: str, nonce: str) -> str:

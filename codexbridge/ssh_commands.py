@@ -17,6 +17,7 @@ MAX_SSH_OUTPUT_BYTES = 100_000
 MAX_REMOTE_ARGV_ITEMS = 64
 MAX_REMOTE_ARG_BYTES = 512
 MAX_REMOTE_COMMAND_BYTES = 4096
+MAX_INTERNAL_CONTROLLER_COMMAND_BYTES = 16_384
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -215,6 +216,8 @@ def build_ssh_connection_options(
 
 def validate_ssh_command_profile(
     profile: SSHCommandProfileConfig,
+    *,
+    max_total_bytes: int = MAX_REMOTE_COMMAND_BYTES,
 ) -> SSHCommandProfileConfig:
     command_id = str(profile.command_id).strip()
     if not command_id or not _ID_RE.fullmatch(command_id):
@@ -255,7 +258,7 @@ def validate_ssh_command_profile(
             raise ValueError(
                 f"SSH command profile '{command_id}' contains control characters"
             )
-    if total_bytes > MAX_REMOTE_COMMAND_BYTES:
+    if total_bytes > int(max_total_bytes):
         raise ValueError(f"SSH command profile '{command_id}' is too large")
     return profile
 
