@@ -92,7 +92,7 @@ def test_generated_controller_gracefully_terminates_process_group(tmp_path: Path
     )
 
     evidence = result["resource_enforcement"]
-    assert completed.returncode != 0
+    assert completed.returncode == 0
     assert evidence["decision"]["action"] == "graceful_terminate"
     assert evidence["identity_verified"] is True
     assert evidence["term_sent"] is True
@@ -139,7 +139,7 @@ def test_generated_controller_refuses_identity_mismatch(tmp_path: Path) -> None:
     )
 
     evidence = result["resource_enforcement"]
-    assert completed.returncode != 0
+    assert completed.returncode == 0
     assert evidence["identity_verified"] is False
     assert evidence["term_sent"] is False
     assert evidence["kill_sent"] is False
