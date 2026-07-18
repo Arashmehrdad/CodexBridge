@@ -169,6 +169,28 @@ if contract.get("command_id")=="remote_powershell":
  if version_run.returncode!=0 or not version:
   raise RuntimeError("remote PowerShell executable version probe failed")
  executable_evidence={{"requested_path":requested_path,"resolved_path":resolved_path,"size_bytes":os.stat(resolved_path).st_size,"sha256":digest.hexdigest(),"version":version,"execution_id":contract["execution_id"]}}
+def auxiliary_signals(sampled):
+ gpu={{"status":"unavailable","devices":[],"error":""}}
+ try:
+  gpu_run=subprocess.run(["nvidia-smi","--query-gpu=index,temperature.gpu,memory.used,memory.total","--format=csv,noheader,nounits"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5,check=False)
+  if gpu_run.returncode==0:
+   devices=[]
+   for line in gpu_run.stdout.decode("utf-8",errors="replace").splitlines():
+    parts=[part.strip() for part in line.split(",")]
+    if len(parts)==4:
+     devices.append({{"index":int(parts[0]),"temperature_c":int(parts[1]),"memory_used_mib":int(parts[2]),"memory_total_mib":int(parts[3])}})
+   gpu={{"status":"sampled","devices":devices,"error":""}}
+  else:
+   gpu["error"]=gpu_run.stderr.decode("utf-8",errors="replace")[:200]
+ except Exception as exc:
+  gpu["error"]=str(exc)[:200]
+ disk={{"status":"unavailable","path":working_directory or ".","total_bytes":None,"used_bytes":None,"free_bytes":None,"error":""}}
+ try:
+  usage=__import__("shutil").disk_usage(working_directory or ".")
+  disk={{"status":"sampled","path":working_directory or ".","total_bytes":int(usage.total),"used_bytes":int(usage.used),"free_bytes":int(usage.free),"error":""}}
+ except Exception as exc:
+  disk["error"]=str(exc)[:200]
+ return {{"gpu":gpu,"disk":disk,"heartbeat":{{"status":"sampled","controller_heartbeat_at":sampled}},"cuda_oom":{{"status":"pending","detected":False,"marker":""}}}}
 def memory_evidence():
  policy=dict(contract["execution"]["resource_monitor_state"]["memory_policy"])
  candidates=["/sys/fs/cgroup/memory.current","/sys/fs/cgroup/memory/memory.usage_in_bytes"]
@@ -183,8 +205,9 @@ def memory_evidence():
   except (FileNotFoundError,ValueError,PermissionError):
    continue
  sampled=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ signals=auxiliary_signals(sampled)
  if current is None:
-  return {{"status":"unavailable","memory_policy":policy,"latest_sample":None,"latest_decision":None,"sampled_at":sampled,"sample_path":""}}
+  return {{"status":"unavailable","memory_policy":policy,"latest_sample":None,"latest_decision":None,"signals":signals,"sampled_at":sampled,"sample_path":""}}
  action="continue"
  threshold_name=""
  threshold_bytes=None
@@ -194,7 +217,7 @@ def memory_evidence():
   action="graceful_terminate";threshold_name="graceful";threshold_bytes=int(policy["graceful_bytes"])
  elif policy.get("conservative_bytes") is not None and current>=int(policy["conservative_bytes"]):
   threshold_name="conservative";threshold_bytes=int(policy["conservative_bytes"])
- return {{"status":"sampled","memory_policy":policy,"latest_sample":{{"memory_current_bytes":current,"host_memory_percent":None}},"latest_decision":{{"action":action,"threshold_name":threshold_name,"threshold_bytes":threshold_bytes,"absolute_cgroup_evaluated_first":True}},"sampled_at":sampled,"sample_path":sample_path}}
+ return {{"status":"sampled","memory_policy":policy,"latest_sample":{{"memory_current_bytes":current,"host_memory_percent":None}},"latest_decision":{{"action":action,"threshold_name":threshold_name,"threshold_bytes":threshold_bytes,"absolute_cgroup_evaluated_first":True}},"signals":signals,"sampled_at":sampled,"sample_path":sample_path}}
 resource_monitor=memory_evidence()
 input_execution=dict(contract["execution"])
 input_execution["resource_monitor_state"]=resource_monitor
@@ -275,8 +298,23 @@ while True:
   next_heartbeat=now_mono+5.0
  time.sleep(0.2)
 ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+def cuda_oom_evidence():
+ markers=[b"CUDA out of memory",b"CUDNN_STATUS_ALLOC_FAILED",b"cudaErrorMemoryAllocation"]
+ try:
+  with open(remote["stderr_path"],"rb") as stderr_handle:
+   stderr_handle.seek(0,2);size=stderr_handle.tell();stderr_handle.seek(max(0,size-1048576))
+   tail=stderr_handle.read()
+  for marker in markers:
+   if marker.lower() in tail.lower():
+    return {{"status":"sampled","detected":True,"marker":marker.decode("ascii")}}
+  return {{"status":"sampled","detected":False,"marker":""}}
+ except Exception as exc:
+  return {{"status":"unavailable","detected":False,"marker":"","error":str(exc)[:200]}}
+terminal_resource_monitor=memory_evidence()
+terminal_resource_monitor["signals"]["cuda_oom"]=cuda_oom_evidence()
+state["execution"]["resource_monitor_state"]=terminal_resource_monitor
 terminal="completed" if rc==0 and resource_enforcement is None else "failed"
-result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended,"executable_evidence":executable_evidence,"resource_enforcement":resource_enforcement}}
+result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended,"executable_evidence":executable_evidence,"resource_enforcement":resource_enforcement,"resource_monitor_state":terminal_resource_monitor}}
 atomic_json(result_path,result)
 state["remote"].update({{"authoritative_state":terminal,"heartbeat_at":ended,"publication_state":"ready"}})
 atomic_json(state_path,state)

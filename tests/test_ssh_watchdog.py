@@ -118,6 +118,11 @@ def test_encoded_controller_is_validator_safe_and_attached() -> None:
     assert '"/sys/fs/cgroup/memory.current"' in decoded
     assert 'state["execution"]["resource_monitor_state"]=resource_monitor' in decoded
     assert '"absolute_cgroup_evaluated_first":True' in decoded
+    assert '"--query-gpu=index,temperature.gpu,memory.used,memory.total"' in decoded
+    assert '__import__("shutil").disk_usage(working_directory or ".")' in decoded
+    assert '"controller_heartbeat_at":sampled' in decoded
+    assert 'b"CUDA out of memory"' in decoded
+    assert '"resource_monitor_state":terminal_resource_monitor' in decoded
     assert 'action not in {"graceful_terminate","hard_terminate"}' in decoded
     assert 'os.killpg(meta["pgid"],__import__("signal").SIGTERM)' in decoded
     assert 'os.killpg(meta["pgid"],__import__("signal").SIGKILL)' in decoded
