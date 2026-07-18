@@ -708,6 +708,16 @@ Acceptance:
 
 Depends on X2, R3, and R4.
 
+Status: **in progress**.
+
+Checkpoint (2026-07-18):
+
+- Added the provider-neutral, versioned remote PowerShell request envelope with absolute remote `pwsh`/`powershell` executable identity, exact argv, arbitrary working directory and environment values, binary-safe stdin, optional no-timeout operation, and deterministic request fingerprinting.
+- The envelope does not filter or reinterpret PowerShell command text, child executable names, arguments, paths, or environment values.
+- Focused `tests/test_remote_powershell.py` validation passed with **6 passed**.
+- Implementation commits: `ab43c4994b5359705d13f072fb078ba4bdff9100` and `9c27272d4c7f28b9e455d1fc2304471a39fb78f0`.
+- Next executable unit: bind this envelope to the R4 monitored remote-controller launch contract, persist the exact request before launch, and add worker-side fingerprint/identity revalidation without exposing a second ownership model.
+
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
 Deliverables:
