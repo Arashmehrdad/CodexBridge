@@ -67,6 +67,19 @@ def test_remote_controller_state_contract_is_deterministic_and_complete() -> Non
         },
         "latest_sample": None,
         "latest_decision": None,
+        "signals": {
+            "gpu": {"status": "not_started", "devices": []},
+            "disk": {"status": "not_started"},
+            "heartbeat": {
+                "status": "not_started",
+                "controller_heartbeat_at": "",
+            },
+            "cuda_oom": {
+                "status": "not_started",
+                "detected": False,
+                "marker": "",
+            },
+        },
         "sampled_at": "",
     }
 
