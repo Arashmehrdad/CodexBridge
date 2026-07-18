@@ -1605,6 +1605,37 @@ def test_get_control_status_reports_process_and_lock_state(
     assert control["lock"]["run_id"] == response["run_id"]
 
 
+def test_remote_powershell_persists_exact_r4_input_before_worker_launch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+
+    response = manager.start_remote_powershell(
+        "my_vps",
+        "/usr/bin/pwsh",
+        ["-NoProfile", "-Command", "Write-Output ok"],
+        working_directory="/tmp/a b",
+        environment={"A": "1"},
+        stdin_bytes=b"\x00input",
+        timeout_seconds=None,
+    )
+
+    persisted = manager.store.get_run(response["run_id"])["input"]
+    assert persisted["host_id"] == "my_vps"
+    assert persisted["command_id"] == "remote_powershell"
+    assert persisted["remote_powershell_request"]["request_fingerprint"] == response[
+        "request_fingerprint"
+    ]
+    assert persisted["remote_powershell_binding"]["remote_argv"] == [
+        "/usr/bin/pwsh",
+        "-NoProfile",
+        "-Command",
+        "Write-Output ok",
+    ]
+    assert persisted["remote_controller_state"]["request_id"] == response["run_id"]
+    assert persisted["remote_controller_state"]["execution"]["timeout_seconds"] is None
+
+
 def test_launch_failure_after_persistence_is_terminal_and_unlocks(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -63,6 +63,10 @@ from .remote_controller_state import (
     build_remote_controller_state_contract,
     reconcile_remote_controller_state,
 )
+from .remote_powershell import (
+    build_remote_powershell_durable_input,
+    build_remote_powershell_request,
+)
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
@@ -1177,6 +1181,47 @@ class JobManager:
         )
         return response
 
+    def start_remote_powershell(
+        self,
+        host_id: str,
+        executable_path: str,
+        argv: list[str],
+        *,
+        working_directory: str = "",
+        environment: dict[str, str] | None = None,
+        stdin_bytes: bytes | None = None,
+        timeout_seconds: int | None = None,
+    ) -> dict:
+        request = build_remote_powershell_request(
+            host_id=host_id,
+            executable_path=executable_path,
+            argv=argv,
+            working_directory=working_directory,
+            environment=environment,
+            stdin_bytes=stdin_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        resolve_ssh_connection(resolve_ssh_host(self.config, host_id))
+        estimated_minutes = max(1, ((timeout_seconds or 60) + 59) // 60)
+        decision = PolicyDecision(
+            accepted=True,
+            tier=3,
+            risk_level="high",
+            requires_human=False,
+            reason="Permissive remote PowerShell is approved for durable monitored execution",
+            estimated_duration_minutes=estimated_minutes,
+            recommended_check_after_minutes=min(2, estimated_minutes),
+        )
+        response = self._create_and_launch(
+            "remote_powershell",
+            f"ssh:{host_id}",
+            {"remote_powershell_request": request},
+            decision,
+        )
+        response["host_id"] = host_id
+        response["request_fingerprint"] = request["request_fingerprint"]
+        return response
+
     def start_ssh_reviewed_script(
         self,
         host_id: str,
@@ -1629,7 +1674,16 @@ class JobManager:
         run_id = reserved_run_id or make_run_id(tool)
         validate_run_id(run_id)
         lease_token = uuid4().hex
-        if tool == "executable_profile":
+        if tool == "remote_powershell":
+            request = input_data.get("remote_powershell_request")
+            if not isinstance(request, dict):
+                raise ValueError("Remote PowerShell durable request is missing")
+            input_data = build_remote_powershell_durable_input(
+                request,
+                run_id=run_id,
+                lease_generation=1,
+            )
+        elif tool == "executable_profile":
             input_data["staging_manifest"] = build_executable_staging_manifest(
                 input_data,
                 run_id=run_id,
