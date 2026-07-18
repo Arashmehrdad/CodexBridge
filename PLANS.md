@@ -83,7 +83,7 @@ Do not resume the older broad R6, R7, or P2 sequence automatically. Only support
 
 ## R5 - Absolute Resource Enforcement
 
-Status: **in progress**.
+Status: **complete**.
 
 Implemented:
 
@@ -92,20 +92,23 @@ Implemented:
 - graceful and hard process-group enforcement with identity revalidation;
 - persisted threshold, signal, identity, confirmation, and terminal evidence;
 - a separate `16_384`-byte ceiling for internal encoded controllers;
-- POSIX execution tests for graceful exit, escalation, hard termination, identity refusal, and persisted evidence.
+- authoritative GPU temperature/memory, disk-capacity, controller-heartbeat, and bounded CUDA-OOM evidence while preserving absolute-memory-first enforcement;
+- POSIX execution coverage for graceful exit, forced escalation, direct hard termination, identity refusal, and persisted evidence.
 
-Current unit:
+Acceptance evidence:
 
-1. Add GPU temperature/memory, disk, heartbeat, and CUDA OOM signals to authoritative controller evidence using deterministic mocks, replayed fixtures, and the existing local harness; no live paid GPU host is required.
-2. Preserve absolute-memory-first precedence and exact process identity.
-3. Run focused adjacent validation and `git diff --check`.
-4. Run `tests/test_ssh_watchdog_execution.py` on local or free CI Linux only when such an environment is available. Until then, keep the real POSIX execution cases as non-blocking deferred evidence rather than provisioning a paid host.
+- `tests/test_remote_controller_state.py`: `8 passed`;
+- `tests/test_ssh_watchdog.py`: `9 passed`;
+- `tests/test_remote_resource_enforcement.py`: `7 passed`;
+- `tests/test_ssh_watchdog_execution.py`: `4 skipped` on Windows as platform-gated;
+- the actual generated controller completed all four process-group cases on the existing free Linux host: graceful, escalation, hard, and identity refusal;
+- affected modules compiled and `git diff --check` passed.
 
-Exit requires deterministic threshold paths, visible overrides, exact termination targeting, passing contract and available local execution tests with no orphan or duplicate enforcement, and durable remaining-signal evidence. Paid Linux or GPU infrastructure is not an exit condition.
+R5 satisfies deterministic threshold paths, visible overrides, exact termination targeting, durable remaining-signal evidence, and real POSIX process-group validation without provisioning paid infrastructure.
 
 ## H1 - ChatGPT-Controlled Hermes Tool Runtime
 
-Status: **approved direction; feasibility audit not started**.
+Status: **in progress; H1A feasibility audit is the next executable unit**.
 
 ### H1A - Feasibility audit
 
