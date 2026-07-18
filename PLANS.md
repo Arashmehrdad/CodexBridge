@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is in progress. The latest preserved checkpoint is `d1c43340af48c03ca31505ef64f4c6a60248f61c`.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture; H1B is the next executable unit.
 
 Known observations, not yet separate repair programs:
 
@@ -108,7 +108,7 @@ R5 satisfies deterministic threshold paths, visible overrides, exact termination
 
 ## H1 - ChatGPT-Controlled Hermes Tool Runtime
 
-Status: **in progress; H1A feasibility audit is the next executable unit**.
+Status: **in progress; H1A feasibility audit complete, H1B companion handshake and read-only search/describe are next**.
 
 ### H1A - Feasibility audit
 
@@ -121,6 +121,18 @@ Status: **in progress; H1A feasibility audit is the next executable unit**.
 - Avoid direct in-process Hermes imports unless no stable boundary exists and the coupling is explicitly accepted.
 
 The audit produces a compact decision and implementation scope; it must not silently expand into implementation.
+
+H1A decision (2026-07-18):
+
+- Pin `NousResearch/hermes-agent` revision `862b1b37bf0aadba3a98b3756c7d71779379b53b` as the initial compatibility target.
+- Use a small versioned Hermes companion process over stdio; do not import Hermes into the CodexBridge service process and do not invoke a Hermes model-agent loop.
+- The existing upstream `mcp_serve.py` is session/event/approval oriented and is not the required generic tool-runtime boundary.
+- Hermes catalog search and schema description can execute as pure registry reads. Deferred `tool_call` can invoke the underlying tool without model inference while preserving the normal Hermes hook, guardrail, edit-approval, and approval path.
+- Built-ins, plugins, and connected MCP tools converge in the effective registry. Skills remain instruction resources unless associated code registers an actual tool.
+- Generic detached or long-running tools remain unsupported initially because the registry has no provider-neutral external ownership and cancellation contract.
+- The accepted implementation scope and evidence are recorded in [`docs/hermes-tool-runtime-feasibility.md`](docs/hermes-tool-runtime-feasibility.md).
+
+Next executable unit: define and test the companion handshake and read-only `tool_search`/`tool_describe` protocol with revision pinning, registry-generation/schema-hash binding, bounded output, explicit interface-drift failure, and proof that no model client is initialized.
 
 ### H1B - Minimal external surface
 
@@ -157,7 +169,7 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
-Status: **blocked on R5 and H1 acceptance**.
+Status: **blocked on H1 acceptance**.
 
 After H1, freeze architectural expansion and exercise:
 
