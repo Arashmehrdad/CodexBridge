@@ -225,6 +225,61 @@ atomic_json(state_path,state)
 start_payload=dict(meta)
 start_payload.update({{"execution_id":contract["execution_id"],"state_path":state_path,"authoritative_state":"running","heartbeat_at":now,"durable_ownership":True}})
 print({start_marker!r}+json.dumps(start_payload,separators=(",",":")),flush=True)
+def identity_matches():
+ try:
+  observed=ident(meta["pid"])
+ except FileNotFoundError:
+  return False
+ return observed["pgid"]==meta["pgid"] and observed["start_time_ticks"]==meta["start_time_ticks"]
+def enforce_resource_decision(evidence):
+ decision=dict(evidence.get("latest_decision") or {{}})
+ action=str(decision.get("action") or "continue")
+ if action not in {{"graceful_terminate","hard_terminate"}}:
+  return None
+ triggered=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ enforcement={{"triggered_at":triggered,"sample":evidence.get("latest_sample"),"sample_path":evidence.get("sample_path",""),"decision":decision,"identity_verified":False,"term_sent":False,"kill_sent":False,"terminated":False,"identity_changed":False,"completed_at":"","outcome":"pending","error":""}}
+ state["execution"]["resource_enforcement"]=enforcement
+ state["remote"]["authoritative_state"]="cancellation_pending"
+ state["remote"]["heartbeat_at"]=triggered
+ atomic_json(state_path,state)
+ if not identity_matches():
+  enforcement["identity_changed"]=True
+  enforcement["outcome"]="identity_mismatch"
+  enforcement["error"]="remote process identity changed before resource enforcement"
+  state["execution"]["resource_enforcement"]=enforcement
+  atomic_json(state_path,state)
+  return enforcement
+ enforcement["identity_verified"]=True
+ try:
+  if action=="graceful_terminate":
+   os.killpg(meta["pgid"],__import__("signal").SIGTERM)
+   enforcement["term_sent"]=True
+   deadline=time.monotonic()+5.0
+   while time.monotonic()<deadline:
+    if p.poll() is not None or not identity_matches():
+     enforcement["terminated"]=True
+     break
+    time.sleep(0.1)
+  if not enforcement["terminated"] and identity_matches():
+   os.killpg(meta["pgid"],__import__("signal").SIGKILL)
+   enforcement["kill_sent"]=True
+   deadline=time.monotonic()+2.0
+   while time.monotonic()<deadline:
+    if p.poll() is not None or not identity_matches():
+     enforcement["terminated"]=True
+     break
+    time.sleep(0.1)
+ except ProcessLookupError:
+  enforcement["terminated"]=True
+ except Exception as exc:
+  enforcement["error"]=str(exc)[:200]
+ enforcement["completed_at"]=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ enforcement["outcome"]="terminated" if enforcement["terminated"] else "termination_unconfirmed"
+ state["execution"]["resource_enforcement"]=enforcement
+ state["remote"]["heartbeat_at"]=enforcement["completed_at"]
+ atomic_json(state_path,state)
+ return enforcement
+resource_enforcement=None
 next_heartbeat=time.monotonic()+5.0
 while True:
  rc=p.poll()
@@ -234,13 +289,17 @@ while True:
  if now_mono>=next_heartbeat:
   heartbeat=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
   state["remote"]["heartbeat_at"]=heartbeat
-  state["execution"]["resource_monitor_state"]=memory_evidence()
+  evidence=memory_evidence()
+  state["execution"]["resource_monitor_state"]=evidence
   atomic_json(state_path,state)
+  resource_enforcement=enforce_resource_decision(evidence)
+  if resource_enforcement is not None and not resource_enforcement.get("terminated"):
+   raise RuntimeError("remote resource enforcement could not verify process-group termination")
   next_heartbeat=now_mono+5.0
  time.sleep(0.2)
 ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
-terminal="completed" if rc==0 else "failed"
-result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended,"executable_evidence":executable_evidence}}
+terminal="completed" if rc==0 and resource_enforcement is None else "failed"
+result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended,"executable_evidence":executable_evidence,"resource_enforcement":resource_enforcement}}
 atomic_json(result_path,result)
 state["remote"].update({{"authoritative_state":terminal,"heartbeat_at":ended,"publication_state":"ready"}})
 atomic_json(state_path,state)
