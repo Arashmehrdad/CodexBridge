@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation is complete; the pinned companion executable adapter is the next executable unit.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation and pinned read-only stdio companion adapter are complete; durable CodexBridge launch and client routing are the next executable unit.
 
 Known observations, not yet separate repair programs:
 
@@ -141,7 +141,16 @@ H1B protocol foundation completed on 2026-07-18:
 - added fail-closed evidence that no Hermes model-runtime module was initialized;
 - focused validation: `tests/test_hermes_companion_protocol.py` reported `5 passed`, the protocol module compiled, and `git diff --check` passed.
 
-Next executable unit: implement the pinned Hermes companion executable adapter over stdio, initialize only the effective registry and discovery paths, emit the accepted handshake, and route read-only search/describe through the protocol without importing Hermes into the CodexBridge service process.
+Pinned companion executable adapter completed on 2026-07-18:
+
+- added a JSON-lines stdio executable that verifies the exact Hermes Git revision before importing upstream code;
+- imports only the pinned `tools.registry` discovery boundary and fails closed on registry interface drift;
+- emits the accepted handshake and routes schema-bound read-only `tool_search` and `tool_describe` requests;
+- bounds request and response sizes and emits deterministic error envelopes;
+- rejects any observed Hermes model-runtime import before serving requests;
+- focused validation: `tests/test_hermes_companion.py` reported `5 passed`, `tests/test_hermes_companion_protocol.py` reported `5 passed`, the adapter compiled, and `git diff --check` passed.
+
+Next executable unit: add the CodexBridge-side durable companion launcher and client request contract, using the existing executable lifecycle with protected stdout/stderr, exact pinned checkout identity, handshake verification, bounded one-request execution, and no Hermes import in the service process.
 
 ### H1B - Minimal external surface
 
