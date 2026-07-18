@@ -221,7 +221,7 @@ class JobManager:
                     current = self.store.get_run(run_id)
                     if current["status"] in TERMINAL_STATUSES:
                         return
-                    if current["tool"] != "ssh_monitored_command":
+                    if current["tool"] not in {"ssh_monitored_command", "remote_powershell"}:
                         return
                     contract = current.get("input", {}).get("remote_controller_state")
                     if not isinstance(contract, dict):
@@ -383,7 +383,7 @@ class JobManager:
                 )
             return
 
-        if run["tool"] == "ssh_monitored_command":
+        if run["tool"] in {"ssh_monitored_command", "remote_powershell"}:
             contract = run.get("input", {}).get("remote_controller_state")
             if isinstance(contract, dict):
                 probe = probe_remote_controller_state(
@@ -421,7 +421,7 @@ class JobManager:
                     result = {
                         "run_id": run_id,
                         "repo_name": run["repo_name"],
-                        "tool": "ssh_monitored_command",
+                        "tool": str(run["tool"]),
                         "host_id": str(run["input"]["host_id"]),
                         "command_id": str(run["input"]["command_id"]),
                         "status": terminal_status,
@@ -2319,7 +2319,7 @@ class JobManager:
                 "termination_reports": reports,
             }
 
-        if run["tool"] == "ssh_monitored_command":
+        if run["tool"] in {"ssh_monitored_command", "remote_powershell"}:
             if not launcher_pid and not worker_pid and not child_pid:
                 return finish_cancel(
                     error="Run cancelled before monitored SSH launch",
