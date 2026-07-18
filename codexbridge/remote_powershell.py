@@ -164,6 +164,35 @@ def validate_remote_powershell_artifact_manifest(
     return expected
 
 
+def complete_remote_powershell_artifact_manifest(
+    manifest: dict[str, Any],
+    *,
+    publications: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Publish verified local byte evidence without changing accepted identities."""
+    completed = {key: value for key, value in manifest.items() if key != "streams"}
+    completed_streams: list[dict[str, Any]] = []
+    for accepted in manifest.get("streams", []):
+        stream = str(accepted.get("stream") or "")
+        publication = publications.get(stream)
+        if publication is None:
+            raise ValueError(f"Remote PowerShell artifact publication is missing {stream}")
+        size_bytes = int(publication.get("size_bytes", -1))
+        sha256_value = str(publication.get("sha256") or "")
+        if size_bytes < 0 or len(sha256_value) != 64:
+            raise ValueError(f"Remote PowerShell artifact publication is invalid for {stream}")
+        completed_streams.append(
+            {
+                **accepted,
+                "publication_state": "completed",
+                "size_bytes": size_bytes,
+                "sha256": sha256_value,
+            }
+        )
+    completed["streams"] = completed_streams
+    return completed
+
+
 def build_remote_powershell_durable_input(
     request: dict[str, Any],
     *,

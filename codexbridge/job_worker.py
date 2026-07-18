@@ -81,6 +81,7 @@ from .runner import (
 from .repo_wiki import mark_repo_wiki_stale
 from .remote_controller_state import validate_remote_controller_state_contract
 from .remote_powershell import (
+    complete_remote_powershell_artifact_manifest,
     decode_remote_powershell_stdin,
     validate_remote_powershell_durable_input,
 )
@@ -1820,6 +1821,50 @@ class JobWorker:
         stderr = str(command_result.get("stderr", ""))
         self.artifacts.write_protected_text("stdout.txt", stdout)
         self.artifacts.write_protected_text("stderr.txt", stderr)
+
+        accepted_manifest = dict(validated["remote_powershell_artifact_manifest"])
+        publications: dict[str, dict[str, object]] = {}
+        for stream in accepted_manifest["streams"]:
+            stream_name = str(stream["stream"])
+            transfer = run_ssh_transfer(
+                self.config,
+                host_id,
+                "download",
+                repo_root=run_dir,
+                local_path=f"remote-{stream_name}.bin",
+                remote_path=str(stream["remote_path"]),
+                run_dir=run_dir,
+                overwrite=True,
+                confirmation=self.config.ssh.confirmation_token,
+            )
+            if not transfer.get("ok"):
+                raise RuntimeError(
+                    f"Remote PowerShell {stream_name} artifact retrieval failed: "
+                    f"{transfer.get('error', 'unknown transfer failure')}"
+                )
+            downloaded = Path(str(transfer["local_path"]))
+            destination = run_dir / str(stream["local_relative_path"])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(downloaded, destination)
+            size_bytes = destination.stat().st_size
+            sha256_value = _sha256_file(destination)
+            if size_bytes != int(transfer.get("download_size_bytes", -1)):
+                raise RuntimeError(
+                    f"Remote PowerShell {stream_name} artifact size verification failed"
+                )
+            if sha256_value != str(transfer.get("download_sha256", "")):
+                raise RuntimeError(
+                    f"Remote PowerShell {stream_name} artifact SHA-256 verification failed"
+                )
+            publications[stream_name] = {
+                "size_bytes": size_bytes,
+                "sha256": sha256_value,
+            }
+        artifact_manifest = complete_remote_powershell_artifact_manifest(
+            accepted_manifest,
+            publications=publications,
+        )
+        self.artifacts.write_json("remote_powershell_artifacts.json", artifact_manifest)
         ended_at = _utc_now()
         return {
             "run_id": self.run_id,
@@ -1827,6 +1872,7 @@ class JobWorker:
             "tool": "remote_powershell",
             "host_id": host_id,
             "request_fingerprint": request["request_fingerprint"],
+            "artifact_manifest": artifact_manifest,
             "remote_process": dict(command_result.get("remote_process") or {}),
             "status": str(command_result.get("status", "failed")),
             "exit_code": int(command_result.get("exit_code", 1)),

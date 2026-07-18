@@ -8,6 +8,7 @@ from codexbridge.job_worker import JobWorker
 from codexbridge.remote_powershell import (
     bind_remote_powershell_controller_request,
     build_remote_powershell_artifact_manifest,
+    complete_remote_powershell_artifact_manifest,
     build_remote_powershell_durable_input,
     build_remote_powershell_request,
     decode_remote_powershell_stdin,
@@ -190,6 +191,32 @@ def test_remote_powershell_artifact_manifest_binds_remote_and_local_binary_evide
     ]
 
 
+def test_remote_powershell_artifact_manifest_completion_preserves_identity_and_adds_hashes() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=[],
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_artifacts",
+        lease_generation=1,
+    )
+    accepted = durable["remote_powershell_artifact_manifest"]
+    completed = complete_remote_powershell_artifact_manifest(
+        accepted,
+        publications={
+            "stdout": {"size_bytes": 3, "sha256": "a" * 64},
+            "stderr": {"size_bytes": 0, "sha256": "b" * 64},
+        },
+    )
+
+    assert completed["execution_id"] == accepted["execution_id"]
+    assert completed["streams"][0]["publication_state"] == "completed"
+    assert completed["streams"][0]["size_bytes"] == 3
+    assert completed["streams"][0]["sha256"] == "a" * 64
+
+
 def test_remote_powershell_artifact_manifest_rejects_path_drift() -> None:
     request = build_remote_powershell_request(
         host_id="host",
@@ -292,7 +319,26 @@ def test_remote_powershell_worker_dispatches_exact_controller_inputs(
             "argv": ["ssh.exe", "remote-windows"],
         }
 
+    def retrieve_remote(config, host_id, direction, **kwargs):
+        del config, host_id
+        assert direction == "download"
+        stream_name = Path(str(kwargs["local_path"])).stem.removeprefix("remote-")
+        payload = b"\x00\xffstdout" if stream_name == "stdout" else b"\x80stderr"
+        downloads = Path(kwargs["run_dir"]) / "downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        local = downloads / str(kwargs["local_path"])
+        local.write_bytes(payload)
+        import hashlib
+
+        return {
+            "ok": True,
+            "local_path": str(local),
+            "download_size_bytes": len(payload),
+            "download_sha256": hashlib.sha256(payload).hexdigest(),
+        }
+
     monkeypatch.setattr("codexbridge.job_worker.start_monitored_ssh_command", execute_remote)
+    monkeypatch.setattr("codexbridge.job_worker.run_ssh_transfer", retrieve_remote)
 
     assert JobWorker(config_path, run_id).execute() == 0
     result = store.get_run(run_id)["result"]
@@ -308,6 +354,11 @@ def test_remote_powershell_worker_dispatches_exact_controller_inputs(
     assert captured["kwargs"]["environment"] == {"ARBITRARY_VALUE": "a=b c"}
     assert captured["kwargs"]["stdin_bytes"] == b"\x00\xffinput"
     assert captured["kwargs"]["timeout_seconds"] is None
+    assert (run_dir / "artifacts" / "remote-stdout.bin").read_bytes() == b"\x00\xffstdout"
+    assert (run_dir / "artifacts" / "remote-stderr.bin").read_bytes() == b"\x80stderr"
+    manifest = result["artifact_manifest"]
+    assert all(item["publication_state"] == "completed" for item in manifest["streams"])
+    assert all(len(item["sha256"]) == 64 for item in manifest["streams"])
 
 
 def test_remote_powershell_durable_input_rejects_controller_drift() -> None:
