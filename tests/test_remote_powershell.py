@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from codexbridge.remote_powershell import (
+    bind_remote_powershell_controller_request,
     build_remote_powershell_request,
     decode_remote_powershell_stdin,
+    validate_remote_powershell_request,
 )
 
 
@@ -70,3 +72,46 @@ def test_remote_powershell_rejects_tampered_binary_size() -> None:
 
     with pytest.raises(ValueError, match="stdin size"):
         decode_remote_powershell_stdin(request)
+
+
+def test_remote_powershell_worker_revalidation_rejects_fingerprint_drift() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=["-Command", "Write-Output ok"],
+        stdin_bytes=b"input",
+    )
+    validate_remote_powershell_request(request)
+    request["argv"][-1] = "Write-Output changed"
+
+    with pytest.raises(ValueError, match="changed after acceptance"):
+        validate_remote_powershell_request(request)
+
+
+def test_remote_powershell_binding_preserves_exact_r4_execution_identity() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/opt/microsoft/powershell/7/pwsh",
+        argv=["-NoProfile", "-Command", "& git status --short"],
+        timeout_seconds=None,
+    )
+
+    binding = bind_remote_powershell_controller_request(
+        request,
+        run_id="20260718T000000Z_ssh_remote_powershell_12345678",
+        lease_generation=2,
+    )
+
+    assert binding == {
+        "command_id": "remote_powershell",
+        "remote_argv": [
+            "/opt/microsoft/powershell/7/pwsh",
+            "-NoProfile",
+            "-Command",
+            "& git status --short",
+        ],
+        "timeout_seconds": None,
+        "request_fingerprint": request["request_fingerprint"],
+        "request_id": "20260718T000000Z_ssh_remote_powershell_12345678",
+        "lease_generation": 2,
+    }
