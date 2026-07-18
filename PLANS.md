@@ -726,7 +726,10 @@ Checkpoint (2026-07-18):
 - Worker-dispatch implementation commits: `4053d66ce835e483719c0a47bde9681d2d010b93`, `003bc9a92fa840e8f583cc2e9a1860a1deb4dc4b`, `cbd5d6b35f13607d77c6248c8ca4ef3b64416ce1`, and `66bdb51037695e13096458152cb739a31f3cdfb8`.
 - The public `run_start` gateway now exposes `operation: remote_powershell` with registered host identity, absolute remote PowerShell executable path, exact argv, arbitrary working directory and environment values, strict base64 binary stdin, and optional no-timeout execution. The server decodes binary input before forwarding the exact request to the existing durable X4 manager path.
 - Public-gateway implementation commit: `65d2293b5cef0a85d6f4f6ea34fdfec68892f70c`. Focused validation passed: `tests/test_tool_gateway_models.py` **31 passed**; `tests/test_server.py` **25 passed**; changed gateway and server modules passed `py_compile`; `git diff --check` passed.
-- Next executable unit: add protected remote stdout/stderr publication manifests and binary-safe local artifact retrieval for X4 through the existing R3/R4 staging and ownership model.
+- Every newly accepted X4 durable input now includes a versioned protected artifact manifest bound to the invoking run, lease generation, R4 execution ID, authoritative remote stdout/stderr paths, deterministic run-relative local binary publication paths, binary transfer encoding, and pending publication state.
+- Worker-side durable-input reconstruction rejects any remote path, local path, classification, encoding, execution identity, run identity, or lease-generation drift before remote launch.
+- Artifact-manifest implementation commit: `079f348535cc5b698a48dae3349b682a4f08a03d`. Focused validation passed: `tests/test_remote_powershell.py` **13 passed**; adjacent `tests/test_job_manager.py` **64 passed**; `codexbridge/remote_powershell.py` passed `py_compile`.
+- Next executable unit: retrieve authoritative remote stdout/stderr as binary-safe local protected artifacts at the declared paths, verify byte length and SHA-256, and publish completed artifact metadata without routing arbitrary output bytes through the SSH text stream.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
