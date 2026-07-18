@@ -436,6 +436,7 @@ def _build_compact_tool_owned_summary(
 
 
 def inspect_status_compact(repo_root: Path) -> dict[str, Any]:
+    started = time.monotonic()
     returned_entries: list[dict[str, Any]] = []
     collapsed_tool_owned_entries: list[dict[str, Any]] = []
 
@@ -481,9 +482,16 @@ def inspect_status_compact(repo_root: Path) -> dict[str, Any]:
     unsampled_tool_owned_count = collapsed_tool_owned_count - sampled_tool_owned_count
     total_status_entry_count = len(returned_entries) + collapsed_tool_owned_count
     return {
+        "ok": True,
+        "status": "available",
         "branch": git_branch(repo_root),
         "recent_commits": recent_commits(repo_root),
         "diff_stat": diff_stat(repo_root),
+        "generated_at": time.time(),
+        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+        "fresh": True,
+        "source": "live_git",
+        "error": "",
         "complete_status_scan": True,
         "total_status_entry_count": total_status_entry_count,
         "returned_entry_count": len(returned_entries),

@@ -524,6 +524,13 @@ def test_inspect_status_compact_preserves_non_tool_owned_and_summarizes_tool_own
 
     result = inspect_status_compact(repo)
 
+    assert result["ok"] is True
+    assert result["status"] == "available"
+    assert result["fresh"] is True
+    assert result["source"] == "live_git"
+    assert result["error"] == ""
+    assert result["generated_at"] > 0
+    assert result["duration_ms"] >= 0
     assert result["complete_status_scan"] is True
     assert result["fallback_tool"] == "inspect_repo_status"
     assert "git_status" not in result

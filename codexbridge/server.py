@@ -829,7 +829,7 @@ def _repo_context(repo_name: str) -> tuple[str, Path, str]:
 
 
 def _with_capability_metadata(result: dict[str, Any]) -> dict[str, Any]:
-    result.update(capability_metadata(PATCH_OPERATION_SCHEMA))
+    result.update(_PROCESS_CAPABILITY_METADATA)
     return result
 
 

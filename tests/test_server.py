@@ -53,6 +53,21 @@ def test_server_cli_preserves_stdio_mode() -> None:
     assert args.transport == "stdio"
 
 
+def test_capability_metadata_uses_process_start_identity(monkeypatch) -> None:
+    disk_metadata = {
+        "server_build_hash": "d" * 64,
+        "schema_hash": "e" * 64,
+        "capability_epoch": f"{'d' * 12}-{'e' * 12}",
+    }
+    monkeypatch.setattr(server, "capability_metadata", lambda _schema: disk_metadata)
+
+    result = server._with_capability_metadata({"ok": True})
+
+    for key, value in server._PROCESS_CAPABILITY_METADATA.items():
+        assert result[key] == value
+    assert result["server_build_hash"] != disk_metadata["server_build_hash"]
+
+
 class FakeSupervisorService:
     def start_supervised_recovery_task(self, *args):
         return {"tool": "start", "args": args}
