@@ -4,6 +4,8 @@ import json
 from hashlib import sha256
 from typing import Any
 
+from .remote_resource_enforcement import RemoteMemoryPolicy
+
 REMOTE_CONTROLLER_STATE_VERSION = 1
 REMOTE_CONTROLLER_VERSION = "codexbridge-remote-controller-v1"
 
