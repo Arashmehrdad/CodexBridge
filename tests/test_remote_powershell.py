@@ -4,8 +4,10 @@ import pytest
 
 from codexbridge.remote_powershell import (
     bind_remote_powershell_controller_request,
+    build_remote_powershell_durable_input,
     build_remote_powershell_request,
     decode_remote_powershell_stdin,
+    validate_remote_powershell_durable_input,
     validate_remote_powershell_request,
 )
 
@@ -115,3 +117,50 @@ def test_remote_powershell_binding_preserves_exact_r4_execution_identity() -> No
         "request_id": "20260718T000000Z_ssh_remote_powershell_12345678",
         "lease_generation": 2,
     }
+
+
+def test_remote_powershell_durable_input_binds_request_and_controller_before_launch() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=["-NoProfile", "-Command", "Write-Output ok"],
+        timeout_seconds=3600,
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_12345678",
+        lease_generation=3,
+    )
+
+    validated = validate_remote_powershell_durable_input(
+        durable,
+        run_id="20260718T000000Z_remote_powershell_12345678",
+        lease_generation=3,
+    )
+
+    assert validated == durable
+    assert durable["remote_powershell_request"] == request
+    assert durable["remote_powershell_binding"]["request_fingerprint"] == request["request_fingerprint"]
+    assert durable["remote_controller_state"]["execution"]["executable_identity"] == "/usr/bin/pwsh"
+
+
+def test_remote_powershell_durable_input_rejects_controller_drift() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=["-Command", "Write-Output ok"],
+        timeout_seconds=60,
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_12345678",
+        lease_generation=1,
+    )
+    durable["remote_controller_state"]["execution"]["executable_identity"] = "/usr/bin/bash"
+
+    with pytest.raises(ValueError, match="durable input changed"):
+        validate_remote_powershell_durable_input(
+            durable,
+            run_id="20260718T000000Z_remote_powershell_12345678",
+            lease_generation=1,
+        )

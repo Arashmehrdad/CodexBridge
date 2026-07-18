@@ -6,6 +6,8 @@ import json
 from pathlib import PurePosixPath
 from typing import Any
 
+from .remote_controller_state import build_remote_controller_state_contract
+
 REMOTE_POWERSHELL_CONTRACT_VERSION = 1
 _ALLOWED_EXECUTABLE_NAMES = {"pwsh", "pwsh.exe", "powershell", "powershell.exe"}
 
@@ -107,6 +109,58 @@ def validate_remote_powershell_request(request: dict[str, Any]) -> dict[str, Any
     )
     if request != expected:
         raise ValueError("Remote PowerShell request changed after acceptance")
+    return expected
+
+
+def build_remote_powershell_durable_input(
+    request: dict[str, Any],
+    *,
+    run_id: str,
+    lease_generation: int,
+) -> dict[str, Any]:
+    """Build the exact durable pre-launch payload for one X4 request."""
+    validated = validate_remote_powershell_request(request)
+    binding = bind_remote_powershell_controller_request(
+        validated,
+        run_id=run_id,
+        lease_generation=lease_generation,
+    )
+    controller_state = build_remote_controller_state_contract(
+        run_id=run_id,
+        host_id=validated["host_id"],
+        command_id=binding["command_id"],
+        lease_generation=lease_generation,
+        remote_argv=list(binding["remote_argv"]),
+        timeout_seconds=binding["timeout_seconds"],
+    )
+    return {
+        "host_id": validated["host_id"],
+        "command_id": binding["command_id"],
+        "remote_powershell_request": validated,
+        "remote_powershell_binding": binding,
+        "remote_controller_state": controller_state,
+    }
+
+
+def validate_remote_powershell_durable_input(
+    input_data: dict[str, Any],
+    *,
+    run_id: str,
+    lease_generation: int,
+) -> dict[str, Any]:
+    """Reject any durable X4 request, binding, or controller drift before launch."""
+    if not isinstance(input_data, dict):
+        raise ValueError("Persisted remote PowerShell durable input is invalid")
+    request = input_data.get("remote_powershell_request")
+    if not isinstance(request, dict):
+        raise ValueError("Persisted remote PowerShell request is missing")
+    expected = build_remote_powershell_durable_input(
+        request,
+        run_id=run_id,
+        lease_generation=lease_generation,
+    )
+    if input_data != expected:
+        raise ValueError("Remote PowerShell durable input changed after acceptance")
     return expected
 
 

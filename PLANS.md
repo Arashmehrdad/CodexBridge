@@ -714,9 +714,10 @@ Checkpoint (2026-07-18):
 
 - Added the provider-neutral, versioned remote PowerShell request envelope with absolute remote `pwsh`/`powershell` executable identity, exact argv, arbitrary working directory and environment values, binary-safe stdin, optional no-timeout operation, and deterministic request fingerprinting.
 - The envelope does not filter or reinterpret PowerShell command text, child executable names, arguments, paths, or environment values.
-- Focused `tests/test_remote_powershell.py` validation passed with **6 passed**.
-- Implementation commits: `ab43c4994b5359705d13f072fb078ba4bdff9100` and `9c27272d4c7f28b9e455d1fc2304471a39fb78f0`.
-- Next executable unit: bind this envelope to the R4 monitored remote-controller launch contract, persist the exact request before launch, and add worker-side fingerprint/identity revalidation without exposing a second ownership model.
+- Focused `tests/test_remote_powershell.py` validation passed with **8 passed** before the durable-input unit.
+- Added strict persisted-envelope revalidation and a deterministic R4 controller binding that preserves the exact executable argv, request fingerprint, run identity, lease generation, and timeout policy without introducing a second ownership model.
+- Implementation commits through `a403879bbad314d8ece6b132857976916da3bb8d`.
+- Next executable unit: persist the validated remote PowerShell envelope, binding, and authoritative R4 controller state as one exact durable pre-launch payload, then connect manager launch and worker dispatch through the existing R4 lifecycle.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
