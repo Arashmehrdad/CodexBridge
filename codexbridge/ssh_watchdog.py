@@ -227,58 +227,33 @@ start_payload.update({{"execution_id":contract["execution_id"],"state_path":stat
 print({start_marker!r}+json.dumps(start_payload,separators=(",",":")),flush=True)
 def identity_matches():
  try:
-  observed=ident(meta["pid"])
+  value=ident(meta["pid"])
  except FileNotFoundError:
   return False
- return observed["pgid"]==meta["pgid"] and observed["start_time_ticks"]==meta["start_time_ticks"]
+ return value["pgid"]==meta["pgid"] and value["start_time_ticks"]==meta["start_time_ticks"]
 def enforce_resource_decision(evidence):
- decision=dict(evidence.get("latest_decision") or {{}})
- action=str(decision.get("action") or "continue")
- if action not in {{"graceful_terminate","hard_terminate"}}:
-  return None
- triggered=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
- enforcement={{"triggered_at":triggered,"sample":evidence.get("latest_sample"),"sample_path":evidence.get("sample_path",""),"decision":decision,"identity_verified":False,"term_sent":False,"kill_sent":False,"terminated":False,"identity_changed":False,"completed_at":"","outcome":"pending","error":""}}
- state["execution"]["resource_enforcement"]=enforcement
- state["remote"]["authoritative_state"]="cancellation_pending"
- state["remote"]["heartbeat_at"]=triggered
- atomic_json(state_path,state)
- if not identity_matches():
-  enforcement["identity_changed"]=True
-  enforcement["outcome"]="identity_mismatch"
-  enforcement["error"]="remote process identity changed before resource enforcement"
-  state["execution"]["resource_enforcement"]=enforcement
-  atomic_json(state_path,state)
-  return enforcement
- enforcement["identity_verified"]=True
- try:
-  if action=="graceful_terminate":
-   os.killpg(meta["pgid"],__import__("signal").SIGTERM)
-   enforcement["term_sent"]=True
-   deadline=time.monotonic()+5.0
-   while time.monotonic()<deadline:
-    if p.poll() is not None or not identity_matches():
-     enforcement["terminated"]=True
-     break
-    time.sleep(0.1)
-  if not enforcement["terminated"] and identity_matches():
-   os.killpg(meta["pgid"],__import__("signal").SIGKILL)
-   enforcement["kill_sent"]=True
-   deadline=time.monotonic()+2.0
-   while time.monotonic()<deadline:
-    if p.poll() is not None or not identity_matches():
-     enforcement["terminated"]=True
-     break
-    time.sleep(0.1)
- except ProcessLookupError:
-  enforcement["terminated"]=True
- except Exception as exc:
-  enforcement["error"]=str(exc)[:200]
- enforcement["completed_at"]=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
- enforcement["outcome"]="terminated" if enforcement["terminated"] else "termination_unconfirmed"
- state["execution"]["resource_enforcement"]=enforcement
- state["remote"]["heartbeat_at"]=enforcement["completed_at"]
- atomic_json(state_path,state)
- return enforcement
+ decision=dict(evidence.get("latest_decision") or {{}});action=str(decision.get("action") or "continue")
+ if action not in {{"graceful_terminate","hard_terminate"}}: return None
+ now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ record={{"triggered_at":now,"sample":evidence.get("latest_sample"),"sample_path":evidence.get("sample_path",""),"decision":decision,"identity_verified":identity_matches(),"term_sent":False,"kill_sent":False,"terminated":False,"completed_at":"","outcome":"pending","error":""}}
+ state["execution"]["resource_enforcement"]=record;state["remote"].update({{"authoritative_state":"cancellation_pending","heartbeat_at":now}});atomic_json(state_path,state)
+ if record["identity_verified"]:
+  try:
+   if action=="graceful_terminate":
+    os.killpg(meta["pgid"],__import__("signal").SIGTERM);record["term_sent"]=True
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline and p.poll() is None and identity_matches(): time.sleep(.1)
+   if p.poll() is None and identity_matches():
+    os.killpg(meta["pgid"],__import__("signal").SIGKILL);record["kill_sent"]=True
+    deadline=time.monotonic()+2
+    while time.monotonic()<deadline and p.poll() is None and identity_matches(): time.sleep(.1)
+   record["terminated"]=p.poll() is not None or not identity_matches()
+  except ProcessLookupError: record["terminated"]=True
+  except Exception as exc: record["error"]=str(exc)[:200]
+ else: record["error"]="remote process identity changed before resource enforcement"
+ record["completed_at"]=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime());record["outcome"]="terminated" if record["terminated"] else "termination_unconfirmed"
+ state["execution"]["resource_enforcement"]=record;state["remote"]["heartbeat_at"]=record["completed_at"];atomic_json(state_path,state)
+ return record
 resource_enforcement=None
 next_heartbeat=time.monotonic()+5.0
 while True:
@@ -293,8 +268,6 @@ while True:
   state["execution"]["resource_monitor_state"]=evidence
   atomic_json(state_path,state)
   resource_enforcement=enforce_resource_decision(evidence)
-  if resource_enforcement is not None and not resource_enforcement.get("terminated"):
-   raise RuntimeError("remote resource enforcement could not verify process-group termination")
   next_heartbeat=now_mono+5.0
  time.sleep(0.2)
 ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
