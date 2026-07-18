@@ -724,7 +724,9 @@ Checkpoint (2026-07-18):
 - Startup adoption, in-process reconciliation polling, terminal publication, and exact remote cancellation now include `remote_powershell` alongside monitored SSH commands.
 - Focused validation passed: `tests/test_remote_powershell.py` **11 passed**; `tests/test_ssh_watchdog.py` **9 passed**; `tests/test_job_manager.py` **64 passed**; changed worker and watchdog modules passed `py_compile`.
 - Worker-dispatch implementation commits: `4053d66ce835e483719c0a47bde9681d2d010b93`, `003bc9a92fa840e8f583cc2e9a1860a1deb4dc4b`, `cbd5d6b35f13607d77c6248c8ca4ef3b64416ce1`, and `66bdb51037695e13096458152cb739a31f3cdfb8`.
-- Next executable unit: add protected remote stdout/stderr publication manifests and binary-safe local artifact retrieval for X4, then expose the public remote-PowerShell start contract through the existing gateway.
+- The public `run_start` gateway now exposes `operation: remote_powershell` with registered host identity, absolute remote PowerShell executable path, exact argv, arbitrary working directory and environment values, strict base64 binary stdin, and optional no-timeout execution. The server decodes binary input before forwarding the exact request to the existing durable X4 manager path.
+- Public-gateway implementation commit: `65d2293b5cef0a85d6f4f6ea34fdfec68892f70c`. Focused validation passed: `tests/test_tool_gateway_models.py` **31 passed**; `tests/test_server.py` **25 passed**; changed gateway and server modules passed `py_compile`; `git diff --check` passed.
+- Next executable unit: add protected remote stdout/stderr publication manifests and binary-safe local artifact retrieval for X4 through the existing R3/R4 staging and ownership model.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
