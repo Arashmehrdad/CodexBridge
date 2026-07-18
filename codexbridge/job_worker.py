@@ -80,6 +80,10 @@ from .runner import (
 )
 from .repo_wiki import mark_repo_wiki_stale
 from .remote_controller_state import validate_remote_controller_state_contract
+from .remote_powershell import (
+    decode_remote_powershell_stdin,
+    validate_remote_powershell_durable_input,
+)
 from .safety import (
     reject_destructive_command,
     validate_repo_relative_path,
@@ -1151,6 +1155,8 @@ class JobWorker:
             return self._execute_ssh_command(started_at, input_data)
         if tool == "ssh_monitored_command":
             return self._execute_ssh_monitored_command(started_at, input_data)
+        if tool == "remote_powershell":
+            return self._execute_remote_powershell(started_at, input_data)
         if tool == "ssh_reviewed_script":
             return self._execute_ssh_reviewed_script(started_at, input_data)
         if tool == "ssh_root_shell":
@@ -1757,6 +1763,87 @@ class JobWorker:
             "safety_failure": False,
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
+            "argv": list(command_result.get("argv", [])),
+            "command_result": command_result,
+        }
+
+    def _execute_remote_powershell(self, started_at: str, input_data: dict) -> dict:
+        validated = validate_remote_powershell_durable_input(
+            input_data,
+            run_id=self.run_id,
+            lease_generation=self.worker_lease_generation,
+        )
+        request = dict(validated["remote_powershell_request"])
+        binding = dict(validated["remote_powershell_binding"])
+        controller_state = dict(validated["remote_controller_state"])
+        host_id = str(validated["host_id"])
+        run_dir = Path(self.run["run_dir"])
+
+        def on_progress(progress_updates: dict) -> None:
+            current = self.store.get_run(self.run_id)
+            progress = dict(current.get("progress") or {})
+            progress.update(progress_updates)
+            self.store.set_progress(
+                self.run_id,
+                phase="remote_powershell",
+                progress=progress,
+                elapsed_seconds=self._elapsed_seconds(),
+            )
+
+        def on_event(level: str, stage: str, data: dict) -> None:
+            self.event(level, stage, "Remote PowerShell controller sample", data)
+
+        def cancellation_check() -> bool:
+            progress = dict(self.store.get_run(self.run_id).get("progress") or {})
+            return bool(progress.get("cancellation_requested_at"))
+
+        command_result = dict(
+            redact_and_truncate(
+                start_monitored_ssh_command(
+                    self.config,
+                    host_id,
+                    str(binding["command_id"]),
+                    run_dir=run_dir,
+                    on_progress=on_progress,
+                    on_event=on_event,
+                    cancellation_check=cancellation_check,
+                    controller_state=controller_state,
+                    remote_argv=list(binding["remote_argv"]),
+                    working_directory=str(request["working_directory"]),
+                    environment=dict(request["environment"]),
+                    stdin_bytes=decode_remote_powershell_stdin(request),
+                    timeout_seconds=binding["timeout_seconds"],
+                )
+            )
+        )
+        stdout = str(command_result.get("stdout", ""))
+        stderr = str(command_result.get("stderr", ""))
+        self.artifacts.write_protected_text("stdout.txt", stdout)
+        self.artifacts.write_protected_text("stderr.txt", stderr)
+        ended_at = _utc_now()
+        return {
+            "run_id": self.run_id,
+            "repo_name": f"ssh:{host_id}",
+            "tool": "remote_powershell",
+            "host_id": host_id,
+            "request_fingerprint": request["request_fingerprint"],
+            "remote_process": dict(command_result.get("remote_process") or {}),
+            "status": str(command_result.get("status", "failed")),
+            "exit_code": int(command_result.get("exit_code", 1)),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": (stdout or stderr).strip(),
+            "summary": (stdout or stderr).strip()[:500],
+            "remaining_risks": [],
+            "error": str(command_result.get("error", "")),
+            "safety_failure": bool(command_result.get("safety_failure", False)),
+            "timed_out": bool(command_result.get("timed_out", False)),
+            "output_truncated": bool(command_result.get("output_truncated", False)),
             "argv": list(command_result.get("argv", [])),
             "command_result": command_result,
         }

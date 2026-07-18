@@ -110,12 +110,22 @@ def _start_controller_source(
     start_marker: str,
     exit_marker: str,
     controller_state: dict[str, Any],
+    *,
+    working_directory: str = "",
+    environment: dict[str, str] | None = None,
+    stdin_bytes: bytes = b"",
 ) -> str:
     encoded_argv = json.dumps(remote_argv, separators=(",", ":"))
     encoded_state = json.dumps(controller_state, sort_keys=True, separators=(",", ":"))
-    return f'''import json,os,subprocess,sys,tempfile,time
+    encoded_working_directory = json.dumps(str(working_directory))
+    encoded_environment = json.dumps(environment or {}, sort_keys=True, separators=(",", ":"))
+    encoded_stdin = json.dumps(base64.b64encode(stdin_bytes).decode("ascii"))
+    return f'''import base64,json,os,subprocess,sys,tempfile,time
 argv=json.loads({encoded_argv!r})
 contract=json.loads({encoded_state!r})
+working_directory=json.loads({encoded_working_directory!r})
+environment=json.loads({encoded_environment!r})
+stdin_bytes=base64.b64decode(json.loads({encoded_stdin!r}))
 remote=contract["remote"]
 state_dir=remote["state_dir"]
 state_path=remote["state_path"]
@@ -142,8 +152,13 @@ def atomic_json(path,payload):
    os.unlink(tmp)
   except FileNotFoundError:
    pass
-atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"execution":contract["execution"]}})
-p=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=sys.stdout.buffer,stderr=sys.stderr.buffer,start_new_session=True,close_fds=True)
+atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"working_directory":working_directory,"environment":environment,"stdin_size_bytes":len(stdin_bytes),"execution":contract["execution"]}})
+child_env=os.environ.copy()
+child_env.update(environment)
+p=subprocess.Popen(argv,cwd=working_directory or None,env=child_env,stdin=subprocess.PIPE if stdin_bytes else subprocess.DEVNULL,stdout=sys.stdout.buffer,stderr=sys.stderr.buffer,start_new_session=True,close_fds=True)
+if stdin_bytes and p.stdin is not None:
+ p.stdin.write(stdin_bytes)
+ p.stdin.close()
 def ident(pid):
  text=open(f"/proc/{{pid}}/stat","r",encoding="utf-8").read()
  rest=text[text.rfind(")")+2:].split()
@@ -687,8 +702,15 @@ def start_monitored_ssh_command(
     on_event: Callable[[str, str, dict[str, Any]], None] | None = None,
     cancellation_check: Callable[[], bool] | None = None,
     controller_state: dict[str, Any] | None = None,
+    remote_argv: list[str] | None = None,
+    working_directory: str = "",
+    environment: dict[str, str] | None = None,
+    stdin_bytes: bytes = b"",
+    timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
     host, profile = validate_monitored_command_start(config, host_id, command_id)
+    execution_argv = list(profile.argv) if remote_argv is None else list(remote_argv)
+    execution_timeout = profile.timeout_seconds if timeout_seconds is None else timeout_seconds
     if cancellation_check is not None and cancellation_check():
         return _cancelled_before_launch(
             host_id, command_id, host.watchdog.enforcement_mode
@@ -702,9 +724,15 @@ def start_monitored_ssh_command(
     controller = _encoded_controller_profile(
         "monitored_start",
         _start_controller_source(
-            list(profile.argv), start_marker, exit_marker, controller_state
+            execution_argv,
+            start_marker,
+            exit_marker,
+            controller_state,
+            working_directory=working_directory,
+            environment=environment,
+            stdin_bytes=stdin_bytes,
         ),
-        profile.timeout_seconds,
+        execution_timeout or 604800,
     )
     built = build_ssh_argv(config, host_id, controller)
     argv, stdin_text, destination = prepare_ssh_execution(host, built)
@@ -843,7 +871,7 @@ def start_monitored_ssh_command(
         if cancellation_check is not None and cancellation_check():
             cancellation_requested = True
             termination_reason = termination_reason or "cancelled"
-        if not timed_out and now - started >= profile.timeout_seconds:
+        if execution_timeout is not None and not timed_out and now - started >= execution_timeout:
             timed_out = True
             termination_reason = termination_reason or "timed_out"
 
