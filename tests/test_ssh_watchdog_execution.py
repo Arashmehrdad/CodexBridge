@@ -58,7 +58,10 @@ def _run_controller(
         '"/sys/fs/cgroup/memory/memory.usage_in_bytes"',
         repr(str(memory_sample_path)),
     )
-    source = source.replace("next_heartbeat=time.monotonic()+5.0", "next_heartbeat=time.monotonic()")
+    source = source.replace(
+        "next_heartbeat=time.monotonic()+5.0",
+        "next_heartbeat=time.monotonic()+.1",
+    )
     source = source.replace("next_heartbeat=now_mono+5.0", "next_heartbeat=now_mono+.05")
     source = source.replace("deadline=time.monotonic()+5", "deadline=time.monotonic()+.25")
     source = source.replace("deadline=time.monotonic()+2", "deadline=time.monotonic()+.25")
