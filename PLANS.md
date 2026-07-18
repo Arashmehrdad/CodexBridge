@@ -773,7 +773,12 @@ Checkpoint (2026-07-18):
 - Every authoritative remote heartbeat refreshes the resource-monitor evidence atomically with the heartbeat while leaving termination behavior disabled for this unit. Missing or inaccessible cgroup files are recorded as `unavailable` rather than inferred from host percentages or treated as terminal.
 - Implementation commits: `753746db272f83552fb0b1cd05a6c603f71f671c`, `fc5d665a4799a498ba05bdf4a7d4d3281491fe83`, and `817c3586a6fbdced3c34abbc7c0938c4a84da309`.
 - Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `tests/test_remote_controller_state.py` **8 passed**; `tests/test_ssh_watchdog.py` **9 passed**; changed controller-state and watchdog modules passed `py_compile`; `git diff --check` passed.
-- Next executable unit: add graceful resource-triggered termination followed by verified process-group escalation, persisting the exact triggering sample, threshold, decision, signal evidence, and terminal outcome.
+- The authoritative remote controller now enforces `graceful_terminate` and `hard_terminate` decisions against the verified remote process group. Graceful enforcement sends `SIGTERM`, waits for bounded exit, then revalidates identity before `SIGKILL`; hard enforcement proceeds directly to identity-verified `SIGKILL`.
+- The triggering cgroup sample, source path, exact threshold decision, process-identity verification, signals sent, timestamps, confirmation state, error, and terminal resource-enforcement outcome are persisted in controller state and terminal result evidence.
+- Internal encoded controllers now have a separate bounded `16_384`-byte transport ceiling while ordinary configured SSH command profiles retain the existing `4_096`-byte limit.
+- Implementation commits: `e5cc6fd4ad8adaad8feebd4eb781d48cabdcf9bd`, `de4ff4e9b3765ae6f98566e4cb6fcccead36e1a5`, `5fbd4c5f4a052fc24503d4e37f77894057e8f7cb`, and `7e86a09b03251f4bc1d582e15e04d35790f5dbe5`.
+- Focused validation passed: `tests/test_ssh_watchdog.py` **9 passed** and `tests/test_ssh_commands.py` **29 passed**; `codexbridge/ssh_watchdog.py` passed `py_compile`.
+- Next executable unit: add execution-level tests that run the generated controller against disposable local process groups for graceful exit, forced escalation, hard termination, identity mismatch refusal, and exact persisted terminal evidence.
 
 Goal: prevent runaway long jobs while preserving explicit permissive overrides.
 
