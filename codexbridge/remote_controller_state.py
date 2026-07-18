@@ -28,8 +28,10 @@ def build_remote_controller_state_contract(
     lease_generation: int,
     remote_argv: list[str],
     timeout_seconds: int | None,
+    memory_policy: RemoteMemoryPolicy | None = None,
 ) -> dict[str, Any]:
     normalized_timeout = None if timeout_seconds is None else int(timeout_seconds)
+    accepted_memory_policy = memory_policy or RemoteMemoryPolicy()
     request_identity = {
         "host_id": host_id,
         "command_id": command_id,
@@ -97,7 +99,13 @@ def build_remote_controller_state_contract(
             "timeout_seconds": normalized_timeout,
             "executable_identity": str(remote_argv[0]) if remote_argv else "",
             "shell_identity": "direct_argv",
-            "resource_monitor_state": "not_started",
+            "resource_monitor_state": {
+                "status": "not_started",
+                "memory_policy": accepted_memory_policy.to_metadata(),
+                "latest_sample": None,
+                "latest_decision": None,
+                "sampled_at": "",
+            },
         },
     }
 
@@ -179,6 +187,7 @@ def validate_remote_controller_state_contract(
     lease_generation: int,
     remote_argv: list[str],
     timeout_seconds: int | None,
+    memory_policy: RemoteMemoryPolicy | None = None,
 ) -> dict[str, Any]:
     expected = build_remote_controller_state_contract(
         run_id=run_id,
@@ -187,6 +196,7 @@ def validate_remote_controller_state_contract(
         lease_generation=lease_generation,
         remote_argv=remote_argv,
         timeout_seconds=timeout_seconds,
+        memory_policy=memory_policy,
     )
     if contract != expected:
         raise ValueError("Remote-controller state contract changed after acceptance")

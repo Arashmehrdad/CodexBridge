@@ -58,7 +58,17 @@ def test_remote_controller_state_contract_is_deterministic_and_complete() -> Non
     assert first["local"]["uncertainty_state"] == "none"
     assert first["execution"]["executable_identity"] == "python3"
     assert first["execution"]["shell_identity"] == "direct_argv"
-    assert first["execution"]["resource_monitor_state"] == "not_started"
+    assert first["execution"]["resource_monitor_state"] == {
+        "status": "not_started",
+        "memory_policy": {
+            "conservative_bytes": 40_000_000_000,
+            "graceful_bytes": 45_000_000_000,
+            "hard_bytes": 48_000_000_000,
+        },
+        "latest_sample": None,
+        "latest_decision": None,
+        "sampled_at": "",
+    }
 
 
 def test_remote_controller_state_contract_preserves_no_timeout_policy() -> None:

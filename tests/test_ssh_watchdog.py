@@ -115,6 +115,9 @@ def test_encoded_controller_is_validator_safe_and_attached() -> None:
     assert "stdout=sys.stdout.buffer" in decoded
     assert "stderr=sys.stderr.buffer" in decoded
     assert "atomic_json(state_path,state)" in decoded
+    assert '"/sys/fs/cgroup/memory.current"' in decoded
+    assert 'state["execution"]["resource_monitor_state"]=memory_evidence()' in decoded
+    assert '"absolute_cgroup_evaluated_first":True' in decoded
     assert "durable_ownership" in decoded
     assert "rc=p.poll()" in decoded
     assert "os.replace(tmp,path)" in decoded

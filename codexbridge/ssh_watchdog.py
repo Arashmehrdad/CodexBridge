@@ -165,7 +165,36 @@ if contract.get("command_id")=="remote_powershell":
  if version_run.returncode!=0 or not version:
   raise RuntimeError("remote PowerShell executable version probe failed")
  executable_evidence={{"requested_path":requested_path,"resolved_path":resolved_path,"size_bytes":os.stat(resolved_path).st_size,"sha256":digest.hexdigest(),"version":version,"execution_id":contract["execution_id"]}}
-atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"working_directory":working_directory,"environment":environment,"stdin_size_bytes":len(stdin_bytes),"execution":contract["execution"],"executable_evidence":executable_evidence}})
+def memory_evidence():
+ policy=dict(contract["execution"]["resource_monitor_state"]["memory_policy"])
+ candidates=["/sys/fs/cgroup/memory.current","/sys/fs/cgroup/memory/memory.usage_in_bytes"]
+ sample_path=""
+ current=None
+ for candidate in candidates:
+  try:
+   with open(candidate,"r",encoding="utf-8") as memory_handle:
+    current=int(memory_handle.read().strip())
+   sample_path=candidate
+   break
+  except (FileNotFoundError,ValueError,PermissionError):
+   continue
+ sampled=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+ if current is None:
+  return {"status":"unavailable","memory_policy":policy,"latest_sample":None,"latest_decision":None,"sampled_at":sampled,"sample_path":""}
+ action="continue"
+ threshold_name=""
+ threshold_bytes=None
+ if policy.get("hard_bytes") is not None and current>=int(policy["hard_bytes"]):
+  action="hard_terminate";threshold_name="hard";threshold_bytes=int(policy["hard_bytes"])
+ elif policy.get("graceful_bytes") is not None and current>=int(policy["graceful_bytes"]):
+  action="graceful_terminate";threshold_name="graceful";threshold_bytes=int(policy["graceful_bytes"])
+ elif policy.get("conservative_bytes") is not None and current>=int(policy["conservative_bytes"]):
+  threshold_name="conservative";threshold_bytes=int(policy["conservative_bytes"])
+ return {"status":"sampled","memory_policy":policy,"latest_sample":{"memory_current_bytes":current,"host_memory_percent":None},"latest_decision":{"action":action,"threshold_name":threshold_name,"threshold_bytes":threshold_bytes,"absolute_cgroup_evaluated_first":True},"sampled_at":sampled,"sample_path":sample_path}
+resource_monitor=memory_evidence()
+input_execution=dict(contract["execution"])
+input_execution["resource_monitor_state"]=resource_monitor
+atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"working_directory":working_directory,"environment":environment,"stdin_size_bytes":len(stdin_bytes),"execution":input_execution,"executable_evidence":executable_evidence}})
 child_env=os.environ.copy()
 child_env.update(environment)
 p=subprocess.Popen(argv,cwd=working_directory or None,env=child_env,stdin=subprocess.PIPE if stdin_bytes else subprocess.DEVNULL,stdout=sys.stdout.buffer,stderr=sys.stderr.buffer,start_new_session=True,close_fds=True)
@@ -186,6 +215,8 @@ if not (meta.get("pid",0)>1 and meta.get("pid")==meta.get("pgid") and str(meta.g
 now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 state=dict(contract)
 state["remote"]=dict(remote)
+state["execution"]=dict(state["execution"])
+state["execution"]["resource_monitor_state"]=resource_monitor
 if executable_evidence is not None:
  state["execution"]=dict(state["execution"])
  state["execution"]["observed_executable_evidence"]=executable_evidence
@@ -203,6 +234,7 @@ while True:
  if now_mono>=next_heartbeat:
   heartbeat=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
   state["remote"]["heartbeat_at"]=heartbeat
+  state["execution"]["resource_monitor_state"]=memory_evidence()
   atomic_json(state_path,state)
   next_heartbeat=now_mono+5.0
  time.sleep(0.2)
