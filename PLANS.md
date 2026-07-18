@@ -760,6 +760,17 @@ Acceptance:
 
 ## R5 - Absolute Resource Enforcement
 
+Status: **in progress**.
+
+Checkpoint (2026-07-18):
+
+- Added a deterministic remote-memory policy contract with the roadmap defaults: conservative `40_000_000_000`, graceful `45_000_000_000`, and hard `48_000_000_000` bytes.
+- Absolute cgroup memory samples are evaluated before optional host-percentage evidence; every result records the exact sample, configured thresholds, matched threshold, action, and precedence decision.
+- Permissive policy metadata can explicitly raise or disable thresholds while preserving validation and visibility.
+- Implementation commits: `4ad26247afd84ffeeb8f7a2af7121772d1a36150` and `8b6ce72e00fff829c54af8582779e385d6cb841d`.
+- Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `codexbridge/remote_resource_enforcement.py` passed `py_compile`.
+- Next executable unit: bind the policy and current cgroup-v2 sample into the authoritative R4 remote-controller state and heartbeat evidence before adding termination behavior.
+
 Goal: prevent runaway long jobs while preserving explicit permissive overrides.
 
 Default remote cgroup v2 thresholds:
