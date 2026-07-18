@@ -82,6 +82,7 @@ from .repo_wiki import mark_repo_wiki_stale
 from .remote_controller_state import validate_remote_controller_state_contract
 from .remote_powershell import (
     complete_remote_powershell_artifact_manifest,
+    complete_remote_powershell_executable_evidence,
     decode_remote_powershell_stdin,
     validate_remote_powershell_durable_input,
 )
@@ -105,6 +106,7 @@ from .ssh_policy import (
 )
 from .ssh_staging import validate_ssh_staging_manifest
 from .ssh_watchdog import (
+    probe_remote_controller_state,
     start_monitored_ssh_command,
     validate_monitored_command_start,
 )
@@ -1865,6 +1867,21 @@ class JobWorker:
             publications=publications,
         )
         self.artifacts.write_json("remote_powershell_artifacts.json", artifact_manifest)
+        probe = probe_remote_controller_state(self.config, host_id, controller_state)
+        observed_result = dict(probe.get("result") or {})
+        observed_evidence = observed_result.get("executable_evidence")
+        if not isinstance(observed_evidence, dict):
+            observed_state = dict(probe.get("state") or {})
+            observed_evidence = dict(observed_state.get("execution") or {}).get(
+                "observed_executable_evidence"
+            )
+        executable_evidence = complete_remote_powershell_executable_evidence(
+            dict(validated["remote_powershell_executable_evidence"]),
+            observed=dict(observed_evidence or {}),
+        )
+        self.artifacts.write_json(
+            "remote_powershell_executable_evidence.json", executable_evidence
+        )
         ended_at = _utc_now()
         return {
             "run_id": self.run_id,
@@ -1873,6 +1890,7 @@ class JobWorker:
             "host_id": host_id,
             "request_fingerprint": request["request_fingerprint"],
             "artifact_manifest": artifact_manifest,
+            "executable_evidence": executable_evidence,
             "remote_process": dict(command_result.get("remote_process") or {}),
             "status": str(command_result.get("status", "failed")),
             "exit_code": int(command_result.get("exit_code", 1)),

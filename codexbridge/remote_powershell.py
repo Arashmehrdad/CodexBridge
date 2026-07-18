@@ -10,6 +10,7 @@ from .remote_controller_state import build_remote_controller_state_contract
 
 REMOTE_POWERSHELL_CONTRACT_VERSION = 1
 REMOTE_POWERSHELL_ARTIFACT_MANIFEST_VERSION = 1
+REMOTE_POWERSHELL_EXECUTABLE_EVIDENCE_VERSION = 1
 _ALLOWED_EXECUTABLE_NAMES = {"pwsh", "pwsh.exe", "powershell", "powershell.exe"}
 
 
@@ -193,6 +194,58 @@ def complete_remote_powershell_artifact_manifest(
     return completed
 
 
+def build_remote_powershell_executable_evidence_declaration(
+    *,
+    request: dict[str, Any],
+    controller_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Declare the remote executable identity/version evidence required at terminal publication."""
+    validated = validate_remote_powershell_request(request)
+    return {
+        "version": REMOTE_POWERSHELL_EXECUTABLE_EVIDENCE_VERSION,
+        "publication_state": "pending",
+        "request_fingerprint": validated["request_fingerprint"],
+        "execution_id": str(controller_state.get("execution_id") or ""),
+        "requested_path": validated["executable_path"],
+    }
+
+
+def complete_remote_powershell_executable_evidence(
+    declaration: dict[str, Any],
+    *,
+    observed: dict[str, Any],
+) -> dict[str, Any]:
+    """Verify remotely captured PowerShell identity/version evidence and bind it to the request."""
+    required = {
+        "requested_path",
+        "resolved_path",
+        "size_bytes",
+        "sha256",
+        "version",
+        "execution_id",
+    }
+    if not isinstance(observed, dict) or set(observed) != required:
+        raise ValueError("Remote PowerShell executable evidence fields are invalid")
+    if observed["requested_path"] != declaration.get("requested_path"):
+        raise ValueError("Remote PowerShell executable path does not match the accepted request")
+    if observed["execution_id"] != declaration.get("execution_id"):
+        raise ValueError("Remote PowerShell executable evidence execution identity does not match")
+    size_bytes = int(observed["size_bytes"])
+    sha256_value = str(observed["sha256"])
+    version = str(observed["version"]).strip()
+    resolved_path = str(observed["resolved_path"])
+    if size_bytes < 1 or len(sha256_value) != 64 or not version or not resolved_path.startswith("/"):
+        raise ValueError("Remote PowerShell executable evidence is incomplete")
+    return {
+        **declaration,
+        "publication_state": "completed",
+        "resolved_path": resolved_path,
+        "size_bytes": size_bytes,
+        "sha256": sha256_value,
+        "version": version,
+    }
+
+
 def build_remote_powershell_durable_input(
     request: dict[str, Any],
     *,
@@ -219,6 +272,10 @@ def build_remote_powershell_durable_input(
         lease_generation=lease_generation,
         controller_state=controller_state,
     )
+    executable_evidence = build_remote_powershell_executable_evidence_declaration(
+        request=validated,
+        controller_state=controller_state,
+    )
     return {
         "host_id": validated["host_id"],
         "command_id": binding["command_id"],
@@ -226,6 +283,7 @@ def build_remote_powershell_durable_input(
         "remote_powershell_binding": binding,
         "remote_controller_state": controller_state,
         "remote_powershell_artifact_manifest": artifact_manifest,
+        "remote_powershell_executable_evidence": executable_evidence,
     }
 
 

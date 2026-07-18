@@ -120,7 +120,7 @@ def _start_controller_source(
     encoded_working_directory = json.dumps(str(working_directory))
     encoded_environment = json.dumps(environment or {}, sort_keys=True, separators=(",", ":"))
     encoded_stdin = json.dumps(base64.b64encode(stdin_bytes).decode("ascii"))
-    return f'''import base64,json,os,subprocess,sys,tempfile,time
+    return f'''import base64,hashlib,json,os,subprocess,sys,tempfile,time
 argv=json.loads({encoded_argv!r})
 contract=json.loads({encoded_state!r})
 working_directory=json.loads({encoded_working_directory!r})
@@ -152,7 +152,20 @@ def atomic_json(path,payload):
    os.unlink(tmp)
   except FileNotFoundError:
    pass
-atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"working_directory":working_directory,"environment":environment,"stdin_size_bytes":len(stdin_bytes),"execution":contract["execution"]}})
+executable_evidence=None
+if contract.get("command_id")=="remote_powershell":
+ requested_path=argv[0]
+ resolved_path=os.path.realpath(requested_path)
+ digest=hashlib.sha256()
+ with open(resolved_path,"rb") as executable_handle:
+  for executable_chunk in iter(lambda:executable_handle.read(1024*1024),b""):
+   digest.update(executable_chunk)
+ version_run=subprocess.run([requested_path,"-NoProfile","-NonInteractive","-Command","$PSVersionTable.PSVersion.ToString()"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=15,check=False)
+ version=version_run.stdout.decode("utf-8",errors="replace").strip()
+ if version_run.returncode!=0 or not version:
+  raise RuntimeError("remote PowerShell executable version probe failed")
+ executable_evidence={{"requested_path":requested_path,"resolved_path":resolved_path,"size_bytes":os.stat(resolved_path).st_size,"sha256":digest.hexdigest(),"version":version,"execution_id":contract["execution_id"]}}
+atomic_json(input_path,{{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"idempotency_key":contract["idempotency_key"],"argv":argv,"working_directory":working_directory,"environment":environment,"stdin_size_bytes":len(stdin_bytes),"execution":contract["execution"],"executable_evidence":executable_evidence}})
 child_env=os.environ.copy()
 child_env.update(environment)
 p=subprocess.Popen(argv,cwd=working_directory or None,env=child_env,stdin=subprocess.PIPE if stdin_bytes else subprocess.DEVNULL,stdout=sys.stdout.buffer,stderr=sys.stderr.buffer,start_new_session=True,close_fds=True)
@@ -173,6 +186,9 @@ if not (meta.get("pid",0)>1 and meta.get("pid")==meta.get("pgid") and str(meta.g
 now=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 state=dict(contract)
 state["remote"]=dict(remote)
+if executable_evidence is not None:
+ state["execution"]=dict(state["execution"])
+ state["execution"]["observed_executable_evidence"]=executable_evidence
 state["remote"].update({{"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"authoritative_state":"running","heartbeat_at":now}})
 atomic_json(state_path,state)
 start_payload=dict(meta)
@@ -192,7 +208,7 @@ while True:
  time.sleep(0.2)
 ended=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 terminal="completed" if rc==0 else "failed"
-result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended}}
+result={{"request_id":contract["request_id"],"execution_id":contract["execution_id"],"pid":meta["pid"],"pgid":meta["pgid"],"process_start_identity":meta["start_time_ticks"],"returncode":int(rc),"authoritative_state":terminal,"ended_at":ended,"executable_evidence":executable_evidence}}
 atomic_json(result_path,result)
 state["remote"].update({{"authoritative_state":terminal,"heartbeat_at":ended,"publication_state":"ready"}})
 atomic_json(state_path,state)

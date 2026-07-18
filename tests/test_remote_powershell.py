@@ -9,6 +9,7 @@ from codexbridge.remote_powershell import (
     bind_remote_powershell_controller_request,
     build_remote_powershell_artifact_manifest,
     complete_remote_powershell_artifact_manifest,
+    complete_remote_powershell_executable_evidence,
     build_remote_powershell_durable_input,
     build_remote_powershell_request,
     decode_remote_powershell_stdin,
@@ -241,6 +242,60 @@ def test_remote_powershell_artifact_manifest_rejects_path_drift() -> None:
         )
 
 
+def test_remote_powershell_executable_evidence_binds_identity_version_and_request() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=[],
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_identity",
+        lease_generation=1,
+    )
+    declaration = durable["remote_powershell_executable_evidence"]
+    completed = complete_remote_powershell_executable_evidence(
+        declaration,
+        observed={
+            "requested_path": "/usr/bin/pwsh",
+            "resolved_path": "/opt/microsoft/powershell/7/pwsh",
+            "size_bytes": 123,
+            "sha256": "a" * 64,
+            "version": "7.5.2",
+            "execution_id": durable["remote_controller_state"]["execution_id"],
+        },
+    )
+
+    assert completed["publication_state"] == "completed"
+    assert completed["request_fingerprint"] == request["request_fingerprint"]
+    assert completed["version"] == "7.5.2"
+
+
+def test_remote_powershell_executable_evidence_rejects_identity_drift() -> None:
+    request = build_remote_powershell_request(
+        host_id="host",
+        executable_path="/usr/bin/pwsh",
+        argv=[],
+    )
+    durable = build_remote_powershell_durable_input(
+        request,
+        run_id="20260718T000000Z_remote_powershell_identity",
+        lease_generation=1,
+    )
+    with pytest.raises(ValueError, match="path does not match"):
+        complete_remote_powershell_executable_evidence(
+            durable["remote_powershell_executable_evidence"],
+            observed={
+                "requested_path": "/usr/bin/bash",
+                "resolved_path": "/usr/bin/bash",
+                "size_bytes": 123,
+                "sha256": "b" * 64,
+                "version": "5.2",
+                "execution_id": durable["remote_controller_state"]["execution_id"],
+            },
+        )
+
+
 def test_remote_powershell_worker_dispatches_exact_controller_inputs(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -339,6 +394,23 @@ def test_remote_powershell_worker_dispatches_exact_controller_inputs(
 
     monkeypatch.setattr("codexbridge.job_worker.start_monitored_ssh_command", execute_remote)
     monkeypatch.setattr("codexbridge.job_worker.run_ssh_transfer", retrieve_remote)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.probe_remote_controller_state",
+        lambda config, host_id, controller_state: {
+            "ok": True,
+            "state": {},
+            "result": {
+                "executable_evidence": {
+                    "requested_path": request["executable_path"],
+                    "resolved_path": request["executable_path"],
+                    "size_bytes": 123,
+                    "sha256": "c" * 64,
+                    "version": "7.5.2",
+                    "execution_id": controller_state["execution_id"],
+                }
+            },
+        },
+    )
 
     assert JobWorker(config_path, run_id).execute() == 0
     result = store.get_run(run_id)["result"]
@@ -357,6 +429,8 @@ def test_remote_powershell_worker_dispatches_exact_controller_inputs(
     assert (run_dir / "artifacts" / "remote-stdout.bin").read_bytes() == b"\x00\xffstdout"
     assert (run_dir / "artifacts" / "remote-stderr.bin").read_bytes() == b"\x80stderr"
     manifest = result["artifact_manifest"]
+    assert result["executable_evidence"]["version"] == "7.5.2"
+    assert result["executable_evidence"]["request_fingerprint"] == request["request_fingerprint"]
     assert all(item["publication_state"] == "completed" for item in manifest["streams"])
     assert all(len(item["sha256"]) == 64 for item in manifest["streams"])
 
