@@ -336,9 +336,28 @@ function Invoke-ElevatedStop {
 function Stop-VerifiedProcess {
     param([object]$Process, [string]$InternalAction)
     $processId = [int]$Process.ProcessId
+    $current = Get-ProcessInfo -ProcessId $processId
+    if (-not $current) {
+        Write-Success "Verified process PID $processId already exited during coordinated stop."
+        return
+    }
+
+    $identityMatches = switch ($InternalAction) {
+        "elevated-stop-server" { Test-ServerProcessIdentity -Process $current }
+        "elevated-stop-tunnel" { Test-TunnelProcessIdentity -Process $current }
+        default { $false }
+    }
+    if (-not $identityMatches) {
+        throw "PID $processId no longer matches the verified process identity. Nothing was stopped."
+    }
+
     try {
         Stop-Process -Id $processId -Force -ErrorAction Stop
     } catch {
+        if (-not (Get-ProcessInfo -ProcessId $processId)) {
+            Write-Success "Verified process PID $processId exited during coordinated stop."
+            return
+        }
         if ($_.Exception.Message -match '(?i)access.*denied|denied.*access') {
             Invoke-ElevatedStop -InternalAction $InternalAction -ProcessId $processId
         } else {
