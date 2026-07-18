@@ -729,7 +729,9 @@ Checkpoint (2026-07-18):
 - Every newly accepted X4 durable input now includes a versioned protected artifact manifest bound to the invoking run, lease generation, R4 execution ID, authoritative remote stdout/stderr paths, deterministic run-relative local binary publication paths, binary transfer encoding, and pending publication state.
 - Worker-side durable-input reconstruction rejects any remote path, local path, classification, encoding, execution identity, run identity, or lease-generation drift before remote launch.
 - Artifact-manifest implementation commit: `079f348535cc5b698a48dae3349b682a4f08a03d`. Focused validation passed: `tests/test_remote_powershell.py` **13 passed**; adjacent `tests/test_job_manager.py` **64 passed**; `codexbridge/remote_powershell.py` passed `py_compile`.
-- Next executable unit: retrieve authoritative remote stdout/stderr as binary-safe local protected artifacts at the declared paths, verify byte length and SHA-256, and publish completed artifact metadata without routing arbitrary output bytes through the SSH text stream.
+- The worker now retrieves authoritative remote stdout and stderr with the existing binary SCP transfer path, atomically publishes them at the declared protected artifact locations, independently verifies byte length and SHA-256 after publication, and records a completed manifest without routing arbitrary output bytes through the SSH text stream.
+- Binary-publication implementation commit: `c4190ce5946e79f110311540a9605bbcbaf3f5aa`. Focused validation passed: `tests/test_remote_powershell.py` **14 passed**; adjacent `tests/test_job_manager.py` **64 passed**; changed worker and contract modules passed `py_compile`; `git diff --check` passed.
+- Next executable unit: capture and persist the verified remote PowerShell executable identity and version evidence, then bind it to the accepted request and terminal result before representative unrestricted native-command acceptance coverage.
 
 Goal: expose unrestricted PowerShell on registered permissive remote hosts so it can run any command available to the configured remote account.
 
