@@ -49,6 +49,15 @@ def _run_controller(
         "EXIT=",
         contract,
     )
+    memory_sample_path = tmp_path / "memory.current"
+    memory_sample_path.write_text("1\n", encoding="utf-8")
+    source = source.replace(
+        '"/sys/fs/cgroup/memory.current"', repr(str(memory_sample_path))
+    )
+    source = source.replace(
+        '"/sys/fs/cgroup/memory/memory.usage_in_bytes"',
+        repr(str(memory_sample_path)),
+    )
     source = source.replace("next_heartbeat=time.monotonic()+5.0", "next_heartbeat=time.monotonic()")
     source = source.replace("next_heartbeat=now_mono+5.0", "next_heartbeat=now_mono+.05")
     source = source.replace("deadline=time.monotonic()+5", "deadline=time.monotonic()+.25")
