@@ -32,9 +32,18 @@ Future Codex sessions must inspect the repository before assuming any roadmap fe
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: Absolute Resource Enforcement
+## Immediate Priority: R5, Hermes Tool Runtime, and Operational Pilot
 
-The local durability foundation, unrestricted local PowerShell, parallel command groups, C1 permissive-only cleanup, R3 managed transfer/staging, R4 durable remote ownership, and the optional X4 remote PowerShell capability are complete. The active roadmap now proceeds to R5 absolute resource enforcement.
+The durability foundation, unrestricted and parallel local PowerShell, permissive-only cleanup, managed transfer, durable remote ownership, and optional remote PowerShell are complete.
+
+The active sequence is:
+
+1. complete the already-scoped R5 acceptance boundary;
+2. add a ChatGPT-controlled Hermes tool runtime without a second model-agent loop;
+3. freeze architectural expansion and exercise the system on real projects;
+4. derive the next roadmap from operational evidence.
+
+Do not resume the older broad R6, R7, or P2 sequence automatically. Implement only work explicitly selected from active `PLANS.md`.
 
 Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. CodexBridge does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
 
@@ -272,6 +281,14 @@ This list is directional, not proof that a feature exists:
 13. Optional ChatGPT-native live status component
 
 Do not begin roadmap items 11-13 until item 0 is complete and validated.
+
+## Roadmap Documentation Discipline
+
+- `PLANS.md` is the concise active decision and execution-order document.
+- Completed narratives, commit lists, test counts, and checkpoints belong in `docs/roadmap-v2-achievements.md` or a later achievement record.
+- Pilot observations belong in a separate evidence log, not chronologically in `PLANS.md`.
+- When a milestone completes, leave only its outcome and still-relevant invariants in `PLANS.md`, then preserve detailed evidence in the achievement record.
+- Do not delete historical evidence merely to shorten the active roadmap.
 
 ## Reporting Format
 
