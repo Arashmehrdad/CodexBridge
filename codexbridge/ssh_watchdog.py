@@ -180,7 +180,7 @@ def memory_evidence():
    continue
  sampled=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
  if current is None:
-  return {"status":"unavailable","memory_policy":policy,"latest_sample":None,"latest_decision":None,"sampled_at":sampled,"sample_path":""}
+  return {{"status":"unavailable","memory_policy":policy,"latest_sample":None,"latest_decision":None,"sampled_at":sampled,"sample_path":""}}
  action="continue"
  threshold_name=""
  threshold_bytes=None
@@ -190,7 +190,7 @@ def memory_evidence():
   action="graceful_terminate";threshold_name="graceful";threshold_bytes=int(policy["graceful_bytes"])
  elif policy.get("conservative_bytes") is not None and current>=int(policy["conservative_bytes"]):
   threshold_name="conservative";threshold_bytes=int(policy["conservative_bytes"])
- return {"status":"sampled","memory_policy":policy,"latest_sample":{"memory_current_bytes":current,"host_memory_percent":None},"latest_decision":{"action":action,"threshold_name":threshold_name,"threshold_bytes":threshold_bytes,"absolute_cgroup_evaluated_first":True},"sampled_at":sampled,"sample_path":sample_path}
+ return {{"status":"sampled","memory_policy":policy,"latest_sample":{{"memory_current_bytes":current,"host_memory_percent":None}},"latest_decision":{{"action":action,"threshold_name":threshold_name,"threshold_bytes":threshold_bytes,"absolute_cgroup_evaluated_first":True}},"sampled_at":sampled,"sample_path":sample_path}}
 resource_monitor=memory_evidence()
 input_execution=dict(contract["execution"])
 input_execution["resource_monitor_state"]=resource_monitor
