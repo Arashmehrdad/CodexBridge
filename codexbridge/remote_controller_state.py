@@ -25,13 +25,14 @@ def build_remote_controller_state_contract(
     command_id: str,
     lease_generation: int,
     remote_argv: list[str],
-    timeout_seconds: int,
+    timeout_seconds: int | None,
 ) -> dict[str, Any]:
+    normalized_timeout = None if timeout_seconds is None else int(timeout_seconds)
     request_identity = {
         "host_id": host_id,
         "command_id": command_id,
         "remote_argv": list(remote_argv),
-        "timeout_seconds": int(timeout_seconds),
+        "timeout_seconds": normalized_timeout,
     }
     idempotency_key = _canonical_sha256(request_identity)
     execution_id = _canonical_sha256(
@@ -91,7 +92,7 @@ def build_remote_controller_state_contract(
         },
         "execution": {
             "argv_sha256": _canonical_sha256(list(remote_argv)),
-            "timeout_seconds": int(timeout_seconds),
+            "timeout_seconds": normalized_timeout,
             "executable_identity": str(remote_argv[0]) if remote_argv else "",
             "shell_identity": "direct_argv",
             "resource_monitor_state": "not_started",
@@ -175,7 +176,7 @@ def validate_remote_controller_state_contract(
     command_id: str,
     lease_generation: int,
     remote_argv: list[str],
-    timeout_seconds: int,
+    timeout_seconds: int | None,
 ) -> dict[str, Any]:
     expected = build_remote_controller_state_contract(
         run_id=run_id,

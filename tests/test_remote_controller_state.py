@@ -61,6 +61,28 @@ def test_remote_controller_state_contract_is_deterministic_and_complete() -> Non
     assert first["execution"]["resource_monitor_state"] == "not_started"
 
 
+def test_remote_controller_state_contract_preserves_no_timeout_policy() -> None:
+    contract = build_remote_controller_state_contract(
+        run_id="20260717T120000Z_remote_powershell_deadbeef",
+        host_id="my_vps",
+        command_id="remote_powershell",
+        lease_generation=1,
+        remote_argv=["/usr/bin/pwsh", "-Command", "Write-Output ok"],
+        timeout_seconds=None,
+    )
+
+    assert contract["execution"]["timeout_seconds"] is None
+    assert validate_remote_controller_state_contract(
+        contract,
+        run_id=contract["request_id"],
+        host_id="my_vps",
+        command_id="remote_powershell",
+        lease_generation=1,
+        remote_argv=["/usr/bin/pwsh", "-Command", "Write-Output ok"],
+        timeout_seconds=None,
+    ) == contract
+
+
 def test_remote_controller_state_contract_changes_with_request_or_lease() -> None:
     baseline = _build()
     changed_lease = build_remote_controller_state_contract(
