@@ -215,6 +215,8 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
     assert persisted["status"] == "completed"
     assert result["tool"] == "ssh_reviewed_script"
     assert result["script_sha256"] == input_data["script_sha256"]
+    assert result["submitted_script_sha256"] == input_data["script_sha256"]
+    assert result["line_endings_normalized"] is False
     assert result["approval_source"] == "none"
     assert result["safety_failure"] is False
     assert result["command_result"]["stdout"] == "reviewed payload finished\n"
@@ -290,6 +292,7 @@ def test_reviewed_script_worker_persists_timeout_and_partial_output(
         ("execution_mode", "root_shell", False, "reviewed_script"),
         ("approval_source", None, True, "Incomplete persisted SSH policy metadata"),
         ("approval_source", "human", False, "does not match canonical"),
+        ("line_endings_normalized", True, False, "newline metadata"),
         ("unexpected_command", "whoami", False, "Unexpected persisted"),
     ],
 )
@@ -405,6 +408,8 @@ def test_root_shell_worker_revalidates_executes_and_verifies_root_identity(
     result = persisted["result"]
     assert persisted["status"] == "completed"
     assert result["tool"] == "ssh_root_shell"
+    assert result["submitted_script_sha256"] == input_data["script_sha256"]
+    assert result["line_endings_normalized"] is False
     assert result["root_identity_verified"] is True
     assert result["approval_source"] == "none"
     assert result["command_result"]["root_identity_verified"] is True
@@ -474,6 +479,7 @@ def test_root_shell_worker_fails_when_remote_identity_is_not_root(
     ("field", "value", "message_category"),
     [
         ("script", "echo altered\\n", "SHA-256"),
+        ("line_endings_normalized", True, "newline metadata"),
         ("approval_source", "chatgpt", "does not accept approval evidence"),
         ("unexpected_command", "whoami", "Unexpected persisted"),
     ],

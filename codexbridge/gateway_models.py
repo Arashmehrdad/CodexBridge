@@ -733,6 +733,23 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
         return self
 
 
+def canonicalize_hash_pinned_ssh_script(
+    interpreter: str,
+    script: str,
+    script_sha256: str,
+) -> tuple[str, str, bool]:
+    """Verify the submitted hash and canonicalize POSIX-shell line endings."""
+
+    submitted_bytes = script.encode("utf-8")
+    if sha256(submitted_bytes).hexdigest() != script_sha256:
+        raise ValueError("SSH script SHA-256 does not match its content")
+    if interpreter not in {"bash", "sh"}:
+        return script, script_sha256, False
+    canonical_script = script.replace("\r\n", "\n").replace("\r", "\n")
+    canonical_sha256 = sha256(canonical_script.encode("utf-8")).hexdigest()
+    return canonical_script, canonical_sha256, canonical_script != script
+
+
 def validate_reviewed_ssh_script_request(
     payload: dict[str, Any],
 ) -> SSHReviewedScriptAction:

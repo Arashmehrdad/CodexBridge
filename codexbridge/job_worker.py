@@ -246,10 +246,38 @@ def _authorize_persisted_ssh_root_shell_policy(
     return _validate_persisted_ssh_policy_metadata(input_data, policy)
 
 
+_SSH_SCRIPT_NEWLINE_METADATA_FIELDS = frozenset(
+    {"submitted_script_sha256", "line_endings_normalized"}
+)
+
+
+def _validate_ssh_script_newline_metadata(
+    input_data: dict,
+    canonical_script_sha256: str,
+) -> dict[str, object]:
+    normalized = input_data.get("line_endings_normalized", False)
+    submitted = input_data.get("submitted_script_sha256", canonical_script_sha256)
+    if not isinstance(normalized, bool):
+        raise ValueError("Persisted SSH script newline metadata is invalid")
+    if (
+        not isinstance(submitted, str)
+        or len(submitted) != 64
+        or any(character not in "0123456789abcdef" for character in submitted)
+    ):
+        raise ValueError("Persisted SSH script submitted hash is invalid")
+    if normalized == (submitted == canonical_script_sha256):
+        raise ValueError("Persisted SSH script newline metadata is inconsistent")
+    return {
+        "submitted_script_sha256": submitted,
+        "line_endings_normalized": normalized,
+    }
+
+
 _REVIEWED_SCRIPT_REQUEST_FIELDS = frozenset(SSHReviewedScriptAction.model_fields)
 _REVIEWED_SCRIPT_PERSISTED_FIELDS = (
     _REVIEWED_SCRIPT_REQUEST_FIELDS
     | frozenset(_SSH_POLICY_METADATA_FIELDS)
+    | _SSH_SCRIPT_NEWLINE_METADATA_FIELDS
     | {"staging_manifest"}
 )
 
@@ -257,7 +285,7 @@ _REVIEWED_SCRIPT_PERSISTED_FIELDS = (
 def _validate_ssh_reviewed_script_worker_input(
     config: AppConfig,
     input_data: dict,
-) -> tuple[SSHReviewedScriptAction, dict[str, object]]:
+) -> tuple[SSHReviewedScriptAction, dict[str, object], dict[str, object]]:
     missing = sorted(
         field
         for field in _REVIEWED_SCRIPT_REQUEST_FIELDS - {"arguments"}
@@ -286,19 +314,25 @@ def _validate_ssh_reviewed_script_worker_input(
         input_data,
         request,
     )
-    return request, policy_metadata
+    newline_metadata = _validate_ssh_script_newline_metadata(
+        input_data,
+        request.script_sha256,
+    )
+    return request, policy_metadata, newline_metadata
 
 
 _ROOT_SHELL_REQUEST_FIELDS = frozenset(SSHRootShellAction.model_fields)
 _ROOT_SHELL_PERSISTED_FIELDS = (
-    _ROOT_SHELL_REQUEST_FIELDS | frozenset(_SSH_POLICY_METADATA_FIELDS)
+    _ROOT_SHELL_REQUEST_FIELDS
+    | frozenset(_SSH_POLICY_METADATA_FIELDS)
+    | _SSH_SCRIPT_NEWLINE_METADATA_FIELDS
 )
 
 
 def _validate_ssh_root_shell_worker_input(
     config: AppConfig,
     input_data: dict,
-) -> tuple[SSHRootShellAction, dict[str, object]]:
+) -> tuple[SSHRootShellAction, dict[str, object], dict[str, object]]:
     missing = sorted(
         field for field in _ROOT_SHELL_REQUEST_FIELDS if field not in input_data
     )
@@ -320,7 +354,11 @@ def _validate_ssh_root_shell_worker_input(
         input_data,
         request,
     )
-    return request, policy_metadata
+    newline_metadata = _validate_ssh_script_newline_metadata(
+        input_data,
+        request.script_sha256,
+    )
+    return request, policy_metadata, newline_metadata
 
 
 def _sha256_file(path: Path) -> str:
@@ -1501,9 +1539,11 @@ class JobWorker:
         started_at: str,
         input_data: dict,
     ) -> dict:
-        request, policy_metadata = _validate_ssh_reviewed_script_worker_input(
-            self.config,
-            input_data,
+        request, policy_metadata, newline_metadata = (
+            _validate_ssh_reviewed_script_worker_input(
+                self.config,
+                input_data,
+            )
         )
         run_dir = Path(self.run["run_dir"])
         staging_manifest = input_data.get("staging_manifest")
@@ -1534,6 +1574,7 @@ class JobWorker:
                 "interpreter": request.interpreter,
                 "arguments": list(request.arguments),
                 "script_sha256": request.script_sha256,
+                **newline_metadata,
                 "timeout_seconds": request.timeout_seconds,
                 "writes_remote": request.writes_remote,
                 "high_risk": request.high_risk,
@@ -1588,6 +1629,7 @@ class JobWorker:
             "interpreter": request.interpreter,
             "arguments": list(request.arguments),
             "script_sha256": request.script_sha256,
+            **newline_metadata,
             **policy_metadata,
             "writes_remote": request.writes_remote,
             "high_risk": request.high_risk,
@@ -1622,9 +1664,11 @@ class JobWorker:
         started_at: str,
         input_data: dict,
     ) -> dict:
-        request, policy_metadata = _validate_ssh_root_shell_worker_input(
-            self.config,
-            input_data,
+        request, policy_metadata, newline_metadata = (
+            _validate_ssh_root_shell_worker_input(
+                self.config,
+                input_data,
+            )
         )
         self.event(
             "info",
@@ -1633,6 +1677,7 @@ class JobWorker:
             {
                 "host_id": request.host_id,
                 "script_sha256": request.script_sha256,
+                **newline_metadata,
                 "timeout_seconds": request.timeout_seconds,
                 **policy_metadata,
             },
@@ -1672,6 +1717,7 @@ class JobWorker:
             "ssh_alias": str(command_result.get("ssh_alias", "")),
             "interpreter": "bash",
             "script_sha256": request.script_sha256,
+            **newline_metadata,
             **policy_metadata,
             "writes_remote": True,
             "high_risk": True,

@@ -682,6 +682,65 @@ def test_reviewed_script_launch_persists_exact_request_and_redacts_public_views(
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 
+@pytest.mark.parametrize("interpreter", ["bash", "sh"])
+def test_reviewed_script_normalizes_windows_line_endings_before_persistence(
+    tmp_path: Path,
+    monkeypatch,
+    interpreter: str,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    submitted = "set -eu\r\nprintf '%s\\n' CRLF_OK\r\n"
+    submitted_sha256 = sha256(submitted.encode("utf-8")).hexdigest()
+    canonical = submitted.replace("\r\n", "\n")
+    canonical_sha256 = sha256(canonical.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_reviewed_script(
+        "my_vps",
+        interpreter,
+        submitted,
+        submitted_sha256,
+        writes_remote=False,
+    )
+
+    assert response["script_sha256"] == canonical_sha256
+    assert response["submitted_script_sha256"] == submitted_sha256
+    assert response["line_endings_normalized"] is True
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["input"]["script"] == canonical
+    assert stored["input"]["script_sha256"] == canonical_sha256
+    assert stored["input"]["submitted_script_sha256"] == submitted_sha256
+    assert stored["input"]["line_endings_normalized"] is True
+    assert (
+        Path(stored["run_dir"]) / "inputs" / "reviewed-script.bin"
+    ).read_bytes() == canonical.encode("utf-8")
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
+def test_reviewed_pwsh_payload_preserves_windows_line_endings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    script = "Write-Output 'CRLF_OK'\r\n"
+    digest = sha256(script.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_reviewed_script(
+        "my_vps",
+        "pwsh",
+        script,
+        digest,
+        writes_remote=False,
+    )
+
+    assert response["script_sha256"] == digest
+    assert response["submitted_script_sha256"] == digest
+    assert response["line_endings_normalized"] is False
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["input"]["script"] == script
+    assert stored["input"]["line_endings_normalized"] is False
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
 def test_reviewed_script_read_only_still_uses_dedicated_model_policy(
     tmp_path: Path,
     monkeypatch,
@@ -774,6 +833,33 @@ def test_root_shell_launch_persists_exact_request_and_redacts_public_views(
     )
     assert artifact["script"] == "[REDACTED]"
     assert "ROOT_SHELL_MARKER" not in json.dumps(artifact)
+    manager.locks.release("ssh:my_vps", response["run_id"])
+
+
+def test_root_shell_normalizes_windows_line_endings_before_persistence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    submitted = "id -u\r\nprintf '%s\\n' ROOT_CRLF_OK\r\n"
+    submitted_sha256 = sha256(submitted.encode("utf-8")).hexdigest()
+    canonical = submitted.replace("\r\n", "\n")
+    canonical_sha256 = sha256(canonical.encode("utf-8")).hexdigest()
+
+    response = manager.start_ssh_root_shell(
+        "my_vps",
+        submitted,
+        submitted_sha256,
+    )
+
+    assert response["script_sha256"] == canonical_sha256
+    assert response["submitted_script_sha256"] == submitted_sha256
+    assert response["line_endings_normalized"] is True
+    stored = manager.store.get_run(response["run_id"])
+    assert stored["input"]["script"] == canonical
+    assert stored["input"]["script_sha256"] == canonical_sha256
+    assert stored["input"]["submitted_script_sha256"] == submitted_sha256
+    assert stored["input"]["line_endings_normalized"] is True
     manager.locks.release("ssh:my_vps", response["run_id"])
 
 

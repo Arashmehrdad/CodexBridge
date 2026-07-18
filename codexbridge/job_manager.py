@@ -34,6 +34,7 @@ from .executable_staging import (
     stage_executable_input,
 )
 from .gateway_models import (
+    canonicalize_hash_pinned_ssh_script,
     validate_reviewed_ssh_script_request,
     validate_root_ssh_shell_request,
 )
@@ -1237,6 +1238,14 @@ class JobManager:
         execution_mode: str = "reviewed_script",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
+        submitted_script_sha256 = script_sha256
+        script, script_sha256, line_endings_normalized = (
+            canonicalize_hash_pinned_ssh_script(
+                interpreter,
+                script,
+                script_sha256,
+            )
+        )
         request = validate_reviewed_ssh_script_request(
             {
                 "action": "reviewed_script",
@@ -1280,7 +1289,13 @@ class JobManager:
             ),
         )
         input_data = request.model_dump(mode="python")
-        input_data.update(policy_metadata)
+        input_data.update(
+            {
+                "submitted_script_sha256": submitted_script_sha256,
+                "line_endings_normalized": line_endings_normalized,
+                **policy_metadata,
+            }
+        )
         response = self._create_and_launch(
             "ssh_reviewed_script",
             f"ssh:{request.host_id}",
@@ -1291,6 +1306,8 @@ class JobManager:
         response["interpreter"] = request.interpreter
         response["arguments"] = list(request.arguments)
         response["script_sha256"] = request.script_sha256
+        response["submitted_script_sha256"] = submitted_script_sha256
+        response["line_endings_normalized"] = line_endings_normalized
         response["writes_remote"] = request.writes_remote
         response["high_risk"] = request.high_risk
         response.update(policy_metadata)
@@ -1307,6 +1324,14 @@ class JobManager:
         execution_mode: str = "root_shell",
     ) -> dict:
         self._require_active_ssh_autonomy_profile(autonomy_profile)
+        submitted_script_sha256 = script_sha256
+        script, script_sha256, line_endings_normalized = (
+            canonicalize_hash_pinned_ssh_script(
+                "bash",
+                script,
+                script_sha256,
+            )
+        )
         request = validate_root_ssh_shell_request(
             {
                 "action": "root_shell",
@@ -1339,7 +1364,13 @@ class JobManager:
             ),
         )
         input_data = request.model_dump(mode="python")
-        input_data.update(policy_metadata)
+        input_data.update(
+            {
+                "submitted_script_sha256": submitted_script_sha256,
+                "line_endings_normalized": line_endings_normalized,
+                **policy_metadata,
+            }
+        )
         response = self._create_and_launch(
             "ssh_root_shell",
             f"ssh:{request.host_id}",
@@ -1348,6 +1379,8 @@ class JobManager:
         )
         response["host_id"] = request.host_id
         response["script_sha256"] = request.script_sha256
+        response["submitted_script_sha256"] = submitted_script_sha256
+        response["line_endings_normalized"] = line_endings_normalized
         response["writes_remote"] = True
         response["high_risk"] = True
         response.update(policy_metadata)
