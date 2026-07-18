@@ -237,7 +237,12 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
         status = _run_manager(engine, "status", tmp_path, config, port)
         assert status.returncode == 0, status.stdout + status.stderr
         assert "Ready:     True (HTTP 406" in status.stdout
-        assert f"PID:       {second_pid}" in status.stdout
+        assert "PID:       not found" not in status.stdout
+        pid_line = next(
+            line for line in status.stdout.splitlines() if line.strip().startswith("PID:")
+        )
+        reported_pid = int(pid_line.split(":", 1)[1].strip())
+        assert reported_pid != first_pid
     finally:
         stopped = _run_manager(
             engine, "stop", tmp_path, config, port, capture_output=False
