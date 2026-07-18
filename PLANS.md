@@ -778,7 +778,11 @@ Checkpoint (2026-07-18):
 - Internal encoded controllers now have a separate bounded `16_384`-byte transport ceiling while ordinary configured SSH command profiles retain the existing `4_096`-byte limit.
 - Implementation commits: `e5cc6fd4ad8adaad8feebd4eb781d48cabdcf9bd`, `de4ff4e9b3765ae6f98566e4cb6fcccead36e1a5`, `5fbd4c5f4a052fc24503d4e37f77894057e8f7cb`, and `7e86a09b03251f4bc1d582e15e04d35790f5dbe5`.
 - Focused validation passed: `tests/test_ssh_watchdog.py` **9 passed** and `tests/test_ssh_commands.py` **29 passed**; `codexbridge/ssh_watchdog.py` passed `py_compile`.
-- Next executable unit: add execution-level tests that run the generated controller against disposable local process groups for graceful exit, forced escalation, hard termination, identity mismatch refusal, and exact persisted terminal evidence.
+- Added POSIX execution-level coverage that runs the generated controller against disposable local process groups for graceful exit, forced escalation, direct hard termination, identity-mismatch refusal, and exact persisted state/result evidence.
+- Implementation commit: `f460329a15d662cca76e99f4aac195d66bc2d06f`.
+- Windows validation collected the suite successfully with **4 skipped** because the service host has no POSIX process groups; adjacent validation passed with `tests/test_ssh_watchdog.py` **9 passed**, `tests/test_remote_resource_enforcement.py` **7 passed**, and the new execution test passed `py_compile`.
+- A direct WSL validation attempt could not execute because no Linux distribution with `bash` is installed. The POSIX execution cases remain ready for Linux CI or a disposable Linux validation host rather than being simulated on Windows.
+- Next executable unit: run the new execution suite on a disposable Linux environment, then add the remaining R5 resource signals (GPU temperature/memory, disk, heartbeat, and CUDA OOM) to the authoritative controller evidence without weakening the absolute-memory-first policy.
 
 Goal: prevent runaway long jobs while preserving explicit permissive overrides.
 
