@@ -108,7 +108,7 @@ R5 satisfies deterministic threshold paths, visible overrides, exact termination
 
 ## H1 - ChatGPT-Controlled Hermes Tool Runtime
 
-Status: **in progress; H1A feasibility audit and the H1B protocol foundation are complete**.
+Status: **complete**.
 
 ### H1A - Feasibility audit
 
@@ -238,7 +238,17 @@ Public reversible side-effect acceptance completed on 2026-07-19:
 - the acceptance exposed that the fixture MCP child did not inherit the companion-only `HERMES_HOME`; the fixture now fails closed without an explicit home and the generated MCP server configuration passes the repository-owned home directly;
 - isolation regression validation: `tests/test_hermes_mcp_fixture.py` reported `4 passed`.
 
-Next executable unit: complete the remaining H1 lifecycle acceptance by proving a durable Hermes call has deterministic cancellation and restart/reconciliation behavior without losing ownership or publishing an unverified result.
+Lifecycle acceptance completed on 2026-07-19:
+
+- added a bounded, side-effect-free `mcp__codexbridge_fixture__wait_fixture` tool for deterministic lifecycle testing;
+- fresh public handshake run `20260719T211753Z_executable_profile_56f93e9f` bound registry generation `89` and effective schema hash `a308c1820ae7e601a71cedc6ff27be866c5d40221070244b826ca657b7f2aa78`, with `model_runtime_initialized: false` and empty protected stderr;
+- exact describe run `20260719T211801Z_executable_profile_7213674c` bound tool-schema hash `012082dc6fb140f730f2e93f1add7934e895517f0b4123ebab6096a9c8c74104`;
+- cancellable call run `20260719T211806Z_executable_profile_94dcc96d` reached verified `running` ownership with result publication still `not_published`, then `cancel_run` confirmed process-tree termination for the child and worker and published one terminal `cancelled` result;
+- the cancelled run returned empty public stdout/stderr and no `hermes_response`, proving an interrupted call cannot publish an unverified tool result;
+- startup reconciliation regression coverage proves a persisted active Hermes worker with verified process identity is adopted with exact companion catalog metadata intact, its repository lock retained, and result publication left `not_published` until the worker finishes;
+- focused validation: `tests/test_hermes_mcp_fixture.py` reported `5 passed`, and `tests/test_job_manager.py` reported `69 passed`.
+
+H1 acceptance is complete. The next executable unit is OP1: begin the evidence-driven real-project pilot with a repository-owned pilot evidence log and record representative ordinary CodexBridge/Hermes work without architectural expansion.
 
 ### H1B - Minimal external surface
 
@@ -275,7 +285,7 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
-Status: **blocked on H1 acceptance**.
+Status: **ready; H1 acceptance is complete**.
 
 After H1, freeze architectural expansion and exercise:
 
