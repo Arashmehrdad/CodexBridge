@@ -278,7 +278,11 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
     finally:
         sys.modules.pop("model_client.openai", None)
 
-    assert observed_imports == ["tools.registry"]
+    assert observed_imports == [
+        "tools.registry",
+        "hermes_cli.plugins",
+        "tools.mcp_tool",
+    ]
 
 
 def test_pinned_loader_includes_plugin_and_mcp_registered_tools(monkeypatch, tmp_path) -> None:

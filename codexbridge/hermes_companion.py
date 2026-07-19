@@ -175,37 +175,38 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         )
 
     initialization_warnings: list[str] = []
+    plugins_module = importlib.import_module("hermes_cli.plugins")
+    discover_plugins = getattr(plugins_module, "discover_plugins", None)
+    if not callable(discover_plugins):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes plugin interface: discover_plugins is unavailable"
+        )
     try:
-        plugins_module = importlib.import_module("hermes_cli.plugins")
-        discover_plugins = getattr(plugins_module, "discover_plugins", None)
-        if not callable(discover_plugins):
-            raise HermesCompanionRuntimeError(
-                "unsupported Hermes plugin interface: discover_plugins is unavailable"
-            )
         discover_plugins()
     except Exception as exc:
         initialization_warnings.append(
             f"plugin discovery failed: {type(exc).__name__}: {exc}"
         )
 
+    mcp_module = importlib.import_module("tools.mcp_tool")
+    discover_mcp_tools = getattr(mcp_module, "discover_mcp_tools", None)
+    if not callable(discover_mcp_tools):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes MCP interface: discover_mcp_tools is unavailable"
+        )
     try:
-        mcp_module = importlib.import_module("tools.mcp_tool")
-        discover_mcp_tools = getattr(mcp_module, "discover_mcp_tools", None)
-        if not callable(discover_mcp_tools):
-            raise HermesCompanionRuntimeError(
-                "unsupported Hermes MCP interface: discover_mcp_tools is unavailable"
-            )
         discovered_mcp_tools = discover_mcp_tools()
+    except Exception as exc:
+        initialization_warnings.append(
+            f"MCP discovery failed: {type(exc).__name__}: {exc}"
+        )
+    else:
         if not isinstance(discovered_mcp_tools, list) or any(
             not isinstance(name, str) or not name for name in discovered_mcp_tools
         ):
             raise HermesCompanionRuntimeError(
                 "unsupported Hermes MCP interface: discovery result is invalid"
             )
-    except Exception as exc:
-        initialization_warnings.append(
-            f"MCP discovery failed: {type(exc).__name__}: {exc}"
-        )
 
     registry = _resolve_registry(module)
     definitions = _registry_definitions(registry)
