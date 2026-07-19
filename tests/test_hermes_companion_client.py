@@ -94,6 +94,14 @@ def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monke
             "working_directory": str(tmp_path.resolve()),
             "stdin_text": launch.stdin_text,
             "timeout_seconds": 120,
+            "hermes_companion": {
+                "operation": "handshake",
+                "hermes_revision": PINNED_HERMES_REVISION,
+                "checkout": launch.checkout,
+                "expected_registry_generation": None,
+                "expected_schema_hash": "",
+                "one_request": True,
+            },
         }
     ]
 

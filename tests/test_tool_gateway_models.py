@@ -236,6 +236,46 @@ def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None
     ]
 
 
+def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypatch) -> None:
+    checkout = tmp_path / "hermes"
+    checkout.mkdir()
+    calls = []
+
+    class FakeJobs:
+        def start_executable_profile(self, repo_name, profile_id, argv, **kwargs):
+            calls.append(
+                {
+                    "repo_name": repo_name,
+                    "profile_id": profile_id,
+                    "argv": argv,
+                    **kwargs,
+                }
+            )
+            return {"accepted": True, "run_id": "hermes_run"}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    request = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "hermes_companion",
+            "repo_name": "sample",
+            "profile_id": "python",
+            "checkout": str(checkout),
+            "companion_operation": "tool_search",
+            "payload": {"query": "github", "limit": 5},
+            "expected_registry_generation": 7,
+            "expected_schema_hash": "a" * 64,
+        }
+    )
+
+    result = server.run_start(request)
+
+    assert result["run_id"] == "hermes_run"
+    assert result["hermes_companion"]["operation"] == "tool_search"
+    assert calls[0]["hermes_companion"]["expected_registry_generation"] == 7
+    assert calls[0]["hermes_companion"]["expected_schema_hash"] == "a" * 64
+    assert calls[0]["stdin_text"].endswith("\n")
+
+
 def test_run_start_rejects_invalid_remote_powershell_binary_input() -> None:
     request = TypeAdapter(RunStartRequest).validate_python(
         {
