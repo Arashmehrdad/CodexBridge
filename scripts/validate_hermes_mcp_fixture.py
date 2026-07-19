@@ -43,6 +43,8 @@ def validate(checkout: Path, repository: Path) -> dict[str, Any]:
         f"    command: {json.dumps(sys.executable)}\n"
         "    args:\n"
         f"      - {json.dumps(str(fixture))}\n"
+        "    env:\n"
+        f"      HERMES_HOME: {json.dumps(str(runtime_home))}\n"
         "    connect_timeout: 30\n"
         "    timeout: 30\n",
         encoding="utf-8",

@@ -11,7 +11,10 @@ mcp = FastMCP("codexbridge-disposable-fixture")
 
 
 def _state_path() -> Path:
-    home = Path(os.environ.get("HERMES_HOME", ".")).resolve()
+    configured_home = os.environ.get("HERMES_HOME", "").strip()
+    if not configured_home:
+        raise RuntimeError("HERMES_HOME is required for fixture state")
+    home = Path(configured_home).resolve()
     home.mkdir(parents=True, exist_ok=True)
     return home / "codexbridge-side-effect-fixture.json"
 

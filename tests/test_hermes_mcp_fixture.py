@@ -62,6 +62,13 @@ def test_ambiguous_response_reconciles_without_duplicate_mutation(monkeypatch, t
     }
 
 
+def test_fixture_state_requires_explicit_hermes_home(monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
+    with pytest.raises(RuntimeError, match="HERMES_HOME is required"):
+        reconcile_reversible_fixture("missing-home")
+
+
 def test_idempotency_key_rejects_argument_drift(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     apply_reversible_fixture("stable-key", "first")
