@@ -165,7 +165,18 @@ Public gateway and terminal publication completed on 2026-07-19:
 - malformed, failed, multiply emitted, operation-drifted, generation-drifted, or schema-drifted responses fail the durable run rather than publishing unverified catalog data;
 - focused validation: `tests/test_hermes_companion_client.py` reported `5 passed`, `tests/test_tool_gateway_models.py` reported `32 passed`, and `tests/test_job_manager.py` reported `68 passed`.
 
-Next executable unit: execute handshake, search, and describe end to end against the pinned Hermes checkout through the public durable gateway, verify protected artifact hashes and terminal catalog identity, then expose read-only `tool_call` only after that gate passes.
+Live public H1B gate completed on 2026-07-19:
+
+- repaired the ignored live `config.yaml` profile boundary that had joined `unrestricted_child_processes: true` to `parallel_execution:`, causing every fresh durable worker to exit before lease claim;
+- cancelled the abandoned queued validator, validated the repaired configuration, reloaded it without restarting the tunnel, and proved fresh PowerShell and allowlisted Git workers claim and complete normally;
+- restored the ignored pinned checkout at Hermes revision `862b1b37bf0aadba3a98b3756c7d71779379b53b`;
+- aligned the companion with the pinned registry interface by running explicit built-in discovery and reading the raw registered schemas without invoking availability checks or a Hermes model loop;
+- `tests/test_hermes_companion.py` reported `6 passed`, the adapter compiled, and the compatibility fixes were committed as `620913c5b9a78e8741681d2d96f96c302486c82f` and `baa7354696ca841efd56070fb066d19aa36d8048`;
+- the public MCP `run_start(operation="hermes_companion")` handshake completed as run `20260719T035330Z_executable_profile_9e38e2d0`, publishing registry generation `57`, effective schema hash `9489c958268618207783c6e4e31e2b93d37db06841c49657de4d194f78e71445`, pinned revision identity, and `model_runtime_initialized: false`;
+- schema-bound public search completed as run `20260719T035421Z_executable_profile_d0111a56`, and exact describe completed as run `20260719T035424Z_executable_profile_c7ec0d5a`; both published verified `hermes_response` data, terminal result hashes, and protected stdout/stderr artifact hashes under the same catalog identity;
+- the current CodexBridge environment lacks `requests`, so five optional Hermes modules (`browser_tool`, `delegate_tool`, `terminal_tool`, `vision_tools`, and `x_search_tool`) remain unavailable and emit bounded protected warnings. This does not invalidate the completed handshake/search/describe gate, but runtime dependency alignment remains required before claiming the full intended Hermes catalog.
+
+Next executable unit: align the Hermes runtime dependencies and effective plugin/MCP discovery state, then add one bounded read-only `tool_call` through the normal Hermes policy, hook, guardrail, and approval path under the verified catalog identity.
 
 ### H1B - Minimal external surface
 
