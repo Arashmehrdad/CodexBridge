@@ -78,12 +78,30 @@ def _registry_generation(registry: Any) -> int:
 
 
 def _registry_definitions(registry: Any) -> list[dict[str, Any]]:
+    names_getter = getattr(registry, "get_all_tool_names", None)
+    if not callable(names_getter):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes ToolRegistry interface: get_all_tool_names is unavailable"
+        )
+    tool_names = names_getter()
+    if not isinstance(tool_names, (list, tuple, set, frozenset)) or any(
+        not isinstance(name, str) or not name for name in tool_names
+    ):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes ToolRegistry interface: tool names are invalid"
+        )
+    normalized_names = set(tool_names)
+    if not normalized_names:
+        raise HermesCompanionRuntimeError(
+            "Hermes registry contains no tools after built-in discovery"
+        )
+
     getter = getattr(registry, "get_definitions", None)
     if not callable(getter):
         raise HermesCompanionRuntimeError(
             "unsupported Hermes ToolRegistry interface: get_definitions is unavailable"
         )
-    definitions = getter()
+    definitions = getter(normalized_names, quiet=True)
     if not isinstance(definitions, list) or any(
         not isinstance(item, Mapping) for item in definitions
     ):
@@ -126,6 +144,18 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         sys.path.insert(0, checkout_text)
     before = set(sys.modules)
     module = importlib.import_module("tools.registry")
+    discover_builtin_tools = getattr(module, "discover_builtin_tools", None)
+    if not callable(discover_builtin_tools):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes registry module: discover_builtin_tools is unavailable"
+        )
+    discovered_modules = discover_builtin_tools()
+    if not isinstance(discovered_modules, list) or any(
+        not isinstance(name, str) or not name for name in discovered_modules
+    ):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes registry module: built-in discovery result is invalid"
+        )
     registry = _resolve_registry(module)
     definitions = _registry_definitions(registry)
     imported = sorted(set(sys.modules) - before)

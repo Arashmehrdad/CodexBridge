@@ -138,12 +138,58 @@ def test_pinned_loader_rejects_revision_drift_before_import(monkeypatch, tmp_pat
     assert imported is False
 
 
+def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_path) -> None:
+    observed_definition_calls: list[tuple[set[str], bool]] = []
+
+    class Registry:
+        generation = 3
+        active_toolsets = ("filesystem",)
+
+        def get_all_tool_names(self):
+            return {"filesystem.read_text"}
+
+        def get_definitions(self, tool_names, quiet=False):
+            observed_definition_calls.append((set(tool_names), quiet))
+            return [dict(DEFINITIONS[0])]
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=PINNED_HERMES_REVISION + "\n",
+            stderr="",
+        )
+
+    discovered = {"called": False}
+
+    def discover_builtin_tools():
+        discovered["called"] = True
+        return ["tools.filesystem"]
+
+    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "codexbridge.hermes_companion.importlib.import_module",
+        lambda name: SimpleNamespace(
+            registry=Registry(), discover_builtin_tools=discover_builtin_tools
+        ),
+    )
+
+    snapshot = load_pinned_registry(tmp_path)
+
+    assert discovered["called"] is True
+    assert observed_definition_calls == [({"filesystem.read_text"}, True)]
+    assert snapshot.generation == 3
+    assert snapshot.definitions == (DEFINITIONS[0],)
+
+
 def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypatch, tmp_path) -> None:
     class Registry:
         generation = 3
         active_toolsets = ("filesystem",)
 
-        def get_definitions(self):
+        def get_all_tool_names(self):
+            return {"filesystem.read_text"}
+
+        def get_definitions(self, tool_names, quiet=False):
             return [dict(DEFINITIONS[0])]
 
     def fake_run(*args, **kwargs):
@@ -158,7 +204,9 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
     def fake_import(name: str):
         observed_imports.append(name)
         sys.modules["model_client.openai"] = SimpleNamespace()
-        return SimpleNamespace(registry=Registry())
+        return SimpleNamespace(
+            registry=Registry(), discover_builtin_tools=lambda: ["tools.filesystem"]
+        )
 
     monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
     monkeypatch.setattr("codexbridge.hermes_companion.importlib.import_module", fake_import)
