@@ -266,9 +266,16 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
     def fake_import(name: str):
         observed_imports.append(name)
         sys.modules["model_client.openai"] = SimpleNamespace()
-        return SimpleNamespace(
-            registry=Registry(), discover_builtin_tools=lambda: ["tools.filesystem"]
-        )
+        if name == "tools.registry":
+            return SimpleNamespace(
+                registry=Registry(),
+                discover_builtin_tools=lambda: ["tools.filesystem"],
+            )
+        if name == "hermes_cli.plugins":
+            return SimpleNamespace(discover_plugins=lambda: None)
+        if name == "tools.mcp_tool":
+            return SimpleNamespace(discover_mcp_tools=lambda: [])
+        raise AssertionError(name)
 
     monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
     monkeypatch.setattr("codexbridge.hermes_companion.importlib.import_module", fake_import)
