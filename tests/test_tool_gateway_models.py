@@ -275,6 +275,27 @@ def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypat
     assert calls[0]["hermes_companion"]["expected_schema_hash"] == "a" * 64
     assert calls[0]["stdin_text"].endswith("\n")
 
+    call_request = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "hermes_companion",
+            "repo_name": "sample",
+            "profile_id": "python",
+            "checkout": str(checkout),
+            "companion_operation": "tool_call",
+            "payload": {
+                "tool_name": "read_file",
+                "arguments": {"path": "PLANS.md", "offset": 1, "limit": 5},
+            },
+            "expected_registry_generation": 72,
+            "expected_schema_hash": "b" * 64,
+        }
+    )
+    call_result = server.run_start(call_request)
+
+    assert call_result["hermes_companion"]["operation"] == "tool_call"
+    assert json.loads(calls[1]["stdin_text"])["tool_name"] == "read_file"
+    assert json.loads(calls[1]["stdin_text"])["arguments"]["limit"] == 5
+
 
 def test_run_start_rejects_invalid_remote_powershell_binary_input() -> None:
     request = TypeAdapter(RunStartRequest).validate_python(

@@ -497,7 +497,7 @@ class HermesCompanionStart(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     profile_id: str = Field(min_length=1, max_length=128)
     checkout: str = Field(min_length=1, max_length=32_768)
-    companion_operation: Literal["handshake", "tool_search", "tool_describe"]
+    companion_operation: Literal["handshake", "tool_search", "tool_describe", "tool_call"]
     payload: dict[str, Any] = Field(default_factory=dict, max_length=100)
     expected_registry_generation: int | None = Field(default=None, ge=0)
     expected_schema_hash: str = Field(default="", max_length=64)
