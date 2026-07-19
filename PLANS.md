@@ -220,7 +220,14 @@ Public connected-MCP gateway acceptance completed on 2026-07-19:
 - public call run `20260719T184854Z_executable_profile_f5fd4fb2` returned source `codexbridge-disposable-mcp` and value `public-durable-mcp-gate`, with protected stdout SHA-256 `54c65db5b8c13717f273dcacb22901d7938ca5d3a5d3434d421e81ab62604dd9` and empty protected stderr;
 - no Hermes model-agent loop or tool-specific CodexBridge wrapper participated in the path.
 
-Next executable unit: define and implement the first repository-owned reversible side-effect fixture with a caller-supplied idempotency key, durable mutation intent, outcome verification, and ambiguous-result reconciliation that proves a replay cannot apply the mutation twice.
+Repository-owned reversible side-effect fixture contract completed on 2026-07-19:
+
+- extended the disposable connected-MCP fixture with caller-supplied idempotency keys, atomic repository-owned outcome state, exact argument-drift rejection, authoritative reconciliation, and explicit reversal;
+- an intentional post-commit ambiguous response leaves the mutation durably visible for reconciliation;
+- replay with the same key and arguments returns the original outcome with `applied: false`, preserving `application_count: 1` rather than applying the mutation twice;
+- focused validation: `tests/test_hermes_mcp_fixture.py` reported `3 passed`, and adjacent `tests/test_hermes_companion.py` reported `7 passed`.
+
+Next executable unit: execute the reversible fixture through the public durable Hermes gateway, capture the ambiguous first result, reconcile the external outcome, replay safely under the same idempotency key, revert it, and publish exact run and artifact evidence.
 
 ### H1B - Minimal external surface
 
