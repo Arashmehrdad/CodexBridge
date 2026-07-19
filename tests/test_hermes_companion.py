@@ -182,18 +182,56 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
         return ["tools.filesystem"]
 
     monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
+    observed_calls: list[tuple[str, dict, list[str], list[str]]] = []
+
+    def fake_handle_function_call(
+        *,
+        function_name,
+        function_args,
+        enabled_toolsets,
+        disabled_toolsets,
+        **kwargs,
+    ):
+        observed_calls.append(
+            (
+                function_name,
+                dict(function_args),
+                list(enabled_toolsets),
+                list(disabled_toolsets),
+            )
+        )
+        return json.dumps({"tool": function_name, "args": function_args}, sort_keys=True)
+
+    def fake_import(name: str):
+        if name == "tools.registry":
+            return SimpleNamespace(
+                registry=Registry(), discover_builtin_tools=discover_builtin_tools
+            )
+        if name == "model_tools":
+            return SimpleNamespace(handle_function_call=fake_handle_function_call)
+        raise AssertionError(name)
+
     monkeypatch.setattr(
         "codexbridge.hermes_companion.importlib.import_module",
-        lambda name: SimpleNamespace(
-            registry=Registry(), discover_builtin_tools=discover_builtin_tools
-        ),
+        fake_import,
     )
 
     snapshot = load_pinned_registry(tmp_path)
+    assert snapshot.executor is not None
+    result = snapshot.executor("filesystem.read_text", {"path": "README.md"})
 
     assert discovered["called"] is True
     assert snapshot.generation == 3
     assert snapshot.definitions == (DEFINITIONS[0],)
+    assert json.loads(result)["tool"] == "filesystem.read_text"
+    assert observed_calls == [
+        (
+            "filesystem.read_text",
+            {"path": "README.md"},
+            ["filesystem"],
+            [],
+        )
+    ]
 
 
 def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypatch, tmp_path) -> None:
