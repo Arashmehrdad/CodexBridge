@@ -207,6 +207,10 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
             return SimpleNamespace(
                 registry=Registry(), discover_builtin_tools=discover_builtin_tools
             )
+        if name == "hermes_cli.plugins":
+            return SimpleNamespace(discover_plugins=lambda: None)
+        if name == "tools.mcp_tool":
+            return SimpleNamespace(discover_mcp_tools=lambda: [])
         if name == "model_tools":
             return SimpleNamespace(handle_function_call=fake_handle_function_call)
         raise AssertionError(name)
@@ -275,3 +279,95 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
         sys.modules.pop("model_client.openai", None)
 
     assert observed_imports == ["tools.registry"]
+
+
+def test_pinned_loader_includes_plugin_and_mcp_registered_tools(monkeypatch, tmp_path) -> None:
+    class Registry:
+        generation = 1
+        active_toolsets = ["filesystem"]
+        _tools = {
+            "filesystem.read_text": SimpleNamespace(
+                schema=dict(DEFINITIONS[0]), toolset="filesystem"
+            )
+        }
+
+        def get_all_tool_names(self):
+            return set(self._tools)
+
+    registry = Registry()
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=PINNED_HERMES_REVISION + "\n",
+            stderr="",
+        )
+
+    def discover_plugins():
+        registry._tools["plugin.echo"] = SimpleNamespace(
+            schema={
+                "name": "plugin.echo",
+                "description": "Echo through a discovered plugin",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            toolset="plugin_tools",
+        )
+        registry.active_toolsets.append("plugin_tools")
+        registry.generation += 1
+
+    def discover_mcp_tools():
+        registry._tools["fixture_mcp.ping"] = SimpleNamespace(
+            schema={
+                "name": "fixture_mcp.ping",
+                "description": "Ping a connected MCP fixture",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            toolset="fixture_mcp",
+        )
+        registry.active_toolsets.append("fixture_mcp")
+        registry.generation += 1
+        return ["fixture_mcp.ping"]
+
+    calls = []
+
+    def fake_handle_function_call(**kwargs):
+        calls.append(kwargs)
+        return json.dumps({"pong": True})
+
+    def fake_import(name: str):
+        if name == "tools.registry":
+            return SimpleNamespace(
+                registry=registry,
+                discover_builtin_tools=lambda: ["tools.filesystem"],
+            )
+        if name == "hermes_cli.plugins":
+            return SimpleNamespace(discover_plugins=discover_plugins)
+        if name == "tools.mcp_tool":
+            return SimpleNamespace(discover_mcp_tools=discover_mcp_tools)
+        if name == "model_tools":
+            return SimpleNamespace(handle_function_call=fake_handle_function_call)
+        raise AssertionError(name)
+
+    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "codexbridge.hermes_companion.importlib.import_module", fake_import
+    )
+
+    snapshot = load_pinned_registry(tmp_path)
+    names = {definition["name"] for definition in snapshot.definitions}
+
+    assert names == {
+        "filesystem.read_text",
+        "plugin.echo",
+        "fixture_mcp.ping",
+    }
+    assert snapshot.generation == 3
+    assert snapshot.active_toolsets == (
+        "filesystem",
+        "fixture_mcp",
+        "plugin_tools",
+    )
+    assert snapshot.initialization_warnings == ()
+    assert snapshot.executor("fixture_mcp.ping", {}) == '{"pong": true}'
+    assert calls[0]["function_name"] == "fixture_mcp.ping"
+    assert "fixture_mcp" in calls[0]["enabled_toolsets"]

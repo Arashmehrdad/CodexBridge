@@ -173,6 +173,40 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         raise HermesCompanionRuntimeError(
             "unsupported Hermes registry module: built-in discovery result is invalid"
         )
+
+    initialization_warnings: list[str] = []
+    try:
+        plugins_module = importlib.import_module("hermes_cli.plugins")
+        discover_plugins = getattr(plugins_module, "discover_plugins", None)
+        if not callable(discover_plugins):
+            raise HermesCompanionRuntimeError(
+                "unsupported Hermes plugin interface: discover_plugins is unavailable"
+            )
+        discover_plugins()
+    except Exception as exc:
+        initialization_warnings.append(
+            f"plugin discovery failed: {type(exc).__name__}: {exc}"
+        )
+
+    try:
+        mcp_module = importlib.import_module("tools.mcp_tool")
+        discover_mcp_tools = getattr(mcp_module, "discover_mcp_tools", None)
+        if not callable(discover_mcp_tools):
+            raise HermesCompanionRuntimeError(
+                "unsupported Hermes MCP interface: discover_mcp_tools is unavailable"
+            )
+        discovered_mcp_tools = discover_mcp_tools()
+        if not isinstance(discovered_mcp_tools, list) or any(
+            not isinstance(name, str) or not name for name in discovered_mcp_tools
+        ):
+            raise HermesCompanionRuntimeError(
+                "unsupported Hermes MCP interface: discovery result is invalid"
+            )
+    except Exception as exc:
+        initialization_warnings.append(
+            f"MCP discovery failed: {type(exc).__name__}: {exc}"
+        )
+
     registry = _resolve_registry(module)
     definitions = _registry_definitions(registry)
     imported = sorted(set(sys.modules) - before)
@@ -182,6 +216,7 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         active_toolsets=_active_toolsets(registry),
         python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
         imported_modules=imported,
+        initialization_warnings=initialization_warnings,
     )
     model_tools = importlib.import_module("model_tools")
     handle_function_call = getattr(model_tools, "handle_function_call", None)
@@ -211,6 +246,7 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         definitions=tuple(definitions),
         active_toolsets=tuple(handshake["active_toolsets"]),
         executor=execute_bound_tool,
+        initialization_warnings=tuple(initialization_warnings),
     )
 
 
