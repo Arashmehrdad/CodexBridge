@@ -195,7 +195,15 @@ Plugin and MCP discovery alignment completed on 2026-07-19:
 - synthetic connected-MCP registration coverage proves a newly discovered MCP tool appears in the catalog, contributes its dynamic toolset, and executes through the generic bound executor;
 - focused validation: `tests/test_hermes_companion.py` reported `7 passed`, and the companion module compiled.
 
-Next executable unit: configure one disposable local MCP fixture in the live pinned Hermes home, prove its tool appears and executes through the public durable gateway, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
+Disposable connected-MCP execution evidence completed on 2026-07-19:
+
+- added a repository-owned stdio MCP fixture and a reusable acceptance harness using an isolated `HERMES_HOME` under ignored `runs`, leaving the user's real Hermes configuration untouched;
+- the actual pinned Hermes checkout discovered `mcp__codexbridge_fixture__echo_fixture`, included it in registry generation `85`, and bound it to effective schema hash `8b43af99fe9ea6e41bfd82542f4f42764816bf36bf53156cd64c6fe6c59db160`;
+- exact describe published tool-schema hash `87fb4050ba48900df327f896d8fcae53dfca0203e8eb6350352f016b380b2074`;
+- the generic policy-preserving executor returned the fixture marker and value `durable-mcp-gate` with `model_runtime_initialized: false`;
+- durable validation run `20260719T092053Z_executable_profile_616c1625` completed with empty stderr, both fixture scripts compiled, and `tests/test_hermes_companion.py` remained `7 passed`.
+
+Next executable unit: bind an isolated repository-owned Hermes home into the public `hermes_companion` durable request without permitting arbitrary environment injection, repeat the connected-MCP search/describe/call through that public gateway, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
 
 ### H1B - Minimal external surface
 
