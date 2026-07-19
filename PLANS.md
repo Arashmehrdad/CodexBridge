@@ -227,7 +227,18 @@ Repository-owned reversible side-effect fixture contract completed on 2026-07-19
 - replay with the same key and arguments returns the original outcome with `applied: false`, preserving `application_count: 1` rather than applying the mutation twice;
 - focused validation: `tests/test_hermes_mcp_fixture.py` reported `3 passed`, and adjacent `tests/test_hermes_companion.py` reported `7 passed`.
 
-Next executable unit: execute the reversible fixture through the public durable Hermes gateway, capture the ambiguous first result, reconcile the external outcome, replay safely under the same idempotency key, revert it, and publish exact run and artifact evidence.
+Public reversible side-effect acceptance completed on 2026-07-19:
+
+- fresh public handshake run `20260719T201034Z_executable_profile_6130c7ba` bound registry generation `88` and effective schema hash `d6c2814409cad1c28c075bd134d4ea1806617154f3b7206b10173ec8e5cdfc39`, with `model_runtime_initialized: false`, protected stdout SHA-256 `f898728d1a176770ba0939294754a4a2de2f59fc5873a076e5d8b91af468b125`, and empty protected stderr;
+- public search run `20260719T201113Z_executable_profile_fd0f7afd` bound `mcp__codexbridge_fixture__apply_reversible_fixture` to tool-schema hash `4eff7674906c70b559b9255711bd10dd560326232299bf1fd4b5f4a2e117b90c`;
+- ambiguous apply run `20260719T201158Z_executable_profile_5291aff8` committed idempotency key `h1-public-side-effect-20260719-2012` and then returned the intentional post-commit error, with protected stdout SHA-256 `150ac9686f4cc112cc0d5e4c28893cc841fd95851f2c8fa5e61d250516cbc7dc` and empty stderr;
+- reconciliation run `20260719T201203Z_executable_profile_a17bc66e` verified the authoritative outcome existed with value `public-durable-side-effect` and `application_count: 1`;
+- replay run `20260719T201207Z_executable_profile_60006013` returned `applied: false` while preserving the same single application, proving the ambiguous result was not blindly duplicated;
+- reversal run `20260719T201211Z_executable_profile_7c752b60` returned `reverted: true`, and final reconciliation run `20260719T201216Z_executable_profile_51e57bc3` verified `exists: false`;
+- the acceptance exposed that the fixture MCP child did not inherit the companion-only `HERMES_HOME`; the fixture now fails closed without an explicit home and the generated MCP server configuration passes the repository-owned home directly;
+- isolation regression validation: `tests/test_hermes_mcp_fixture.py` reported `4 passed`.
+
+Next executable unit: complete the remaining H1 lifecycle acceptance by proving a durable Hermes call has deterministic cancellation and restart/reconciliation behavior without losing ownership or publishing an unverified result.
 
 ### H1B - Minimal external surface
 
