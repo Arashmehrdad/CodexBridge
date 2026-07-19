@@ -50,6 +50,7 @@ def _companion() -> HermesCompanion:
             generation=11,
             definitions=DEFINITIONS,
             active_toolsets=("filesystem", "github"),
+            dispatcher=lambda name, args: json.dumps({"tool": name, "args": args}, sort_keys=True),
         )
     )
 
@@ -78,12 +79,22 @@ def test_dispatch_routes_handshake_search_and_describe_without_model_runtime() -
             tool_name="filesystem.read_text",
         )
     )
+    call = companion.dispatch(
+        _bound_request(
+            companion,
+            "tool_call",
+            tool_name="filesystem.read_text",
+            arguments={"path": "README.md"},
+        )
+    )
 
     assert handshake["hermes_revision"] == PINNED_HERMES_REVISION
     assert handshake["model_runtime_initialized"] is False
     assert search["result_count"] == 1
     assert search["results"][0]["name"] == "github.issue_search"
     assert describe["definition"] == DEFINITIONS[0]
+    assert call["tool_name"] == "filesystem.read_text"
+    assert json.loads(call["result"])["args"] == {"path": "README.md"}
 
 
 def test_dispatch_rejects_identity_drift_and_unknown_operations() -> None:
@@ -94,7 +105,7 @@ def test_dispatch_rejects_identity_drift_and_unknown_operations() -> None:
     with pytest.raises(ValueError, match="schema drift"):
         companion.dispatch(drifted)
     with pytest.raises(ValueError, match="unsupported companion operation"):
-        companion.dispatch(_bound_request(companion, "tool_call"))
+        companion.dispatch(_bound_request(companion, "unknown"))
 
 
 def test_stdio_emits_one_bounded_json_response_per_request() -> None:

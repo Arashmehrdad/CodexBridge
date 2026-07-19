@@ -69,6 +69,18 @@ def test_build_bound_search_launch_persists_catalog_identity(tmp_path: Path) -> 
     assert request["effective_schema_hash"] == schema_hash
     assert request["query"] == "github"
 
+    call = build_companion_launch(
+        profile_id="python",
+        checkout=checkout,
+        operation="tool_call",
+        payload={"tool_name": "filesystem.read_text", "arguments": {"path": "README.md"}},
+        expected_registry_generation=7,
+        expected_schema_hash=schema_hash,
+    )
+    call_request = json.loads(call.stdin_text)
+    assert call_request["tool_name"] == "filesystem.read_text"
+    assert call_request["arguments"] == {"path": "README.md"}
+
 
 def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monkeypatch) -> None:
     checkout = tmp_path / "hermes"
