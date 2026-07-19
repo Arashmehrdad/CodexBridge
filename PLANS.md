@@ -174,9 +174,11 @@ Live public H1B gate completed on 2026-07-19:
 - `tests/test_hermes_companion.py` reported `6 passed`, the adapter compiled, and the compatibility fixes were committed as `620913c5b9a78e8741681d2d96f96c302486c82f` and `baa7354696ca841efd56070fb066d19aa36d8048`;
 - the public MCP `run_start(operation="hermes_companion")` handshake completed as run `20260719T035330Z_executable_profile_9e38e2d0`, publishing registry generation `57`, effective schema hash `9489c958268618207783c6e4e31e2b93d37db06841c49657de4d194f78e71445`, pinned revision identity, and `model_runtime_initialized: false`;
 - schema-bound public search completed as run `20260719T035421Z_executable_profile_d0111a56`, and exact describe completed as run `20260719T035424Z_executable_profile_c7ec0d5a`; both published verified `hermes_response` data, terminal result hashes, and protected stdout/stderr artifact hashes under the same catalog identity;
-- the current CodexBridge environment lacks `requests`, so five optional Hermes modules (`browser_tool`, `delegate_tool`, `terminal_tool`, `vision_tools`, and `x_search_tool`) remain unavailable and emit bounded protected warnings. This does not invalidate the completed handshake/search/describe gate, but runtime dependency alignment remains required before claiming the full intended Hermes catalog.
+- the current CodexBridge environment initially lacked the pinned Hermes core dependency `requests==2.33.0`, so five built-in modules (`browser_tool`, `delegate_tool`, `terminal_tool`, `vision_tools`, and `x_search_tool`) were unavailable and emitted bounded protected warnings;
+- installed that exact upstream-pinned dependency into the live companion environment, then reran the pinned handshake as run `20260719T051116Z_executable_profile_7cf66ac2`;
+- the aligned handshake completed with empty stderr, registry generation `72`, effective schema hash `3c409ad2b545f2251550f22e5924d6af6c0fd1775cd4840f8c21fca6b5eab870`, and `model_runtime_initialized: false`; protected stdout hash `1613bdd8197cbe5e4e7c7602e7316bfb6f0803436cad4fa577458032c9c1808e` and empty-stderr hash `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` were durably published.
 
-Next executable unit: align the Hermes runtime dependencies and effective plugin/MCP discovery state, then add one bounded read-only `tool_call` through the normal Hermes policy, hook, guardrail, and approval path under the verified catalog identity.
+Next executable unit: align effective plugin/MCP discovery state, then add one bounded read-only `tool_call` through the normal Hermes policy, hook, guardrail, and approval path under the verified generation-72 catalog identity.
 
 ### H1B - Minimal external surface
 
