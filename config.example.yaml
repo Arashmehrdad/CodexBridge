@@ -54,7 +54,7 @@ executable_profiles:
     executable_path: "D:/Github/CodexBridge/.venv/Scripts/python.exe"
     target: "local"
     working_directory_policy: "arbitrary"
-    environment_policy: "inherit"
+    environment_policy: "arbitrary"
     stdin_mode: "text"
     stdout_mode: "protected_artifact"
     stderr_mode: "protected_artifact"
@@ -65,7 +65,7 @@ executable_profiles:
     autonomy_profile: "permissive"
     unrestricted_argv: true
     unrestricted_paths: true
-    unrestricted_environment: false
+    unrestricted_environment: true
     unrestricted_network: true
     unrestricted_child_processes: true
 parallel_execution:

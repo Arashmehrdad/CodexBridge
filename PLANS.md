@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation, pinned read-only stdio companion adapter, durable one-request executable client contract, public gateway routing, and verified terminal-response publication are complete; end-to-end execution against the pinned checkout is the next executable unit.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. H1B now includes the versioned companion, durable public gateway, policy-preserving built-in calls, plugin and MCP discovery, repository-owned Hermes-home binding, and successful public connected-MCP execution.
 
 Known observations, not yet separate repair programs:
 
@@ -210,7 +210,17 @@ Repository-owned Hermes-home binding completed on 2026-07-19:
 - arbitrary companion environment injection remains unavailable;
 - focused validation: `tests/test_hermes_companion_client.py` reported `6 passed` and `tests/test_tool_gateway_models.py` reported `32 passed`.
 
-Next executable unit: reload the updated gateway, repeat the connected-MCP handshake/search/describe/call through the public durable request using the isolated repository-owned Hermes home, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
+Public connected-MCP gateway acceptance completed on 2026-07-19:
+
+- corrected the dedicated Hermes executable profile to use `environment_policy: arbitrary` with unrestricted environment delivery, while the public companion contract still injects only the validated repository-owned `HERMES_HOME` key;
+- validated and reloaded the live configuration without restarting the service or tunnel;
+- public handshake run `20260719T184837Z_executable_profile_e3d7d21e` published registry generation `85`, effective schema hash `8b43af99fe9ea6e41bfd82542f4f42764816bf36bf53156cd64c6fe6c59db160`, protected stdout SHA-256 `db40d703b817243b48e525ca413a58e0e7cced73f2b65085aba8298e6068d3e9`, and empty protected stderr;
+- public search run `20260719T184845Z_executable_profile_00575f0e` discovered `mcp__codexbridge_fixture__echo_fixture` under the same catalog identity;
+- public describe run `20260719T184849Z_executable_profile_82d878a9` bound tool-schema hash `87fb4050ba48900df327f896d8fcae53dfca0203e8eb6350352f016b380b2074`;
+- public call run `20260719T184854Z_executable_profile_f5fd4fb2` returned source `codexbridge-disposable-mcp` and value `public-durable-mcp-gate`, with protected stdout SHA-256 `54c65db5b8c13717f273dcacb22901d7938ca5d3a5d3434d421e81ab62604dd9` and empty protected stderr;
+- no Hermes model-agent loop or tool-specific CodexBridge wrapper participated in the path.
+
+Next executable unit: define and implement the first repository-owned reversible side-effect fixture with a caller-supplied idempotency key, durable mutation intent, outcome verification, and ambiguous-result reconciliation that proves a replay cannot apply the mutation twice.
 
 ### H1B - Minimal external surface
 

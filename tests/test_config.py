@@ -57,6 +57,8 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert hermes_python.enabled is False
     assert hermes_python.executable_path == "D:/Github/CodexBridge/.venv/Scripts/python.exe"
     assert hermes_python.autonomy_profile == "permissive"
+    assert hermes_python.environment_policy == "arbitrary"
+    assert hermes_python.unrestricted_environment is True
     assert hermes_python.stdin_mode == "text"
     assert hermes_python.cancellation_policy == "process_tree"
     assert config.parallel_execution.enabled is False
