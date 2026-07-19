@@ -60,7 +60,7 @@ After the Hermes integration reaches its bounded gate, architectural feature exp
 
 Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 unrestricted local PowerShell; X2A parallel groups; C1 permissive-only cleanup; R3 managed transfer; R4 durable remote Linux ownership; and optional X4 remote PowerShell.
 
-R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation, pinned read-only stdio companion adapter, and durable one-request executable client contract are complete; public gateway routing and terminal-result publication are the next executable unit.
+R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. The H1B protocol foundation, pinned read-only stdio companion adapter, durable one-request executable client contract, public gateway routing, and verified terminal-response publication are complete; end-to-end execution against the pinned checkout is the next executable unit.
 
 Known observations, not yet separate repair programs:
 
@@ -157,7 +157,15 @@ Durable companion client contract completed on 2026-07-19:
 - added exact one-response parsing with handshake and bound catalog-identity verification;
 - focused validation: `tests/test_hermes_companion_client.py` reported `5 passed`, the client module compiled, and `git diff --check` passed.
 
-Next executable unit: expose the durable read-only Hermes handshake/search/describe path through the public gateway, publish verified terminal response metadata and protected stdout/stderr references, and add adjacent server/job-manager integration coverage.
+Public gateway and terminal publication completed on 2026-07-19:
+
+- added the `hermes_companion` public `run_start` operation for handshake, search, and describe;
+- persisted pinned checkout, revision, operation, registry generation, and schema hash in the authoritative executable input;
+- the worker now verifies the exact one-response protocol before terminal publication and includes the verified Hermes response beside protected stdout/stderr artifact metadata;
+- malformed, failed, multiply emitted, operation-drifted, generation-drifted, or schema-drifted responses fail the durable run rather than publishing unverified catalog data;
+- focused validation: `tests/test_hermes_companion_client.py` reported `5 passed`, `tests/test_tool_gateway_models.py` reported `32 passed`, and `tests/test_job_manager.py` reported `68 passed`.
+
+Next executable unit: execute handshake, search, and describe end to end against the pinned Hermes checkout through the public durable gateway, verify protected artifact hashes and terminal catalog identity, then expose read-only `tool_call` only after that gate passes.
 
 ### H1B - Minimal external surface
 
