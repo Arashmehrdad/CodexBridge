@@ -8,7 +8,22 @@ from scripts.hermes_mcp_fixture import (
     apply_reversible_fixture,
     reconcile_reversible_fixture,
     revert_reversible_fixture,
+    wait_fixture,
 )
+
+
+def test_wait_fixture_is_bounded_and_returns_marker(monkeypatch) -> None:
+    monkeypatch.setattr("scripts.hermes_mcp_fixture.time.sleep", lambda seconds: None)
+
+    result = wait_fixture(1.5, "lifecycle-complete")
+
+    assert result == {
+        "source": "codexbridge-disposable-mcp",
+        "value": "lifecycle-complete",
+        "waited_seconds": 1.5,
+    }
+    with pytest.raises(ValueError, match="between 0 and 300"):
+        wait_fixture(301)
 
 
 def test_reversible_fixture_applies_once_reconciles_and_reverts(monkeypatch, tmp_path) -> None:

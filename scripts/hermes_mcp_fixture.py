@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,20 @@ def _save_state(state: dict[str, Any]) -> None:
 def echo_fixture(value: str) -> dict[str, str]:
     """Echo a value through the CodexBridge disposable MCP fixture."""
     return {"source": "codexbridge-disposable-mcp", "value": value}
+
+
+@mcp.tool()
+def wait_fixture(seconds: float, value: str = "completed") -> dict[str, Any]:
+    """Wait for a bounded interval and return a marker for lifecycle acceptance."""
+    duration = float(seconds)
+    if duration < 0 or duration > 300:
+        raise ValueError("seconds must be between 0 and 300")
+    time.sleep(duration)
+    return {
+        "source": "codexbridge-disposable-mcp",
+        "value": value,
+        "waited_seconds": duration,
+    }
 
 
 @mcp.tool()
