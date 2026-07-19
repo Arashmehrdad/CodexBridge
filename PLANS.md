@@ -287,7 +287,7 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 Status: **in progress; pilot evidence collection began on 2026-07-19**.
 
-The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution is disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. This remains an observation rather than a repair program until representative use establishes frequency or blocking impact.
+The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution is disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. A second entry records a successful durable Hermes-backed connected-MCP call under registry generation `89`, with exact tool/schema identity, no model runtime, empty protected stderr, and no lost or duplicated work after correcting one caller-side PowerShell invocation mistake. Neither observation currently justifies a repair program.
 
 After H1, freeze architectural expansion and exercise:
 
