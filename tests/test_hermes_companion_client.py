@@ -105,6 +105,7 @@ def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monke
             "argv": list(launch.argv),
             "working_directory": str(tmp_path.resolve()),
             "stdin_text": launch.stdin_text,
+            "environment": {},
             "timeout_seconds": 120,
             "hermes_companion": {
                 "operation": "handshake",
@@ -116,6 +117,32 @@ def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monke
             },
         }
     ]
+
+
+def test_repository_owned_hermes_home_is_the_only_environment_override(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "hermes"
+    checkout.mkdir()
+    home = tmp_path / "runs" / "isolated-hermes-home"
+    home.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    launch = build_companion_launch(
+        profile_id="python",
+        checkout=checkout,
+        hermes_home=home,
+        operation="handshake",
+    )
+    assert launch.environment == {"HERMES_HOME": str(home.resolve())}
+
+    outside = tmp_path.parent / "outside-hermes-home"
+    outside.mkdir(exist_ok=True)
+    with pytest.raises(ValueError, match="contained by the repository"):
+        build_companion_launch(
+            profile_id="python",
+            checkout=checkout,
+            hermes_home=outside,
+            operation="handshake",
+        )
 
 
 def test_parse_handshake_and_bound_response_verify_exact_identity() -> None:

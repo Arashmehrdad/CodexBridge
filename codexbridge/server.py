@@ -2124,6 +2124,7 @@ def run_start(request: RunStartRequest) -> dict:
             payload=request.payload,
             expected_registry_generation=request.expected_registry_generation,
             expected_schema_hash=request.expected_schema_hash,
+            hermes_home=request.hermes_home or None,
             timeout_seconds=request.timeout_seconds,
         )
         return start_companion_request(get_job_manager(), request.repo_name, launch)

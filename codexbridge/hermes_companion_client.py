@@ -26,6 +26,7 @@ class HermesCompanionLaunch:
     expected_registry_generation: int | None
     expected_schema_hash: str
     operation: str
+    environment: Mapping[str, str]
 
 
 def _canonical_line(payload: Mapping[str, Any]) -> str:
@@ -45,6 +46,7 @@ def build_companion_launch(
     payload: Mapping[str, Any] | None = None,
     expected_registry_generation: int | None = None,
     expected_schema_hash: str = "",
+    hermes_home: str | Path | None = None,
     timeout_seconds: int = DEFAULT_COMPANION_TIMEOUT_SECONDS,
 ) -> HermesCompanionLaunch:
     normalized_profile = str(profile_id).strip()
@@ -64,6 +66,22 @@ def build_companion_launch(
         raise HermesCompanionProtocolError(
             "companion timeout_seconds must be between 1 and 600"
         )
+
+    environment: dict[str, str] = {}
+    if hermes_home is not None:
+        repository_root = Path.cwd().resolve()
+        home_path = Path(hermes_home).resolve()
+        if not home_path.is_dir() or home_path.is_symlink():
+            raise HermesCompanionProtocolError(
+                "Hermes home must be an existing non-symlink directory"
+            )
+        try:
+            home_path.relative_to(repository_root)
+        except ValueError as exc:
+            raise HermesCompanionProtocolError(
+                "Hermes home must be contained by the repository"
+            ) from exc
+        environment["HERMES_HOME"] = str(home_path)
 
     request = {"operation": normalized_operation, **dict(payload or {})}
     if normalized_operation != "handshake":
@@ -97,6 +115,7 @@ def build_companion_launch(
         expected_registry_generation=expected_registry_generation,
         expected_schema_hash=expected_schema_hash,
         operation=normalized_operation,
+        environment=environment,
     )
 
 
@@ -115,6 +134,7 @@ def start_companion_request(manager: Any, repo_name: str, launch: HermesCompanio
         list(launch.argv),
         working_directory=str(Path.cwd().resolve()),
         stdin_text=launch.stdin_text,
+        environment=dict(launch.environment),
         timeout_seconds=launch.timeout_seconds,
         hermes_companion=companion_metadata,
     )
