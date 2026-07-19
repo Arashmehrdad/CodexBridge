@@ -178,15 +178,16 @@ Live public H1B gate completed on 2026-07-19:
 - installed that exact upstream-pinned dependency into the live companion environment, then reran the pinned handshake as run `20260719T051116Z_executable_profile_7cf66ac2`;
 - the aligned handshake completed with empty stderr, registry generation `72`, effective schema hash `3c409ad2b545f2251550f22e5924d6af6c0fd1775cd4840f8c21fca6b5eab870`, and `model_runtime_initialized: false`; protected stdout hash `1613bdd8197cbe5e4e7c7602e7316bfb6f0803436cad4fa577458032c9c1808e` and empty-stderr hash `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` were durably published.
 
-Bound tool-call contract foundation completed on 2026-07-19:
+Bound tool-call path completed on 2026-07-19:
 
 - added a one-request `tool_call` companion operation bound to the accepted protocol version, pinned Hermes revision, registry generation, effective-schema hash, exact tool identity, exact tool-schema hash, and accepted argument object;
-- persisted the call operation through the existing durable companion client contract without exposing it through the public gateway;
-- bounded result publication to the existing companion output ceiling and rejected unavailable or ambiguous tool identity, invalid arguments, unsupported result types, and catalog drift;
-- focused validation: `tests/test_hermes_companion.py` reported `6 passed`, `tests/test_hermes_companion_client.py` reported `5 passed`, the affected companion modules compiled, and `git diff --check` passed;
-- this checkpoint intentionally does not claim the full Hermes execution-policy path: the current internal executor uses the registry dispatcher, while public exposure remains blocked until execution is routed through pinned `model_tools.handle_function_call` so request middleware, plugin pre-tool blocks, approval guards, execution middleware, and post-tool hooks remain authoritative.
+- replaced the lower-level registry dispatcher with pinned `model_tools.handle_function_call`, preserving request middleware, plugin pre-tool blocks, approval guards, execution middleware, and post-tool hooks against the real tool identity;
+- exposed `tool_call` through the public durable Hermes gateway after the policy-path gate passed;
+- proved a real bounded read-only `read_file` call against the pinned generation-72 catalog and schema hash `3c409ad2b545f2251550f22e5924d6af6c0fd1775cd4840f8c21fca6b5eab870` as run `20260719T072023Z_executable_profile_bccfab47`;
+- the call read lines 1-5 of `PLANS.md`, published exact arguments and tool-schema hash `265fc44e1ec436b2716993e33375040ac26ebae8fc87c770851089db21b93633`, emitted empty stderr, and did not initialize a Hermes model-agent runtime;
+- focused validation: `tests/test_hermes_companion.py` reported `6 passed` and `tests/test_tool_gateway_models.py` reported `32 passed`.
 
-Next executable unit: align effective plugin/MCP discovery state, replace the internal registry dispatcher with the pinned normal Hermes `model_tools.handle_function_call` path, prove one bounded read-only built-in call under the verified catalog identity with no model-agent initialization, and only then expose `tool_call` through the public durable gateway.
+Next executable unit: align effective plugin and connected-MCP discovery state, prove one connected MCP tool appears and executes without tool-specific CodexBridge code, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
 
 ### H1B - Minimal external surface
 
