@@ -492,6 +492,18 @@ class LocalPowerShellStart(GatewayModel):
         return self
 
 
+class HermesCompanionStart(GatewayModel):
+    operation: Literal["hermes_companion"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    profile_id: str = Field(min_length=1, max_length=128)
+    checkout: str = Field(min_length=1, max_length=32_768)
+    companion_operation: Literal["handshake", "tool_search", "tool_describe"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=100)
+    expected_registry_generation: int | None = Field(default=None, ge=0)
+    expected_schema_hash: str = Field(default="", max_length=64)
+    timeout_seconds: int = Field(default=120, ge=1, le=600)
+
+
 class RemotePowerShellStart(GatewayModel):
     operation: Literal["remote_powershell"]
     host_id: str = Field(min_length=1, max_length=128)
@@ -506,7 +518,8 @@ class RemotePowerShellStart(GatewayModel):
 RunStartRequest = Annotated[
     PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
     | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
-    | LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart,
+    | LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart
+    | HermesCompanionStart,
     Field(discriminator="operation"),
 ]
 

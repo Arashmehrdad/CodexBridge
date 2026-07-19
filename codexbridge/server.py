@@ -49,6 +49,7 @@ from .git_tools import create_branch as _git_create_branch
 from .git_tools import stage_all as _stage_all
 from .git_tools import unstage_all as _unstage_all
 from .job_manager import JobManager
+from .hermes_companion_client import build_companion_launch, start_companion_request
 from .managed_artifacts import (
     apply_managed_artifact_cleanup as _apply_managed_artifact_cleanup,
     preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
@@ -2115,6 +2116,17 @@ def start_local_powershell_group_async(
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_start(request: RunStartRequest) -> dict:
     """Write gateway for durable validation and unrestricted permissive PowerShell runs."""
+    if request.operation == "hermes_companion":
+        launch = build_companion_launch(
+            profile_id=request.profile_id,
+            checkout=request.checkout,
+            operation=request.companion_operation,
+            payload=request.payload,
+            expected_registry_generation=request.expected_registry_generation,
+            expected_schema_hash=request.expected_schema_hash,
+            timeout_seconds=request.timeout_seconds,
+        )
+        return start_companion_request(get_job_manager(), request.repo_name, launch)
     if request.operation == "remote_powershell":
         return start_remote_powershell_async(
             request.host_id,

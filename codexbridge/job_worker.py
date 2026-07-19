@@ -41,6 +41,7 @@ from .events import ArtifactWriter, redact_and_truncate
 from .executable_profiles import resolve_verified_local_executable
 from .executable_staging import validate_executable_staging_manifest
 from .external_fixtures import fetch_validate_and_discard
+from .hermes_companion_client import parse_companion_result
 from .gateway_models import (
     SSHReviewedScriptAction,
     SSHRootShellAction,
@@ -1140,6 +1141,21 @@ class JobWorker:
         ended_at = _utc_now()
         stdout = bytes(stdout_buffer).decode("utf-8", errors="replace")
         stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
+        hermes_response = None
+        companion_metadata = input_data.get("hermes_companion")
+        if companion_metadata is not None:
+            if not isinstance(companion_metadata, dict):
+                raise ValueError("Persisted Hermes companion metadata is invalid")
+            hermes_response = parse_companion_result(
+                stdout,
+                expected_operation=str(companion_metadata.get("operation") or ""),
+                expected_registry_generation=companion_metadata.get(
+                    "expected_registry_generation"
+                ),
+                expected_schema_hash=str(
+                    companion_metadata.get("expected_schema_hash") or ""
+                ),
+            )
         status = "completed" if exit_code == 0 else "failed"
         if timed_out and termination.get("terminated"):
             status = "timed_out"
@@ -1177,6 +1193,8 @@ class JobWorker:
             "staged_artifacts": staged_artifacts,
             "stdout_bytes": stdout_path.stat().st_size,
             "stderr_bytes": stderr_path.stat().st_size,
+            "hermes_companion": companion_metadata,
+            "hermes_response": hermes_response,
             "output_truncated": (
                 stdout_path.stat().st_size > len(stdout_buffer)
                 or stderr_path.stat().st_size > len(stderr_buffer)

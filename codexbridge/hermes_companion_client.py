@@ -101,6 +101,14 @@ def build_companion_launch(
 
 
 def start_companion_request(manager: Any, repo_name: str, launch: HermesCompanionLaunch) -> dict:
+    companion_metadata = {
+        "operation": launch.operation,
+        "hermes_revision": PINNED_HERMES_REVISION,
+        "checkout": launch.checkout,
+        "expected_registry_generation": launch.expected_registry_generation,
+        "expected_schema_hash": launch.expected_schema_hash,
+        "one_request": True,
+    }
     response = manager.start_executable_profile(
         repo_name,
         launch.profile_id,
@@ -108,6 +116,7 @@ def start_companion_request(manager: Any, repo_name: str, launch: HermesCompanio
         working_directory=str(Path.cwd().resolve()),
         stdin_text=launch.stdin_text,
         timeout_seconds=launch.timeout_seconds,
+        hermes_companion=companion_metadata,
     )
     result = dict(response)
     result["hermes_companion"] = {

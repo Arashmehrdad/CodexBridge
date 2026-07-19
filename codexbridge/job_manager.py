@@ -732,6 +732,7 @@ class JobManager:
         stdin_bytes: bytes | None = None,
         timeout_seconds: int | None = None,
         reserved_run_id: str | None = None,
+        hermes_companion: dict | None = None,
     ) -> dict:
         resolve_repo(self.config, repo_name)
         request = build_local_executable_run_request(
@@ -756,6 +757,10 @@ class JobManager:
             recommended_check_after_minutes=min(2, estimated_minutes),
         )
         input_data = {"repo_name": repo_name, **request}
+        if hermes_companion is not None:
+            if not isinstance(hermes_companion, dict):
+                raise ValueError("Hermes companion metadata must be a mapping")
+            input_data["hermes_companion"] = dict(hermes_companion)
         response = self._create_and_launch(
             "executable_profile",
             repo_name,
