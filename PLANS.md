@@ -285,7 +285,9 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
-Status: **ready; H1 acceptance is complete**.
+Status: **in progress; pilot evidence collection began on 2026-07-19**.
+
+The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution is disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. This remains an observation rather than a repair program until representative use establishes frequency or blocking impact.
 
 After H1, freeze architectural expansion and exercise:
 
