@@ -50,7 +50,7 @@ def _companion() -> HermesCompanion:
             generation=11,
             definitions=DEFINITIONS,
             active_toolsets=("filesystem", "github"),
-            dispatcher=lambda name, args: json.dumps({"tool": name, "args": args}, sort_keys=True),
+            executor=lambda name, args: json.dumps({"tool": name, "args": args}, sort_keys=True),
         )
     )
 

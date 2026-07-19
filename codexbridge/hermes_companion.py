@@ -30,7 +30,7 @@ class HermesRegistrySnapshot:
     generation: int
     definitions: tuple[dict[str, Any], ...]
     active_toolsets: tuple[str, ...]
-    dispatcher: Any | None = None
+    executor: Any | None = None
     initialization_warnings: tuple[str, ...] = ()
 
 
@@ -183,11 +183,34 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
         imported_modules=imported,
     )
+    model_tools = importlib.import_module("model_tools")
+    handle_function_call = getattr(model_tools, "handle_function_call", None)
+    if not callable(handle_function_call):
+        raise HermesCompanionRuntimeError(
+            "unsupported Hermes model_tools interface: handle_function_call is unavailable"
+        )
+    imported = sorted(set(sys.modules) - before)
+    build_handshake(
+        registry_generation=_registry_generation(registry),
+        tool_definitions=definitions,
+        active_toolsets=_active_toolsets(registry),
+        python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
+        imported_modules=imported,
+    )
+
+    def execute_bound_tool(name: str, arguments: Mapping[str, Any]) -> str:
+        return handle_function_call(
+            function_name=name,
+            function_args=dict(arguments),
+            enabled_toolsets=list(handshake["active_toolsets"]),
+            disabled_toolsets=[],
+        )
+
     return HermesRegistrySnapshot(
         generation=int(handshake["registry_generation"]),
         definitions=tuple(definitions),
         active_toolsets=tuple(handshake["active_toolsets"]),
-        dispatcher=registry.dispatch,
+        executor=execute_bound_tool,
     )
 
 
@@ -234,8 +257,8 @@ class HermesCompanion:
                 max_bytes=self.max_output_bytes,
             )
         if operation == "tool_call":
-            if self.snapshot.dispatcher is None:
-                raise HermesCompanionProtocolError("Hermes tool dispatch is unavailable")
+            if self.snapshot.executor is None:
+                raise HermesCompanionProtocolError("Hermes tool execution is unavailable")
             return tool_call(
                 tool_name=str(request.get("tool_name", "")),
                 arguments=request.get("arguments", {}),
@@ -243,7 +266,7 @@ class HermesCompanion:
                 handshake=self.handshake,
                 expected_registry_generation=expected_generation,
                 expected_schema_hash=expected_schema_hash,
-                executor=self.snapshot.dispatcher,
+                executor=self.snapshot.executor,
                 max_bytes=self.max_output_bytes,
             )
         if operation == "tool_describe":
