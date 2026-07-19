@@ -1117,6 +1117,51 @@ def test_reconcile_startup_adopts_verified_active_worker(
     )
 
 
+def test_reconcile_startup_adopts_verified_active_hermes_worker_without_publication(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    companion = {
+        "operation": "tool_call",
+        "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
+        "checkout": str(tmp_path / "hermes"),
+        "expected_registry_generation": 89,
+        "expected_schema_hash": "a" * 64,
+        "one_request": True,
+    }
+    manager.store.update_run(
+        response["run_id"],
+        tool="executable_profile",
+        input={
+            "profile_id": "hermes_python",
+            "argv": ["-m", "codexbridge.hermes_companion"],
+            "hermes_companion": companion,
+        },
+        status="running",
+        launcher_pid=None,
+        worker_pid=222,
+        worker_identity="222:windows:100",
+        result_publication_status="not_published",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_matches_identity",
+        lambda pid, identity: pid == 222 and identity == "222:windows:100",
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_manager.process_is_running", lambda _pid: False
+    )
+
+    assert manager.reconcile_startup() == 1
+
+    status = manager.get_status(response["run_id"])
+    assert status["status"] == "running"
+    assert status["input"]["hermes_companion"] == companion
+    assert status["result_publication_status"] == "not_published"
+    assert status["result"] == {}
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+
+
 def test_reconcile_startup_fails_dead_claimed_worker_and_releases_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
