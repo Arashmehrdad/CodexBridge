@@ -139,18 +139,20 @@ def test_pinned_loader_rejects_revision_drift_before_import(monkeypatch, tmp_pat
 
 
 def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_path) -> None:
-    observed_definition_calls: list[tuple[set[str], bool]] = []
-
     class Registry:
         generation = 3
         active_toolsets = ("filesystem",)
+        _tools = {
+            "filesystem.read_text": SimpleNamespace(
+                schema=dict(DEFINITIONS[0]), toolset="filesystem"
+            )
+        }
 
         def get_all_tool_names(self):
             return {"filesystem.read_text"}
 
         def get_definitions(self, tool_names, quiet=False):
-            observed_definition_calls.append((set(tool_names), quiet))
-            return [dict(DEFINITIONS[0])]
+            raise AssertionError("availability-evaluating get_definitions must not run")
 
     def fake_run(*args, **kwargs):
         return SimpleNamespace(
@@ -176,7 +178,6 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
     snapshot = load_pinned_registry(tmp_path)
 
     assert discovered["called"] is True
-    assert observed_definition_calls == [({"filesystem.read_text"}, True)]
     assert snapshot.generation == 3
     assert snapshot.definitions == (DEFINITIONS[0],)
 
@@ -185,12 +186,17 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
     class Registry:
         generation = 3
         active_toolsets = ("filesystem",)
+        _tools = {
+            "filesystem.read_text": SimpleNamespace(
+                schema=dict(DEFINITIONS[0]), toolset="filesystem"
+            )
+        }
 
         def get_all_tool_names(self):
             return {"filesystem.read_text"}
 
         def get_definitions(self, tool_names, quiet=False):
-            return [dict(DEFINITIONS[0])]
+            raise AssertionError("availability-evaluating get_definitions must not run")
 
     def fake_run(*args, **kwargs):
         return SimpleNamespace(

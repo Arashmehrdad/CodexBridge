@@ -96,19 +96,34 @@ def _registry_definitions(registry: Any) -> list[dict[str, Any]]:
             "Hermes registry contains no tools after built-in discovery"
         )
 
-    getter = getattr(registry, "get_definitions", None)
-    if not callable(getter):
+    entries = getattr(registry, "_tools", None)
+    if not isinstance(entries, Mapping):
         raise HermesCompanionRuntimeError(
-            "unsupported Hermes ToolRegistry interface: get_definitions is unavailable"
+            "unsupported Hermes ToolRegistry interface: raw tool entries are unavailable"
         )
-    definitions = getter(normalized_names, quiet=True)
-    if not isinstance(definitions, list) or any(
-        not isinstance(item, Mapping) for item in definitions
-    ):
+    if set(entries) != normalized_names:
         raise HermesCompanionRuntimeError(
-            "unsupported Hermes ToolRegistry interface: definitions are invalid"
+            "unsupported Hermes ToolRegistry interface: catalog identity is inconsistent"
         )
-    return [dict(item) for item in definitions]
+
+    definitions: list[dict[str, Any]] = []
+    for name in sorted(normalized_names):
+        entry = entries[name]
+        schema = getattr(entry, "schema", None)
+        if not isinstance(schema, Mapping):
+            raise HermesCompanionRuntimeError(
+                f"unsupported Hermes ToolRegistry interface: schema is invalid for {name}"
+            )
+        definition = dict(schema)
+        if definition.get("name") != name:
+            raise HermesCompanionRuntimeError(
+                f"unsupported Hermes ToolRegistry interface: schema identity drift for {name}"
+            )
+        toolset = getattr(entry, "toolset", "")
+        if toolset:
+            definition.setdefault("toolset", str(toolset))
+        definitions.append(definition)
+    return definitions
 
 
 def _active_toolsets(registry: Any) -> tuple[str, ...]:
