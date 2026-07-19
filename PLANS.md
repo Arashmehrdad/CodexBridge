@@ -203,7 +203,14 @@ Disposable connected-MCP execution evidence completed on 2026-07-19:
 - the generic policy-preserving executor returned the fixture marker and value `durable-mcp-gate` with `model_runtime_initialized: false`;
 - durable validation run `20260719T092053Z_executable_profile_616c1625` completed with empty stderr, both fixture scripts compiled, and `tests/test_hermes_companion.py` remained `7 passed`.
 
-Next executable unit: bind an isolated repository-owned Hermes home into the public `hermes_companion` durable request without permitting arbitrary environment injection, repeat the connected-MCP search/describe/call through that public gateway, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
+Repository-owned Hermes-home binding completed on 2026-07-19:
+
+- added an optional `hermes_home` field to the public durable `hermes_companion` request;
+- the client resolves and accepts only an existing non-symlink directory contained by the active repository, then injects only the exact `HERMES_HOME` environment key into the existing executable lifecycle;
+- arbitrary companion environment injection remains unavailable;
+- focused validation: `tests/test_hermes_companion_client.py` reported `6 passed` and `tests/test_tool_gateway_models.py` reported `32 passed`.
+
+Next executable unit: reload the updated gateway, repeat the connected-MCP handshake/search/describe/call through the public durable request using the isolated repository-owned Hermes home, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
 
 ### H1B - Minimal external surface
 
