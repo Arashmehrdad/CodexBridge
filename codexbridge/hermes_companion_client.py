@@ -56,7 +56,7 @@ def build_companion_launch(
             "Hermes checkout must be an existing non-symlink directory"
         )
     normalized_operation = str(operation).strip()
-    if normalized_operation not in {"handshake", "tool_search", "tool_describe"}:
+    if normalized_operation not in {"handshake", "tool_search", "tool_describe", "tool_call"}:
         raise HermesCompanionProtocolError(
             f"unsupported companion client operation: {normalized_operation or '<empty>'}"
         )

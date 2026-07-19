@@ -182,6 +182,49 @@ def tool_search(
     )
 
 
+def tool_call(
+    *,
+    tool_name: str,
+    arguments: Mapping[str, Any],
+    tool_definitions: Sequence[Mapping[str, Any]],
+    handshake: Mapping[str, Any],
+    expected_registry_generation: int,
+    expected_schema_hash: str,
+    executor: Any,
+    max_bytes: int = DEFAULT_PUBLIC_OUTPUT_MAX_BYTES,
+) -> dict[str, Any]:
+    verify_handshake_identity(
+        handshake,
+        expected_registry_generation=expected_registry_generation,
+        expected_schema_hash=expected_schema_hash,
+    )
+    exact_name = str(tool_name).strip()
+    if not exact_name:
+        raise HermesCompanionProtocolError("tool_call name must not be empty")
+    matches = [dict(item) for item in tool_definitions if str(item.get("name", "")) == exact_name]
+    if len(matches) != 1:
+        raise HermesCompanionProtocolError(f"Hermes tool is unavailable or ambiguous: {exact_name}")
+    if not isinstance(arguments, Mapping):
+        raise HermesCompanionProtocolError("tool_call arguments must be an object")
+    definition = matches[0]
+    result = executor(exact_name, dict(arguments))
+    if not isinstance(result, (str, dict)):
+        raise HermesCompanionProtocolError("Hermes tool result has an unsupported type")
+    return _bounded_envelope(
+        {
+            "ok": True,
+            "operation": "tool_call",
+            "registry_generation": expected_registry_generation,
+            "effective_schema_hash": expected_schema_hash,
+            "tool_name": exact_name,
+            "tool_schema_hash": sha256(_canonical_json(definition).encode("utf-8")).hexdigest(),
+            "arguments": dict(arguments),
+            "result": result,
+        },
+        max_bytes,
+    )
+
+
 def tool_describe(
     *,
     tool_name: str,

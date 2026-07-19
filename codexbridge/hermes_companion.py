@@ -17,6 +17,7 @@ from .hermes_companion_protocol import (
     HermesCompanionProtocolError,
     build_handshake,
     effective_schema_hash,
+    tool_call,
     tool_describe,
     tool_search,
 )
@@ -29,6 +30,7 @@ class HermesRegistrySnapshot:
     generation: int
     definitions: tuple[dict[str, Any], ...]
     active_toolsets: tuple[str, ...]
+    dispatcher: Any | None = None
     initialization_warnings: tuple[str, ...] = ()
 
 
@@ -185,6 +187,7 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         generation=int(handshake["registry_generation"]),
         definitions=tuple(definitions),
         active_toolsets=tuple(handshake["active_toolsets"]),
+        dispatcher=registry.dispatch,
     )
 
 
@@ -228,6 +231,19 @@ class HermesCompanion:
                 handshake=self.handshake,
                 expected_registry_generation=expected_generation,
                 expected_schema_hash=expected_schema_hash,
+                max_bytes=self.max_output_bytes,
+            )
+        if operation == "tool_call":
+            if self.snapshot.dispatcher is None:
+                raise HermesCompanionProtocolError("Hermes tool dispatch is unavailable")
+            return tool_call(
+                tool_name=str(request.get("tool_name", "")),
+                arguments=request.get("arguments", {}),
+                tool_definitions=self.snapshot.definitions,
+                handshake=self.handshake,
+                expected_registry_generation=expected_generation,
+                expected_schema_hash=expected_schema_hash,
+                executor=self.snapshot.dispatcher,
                 max_bytes=self.max_output_bytes,
             )
         if operation == "tool_describe":
