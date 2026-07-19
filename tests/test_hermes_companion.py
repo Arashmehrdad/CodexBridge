@@ -165,6 +165,9 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
         def get_definitions(self, tool_names, quiet=False):
             raise AssertionError("availability-evaluating get_definitions must not run")
 
+        def dispatch(self, name, args, **kwargs):
+            return json.dumps({"tool": name, "args": args}, sort_keys=True)
+
     def fake_run(*args, **kwargs):
         return SimpleNamespace(
             returncode=0,
