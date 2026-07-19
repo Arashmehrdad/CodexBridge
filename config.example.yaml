@@ -48,6 +48,26 @@ executable_profiles:
     unrestricted_environment: true
     unrestricted_network: true
     unrestricted_child_processes: true
+  hermes_python:
+    profile_id: "hermes_python"
+    enabled: false
+    executable_path: "D:/Github/CodexBridge/.venv/Scripts/python.exe"
+    target: "local"
+    working_directory_policy: "arbitrary"
+    environment_policy: "inherit"
+    stdin_mode: "text"
+    stdout_mode: "protected_artifact"
+    stderr_mode: "protected_artifact"
+    timeout_seconds: 600
+    cancellation_policy: "process_tree"
+    public_output_max_bytes: 100000
+    preserve_protected_artifacts: true
+    autonomy_profile: "permissive"
+    unrestricted_argv: true
+    unrestricted_paths: true
+    unrestricted_environment: false
+    unrestricted_network: true
+    unrestricted_child_processes: true
 parallel_execution:
   enabled: false
   autonomy_profile: "permissive"

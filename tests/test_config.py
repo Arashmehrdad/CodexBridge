@@ -52,6 +52,13 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert powershell.autonomy_profile == "permissive"
     assert powershell.unrestricted_argv is True
     assert powershell.cancellation_policy == "process_tree"
+    hermes_python = config.executable_profiles["hermes_python"]
+    assert hermes_python.profile_id == "hermes_python"
+    assert hermes_python.enabled is False
+    assert hermes_python.executable_path == "D:/Github/CodexBridge/.venv/Scripts/python.exe"
+    assert hermes_python.autonomy_profile == "permissive"
+    assert hermes_python.stdin_mode == "text"
+    assert hermes_python.cancellation_policy == "process_tree"
     assert config.parallel_execution.enabled is False
     assert config.parallel_execution.max_concurrent_powershell is None
     assert config.parallel_execution.default_mode == "all_at_once"
