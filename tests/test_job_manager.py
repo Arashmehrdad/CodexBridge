@@ -1133,7 +1133,7 @@ def test_reconcile_startup_adopts_verified_active_hermes_worker_without_publicat
     manager.store.update_run(
         response["run_id"],
         tool="executable_profile",
-        input={
+        input_json={
             "profile_id": "hermes_python",
             "argv": ["-m", "codexbridge.hermes_companion"],
             "hermes_companion": companion,
