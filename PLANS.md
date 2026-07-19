@@ -187,7 +187,15 @@ Bound tool-call path completed on 2026-07-19:
 - the call read lines 1-5 of `PLANS.md`, published exact arguments and tool-schema hash `265fc44e1ec436b2716993e33375040ac26ebae8fc87c770851089db21b93633`, emitted empty stderr, and did not initialize a Hermes model-agent runtime;
 - focused validation: `tests/test_hermes_companion.py` reported `6 passed` and `tests/test_tool_gateway_models.py` reported `32 passed`.
 
-Next executable unit: align effective plugin and connected-MCP discovery state, prove one connected MCP tool appears and executes without tool-specific CodexBridge code, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
+Plugin and MCP discovery alignment completed on 2026-07-19:
+
+- companion startup now invokes the pinned Hermes `discover_plugins()` and `discover_mcp_tools()` entry points before freezing the effective registry snapshot;
+- plugin and connected-MCP tools therefore enter the same schema-bound catalog and normal `model_tools.handle_function_call` execution path without tool-specific CodexBridge wrappers;
+- pinned interface drift for either discovery entry point fails closed, while ordinary plugin/server discovery failures are retained as bounded handshake initialization warnings;
+- synthetic connected-MCP registration coverage proves a newly discovered MCP tool appears in the catalog, contributes its dynamic toolset, and executes through the generic bound executor;
+- focused validation: `tests/test_hermes_companion.py` reported `7 passed`, and the companion module compiled.
+
+Next executable unit: configure one disposable local MCP fixture in the live pinned Hermes home, prove its tool appears and executes through the public durable gateway, then define the first approved reversible side-effect acceptance path with idempotency and ambiguous-result reconciliation.
 
 ### H1B - Minimal external surface
 
