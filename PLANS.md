@@ -303,9 +303,9 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - CodexBridge Trading Lab
 
-Status: **active at TL0; OP1 observation review completed on 2026-07-20**.
+Status: **active at TL1; TL0 accepted on 2026-07-20**.
 
-This is a separate product roadmap. OP1 evidence has been reviewed and closed. The active gate is TL0 only: establish the Alpari MT5 practice environment and capture its acceptance evidence before creating any CodexBridge trading source file.
+This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). Trading source creation is now permitted only for the TL1 read-only adapter. Live-money execution remains unavailable and out of scope.
 
 ### Core architecture
 
@@ -616,6 +616,10 @@ Hard controls:
 
 #### TL0 - Alpari/MT5 acceptance spike
 
+Status: **complete**.
+
+Acceptance completed on 2026-07-20. The exact broker symbol is `BITCOIN_i`; the demo account, contract specification, live bid/ask, completed and developing H4 candles, minimum-volume buy and sell checks, minimum demo buy and sell round trips, order/position/deal/history retrieval, and terminal restart/reconnection all passed. The account baseline was read from MT5 as `1000.00 USD` before the acceptance trades and ended at `998.72 USD` after two immediate spread losses; future experiment cohorts must recapture current equity and currency rather than hard-code either value. Full evidence and durable artifact identities are preserved in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md).
+
 Before repository implementation:
 
 - create an Alpari MT5 practice account;
@@ -730,7 +734,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The immediate Trading Lab gate, once OP1 is complete, is TL0: create the MT5 practice account and inspect the actual Alpari BTC contract before changing repository source code.
+The immediate Trading Lab gate is TL1: implement the read-only MT5 adapter for provider health, exact symbol discovery, contract specification, fresh bid/ask ticks, completed and developing H4 candles, and historical tick recovery. TL1 must disambiguate `BITCOIN_i` from `BITCOIN CASH_i`, preserve raw provider timestamps, and normalize provider time explicitly. Deterministic tests and a live demo-account smoke test are required before TL2.
 
 ## Roadmap V3 Promotion Rules
 
