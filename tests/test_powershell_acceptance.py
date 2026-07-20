@@ -239,7 +239,7 @@ def test_powershell_process_tree_is_terminated_exactly(tmp_path: Path) -> None:
     child_pid_path = tmp_path / "child.pid"
     script = (
         "$child = Start-Process -FilePath $env:COMSPEC "
-        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -PassThru; "
+        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -WindowStyle Hidden -PassThru; "
         "Set-Content -LiteralPath $env:CB_CHILD_PID -Value $child.Id -NoNewline; "
         "while ($true) { Start-Sleep -Seconds 1 }"
     )

@@ -236,7 +236,7 @@ def _long_running_child(marker_dir: Path, index: int) -> dict:
     child_pid = marker_dir / f"native-{index}.pid"
     script = (
         "$child = Start-Process -FilePath $env:COMSPEC "
-        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -PassThru; "
+        "-ArgumentList '/d','/c','ping 127.0.0.1 -n 120 > nul' -WindowStyle Hidden -PassThru; "
         "Set-Content -LiteralPath $env:CB_PARENT_PID -Value $PID -NoNewline; "
         "Set-Content -LiteralPath $env:CB_CHILD_PID -Value $child.Id -NoNewline; "
         "[Console]::Out.Write('ready-' + $env:CB_INDEX); "
