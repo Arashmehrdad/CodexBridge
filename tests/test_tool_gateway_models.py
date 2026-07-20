@@ -1,5 +1,6 @@
 import json
 from hashlib import sha256
+from types import SimpleNamespace
 
 from pydantic import TypeAdapter, ValidationError
 import pytest
@@ -34,6 +35,7 @@ from codexbridge.gateway_models import (
     MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TradingQueryRequest,
     WorkflowActionRequest,
     WorkflowQueryRequest,
 )
@@ -77,6 +79,40 @@ def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
     monkeypatch.setattr(server, "ssh_environment_probe", lambda host_id: {"host_id": host_id, "ok": True})
     result = server.ssh_inspect(SSHEnvironmentProbe(operation="environment_probe", host_id="dev"))
     assert result["host_id"] == "dev"
+
+
+def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
+    adapter = TypeAdapter(TradingQueryRequest)
+    assert adapter.validate_python({"operation": "h4_candles"}).completed_count == 200
+    assert adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"}).end_utc.hour == 7
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"operation": "tick", "completed_count": 1})
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T08:00:00", "end_utc": "2026-07-20T07:00:00"})
+
+
+def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:
+    calls = []
+
+    class FakeProvider:
+        def connect(self):
+            return SimpleNamespace(connected=True, account_environment="demo")
+
+        def close(self):
+            calls.append("close")
+
+        def latest_tick(self, symbol):
+            calls.append(("tick", symbol))
+            return {"symbol": symbol, "bid": 1.0, "ask": 2.0}
+
+    monkeypatch.setattr(server, "get_config", lambda: SimpleNamespace(trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i", terminal_path="", provider_utc_offset_seconds=10_800, maximum_tick_age_seconds=120)))
+    monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
+    request = TypeAdapter(TradingQueryRequest).validate_python({"operation": "tick"})
+    result = server.trading_query(request)
+    assert result["ok"] is True
+    assert result["symbol"] == "BITCOIN_i"
+    assert result["result"]["ask"] == 2.0
+    assert calls == [("tick", "BITCOIN_i"), "close"]
 
 
 def test_workflow_and_supervisor_models_are_operation_specific() -> None:

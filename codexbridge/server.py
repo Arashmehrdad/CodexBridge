@@ -10,6 +10,8 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -70,6 +72,7 @@ from .service_reload import (
 )
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
+from .trading import MT5Provider
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
 from .ssh_profile_manager import (
@@ -104,6 +107,7 @@ from .gateway_models import (
     SSHInspectRequest,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TradingQueryRequest,
     WorkflowActionRequest,
     WorkflowQueryRequest,
 )
@@ -822,6 +826,27 @@ def get_workflow_manager() -> WorkflowManager:
 
 def get_supervisor_service() -> SupervisorService:
     return SupervisorService(get_config(), get_config_path())
+
+
+def _trading_json(value: Any) -> Any:
+    if is_dataclass(value):
+        return _trading_json(asdict(value))
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _trading_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_trading_json(item) for item in value]
+    return value
+
+
+def _configured_mt5_provider() -> MT5Provider:
+    trading = get_config().trading
+    return MT5Provider(
+        terminal_path=trading.terminal_path or None,
+        provider_utc_offset_seconds=trading.provider_utc_offset_seconds,
+        maximum_tick_age_seconds=trading.maximum_tick_age_seconds,
+    )
 
 
 def _repo_context(repo_name: str) -> tuple[str, Path, str]:
@@ -2476,6 +2501,39 @@ def supervisor_action(request: SupervisorActionRequest) -> dict:
     if request.action == "pause":
         return pause_supervisor(request.supervisor_id)
     return cancel_supervisor(request.supervisor_id)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def trading_query(request: TradingQueryRequest) -> dict:
+    """Read-only gateway for the configured demo MT5 market-data adapter."""
+    trading = get_config().trading
+    if not trading.enabled:
+        return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    provider = _configured_mt5_provider()
+    try:
+        health = provider.connect()
+        if request.operation == "health":
+            return {"ok": True, "operation": request.operation, "result": _trading_json(health)}
+        if not health.connected:
+            return {"ok": False, "status": "disconnected", "error": "MT5 terminal is disconnected", "health": _trading_json(health)}
+        if health.account_environment != "demo":
+            return {"ok": False, "status": "wrong_environment", "error": "MT5 account is not a demo account", "health": _trading_json(health)}
+        if request.operation == "symbols":
+            result = provider.list_symbols(request.query)
+        elif request.operation == "specification":
+            result = provider.symbol_specification(trading.symbol)
+        elif request.operation == "tick":
+            result = provider.latest_tick(trading.symbol)
+        elif request.operation == "h4_candles":
+            completed, developing = provider.h4_candles(trading.symbol, completed_count=request.completed_count)
+            result = {"completed": completed, "developing": developing}
+        else:
+            result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
+        return {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+    except Exception as exc:
+        return {"ok": False, "status": "provider_error", "error": str(exc)}
+    finally:
+        provider.close()
 
 
 @_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

@@ -6,6 +6,7 @@ validation that executes after a request is accepted.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
 from typing import Annotated, Any, Literal
 
@@ -177,6 +178,49 @@ class WorkflowCancelAction(GatewayModel):
 
 WorkflowActionRequest = Annotated[
     WorkflowStartAction | WorkflowCancelAction, Field(discriminator="action")
+]
+
+
+class TradingHealthQuery(GatewayModel):
+    operation: Literal["health"]
+
+
+class TradingSymbolsQuery(GatewayModel):
+    operation: Literal["symbols"]
+    query: str = Field(default="", max_length=128)
+
+
+class TradingSpecificationQuery(GatewayModel):
+    operation: Literal["specification"]
+
+
+class TradingTickQuery(GatewayModel):
+    operation: Literal["tick"]
+
+
+class TradingH4Query(GatewayModel):
+    operation: Literal["h4_candles"]
+    completed_count: int = Field(default=200, ge=1, le=2_000)
+
+
+class TradingHistoricalTicksQuery(GatewayModel):
+    operation: Literal["historical_ticks"]
+    start_utc: datetime
+    end_utc: datetime
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TradingHistoricalTicksQuery":
+        if self.start_utc.tzinfo is None or self.end_utc.tzinfo is None:
+            raise ValueError("Trading historical tick timestamps must be timezone-aware")
+        if self.end_utc <= self.start_utc:
+            raise ValueError("Trading historical tick end_utc must be after start_utc")
+        return self
+
+
+TradingQueryRequest = Annotated[
+    TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
+    | TradingTickQuery | TradingH4Query | TradingHistoricalTicksQuery,
+    Field(discriminator="operation"),
 ]
 
 
