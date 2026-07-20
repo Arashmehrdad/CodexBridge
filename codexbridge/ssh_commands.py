@@ -414,6 +414,12 @@ def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bo
     )
 
 
+def _decode_subprocess_stream(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
+
+
 def _run_ssh_argv(
     argv: list[str],
     *,
@@ -429,32 +435,25 @@ def _run_ssh_argv(
         run_kwargs = {
             "cwd": cwd,
             "env": os.environ.copy(),
-            "text": True,
-            "encoding": "utf-8",
-            "errors": "replace",
             "capture_output": True,
             "shell": False,
             "timeout": timeout_seconds,
         }
         if stdin_text is None:
+            run_kwargs["text"] = True
+            run_kwargs["encoding"] = "utf-8"
+            run_kwargs["errors"] = "replace"
             run_kwargs["stdin"] = subprocess.DEVNULL
         else:
-            run_kwargs["input"] = stdin_text
+            run_kwargs["text"] = False
+            run_kwargs["input"] = stdin_text.encode("utf-8")
         completed = subprocess.run(argv, **run_kwargs)
-        stdout = completed.stdout or ""
-        stderr = completed.stderr or ""
+        stdout = _decode_subprocess_stream(completed.stdout)
+        stderr = _decode_subprocess_stream(completed.stderr)
         exit_code = int(completed.returncode)
     except subprocess.TimeoutExpired as exc:
-        stdout = (
-            (exc.stdout or b"").decode("utf-8", errors="replace")
-            if isinstance(exc.stdout, bytes)
-            else (exc.stdout or "")
-        )
-        stderr = (
-            (exc.stderr or b"").decode("utf-8", errors="replace")
-            if isinstance(exc.stderr, bytes)
-            else (exc.stderr or "")
-        )
+        stdout = _decode_subprocess_stream(exc.stdout)
+        stderr = _decode_subprocess_stream(exc.stderr)
         exit_code = 124
         timed_out = True
     except (OSError, PermissionError) as exc:

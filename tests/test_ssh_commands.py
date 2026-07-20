@@ -326,8 +326,8 @@ def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
     assert captured["argv"][-1] == "pod-user-123@ssh.runpod.io"
     assert "input" in captured["kwargs"]
     assert "stdin" not in captured["kwargs"]
-    assert "uptime\n" in captured["kwargs"]["input"]
-    assert "__CODEXBRIDGE_REMOTE_EXIT__=" in captured["kwargs"]["input"]
+    assert b"uptime\n" in captured["kwargs"]["input"]
+    assert b"__CODEXBRIDGE_REMOTE_EXIT__=" in captured["kwargs"]["input"]
     assert result["ok"] is True
     assert result["exit_code"] == 0
     assert "__CODEXBRIDGE_REMOTE_EXIT__=" not in result["stdout"]
@@ -468,7 +468,7 @@ def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
     )
 
     assert captured["argv"][-2:] == ["my-vps", remote_command]
-    assert captured["kwargs"]["input"] == payload
+    assert captured["kwargs"]["input"] == payload.encode("utf-8")
     assert captured["kwargs"]["shell"] is False
     assert "stdin" not in captured["kwargs"]
     assert payload not in " ".join(captured["argv"])
@@ -478,6 +478,44 @@ def test_reviewed_payload_uses_exact_stdin_and_fixed_interpreter_envelope(
     assert result["arguments"] == arguments
     assert result["writes_remote"] is False
     assert result["stdout"] == "payload finished\n"
+
+
+def test_reviewed_bash_payload_uses_binary_stdin_without_crlf_translation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = make_config(tmp_path)
+    monkeypatch.setattr(ssh_commands.shutil, "which", lambda _: "ssh.exe")
+    payload = "set -euo pipefail\nprintf '%s\\n' EXACT_LF\n"
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = list(argv)
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout=b"payload finished\n",
+            stderr=b"",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(ssh_commands.subprocess, "run", fake_run)
+
+    result = run_ssh_payload(
+        config,
+        "my_vps",
+        "bash",
+        payload,
+        payload_sha256=digest,
+        timeout_seconds=30,
+        writes_remote=True,
+    )
+
+    assert captured["kwargs"]["text"] is False
+    assert captured["kwargs"]["input"] == payload.encode("utf-8")
+    assert b"\r" not in captured["kwargs"]["input"]
+    assert result["stdout"] == "payload finished\n"
+    assert result["stderr"] == ""
 
 
 def test_payload_hash_mismatch_is_rejected_before_ssh_launch(
@@ -602,7 +640,7 @@ def test_forced_pty_payload_is_encoded_and_echo_redacted(
     )
 
     assert captured["argv"][-1] == "pod-user-123@ssh.runpod.io"
-    stdin_text = captured["kwargs"]["input"]
+    stdin_text = captured["kwargs"]["input"].decode("utf-8")
     assert stdin_text.startswith("stty -echo 2>/dev/null || exit 125\n")
     assert payload not in stdin_text
     assert encoded in stdin_text
@@ -653,7 +691,7 @@ def test_forced_pty_pwsh_payload_quotes_arguments(
     )
 
     assert "-tt" in captured["argv"]
-    stdin_text = captured["kwargs"]["input"]
+    stdin_text = captured["kwargs"]["input"].decode("utf-8")
     assert (
         'pwsh -NoLogo -NoProfile -NonInteractive -File '
         '"$__codexbridge_payload" \'safe value\' --mode=test'
@@ -698,7 +736,7 @@ def test_root_payload_verifies_effective_uid_and_strips_internal_marker(
     )
 
     assert "id -u" in captured["argv"][-1]
-    assert captured["kwargs"]["input"] == payload
+    assert captured["kwargs"]["input"] == payload.encode("utf-8")
     assert result["ok"] is True
     assert result["root_identity_verified"] is True
     assert "__CODEXBRIDGE_ROOT_EUID__" not in result["stderr"]
