@@ -645,7 +645,9 @@ Status: **in progress**.
 
 The first read-only provider slice is complete: `codexbridge.trading.MT5Provider` now supports injectable MT5 bindings, connection and demo-account health, exact symbol discovery that distinguishes `BITCOIN_i` from `BITCOIN CASH_i`, complete contract specification, freshness-aware bid/ask ticks, completed/developing H4 separation, historical tick recovery, raw provider timestamps, and explicit broker-offset normalization. Deterministic validation run `20260720T093152Z_project_command_e980f180` reported `4 passed`.
 
-Remaining TL1 work: expose the read-only adapter through the public trading tool surface and configuration boundary, add adjacent gateway/config tests, then run the live Alpari demo-account smoke test before promoting TL2.
+The repository-scoped MT5 configuration boundary is also complete: trading is disabled by default, fixed to the `mt5` provider and `demo` account environment, accepts only an absolute optional terminal path, trims and validates the exact symbol, bounds provider UTC offset and tick freshness, and cannot express live execution. Validation runs `20260720T094235Z_project_command_acb39e57` and `20260720T094249Z_project_command_8e2754a6` reported `26 passed` and `4 passed`; diff-check run `20260720T094300Z_project_command_ead08d42` passed.
+
+Remaining TL1 work: expose the configured read-only adapter through the public trading query surface, add adjacent gateway tests, then run the live Alpari demo-account smoke test before promoting TL2.
 
 Gate: deterministic tests plus a live demo-account smoke test.
 
