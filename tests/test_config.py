@@ -16,6 +16,7 @@ from codexbridge.config import (
     LocalModelConfig,
     ParallelExecutionConfig,
     RepoConfig,
+    TradingConfig,
     SSHCommandProfileConfig,
     SSHConfig,
     SSHDeploymentProfileConfig,
@@ -64,6 +65,11 @@ def test_config_example_loads_without_repo_validation() -> None:
     assert config.parallel_execution.enabled is False
     assert config.parallel_execution.max_concurrent_powershell is None
     assert config.parallel_execution.default_mode == "all_at_once"
+    assert config.trading.enabled is False
+    assert config.trading.provider == "mt5"
+    assert config.trading.account_environment == "demo"
+    assert config.trading.symbol == "BITCOIN_i"
+    assert config.trading.maximum_tick_age_seconds == 120
     assert config.ssh.enabled is False
     assert config.ssh.active_autonomy_profiles == ["permissive"]
     assert config.docker.enabled is False
@@ -204,6 +210,29 @@ def test_parallel_execution_config_supports_unbounded_or_bounded_powershell() ->
         ParallelExecutionConfig(enabled=True, max_concurrent_powershell=0)
     with pytest.raises(ValidationError):
         ParallelExecutionConfig(enabled=True, autonomy_profile="balanced")
+
+
+def test_trading_config_is_demo_only_and_requires_absolute_terminal_path() -> None:
+    config = TradingConfig(
+        enabled=True,
+        terminal_path=r"C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+        symbol=" BITCOIN_i ",
+        provider_utc_offset_seconds=10_800,
+        maximum_tick_age_seconds=90,
+    )
+
+    assert config.provider == "mt5"
+    assert config.account_environment == "demo"
+    assert config.symbol == "BITCOIN_i"
+    assert config.provider_utc_offset_seconds == 10_800
+    assert config.maximum_tick_age_seconds == 90
+
+    with pytest.raises(ValidationError, match="terminal_path must be absolute"):
+        TradingConfig(enabled=True, terminal_path="terminal64.exe")
+    with pytest.raises(ValidationError):
+        TradingConfig(account_environment="live")
+    with pytest.raises(ValidationError, match="symbol must not be empty"):
+        TradingConfig(symbol="   ")
 
 
 def test_local_model_config_defaults_and_overrides() -> None:

@@ -851,6 +851,30 @@ class ParallelExecutionConfig(BaseModel):
     repository_lock_policy: Literal["caller_selected"] = "caller_selected"
 
 
+class TradingConfig(BaseModel):
+    enabled: bool = False
+    provider: Literal["mt5"] = "mt5"
+    account_environment: Literal["demo"] = "demo"
+    terminal_path: str = ""
+    symbol: str = "BITCOIN_i"
+    provider_utc_offset_seconds: int = Field(default=0, ge=-86_400, le=86_400)
+    maximum_tick_age_seconds: int = Field(default=120, ge=1, le=3_600)
+
+    @model_validator(mode="after")
+    def validate_terminal_path(self) -> "TradingConfig":
+        if self.terminal_path:
+            terminal = Path(self.terminal_path)
+            if not (
+                terminal.is_absolute()
+                or PureWindowsPath(self.terminal_path).is_absolute()
+            ):
+                raise ValueError("Trading terminal_path must be absolute")
+        if not self.symbol.strip():
+            raise ValueError("Trading symbol must not be empty")
+        self.symbol = self.symbol.strip()
+        return self
+
+
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
@@ -860,6 +884,7 @@ class AppConfig(BaseModel):
     parallel_execution: ParallelExecutionConfig = Field(
         default_factory=ParallelExecutionConfig
     )
+    trading: TradingConfig = Field(default_factory=TradingConfig)
     ssh: SSHConfig = Field(default_factory=SSHConfig)
     docker: DockerConfig = Field(default_factory=DockerConfig)
     cloudflare: CloudflareConfig = Field(default_factory=CloudflareConfig)
