@@ -143,3 +143,16 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Reproduction frequency:** one complete seven-test Windows lifecycle pass in this pilot session.
 - **Artifacts:** durable run directory and published result for `20260720T041122Z_project_command_ae803c00`; isolated pytest basetemp under that run directory.
 - **Disposition:** successful representative lifecycle evidence. Continue OP1 observation across ordinary project work; no Roadmap V3 promotion threshold was crossed.
+
+## 2026-07-20 06:27 Europe/London — Live service self-check and bounded schema-contract repair
+
+- **Project:** CodexBridge live service and repository.
+- **Expected outcome:** exercise ordinary service health, configuration, dependency, store, transport, and full-suite validation through the public system self-check without architectural expansion.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; starting HEAD `c4424d60c4f684df9df9ecc370bf434bb5eb6e26`; clean worktree and no repository locks before inspection or writes.
+- **Initial service result:** imports, configuration parsing, `pip check`, Git status, run-store WAL state, supervisor-store tables, and the temporary HTTP transport were healthy. The full suite reported `1 failed, 1193 passed, 5 skipped` because `tests/test_mcp_action_discovery.py` still asserted eight `run_start` variants while the public discriminated schema exposed ten.
+- **Repair:** replaced the brittle numeric count with the exact supported operation set. The first focused run correctly exposed an expectation mismatch between internal `project_command` and public `remote_powershell`; the exact public set was corrected in follow-up commit `0a37cd712c1dbe44fc1868fdab1582a62a7f66f3` after initial commit `6876682db28b851d71f4656a4481891df1cdde8b`.
+- **Focused validation:** durable run `20260720T052608Z_project_command_45edbaad` completed `tests/test_mcp_action_discovery.py` with `29 passed in 1.95s`, exit code `0`, no changed files, and terminal result hash `148da2b080c36bb733b79247668f6d61d789cc82ac18eb58e3141ae6a68b50c0`.
+- **Full validation:** the repeated live system self-check passed completely: `1194 passed, 5 skipped in 200.44s`; `pip check` reported no broken requirements; imports, config, Git status, run store, supervisor store, and HTTP transport were healthy.
+- **Lost or duplicated work:** none. The failed assertions were read-only validation failures; each managed change was committed once and the worktree remained clean.
+- **Attribution and frequency:** confirmed stale test-contract assertion, previously listed as a known observation. One full-gate reproduction and one focused expectation correction were sufficient to isolate it.
+- **Disposition:** resolved as a bounded pilot defect. Remove the stale assertion from current observations; no broader Roadmap V3 program is justified.
