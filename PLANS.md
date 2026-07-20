@@ -340,7 +340,7 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - CodexBridge Trading Lab
 
-Status: **active at TL1; TL0 accepted on 2026-07-20**.
+Status: **active at TL2; TL0 and TL1 accepted on 2026-07-20**.
 
 This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). Trading source creation is now permitted only for the TL1 read-only adapter. Live-money execution remains unavailable and out of scope.
 
@@ -678,19 +678,31 @@ No CodexBridge trading source file may be created before TL0 passes.
 
 #### TL1 - Read-only MT5 adapter
 
-Status: **in progress**.
+Status: **complete; accepted on 2026-07-20**.
 
-The first read-only provider slice is complete: `codexbridge.trading.MT5Provider` now supports injectable MT5 bindings, connection and demo-account health, exact symbol discovery that distinguishes `BITCOIN_i` from `BITCOIN CASH_i`, complete contract specification, freshness-aware bid/ask ticks, completed/developing H4 separation, historical tick recovery, raw provider timestamps, and explicit broker-offset normalization. Deterministic validation run `20260720T093152Z_project_command_e980f180` reported `4 passed`.
+The provider, repository-scoped demo-only configuration boundary, and public `trading_query` surface now cover provider health, bounded symbol discovery, configured-symbol specification, fresh bid/ask ticks, completed and developing H4 candles, and timezone-aware historical tick recovery. The exact symbol path distinguishes `BITCOIN_i` from `BITCOIN CASH_i`, retains raw provider epochs, and normalizes the observed `+03:00` broker offset explicitly. Trading remains disabled by default and the configuration cannot express live execution.
 
-The repository-scoped MT5 configuration boundary is also complete: trading is disabled by default, fixed to the `mt5` provider and `demo` account environment, accepts only an absolute optional terminal path, trims and validates the exact symbol, bounds provider UTC offset and tick freshness, and cannot express live execution. Validation runs `20260720T094235Z_project_command_acb39e57` and `20260720T094249Z_project_command_8e2754a6` reported `26 passed` and `4 passed`; diff-check run `20260720T094300Z_project_command_ead08d42` passed.
+The first live public-gateway smoke exposed a real provider defect hidden by dictionary fixtures: the official MetaTrader5 package returns NumPy structured rows, and converting them with `tolist()` discarded field names, producing zero-valued candles. Commit `fdcfedd49aca6d1b150ad6197b45d085ae3553c3` preserves structured row identity and adds a named-record regression.
 
-Remaining TL1 work: expose the configured read-only adapter through the public trading query surface, add adjacent gateway tests, then run the live Alpari demo-account smoke test before promoting TL2.
+Acceptance evidence:
 
-Gate: deterministic tests plus a live demo-account smoke test.
+- focused provider run `20260720T112042Z_project_command_d49b3c06`: `5 passed`;
+- adjacent gateway run `20260720T112057Z_project_command_ac547436`: `34 passed`;
+- live Alpari demo gateway run `20260720T112127Z_executable_profile_b8cd735d`: exit `0`, empty protected stderr, protected stdout SHA-256 `c75b9a258e42db0294293a8029c1bd79d9b8e9dbffcc0cbf6d6b87c11040acfa`;
+- live health returned connected demo account `Alpari-MT5-Demo`, `998.72 USD` balance/equity;
+- symbol discovery returned exactly `BITCOIN CASH_i` and `BITCOIN_i` for the Bitcoin query;
+- specification returned contract size `1.0`, minimum volume `0.01`, and volume step `0.01` for `BITCOIN_i`;
+- fresh tick returned bid `64237.51`, ask `64301.79`, age below one second, and the raw/normalized timestamp pair;
+- five completed H4 candles plus one developing H4 candle contained real nonzero OHLC and raw timestamps;
+- the preceding 30-minute recovery range returned nonempty historical ticks with raw and normalized timestamps.
+
+Gate: passed. TL2 is now active.
 
 #### TL2 - Market packet and chart
 
-Normalize broker data and produce immutable hourly packets and a chart from identical source data.
+Status: **in progress**.
+
+Normalize broker data and produce immutable hourly packets and a chart from identical source data. The next executable unit is the immutable structured packet model and deterministic content hash built from one provider read; chart rendering follows only after packet identity, completed/developing separation, freshness, and hash tests pass.
 
 Gate: completed candles are never confused with the developing candle; timestamp, hash, and freshness tests pass.
 
