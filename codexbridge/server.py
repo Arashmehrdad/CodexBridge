@@ -72,7 +72,7 @@ from .service_reload import (
 )
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
-from .trading import MT5Provider
+from .trading import MT5Provider, SignalDecision, SignalDraft, SignalJournal
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
 from .ssh_profile_manager import (
@@ -108,6 +108,10 @@ from .gateway_models import (
     SupervisorActionRequest,
     SupervisorQueryRequest,
     TradingQueryRequest,
+    TradingSignalCancelRequest,
+    TradingSignalGetRequest,
+    TradingSignalListRequest,
+    TradingSignalSubmitRequest,
     WorkflowActionRequest,
     WorkflowQueryRequest,
 )
@@ -2534,6 +2538,63 @@ def trading_query(request: TradingQueryRequest) -> dict:
         return {"ok": False, "status": "provider_error", "error": str(exc)}
     finally:
         provider.close()
+
+
+def _trading_signal_journal() -> SignalJournal:
+    return SignalJournal((_get_runs_dir() / "trading" / "signals.sqlite3").resolve())
+
+
+def _signal_record_json(record: Any) -> dict[str, Any]:
+    return _trading_json(record)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
+    """Submit one immutable demo Trading Lab signal with idempotency."""
+    draft = SignalDraft(
+        created_at_utc=request.created_at_utc,
+        broker=request.broker,
+        symbol=request.symbol,
+        analysis_timeframe=request.analysis_timeframe,
+        decision=SignalDecision(request.decision),
+        confidence=request.confidence,
+        bid=request.bid,
+        ask=request.ask,
+        market_data_timestamp=request.market_data_timestamp,
+        latest_completed_4h_candle=request.latest_completed_4h_candle,
+        developing_4h_candle=request.developing_4h_candle,
+        entry_type=request.entry_type,
+        entry_reference_price=request.entry_reference_price,
+        stop_loss=request.stop_loss,
+        take_profit=request.take_profit,
+        reason=request.reason,
+        news_context=request.news_context,
+        market_snapshot_id=request.market_snapshot_id,
+        market_packet_hash=request.market_packet_hash,
+    )
+    record = _trading_signal_journal().submit(request.idempotency_key, draft)
+    return {"ok": True, "signal": _signal_record_json(record)}
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def trading_signal_get(request: TradingSignalGetRequest) -> dict:
+    """Read one immutable Trading Lab signal."""
+    record = _trading_signal_journal().get(request.signal_id)
+    return {"ok": True, "signal": _signal_record_json(record)}
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def trading_signal_list(request: TradingSignalListRequest) -> dict:
+    """List recent immutable Trading Lab signals."""
+    records = _trading_signal_journal().list(limit=request.limit)
+    return {"ok": True, "signals": [_signal_record_json(record) for record in records]}
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def trading_signal_cancel_before_entry(request: TradingSignalCancelRequest) -> dict:
+    """Cancel one submitted signal before entry without editing its payload."""
+    record = _trading_signal_journal().cancel_before_entry(request.signal_id, request.reason)
+    return {"ok": True, "signal": _signal_record_json(record)}
 
 
 @_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

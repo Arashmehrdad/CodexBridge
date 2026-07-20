@@ -36,6 +36,10 @@ from codexbridge.gateway_models import (
     SupervisorActionRequest,
     SupervisorQueryRequest,
     TradingQueryRequest,
+    TradingSignalCancelRequest,
+    TradingSignalGetRequest,
+    TradingSignalListRequest,
+    TradingSignalSubmitRequest,
     WorkflowActionRequest,
     WorkflowQueryRequest,
 )
@@ -113,6 +117,63 @@ def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:
     assert result["symbol"] == "BITCOIN_i"
     assert result["result"]["ask"] == 2.0
     assert calls == [("tick", "BITCOIN_i"), "close"]
+
+
+def _signal_request_payload() -> dict:
+    packet_hash = "a" * 64
+    return {
+        "idempotency_key": "signal-gateway-1",
+        "created_at_utc": "2026-07-20T16:00:00+00:00",
+        "broker": "alpari",
+        "symbol": "BITCOIN_i",
+        "analysis_timeframe": "4H",
+        "decision": "LONG",
+        "confidence": 73,
+        "bid": 64000.0,
+        "ask": 64064.0,
+        "market_data_timestamp": "2026-07-20T15:59:50+00:00",
+        "latest_completed_4h_candle": "2026-07-20T08:00:00Z",
+        "developing_4h_candle": "2026-07-20T12:00:00Z",
+        "entry_type": "MARKET",
+        "entry_reference_price": 64064.0,
+        "stop_loss": 63500.0,
+        "take_profit": 65192.0,
+        "reason": "Defined continuation setup.",
+        "news_context": "",
+        "market_snapshot_id": f"mp_{packet_hash[:24]}",
+        "market_packet_hash": packet_hash,
+    }
+
+
+def test_trading_signal_models_are_strict() -> None:
+    submit = TypeAdapter(TradingSignalSubmitRequest)
+    request = submit.validate_python(_signal_request_payload())
+    assert request.confidence == 73
+    assert TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"}).signal_id == "sig_1"
+    assert TypeAdapter(TradingSignalListRequest).validate_python({}).limit == 100
+    assert TypeAdapter(TradingSignalCancelRequest).validate_python({"signal_id": "sig_1", "reason": "wrong premise"}).reason == "wrong premise"
+    with pytest.raises(ValidationError):
+        submit.validate_python({**_signal_request_payload(), "market_packet_hash": "bad"})
+    with pytest.raises(ValidationError):
+        submit.validate_python({**_signal_request_payload(), "created_at_utc": "2026-07-20T16:00:00"})
+
+
+def test_trading_signal_gateways_share_repository_owned_journal(tmp_path, monkeypatch) -> None:
+    journal_path = tmp_path / "runs" / "trading" / "signals.sqlite3"
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: server.SignalJournal(journal_path))
+    submit = TypeAdapter(TradingSignalSubmitRequest).validate_python(_signal_request_payload())
+    first = server.trading_signal_submit(submit)
+    replay = server.trading_signal_submit(submit)
+    signal_id = first["signal"]["signal_id"]
+    assert first == replay
+    assert first["signal"]["draft"]["market_packet_hash"] == "a" * 64
+    assert server.trading_signal_get(TradingSignalGetRequest(signal_id=signal_id))["signal"] == first["signal"]
+    assert server.trading_signal_list(TradingSignalListRequest())["signals"] == [first["signal"]]
+    cancelled = server.trading_signal_cancel_before_entry(
+        TradingSignalCancelRequest(signal_id=signal_id, reason="wrong premise")
+    )
+    assert cancelled["signal"]["status"] == "cancelled"
+    assert cancelled["signal"]["draft"] == first["signal"]["draft"]
 
 
 def test_workflow_and_supervisor_models_are_operation_specific() -> None:

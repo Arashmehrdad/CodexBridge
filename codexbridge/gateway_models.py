@@ -224,6 +224,48 @@ TradingQueryRequest = Annotated[
 ]
 
 
+class TradingSignalSubmitRequest(GatewayModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    created_at_utc: datetime
+    broker: Literal["alpari"]
+    symbol: str = Field(min_length=1, max_length=64)
+    analysis_timeframe: Literal["4H"]
+    decision: Literal["LONG", "SHORT", "NO_TRADE"]
+    confidence: int | None = Field(default=None, ge=50, le=99)
+    bid: float = Field(gt=0)
+    ask: float = Field(gt=0)
+    market_data_timestamp: datetime
+    latest_completed_4h_candle: str = Field(min_length=1, max_length=256)
+    developing_4h_candle: str = Field(min_length=1, max_length=256)
+    entry_type: Literal["MARKET"]
+    entry_reference_price: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    reason: str = Field(min_length=1, max_length=4000)
+    news_context: str = Field(default="", max_length=8000)
+    market_snapshot_id: str = Field(min_length=1, max_length=64)
+    market_packet_hash: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+    @model_validator(mode="after")
+    def validate_timestamps(self) -> "TradingSignalSubmitRequest":
+        if self.created_at_utc.tzinfo is None or self.market_data_timestamp.tzinfo is None:
+            raise ValueError("Trading signal timestamps must be timezone-aware")
+        return self
+
+
+class TradingSignalGetRequest(GatewayModel):
+    signal_id: str = Field(min_length=1, max_length=64)
+
+
+class TradingSignalListRequest(GatewayModel):
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+class TradingSignalCancelRequest(GatewayModel):
+    signal_id: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class SupervisorStatusQuery(GatewayModel):
     operation: Literal["status"]
     supervisor_id: str = Field(min_length=1, max_length=128)
