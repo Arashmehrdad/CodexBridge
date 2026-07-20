@@ -283,6 +283,43 @@ R6 secret-reference work is conditional supporting scope: implement only the min
 
 No real-money purchase, booking, cancellation, or refund is used as an acceptance test.
 
+## H2 - Shared Multi-Session Hermes Service
+
+Status: **deferred until Trading Lab is complete and the subsequent CodexBridge reliability audit has passed**.
+
+The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a CodexBridge repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
+
+H2 will replace per-call companion startup as the primary path with one persistent Hermes service that is independent of any repository and supports concurrent, isolated sessions from multiple ChatGPT conversations. Repository identity is optional context supplied only to tools that genuinely need it; Trading Lab work, repository writes, and ordinary Search Console or other read-only calls must not block one another merely because they pass through the same CodexBridge instance.
+
+### H2A - Shared service and session contract
+
+- Run one version-pinned, supervised Hermes service with explicit health, build, protocol, registry-generation, and effective-schema identity.
+- Give every invocation a durable CodexBridge run ID plus a distinct Hermes request/session ID; one chat must never consume, cancel, or publish another chat's result.
+- Preserve current exact tool identity, tool-schema hash, accepted arguments, bounded output, protected evidence, cancellation, restart recovery, and no-model-runtime guarantees.
+- Keep the current one-request companion as a bounded fallback and compatibility path until persistent-service acceptance is complete.
+- Permit multiple read-only discovery, description, and tool-call requests to overlap without a repository lock or one global Hermes execution lock.
+
+### H2B - Narrow concurrency controls
+
+Serialize only the resource that can actually conflict:
+
+- Hermes installation, removal, upgrade, configuration editing, and registry reload use one Hermes-administration lock.
+- Shared credential changes use a credential-specific lock and never expose secret values in public state.
+- Providers and individual tools may declare concurrency and rate limits without reducing unrelated tools to one global queue.
+- Mutations targeting the same external resource require provider-appropriate idempotency, reconciliation, or a resource-scoped mutation lock.
+- Read-only calls remain concurrent unless the provider itself requires a narrower limit.
+
+### H2C - Acceptance
+
+- Five independent ChatGPT sessions can concurrently search, describe, or invoke bounded read-only Hermes tools and receive isolated durable results.
+- A long Trading Lab or repository run can overlap with a Search Console read without either acquiring or waiting on the other's repository lock.
+- Cancelling one long Hermes call terminates only its owned execution and does not interrupt other sessions or the shared service.
+- Registry reload is serialized, publishes one new generation atomically, and causes stale schema-bound requests to fail closed rather than execute against drifted tools.
+- Two unrelated providers can run concurrently, while two mutations against the same external resource are serialized or safely reconciled.
+- Service restart adoption, health recovery, output bounds, protected evidence, and fallback to the one-request companion are demonstrated under live acceptance.
+
+Do not begin H2 implementation during TL1 or later Trading Lab units. First complete Trading Lab, perform its defect pass, then complete the planned whole-Bridge reliability audit and stabilisation gate. H2 becomes eligible only from that fresh audited baseline.
+
 ## OP1 - Evidence-Driven Real-Project Pilot
 
 Status: **complete; observation review closed on 2026-07-20**.
