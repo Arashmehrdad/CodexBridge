@@ -721,24 +721,24 @@ Gate: passed. TL3 is now active.
 
 #### TL3 - Signal journal
 
-Status: **in progress**.
+Status: **complete; accepted on 2026-07-20**.
 
-The durable journal foundation is complete. `codexbridge/trading/signal_journal.py` defines frozen `LONG | SHORT | NO_TRADE` payloads, canonical content hashing, exact market-packet ID/hash binding, ask-priced long and bid-priced short validation, bridge-calculated spread and risk/reward, and strict `50-99` integer confidence. `NO_TRADE` rejects confidence and executable prices. SQLite WAL storage provides deterministic signal IDs, unique idempotency keys, immutable payload JSON, append-only lifecycle events, restart persistence, idempotent replay, cancellation only before entry, and entered/cancelled state exclusion without rewriting the signal payload.
+The durable journal defines frozen `LONG | SHORT | NO_TRADE` payloads, canonical content hashing, exact market-packet ID/hash binding, ask-priced long and bid-priced short validation, bridge-calculated spread and risk/reward, and strict `50-99` integer confidence. `NO_TRADE` rejects confidence and executable prices. SQLite WAL storage provides deterministic signal IDs, unique idempotency keys, immutable payload JSON, append-only lifecycle events, restart persistence, idempotent replay, cancellation only before entry, and entered/cancelled state exclusion without rewriting the signal payload.
 
-The first focused run exposed one real validation defect: fractional confidence `73.5` was truncated to `73`. Commit `54468c2ac6e880a258e4d3793761a111067119e9` now requires an actual non-boolean integer and preserves the frozen confidence contract.
+Strict public request models and the `trading_signal_submit`, `trading_signal_get`, `trading_signal_list`, and `trading_signal_cancel_before_entry` gateways now share one repository-owned journal at `runs/trading/signals.sqlite3`. The public surface exposes no entry or execution transition. Submission replay is idempotent, conflicting content under one key fails closed, and cancellation preserves the exact immutable packet-bound payload.
 
-Evidence:
+The first focused run exposed one real validation defect: fractional confidence `73.5` was truncated to `73`. Commit `54468c2ac6e880a258e4d3793761a111067119e9` requires an actual non-boolean integer and preserves the frozen confidence contract.
 
-- commit `1904b86fba59c0867ad4196a37273c6afd8be684` added the durable signal journal;
-- commit `91129fb4ed04e1a73a82211668a4d6eda92ed276` added focused contract, immutability, idempotency, persistence, and cancellation tests;
-- initial focused run `20260720T162330Z_project_command_0b98ae38`: `1 failed, 15 passed`, identifying fractional-confidence truncation;
-- repaired focused run `20260720T162831Z_project_command_438f9d0c`: `16 passed`;
+Acceptance evidence:
+
+- commits `1904b86fba59c0867ad4196a37273c6afd8be684`, `91129fb4ed04e1a73a82211668a4d6eda92ed276`, `54468c2ac6e880a258e4d3793761a111067119e9`, and `28cec59e5723731da4ca16a536d836011b0aa459` added and exported the immutable durable journal;
+- commit `1932ee0c4b0389a44f5763f58aef1c95195ac5a7` added the strict public signal gateway and focused regressions;
+- repaired journal run `20260720T162831Z_project_command_438f9d0c`: `16 passed`;
 - adjacent packet run `20260720T162847Z_project_command_96c69e54`: `6 passed`;
-- commit `28cec59e5723731da4ca16a536d836011b0aa459` exported the journal primitives through the trading package boundary.
+- isolated public gateway run `20260720T171444Z_project_command_fced8b2d`: `36 passed`;
+- isolated journal rerun `20260720T171458Z_project_command_11f449d7`: `16 passed`.
 
-Next executable unit: add strict public request models and the `trading_signal_submit`, `trading_signal_get`, `trading_signal_list`, and `trading_signal_cancel_before_entry` gateways over one repository-owned journal path. Prove gateway idempotency and packet-hash binding before closing TL3.
-
-Gate: signals are immutable, validated, idempotent, and tied to a market-packet hash.
+Gate: passed. TL4 is now active.
 
 #### TL4 - Threshold simulator
 
@@ -817,7 +817,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The immediate Trading Lab gate is TL3: implement the immutable `LONG | SHORT | NO_TRADE` signal journal with strict price validation, idempotency, cancellation-before-entry semantics, and exact binding to one accepted market-packet content hash.
+The immediate Trading Lab gate is TL4: implement independent `T50` through `T99` threshold-portfolio cohorts initialized from one captured demo-equity baseline, with normalized 1 USD trades and explicit experiment resets.
 
 ## Roadmap V3 Promotion Rules
 
