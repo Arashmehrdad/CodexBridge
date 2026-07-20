@@ -53,7 +53,11 @@ from .managed_artifacts import (
     snapshot_managed_artifacts,
 )
 from .operation_locks import OperationLockStore
-from .parallel_groups import ParallelGroupStore, refill_powershell_groups
+from .parallel_groups import (
+    ParallelGroupStore,
+    refill_powershell_groups,
+    repository_lock_required_for_run,
+)
 from .policy import decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
@@ -577,9 +581,9 @@ class JobWorker:
             else str(self.run.get("worker_lease_token") or "")
         )
         self.worker_lease_generation = int(self.run.get("lease_generation") or 1)
-        self.repository_lock_required = ParallelGroupStore(
-            self.config.resolve_runs_dir()
-        ).repository_lock_required_for_child(run_id)
+        self.repository_lock_required = repository_lock_required_for_run(
+            self.run, self.config.resolve_runs_dir()
+        )
         self.artifacts = ArtifactWriter(Path(self.run["run_dir"]))
         self._started_monotonic = 0.0
         self._heartbeat_stop = threading.Event()
@@ -988,7 +992,7 @@ class JobWorker:
             if self._heartbeat_thread is not None:
                 self._heartbeat_thread.join(timeout=2)
             final_status = str(self.store.get_run(self.run_id).get("status") or "")
-            if final_status != "cancellation_pending":
+            if self.repository_lock_required and final_status != "cancellation_pending":
                 self.locks.release(
                     self.run["repo_name"],
                     self.run_id,

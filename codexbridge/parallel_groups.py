@@ -18,6 +18,27 @@ def _make_group_run_id(tool: str) -> str:
     return f"{timestamp}_{safe_tool}_{uuid4().hex[:8]}"
 
 
+def repository_lock_required_for_run(run: dict[str, Any], runs_dir: Path) -> bool:
+    """Resolve the durable repository-lock policy for one standalone or group run."""
+
+    input_data = run.get("input")
+    if isinstance(input_data, dict) and "repository_lock_required" in input_data:
+        required = input_data["repository_lock_required"]
+        if not isinstance(required, bool):
+            raise ValueError("Persisted repository_lock_required must be boolean")
+        if not required and not (
+            str(run.get("tool") or "") == "executable_profile"
+            and isinstance(input_data.get("hermes_companion"), dict)
+        ):
+            raise ValueError(
+                "Only persisted Hermes companion executable runs may disable the repository lock"
+            )
+        return required
+    return ParallelGroupStore(runs_dir).repository_lock_required_for_child(
+        str(run["run_id"])
+    )
+
+
 class ParallelGroupStore:
     """Durable parent/child reservation for parallel PowerShell command groups."""
 

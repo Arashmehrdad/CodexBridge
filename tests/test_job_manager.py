@@ -12,6 +12,7 @@ from codexbridge.config import (
     AppConfig,
     CloudflareProfileConfig,
     CodexConfig,
+    ExecutableProfileConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
@@ -72,6 +73,65 @@ def make_manager(
         lambda *args, **kwargs: FakeProcess(),
     )
     return JobManager(config, config_path)
+
+
+def test_concurrent_hermes_companion_runs_do_not_take_repository_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    executable = tmp_path / "hermes-python.exe"
+    executable.write_bytes(b"hermes-python-fixture")
+    manager.config.executable_profiles["hermes_python"] = ExecutableProfileConfig(
+        profile_id="hermes_python",
+        enabled=True,
+        executable_path=str(executable),
+        target="local",
+        autonomy_profile="permissive",
+        working_directory_policy="arbitrary",
+        environment_policy="arbitrary",
+        stdin_mode="text",
+        stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact",
+        timeout_seconds=600,
+        cancellation_policy="process_tree",
+        unrestricted_argv=True,
+        unrestricted_paths=True,
+        unrestricted_environment=True,
+        unrestricted_network=True,
+        unrestricted_child_processes=True,
+    )
+    companion = {
+        "operation": "handshake",
+        "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
+        "checkout": str(tmp_path / "hermes"),
+        "expected_registry_generation": None,
+        "expected_schema_hash": "",
+        "one_request": True,
+    }
+    repository = str(Path(manager.config.repos["sample"].path).resolve())
+
+    def start() -> dict:
+        return manager.start_executable_profile(
+            "sample",
+            "hermes_python",
+            ["-m", "codexbridge.hermes_companion"],
+            working_directory=repository,
+            stdin_text='{"operation":"handshake"}\n',
+            timeout_seconds=30,
+            hermes_companion=companion,
+        )
+
+    first = start()
+    second = start()
+
+    assert first["accepted"] is True
+    assert second["accepted"] is True
+    assert first["run_id"] != second["run_id"]
+    assert manager.locks.list_locks("sample") == []
+    for run_id in (first["run_id"], second["run_id"]):
+        run = manager.store.get_run(run_id)
+        assert run["input"]["repository_lock_required"] is False
+        assert run["input"]["hermes_companion"] == companion
 
 
 def test_start_powershell_group_delegates_to_two_phase_launcher(

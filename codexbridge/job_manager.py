@@ -43,6 +43,7 @@ from .parallel_groups import (
     ParallelGroupStore,
     launch_powershell_group,
     refill_powershell_groups,
+    repository_lock_required_for_run,
 )
 from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
 from .process_control import (
@@ -351,9 +352,9 @@ class JobManager:
             ):
                 return
             lock_claimed = True
-            if ParallelGroupStore(
-                self.config.resolve_runs_dir()
-            ).repository_lock_required_for_child(run_id):
+            if repository_lock_required_for_run(
+                run, self.config.resolve_runs_dir()
+            ):
                 lock_claimed = self.locks.claim_owner(
                     run["repo_name"],
                     run_id,
@@ -761,6 +762,7 @@ class JobManager:
             if not isinstance(hermes_companion, dict):
                 raise ValueError("Hermes companion metadata must be a mapping")
             input_data["hermes_companion"] = dict(hermes_companion)
+            input_data["repository_lock_required"] = False
         response = self._create_and_launch(
             "executable_profile",
             repo_name,
@@ -1750,27 +1752,38 @@ class JobManager:
                         timeout_seconds=monitored_profile.timeout_seconds,
                     )
                 )
-        acquisition = self.locks.acquire(
-            repo_name=repo_name,
-            tool=tool,
-            normalized_input=input_data,
-            run_id=run_id,
-            owner_pid=os.getpid(),
-            owner_token=lease_token,
-            lease_generation=1,
-        )
-        if not acquisition.acquired:
-            return {
-                "run_id": "",
-                "accepted": False,
-                "status": "refused",
-                "estimated_duration_minutes": 0,
-                "recommended_check_after_minutes": 0,
-                "risk_level": decision.risk_level,
-                "requires_human": False,
-                "reason": acquisition.reason,
-                "duplicate": acquisition.duplicate,
-            }
+        repository_lock_required = input_data.get("repository_lock_required", True)
+        if not isinstance(repository_lock_required, bool):
+            raise ValueError("repository_lock_required must be boolean")
+        if not repository_lock_required and not (
+            tool == "executable_profile"
+            and isinstance(input_data.get("hermes_companion"), dict)
+        ):
+            raise ValueError(
+                "Only Hermes companion executable runs may disable the repository lock"
+            )
+        if repository_lock_required:
+            acquisition = self.locks.acquire(
+                repo_name=repo_name,
+                tool=tool,
+                normalized_input=input_data,
+                run_id=run_id,
+                owner_pid=os.getpid(),
+                owner_token=lease_token,
+                lease_generation=1,
+            )
+            if not acquisition.acquired:
+                return {
+                    "run_id": "",
+                    "accepted": False,
+                    "status": "refused",
+                    "estimated_duration_minutes": 0,
+                    "recommended_check_after_minutes": 0,
+                    "risk_level": decision.risk_level,
+                    "requires_human": False,
+                    "reason": acquisition.reason,
+                    "duplicate": acquisition.duplicate,
+                }
         run_dir = self.config.resolve_runs_dir() / run_id
         run_created = False
         try:
@@ -1829,7 +1842,8 @@ class JobManager:
             ):
                 terminate_process_tree(process.pid)
                 raise RuntimeError("Initial worker launch lost durable lease ownership")
-            self.locks.heartbeat(repo_name, run_id, lease_token, 1)
+            if repository_lock_required:
+                self.locks.heartbeat(repo_name, run_id, lease_token, 1)
             event = self.store.append_event(
                 run_id,
                 level="info",
@@ -1871,13 +1885,14 @@ class JobManager:
                         update_run_metadata=False,
                     )
                     ArtifactWriter(run_dir).append_event(event)
-                    self.locks.release(
-                        repo_name,
-                        run_id,
-                        str(current.get("worker_lease_token") or ""),
-                        int(current.get("lease_generation") or 1),
-                    )
-            else:
+                    if repository_lock_required:
+                        self.locks.release(
+                            repo_name,
+                            run_id,
+                            str(current.get("worker_lease_token") or ""),
+                            int(current.get("lease_generation") or 1),
+                        )
+            elif repository_lock_required:
                 self.locks.release(repo_name, run_id, lease_token, 1)
             return {
                 "run_id": run_id if run_created else "",
