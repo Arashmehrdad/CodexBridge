@@ -700,11 +700,20 @@ Gate: passed. TL2 is now active.
 
 #### TL2 - Market packet and chart
 
-Status: **in progress**.
+Status: **in progress; immutable packet foundation completed on 2026-07-20**.
 
-Normalize broker data and produce immutable hourly packets and a chart from identical source data. The next executable unit is the immutable structured packet model and deterministic content hash built from one provider read; chart rendering follows only after packet identity, completed/developing separation, freshness, and hash tests pass.
+The repository now has frozen market-packet payload and envelope models, deterministic canonical JSON and SHA-256 content identity, and a builder that reads health, exact symbol specification, one fresh tick, and 100-200 completed H4 candles plus one developing candle from one connected demo-provider snapshot. The builder rejects disconnected or non-demo providers, stale ticks, symbol drift, incomplete history, non-H4 candles, unordered or duplicate completed candles, and any completed/developing overlap.
 
-Gate: completed candles are never confused with the developing candle; timestamp, hash, and freshness tests pass.
+Acceptance evidence for the packet foundation:
+
+- commit `b82860de70319931cb26df8bc7918e80067ec877` added `codexbridge/trading/market_packet.py`;
+- commit `0523968510868983edd2444e11264255bf658d2f` added deterministic packet regressions;
+- focused run `20260720T142613Z_project_command_47e482f0`: `6 passed`;
+- adjacent provider run `20260720T142636Z_project_command_6a1284ac`: `5 passed`.
+
+The next executable unit is deterministic candlestick PNG rendering from the exact packet candle tuple, with chart identity tied to the packet content hash and tests proving that rendering never rereads the provider or changes authoritative structured values.
+
+Gate: completed candles are never confused with the developing candle; timestamp, hash, freshness, and same-source chart tests pass.
 
 #### TL3 - Signal journal
 
