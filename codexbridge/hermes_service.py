@@ -261,7 +261,7 @@ class HermesServiceRequest:
         timeout = float(self.worker_wait_timeout_seconds)
         if timeout <= 0 or timeout > 600:
             raise HermesCompanionProtocolError(
-                "worker_wait_timeout_seconds must be between 0 and 600"
+                "worker_wait_timeout_seconds must be greater than 0 and at most 600"
             )
         object.__setattr__(
             self, "worker_wait_timeout_seconds", timeout
@@ -269,11 +269,11 @@ class HermesServiceRequest:
 
     def companion_payload(self) -> dict[str, Any]:
         return {
+            **dict(self.payload),
             "run_id": self.run_id,
             "request_id": self.request_id,
             "session_id": self.session_id,
             "operation": self.operation,
-            **dict(self.payload),
             "protocol_version": HERMES_COMPANION_PROTOCOL_VERSION,
             "registry_generation": self.expected_registry_generation,
             "effective_schema_hash": self.expected_schema_hash,
@@ -483,17 +483,23 @@ class _GenerationPool:
             busy = sum(
                 1 for slot in self._slots if slot.request_id is not None
             )
+            ready = sum(
+                1 for slot in self._slots if slot.worker.ready
+            )
+            available = sum(
+                1
+                for slot in self._slots
+                if slot.request_id is None and slot.worker.ready
+            )
             return {
                 "registry_generation": self.identity.generation,
                 "effective_schema_hash": (
                     self.identity.effective_schema_hash
                 ),
                 "worker_count": len(self._slots),
-                "ready_worker_count": sum(
-                    1 for slot in self._slots if slot.worker.ready
-                ),
+                "ready_worker_count": ready,
                 "busy_worker_count": busy,
-                "available_worker_count": len(self._slots) - busy,
+                "available_worker_count": available,
                 "active_request_count": self._active,
                 "retained_request_count": self._references,
                 "draining": self._draining,
@@ -519,7 +525,12 @@ class _GenerationPool:
         workers: Sequence[HermesServiceWorker],
     ) -> None:
         for worker in workers:
-            worker.close()
+            try:
+                worker.close()
+            except Exception:
+                # A retired worker failing to close must not invalidate the
+                # atomically published current generation.
+                pass
 
 
 class HermesServiceRuntime:
@@ -666,6 +677,7 @@ class HermesServiceRuntime:
     ) -> dict[str, Any]:
         with self._administration_lock:
             candidate: _GenerationPool | None = None
+            published = False
             try:
                 candidate = _GenerationPool(
                     registry_identity, tuple(workers)
@@ -687,10 +699,11 @@ class HermesServiceRuntime:
                     self._current_pool = candidate
                     self._retired_pools.append(current)
                     self._last_registry_reload_at = _utc_now()
+                    published = True
                 current.mark_draining()
                 return self.health()
             except Exception:
-                if candidate is not None:
+                if candidate is not None and not published:
                     candidate.close_candidate()
                 raise
 
