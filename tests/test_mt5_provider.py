@@ -123,7 +123,7 @@ def test_specification_and_tick_preserve_raw_time_and_normalize_offset() -> None
     assert specification.minimum_volume == 0.01
     assert tick.ask - tick.bid == 64.0
     assert tick.timestamp.provider_utc_offset_seconds == OFFSET
-    assert tick.timestamp.normalized_utc == NOW.replace(second=30) - (NOW - NOW.replace(second=0))
+    assert tick.timestamp.normalized_utc == datetime(2026, 7, 20, 7, 59, 30, tzinfo=UTC)
     assert tick.age_seconds == 30
     assert tick.fresh is True
 
