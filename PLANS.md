@@ -721,7 +721,22 @@ Gate: passed. TL3 is now active.
 
 #### TL3 - Signal journal
 
-Implement the exact `LONG | SHORT | NO_TRADE` contract.
+Status: **in progress**.
+
+The durable journal foundation is complete. `codexbridge/trading/signal_journal.py` defines frozen `LONG | SHORT | NO_TRADE` payloads, canonical content hashing, exact market-packet ID/hash binding, ask-priced long and bid-priced short validation, bridge-calculated spread and risk/reward, and strict `50-99` integer confidence. `NO_TRADE` rejects confidence and executable prices. SQLite WAL storage provides deterministic signal IDs, unique idempotency keys, immutable payload JSON, append-only lifecycle events, restart persistence, idempotent replay, cancellation only before entry, and entered/cancelled state exclusion without rewriting the signal payload.
+
+The first focused run exposed one real validation defect: fractional confidence `73.5` was truncated to `73`. Commit `54468c2ac6e880a258e4d3793761a111067119e9` now requires an actual non-boolean integer and preserves the frozen confidence contract.
+
+Evidence:
+
+- commit `1904b86fba59c0867ad4196a37273c6afd8be684` added the durable signal journal;
+- commit `91129fb4ed04e1a73a82211668a4d6eda92ed276` added focused contract, immutability, idempotency, persistence, and cancellation tests;
+- initial focused run `20260720T162330Z_project_command_0b98ae38`: `1 failed, 15 passed`, identifying fractional-confidence truncation;
+- repaired focused run `20260720T162831Z_project_command_438f9d0c`: `16 passed`;
+- adjacent packet run `20260720T162847Z_project_command_96c69e54`: `6 passed`;
+- commit `28cec59e5723731da4ca16a536d836011b0aa459` exported the journal primitives through the trading package boundary.
+
+Next executable unit: add strict public request models and the `trading_signal_submit`, `trading_signal_get`, `trading_signal_list`, and `trading_signal_cancel_before_entry` gateways over one repository-owned journal path. Prove gateway idempotency and packet-hash binding before closing TL3.
 
 Gate: signals are immutable, validated, idempotent, and tied to a market-packet hash.
 
