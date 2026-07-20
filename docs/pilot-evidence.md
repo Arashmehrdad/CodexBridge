@@ -50,3 +50,18 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Reproduction frequency:** two attempts across separate connector sessions; two identical pre-acceptance rejections.
 - **Artifacts:** connector rejection text retained in the initiating conversation; pre-attempt coordination evidence from completed runs `20260719T231446Z_executable_profile_86f12ff8` and `20260719T231526Z_executable_profile_a56b910d`.
 - **Disposition:** continue observing and use serial execution. Promote only if parallel execution becomes required for a representative workflow, the configured capability is expected to be enabled, or recovery cost materially increases.
+
+## 2026-07-20 01:23 Europe/London — Serial reversible-fixture regression workflow
+
+- **Project:** CodexBridge.
+- **Expected outcome:** exercise an ordinary serial durable validation of the repository-owned Hermes connected-MCP reversible-side-effect and lifecycle fixture without architectural change or tracked-file mutation.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; starting HEAD `8c4df77a2888272f1de1e90e9c71907305bebd70`; clean worktree; no running durable operations and no repository locks before launch.
+- **Live capability identity:** server build `b414c5c7261fa876dc22147fb34bdba5ee8852cd8e8655354dbb471320ed14bd`; schema `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
+- **Operation:** durable allowlisted pytest run `20260720T002321Z_project_command_e0b9a23b` executed `tests/test_hermes_mcp_fixture.py`.
+- **Verified result:** `5 passed in 0.50s`; exit code `0`; empty stderr; no changed files; terminal result published with hash `a4507c139e07a4108f6abb36549a2ebe41e711be2ae6b53210885f7a7d93244f`.
+- **Lost or duplicated work:** none. The durable worker claimed once, completed once, and published one terminal result.
+- **Recovery:** none required.
+- **Attribution:** successful ordinary serial operation through the current permissive durable gateway.
+- **Reproduction frequency:** one additional successful pilot workflow in a separate automation session.
+- **Artifacts:** durable run directory and published result for `20260720T002321Z_project_command_e0b9a23b`.
+- **Disposition:** continue OP1 collection. This adds positive evidence for serial durability and reversible-fixture regression coverage; it does not justify Roadmap V3 expansion.
