@@ -1684,7 +1684,7 @@ def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> Non
         "py_compile_path",
         "bash_syntax_path",
         "json_validation_path",
-        "project_command",
+        "remote_powershell",
         "git_readonly",
         "external_fixture_validation",
         "powershell",
