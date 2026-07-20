@@ -65,3 +65,19 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Reproduction frequency:** one additional successful pilot workflow in a separate automation session.
 - **Artifacts:** durable run directory and published result for `20260720T002321Z_project_command_e0b9a23b`.
 - **Disposition:** continue OP1 collection. This adds positive evidence for serial durability and reversible-fixture regression coverage; it does not justify Roadmap V3 expansion.
+
+## 2026-07-20 02:01 Europe/London — Parallel capability configuration repair
+
+- **Project:** CodexBridge.
+- **Expected outcome:** investigate the two repeated public `powershell_group` pre-acceptance rejections, restore the completed X2A capability if the live profile was unintentionally disabled, and prove genuine concurrent execution without restarting the service or tunnel.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; starting HEAD `50e4312dbac6963c0597af4311be8e22f8a26b65`; clean tracked worktree; no running or queued durable operations and no repository locks before the repair.
+- **Live capability identity:** server build `b414c5c7261fa876dc22147fb34bdba5ee8852cd8e8655354dbb471320ed14bd`; schema `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
+- **Diagnosis:** the public `powershell_group` request schema remained exposed and `parallel_groups.py` rejected only when `config.parallel_execution.enabled` was false. The ignored live `config.yaml` parsed as `enabled: false`, while the completed X2A contract and acceptance record specify `enabled: true`. This was live configuration drift, not a missing implementation or durable-worker regression.
+- **Repair:** changed only the ignored live flag from `false` to `true`; config SHA-256 changed from `a2b15bde55b8fa158cea11938a3251a01aec1a6178a4542fc91da02fa0c9416e` to `f31100ad58184e1603e076ed772d395c7a20780b70d67741530b7cfc6591da8a`. CodexBridge configuration validation passed, and the validated config was hot-reloaded at `2026-07-20T01:00:57Z` with no restart-required modules and no CodexBridge or Cloudflare restart.
+- **Public acceptance:** group `20260720T010132Z_powershell_group_3da40097` was accepted with requested concurrency `2`, repository lock policy `none`, and failure policy `continue_all`. Child runs `20260720T010132Z_executable_profile_44747e2b` and `20260720T010132Z_executable_profile_51821250` both completed with exit code `0` and empty stderr.
+- **Concurrency evidence:** child A's command window was `2026-07-20T01:01:40.4508122Z` through `2026-07-20T01:01:42.4933590Z`; child B's was `2026-07-20T01:01:41.8756995Z` through `2026-07-20T01:01:43.9248638Z`. The windows overlapped by approximately `0.618` seconds, proving concurrent execution rather than serial fallback.
+- **Publication evidence:** child A published result hash `a6d4373ce060968d6ff7c657a9595021c0e8ce55379becff4d2f8bf202d17554`; child B published result hash `7814c5273171a5cfa43738a6bd1d2ae8e88f1b8598c5238a4b1559e95a0a7372`; the aggregate group published `status_counts: {completed: 2}` and `terminal_child_count: 2`.
+- **Lost or duplicated work:** none. Each child was reserved once, claimed once, completed once, and appeared once in the aggregate result.
+- **Recovery and attribution:** no source-code repair, service restart, tunnel restart, or repository cleanup was required. The problem was an unintentionally disabled live capability flag.
+- **Reproduction frequency:** two prior identical rejections followed by one successful public concurrent group after the configuration repair.
+- **Disposition:** resolved. Parallel execution is available again. Continue OP1 collection across representative workloads; this configuration repair does not itself justify Roadmap V3 architectural expansion.
