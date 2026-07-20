@@ -340,7 +340,7 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - CodexBridge Trading Lab
 
-Status: **active at TL2; TL0 and TL1 accepted on 2026-07-20**.
+Status: **active at TL3; TL0 through TL2 accepted on 2026-07-20**.
 
 This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). Trading source creation is now permitted only for the TL1 read-only adapter. Live-money execution remains unavailable and out of scope.
 
@@ -700,20 +700,24 @@ Gate: passed. TL2 is now active.
 
 #### TL2 - Market packet and chart
 
-Status: **in progress; immutable packet foundation completed on 2026-07-20**.
+Status: **complete; accepted on 2026-07-20**.
 
-The repository now has frozen market-packet payload and envelope models, deterministic canonical JSON and SHA-256 content identity, and a builder that reads health, exact symbol specification, one fresh tick, and 100-200 completed H4 candles plus one developing candle from one connected demo-provider snapshot. The builder rejects disconnected or non-demo providers, stale ticks, symbol drift, incomplete history, non-H4 candles, unordered or duplicate completed candles, and any completed/developing overlap.
+The repository has frozen market-packet payload and envelope models, deterministic canonical JSON and SHA-256 content identity, and a builder that reads health, exact symbol specification, one fresh tick, and 100-200 completed H4 candles plus one developing candle from one connected demo-provider snapshot. The builder rejects disconnected or non-demo providers, stale ticks, symbol drift, incomplete history, non-H4 candles, unordered or duplicate completed candles, and any completed/developing overlap.
 
-Acceptance evidence for the packet foundation:
+A deterministic standard-library PNG renderer now consumes only the immutable packet candle tuple. It never receives or rereads the provider, preserves the structured packet unchanged, distinguishes the developing candle visually, binds chart identity to the packet content hash, and publishes a SHA-256 identity for the exact PNG bytes without adding a plotting dependency.
+
+Acceptance evidence:
 
 - commit `b82860de70319931cb26df8bc7918e80067ec877` added `codexbridge/trading/market_packet.py`;
 - commit `0523968510868983edd2444e11264255bf658d2f` added deterministic packet regressions;
-- focused run `20260720T142613Z_project_command_47e482f0`: `6 passed`;
-- adjacent provider run `20260720T142636Z_project_command_6a1284ac`: `5 passed`.
+- commit `f3ca56101736eea4769c582372dd0b3f929910f1` added deterministic candlestick PNG rendering;
+- commits `5a795f841005f7be0ef872bf54b7f1d35e3deae3` and `06b7d0433c6b5bdd45614a69e6c6c06b426fef7a` added and corrected focused chart regressions;
+- packet run `20260720T142613Z_project_command_47e482f0`: `6 passed`;
+- adjacent provider run `20260720T142636Z_project_command_6a1284ac`: `5 passed`;
+- chart run `20260720T152826Z_project_command_23d0d57a`: `4 passed`;
+- adjacent packet run `20260720T152837Z_project_command_6a037c29`: `6 passed`.
 
-The next executable unit is deterministic candlestick PNG rendering from the exact packet candle tuple, with chart identity tied to the packet content hash and tests proving that rendering never rereads the provider or changes authoritative structured values.
-
-Gate: completed candles are never confused with the developing candle; timestamp, hash, freshness, and same-source chart tests pass.
+Gate: passed. TL3 is now active.
 
 #### TL3 - Signal journal
 
@@ -798,7 +802,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The immediate Trading Lab gate is TL1: implement the read-only MT5 adapter for provider health, exact symbol discovery, contract specification, fresh bid/ask ticks, completed and developing H4 candles, and historical tick recovery. TL1 must disambiguate `BITCOIN_i` from `BITCOIN CASH_i`, preserve raw provider timestamps, and normalize provider time explicitly. Deterministic tests and a live demo-account smoke test are required before TL2.
+The immediate Trading Lab gate is TL3: implement the immutable `LONG | SHORT | NO_TRADE` signal journal with strict price validation, idempotency, cancellation-before-entry semantics, and exact binding to one accepted market-packet content hash.
 
 ## Roadmap V3 Promotion Rules
 
