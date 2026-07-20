@@ -196,9 +196,63 @@ Budgets use serialized UTF-8 bytes, not character counts. Per-field limits preve
 
 Never cut serialized JSON in the middle, silently omit errors, hide safety failures, or lose continuation metadata. Response metadata reports a non-self-referential payload byte count; final connector-visible wire size is measured separately.
 
+### Existing coverage audit
+
+Status labels in this section are contractual:
+
+- **Covered foundation** means accepted existing behavior is reused and regression-tested; CF1 must not rebuild it.
+- **Partially covered** means a useful primitive exists, but it does not yet satisfy the complete CF1 public contract.
+- **Not covered** means new implementation is required.
+
+#### Covered foundations
+
+- **Authoritative durable records and evidence:** complete `input_json`, `result_json`, terminal result hashes, protected output artifacts, cancellation evidence, process identity, reconciliation state, and repository locks already exist and remain authoritative.
+- **Explicit full run transport:** `run_query_chunks.py` already creates redacted, immutable, SHA-256-bound cursor snapshots for explicit full `list`, `status`, and `result` reconstruction. CF1 preserves this implementation as the full-view compatibility path.
+- **Secret and reviewed-script protection:** public run conversion removes worker lease tokens, masks reviewed/root scripts, and the frozen-snapshot transport applies recursive secret redaction.
+- **Repository read safety:** repository paths are relative-only, blocked secret/generated roots are excluded, symlink/junction escapes and binary files are rejected, content is redacted, and exact file SHA-256 plus total line count are returned.
+- **Compact repository status:** `repo_query(compact_status)` already collapses tool-owned scratch entries and provides a small live Git projection. It is a reusable CF1.6 pattern, not work to recreate.
+- **Opaque hash-verified managed-write identities:** repository patches and managed cleanup already use opaque IDs, repository binding, payload hashes, and stale-content checks. This foundation applies to managed writes only; it is not yet a public run-artifact retrieval surface.
+
+#### Partially covered areas
+
+- **Run control:** `run_query(control)` already exposes bounded lifecycle, process-tree, cancellation, heartbeat, and lock state, but it calls `RunStore.get_run()`, which selects the entire row and decodes all three JSON blobs. It has no `if_state_version` conditional response or sub-1-KB unchanged envelope.
+- **Delta events:** `after_id` already retrieves only newer events. The remaining work is a lower default, `next_after_id`, `has_more`, stable budget handling, and explicit gap/error semantics.
+- **Output evidence:** `run_query(output)` already enforces run-directory containment, rejects symlinked run directories, and returns bounded tails. It still assumes `stdout.txt`/`stderr.txt`, while executable profiles may publish manifest-bound `.bin` artifacts; index, range, search, binary, and exact full operations remain missing.
+- **Repository file reads:** explicit line ranges, hashes, redaction, path safety, and truncation flags already exist. Current single-file behavior rejects files over 500 KB; batch reads permit 20 items and 2 MB and omit content only after the combined limit. Default 300-line windows, 48/128-KB public budgets, byte offsets, `next_start_line`, and stale-content continuation are missing.
+- **Repository search:** literal search, redacted snippets, ignore-aware traversal, result limits, and time budgets already exist. Current defaults are 50 results, a 500-result public maximum, and roughly 200-character snippets; response-byte budgets and snapshot-bound continuation are missing.
+- **Repository diffs:** raw diff output already has a 300-KB backend cap and optional path/staged scope. Changed-file statistics, frozen hunk indexes, selected-hunk retrieval, and an ordinary 32-KB public projection are missing.
+- **Gateway benchmarks:** benchmark and gateway regression scaffolding already exists, but it does not yet measure the complete CF1 server/MCP/connector-visible footprint and allocation corpus.
+
+#### Not-covered CF1 work
+
+- scalar SQL run-summary and control queries that avoid JSON columns and `json.loads`;
+- stable keyset pagination for compact run lists;
+- deterministic materialized `public_result_json` tied to the authoritative result hash;
+- conditional decision-version polling;
+- manifest-secured artifact index/range/search/full retrieval;
+- content-bound repository continuation and frozen diff/search snapshots;
+- versioned compact response envelopes and per-field UTF-8 byte budgets;
+- gateway-wide conformance and duplicate structured/text MCP payload elimination;
+- connector-visible cross-project acceptance and the 90-percent session reduction proof.
+
+### Confirmed cause of the slow roadmap update
+
+The 2026-07-20 roadmap-only change exposed a pre-existing synchronous repository-write performance defect:
+
+- the CF1 patch acquired its repository lock at `2026-07-20T21:05:56.926878+00:00` and did not publish `applied` until `2026-07-20T21:14:28.860158+00:00`, approximately **511.9 seconds**;
+- `apply_previewed_repo_change()` constructs `TransactionContext` before the patch manifest changes from `preview_ok` to `applying`;
+- `TransactionContext.__post_init__()` calls `snapshot_workspace(repo_root)` without ignored roots;
+- `snapshot_workspace()` walks the complete repository and does not exclude `runs/` or `.codex-tmp`;
+- `AppConfig.runs_dir` defaults to repository-relative `runs`, so a two-file Markdown edit traversed the accumulated durable evidence tree before its first visible apply checkpoint;
+- the connector call timed out after five minutes, while the server continued correctly under the live synchronous repository lock and eventually committed once.
+
+Secondary delay came from correct concurrency protection: an earlier synchronous apply still held the repository lock, and a concurrent H2.2 commit advanced HEAD, causing the stale hash preview to fail closed and require regeneration. Small avoidable assistant overhead also occurred: one duplicate preview was created instead of applying the reviewed preview, and one later commit-range query used a short SHA and had to be repeated.
+
+This latency defect is separate from the CF1 presentation-plane contract. It must not be misreported as CF1 implementation work. Until a tightly scoped repository-transaction fix is explicitly selected, documentation/status corrections should prefer the durable executable worker path, which does not perform this synchronous full-tree transaction snapshot.
+
 ### CF1.0 - Contract and end-to-end measurement
 
-Status: **next executable batch**.
+Status: **active; baseline architecture and existing-coverage audit complete, measurement corpus and connector-visible benchmarks pending**.
 
 Before changing production behavior:
 
@@ -216,6 +270,8 @@ No production contract change occurs in CF1.0.
 
 ### CF1.1 - Scalar run summaries
 
+Status: **pending; current list/status paths still use full-row reads and JSON decoding**.
+
 - Add explicit SQL projection methods for single-run summaries, paginated run summaries, and control snapshots.
 - Do not select or decode `input_json`, `progress_json`, `result_json`, worker lease tokens, run directories, or protected evidence.
 - Use stable keyset pagination with an opaque cursor.
@@ -225,6 +281,8 @@ No production contract change occurs in CF1.0.
 
 ### CF1.2 - Compact control and polling
 
+Status: **partially covered; `control` and `after_id` exist, conditional versioning and bounded continuation metadata do not**.
+
 - Add conditional control polling with `if_state_version`.
 - Return a below-1-KB unchanged envelope when no decision-relevant state changed.
 - Preserve bounded liveness information without heartbeat-driven version churn.
@@ -233,6 +291,8 @@ No production contract change occurs in CF1.0.
 
 ### CF1.3 - Terminal public projection
 
+Status: **pending; authoritative result hashing exists, but no materialized bounded public result exists**.
+
 - Materialize one deterministic, schema-versioned, tool-aware, bounded public terminal projection when the authoritative result publishes.
 - Bind it to the complete result SHA-256.
 - Preserve the complete `result_json` unchanged.
@@ -240,6 +300,8 @@ No production contract change occurs in CF1.0.
 - Add lazy compatibility projection for legacy rows; no immediate database-wide migration is required.
 
 ### CF1.4 - Manifest-secured evidence retrieval
+
+Status: **partially covered; bounded output tails and staged artifact hashes exist, manifest-aware public retrieval does not**.
 
 Add narrow run evidence operations such as:
 
@@ -258,6 +320,8 @@ Resolve artifacts only through the authoritative staging manifest. Do not assume
 Use ordinary tool operations first. MCP resource links remain optional until the ChatGPT connector proves they improve retrieval without duplicating payloads.
 
 ### CF1.5 - Repository progressive disclosure
+
+Status: **partially covered; secure line-range reads, hashing, redaction, search budgets, and raw caps exist, progressive continuation does not**.
 
 Chat-facing defaults:
 
@@ -281,11 +345,15 @@ File reads return exact line and byte continuation plus content hash. Narrow exa
 
 ### CF1.6 - Remaining public gateway conformance
 
+Status: **partially covered; compact repository status is established, gateway-wide envelopes and limits are not**.
+
 Audit and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, and every other public gateway.
 
 No ordinary unsolicited public result may exceed 64 KB. Compact responses must not echo full prompts, scripts, patches, argv, environment, or request bodies. Structured and text MCP content must not duplicate the same payload.
 
 ### CF1.7 - Rollout and cross-project acceptance
+
+Status: **pending; compatibility paths exist, but CF1 connector rollout and acceptance have not begun**.
 
 Compatibility rollout:
 
