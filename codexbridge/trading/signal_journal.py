@@ -163,9 +163,12 @@ def validate_signal_draft(draft: SignalDraft) -> tuple[SignalDraft, float, float
         if any(value is not None for value in (entry, stop, target)):
             raise ValueError("NO_TRADE must not contain entry, stop-loss, or take-profit")
     else:
-        if isinstance(confidence, bool) or confidence is None or not 50 <= int(confidence) <= 99:
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, int)
+            or not 50 <= confidence <= 99
+        ):
             raise ValueError("LONG and SHORT confidence must be an integer from 50 through 99")
-        confidence = int(confidence)
         if any(value is None for value in (entry, stop, target)):
             raise ValueError("LONG and SHORT require entry, stop-loss, and take-profit")
         entry = float(entry)
