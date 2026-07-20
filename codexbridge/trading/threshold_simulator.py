@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from hashlib import sha256
 
+from .mt5_provider import ProviderHealth
 from .signal_journal import SignalDecision
 
 
@@ -158,6 +159,24 @@ def initialize_threshold_experiment(
                 source_cohort_id=None,
             ),
         )
+    )
+
+
+def initialize_from_provider_health(
+    health: ProviderHealth,
+    *,
+    created_at_utc: datetime,
+) -> ThresholdExperiment:
+    if not health.initialized or not health.connected:
+        raise RuntimeError("provider must be initialized and connected")
+    if str(health.account_environment).strip().lower() != "demo":
+        raise RuntimeError("threshold experiments require a demo account")
+    if health.equity is None:
+        raise RuntimeError("provider equity is unavailable")
+    return initialize_threshold_experiment(
+        baseline_equity=health.equity,
+        currency=health.currency,
+        created_at_utc=created_at_utc,
     )
 
 
