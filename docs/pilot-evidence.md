@@ -156,3 +156,19 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Lost or duplicated work:** none. The failed assertions were read-only validation failures; each managed change was committed once and the worktree remained clean.
 - **Attribution and frequency:** confirmed stale test-contract assertion, previously listed as a known observation. One full-gate reproduction and one focused expectation correction were sufficient to isolate it.
 - **Disposition:** resolved as a bounded pilot defect. Remove the stale assertion from current observations; no broader Roadmap V3 program is justified.
+
+## 2026-07-20 07:22 Europe/London — Bounded external-service capability and availability check
+
+- **Project:** CodexBridge external-service gateways.
+- **Expected outcome:** exercise ordinary read-only service capability and health inspection without starting, changing, or provisioning infrastructure solely for pilot evidence.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; HEAD `1dcd51033125f5faf765f273c3ba3d0f7b59ac57`; clean worktree; no running or queued durable operations and no repository locks before inspection.
+- **Live capability identity:** server build `b414c5c7261fa876dc22147fb34bdba5ee8852cd8e8655354dbb471320ed14bd`; schema `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
+- **Cloudflare capability result:** the gateway was enabled and exposed its bounded read-only and gated action catalog, but `profiles` was empty. No account, zone, tunnel, DNS, or mutation request was attempted because no repository profile was bound.
+- **Docker capability result:** the gateway was enabled with Docker client `29.3.1` and Docker Compose `v5.1.1` available. No compose files, project name, or exec profiles were configured for this repository.
+- **Docker health result:** the client command executed normally, but the Docker Desktop Linux engine pipe `//./pipe/dockerDesktopLinuxEngine` was absent because the engine was not running. The gateway returned a bounded failed health result with exit code `1`; Compose version inspection still completed successfully.
+- **Lost or duplicated work:** none. Both paths were read-only, no durable mutation was accepted, and no repository or external service state changed.
+- **Recovery:** none attempted or required. Docker Desktop was deliberately not started solely to manufacture pilot evidence, and Cloudflare configuration was not expanded without a real workload.
+- **Attribution:** current external-infrastructure availability and configuration, not a CodexBridge durability, policy, transport, or schema defect.
+- **Reproduction frequency:** one Cloudflare capability inspection and one Docker capability/health inspection in this session.
+- **Artifacts:** bounded public gateway responses retained by the initiating conversation; repository identity and capability build hashes recorded above.
+- **Disposition:** successful negative-path service evidence. Continue OP1 with an actually configured non-CodexBridge project or service when one is naturally used; do not create infrastructure or broaden configuration solely to close the pilot.
