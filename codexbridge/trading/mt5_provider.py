@@ -115,15 +115,16 @@ class HistoricalTick:
 def _field(value: Any, name: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(name, default)
+    dtype = getattr(value, "dtype", None)
+    names = getattr(dtype, "names", None)
+    if names and name in names:
+        return value[name]
     return getattr(value, name, default)
 
 
 def _rows(value: Any) -> list[Any]:
     if value is None:
         return []
-    if hasattr(value, "tolist"):
-        converted = value.tolist()
-        return list(converted if isinstance(converted, list) else [converted])
     return list(value)
 
 

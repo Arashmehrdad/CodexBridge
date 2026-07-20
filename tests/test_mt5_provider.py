@@ -13,6 +13,20 @@ OFFSET = 3 * 60 * 60
 NOW = datetime(2026, 7, 20, 8, 0, tzinfo=UTC)
 
 
+class StructuredRow:
+    def __init__(self, **values) -> None:
+        self._values = values
+        self.dtype = SimpleNamespace(names=tuple(values))
+
+    def __getitem__(self, name):
+        return self._values[name]
+
+
+class StructuredRows(list):
+    def tolist(self):
+        return [tuple(row[name] for name in row.dtype.names) for row in self]
+
+
 class FakeMT5:
     TIMEFRAME_H4 = 16388
     COPY_TICKS_ALL = -1
@@ -137,6 +151,44 @@ def test_h4_candles_separate_completed_from_developing() -> None:
     assert completed[0].open_time.normalized_utc.hour == 3
     assert developing is not None
     assert developing.open_time.normalized_utc.hour == 7
+
+
+def test_h4_candles_preserve_named_fields_from_structured_rows() -> None:
+    binding = FakeMT5()
+    binding.copy_rates_from_pos = lambda *_args: StructuredRows(
+        [
+            StructuredRow(
+                time=int(datetime(2026, 7, 20, 3, 0, tzinfo=UTC).timestamp()) + OFFSET,
+                open=64000.0,
+                high=65000.0,
+                low=63000.0,
+                close=64500.0,
+                tick_volume=123,
+                spread=64,
+                real_volume=7,
+            ),
+            StructuredRow(
+                time=int(datetime(2026, 7, 20, 7, 0, tzinfo=UTC).timestamp()) + OFFSET,
+                open=64500.0,
+                high=65500.0,
+                low=64000.0,
+                close=65000.0,
+                tick_volume=456,
+                spread=65,
+                real_volume=8,
+            ),
+        ]
+    )
+    adapter, _ = provider(binding)
+
+    completed, developing = adapter.h4_candles("BITCOIN_i", completed_count=10)
+
+    assert completed[0].open == 64000.0
+    assert completed[0].close == 64500.0
+    assert completed[0].tick_volume == 123
+    assert developing is not None
+    assert developing.open == 64500.0
+    assert developing.close == 65000.0
 
 
 def test_historical_ticks_translate_query_bounds_and_normalize_results() -> None:
