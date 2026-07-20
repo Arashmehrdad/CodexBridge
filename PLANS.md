@@ -641,7 +641,11 @@ No CodexBridge trading source file may be created before TL0 passes.
 
 #### TL1 - Read-only MT5 adapter
 
-Build provider connection, health, symbol discovery, specification, ticks, candles, and historical tick recovery.
+Status: **in progress**.
+
+The first read-only provider slice is complete: `codexbridge.trading.MT5Provider` now supports injectable MT5 bindings, connection and demo-account health, exact symbol discovery that distinguishes `BITCOIN_i` from `BITCOIN CASH_i`, complete contract specification, freshness-aware bid/ask ticks, completed/developing H4 separation, historical tick recovery, raw provider timestamps, and explicit broker-offset normalization. Deterministic validation run `20260720T093152Z_project_command_e980f180` reported `4 passed`.
+
+Remaining TL1 work: expose the read-only adapter through the public trading tool surface and configuration boundary, add adjacent gateway/config tests, then run the live Alpari demo-account smoke test before promoting TL2.
 
 Gate: deterministic tests plus a live demo-account smoke test.
 

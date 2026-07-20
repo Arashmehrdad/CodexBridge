@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import ModuleType
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Callable, Protocol
 
 
 UTC = timezone.utc
