@@ -128,3 +128,18 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Reproduction frequency:** one reversible pilot workflow, four accepted failed harness attempts, and one accepted successful recovery; two additional malformed requests were rejected before run creation.
 - **Artifacts:** successful result publication hash `956d729511b41cd50f8211a7851ec17fce179f9370e8855bfcf0544029a98ae4`; protected stdout SHA-256 `944d5639fdf8b41f380a5da7a28a189448b1e1c66e57bac8f7c2fd81e0d09552`; empty protected stderr SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. Failed attempts retained their own terminal publications and protected error artifacts.
 - **Disposition:** successful representative reversible-action pilot evidence with realistic caller recovery friction. No durability or security invariant was violated, no work was lost or duplicated, and no Roadmap V3 promotion threshold was crossed.
+
+## 2026-07-20 05:11 Europe/London — Windows parallel lifecycle acceptance regression
+
+- **Project:** CodexBridge.
+- **Expected outcome:** exercise the established Windows parallel PowerShell lifecycle through the ordinary durable validation gateway, covering capped and uncapped fan-out, pending-child refill, sibling continuation after failure, restart adoption without duplicate launch, whole-group cancellation, cancel-remaining behavior, and individual-child cancellation with slot refill.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; HEAD `cf6d8f631924d13c2c61c305754c251fb60c0ced`; clean worktree; no running durable operations and no repository locks before launch.
+- **Live capability identity:** server build `b414c5c7261fa876dc22147fb34bdba5ee8852cd8e8655354dbb471320ed14bd`; schema `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
+- **Operation:** durable allowlisted pytest run `20260720T041122Z_project_command_ae803c00` executed `tests/test_parallel_powershell_acceptance.py` using the repository-owned isolated pytest basetemp.
+- **Verified result:** `7 passed in 30.75s`; exit code `0`; empty stderr; no changed files; one worker claim; one terminal result publication with hash `db7fbc62b8c6864c57510a2295a40559e66a3b98ccbfbaff610e84e1b7f5bbfc`.
+- **Lost or duplicated work:** none. Restart reconciliation retained the existing worker identity and launch-attempt count, cancellation tests terminated the intended process trees, and pending siblings refilled exactly once.
+- **Recovery:** none required.
+- **Attribution:** successful regression evidence for the completed X2A lifecycle and durability contracts under the current permissive runtime.
+- **Reproduction frequency:** one complete seven-test Windows lifecycle pass in this pilot session.
+- **Artifacts:** durable run directory and published result for `20260720T041122Z_project_command_ae803c00`; isolated pytest basetemp under that run directory.
+- **Disposition:** successful representative lifecycle evidence. Continue OP1 observation across ordinary project work; no Roadmap V3 promotion threshold was crossed.
