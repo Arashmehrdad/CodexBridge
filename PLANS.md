@@ -285,7 +285,11 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## H2 - Shared Multi-Session Hermes Service
 
-Status: **deferred until Trading Lab is complete and the subsequent CodexBridge reliability audit has passed**.
+Status: **active at H2.1 by explicit user override on 2026-07-20; Trading Lab may continue concurrently under the existing repository-lock and durable-run rules**.
+
+The activation is driven by an immediate production-workflow requirement: Google Search Console is configured for the Andiya SEO workflow, but the H1 one-request companion path pays the full Hermes and MCP startup cost on every call. Live handshake run `20260720T191848Z_executable_profile_4c2eff11` measured **23.501 seconds** before returning under registry generation `85` and effective schema hash `8ccc02adee339326497a10953c749d73ae5eade6a92f41c21bb59cde573cd987`, with `model_runtime_initialized: false`, empty protected stderr, and no repository lock. This proves that H1 concurrency alone does not solve repeated Search Console latency; H2 must prove warm process reuse and materially lower repeated-call startup overhead.
+
+H2.1 has begun with a generation-scoped service-runtime foundation and deterministic isolation, concurrency, cancellation, and registry-transition tests. This foundation does not by itself complete H2 or satisfy the required live persistent-process and Search Console acceptance gate.
 
 The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a CodexBridge repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
 
@@ -318,7 +322,7 @@ Serialize only the resource that can actually conflict:
 - Two unrelated providers can run concurrently, while two mutations against the same external resource are serialized or safely reconciled.
 - Service restart adoption, health recovery, output bounds, protected evidence, and fallback to the one-request companion are demonstrated under live acceptance.
 
-Do not begin H2 implementation during TL1 or later Trading Lab units. First complete Trading Lab, perform its defect pass, then complete the planned whole-Bridge reliability audit and stabilisation gate. H2 becomes eligible only from that fresh audited baseline.
+The earlier requirement to defer H2 until after Trading Lab and a whole-Bridge reliability audit is superseded by the explicit 2026-07-20 user decision above. Trading Lab remains legitimate concurrent work and must not be stopped, overwritten, raced, or deprived of its repository lock; H2 batches must refresh HEAD, active and queued durable runs, and repository locks before every write or validation, then regenerate previews against the latest HEAD. The H2 acceptance criteria remain unchanged: no completion claim is allowed until persistent process reuse, five-session isolation, cancellation isolation, atomic registry reload, deterministic restart/adoption, explicit H1 fallback, and read-only Search Console acceptance are demonstrated with live evidence.
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
