@@ -68,5 +68,5 @@ def test_chart_rejects_invalid_dimensions() -> None:
 
     with pytest.raises(ValueError, match="at least 320x240"):
         render_market_packet_chart(packet, width=319)
-    with pytest.raises(ValueError, match="too small"):
-        render_market_packet_chart(packet, width=320, height=240)
+    with pytest.raises(ValueError, match="at least 320x240"):
+        render_market_packet_chart(packet, height=239)
