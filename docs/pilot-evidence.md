@@ -96,3 +96,17 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Attribution:** parallel execution itself is functioning. The first-group failure is the previously observed Windows pytest shared-temp permission friction, not a Hermes, test, or durable-group defect. Repository-owned isolated basetemps provide a safe operational workaround.
 - **Reproduction frequency:** one failure on the shared global pytest temp root followed by one fully successful isolated parallel retry.
 - **Disposition:** successful representative parallel pilot evidence. Continue OP1 across separate sessions and ordinary Hermes-backed work; do not promote the temp-path observation to a repair program unless it repeatedly blocks representative validation despite the isolated-basetemp path.
+
+## 2026-07-20 04:13 Europe/London — Schema-bound Hermes repository read
+
+- **Project:** CodexBridge.
+- **Expected outcome:** exercise an ordinary Hermes-backed repository read outside the disposable connected-MCP fixture path, binding the live catalog identity, exact `read_file` schema, accepted arguments, and returned OP1 content without tracked-file mutation.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; starting HEAD `2778fec2f8b931e05534cee15cb6b02a7842bb90`; clean worktree; no running durable operations and no repository locks before launch.
+- **Coordination inspection:** active durable runs were empty and repository locks were absent. No supervisor or workflow list surface is exposed; those durable objects remain queryable only by known identity, and no matching active identity was present in the current handover.
+- **Schema discovery:** durable run `20260720T031032Z_executable_profile_9ab379ca` completed with exit code `0`, registry generation `79`, effective schema hash `3d653132680587e2e4b5639a9b0dcf5a6d5443fdc4643af6f1ae4679073761a3`, `model_runtime_initialized: false`, and exact `read_file` tool-schema hash `265fc44e1ec436b2716993e33375040ac26ebae8fc87c770851089db21b93633`.
+- **Caller correction:** run `20260720T031146Z_executable_profile_9739ef8d` omitted the prepared `arguments` and `tool_schema_hash` fields when constructing the request, so Hermes correctly attempted an empty path and returned `File not found`. No repository mutation occurred. The error was a caller-side harness construction mistake, not a gateway or Hermes defect.
+- **Successful operation:** durable run `20260720T031343Z_executable_profile_64617d6e` invoked `read_file` with path `D:\\Github\\CodexBridge\\PLANS.md`, offset `287`, and limit `12`, bound to the exact live schema identity.
+- **Verified result:** the returned content contained lines `287-298`, including `## OP1 - Evidence-Driven Real-Project Pilot`, the current in-progress status, and the pilot exercise list. The run completed in `4.729` seconds with exit code `0` and empty stderr.
+- **Lost or duplicated work:** none. The malformed request was read-only and failed safely; the corrected request executed once and published one terminal result.
+- **Artifacts:** successful protected stdout SHA-256 `9efb08bae34cb4f9d5c4dd8991800b6ac4e42e8738e34466a3dd1fa37a34519e`; empty protected stderr SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+- **Disposition:** successful ordinary Hermes-backed pilot evidence across another session. Continue OP1 collection; no security, durability, loss, duplication, corruption, or continuation-blocking threshold was crossed.
