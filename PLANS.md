@@ -72,14 +72,310 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-1. Complete the already-scoped R5 boundary.
-2. Perform the Hermes tool-runtime feasibility audit.
-3. Implement the smallest durable ChatGPT-to-Hermes tool path satisfying the accepted architecture.
-4. Freeze architectural expansion and exercise the combined system on representative real projects.
-5. Build Roadmap V3 from observed frequency, severity, recovery cost, and violated invariants.
-6. After the current OP1 observation period is reviewed, begin the separate Trading Lab roadmap at TL0; do not interleave it with H1 acceptance or OP1 evidence collection.
+Only CF1 is active. Every other implementation lane is intentionally paused.
 
-Do not resume the older broad R6, R7, or P2 sequence automatically. Only supporting work required by R5, Hermes integration, or a proven pilot defect is active.
+1. CF1.0: freeze the public-representation contract and collect end-to-end measurements.
+2. CF1.1: add scalar SQL-backed run summary queries and stable pagination.
+3. CF1.2: add compact control polling and delta-event semantics.
+4. CF1.3: materialize bounded terminal public projections tied to authoritative result hashes.
+5. CF1.4: add manifest-secured exact evidence retrieval.
+6. CF1.5: add repository read, search, and diff progressive disclosure.
+7. CF1.6: bring every remaining public gateway under the unsolicited-response contract.
+8. CF1.7: complete connector-visible and cross-project rollout acceptance.
+9. Review CF1 evidence and explicitly decide whether H2, TL5, or another lane resumes next.
+
+Do not resume H2, TL5, SSH work, reliability/autonomy work, or any other roadmap batch until CF1 is complete and this document explicitly reactivates it.
+
+## Priority 0 - CF1 Chat Footprint and Progressive Disclosure
+
+Status: **active; highest priority**.
+
+### Objective
+
+Reduce the total CodexBridge tool footprint inserted into ChatGPT conversations by at least **90 percent** while preserving complete authoritative evidence, exact command inputs and outputs, cancellation and recovery semantics, repository locks, result hashes, debugging capability, model access to requested detail, and current execution throughput.
+
+The repair applies globally to every CodexBridge-managed project and public gateway, including CodexBridge, Andiya, Wan2.2, Hermes, Trading Lab, supervisors, workflows, SSH, parallel groups, and future repositories.
+
+### Architectural boundary
+
+CF1 is a presentation-and-retrieval-plane repair over the accepted durable execution core. It must not create another execution architecture or change:
+
+- worker, launcher, or child ownership;
+- lease identity or heartbeats;
+- repository-lock acquisition or release;
+- cancellation targeting or reconciliation;
+- startup adoption and recovery decisions;
+- terminal state/result atomicity;
+- protected artifact retention or hashing;
+- H2 concurrency semantics;
+- Trading Lab execution or journal semantics.
+
+The three representations are:
+
+```text
+Authoritative record
+  complete durable request, lifecycle state, output, result, and evidence
+  never truncated and never replaced by a summary
+
+Chat projection
+  small deterministic versioned representation returned by default
+
+Evidence retrieval
+  exact artifact, range, search match, tail, hunk, request, or full record
+  requested explicitly and bound to immutable content identity
+```
+
+Every compact representation must declare that it is non-authoritative and that the complete authoritative record remains available.
+
+### Public views
+
+Use fixed, versioned projections rather than arbitrary caller-selected database fields:
+
+```yaml
+view:
+  summary: default minimal operational representation
+  standard: summary plus bounded diagnostics
+  full: explicit existing lossless cursor-based representation
+```
+
+The default summary must preserve operationally meaningful distinctions. It must not collapse partial completion, validation failure, policy denial, needs-input, cancellation uncertainty, infrastructure failure, incomplete cleanup, ambiguous side effects, or required reconciliation into apparent success.
+
+Normalized bounded state may include:
+
+```text
+lifecycle_status
+outcome
+current_phase
+action_required
+validation_state
+cancellation_state
+cleanup_state
+reconciliation_required
+safety_failure
+state_version
+```
+
+Full input, argv, environment, reviewed scripts, staging manifests, executable identity, progress JSON, full result JSON, stdout/stderr, local paths, and artifact internals remain absent from ordinary summary views.
+
+### Cross-cutting contracts
+
+#### Decision-version semantics
+
+`state_version` changes for every transition material to ChatGPT decisions, including lifecycle, phase, cancellation, worker/child attachment, restart reconciliation, lock ownership, terminal publication, ambiguous-mutation reconciliation, and needs-input transitions. Ordinary heartbeat refreshes must not continuously invalidate conditional polling; liveness uses bounded timestamps or a separate generation.
+
+#### Stable cursors
+
+Opaque cursors bind operation, filters, ordering, view, representation version, response budget, snapshot boundary, final sort key, and expiry. Run lists use stable keyset pagination rather than offsets. Explicit full mode retains the existing frozen redacted snapshot and lossless reconstruction contract.
+
+#### Repository content identity
+
+File continuation binds to file SHA-256 and supports both line and byte offsets. Changed content fails with a stale-content response rather than mixing versions. Search continuation binds to a repository/worktree snapshot identity. Diff inspection uses a frozen diff artifact or snapshot ID so file statistics, hunk indexes, selected hunks, and explicit full retrieval all refer to the same evidence.
+
+#### Artifact security
+
+Opaque artifact IDs are necessary but not sufficient. Retrieval enforces authoritative-manifest membership, run-directory containment, symlink and traversal rejection, public/protected classification, secret redaction, text/binary handling, encoding and byte-range semantics, bounded scanning, bounded matches, bounded duration, immutable size, and SHA-256 identity.
+
+The system distinguishes artifact existence, retrievability by trusted internal code, and public retrievability through ChatGPT.
+
+#### Materialized projection identity
+
+A terminal public projection is tied to the authoritative result through at least:
+
+```text
+public_result_json
+public_result_schema_version
+public_result_source_sha256
+public_result_status
+```
+
+Reuse is permitted only when source hash and schema version match. Old projections rebuild lazily. A projection-builder failure must never block authoritative terminal publication; a tiny bounded fallback envelope must still expose the terminal outcome and evidence identity.
+
+#### Deterministic byte budgets
+
+Budgets use serialized UTF-8 bytes, not character counts. Per-field limits prevent one summary, error, path, test message, or artifact list from exhausting the whole response. Truncation occurs only at valid Unicode boundaries and reports original byte count, omitted-content identity where appropriate, and an exact retrieval handle.
+
+Never cut serialized JSON in the middle, silently omit errors, hide safety failures, or lose continuation metadata. Response metadata reports a non-self-referential payload byte count; final connector-visible wire size is measured separately.
+
+### CF1.0 - Contract and end-to-end measurement
+
+Status: **next executable batch**.
+
+Before changing production behavior:
+
+- inventory every public gateway operation and its default and maximum response size;
+- measure request arguments, server projection bytes, MCP response bytes, connector wrapping, duplicate text/structured content, and total connector-visible transcript bytes;
+- capture the existing approximately 837-KB twenty-run list plus successful, failed, active, cancelled, ambiguous-side-effect, Hermes, repository-read, large-diff, parallel-group, SSH, workflow, and supervisor fixtures;
+- verify which summary fields exist as scalar database columns and which require one-time terminal materialization;
+- inspect query plans and supporting indexes;
+- define normalized outcome semantics, field budgets, cursor semantics, redaction, artifact visibility, and decision-version behavior;
+- retain the existing explicit-full frozen-snapshot and chunk-reconstruction tests unchanged.
+
+Measure serialized bytes, response construction time, SQLite query time, JSON blobs decoded, peak Python allocations, p50/p95 latency, request bytes, connector-visible bytes, and full-evidence hashes.
+
+No production contract change occurs in CF1.0.
+
+### CF1.1 - Scalar run summaries
+
+- Add explicit SQL projection methods for single-run summaries, paginated run summaries, and control snapshots.
+- Do not select or decode `input_json`, `progress_json`, `result_json`, worker lease tokens, run directories, or protected evidence.
+- Use stable keyset pagination with an opaque cursor.
+- Align the default public list limit at 10 and the maximum at 100.
+- Add only measurement-justified indexes.
+- Introduce compact operations before changing any legacy default.
+
+### CF1.2 - Compact control and polling
+
+- Add conditional control polling with `if_state_version`.
+- Return a below-1-KB unchanged envelope when no decision-relevant state changed.
+- Preserve bounded liveness information without heartbeat-driven version churn.
+- Continue delta events through `after_id`, reduce the default event count to 20, and return `next_after_id`, `has_more`, and explicit gap/error information.
+- The normal lifecycle becomes start, compact control polling, compact terminal result, and exact evidence only when required.
+
+### CF1.3 - Terminal public projection
+
+- Materialize one deterministic, schema-versioned, tool-aware, bounded public terminal projection when the authoritative result publishes.
+- Bind it to the complete result SHA-256.
+- Preserve the complete `result_json` unchanged.
+- Publish the full result and public projection consistently without allowing projection failure to strand terminal state.
+- Add lazy compatibility projection for legacy rows; no immediate database-wide migration is required.
+
+### CF1.4 - Manifest-secured evidence retrieval
+
+Add narrow run evidence operations such as:
+
+```text
+artifact_index
+artifact_tail
+artifact_range
+artifact_search
+request_summary
+request_full
+result_full
+```
+
+Resolve artifacts only through the authoritative staging manifest. Do not assume filenames and never expose local filesystem paths. Enforce public/protected classification, exact hashes, bounds, encoding, binary behavior, traversal protection, redaction, and continuation.
+
+Use ordinary tool operations first. MCP resource links remain optional until the ChatGPT connector proves they improve retrieval without duplicating payloads.
+
+### CF1.5 - Repository progressive disclosure
+
+Chat-facing defaults:
+
+```yaml
+file_reads:
+  default_combined_content: 48 KB
+  hard_public_ceiling: 128 KB
+  default_file_window: 300 lines
+  maximum_batch_items: 10
+search:
+  default_results: 20
+  hard_max_results: 100
+  default_snippet_characters: 800
+  hard_snippet_characters: 2000
+  default_response_budget: 16 KB
+diffs:
+  ordinary_budget: 32 KB
+```
+
+File reads return exact line and byte continuation plus content hash. Narrow exact ranges take precedence within the hard ceiling. Searches use stable worktree snapshots. Diffs return changed files/statistics, then a bounded hunk index, then selected exact hunks, with explicit full mode only on request.
+
+### CF1.6 - Remaining public gateway conformance
+
+Audit and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, and every other public gateway.
+
+No ordinary unsolicited public result may exceed 64 KB. Compact responses must not echo full prompts, scripts, patches, argv, environment, or request bodies. Structured and text MCP content must not duplicate the same payload.
+
+### CF1.7 - Rollout and cross-project acceptance
+
+Compatibility rollout:
+
+1. add compact operations and views;
+2. keep existing full operations working exactly;
+3. update tool descriptions to direct ChatGPT toward compact operations;
+4. add deprecation metadata to verbose defaults where appropriate;
+5. restart or reload the service only as required by the accepted deployment procedure;
+6. refresh the ChatGPT connector schema;
+7. verify compact and legacy behavior in a fresh conversation;
+8. migrate supervisors and internal consumers;
+9. only then decide whether legacy `list`, `status`, and `result` become compact aliases.
+
+Live acceptance covers CodexBridge, Andiya, and Wan2.2 with an ordinary implementation, failed validation, active long run, cancellation, partial result, ambiguous mutation and reconciliation, parallel group, repository diff, workflow/supervisor result, SSH state, and Hermes-backed call.
+
+### Performance and size gates
+
+The repair is rejected if it saves transcript space by slowing or weakening execution.
+
+```text
+20-run summary list:                  <= 12 KB
+single summary/status:                 <= 6 KB
+compact terminal result:              <= 12 KB
+unchanged polling response:            <= 1 KB
+default events response:              <= 12 KB
+default repository search:            <= 16 KB
+default repository read batch:        <= 48 KB
+ordinary diff inspection:             <= 32 KB
+ordinary unsolicited response:        <= 64 KB
+representative session reduction:     >= 90 percent
+full evidence recoverability:         100 percent
+full-result hash equality:            100 percent
+```
+
+Compact list p95 must not be slower than the current list and should be at least 25 percent faster. Compact status must not be slower than the current control query. Compact terminal reads may be no more than 5 percent slower than scalar state reads. Legacy full paths may regress by no more than 5 percent. Worker execution must show zero measurable regression. Median terminal-summary overhead must remain at or below 2 ms.
+
+### Safety and correctness gates
+
+The implementation must prove:
+
+- authoritative `input_json` and `result_json` remain unchanged;
+- protected artifact bytes and hashes remain unchanged;
+- secret redaction remains active in summaries and evidence retrieval;
+- reviewed scripts remain excluded or redacted from public views;
+- exact process cancellation, startup reconciliation, and repository locks are unchanged;
+- errors, safety failures, partial outcomes, and ambiguous mutations survive every projection;
+- cursor and continuation snapshots cannot mix evidence versions;
+- large Hermes responses remain fully retrievable;
+- public summaries cannot be mistaken for authoritative records;
+- old database rows remain readable;
+- connector-visible output contains no duplicate representation.
+
+### Focused test suites
+
+```text
+tests/test_run_public_projections.py
+tests/test_run_store_summary_queries.py
+tests/test_public_result_materialization.py
+tests/test_artifact_query.py
+tests/test_repo_response_budgets.py
+tests/test_conditional_run_polling.py
+tests/test_chat_footprint_acceptance.py
+```
+
+Tests assert that compact SQL never selects JSON columns, run lists do not call `json.loads`, terminal projections are deterministic and source-hash bound, errors and safety states survive projections, continuation reconstructs exact omitted content, explicit full chunking remains valid, legacy rows work, the 837-KB fixture fits within 12 KB, and latency/allocation gates hold.
+
+### Commit sequence
+
+```text
+CF1.0  Add contract, gateway inventory, footprint fixtures, and benchmarks
+CF1.1  Add scalar run-summary store queries and stable cursors
+CF1.2  Add compact run-list, control, polling, and delta-event operations
+CF1.3  Materialize bounded source-hash-bound terminal projections
+CF1.4  Add manifest-secured artifact evidence retrieval
+CF1.5  Add repository response budgets and content-bound continuation
+CF1.6  Bring remaining public gateways under the compact contract
+CF1.7  Complete connector rollout, cross-project acceptance, and documentation
+```
+
+Each commit must be independently reviewable and preserve existing explicit-full behavior.
+
+### Out of scope
+
+The first repair does not include a Chrome extension, ChatGPT DOM modification, automatic deletion of conversations, model-generated handovers, durable-run ownership changes, H2 concurrency redesign, Trading Lab execution changes, protected-evidence reduction, broad transport replacement, or model-generated summaries.
+
+The governing design principle is:
+
+> Preserve everything once; transmit only what is useful now.
+
+CF1 completes only after every exit gate passes and the user explicitly accepts the roadmap review. Until then all later roadmap lanes remain paused.
 
 ## R5 - Absolute Resource Enforcement
 
@@ -285,11 +581,13 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## H2 - Shared Multi-Session Hermes Service
 
-Status: **active at H2.2 by explicit user override on 2026-07-20; Trading Lab may continue concurrently under the existing repository-lock and durable-run rules**.
+Status: **paused after H2.2; CF1 is the sole active roadmap lane**.
 
-The activation is driven by an immediate production-workflow requirement: Google Search Console is configured for the Andiya SEO workflow, but the H1 one-request companion path pays the full Hermes and MCP startup cost on every call. Live handshake run `20260720T191848Z_executable_profile_4c2eff11` measured **23.501 seconds** before returning under registry generation `85` and effective schema hash `8ccc02adee339326497a10953c749d73ae5eade6a92f41c21bb59cde573cd987`, with `model_runtime_initialized: false`, empty protected stderr, and no repository lock. This proves that H1 concurrency alone does not solve repeated Search Console latency; H2 must prove warm process reuse and materially lower repeated-call startup overhead.
+The production motivation remains valid: the H1 one-request companion path pays the full Hermes and MCP startup cost on every call, and live handshake run `20260720T191848Z_executable_profile_4c2eff11` measured **23.501 seconds** under registry generation `85` and effective schema hash `8ccc02adee339326497a10953c749d73ae5eade6a92f41c21bb59cde573cd987`, with `model_runtime_initialized: false`, empty protected stderr, and no repository lock.
 
-H2.1 established a generation-scoped service-runtime foundation with deterministic isolation, concurrency, cancellation, and registry-transition tests. H2.2 adds a process-identity-verified persistent stdio worker that launches the existing multi-request companion once, reuses it for bound requests, bounds stderr evidence, and terminates only the process that owns an exact cancelled request. Focused run `20260720T204859Z_executable_profile_907209be` passed `21` process, service, client, and protocol tests plus Python compilation and `git diff --check`. Live run `20260720T205034Z_executable_profile_5aa2fc68` then launched pinned Hermes in **37.152 seconds** and served two schema-bound `searchconsole` catalog searches through the same verified PID `34824` in **0.004 seconds** and **0.003 seconds**, returning five results each with `model_runtime_initialized: false` and empty protected stderr. The observed registry generation was `85` and the live effective schema hash was `467d7969a09e309505aa66560c61e0b27e38c51e659f35f04e00e5517ea459d4`. H2 remains incomplete: durable service supervision, worker replacement, restart adoption, public gateway routing, explicit H1 fallback, five-live-session acceptance, and a real Search Console API call through the shared path are still required.
+H2.1 established the generation-scoped service-runtime foundation. H2.2 added a process-identity-verified persistent stdio worker, exact request cancellation, bounded stderr evidence, and live warm-process reuse: focused run `20260720T204859Z_executable_profile_907209be` passed `21` tests plus compilation and `git diff --check`; live run `20260720T205034Z_executable_profile_5aa2fc68` launched pinned Hermes in **37.152 seconds** and served two bound `searchconsole` searches through verified PID `34824` in **0.004 seconds** and **0.003 seconds**, with no model runtime and empty protected stderr. The observed registry generation was `85` and schema hash was `467d7969a09e309505aa66560c61e0b27e38c51e659f35f04e00e5517ea459d4`.
+
+This work is preserved as an isolated building block only. H2 remains incomplete: durable service supervision, worker replacement, restart adoption, public gateway routing, explicit H1 fallback, five-live-session acceptance, and a real Search Console API call through the shared path are still required. No further lifecycle, shared-service, gateway, adoption, or live H2 work may proceed until CF1 is complete and H2 is explicitly reactivated.
 
 The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a CodexBridge repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
 
@@ -322,7 +620,7 @@ Serialize only the resource that can actually conflict:
 - Two unrelated providers can run concurrently, while two mutations against the same external resource are serialized or safely reconciled.
 - Service restart adoption, health recovery, output bounds, protected evidence, and fallback to the one-request companion are demonstrated under live acceptance.
 
-The earlier requirement to defer H2 until after Trading Lab and a whole-Bridge reliability audit is superseded by the explicit 2026-07-20 user decision above. Trading Lab remains legitimate concurrent work and must not be stopped, overwritten, raced, or deprived of its repository lock; H2 batches must refresh HEAD, active and queued durable runs, and repository locks before every write or validation, then regenerate previews against the latest HEAD. The H2 acceptance criteria remain unchanged: no completion claim is allowed until persistent process reuse, five-session isolation, cancellation isolation, atomic registry reload, deterministic restart/adoption, explicit H1 fallback, and read-only Search Console acceptance are demonstrated with live evidence.
+The 2026-07-20 concurrent H2/Trading decision is superseded by the CF1 priority decision. H2 and Trading Lab are both paused implementation lanes. Their completed work and acceptance criteria remain preserved, but neither may resume until CF1 passes and the user explicitly selects the next lane. Future H2 batches must still refresh HEAD, active and queued durable runs, and repository locks before every write or validation and must regenerate previews against the latest HEAD. No H2 completion claim is allowed until persistent process reuse, five-session isolation, cancellation isolation, atomic registry reload, deterministic restart/adoption, explicit H1 fallback, and read-only Search Console acceptance are demonstrated with live evidence.
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
@@ -344,7 +642,7 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - CodexBridge Trading Lab
 
-Status: **active at TL5; TL0 through TL4 accepted on 2026-07-20**.
+Status: **paused at TL5 while CF1 is the sole active roadmap lane; TL0 through TL4 accepted on 2026-07-20**.
 
 This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). TL1 through TL4 have completed their deterministic acceptance gates. Trading development remains demo/internal-paper only; live-money execution is unavailable and out of scope.
 
@@ -832,7 +1130,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The immediate Trading Lab gate is TL5: implement the deterministic durable supervisor that opens eligible virtual positions from immutable signals, watches honest bid/ask prices, resolves exactly one stop-loss or take-profit outcome, recovers open work after restart, and records `AMBIGUOUS_DATA` whenever reliable tick ordering cannot determine which boundary was reached first.
+The next preserved Trading Lab gate is TL5: implement the deterministic durable supervisor that opens eligible virtual positions from immutable signals, watches honest bid/ask prices, resolves exactly one stop-loss or take-profit outcome, recovers open work after restart, and records `AMBIGUOUS_DATA` whenever reliable tick ordering cannot determine which boundary was reached first. TL5 is not active and must not resume until CF1 is complete and the user explicitly reactivates Trading Lab.
 
 ## Roadmap V3 Promotion Rules
 

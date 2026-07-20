@@ -32,18 +32,24 @@ Future Codex sessions must inspect the repository before assuming any roadmap fe
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: R5, Hermes Tool Runtime, and Operational Pilot
+## Immediate Priority: CF1 Chat Footprint and Progressive Disclosure
 
-The durability foundation, unrestricted and parallel local PowerShell, permissive-only cleanup, managed transfer, durable remote ownership, and optional remote PowerShell are complete.
+The durability foundation, unrestricted and parallel local PowerShell, permissive-only cleanup, managed transfer, durable remote ownership, optional remote PowerShell, H1 Hermes gateway, and the isolated H2 persistent-worker foundation are complete. H2.1 and H2.2 are preserved through current HEAD `e0e2132`.
+
+All roadmap implementation is now intentionally paused except CF1. CF1 is a presentation-and-retrieval-plane repair over the existing durable execution core. It must not change worker ownership, leases, repository locks, cancellation, restart reconciliation, terminal publication, protected evidence, H2 concurrency, or Trading Lab execution semantics.
 
 The active sequence is:
 
-1. complete the already-scoped R5 acceptance boundary;
-2. add a ChatGPT-controlled Hermes tool runtime without a second model-agent loop;
-3. freeze architectural expansion and exercise the system on real projects;
-4. derive the next roadmap from operational evidence.
+1. define and benchmark the end-to-end CF1 contract before changing public behavior;
+2. add scalar SQL-backed run summaries and compact control polling;
+3. materialize bounded terminal projections without changing authoritative results;
+4. add manifest-secured exact evidence retrieval;
+5. add repository progressive disclosure and stable continuation;
+6. bring every remaining public gateway under the unsolicited-response budget;
+7. complete connector-visible and cross-project acceptance;
+8. review the evidence and explicitly decide which paused roadmap lane resumes next.
 
-Do not resume the older broad R6, R7, or P2 sequence automatically. Implement only work explicitly selected from active `PLANS.md`.
+Do not resume H2, TL5, SSH expansion, reliability/autonomy work, or any other roadmap batch until CF1 is complete and the active `PLANS.md` explicitly reactivates that lane.
 
 Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. CodexBridge does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
 
@@ -265,22 +271,13 @@ Avoid relying only on human-readable logs.
 
 This list is directional, not proof that a feature exists:
 
-0. Durable Execution Recovery and Ownership Gate
-1. Local Agent Core
-2. Universal Tool Runner
-3. Local Model Adapter
-4. Codex Escalation Router
-5. Project Memory Store
-6. Autonomy Policy Engine
-7. Supervisor Upgrade
-8. Unified Durable Job Manager
-9. Workflow Orchestrator Hardening
-10. PulseSender Return Loop Hardening
-11. Optional Local Coding
-12. Minimal Dashboard
-13. Optional ChatGPT-native live status component
+0. CF1 Chat Footprint and Progressive Disclosure
+1. Explicit post-CF1 roadmap review and lane reactivation
+2. Paused H2 shared Hermes service work
+3. Paused TL5 Trading Lab durable supervisor work
+4. Remaining reliability, autonomy, SSH, local-agent, workflow, PulseSender, optional-coding, dashboard, and UI work
 
-Do not begin roadmap items 11-13 until item 0 is complete and validated.
+Only item 0 is active. Do not implement or validate later roadmap items until CF1 has passed its connector-visible size, evidence-recoverability, correctness, and performance gates and the user explicitly resumes another lane.
 
 ## Roadmap Documentation Discipline
 
