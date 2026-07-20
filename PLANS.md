@@ -78,6 +78,7 @@ Collect operational evidence before prescribing broad fixes for these observatio
 3. Implement the smallest durable ChatGPT-to-Hermes tool path satisfying the accepted architecture.
 4. Freeze architectural expansion and exercise the combined system on representative real projects.
 5. Build Roadmap V3 from observed frequency, severity, recovery cost, and violated invariants.
+6. After the current OP1 observation period is reviewed, begin the separate Trading Lab roadmap at TL0; do not interleave it with H1 acceptance or OP1 evidence collection.
 
 Do not resume the older broad R6, R7, or P2 sequence automatically. Only supporting work required by R5, Hermes integration, or a proven pilot defect is active.
 
@@ -300,6 +301,427 @@ After H1, freeze architectural expansion and exercise:
 Create a separate pilot evidence log. Each entry records timestamp, project, expected outcome, HEAD/build identity, relevant run/tool identities, exact failure, lost or duplicated work, recovery, attribution, reproduction frequency, and artifacts.
 
 Record normal friction before redesign. Repair immediately only for security violations, destructive targeting, lost or duplicated work, unrecoverable corruption, or a blocker preventing continuation.
+
+## TL - CodexBridge Trading Lab
+
+Status: **planned; blocked on completion and review of the current OP1 observation period**.
+
+This is a separate product roadmap. It must not be inserted into the ongoing Hermes-gateway acceptance work or used to justify further architectural expansion before OP1 evidence is reviewed.
+
+### Core architecture
+
+Do not build broker connectivity from scratch.
+
+```text
+Alpari
+  <->
+MetaTrader 5 terminal
+  <->
+Official MetaTrader5 Python integration
+  <->
+CodexBridge Trading Lab
+  <->
+ChatGPT
+```
+
+The official MetaTrader 5 Python package is the broker-platform boundary for account details, symbol specifications, live bid/ask ticks, historical candles and ticks, active orders and positions, margin and profit calculations, order validation, order submission with one stop-loss and one take-profit, and completed-order/deal history.
+
+Python communicates locally with a running MT5 terminal rather than a cloud REST API. The terminal is therefore a supervised Windows runtime dependency with explicit health, reconnect, and stale-data handling.
+
+### Relationship with Hermes
+
+Do not force MT5 through Hermes merely because Hermes exposes tools.
+
+```text
+CodexBridge Trading domain
+  |- MT5 adapter
+  |    prices, candles, account, orders, positions
+  |- Trading Lab
+  |    signals, threshold portfolios, simulation, results
+  `- Hermes gateway
+       news, economic events, and optional external research tools
+```
+
+CodexBridge owns durable trading state, account and terminal identity, signals, portfolios, positions, orders, reconciliation, and lifecycle evidence. Hermes may supply external context, but it must not own balances, positions, orders, or trade lifecycle.
+
+### Frozen v1 experiment
+
+```yaml
+broker: Alpari
+platform: MetaTrader 5
+broker_environment: practice/demo
+
+instrument: discovered from the connected Alpari MT5 terminal
+analysis_timeframe: 4H
+analysis_frequency: once per hour
+
+decisions:
+  - LONG
+  - SHORT
+  - NO_TRADE
+
+confidence_range: 50-99
+
+virtual_portfolios:
+  thresholds: T50 through T99
+  starting_equity: 100 USD each
+  allocation_per_trade: 1 USD normalized virtual notional
+  maximum_combined_allocation: 20 percent of equity
+
+trade_structure:
+  entry: one market entry
+  stop_loss: one fixed price
+  take_profit: one fixed price
+
+excluded:
+  - trailing stops
+  - multiple take-profits
+  - partial exits
+  - scaling in or out
+  - fixed holding deadline
+  - confidence-based position sizing
+  - leverage optimisation
+  - real-money execution
+```
+
+For v1, remove entry zones and pending-order logic. When the current executable price is unsuitable, ChatGPT returns `NO_TRADE`. Pending limit and stop entries are a later leaf after the market-entry trunk is stable.
+
+### Exact signal contract
+
+```yaml
+signal_id:
+created_at_utc:
+broker: alpari
+symbol:
+analysis_timeframe: 4H
+
+decision: LONG | SHORT | NO_TRADE
+confidence: 50-99 | null
+
+bid:
+ask:
+spread:
+market_data_timestamp:
+latest_completed_4h_candle:
+developing_4h_candle:
+
+entry_type: MARKET
+entry_reference_price:
+stop_loss:
+take_profit:
+risk_reward:
+
+reason:
+news_context:
+market_snapshot_id:
+```
+
+Validation is deliberately narrow:
+
+- `LONG`: `stop_loss < executable entry < take_profit`;
+- `SHORT`: `take_profit < executable entry < stop_loss`;
+- the bridge calculates risk/reward but does not impose an arbitrary minimum or relocate ChatGPT's stop-loss or take-profit;
+- `NO_TRADE` has no executable entry, stop-loss, take-profit, or confidence-driven allocation.
+
+### Confidence behaviour
+
+One signal receives one score. For a `SHORT` signal with confidence `73`, portfolios `T50` through `T73` are eligible and `T74` through `T99` do not trade.
+
+Each threshold portfolio is independent. A portfolio already holding the symbol skips the signal while another eligible portfolio may still enter.
+
+### Honest execution-price rules
+
+The simulator must not use midpoint prices.
+
+- open long at ask;
+- close long at bid;
+- open short at bid;
+- close short at ask.
+
+This naturally includes broker spread.
+
+A trade ends only when its take-profit or stop-loss is reached. The 4H interval is the analysis candle timeframe, not a four-hour holding deadline.
+
+After connectivity loss, CodexBridge retrieves missed ticks where available. If both stop-loss and take-profit appear inside the same historical candle and reliable tick ordering cannot be recovered, the outcome is `AMBIGUOUS_DATA`; the system must never choose the favourable result silently.
+
+### Main components
+
+#### 1. MT5 provider adapter
+
+Responsibilities:
+
+- connect and authenticate to the local MT5 terminal;
+- discover broker-specific symbols rather than hardcoding names such as `BTCUSD`;
+- read complete symbol specifications;
+- retrieve fresh bid/ask ticks;
+- retrieve completed and developing 4H candles;
+- retrieve historical ticks after downtime;
+- inspect account, connection, and terminal health;
+- later, submit demo orders and inspect positions, orders, deals, and history.
+
+#### 2. Immutable market-packet builder
+
+Every hourly analysis receives one immutable packet:
+
+```yaml
+packet_id:
+provider:
+server:
+account_environment: demo
+symbol:
+created_at_utc:
+
+symbol_specification:
+  digits:
+  tick_size:
+  tick_value:
+  contract_size:
+  minimum_volume:
+  volume_step:
+  margin_information:
+
+latest_tick:
+  bid:
+  ask:
+  timestamp:
+
+completed_4h_candles: 100-200
+developing_4h_candle:
+data_age:
+warnings:
+content_hash:
+```
+
+The packet builder also produces a simple candlestick PNG from exactly the same data. Structured values remain authoritative; the chart is interpretive assistance only.
+
+#### 3. Immutable signal journal
+
+After submission, direction, confidence, entry, stop-loss, take-profit, reason, market snapshot, and timestamp cannot change. A mistaken signal may be marked invalid before execution, but it must never be edited after later market movement becomes visible.
+
+#### 4. Threshold portfolio engine
+
+Maintain 50 independent portfolios, `T50` through `T99`, each storing:
+
+- equity;
+- available allocation;
+- open position;
+- completed trades;
+- net P&L;
+- maximum drawdown.
+
+The 1 USD experiment allocation means normalized virtual notional at 1x exposure. It is not an MT5 lot and not leveraged broker margin, preventing broker minimum volume and leverage from contaminating confidence-threshold testing.
+
+#### 5. Deterministic trade supervisor
+
+This component performs no analysis. It only:
+
+- watches bid/ask;
+- opens eligible virtual positions;
+- detects the first stop-loss or take-profit event;
+- calculates P&L and recorded costs;
+- updates threshold portfolios;
+- recovers open trades after service restart;
+- resolves every position exactly once.
+
+It must reuse CodexBridge durable workers, leases, heartbeats, protected evidence, process ownership, cancellation, and restart reconciliation rather than creating another durability subsystem.
+
+#### 6. Evaluation engine
+
+Report per threshold:
+
+- signal count;
+- entered-trade count;
+- win rate;
+- net P&L;
+- average return;
+- profit factor;
+- maximum drawdown;
+- longest losing streak;
+- average stop-loss distance;
+- average take-profit distance;
+- average risk/reward;
+- monthly results;
+- results by confidence band.
+
+Do not select the single highest-profit threshold. Prefer positive performance with enough trades, acceptable drawdown, stability across neighbouring thresholds, and persistence across genuinely fresh periods.
+
+### CodexBridge tool surface
+
+Read tools:
+
+- `trading_provider_health`;
+- `trading_list_symbols`;
+- `trading_symbol_specification`;
+- `trading_market_packet`;
+- `trading_open_virtual_positions`;
+- `trading_signal_get`;
+- `trading_signal_list`;
+- `trading_threshold_report`;
+- `trading_portfolio_status`.
+
+Write tools:
+
+- `trading_signal_submit`;
+- `trading_signal_cancel_before_entry`;
+- `trading_lab_start`;
+- `trading_lab_stop`;
+- `trading_lab_reset`.
+
+Separately gated demo-execution tools may later include:
+
+- `trading_demo_order_submit`;
+- `trading_demo_order_close`;
+- `trading_demo_order_cancel`;
+- `trading_demo_reconcile`.
+
+There is no live-order tool in v1.
+
+### Safety model
+
+Trading environment and autonomy remain separate axes. The current CodexBridge deployment remains permissive-only; any future restoration of additional autonomy profiles must never change trading execution mode implicitly.
+
+```yaml
+execution_mode:
+  - internal_paper
+  - broker_demo
+  - live
+```
+
+Selecting `permissive` must never promote `internal_paper` or `broker_demo` to `live`.
+
+Hard controls:
+
+- credentials never appear in logs, events, summaries, or public tool output;
+- demo and live accounts use separate configuration and identity;
+- global trading kill switch;
+- idempotency key on every signal and order;
+- one active position per symbol per threshold;
+- 20 percent combined allocation cap;
+- duplicate-order detection;
+- broker-ticket reconciliation;
+- stale-data rejection;
+- disconnected-terminal rejection;
+- explicit environment identity on every packet, signal, position, and order;
+- no automatic promotion to live execution.
+
+### Roadmap
+
+#### TL0 - Alpari/MT5 acceptance spike
+
+Before repository implementation:
+
+- create an Alpari MT5 practice account;
+- install and log into MT5;
+- discover the exact BTC symbol;
+- read its complete contract specification;
+- confirm fresh bid and ask;
+- retrieve completed and developing 4H candles;
+- confirm both buy and sell are supported;
+- run `order_check` for buy and sell with one stop-loss and one take-profit;
+- place the smallest demo buy and sell;
+- confirm account, position, order, deal, and history retrieval;
+- restart MT5 and test reconnection.
+
+Gate: a written evidence bundle containing symbol name, minimum volume, contract size, spread, account mode, order-check and demo-order results, reconnection evidence, and screenshots or protected logs.
+
+No CodexBridge trading source file may be created before TL0 passes.
+
+#### TL1 - Read-only MT5 adapter
+
+Build provider connection, health, symbol discovery, specification, ticks, candles, and historical tick recovery.
+
+Gate: deterministic tests plus a live demo-account smoke test.
+
+#### TL2 - Market packet and chart
+
+Normalize broker data and produce immutable hourly packets and a chart from identical source data.
+
+Gate: completed candles are never confused with the developing candle; timestamp, hash, and freshness tests pass.
+
+#### TL3 - Signal journal
+
+Implement the exact `LONG | SHORT | NO_TRADE` contract.
+
+Gate: signals are immutable, validated, idempotent, and tied to a market-packet hash.
+
+#### TL4 - Threshold simulator
+
+Create `T50` through `T99` and normalized 1 USD trades.
+
+Gate: one confidence-73 signal enters exactly `T50` through `T73` when all are free.
+
+#### TL5 - Durable supervisor
+
+Track bid/ask and resolve exactly one stop-loss or one take-profit event.
+
+Gate: restart during an open trade, recover it, and resolve it exactly once; ambiguous candle ordering becomes `AMBIGUOUS_DATA`.
+
+#### TL6 - Reports and calibration
+
+Add threshold, confidence, drawdown, stability, and fresh-period reports.
+
+Gate: reports reproduce exactly from the append-only event journal.
+
+#### TL7 - Alpari demo mirror
+
+Mirror one selected reference threshold into the actual demo account while retaining all 50 virtual portfolios.
+
+Gate: internal and broker fills, spreads, tickets, and outcomes reconcile without duplicate orders.
+
+#### TL8 - Hourly orchestration
+
+Only after manual operation is trustworthy:
+
+```text
+hourly market packet
+  -> ChatGPT analysis
+  -> immutable signal
+  -> threshold decisions
+  -> deterministic monitoring
+```
+
+No forced trade is generated when the signal is `NO_TRADE`, market data is stale, the terminal is disconnected, or validation fails.
+
+#### TL9 - Live-readiness review
+
+There is no automatic promotion.
+
+Review:
+
+- broker verification and residency requirements;
+- deposit and withdrawal path;
+- minimum practical position;
+- fees, spread, commission, and swaps;
+- broker reliability;
+- regulatory and tax implications;
+- performance on a genuinely fresh paper sample;
+- operational recovery evidence;
+- whether a live tool should exist at all.
+
+Any live-execution implementation requires a new explicit roadmap decision, separate configuration, human approval boundaries, and independent acceptance evidence.
+
+### Build/reuse boundary
+
+Reuse:
+
+- MT5 terminal;
+- official MetaTrader5 Python package;
+- Alpari price feed and demo execution;
+- CodexBridge durability, policy, artifact, cancellation, and reconciliation infrastructure;
+- Hermes external research tools.
+
+Build:
+
+- provider-neutral trading domain;
+- immutable market packets and signal journal;
+- `T50` through `T99` virtual portfolios;
+- deterministic stop-loss/take-profit supervisor;
+- confidence calibration and reporting;
+- demo-order reconciliation.
+
+Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
+
+The immediate Trading Lab gate, once OP1 is complete, is TL0: create the MT5 practice account and inspect the actual Alpari BTC contract before changing repository source code.
 
 ## Roadmap V3 Promotion Rules
 
