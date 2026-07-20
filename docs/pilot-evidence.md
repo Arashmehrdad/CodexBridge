@@ -81,3 +81,18 @@ Each entry records the timestamp, project and expected outcome, repository or bu
 - **Recovery and attribution:** no source-code repair, service restart, tunnel restart, or repository cleanup was required. The problem was an unintentionally disabled live capability flag.
 - **Reproduction frequency:** two prior identical rejections followed by one successful public concurrent group after the configuration repair.
 - **Disposition:** resolved. Parallel execution is available again. Continue OP1 collection across representative workloads; this configuration repair does not itself justify Roadmap V3 architectural expansion.
+
+## 2026-07-20 02:15 Europe/London — Representative parallel Hermes validation
+
+- **Project:** CodexBridge.
+- **Expected outcome:** use the repaired public `powershell_group` capability for a real concurrent validation workload covering the Hermes protocol and durable companion client.
+- **Repository identity:** branch `feature/domain-tool-gateway-migration`; HEAD `d2de33ab16148dbe4ffc383080e9e6e0ab346edc`; clean worktree; no running or queued durable operations and no repository locks before launch.
+- **Live capability identity:** server build `b414c5c7261fa876dc22147fb34bdba5ee8852cd8e8655354dbb471320ed14bd`; schema `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
+- **Initial parallel operation:** group `20260720T011456Z_powershell_group_7495419b` launched `tests/test_hermes_companion_protocol.py` and `tests/test_hermes_companion_client.py` with requested concurrency `2`, repository lock policy `none`, and continue-all failure policy.
+- **Initial result:** protocol child `20260720T011456Z_executable_profile_6a14e813` completed with `5 passed in 2.25s`. Client child `20260720T011456Z_executable_profile_56a0145e` reached pytest but failed fixture setup with `PermissionError: [WinError 5] Access is denied` on the shared global path `C:\Users\arash\AppData\Local\Temp\pytest-of-arash`; one test passed and five errored. The two child start times overlapped, proving the repaired group capability executed concurrently.
+- **Recovery:** without deleting or modifying the inaccessible global temp directory, reran both tests through group `20260720T011531Z_powershell_group_a2161679` using separate repository-owned `--basetemp` paths under ignored `runs`.
+- **Verified result:** protocol child `20260720T011531Z_executable_profile_f70034d7` completed with `5 passed in 1.18s`; client child `20260720T011531Z_executable_profile_3d9132c4` completed with `6 passed in 1.17s`; both exited `0`, and the aggregate published `status_counts: {completed: 2}` with two terminal children.
+- **Lost or duplicated work:** none. Each accepted child was claimed and published once. The failed first client run made no tracked repository change, and the retry used distinct idempotency keys and isolated temp roots.
+- **Attribution:** parallel execution itself is functioning. The first-group failure is the previously observed Windows pytest shared-temp permission friction, not a Hermes, test, or durable-group defect. Repository-owned isolated basetemps provide a safe operational workaround.
+- **Reproduction frequency:** one failure on the shared global pytest temp root followed by one fully successful isolated parallel retry.
+- **Disposition:** successful representative parallel pilot evidence. Continue OP1 across separate sessions and ordinary Hermes-backed work; do not promote the temp-path observation to a repair program unless it repeatedly blocks representative validation despite the isolated-basetemp path.
