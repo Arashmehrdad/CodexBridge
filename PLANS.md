@@ -340,9 +340,9 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - CodexBridge Trading Lab
 
-Status: **active at TL3; TL0 through TL2 accepted on 2026-07-20**.
+Status: **active at TL5; TL0 through TL4 accepted on 2026-07-20**.
 
-This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). Trading source creation is now permitted only for the TL1 read-only adapter. Live-money execution remains unavailable and out of scope.
+This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). TL1 through TL4 have completed their deterministic acceptance gates. Trading development remains demo/internal-paper only; live-money execution is unavailable and out of scope.
 
 ### Core architecture
 
@@ -742,9 +742,20 @@ Gate: passed. TL4 is now active.
 
 #### TL4 - Threshold simulator
 
-Create `T50` through `T99` and normalized 1 USD trades.
+Status: **complete; accepted on 2026-07-20**.
 
-Gate: initialize all 50 portfolios as independent clones of the captured MT5 equity and currency, then prove one confidence-73 signal enters exactly `T50` through `T73` when all are free. Eligible and ineligible portfolios must diverge independently without sharing balance or being resynchronised to subsequent broker-account equity. Simulated deposit, withdrawal, account reset, and intentional baseline change events must start a new experiment cohort while preserving the prior cohort unchanged.
+The frozen threshold engine creates exactly 50 independent portfolios, `T50` through `T99`, from one captured demo-account equity and currency baseline. Each portfolio receives its own immutable record and evolves independently. Trade routing uses a normalized `1.00 USD` stake at 1x virtual exposure, skips busy portfolios without blocking eligible free neighbours, treats `NO_TRADE` as a no-op, and is idempotent for repeated signal IDs.
+
+Confidence `73` enters exactly `T50` through `T73` when all are free. Deposit, withdrawal, account reset, and intentional baseline-change transitions create new immutable experiment cohorts linked to the prior cohort while preserving all earlier balances, open-signal state, and cohort identity. Initialization from provider health fails closed unless the provider is connected, initialized, demo-only, and exposes equity.
+
+Acceptance evidence:
+
+- commits `2577d3e`, `cbf6995`, and `159e826` added the threshold simulator and focused regressions;
+- focused threshold run `20260720T183936Z_project_command_a18926aa`: `6 passed`;
+- adjacent immutable signal-journal run `20260720T184007Z_project_command_6ef7444e`: `16 passed`;
+- both runs used repository-owned isolated pytest basetemps and changed no files.
+
+Gate: passed. TL5 is now active.
 
 #### TL5 - Durable supervisor
 
@@ -817,7 +828,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The immediate Trading Lab gate is TL4: implement independent `T50` through `T99` threshold-portfolio cohorts initialized from one captured demo-equity baseline, with normalized 1 USD trades and explicit experiment resets.
+The immediate Trading Lab gate is TL5: implement the deterministic durable supervisor that opens eligible virtual positions from immutable signals, watches honest bid/ask prices, resolves exactly one stop-loss or take-profit outcome, recovers open work after restart, and records `AMBIGUOUS_DATA` whenever reliable tick ordering cannot determine which boundary was reached first.
 
 ## Roadmap V3 Promotion Rules
 
