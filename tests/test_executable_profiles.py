@@ -169,6 +169,31 @@ def test_build_local_executable_run_request_preserves_exact_argv_and_binary_inpu
     )
 
 
+def test_build_local_executable_run_request_encodes_text_for_byte_profile(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"binary")
+    profile = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        stdin_mode="bytes",
+        unrestricted_argv=True,
+    )
+
+    request = build_local_executable_run_request(
+        make_config(tmp_path, profile),
+        "powershell",
+        ["-Command", "[Console]::Out.Write([Console]::In.ReadToEnd())"],
+        stdin_text="schema-text-stdin-probe",
+    )
+
+    assert request["stdin_mode"] == "bytes"
+    assert request["stdin_text"] is None
+    assert request["stdin_base64"] == "c2NoZW1hLXRleHQtc3RkaW4tcHJvYmU="
+
+
 def test_build_local_executable_run_request_rejects_policy_mismatches(
     tmp_path: Path,
 ) -> None:

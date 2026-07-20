@@ -88,6 +88,24 @@ def test_inspect_status_timeout_is_structured(monkeypatch, repo: Path) -> None:
     assert "Retry" in status["recommended_action"]
 
 
+def test_git_diff_normalizes_missing_captured_streams(monkeypatch, repo: Path) -> None:
+    def missing_streams(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=None,
+            stderr=None,
+        )
+
+    monkeypatch.setattr(git_tools.subprocess, "run", missing_streams)
+
+    result = git_tools.git_diff(repo)
+
+    assert result["ok"] is True
+    assert result["diff"] == ""
+    assert result["error"] == ""
+
+
 def test_selected_file_commit_commits_only_selected_files(repo: Path) -> None:
     (repo / "one.txt").write_text("one\n", encoding="utf-8")
     (repo / "two.txt").write_text("two\n", encoding="utf-8")

@@ -149,8 +149,14 @@ def build_local_executable_run_request(
         raise ValueError("Executable argv values must not contain NUL")
     if stdin_text is not None and stdin_bytes is not None:
         raise ValueError("Specify either stdin_text or stdin_bytes, not both")
-    if stdin_text is not None and profile.stdin_mode != "text":
-        raise ValueError("Executable profile is not configured for text stdin")
+    selected_stdin_text = stdin_text
+    selected_stdin_bytes = stdin_bytes
+    if stdin_text is not None:
+        if profile.stdin_mode == "bytes":
+            selected_stdin_text = None
+            selected_stdin_bytes = stdin_text.encode("utf-8")
+        elif profile.stdin_mode != "text":
+            raise ValueError("Executable profile is not configured for text stdin")
     if stdin_bytes is not None and profile.stdin_mode != "bytes":
         raise ValueError("Executable profile is not configured for binary stdin")
     selected_timeout = profile.timeout_seconds if timeout_seconds is None else timeout_seconds
@@ -168,8 +174,12 @@ def build_local_executable_run_request(
         "environment": _resolve_environment(profile, environment),
         "inherit_environment": profile.environment_policy in {"inherit", "arbitrary"},
         "stdin_mode": profile.stdin_mode,
-        "stdin_text": stdin_text,
-        "stdin_base64": b64encode(stdin_bytes).decode("ascii") if stdin_bytes is not None else "",
+        "stdin_text": selected_stdin_text,
+        "stdin_base64": (
+            b64encode(selected_stdin_bytes).decode("ascii")
+            if selected_stdin_bytes is not None
+            else ""
+        ),
         "stdout_mode": profile.stdout_mode,
         "stderr_mode": profile.stderr_mode,
         "timeout_seconds": selected_timeout,

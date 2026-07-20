@@ -109,6 +109,13 @@ def _run_git(
         check=False,
         timeout=timeout_seconds,
     )
+    if result.stdout is None or result.stderr is None:
+        result = subprocess.CompletedProcess(
+            args=result.args,
+            returncode=result.returncode,
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+        )
     if check and result.returncode != 0:
         raise GitCommandError(
             {
