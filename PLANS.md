@@ -364,9 +364,12 @@ confidence_range: 50-99
 
 virtual_portfolios:
   thresholds: T50 through T99
-  starting_equity: 100 USD each
+  baseline_source: actual Alpari MT5 account equity and currency captured at experiment start
+  example_baseline: 1000 USD for the current practice account
+  initialization: each threshold portfolio is an independent clone of the captured baseline
   allocation_per_trade: 1 USD normalized virtual notional
-  maximum_combined_allocation: 20 percent of equity
+  maximum_combined_allocation: 20 percent of each portfolio's own current equity
+  cohort_boundary: deposit, withdrawal, account reset, or intentional baseline change starts a new experiment cohort
 
 trade_structure:
   entry: one market entry
@@ -502,14 +505,20 @@ After submission, direction, confidence, entry, stop-loss, take-profit, reason, 
 
 Maintain 50 independent portfolios, `T50` through `T99`, each storing:
 
-- equity;
+- experiment cohort identity;
+- baseline equity and currency captured from the Alpari MT5 account at experiment start;
+- current equity;
 - available allocation;
 - open position;
 - completed trades;
 - net P&L;
 - maximum drawdown.
 
-The 1 USD experiment allocation means normalized virtual notional at 1x exposure. It is not an MT5 lot and not leveraged broker margin, preventing broker minimum volume and leverage from contaminating confidence-threshold testing.
+Every threshold portfolio begins as an independent clone of the same captured account equity and currency. For the current practice account, the example baseline is 1,000 USD. The portfolios do not share or divide the broker balance. After initialization, each evolves independently from its own trades and must not be continuously resynchronised to the broker account.
+
+A deposit, withdrawal, account reset, or intentional baseline change closes the current baseline definition and starts a new experiment cohort; it must not rewrite the history or current equity of an existing cohort.
+
+The 1 USD experiment allocation means normalized virtual notional at 1x exposure. It is not an MT5 lot and not leveraged broker margin, preventing broker minimum volume and leverage from contaminating confidence-threshold testing. Maximum combined active allocation remains capped at 20 percent of each portfolio's own current equity.
 
 #### 5. Deterministic trade supervisor
 
@@ -620,9 +629,10 @@ Before repository implementation:
 - run `order_check` for buy and sell with one stop-loss and one take-profit;
 - place the smallest demo buy and sell;
 - confirm account, position, order, deal, and history retrieval;
+- capture the practice account's actual equity and currency as the candidate experiment baseline;
 - restart MT5 and test reconnection.
 
-Gate: a written evidence bundle containing symbol name, minimum volume, contract size, spread, account mode, order-check and demo-order results, reconnection evidence, and screenshots or protected logs.
+Gate: a written evidence bundle containing symbol name, minimum volume, contract size, spread, account mode, captured account equity and currency, order-check and demo-order results, reconnection evidence, and screenshots or protected logs. The evidence must show that the baseline is read from MT5 rather than hard-coded; the current practice-account example is 1,000 USD.
 
 No CodexBridge trading source file may be created before TL0 passes.
 
@@ -648,7 +658,7 @@ Gate: signals are immutable, validated, idempotent, and tied to a market-packet 
 
 Create `T50` through `T99` and normalized 1 USD trades.
 
-Gate: one confidence-73 signal enters exactly `T50` through `T73` when all are free.
+Gate: initialize all 50 portfolios as independent clones of the captured MT5 equity and currency, then prove one confidence-73 signal enters exactly `T50` through `T73` when all are free. Eligible and ineligible portfolios must diverge independently without sharing balance or being resynchronised to subsequent broker-account equity. Simulated deposit, withdrawal, account reset, and intentional baseline change events must start a new experiment cohort while preserving the prior cohort unchanged.
 
 #### TL5 - Durable supervisor
 
