@@ -704,6 +704,86 @@ class RunStore:
             "byte_budget": byte_budget,
         }
 
+    def truncate_run_summary_page(
+        self,
+        page: dict[str, Any],
+        returned_count: int,
+        *,
+        repo_name: str | None = None,
+        status: str | None = None,
+        tool: str | None = None,
+        source_cursor: str | None = None,
+        byte_budget: int = DEFAULT_PUBLIC_BYTE_BUDGETS.run_list,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        if isinstance(returned_count, bool) or not isinstance(returned_count, int):
+            raise ValueError("returned_count must be an integer")
+        runs = page.get("runs")
+        if not isinstance(runs, list) or returned_count < 1 or returned_count > len(runs):
+            raise ValueError("returned_count must select a non-empty prefix of the page")
+        byte_budget = self._positive_byte_budget(byte_budget)
+        if page.get("view") != PublicView.SUMMARY.value:
+            raise ValueError("Run summary page view mismatch")
+        if page.get("projection_version") != PUBLIC_PROJECTION_SCHEMA_VERSION:
+            raise ValueError("Run summary page projection version mismatch")
+        if page.get("byte_budget") != byte_budget:
+            raise ValueError("Run summary page byte budget mismatch")
+
+        current = self._compact_now(now)
+        filters = self._normalized_summary_filters(repo_name, status, tool)
+        watermark = page.get("snapshot_watermark")
+        if isinstance(watermark, bool) or not isinstance(watermark, int) or watermark < 0:
+            raise ValueError("Invalid run summary page watermark")
+
+        binding_cursor = source_cursor or page.get("next_cursor")
+        if binding_cursor:
+            binding = self._decode_summary_cursor(
+                str(binding_cursor),
+                filters=filters,
+                byte_budget=byte_budget,
+                now=current,
+            )
+            if int(binding["snapshot_watermark"]) != watermark:
+                raise ValueError("Run summary page watermark mismatch")
+            expires_at = self._scalar_datetime(binding["expires_at_utc"])
+        else:
+            expires_at = current + timedelta(seconds=RUN_SUMMARY_CURSOR_TTL_SECONDS)
+        assert expires_at is not None
+
+        selected = runs[:returned_count]
+        has_more = returned_count < len(runs) or bool(page.get("has_more"))
+        next_cursor: str | None = None
+        if has_more:
+            last = selected[-1]
+            next_cursor = self._encode_summary_cursor(
+                {
+                    "operation": RUN_SUMMARY_CURSOR_OPERATION,
+                    "filters": filters,
+                    "filters_sha256": self._filter_identity(filters),
+                    "ordering": RUN_SUMMARY_ORDERING,
+                    "view": PublicView.SUMMARY.value,
+                    "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+                    "byte_budget": byte_budget,
+                    "snapshot_watermark": watermark,
+                    "final_sort_key": {
+                        "created_at": str(last["created_at"]),
+                        "run_id": str(last["run_id"]),
+                    },
+                    "expires_at_utc": expires_at.isoformat(),
+                }
+            )
+
+        resized = dict(page)
+        resized.update(
+            {
+                "runs": selected,
+                "limit": returned_count,
+                "has_more": has_more,
+                "next_cursor": next_cursor,
+            }
+        )
+        return resized
+
     @staticmethod
     def _normalize_update_values(fields: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(fields)

@@ -2302,6 +2302,30 @@ def get_run_result(run_id: str) -> dict:
     return get_job_manager().get_result(run_id)
 
 
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_summary(run_id: str) -> dict:
+    """Read-only: return a bounded non-authoritative scalar summary for one run."""
+    return get_job_manager().get_run_summary(run_id)
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def list_run_summaries(
+    repo_name: str = "",
+    status: str = "",
+    tool: str = "",
+    limit: int = 10,
+    cursor: str = "",
+) -> dict:
+    """Read-only: return a stable bounded page of scalar run summaries."""
+    return get_job_manager().list_run_summaries(
+        repo_name=repo_name or None,
+        status=status or None,
+        tool=tool or None,
+        limit=limit,
+        cursor=cursor or None,
+    )
+
+
 @_internal_tool(output_schema=RUN_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
     """Read-only: list recent async runs with optional repo/status filters."""
@@ -2324,7 +2348,17 @@ def cancel_run(run_id: str) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_query(request: RunQueryRequest) -> dict:
-    """Read-only gateway for durable run status, output, events, results, lists, and locks."""
+    """Read-only gateway for durable run summaries, status, evidence, lists, and locks."""
+    if request.operation == "summary":
+        return get_run_summary(request.run_id)
+    if request.operation == "summary_list":
+        return list_run_summaries(
+            request.repo_name,
+            request.status,
+            request.tool,
+            request.limit,
+            request.cursor,
+        )
     if request.operation == "status":
         return get_run_status(request.run_id)
     if request.operation == "control":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -39,6 +40,13 @@ from .gateway_models import (
     validate_root_ssh_shell_request,
 )
 from .operation_locks import OperationLockStore
+from .public_projection_contract import (
+    DEFAULT_PUBLIC_BYTE_BUDGETS,
+    NON_AUTHORITATIVE_NOTICE,
+    PUBLIC_PROJECTION_SCHEMA_VERSION,
+    PublicView,
+    truncate_utf8,
+)
 from .parallel_groups import (
     ParallelGroupStore,
     launch_powershell_group,
@@ -59,7 +67,12 @@ from .run_query_chunks import (
     decode_run_reference,
     list_resource_id,
 )
-from .run_store import TERMINAL_STATUSES, RunStore, validate_run_id
+from .run_store import (
+    RUN_SUMMARY_MAX_LIMIT,
+    TERMINAL_STATUSES,
+    RunStore,
+    validate_run_id,
+)
 from .run_publication import publish_run_result
 from .remote_controller_state import (
     build_remote_controller_state_contract,
@@ -72,6 +85,7 @@ from .remote_powershell import (
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
+    redact_secret_values,
     reject_destructive_command,
     validate_repo_relative_path,
     validate_repo_relative_paths,
@@ -138,6 +152,155 @@ def _read_output_tail(path: Path, tail_bytes: int) -> dict:
         "truncated": offset > 0,
         "available": True,
     }
+
+
+RUN_PUBLIC_SUMMARY_FIELDS = (
+    "run_id",
+    "repo_name",
+    "tool",
+    "status",
+    "risk_level",
+    "requires_human",
+    "created_at",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "state_version",
+    "launch_attempts",
+    "recovery_reason",
+    "exit_code",
+    "summary",
+    "error",
+    "safety_failure",
+    "current_phase",
+    "elapsed_seconds",
+    "heartbeat_at",
+    "heartbeat_age_seconds",
+    "worker_stale",
+    "result_publication_status",
+    "result_published_hash",
+    "result_published_at",
+    "result_publication_error",
+)
+RUN_SUMMARY_TEXT_BYTE_LIMITS = {
+    "summary": 2048,
+    "error": 2048,
+    "recovery_reason": 512,
+    "result_publication_error": 512,
+}
+RUN_SUMMARY_LIST_TEXT_BYTE_LIMITS = {
+    "summary": 256,
+    "error": 256,
+    "recovery_reason": 128,
+    "result_publication_error": 128,
+}
+
+
+def _canonical_public_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _project_run_summary(
+    run: dict,
+    *,
+    text_limits: dict[str, int],
+    divisor: int = 1,
+) -> dict:
+    projected = {field: run[field] for field in RUN_PUBLIC_SUMMARY_FIELDS if field in run}
+    truncated_fields: dict[str, dict[str, object]] = {}
+    for field, maximum_bytes in text_limits.items():
+        value = projected.get(field)
+        if value is None:
+            continue
+        safe_value = redact_secret_values(str(value))
+        truncated = truncate_utf8(safe_value, max(0, maximum_bytes // divisor))
+        projected[field] = truncated.text
+        if truncated.truncated:
+            truncated_fields[field] = {
+                "original_bytes": truncated.original_bytes,
+                "returned_bytes": truncated.returned_bytes,
+                "omitted_sha256": truncated.omitted_sha256,
+            }
+    if truncated_fields:
+        projected["truncated_fields"] = truncated_fields
+    return projected
+
+
+def _finalize_compact_projection(payload: dict, byte_budget: int) -> dict:
+    result = dict(payload)
+    result.pop("payload_bytes", None)
+    result["payload_bytes"] = len(_canonical_public_json_bytes(result))
+    if len(_canonical_public_json_bytes(result)) > byte_budget:
+        raise ValueError("Compact run response exceeds its serialized UTF-8 byte budget")
+    return result
+
+
+def _compact_projection_metadata(byte_budget: int) -> dict:
+    return {
+        "view": PublicView.SUMMARY.value,
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
+        "byte_budget": byte_budget,
+    }
+
+
+def _build_run_summary_response(run: dict) -> dict:
+    byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary
+    for divisor in (1, 2, 4, 8, 16, 32, 64, 128, 256, 1024, 4096):
+        payload = {
+            "ok": True,
+            "operation": "summary",
+            "run": _project_run_summary(
+                run,
+                text_limits=RUN_SUMMARY_TEXT_BYTE_LIMITS,
+                divisor=divisor,
+            ),
+            "authoritative_operation": "status",
+            "error": "",
+            **_compact_projection_metadata(byte_budget),
+        }
+        try:
+            return _finalize_compact_projection(payload, byte_budget)
+        except ValueError:
+            continue
+    raise ValueError("Run summary cannot fit its public byte budget")
+
+
+def _build_run_summary_list_response(
+    page: dict,
+    *,
+    requested_limit: int,
+    byte_limited: bool,
+) -> dict:
+    byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_list
+    payload = {
+        "ok": True,
+        "operation": "summary_list",
+        "runs": [
+            _project_run_summary(
+                run,
+                text_limits=RUN_SUMMARY_LIST_TEXT_BYTE_LIMITS,
+            )
+            for run in page["runs"]
+        ],
+        "limit": page["limit"],
+        "requested_limit": requested_limit,
+        "returned_count": len(page["runs"]),
+        "byte_limited": byte_limited,
+        "has_more": page["has_more"],
+        "next_cursor": page["next_cursor"],
+        "ordering": page["ordering"],
+        "authoritative_operation": "list",
+        "error": "",
+        **_compact_projection_metadata(byte_budget),
+    }
+    return _finalize_compact_projection(payload, byte_budget)
 
 
 class JobManager:
@@ -2151,6 +2314,80 @@ class JobManager:
             "tests_run": [],
             "remaining_risks": [],
         }
+
+    def get_run_summary(self, run_id: str) -> dict:
+        try:
+            run = self.store.get_run_summary(run_id)
+        except (ValueError, KeyError) as exc:
+            lookup = self._run_lookup_error(run_id, exc)
+            return _finalize_compact_projection(
+                {
+                    "ok": False,
+                    "operation": "summary",
+                    "run_id": run_id,
+                    "status": lookup["status"],
+                    "error_code": lookup["error_code"],
+                    "error": redact_secret_values(str(exc)),
+                    "authoritative_operation": "status",
+                    **_compact_projection_metadata(
+                        DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary
+                    ),
+                },
+                DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary,
+            )
+        return _build_run_summary_response(run)
+
+    def list_run_summaries(
+        self,
+        repo_name: str | None = None,
+        status: str | None = None,
+        tool: str | None = None,
+        limit: int = 10,
+        cursor: str | None = None,
+    ) -> dict:
+        canonical_repo_name = None
+        if repo_name:
+            canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
+        requested_limit = max(1, min(int(limit), RUN_SUMMARY_MAX_LIMIT))
+        byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_list
+        page = self.store.list_run_summaries(
+            repo_name=canonical_repo_name or repo_name or None,
+            status=status or None,
+            tool=tool or None,
+            limit=requested_limit,
+            cursor=cursor or None,
+            byte_budget=byte_budget,
+        )
+        if not page["runs"]:
+            return _build_run_summary_list_response(
+                page,
+                requested_limit=requested_limit,
+                byte_limited=False,
+            )
+
+        for returned_count in range(len(page["runs"]), 0, -1):
+            candidate = (
+                page
+                if returned_count == len(page["runs"])
+                else self.store.truncate_run_summary_page(
+                    page,
+                    returned_count,
+                    repo_name=canonical_repo_name or repo_name or None,
+                    status=status or None,
+                    tool=tool or None,
+                    source_cursor=cursor or None,
+                    byte_budget=byte_budget,
+                )
+            )
+            try:
+                return _build_run_summary_list_response(
+                    candidate,
+                    requested_limit=requested_limit,
+                    byte_limited=returned_count < len(page["runs"]),
+                )
+            except ValueError:
+                continue
+        raise ValueError("A compact run-list item cannot fit the public byte budget")
 
     def list_runs_payload(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20

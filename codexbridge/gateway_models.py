@@ -109,6 +109,20 @@ class PowerShellGroupResultQuery(GatewayModel):
     group_id: str = Field(min_length=1, max_length=128)
 
 
+class RunSummaryQuery(GatewayModel):
+    operation: Literal["summary"]
+    run_id: str = Field(min_length=1, max_length=128)
+
+
+class RunSummaryListQuery(GatewayModel):
+    operation: Literal["summary_list"]
+    repo_name: str = Field(default="", max_length=128)
+    status: str = Field(default="", max_length=64)
+    tool: str = Field(default="", max_length=128)
+    limit: int = Field(default=10, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
 class RunListQuery(GatewayModel):
     operation: Literal["list"]
     repo_name: str = Field(default="", max_length=128)
@@ -136,6 +150,8 @@ RunQueryRequest = Annotated[
     | RunResultQuery
     | PowerShellGroupStatusQuery
     | PowerShellGroupResultQuery
+    | RunSummaryQuery
+    | RunSummaryListQuery
     | RunListQuery
     | RunLocksQuery,
     Field(discriminator="operation"),

@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
+import codexbridge.server as server
+from codexbridge.gateway_models import RunQueryRequest
+from codexbridge.job_manager import JobManager
+from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 from codexbridge.run_store import (
     RUN_CONTROL_PROJECTION_COLUMNS,
     RUN_SUMMARY_ORDERING,
@@ -304,3 +309,137 @@ def test_compact_query_plans_are_measured_without_new_indexes(tmp_path: Path) ->
     assert all(str(row[3]) for row in filtered)
     assert "idx_runs_created_run_id_desc" not in indexes
     assert "idx_runs_repo_status_created_run_id_desc" not in indexes
+
+
+def _payload_bytes_without_counter(payload: dict) -> int:
+    without_counter = dict(payload)
+    without_counter.pop("payload_bytes")
+    return len(
+        json.dumps(
+            without_counter,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+
+
+def _wire_bytes(payload: dict) -> int:
+    return len(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+
+
+def _manager(store: RunStore) -> JobManager:
+    manager = object.__new__(JobManager)
+    manager.store = store
+    return manager
+
+
+def test_public_run_summary_is_redacted_versioned_and_byte_bounded(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id = _create(store, tmp_path, 1, status="running")
+    store.update_run(
+        run_id,
+        summary="token=secret-value " + ("🙂" * 5000),
+        error="password=hunter2 " + ("é" * 5000),
+        recovery_reason="api_key=hidden " + ("r" * 3000),
+        result_publication_error="credential=private " + ("p" * 3000),
+    )
+
+    response = _manager(store).get_run_summary(run_id)
+
+    assert response["ok"] is True
+    assert response["operation"] == "summary"
+    assert response["view"] == "summary"
+    assert response["projection_version"] == "cf1.v1"
+    assert response["non_authoritative"] is True
+    assert response["authoritative_operation"] == "status"
+    assert response["payload_bytes"] == _payload_bytes_without_counter(response)
+    assert _wire_bytes(response) <= DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary
+    assert not FORBIDDEN.intersection(response["run"])
+    assert not {"pid", "launcher_pid", "worker_pid", "lease_generation"}.intersection(
+        response["run"]
+    )
+    encoded = json.dumps(response, ensure_ascii=False)
+    assert "secret-value" not in encoded
+    assert "hunter2" not in encoded
+    assert "hidden" not in encoded
+    assert "private" not in encoded
+    assert response["run"]["truncated_fields"]
+    encoded.encode("utf-8")
+
+
+def test_public_run_summary_list_preserves_snapshot_cursor_when_byte_limited(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    expected: set[str] = set()
+    for index in range(18):
+        run_id = _create(store, tmp_path, index)
+        expected.add(run_id)
+        store.update_run(
+            run_id,
+            summary="token=secret-value " + ("🙂" * 1000),
+            error="password=hunter2 " + ("e" * 1000),
+            recovery_reason="api_key=hidden " + ("r" * 1000),
+            result_publication_error="credential=private " + ("p" * 1000),
+        )
+
+    manager = _manager(store)
+    seen: list[str] = []
+    cursor: str | None = None
+    byte_limited = False
+    while True:
+        response = manager.list_run_summaries(limit=10, cursor=cursor)
+        assert response["payload_bytes"] == _payload_bytes_without_counter(response)
+        assert _wire_bytes(response) <= DEFAULT_PUBLIC_BYTE_BUDGETS.run_list
+        assert response["requested_limit"] == 10
+        assert 0 <= response["returned_count"] <= 10
+        assert "snapshot_watermark" not in response
+        assert all(not FORBIDDEN.intersection(run) for run in response["runs"])
+        seen.extend(run["run_id"] for run in response["runs"])
+        byte_limited = byte_limited or response["byte_limited"]
+        if not response["has_more"]:
+            break
+        cursor = response["next_cursor"]
+        assert cursor
+
+    assert byte_limited is True
+    assert set(seen) == expected
+    assert len(seen) == len(expected)
+
+
+def test_run_summary_gateway_models_are_additive_and_strict(monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    class FakeJobs:
+        def get_run_summary(self, run_id: str) -> dict:
+            calls.append(("summary", run_id))
+            return {"ok": True, "operation": "summary", "run_id": run_id}
+
+        def list_run_summaries(self, **kwargs) -> dict:
+            calls.append(("summary_list", kwargs))
+            return {"ok": True, "operation": "summary_list", "runs": []}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    adapter = TypeAdapter(RunQueryRequest)
+    summary = adapter.validate_python({"operation": "summary", "run_id": "run_1"})
+    summary_list = adapter.validate_python({"operation": "summary_list"})
+
+    assert server.run_query(summary)["operation"] == "summary"
+    assert server.run_query(summary_list)["operation"] == "summary_list"
+    assert summary_list.limit == 10
+    assert calls[0] == ("summary", "run_1")
+    assert calls[1][0] == "summary_list"
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {"operation": "summary", "run_id": "run_1", "cursor": "not-allowed"}
+        )
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"operation": "summary_list", "limit": 101})
