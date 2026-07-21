@@ -198,7 +198,16 @@ Never cut serialized JSON in the middle, silently omit errors, hide safety failu
 
 ### CF1.0 - Contract and end-to-end measurement
 
-Status: **active; next executable batch**.
+Status: **complete. CF1.1 is the next executable batch**.
+
+Completion decision:
+
+- the public projection contract now freezes normalized outcomes, public views, whole-response and per-field UTF-8 byte budgets, cursor binding, decision-version behavior, artifact visibility, redaction, and stale-content semantics;
+- every public gateway and operation has a versioned inventory covering implementation path, response path, size limits, request echo, JSON-decoding cost, pagination, and connector representation;
+- representative fixtures and footprint measurements cover the required lifecycle, provider, repository, workflow, supervisor, Hermes, executable, parallel-group, and Trading Lab cases;
+- current run-store columns, JSON/internal columns, SQL selection behavior, query plans, index proposals, and independent run-path latency/allocation/decode baselines are recorded;
+- the frozen full run transport, recursive redaction, reviewed-script masking, repository path safety and hashing, compact repository status, and opaque managed-write identity are bound to existing regression evidence;
+- CF1.0 changes no production response or execution behavior. All non-CF1 roadmap lanes remain paused.
 
 Before changing production behavior:
 
