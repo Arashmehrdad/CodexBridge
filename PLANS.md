@@ -200,7 +200,7 @@ Never cut serialized JSON in the middle, silently omit errors, hide safety failu
 
 ### CF1.0 - Contract and end-to-end measurement
 
-Status: **complete. CF1.1 is the next executable batch**.
+Status: **complete**.
 
 Completion decision:
 
@@ -228,6 +228,18 @@ Measure serialized bytes, response construction time, SQLite query time, JSON bl
 No production contract change occurs in CF1.0.
 
 ### CF1.1 - Scalar run summaries and stable compact lists
+
+Status: **complete. CF1.2 is next and has not started**.
+
+Completion decision:
+
+- scalar SQL-backed summary, list, and control-snapshot queries use explicit compact projections and do not select or decode authoritative JSON blobs, lease tokens, or run directories;
+- additive public `summary` and `summary_list` operations enforce 6-KB and 12-KB serialized UTF-8 ceilings while preserving every legacy full operation unchanged;
+- compact list membership is frozen by a row-ID watermark, scalar state may refresh between pages, and opaque keyset cursors bind filters, ordering, view, projection version, budget, snapshot, final key, and expiry;
+- the measured `created_at DESC, run_id DESC` index removes the temporary ordering B-tree and accelerates every representative filter shape; the redundant repository/status composite candidate is rejected;
+- each fetched list row is projected once during byte fitting, avoiding repeated redaction and truncation work;
+- on the live 3,247-row run database, compact twenty-run responses measured 97.15 percent smaller and p95 latency measured 34.19 ms versus 60.42 ms for the legacy list, a 43.41 percent improvement;
+- acceptance is green with 1,333 tests passed, 5 skipped, and no broken Python requirements.
 
 - Add store-level scalar query methods for one run summary, paginated run summaries, and one control snapshot using explicit column lists.
 - Compact queries must not select or decode `input_json`, `progress_json`, `result_json`, worker lease tokens, run directories, protected evidence, full argv, environment, or reviewed scripts.
