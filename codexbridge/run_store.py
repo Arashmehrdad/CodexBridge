@@ -3,9 +3,17 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
+
+from codexbridge.public_projection_contract import (
+    DEFAULT_PUBLIC_BYTE_BUDGETS,
+    PUBLIC_PROJECTION_SCHEMA_VERSION,
+    PublicView,
+)
 
 
 RUN_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_[a-z0-9_]+_[a-f0-9]{8}$")
@@ -47,6 +55,78 @@ _CONDITIONAL_UPDATE_FIELDS = frozenset(
         "result_publication_error",
         "recovery_reason",
     }
+)
+
+RUN_SUMMARY_ORDERING: Final[str] = "created_at DESC, run_id DESC"
+RUN_SUMMARY_DEFAULT_LIMIT: Final[int] = 10
+RUN_SUMMARY_MAX_LIMIT: Final[int] = 100
+RUN_SUMMARY_CURSOR_OPERATION: Final[str] = "run_summary_list"
+RUN_SUMMARY_CURSOR_TTL_SECONDS: Final[int] = 300
+
+RUN_SUMMARY_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
+    "run_id",
+    "repo_name",
+    "tool",
+    "status",
+    "risk_level",
+    "requires_human",
+    "created_at",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "pid",
+    "launcher_pid",
+    "worker_pid",
+    "lease_generation",
+    "state_version",
+    "worker_claimed_at",
+    "launch_attempts",
+    "recovery_reason",
+    "exit_code",
+    "summary",
+    "error",
+    "safety_failure",
+    "current_phase",
+    "elapsed_seconds",
+    "heartbeat_at",
+    "result_publication_status",
+    "result_published_hash",
+    "result_published_at",
+    "result_publication_error",
+)
+
+RUN_CONTROL_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
+    "run_id",
+    "repo_name",
+    "tool",
+    "status",
+    "risk_level",
+    "requires_human",
+    "started_at",
+    "ended_at",
+    "pid",
+    "launcher_pid",
+    "worker_pid",
+    "worker_identity",
+    "state_version",
+    "current_phase",
+    "elapsed_seconds",
+    "heartbeat_at",
+    "result_publication_status",
+    "result_published_hash",
+    "result_published_at",
+    "result_publication_error",
+    "summary",
+    "error",
+    "safety_failure",
+    "recovery_reason",
+)
+
+RUN_SUMMARY_SELECT_SQL: Final[str] = (
+    "SELECT " + ", ".join(RUN_SUMMARY_PROJECTION_COLUMNS) + " FROM runs"
+)
+RUN_CONTROL_SELECT_SQL: Final[str] = (
+    "SELECT " + ", ".join(RUN_CONTROL_PROJECTION_COLUMNS) + " FROM runs"
 )
 
 
@@ -292,6 +372,337 @@ class RunStore:
         if row is None:
             raise KeyError("No runs found")
         return self._row_to_run(row)
+
+    @staticmethod
+    def _compact_now(now: datetime | None) -> datetime:
+        if now is None:
+            return datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("now override must be timezone-aware")
+        return now.astimezone(timezone.utc)
+
+    @staticmethod
+    def _scalar_datetime(value: Any) -> datetime | None:
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @classmethod
+    def _derived_compact_values(
+        cls, row: sqlite3.Row, now: datetime
+    ) -> dict[str, Any]:
+        started_at = cls._scalar_datetime(row["started_at"])
+        ended_at = cls._scalar_datetime(row["ended_at"])
+        elapsed_seconds = float(row["elapsed_seconds"] or 0.0)
+        if started_at is not None:
+            elapsed_end = ended_at or now
+            dynamic_elapsed = max(0.0, (elapsed_end - started_at).total_seconds())
+            elapsed_seconds = max(elapsed_seconds, dynamic_elapsed)
+
+        heartbeat_age_seconds: float | None = None
+        heartbeat_at = cls._scalar_datetime(row["heartbeat_at"])
+        if heartbeat_at is not None:
+            heartbeat_age_seconds = round(
+                max(0.0, (now - heartbeat_at).total_seconds()), 3
+            )
+        return {
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            "heartbeat_age_seconds": heartbeat_age_seconds,
+            "worker_stale": bool(
+                row["status"] == "running"
+                and heartbeat_age_seconds is not None
+                and heartbeat_age_seconds > 30.0
+            ),
+        }
+
+    @classmethod
+    def _compact_summary_from_row(
+        cls, row: sqlite3.Row, now: datetime
+    ) -> dict[str, Any]:
+        result = {column: row[column] for column in RUN_SUMMARY_PROJECTION_COLUMNS}
+        result["requires_human"] = bool(result["requires_human"])
+        result["safety_failure"] = bool(result["safety_failure"])
+        result.update(cls._derived_compact_values(row, now))
+        return result
+
+    @classmethod
+    def _compact_control_from_row(
+        cls, row: sqlite3.Row, now: datetime
+    ) -> dict[str, Any]:
+        result = {
+            column: row[column]
+            for column in RUN_CONTROL_PROJECTION_COLUMNS
+            if column != "worker_identity"
+        }
+        result["requires_human"] = bool(result["requires_human"])
+        result["safety_failure"] = bool(result["safety_failure"])
+        result["worker_identity_present"] = bool(row["worker_identity"])
+        result.update(cls._derived_compact_values(row, now))
+        return result
+
+    @staticmethod
+    def _normalized_summary_filters(
+        repo_name: str | None, status: str | None, tool: str | None
+    ) -> dict[str, str | None]:
+        return {
+            "repo_name": str(repo_name).lower() if repo_name else None,
+            "status": str(status) if status else None,
+            "tool": str(tool) if tool else None,
+        }
+
+    @staticmethod
+    def _filter_identity(filters: dict[str, str | None]) -> str:
+        encoded = json.dumps(
+            filters, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _positive_byte_budget(byte_budget: int) -> int:
+        if isinstance(byte_budget, bool) or not isinstance(byte_budget, int) or byte_budget <= 0:
+            raise ValueError("byte budget must be a positive integer")
+        return byte_budget
+
+    @staticmethod
+    def _encode_summary_cursor(payload: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+        return f"{body}.{sha256(encoded).hexdigest()}"
+
+    @classmethod
+    def _decode_summary_cursor(
+        cls,
+        cursor: str,
+        *,
+        filters: dict[str, str | None],
+        byte_budget: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        if not isinstance(cursor, str) or not cursor or cursor.count(".") != 1:
+            raise ValueError("Invalid run summary cursor")
+        body, checksum = cursor.split(".")
+        if not body or len(checksum) != 64:
+            raise ValueError("Invalid run summary cursor")
+        try:
+            encoded = urlsafe_b64decode(body + ("=" * (-len(body) % 4)))
+            canonical_body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+            if canonical_body != body:
+                raise ValueError("Invalid run summary cursor")
+            if sha256(encoded).hexdigest() != checksum:
+                raise ValueError("Run summary cursor checksum mismatch")
+            payload = json.loads(encoded.decode("utf-8"))
+            canonical = json.dumps(
+                payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        except ValueError:
+            raise
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError):
+            raise ValueError("Invalid run summary cursor") from None
+        if canonical != encoded or not isinstance(payload, dict):
+            raise ValueError("Invalid run summary cursor")
+        expected_keys = {
+            "operation",
+            "filters",
+            "filters_sha256",
+            "ordering",
+            "view",
+            "projection_version",
+            "byte_budget",
+            "snapshot_watermark",
+            "final_sort_key",
+            "expires_at_utc",
+        }
+        if set(payload) != expected_keys:
+            raise ValueError("Invalid run summary cursor")
+
+        if payload.get("operation") != RUN_SUMMARY_CURSOR_OPERATION:
+            raise ValueError("Run summary cursor operation mismatch")
+        if payload.get("filters") != filters:
+            raise ValueError("Run summary cursor filter mismatch")
+        if payload.get("filters_sha256") != cls._filter_identity(filters):
+            raise ValueError("Run summary cursor filter identity mismatch")
+        if payload.get("ordering") != RUN_SUMMARY_ORDERING:
+            raise ValueError("Run summary cursor ordering mismatch")
+        if payload.get("view") != PublicView.SUMMARY.value:
+            raise ValueError("Run summary cursor view mismatch")
+        if payload.get("projection_version") != PUBLIC_PROJECTION_SCHEMA_VERSION:
+            raise ValueError("Run summary cursor projection version mismatch")
+        if payload.get("byte_budget") != byte_budget:
+            raise ValueError("Run summary cursor byte budget mismatch")
+        try:
+            expires_at = cls._scalar_datetime(payload["expires_at_utc"])
+            watermark = payload["snapshot_watermark"]
+            final_sort_key = payload["final_sort_key"]
+            if (
+                expires_at is None
+                or isinstance(watermark, bool)
+                or not isinstance(watermark, int)
+                or watermark < 0
+                or not isinstance(final_sort_key, dict)
+                or set(final_sort_key) != {"created_at", "run_id"}
+                or not isinstance(final_sort_key["created_at"], str)
+                or not isinstance(final_sort_key["run_id"], str)
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Invalid run summary cursor") from None
+        if expires_at <= now:
+            raise ValueError("Run summary cursor expired")
+        return payload
+
+    @staticmethod
+    def _summary_filter_sql(
+        filters: dict[str, str | None],
+    ) -> tuple[list[str], list[Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if filters["repo_name"] is not None:
+            where.append("lower(repo_name) = ?")
+            params.append(filters["repo_name"])
+        if filters["status"] is not None:
+            where.append("status = ?")
+            params.append(filters["status"])
+        if filters["tool"] is not None:
+            where.append("tool = ?")
+            params.append(filters["tool"])
+        return where, params
+
+    def get_run_summary(
+        self, run_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
+        validate_run_id(run_id)
+        current = self._compact_now(now)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"{RUN_SUMMARY_SELECT_SQL} WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return self._compact_summary_from_row(row, current)
+
+    def get_run_control_snapshot(
+        self, run_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
+        validate_run_id(run_id)
+        current = self._compact_now(now)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"{RUN_CONTROL_SELECT_SQL} WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return self._compact_control_from_row(row, current)
+
+    def list_run_summaries(
+        self,
+        *,
+        repo_name: str | None = None,
+        status: str | None = None,
+        tool: str | None = None,
+        limit: int = RUN_SUMMARY_DEFAULT_LIMIT,
+        cursor: str | None = None,
+        byte_budget: int = DEFAULT_PUBLIC_BYTE_BUDGETS.run_list,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("summary limit must be an integer")
+        limit = max(1, min(limit, RUN_SUMMARY_MAX_LIMIT))
+        byte_budget = self._positive_byte_budget(byte_budget)
+        current = self._compact_now(now)
+        filters = self._normalized_summary_filters(repo_name, status, tool)
+        watermark: int
+        final_sort_key: dict[str, str] | None = None
+        if cursor is None:
+            watermark = 0
+        else:
+            payload = self._decode_summary_cursor(
+                cursor,
+                filters=filters,
+                byte_budget=byte_budget,
+                now=current,
+            )
+            watermark = int(payload["snapshot_watermark"])
+            final_sort_key = payload["final_sort_key"]
+
+        where, params = self._summary_filter_sql(filters)
+        where.insert(0, "rowid <= ?")
+        if cursor is not None and final_sort_key is not None:
+            where.append(
+                "(created_at < ? OR (created_at = ? AND run_id < ?))"
+            )
+            params.extend(
+                [
+                    final_sort_key["created_at"],
+                    final_sort_key["created_at"],
+                    final_sort_key["run_id"],
+                ]
+            )
+        params.insert(0, watermark)
+        params.append(limit + 1)
+        sql = (
+            f"{RUN_SUMMARY_SELECT_SQL} WHERE {' AND '.join(where)} "
+            f"ORDER BY {RUN_SUMMARY_ORDERING} LIMIT ?"
+        )
+        with self.connect() as conn:
+            if cursor is None:
+                watermark = int(
+                    conn.execute("SELECT MAX(rowid) FROM runs").fetchone()[0] or 0
+                )
+                params[0] = watermark
+            rows = conn.execute(sql, params).fetchall()
+
+        summaries = [self._compact_summary_from_row(row, current) for row in rows[:limit]]
+        has_more = len(rows) > limit
+        next_cursor: str | None = None
+        if has_more:
+            last = summaries[-1]
+            expires_at = (
+                current + timedelta(seconds=RUN_SUMMARY_CURSOR_TTL_SECONDS)
+                if cursor is None
+                else self._scalar_datetime(
+                    self._decode_summary_cursor(
+                        cursor,
+                        filters=filters,
+                        byte_budget=byte_budget,
+                        now=current,
+                    )["expires_at_utc"]
+                )
+            )
+            assert expires_at is not None
+            normalized_filters = filters
+            next_cursor = self._encode_summary_cursor(
+                {
+                    "operation": RUN_SUMMARY_CURSOR_OPERATION,
+                    "filters": normalized_filters,
+                    "filters_sha256": self._filter_identity(normalized_filters),
+                    "ordering": RUN_SUMMARY_ORDERING,
+                    "view": PublicView.SUMMARY.value,
+                    "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+                    "byte_budget": byte_budget,
+                    "snapshot_watermark": watermark,
+                    "final_sort_key": {
+                        "created_at": str(last["created_at"]),
+                        "run_id": str(last["run_id"]),
+                    },
+                    "expires_at_utc": expires_at.isoformat(),
+                }
+            )
+        return {
+            "runs": summaries,
+            "limit": limit,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+            "ordering": RUN_SUMMARY_ORDERING,
+            "snapshot_watermark": watermark,
+            "view": PublicView.SUMMARY.value,
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "byte_budget": byte_budget,
+        }
 
     @staticmethod
     def _normalize_update_values(fields: dict[str, Any]) -> dict[str, Any]:
