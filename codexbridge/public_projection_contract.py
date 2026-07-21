@@ -43,6 +43,50 @@ class ArtifactVisibility(str, Enum):
     REVIEWED_SCRIPT_EXCLUDED = "reviewed_script_excluded"
 
 
+class DecisionRelevantTransition(str, Enum):
+    LIFECYCLE = "lifecycle"
+    PHASE = "phase"
+    CANCELLATION = "cancellation"
+    WORKER_ATTACHMENT = "worker_attachment"
+    CHILD_ATTACHMENT = "child_attachment"
+    RESTART_RECONCILIATION = "restart_reconciliation"
+    LOCK_OWNERSHIP = "lock_ownership"
+    NEEDS_INPUT = "needs_input"
+    AMBIGUOUS_SIDE_EFFECT_RECONCILIATION = "ambiguous_side_effect_reconciliation"
+    TERMINAL_PUBLICATION = "terminal_publication"
+
+
+@dataclass(frozen=True)
+class DecisionVersion:
+    value: int = 0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.value, bool) or not isinstance(self.value, int) or self.value < 0:
+            raise ValueError("decision version must be a non-negative integer")
+
+    def advance(self, transition: DecisionRelevantTransition) -> "DecisionVersion":
+        if not isinstance(transition, DecisionRelevantTransition):
+            raise ValueError("transition must be decision-relevant")
+        return DecisionVersion(self.value + 1)
+
+
+@dataclass(frozen=True)
+class StaleContentResponse:
+    expected_sha256: str
+    current_sha256: str
+    reason: str = "stale_content"
+
+    def __post_init__(self) -> None:
+        for field_name in ("expected_sha256", "current_sha256"):
+            value = getattr(self, field_name)
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value.lower()):
+                raise ValueError(f"{field_name} must be a SHA-256 value")
+        if self.expected_sha256.lower() == self.current_sha256.lower():
+            raise ValueError("stale content identities must differ")
+        if self.reason != "stale_content":
+            raise ValueError("reason must be stale_content")
+
+
 @dataclass(frozen=True)
 class PublicByteBudgets:
     run_list: int = 12 * 1024
