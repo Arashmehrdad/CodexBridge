@@ -62,6 +62,8 @@ Complete: D1-D5 durability; G0/G1 managed editing and executable closure; X1/X2 
 
 R5 absolute resource enforcement is complete. H1A has selected and pinned the Hermes companion-process architecture. H1B now includes the versioned companion, durable public gateway, policy-preserving built-in calls, plugin and MCP discovery, repository-owned Hermes-home binding, and successful public connected-MCP execution.
 
+Parallel PowerShell cancellation acceptance is complete. Whole-group and individual-child cancellation terminate the attached Windows process tree, preserve or refill sibling slots as required, and publish durable terminal results. Acceptance waits for durable child attachment before asserting process-owned readiness markers, so normal worker import time cannot create a false cancellation failure.
+
 Known observations, not yet separate repair programs:
 
 - occasional HTTP 502 responses from the ChatGPT connector path;
