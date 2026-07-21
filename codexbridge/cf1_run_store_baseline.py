@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+
+CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.0.run-store.v1"
+
+RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
+    "run_id",
+    "repo_name",
+    "tool",
+    "status",
+    "risk_level",
+    "requires_human",
+    "created_at",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "pid",
+    "launcher_pid",
+    "worker_pid",
+    "lease_generation",
+    "state_version",
+    "worker_identity",
+    "worker_claimed_at",
+    "launch_attempts",
+    "recovery_reason",
+    "exit_code",
+    "summary",
+    "error",
+    "safety_failure",
+    "current_phase",
+    "elapsed_seconds",
+    "heartbeat_at",
+    "result_publication_status",
+    "result_published_hash",
+    "result_published_at",
+    "result_publication_error",
+)
+
+RUN_JSON_BLOB_COLUMNS: Final[tuple[str, ...]] = (
+    "input_json",
+    "progress_json",
+    "result_json",
+)
+
+RUN_INTERNAL_ONLY_COLUMNS: Final[tuple[str, ...]] = (
+    "worker_lease_token",
+    "run_dir",
+)
+
+
+@dataclass(frozen=True)
+class RunStoreIndexProposal:
+    name: str
+    columns: tuple[str, ...]
+    status: str
+    rationale: str
+
+
+RUN_STORE_INDEX_PROPOSALS: Final[tuple[RunStoreIndexProposal, ...]] = (
+    RunStoreIndexProposal(
+        name="idx_runs_created_at",
+        columns=("created_at",),
+        status="existing",
+        rationale="supports current newest-first scans but not a stable run_id tie-break",
+    ),
+    RunStoreIndexProposal(
+        name="idx_runs_repo_status",
+        columns=("repo_name", "status"),
+        status="existing",
+        rationale="supports current repository and status filtering",
+    ),
+    RunStoreIndexProposal(
+        name="idx_runs_created_run_id_desc",
+        columns=("created_at", "run_id"),
+        status="measurement_required",
+        rationale="candidate for CF1.1 stable keyset pagination; add only after query-plan evidence",
+    ),
+    RunStoreIndexProposal(
+        name="idx_runs_repo_status_created_run_id_desc",
+        columns=("repo_name", "status", "created_at", "run_id"),
+        status="measurement_required",
+        rationale="candidate filtered keyset index; add only if measured plans justify write cost",
+    ),
+)
