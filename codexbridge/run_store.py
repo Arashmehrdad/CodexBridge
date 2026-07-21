@@ -224,6 +224,10 @@ class RunStore:
                 "CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)"
             )
             conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_created_run_id_desc "
+                "ON runs(created_at DESC, run_id DESC)"
+            )
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_runs_repo_status ON runs(repo_name, status)"
             )
             conn.execute(

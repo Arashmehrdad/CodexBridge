@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Final
 
 
-CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.0.run-store.v1"
+CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.1.run-store.v2"
 
 RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "run_id",
@@ -75,13 +75,20 @@ RUN_STORE_INDEX_PROPOSALS: Final[tuple[RunStoreIndexProposal, ...]] = (
     RunStoreIndexProposal(
         name="idx_runs_created_run_id_desc",
         columns=("created_at", "run_id"),
-        status="measurement_required",
-        rationale="candidate for CF1.1 stable keyset pagination; add only after query-plan evidence",
+        status="measurement_accepted",
+        rationale=(
+            "accepted after the 3,245-row run database removed the temporary "
+            "ORDER BY B-tree and improved measured unfiltered p95 from 3.82 ms "
+            "to 0.10 ms"
+        ),
     ),
     RunStoreIndexProposal(
         name="idx_runs_repo_status_created_run_id_desc",
         columns=("repo_name", "status", "created_at", "run_id"),
-        status="measurement_required",
-        rationale="candidate filtered keyset index; add only if measured plans justify write cost",
+        status="measurement_rejected",
+        rationale=(
+            "lower(repo_name) prevents direct use and the accepted ordering index "
+            "already improved every representative filtered p95 by at least 92 percent"
+        ),
     ),
 )

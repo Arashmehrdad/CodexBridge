@@ -32,7 +32,7 @@ def test_cf1_run_store_baseline_partitions_every_persisted_run_column(tmp_path: 
     actual = _table_columns(store)
     classified = set(RUN_SCALAR_SUMMARY_COLUMNS) | set(RUN_JSON_BLOB_COLUMNS) | set(RUN_INTERNAL_ONLY_COLUMNS)
 
-    assert CF1_RUN_STORE_BASELINE_VERSION == "cf1.0.run-store.v1"
+    assert CF1_RUN_STORE_BASELINE_VERSION == "cf1.1.run-store.v2"
     assert classified == actual
     assert not (set(RUN_SCALAR_SUMMARY_COLUMNS) & set(RUN_JSON_BLOB_COLUMNS))
     assert not (set(RUN_SCALAR_SUMMARY_COLUMNS) & set(RUN_INTERNAL_ONLY_COLUMNS))
@@ -47,16 +47,19 @@ def test_cf1_compact_summary_baseline_excludes_json_and_sensitive_internal_field
     assert {"state_version", "current_phase", "heartbeat_at", "result_publication_status", "result_published_hash"} <= set(RUN_SCALAR_SUMMARY_COLUMNS)
 
 
-def test_cf1_index_inventory_matches_existing_schema_and_defers_unmeasured_candidates(tmp_path: Path) -> None:
+def test_cf1_index_inventory_records_measured_index_decisions(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     actual = _indexes(store)
     proposals = {proposal.name: proposal for proposal in RUN_STORE_INDEX_PROPOSALS}
 
     assert actual["idx_runs_created_at"] == ("created_at",)
+    assert actual["idx_runs_created_run_id_desc"] == ("created_at", "run_id")
     assert actual["idx_runs_repo_status"] == ("repo_name", "status")
     assert proposals["idx_runs_created_at"].status == "existing"
     assert proposals["idx_runs_repo_status"].status == "existing"
-    assert proposals["idx_runs_created_run_id_desc"].status == "measurement_required"
-    assert proposals["idx_runs_repo_status_created_run_id_desc"].status == "measurement_required"
-    assert "idx_runs_created_run_id_desc" not in actual
+    assert proposals["idx_runs_created_run_id_desc"].status == "measurement_accepted"
+    assert (
+        proposals["idx_runs_repo_status_created_run_id_desc"].status
+        == "measurement_rejected"
+    )
     assert "idx_runs_repo_status_created_run_id_desc" not in actual

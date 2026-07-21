@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+import codexbridge.job_manager as job_manager_module
 import codexbridge.server as server
 from codexbridge.gateway_models import RunQueryRequest
 from codexbridge.job_manager import JobManager
@@ -281,7 +282,9 @@ def test_legacy_full_methods_still_decode_full_rows(tmp_path: Path) -> None:
     assert store.latest_run()["input"] == {"secret": "input"}
 
 
-def test_compact_query_plans_are_measured_without_new_indexes(tmp_path: Path) -> None:
+def test_compact_query_plan_uses_measurement_justified_ordering_index(
+    tmp_path: Path,
+) -> None:
     store = RunStore(tmp_path / "runs")
     for index in range(12):
         _create(store, tmp_path, index)
@@ -292,22 +295,14 @@ def test_compact_query_plans_are_measured_without_new_indexes(tmp_path: Path) ->
             "FROM runs WHERE rowid <= ? ORDER BY created_at DESC, run_id DESC LIMIT ?",
             (999999, 11),
         ).fetchall()
-        filtered = conn.execute(
-            "EXPLAIN QUERY PLAN "
-            "SELECT run_id, repo_name, tool, status, created_at "
-            "FROM runs WHERE rowid <= ? AND lower(repo_name) = ? AND status = ? "
-            "ORDER BY created_at DESC, run_id DESC LIMIT ?",
-            (999999, "sample", "queued", 11),
-        ).fetchall()
         indexes = {
             str(row[1])
             for row in conn.execute("PRAGMA index_list(runs)").fetchall()
         }
-    assert unfiltered
-    assert filtered
-    assert all(str(row[3]) for row in unfiltered)
-    assert all(str(row[3]) for row in filtered)
-    assert "idx_runs_created_run_id_desc" not in indexes
+    plan = " ".join(str(row[3]) for row in unfiltered)
+    assert "idx_runs_created_run_id_desc" in indexes
+    assert "idx_runs_created_run_id_desc" in plan
+    assert "TEMP B-TREE" not in plan
     assert "idx_runs_repo_status_created_run_id_desc" not in indexes
 
 
@@ -413,6 +408,35 @@ def test_public_run_summary_list_preserves_snapshot_cursor_when_byte_limited(
     assert byte_limited is True
     assert set(seen) == expected
     assert len(seen) == len(expected)
+
+
+def test_byte_limited_summary_list_projects_each_source_row_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    for index in range(20):
+        run_id = _create(store, tmp_path, index)
+        store.update_run(
+            run_id,
+            summary="token=[REDACTED] " + ("🙂" * 1000),
+            error="password=[REDACTED] " + ("e" * 1000),
+        )
+
+    original = job_manager_module._project_run_summary
+    projection_calls = 0
+
+    def counted_projection(*args, **kwargs):
+        nonlocal projection_calls
+        projection_calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(job_manager_module, "_project_run_summary", counted_projection)
+    response = _manager(store).list_run_summaries(limit=20)
+
+    assert response["byte_limited"] is True
+    assert response["returned_count"] < 20
+    assert projection_calls == 20
 
 
 def test_run_summary_gateway_models_are_additive_and_strict(monkeypatch) -> None:

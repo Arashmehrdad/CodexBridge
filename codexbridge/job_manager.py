@@ -277,18 +277,26 @@ def _build_run_summary_list_response(
     *,
     requested_limit: int,
     byte_limited: bool,
+    projected_runs: list[dict] | None = None,
 ) -> dict:
     byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_list
-    payload = {
-        "ok": True,
-        "operation": "summary_list",
-        "runs": [
+    selected_runs = (
+        [
             _project_run_summary(
                 run,
                 text_limits=RUN_SUMMARY_LIST_TEXT_BYTE_LIMITS,
             )
             for run in page["runs"]
-        ],
+        ]
+        if projected_runs is None
+        else list(projected_runs)
+    )
+    if len(selected_runs) != len(page["runs"]):
+        raise ValueError("Projected run-summary count does not match the source page")
+    payload = {
+        "ok": True,
+        "operation": "summary_list",
+        "runs": selected_runs,
         "limit": page["limit"],
         "requested_limit": requested_limit,
         "returned_count": len(page["runs"]),
@@ -2365,6 +2373,13 @@ class JobManager:
                 byte_limited=False,
             )
 
+        projected_runs = [
+            _project_run_summary(
+                run,
+                text_limits=RUN_SUMMARY_LIST_TEXT_BYTE_LIMITS,
+            )
+            for run in page["runs"]
+        ]
         for returned_count in range(len(page["runs"]), 0, -1):
             candidate = (
                 page
@@ -2384,6 +2399,7 @@ class JobManager:
                     candidate,
                     requested_limit=requested_limit,
                     byte_limited=returned_count < len(page["runs"]),
+                    projected_runs=projected_runs[:returned_count],
                 )
             except ValueError:
                 continue
