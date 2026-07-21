@@ -5,10 +5,11 @@ from enum import Enum
 from typing import Final
 
 from codexbridge.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
+from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.0.gateway-operations.v1"
+    "cf1.1.gateway-operations.v2"
 )
 
 
@@ -408,6 +409,37 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "codexbridge.server:cancel_run",
         "direct run cancellation result",
         notes="The result can include bounded process-tree diagnostics.",
+    ),
+    _entry(
+        "run_query",
+        ("summary",),
+        "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.get_run_summary",
+        "bounded non-authoritative scalar run summary",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_summary,
+        notes=(
+            "The explicit summary view omits authoritative JSON blobs, worker lease "
+            "data, run_dir, and exact process identity; free-text fields are redacted "
+            "and UTF-8 truncated to the 6 KiB serialized response ceiling."
+        ),
+    ),
+    _entry(
+        "run_query",
+        ("summary_list",),
+        "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.list_run_summaries",
+        "stable bounded page of non-authoritative scalar run summaries",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CURSOR,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_list,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_list,
+        default_item_limit=10,
+        maximum_item_limit=100,
+        notes=(
+            "The explicit compact list uses keyset pagination and a row-ID snapshot "
+            "watermark, may shorten a page to fit the 12 KiB serialized response "
+            "ceiling, and preserves legacy list behavior unchanged."
+        ),
     ),
     _entry(
         "run_query",
