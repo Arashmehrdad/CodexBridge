@@ -255,6 +255,23 @@ def _long_running_child(marker_dir: Path, index: int) -> dict:
     }
 
 
+def _wait_for_attached_child(
+    manager: JobManager,
+    run_id: str,
+    timeout: float = 20.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last = manager.get_control_status(run_id)
+    while time.monotonic() < deadline:
+        last = manager.get_control_status(run_id)
+        if last["child_pid"] and last["child_running"]:
+            return last
+        if last["status"] in {"completed", "failed", "cancelled", "timed_out"}:
+            pytest.fail(f"PowerShell child became terminal before attachment: {last}")
+        time.sleep(0.05)
+    pytest.fail(f"PowerShell child process did not attach: {last}")
+
+
 def _wait_for_paths(paths: list[Path], timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -276,9 +293,11 @@ def test_live_whole_group_cancellation_terminates_tree_and_publishes_results(
     pending_id = started["pending_run_ids"][0]
     parent_pid_path = marker_dir / "parent-0.pid"
     child_pid_path = marker_dir / "native-0.pid"
+    attached = _wait_for_attached_child(manager, active_id)
     _wait_for_paths([parent_pid_path, child_pid_path])
     parent_pid = int(parent_pid_path.read_text(encoding="utf-8"))
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    assert parent_pid == attached["child_pid"]
     assert process_is_running(parent_pid)
     assert process_is_running(child_pid)
 
@@ -347,9 +366,11 @@ def test_live_individual_child_cancellation_refills_slot_and_preserves_sibling(
     pending_id = started["pending_run_ids"][0]
     parent_pid_path = marker_dir / "parent-0.pid"
     child_pid_path = marker_dir / "native-0.pid"
+    attached = _wait_for_attached_child(manager, active_id)
     _wait_for_paths([parent_pid_path, child_pid_path])
     parent_pid = int(parent_pid_path.read_text(encoding="utf-8"))
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    assert parent_pid == attached["child_pid"]
 
     cancelled = manager.cancel_run(active_id)
 
