@@ -13,6 +13,7 @@ from codexbridge.gateway_models import (
     RunStartRequest,
 )
 from codexbridge.knowledge_tools_integration import register_knowledge_tools
+from codexbridge.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 
 
 def _actions() -> dict[str, dict]:
@@ -23,8 +24,7 @@ def _actions() -> dict[str, dict]:
 
 def test_deterministic_gateway_surface_benchmark() -> None:
     actions = _actions()
-    assert len(actions) == 24
-    assert {"repo_query", "repo_apply", "run_start", "docker_query", "docker_action", "cloudflare_query", "cloudflare_action", "ssh_query", "ssh_action", "system_query", "system_action", "knowledge_query", "knowledge_action", "codex_plan", "codex_implement"} <= set(actions)
+    assert set(actions) == set(PUBLIC_GATEWAY_NAMES)
     retired = {
         "inspect_repo_status", "apply_previewed_repo_change", "start_project_command_async",
         "list_docker_capabilities", "start_cloudflare_action_async", "list_ssh_capabilities",
@@ -34,9 +34,32 @@ def test_deterministic_gateway_surface_benchmark() -> None:
     for action in actions.values():
         Draft202012Validator.check_schema(action["inputSchema"])
         Draft202012Validator.check_schema(action["outputSchema"])
-    for name in {"repo_query", "docker_query", "cloudflare_query", "ssh_query", "system_query", "knowledge_query", "codex_plan"}:
+    for name in {
+        "repo_query",
+        "docker_query",
+        "cloudflare_query",
+        "ssh_query",
+        "system_query",
+        "knowledge_query",
+        "codex_plan",
+        "trading_query",
+        "trading_signal_get",
+        "trading_signal_list",
+    }:
         assert actions[name]["annotations"]["readOnlyHint"] is True
-    for name in {"repo_apply", "repo_commit", "run_start", "docker_action", "cloudflare_action", "ssh_action", "system_action", "knowledge_action", "codex_implement"}:
+    for name in {
+        "repo_apply",
+        "repo_commit",
+        "run_start",
+        "docker_action",
+        "cloudflare_action",
+        "ssh_action",
+        "system_action",
+        "knowledge_action",
+        "codex_implement",
+        "trading_signal_submit",
+        "trading_signal_cancel_before_entry",
+    }:
         assert actions[name]["annotations"]["readOnlyHint"] is False
 
 

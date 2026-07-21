@@ -231,10 +231,17 @@ WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
     "codex_plan",
     "codex_implement",
 }
+PUBLIC_TRADING_ACTIONS = {
+    "trading_query",
+    "trading_signal_submit",
+    "trading_signal_get",
+    "trading_signal_list",
+    "trading_signal_cancel_before_entry",
+}
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
-) | WORKFLOW_AND_KNOWLEDGE_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 24
+) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
+assert len(EXPECTED_EXPOSED_ACTIONS) == 29
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -1427,6 +1434,8 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "reload_service",
         "rollback_service",
         "supervisor_action",
+        "trading_signal_submit",
+        "trading_signal_cancel_before_entry",
     }
     for name, action in actions.items():
         annotations = action["annotations"]
@@ -1448,7 +1457,7 @@ def test_repo_apply_previewed_change_schema_is_opaque() -> None:
 def test_currently_exposed_batch_actions_are_discoverable() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    assert len(actions) == 24
+    assert len(actions) == len(EXPECTED_EXPOSED_ACTIONS)
     assert RETIRED_DIRECT_ACTIONS.isdisjoint(actions)
     for name in WORKFLOW_AND_KNOWLEDGE_ACTIONS:
         assert name in actions
@@ -1469,7 +1478,34 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
     assert supported <= set(actions)
 
     for name, action in actions.items():
-        if name in {"workflow_query", "workflow_action", "supervisor_query", "supervisor_action", "repo_query", "repo_preview", "repo_apply", "repo_commit", "run_start", "docker_query", "docker_action", "cloudflare_query", "cloudflare_action", "ssh_query", "ssh_action", "system_query", "system_action", "knowledge_query", "knowledge_action", "codex_plan", "codex_implement"}:
+        if name in {
+            "workflow_query",
+            "workflow_action",
+            "supervisor_query",
+            "supervisor_action",
+            "repo_query",
+            "repo_preview",
+            "repo_apply",
+            "repo_commit",
+            "run_start",
+            "docker_query",
+            "docker_action",
+            "cloudflare_query",
+            "cloudflare_action",
+            "ssh_query",
+            "ssh_action",
+            "system_query",
+            "system_action",
+            "knowledge_query",
+            "knowledge_action",
+            "codex_plan",
+            "codex_implement",
+            "trading_query",
+            "trading_signal_submit",
+            "trading_signal_get",
+            "trading_signal_list",
+            "trading_signal_cancel_before_entry",
+        }:
             continue
         sample = REALISTIC_ACTION_OUTPUTS[name]
         json.dumps(sample, sort_keys=True)
