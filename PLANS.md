@@ -229,7 +229,7 @@ No production contract change occurs in CF1.0.
 
 ### CF1.1 - Scalar run summaries and stable compact lists
 
-Status: **complete. CF1.2 is next and has not started**.
+Status: **complete**.
 
 Completion decision:
 
@@ -253,30 +253,69 @@ Completion decision:
 
 ### CF1.2 - Compact control, decision-version polling, and delta events
 
-Status: **in progress. Decision-version invariants and compact control polling are complete; delta events are next and have not started**.
+Status: **complete. CF1.3 is next and has not started**.
 
-Completed milestones:
+Completion decision:
 
-- decision-relevant phase changes now increment `state_version` atomically in the same SQL update that records the new phase;
-- repeated same-phase progress, output heartbeats, ordinary worker heartbeats, and repository-lock heartbeats do not increment `state_version`;
-- event metadata and generic progress updates follow the same phase-sensitive rule instead of using unconditional version bumps;
-- repository-lock acquisition is durably bound to the run exactly once, including the acquisition-before-run launch order; startup reconciliation can repair an unbound legacy or interrupted row idempotently;
-- repository-lock owner changes, successful release, and stale-lock cleanup increment `state_version` in the same SQLite transaction as the ownership change; repeated same-owner claims and rejected releases remain quiet;
-- the lock-binding marker is internal-only and excluded from public lock projections;
-- public `control` now uses explicit scalar SQL and performs zero JSON decoding while preserving lifecycle, process-tree, cancellation, heartbeat, worker identity presence, child identity, lock, publication, safety, recovery, summary, and error information;
-- `last_output_at` and `cancellation_requested_at` are mirrored into scalar columns with tolerant one-time backfill; the live 3,265-row database backfilled 637 historical values with zero mismatches;
-- full compact control responses enforce an 8-KB serialized UTF-8 ceiling, and matching `if_state_version` polls return a deterministic below-1-KB envelope before process probes or lock lookup;
-- on the live database, full control measured 1,570 bytes and 1.2514-ms p95, while unchanged control measured 429 bytes and 0.6544-ms p95; full control was 81.72 percent smaller than legacy status and unchanged control was 72.68 percent smaller than full control;
-- validation is green with 1,338 tests passed, 5 skipped, and no broken Python requirements;
-- a full-suite durable run remained at state version 6 throughout ordinary run and lock heartbeats, then advanced to 9 only for terminal publication and lock release; the scalar output timestamp remained empty until output actually appeared.
+- decision-relevant phase, lifecycle, process-attachment, cancellation, lock-ownership, reconciliation, and terminal-publication changes advance `state_version` atomically with the underlying state mutation;
+- same-phase progress, output heartbeats, ordinary worker heartbeats, and repository-lock heartbeats remain version-quiet, so conditional polling is not invalidated by liveness noise;
+- repository-lock acquisition is durably bound once to the run, owner changes and release advance the version transactionally, and startup reconciliation can repair interrupted legacy binding idempotently;
+- public `control` uses explicit scalar SQL with zero authoritative JSON decoding, an 8-KB full-response ceiling, and deterministic matching-`if_state_version` envelopes below 1 KB before process probes or lock lookup;
+- `last_output_at` and `cancellation_requested_at` are scalar-mirrored with tolerant backfill; the live 3,265-row database backfilled 637 historical values with zero mismatches;
+- legacy `after_id` event polling remains supported, while the public default is now 20 events with a maximum of 500, ascending `id` ordering, `next_after_id`, `next_cursor`, and `has_more`;
+- opaque event cursors are run-bound, projection- and budget-bound, checksum-protected, and expire after five minutes; malformed, checksum, run-mismatch, missing-anchor gap, ahead-of-latest, and expiry failures are explicit;
+- event messages and nested data are redacted and bounded, each event is projected once, byte fitting removes only a suffix, and a resized page regenerates its cursor from the final event actually returned;
+- event pages enforce a 12-KB serialized UTF-8 ceiling without changing authoritative event storage or the legacy internal event-list API;
+- after the controlled server restart and connector refresh, live capabilities exposed compact summaries, conditional control, and event cursors under capability epoch `5f614429d00e-42bdb69d96fb`;
+- live acceptance returned a 409-byte unchanged control envelope, a 2,457-byte six-event page, and a deterministic 957-byte empty continuation preserving its anchor and expiry;
+- focused validation reported 106 passed; the complete repository suite reported 1,341 passed and 5 skipped; `python -m pip check` reported no broken requirements.
 
-- Rebuild the existing bounded control projection on the scalar control query from CF1.1 while preserving lifecycle, process-tree, cancellation, heartbeat, worker identity, child identity, lock, and error information.
-- Add a monotonic `state_version` or equivalent decision version that changes for lifecycle, phase, cancellation, process attachment, restart reconciliation, lock ownership, needs-input, ambiguous-side-effect reconciliation, and terminal publication transitions.
-- Ordinary heartbeat refreshes must not increment the decision version continuously; expose liveness through bounded timestamps or a separate heartbeat generation.
-- Accept `if_state_version` and return a deterministic below-1-KB unchanged envelope when no decision-relevant state changed.
-- Preserve the existing `after_id` delta-event behavior, reduce the default event count to 20, and add `next_after_id`, `has_more`, stable response budgeting, and explicit gap, expiry, and malformed-cursor errors.
-- Ensure errors, safety failures, partial outcomes, cancellation uncertainty, cleanup state, and reconciliation requirements remain visible in compact control responses.
-- Make the normal lifecycle start, scalar compact control polling, compact terminal result, and exact evidence retrieval only when needed.
+### CF1 rollout choke-point remediation
+
+Status: **required cross-cutting CF1 exit gates**. These findings do not reopen the durable execution architecture or create a separate reliability roadmap. Their implementation belongs to CF1.3-CF1.7 as assigned below.
+
+1. **One compact engineering preflight — CF1.6**
+   - Add one read-only bounded operation returning running, queued, and launch-pending work; conflicting repository locks; branch and HEAD; tracked-worktree cleanliness; collapsed tool-owned counts; and the live capability epoch.
+   - The default response must be at most 12 KB, expose exact-detail continuation only when requested, and replace the current four-or-more-call preflight sequence for ordinary repository work.
+
+2. **Compact managed-write results — CF1.6**
+   - `repo_apply` and related write gateways must return changed files, commit hash, rollback status, validation summary, and collapsed preserved-work counts by default.
+   - Do not repeat every preserved `.codex-tmp` path through top-level fields, nested manifests, and commit reports. The ordinary managed-apply response must be at most 12 KB; an explicit evidence handle provides the complete attribution manifest.
+
+3. **Meaningful hash-bound commit metadata — CF1.6**
+   - Carry a caller-supplied commit title and optional description in the preview bundle or apply contract, bind them to the opaque preview identity, validate their size and content, and retain the current generic title only as a safe fallback.
+   - Acceptance must prove that replay cannot alter commit metadata and that ordinary git history identifies the actual batch rather than only `apply_previewed_repo_change`.
+
+4. **Unambiguous repository-bound command execution — CF1.6**
+   - For a repository-scoped PowerShell request, omission of `working_directory` should resolve to the registered repository root or fail with a schema-level message before durable launch.
+   - Tool descriptions and request contracts must state that `argv` belongs to the selected executable profile; the `powershell` profile receives PowerShell arguments rather than an arbitrary child executable argv.
+   - Prefer dedicated allowlisted profiles for routine `pytest` and `pip check` validation so callers do not need shell-wrapper syntax.
+
+5. **Manifest-bound output compatibility — CF1.4**
+   - Route `run_query(output)` through the authoritative artifact resolver so executable-profile `stdout.bin` and `stderr.bin` are retrievable under the same bounded compatibility operation as text outputs.
+   - Acceptance includes a successful executable-profile run where only manifest-listed binary stream artifacts exist; an empty or unavailable output response is a failure when the manifest proves output exists.
+
+6. **Compact terminal default — CF1.3 and CF1.4**
+   - The ordinary terminal path must use the source-hash-bound compact projection rather than echoing full argv, executable identity, complete stdout, and provider-specific internals.
+   - Complete terminal result and exact stream bytes remain available only through explicit full-result or artifact evidence retrieval.
+
+7. **Capability and connector-schema propagation integrity — CF1.7**
+   - Expose distinct identities for service build, public tool schema, connector-loaded schema, and cache generation; do not overload one ambiguous `schema_hash` when the public discriminator set changes.
+   - After restart or refresh, capability discovery, connector invocation, and tool-resource discovery must converge on the same public schema identity. A mismatch fails explicitly with refresh guidance rather than silently serving stale contracts.
+
+8. **Bounded knowledge freshness — CF1.6 and CF1.7**
+   - Managed writes must expose a compact knowledge-freshness result with source generation and stale reason, plus an explicit bounded refresh action or recommendation.
+   - Do not inline a full knowledge rebuild into the write response. Acceptance proves that the repository knowledge generation can be advanced deliberately and that callers can detect stale knowledge without inspecting a giant apply payload.
+
+Required acceptance evidence:
+
+- one-call preflight produces the same conflict decision as the legacy multi-call sequence;
+- an apply preserving at least 100 tool-owned files remains within its response ceiling and exposes the exact full manifest separately;
+- managed commit metadata is hash-bound and visible in `git log`;
+- repository-bound PowerShell validation succeeds without ambiguous executable semantics;
+- manifest-listed `.bin` output is retrievable through the compatibility output path;
+- service, connector, and discovery schema identities agree after refresh;
+- stale knowledge is visible and deliberately refreshable without unbounded write responses.
 
 ### CF1.3 - Source-hash-bound terminal public projection
 
