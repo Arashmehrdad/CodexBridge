@@ -994,6 +994,21 @@ Eighty-seventh consolidated slice — CF1 identity, durability, evidence, and tr
 
 ### CF1.7 - Compatibility rollout and cross-project acceptance
 
+Status: **local chat-footprint acceptance complete; connector-live rollout (steps 3-10 and cross-project live acceptance) remains open**.
+
+`tests/test_chat_footprint_acceptance.py` (31 tests, all passing) now proves the CF1 acceptance gates against production code:
+
+- all 19 authoritative CF1 fixtures are exercised exactly once, hash-bound, with every lifecycle/outcome distinction distinguishable in the compact result; terminal scenarios run through the real `RunStore`, terminal-state transitions, publication, and `JobManager.get_terminal_result()`; the active run stays on the pending path with control-route evidence;
+- evidence recovery is 100% (49/49 declared evidence kinds) with canonical-JSON equality against the stored authoritative `result_json` and matching `source_result_sha256` bindings; the gateway full route is reassembled and hash-verified through its inline/chunked transport;
+- production responses hold their serialized UTF-8 budgets: terminal 12 KB, summary 6 KB, control 8 KB, unchanged poll 1 KB, events 12 KB, repository search 16 KB, read batch 48 KB, diff 32 KB, everything within 64 KB;
+- twenty realistic durable run summaries paginate losslessly under the 12 KB list budget (pages of 11,212 / 11,212 / 2,726 bytes; first page 9 of 20, byte-limited, stable cursor, no loss or duplication);
+- the ~837 KB twenty-run payload (844,721 canonical bytes reconstructed from durable rows) never enters the conversation path: full enumeration costs 25,150 compact bytes (~3.0%) while every run's complete result remains exactly recoverable;
+- conversation-visible bytes fell from 1,875,110 (representative pre-CF1 baseline: duplicated structured+text payloads in the connector envelope) to 29,060 through the real MCP transport — a 98.45% reduction with zero duplicate complete-payload copies (structured 25,424 B, bounded text 2,496 B, wrapper 1,140 B);
+- performance: compact terminal projection p50 0.041 ms / p95 0.052 ms (2 ms gate); full retrieval medians 61.3 ms vs the 62.4 ms direct-retrieval baseline per 50-call batch (no regression against the 5% gate); compact SQL summary paths decode no JSON blobs; the MCP text summary is serialization-free and capped at 512 bytes;
+- compatibility and safety: direct Python callers receive dictionaries, MCP callers receive structured content plus the bounded text summary, legacy rows materialize once and reuse, stale bindings rebuild, and compact responses exclude lease tokens, run directories, secret values, reviewed scripts, and protected stdout/stderr while evidence handles stay usable.
+
+Full-suite validation ran three times through durable CodexBridge pytest execution. The first run was invalidated by a concurrent documentation edit (the read-only guard correctly flagged the changed worktree) and exposed three real failures fixed in `14c6502` (the strict `knowledge_action` output schema rejected its own compact refresh acknowledgement) and `2bef4c1` (discovery exactness inventories missing the intentionally restored `view`/`response_budget_bytes` fields). The final run reports 1,505 passed, 5 skipped, and exactly one failure: the documented, unrelated `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` full-suite-only PID instability, which passes alone and remains outside CF1 scope. A one-off pid-file read race in `test_powershell_acceptance.py` was observed once under full-suite load, passes alone, and is tracked separately.
+
 Compatibility rollout:
 
 1. add compact operations and versioned views without changing existing explicit-full behavior;
