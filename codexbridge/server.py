@@ -3217,17 +3217,60 @@ def _bounded_supervisor_resume_prompt(
     return response
 
 
+def _bounded_supervisor_snapshot(snapshot: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = {
+        key: snapshot[key]
+        for key in (
+            "ok",
+            "supervisor_id",
+            "repo_name",
+            "status",
+            "terminal_status",
+            "created_at",
+            "updated_at",
+            "started_at",
+            "ended_at",
+            "active_child_status",
+            "active_child_run_id",
+            "publication_status",
+            "error",
+            "failure_summary",
+            "recommended_next_action",
+        )
+        if key in snapshot
+    }
+    for field in ("summary", "failure_summary", "recommended_next_action"):
+        if compact.get(field):
+            compact[field] = str(compact[field])[:512]
+    compact["run_link_count"] = len(snapshot.get("run_links") or [])
+    compact["plan_result_present"] = bool(snapshot.get("plan_result"))
+    compact["implementation_result_present"] = bool(snapshot.get("implementation_result"))
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = response_budget_bytes
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def supervisor_query(request: SupervisorQueryRequest) -> dict:
     """Read-only gateway for durable supervisor state and notifications."""
     if request.operation == "status":
-        return get_supervisor_status(request.supervisor_id)
+        snapshot = get_supervisor_status(request.supervisor_id)
+        if request.view == "full":
+            return snapshot
+        return _bounded_supervisor_snapshot(snapshot, request.response_budget_bytes)
     if request.operation == "events":
         return get_supervisor_events(
             request.supervisor_id, request.limit, request.response_budget_bytes
         )
     if request.operation == "result":
-        return get_supervisor_result(request.supervisor_id)
+        snapshot = get_supervisor_result(request.supervisor_id)
+        if request.view == "full":
+            return snapshot
+        return _bounded_supervisor_snapshot(snapshot, request.response_budget_bytes)
     if request.operation == "notifications":
         return get_supervisor_notifications(
             request.supervisor_id,

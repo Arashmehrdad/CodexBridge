@@ -417,6 +417,12 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
         {"operation": "notifications", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
     assert supervisor_query.validate_python(
+        {"operation": "status", "supervisor_id": "sup_1"}
+    ).response_budget_bytes == 12 * 1024
+    assert supervisor_query.validate_python(
+        {"operation": "result", "supervisor_id": "sup_1"}
+    ).response_budget_bytes == 12 * 1024
+    assert supervisor_query.validate_python(
         {"operation": "resume_prompt", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
     assert supervisor_action.validate_python(
@@ -524,6 +530,29 @@ def test_supervisor_resume_prompt_honors_response_budget(monkeypatch) -> None:
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
     assert "path" not in result
+
+
+def test_supervisor_snapshot_projection_honors_response_budget(monkeypatch) -> None:
+    snapshot = {
+        "ok": True,
+        "supervisor_id": "sup_1",
+        "repo_name": "repo",
+        "status": "completed",
+        "summary": "s" * 20_000,
+        "failure_summary": "f" * 20_000,
+        "recommended_next_action": "n" * 20_000,
+        "run_links": [{"run_id": str(index)} for index in range(100)],
+        "plan_result": {"content": "x" * 20_000},
+        "implementation_result": {"content": "y" * 20_000},
+    }
+    monkeypatch.setattr(server, "get_supervisor_status", lambda supervisor_id: snapshot)
+    request = TypeAdapter(SupervisorQueryRequest).validate_python(
+        {"operation": "status", "supervisor_id": "sup_1", "response_budget_bytes": 4096}
+    )
+    result = server.supervisor_query(request)
+    assert result["response_bytes"] <= 4096
+    assert result["run_link_count"] == 100
+    assert "plan_result" not in result
 
 
 def test_repo_gateway_models_are_discriminated_and_strict() -> None:
