@@ -227,12 +227,22 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
 ] = (
     _entry(
         "ssh_inspect",
-        ("host_health", "environment_probe", "gpu_telemetry", "inspection"),
+        ("host_health", "environment_probe", "gpu_telemetry"),
         "codexbridge.server:ssh_inspect",
-        "direct bounded inspection object",
+        "direct SSH health and telemetry object",
+        notes="Structured SSH health and telemetry responses remain compatibility-shaped.",
+    ),
+    _entry(
+        "ssh_inspect",
+        ("inspection",),
+        "codexbridge.server:ssh_inspect -> codexbridge.ssh_tools:inspection",
+        "bounded SSH inspection object",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         notes=(
-            "Inspection schemas bound identifiers and tail counts, but the public "
-            "response envelope has no explicit byte ceiling."
+            "Inspection schemas retain bounded identifiers and tail counts, and the "
+            "serialized response now has a UTF-8 budget with truncation metadata."
         ),
     ),
     _entry(

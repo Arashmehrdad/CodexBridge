@@ -552,6 +552,31 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     assert monitored["execution_mode"] == "structured"
 
 
+def test_ssh_inspection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "_run_ssh_inspection",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "host_id": "my_vps",
+            "operation": "logs",
+            "stdout": "x" * 30_000,
+            "stderr": "y" * 4_000,
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+    result = server.ssh_inspect_legacy(
+        "my_vps", "logs", response_budget_bytes=4096
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_commit_tool_returns_structured_metadata_rejection(
     monkeypatch,
     tmp_path,

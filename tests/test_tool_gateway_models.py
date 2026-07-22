@@ -835,6 +835,10 @@ def test_phase6_domain_models_reject_cross_domain_fields() -> None:
     assert TypeAdapter(SSHQueryRequest).validate_python(
         {"operation": "profile_status", "change_id": "change_1"}
     ).change_id == "change_1"
+    ssh_inspection = TypeAdapter(SSHInspectRequest).validate_python(
+        {"operation": "inspection", "host_id": "dev", "inspection": "uptime"}
+    )
+    assert ssh_inspection.response_budget_bytes == 12 * 1024
     assert TypeAdapter(SSHActionRequest).validate_python(
         {"action": "command", "host_id": "dev", "command_id": "uptime"}
     ).command_id == "uptime"

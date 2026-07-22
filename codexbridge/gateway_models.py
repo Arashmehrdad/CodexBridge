@@ -50,6 +50,7 @@ class SSHBoundedInspection(GatewayModel):
     target: str = Field(default="", max_length=512)
     deployment_id: str = Field(default="", max_length=128)
     tail: int = Field(default=200, ge=1, le=20_000)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 SSHInspectRequest = Annotated[

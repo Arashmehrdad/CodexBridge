@@ -1728,9 +1728,12 @@ def ssh_inspect_legacy(
     target: str = "",
     deployment_id: str = "",
     tail: int = 200,
+    response_budget_bytes: int = 12 * 1024,
 ) -> dict:
     """Read-only: run one bounded SSH system, service, log, Git, Docker, or file inspection."""
-    return _run_ssh_inspection(
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    result = _run_ssh_inspection(
         get_config(),
         host_id,
         operation,
@@ -1739,6 +1742,29 @@ def ssh_inspect_legacy(
         deployment_id=deployment_id,
         tail=tail,
     )
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("stdout", "stderr", "error"):
+            value = result.get(key)
+            if isinstance(value, str) and value:
+                encoded = value.encode("utf-8")
+                result[key] = encoded[: max(0, len(encoded) - 1024)].decode(
+                    "utf-8", errors="ignore"
+                )
+                reduced = True
+                break
+        if not reduced and isinstance(result.get("argv"), list) and result["argv"]:
+            result["argv"].pop()
+            reduced = True
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 @mcp.tool(
@@ -1760,6 +1786,7 @@ def ssh_inspect(request: SSHInspectRequest) -> dict:
         target=request.target,
         deployment_id=request.deployment_id,
         tail=request.tail,
+        response_budget_bytes=request.response_budget_bytes,
     )
 
 
