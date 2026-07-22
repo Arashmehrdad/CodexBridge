@@ -200,7 +200,7 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
 
     run_events = _entry_for("run_query", "events")
     assert run_events.pagination is PaginationBehavior.CURSOR
-    assert run_events.default_item_limit == 50
+    assert run_events.default_item_limit == 20
     assert run_events.maximum_item_limit == 500
 
     cloudflare = _entry_for("cloudflare_query", "inspect")
