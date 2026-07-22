@@ -4192,10 +4192,51 @@ def repo_apply(request: RepoApplyRequest) -> dict:
 def repo_commit(request: RepoCommitRequest) -> dict:
     """Write gateway for protected local branch creation and selected-file commits only."""
     if request.operation == "create_branch":
-        return create_git_branch(request.repo_name, request.branch_name)
-    return commit_selected_files(
-        request.repo_name, request.files, request.title, request.description
-    )
+        result = create_git_branch(request.repo_name, request.branch_name)
+    else:
+        result = commit_selected_files(
+            request.repo_name, request.files, request.title, request.description
+        )
+    if request.view == "full":
+        return result
+    if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = {
+        key: result[key]
+        for key in (
+            "ok",
+            "operation",
+            "status",
+            "repo_name",
+            "branch_name",
+            "commit_hash",
+            "commit_attempted",
+            "commit_metadata_sha256",
+            "error",
+            "message",
+        )
+        if key in result
+    }
+    compact["changed_files"] = [str(path) for path in result.get("changed_files", [])]
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = request.response_budget_bytes
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+        if compact["changed_files"]:
+            compact["changed_files"].pop()
+            compact["truncated"] = True
+            compact["has_more"] = True
+            continue
+        for key in ("message", "error"):
+            if compact.get(key):
+                compact[key] = str(compact[key])[:128]
+                compact["truncated"] = True
+                compact["has_more"] = True
+                break
+        else:
+            break
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
 
 
 def build_parser() -> argparse.ArgumentParser:

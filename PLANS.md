@@ -719,6 +719,12 @@ Forty-third independently reviewable slice — bounded knowledge search contract
 - item limits, repository scoping, global-memory opt-in, and search ranking remain unchanged;
 - focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
 
+Forty-fourth independently reviewable slice — bounded repo-commit results:
+
+- `repo_commit` now defaults to a compact 12-KB UTF-8 mutation projection retaining operation/status, commit identity, and changed-file metadata with truncation and response-byte accounting;
+- selected-file and branch-creation policy checks remain unchanged, while `view="full"` preserves explicit complete mutation metadata access;
+- focused CodexBridge pytest validation passed with 60 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

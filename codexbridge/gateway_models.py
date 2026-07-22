@@ -589,6 +589,8 @@ class RepoCreateBranchCommit(GatewayModel):
     operation: Literal["create_branch"]
     repo_name: str = Field(min_length=1, max_length=128)
     branch_name: str = Field(min_length=1, max_length=255)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class RepoCommitSelected(GatewayModel):
@@ -597,6 +599,8 @@ class RepoCommitSelected(GatewayModel):
     files: list[str] = Field(min_length=1, max_length=200)
     title: str = Field(min_length=1, max_length=512)
     description: str = Field(default="", max_length=10_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 RepoCommitRequest = Annotated[

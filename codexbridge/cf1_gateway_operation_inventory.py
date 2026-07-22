@@ -985,11 +985,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_commit",
         ("create_branch", "commit_selected"),
         "codexbridge.server:repo_commit",
-        "direct protected git mutation result",
-        notes=(
-            "Selected-file commits accept up to 200 file paths; response bytes are "
-            "not explicitly capped."
-        ),
+        "bounded protected git mutation result",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact commit results retain operation, status, identity, and changed-file projection under a UTF-8 budget; view=full remains explicit complete mutation metadata access.",
     ),
     _entry(
         "knowledge_query",

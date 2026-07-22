@@ -630,6 +630,35 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert server.repo_commit(TypeAdapter(RepoCommitRequest).validate_python(
         {"operation": "commit_selected", "repo_name": "repo", "files": ["x"], "title": "fix: x"}
     ))["operation"] == "commit"
+    assert TypeAdapter(RepoCommitRequest).validate_python(
+        {"operation": "commit_selected", "repo_name": "repo", "files": ["x"], "title": "fix: x"}
+    ).response_budget_bytes == 12 * 1024
+
+
+def test_repo_commit_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "commit_selected_files",
+        lambda *args: {
+            "ok": True,
+            "operation": "commit",
+            "changed_files": [f"file-{index}-" + "x" * 200 for index in range(100)],
+            "message": "m" * 1000,
+        },
+    )
+    request = TypeAdapter(RepoCommitRequest).validate_python(
+        {
+            "operation": "commit_selected",
+            "repo_name": "repo",
+            "files": ["x.py"],
+            "title": "fix: x",
+            "response_budget_bytes": 4096,
+        }
+    )
+    result = server.repo_commit(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
 
 
 def test_repo_list_files_model_exposes_compact_and_full_views() -> None:

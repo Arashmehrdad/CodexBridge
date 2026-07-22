@@ -300,6 +300,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert knowledge_search.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in knowledge_search.notes
 
+    repo_commit = _entry_for("repo_commit", "commit_selected")
+    assert repo_commit.default_response_bytes == 12 * 1024
+    assert repo_commit.maximum_response_bytes == 12 * 1024
+    assert "view=full" in repo_commit.notes
+
     search = _entry_for("repo_query", "search_text")
     assert search.default_response_bytes == 16 * 1024
     assert search.maximum_response_bytes == 16 * 1024
