@@ -571,18 +571,21 @@ class PyCompilePathStart(GatewayModel):
     operation: Literal["py_compile_path"]
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
 
 
 class BashSyntaxPathStart(GatewayModel):
     operation: Literal["bash_syntax_path"]
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
 
 
 class JsonValidationPathStart(GatewayModel):
     operation: Literal["json_validation_path"]
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
 
 
 class GitReadonlyStart(GatewayModel):

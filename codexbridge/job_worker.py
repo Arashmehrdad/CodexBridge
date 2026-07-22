@@ -2724,6 +2724,12 @@ class JobWorker:
             _, repo_config = resolve_repo_config(self.config, repo_name)
             repo_profiles = list(repo_config.command_profiles or [])
             profile = resolve_command_profile(command_id, repo_profiles)
+        requested_timeout = input_data.get("timeout_seconds")
+        if requested_timeout is not None:
+            timeout_value = int(requested_timeout)
+            if timeout_value < 1 or timeout_value > 604_800:
+                raise ValueError("validator timeout_seconds must be between 1 and 604800")
+            profile.timeout_seconds = timeout_value
         run_dir = Path(self.run["run_dir"])
         temp_root = run_dir / "tmp"
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -2874,6 +2880,23 @@ class JobWorker:
             "safety_failure": safety_failure,
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
+            "validation": (
+                {
+                    "ok": int(command_result.get("exit_code", 1)) == 0,
+                    "error_count": 0 if int(command_result.get("exit_code", 1)) == 0 else 1,
+                    "representative_errors": [
+                        str(stderr).strip()[:1024]
+                    ] if str(stderr).strip() else [],
+                    "truncated": len(str(stderr).encode("utf-8")) > 1024,
+                }
+                if command_id
+                in {
+                    PY_COMPILE_PATH_COMMAND_ID,
+                    BASH_N_PATH_COMMAND_ID,
+                    JSON_VALIDATE_PATH_COMMAND_ID,
+                }
+                else None
+            ),
             "argv": list(command_result.get("argv", [])),
             "temporary_directory": str(temp_root),
             "pytest_basetemp": str(pytest_temp) if pytest_temp.exists() else "",

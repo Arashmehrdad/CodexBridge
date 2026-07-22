@@ -1315,36 +1315,42 @@ class JobManager:
         response["path"] = normalized_target
         return response
 
-    def start_py_compile_path(self, repo_name: str, path: str) -> dict:
+    def start_py_compile_path(
+        self, repo_name: str, path: str, *, timeout_seconds: int | None = None
+    ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         profile = build_py_compile_path_profile(repo_root, path)
         return self._start_validated_path_command(
             repo_name,
             command_id=PY_COMPILE_PATH_COMMAND_ID,
             normalized_target=profile.argv[-1],
-            timeout_seconds=profile.timeout_seconds,
+            timeout_seconds=timeout_seconds or profile.timeout_seconds,
             reason="Allowlisted py_compile path validation is approved for durable async execution",
         )
 
-    def start_bash_n_path(self, repo_name: str, path: str) -> dict:
+    def start_bash_n_path(
+        self, repo_name: str, path: str, *, timeout_seconds: int | None = None
+    ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         profile = build_bash_n_path_profile(repo_root, path)
         return self._start_validated_path_command(
             repo_name,
             command_id=BASH_N_PATH_COMMAND_ID,
             normalized_target=profile.argv[-1],
-            timeout_seconds=profile.timeout_seconds,
+            timeout_seconds=timeout_seconds or profile.timeout_seconds,
             reason="Allowlisted bash -n path validation is approved for durable async execution",
         )
 
-    def start_json_validation_path(self, repo_name: str, path: str) -> dict:
+    def start_json_validation_path(
+        self, repo_name: str, path: str, *, timeout_seconds: int | None = None
+    ) -> dict:
         repo_root = resolve_repo(self.config, repo_name)
         profile = build_json_validate_path_profile(repo_root, path)
         return self._start_validated_path_command(
             repo_name,
             command_id=JSON_VALIDATE_PATH_COMMAND_ID,
             normalized_target=profile.argv[-1],
-            timeout_seconds=profile.timeout_seconds,
+            timeout_seconds=timeout_seconds or profile.timeout_seconds,
             reason="Allowlisted JSON validation path is approved for durable async execution",
         )
 
@@ -2322,6 +2328,8 @@ class JobManager:
         timeout_seconds: int,
         reason: str,
     ) -> dict:
+        if int(timeout_seconds) < 1 or int(timeout_seconds) > 604_800:
+            raise ValueError("validator timeout_seconds must be between 1 and 604800")
         decision = PolicyDecision(
             accepted=True,
             tier=1,
@@ -2340,6 +2348,7 @@ class JobManager:
                 "repo_name": repo_name,
                 "command_id": command_id,
                 "path": normalized_target,
+                "timeout_seconds": int(timeout_seconds),
             },
             decision,
         )

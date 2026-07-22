@@ -203,6 +203,35 @@ def test_managed_apply_projection_exposes_bounded_terminal_metadata() -> None:
     assert len(canonical_public_json_bytes(projection)) <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
 
 
+def test_validator_projection_keeps_structured_errors_compact() -> None:
+    run = {
+        "run_id": RUN_ID,
+        "repo_name": "sample",
+        "tool": "project_command",
+        "status": "failed",
+    }
+    result = {
+        "status": "failed",
+        "classification": "process_failure",
+        "process_success": False,
+        "validation": {
+            "ok": False,
+            "error_count": 1000,
+            "representative_errors": ["invalid JSON at line 4"],
+            "truncated": True,
+        },
+        "stderr": "secret validator stream",
+    }
+
+    projection = build_public_result_projection(
+        run, result, authoritative_result_sha256(json.dumps(result, sort_keys=True))
+    )
+
+    assert '"ok":false' in projection["result"]["validation"]
+    assert "secret validator stream" not in canonical_public_json_bytes(projection).decode()
+    assert len(canonical_public_json_bytes(projection)) <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
+
+
 @pytest.mark.parametrize(
     ("run", "result", "expected"),
     [

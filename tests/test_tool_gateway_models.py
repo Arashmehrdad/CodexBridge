@@ -583,7 +583,7 @@ def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) ->
         ({"operation": "pytest_path", "repo_name": "repo", "path": "tests"}, "start_pytest_path"),
         ({"operation": "py_compile_path", "repo_name": "repo", "path": "x.py"}, "start_py_compile_path"),
         ({"operation": "bash_syntax_path", "repo_name": "repo", "path": "x.sh"}, "start_bash_n_path"),
-        ({"operation": "json_validation_path", "repo_name": "repo", "path": "x.json"}, "start_json_validation_path"),
+        ({"operation": "json_validation_path", "repo_name": "repo", "path": "x.json", "timeout_seconds": 17}, "start_json_validation_path"),
         ({"operation": "git_readonly", "repo_name": "repo", "git_operation": "status"}, "start_git_readonly"),
         ({"operation": "external_fixture_validation", "repo_name": "repo", "url": "https://example.test/x", "expected_sha256": "a" * 64}, "start_external_fixture_validation"),
         ({"operation": "powershell", "repo_name": "repo", "argv": ["-Command", "git status"], "environment": {"X": "a b"}, "stdin_base64": "AAE=", "timeout_seconds": 60}, "start_executable_profile"),
@@ -591,6 +591,8 @@ def test_run_start_dispatches_to_allowlisted_job_manager_methods(monkeypatch) ->
     ):
         server.run_start(TypeAdapter(RunStartRequest).validate_python(payload))
         assert calls[-1][0] == expected
+    validator_call = next(call for call in calls if call[0] == "start_json_validation_path")
+    assert validator_call[2]["timeout_seconds"] == 17
     powershell_group_call = calls[-1]
     assert powershell_group_call[1][0] == "repo"
     assert powershell_group_call[1][1][0]["idempotency_key"] == "one"

@@ -498,6 +498,12 @@ Sixth independently reviewable slice — hash-bound automatic commit metadata:
 - the structured commit report exposes a metadata hash, and the recorded Git commit is verified to contain the same run and changed-path binding, so replay cannot substitute a different batch identity silently;
 - focused CodexBridge pytest validation passed with 36 Git-tool tests. Native compilation, Ruff, and `git diff --check` passed; the only Ruff finding remains the pre-existing unused import in `job_manager.py`.
 
+Seventh independently reviewable slice — bounded dedicated-validator controls:
+
+- Python compile, Bash syntax, and JSON validation gateway schemas now accept an explicit bounded `timeout_seconds` control, persist it in the durable request, and enforce the same 1–604,800-second envelope before launch;
+- validator terminal results include a compact structured validation summary with pass/fail state, error count, representative redacted diagnostic text, and truncation state, while full streams remain available only through explicit evidence retrieval;
+- focused CodexBridge pytest validation passed with 36 gateway-model tests, 21 public-result tests, and 28 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the three pre-existing unused imports in `job_manager.py`, `job_worker.py`, and `server.py`.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -323,6 +323,13 @@ def _candidate(
             diagnostics_source, max(128, _PREVIEW_BYTES // text_divisor)
         )
 
+    validation_preview = ""
+    validation_meta = None
+    if result.get("validation") not in (None, "", [], {}):
+        validation_preview, validation_meta = _canonical_preview(
+            result["validation"], max(256, _PREVIEW_BYTES // text_divisor)
+        )
+
     collection_truncation = {
         key: value
         for key, value in {
@@ -331,6 +338,7 @@ def _candidate(
             "artifacts": artifacts_meta,
             "tests": tests_meta,
             "diagnostics": diagnostics_meta,
+            "validation": validation_meta,
         }.items()
         if value
     }
@@ -352,6 +360,7 @@ def _candidate(
         "artifacts": artifacts,
         "tests": tests_preview,
         "diagnostics": diagnostics_preview,
+        "validation": validation_preview,
     }
     managed_apply = _managed_apply_summary(run, result)
     if managed_apply is not None:

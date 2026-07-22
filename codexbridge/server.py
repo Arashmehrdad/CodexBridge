@@ -2050,21 +2050,27 @@ def start_pytest_path_async(repo_name: str, path: str) -> dict:
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_py_compile_path_async(repo_name: str, path: str) -> dict:
+def start_py_compile_path_async(
+    repo_name: str, path: str, timeout_seconds: int | None = None
+) -> dict:
     """Write async tool: queue py_compile validation for one validated repo-relative Python target."""
-    return get_job_manager().start_py_compile_path(repo_name, path)
+    return get_job_manager().start_py_compile_path(repo_name, path, timeout_seconds=timeout_seconds)
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_bash_n_path_async(repo_name: str, path: str) -> dict:
+def start_bash_n_path_async(
+    repo_name: str, path: str, timeout_seconds: int | None = None
+) -> dict:
     """Write async tool: queue bash -n validation for one validated repo-relative shell target."""
-    return get_job_manager().start_bash_n_path(repo_name, path)
+    return get_job_manager().start_bash_n_path(repo_name, path, timeout_seconds=timeout_seconds)
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_json_validation_path_async(repo_name: str, path: str) -> dict:
+def start_json_validation_path_async(
+    repo_name: str, path: str, timeout_seconds: int | None = None
+) -> dict:
     """Write async tool: queue JSON syntax validation for one validated repo-relative target."""
-    return get_job_manager().start_json_validation_path(repo_name, path)
+    return get_job_manager().start_json_validation_path(repo_name, path, timeout_seconds=timeout_seconds)
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -2212,11 +2218,11 @@ def run_start(request: RunStartRequest) -> dict:
     if request.operation == "pytest_path":
         return start_pytest_path_async(request.repo_name, request.path)
     if request.operation == "py_compile_path":
-        return start_py_compile_path_async(request.repo_name, request.path)
+        return start_py_compile_path_async(request.repo_name, request.path, request.timeout_seconds)
     if request.operation == "bash_syntax_path":
-        return start_bash_n_path_async(request.repo_name, request.path)
+        return start_bash_n_path_async(request.repo_name, request.path, request.timeout_seconds)
     if request.operation == "json_validation_path":
-        return start_json_validation_path_async(request.repo_name, request.path)
+        return start_json_validation_path_async(request.repo_name, request.path, request.timeout_seconds)
     if request.operation == "git_readonly":
         return start_git_readonly_async(request.repo_name, request.git_operation)
     return start_external_fixture_validation_async(
