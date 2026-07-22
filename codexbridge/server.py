@@ -2322,12 +2322,43 @@ def get_run_output(
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dict:
+def list_operation_locks(
+    repo_name: str = "",
+    include_stale: bool = True,
+    limit: int = 50,
+    view: str = "compact",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: list durable repository, SSH-host, and configuration operation locks."""
-    locks = get_job_manager().list_operation_locks(
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if limit < 1 or limit > 500:
+        raise ValueError("limit must be between 1 and 500")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    all_locks = get_job_manager().list_operation_locks(
         repo_name or None, include_stale=include_stale
     )
-    return {"ok": True, "locks": locks, "count": len(locks), "error": ""}
+    if view == "full":
+        return {"ok": True, "locks": all_locks, "count": len(all_locks), "error": ""}
+    locks = list(all_locks[:limit])
+    response = {
+        "ok": True,
+        "locks": locks,
+        "count": len(locks),
+        "has_more": len(locks) < len(all_locks),
+        "truncated": False,
+        "response_budget_bytes": response_budget_bytes,
+        "error": "",
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and response["locks"]:
+        response["locks"].pop()
+        response["truncated"] = True
+        response["has_more"] = True
+    response["response_bytes"] = len(
+        json.dumps(response, ensure_ascii=False).encode("utf-8")
+    )
+    return response
 
 
 def _bounded_preflight_response(response: dict[str, Any], budget: int = 12 * 1024) -> dict:
@@ -2544,7 +2575,13 @@ def run_query(request: RunQueryRequest) -> dict:
         return list_runs(request.repo_name, request.status, request.limit)
     if request.operation == "preflight":
         return get_repository_preflight(request.repo_name, request.include_stale)
-    return list_operation_locks(request.repo_name, request.include_stale)
+    return list_operation_locks(
+        request.repo_name,
+        request.include_stale,
+        request.limit,
+        request.view,
+        request.response_budget_bytes,
+    )
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)

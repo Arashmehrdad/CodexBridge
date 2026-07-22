@@ -542,8 +542,16 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "run_query",
         ("locks",),
         "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.list_locks",
-        "direct repository lock list",
-        notes="The lock list has no item limit, cursor, or public byte ceiling.",
+        "bounded compact repository lock projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        default_item_limit=50,
+        maximum_item_limit=500,
+        notes=(
+            "The default lock view is capped by item count and serialized UTF-8 "
+            "budget; view=full remains an explicit compatibility/evidence path."
+        ),
     ),
     _entry(
         "run_query",

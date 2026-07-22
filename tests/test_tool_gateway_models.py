@@ -68,6 +68,17 @@ def test_gateway_model_requires_operation_specific_fields() -> None:
     assert adapter.validate_python(
         {"operation": "group_result", "group_id": "group_1"}
     ).group_id == "group_1"
+    locks = adapter.validate_python(
+        {
+            "operation": "locks",
+            "limit": 7,
+            "view": "full",
+            "response_budget_bytes": 16384,
+        }
+    )
+    assert locks.limit == 7
+    assert locks.view == "full"
+    assert locks.response_budget_bytes == 16384
     for payload in (
         {"operation": "events"},
         {"operation": "events", "run_id": "run_1", "stream": "stdout"},

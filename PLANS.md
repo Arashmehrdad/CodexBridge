@@ -534,6 +534,12 @@ Twelfth independently reviewable slice — explicit normalization-risk warning:
 - the warning is copied into the protected preview manifest and remains non-fatal, so callers can deliberately request legacy normalization without confusing it with an accidental default behavior;
 - focused CodexBridge pytest validation passed with 95 repository-writer tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
+Thirteenth independently reviewable slice — bounded lock reads:
+
+- `run_query(operation="locks")` now defaults to a compact lock projection with bounded item count, a caller-selected 1–64-KB response budget, explicit `has_more`/truncation metadata, and response byte accounting;
+- `view="full"` preserves the existing complete lock evidence path, while the operation inventory and gateway schema expose the compact/full distinction explicitly;
+- focused CodexBridge pytest validation passed with 29 server tests and 36 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

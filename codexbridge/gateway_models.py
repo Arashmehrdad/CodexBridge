@@ -158,6 +158,9 @@ class RunLocksQuery(GatewayModel):
     operation: Literal["locks"]
     repo_name: str = Field(default="", max_length=128)
     include_stale: bool = True
+    limit: int = Field(default=50, ge=1, le=500)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class RunPreflightQuery(GatewayModel):

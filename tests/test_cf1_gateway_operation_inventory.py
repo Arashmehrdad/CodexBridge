@@ -186,8 +186,9 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "summary_list",
         "control",
         "events",
-        "terminal",
-        "preflight",
+            "terminal",
+            "locks",
+            "preflight",
         "repo_apply",
     }
     assert all(

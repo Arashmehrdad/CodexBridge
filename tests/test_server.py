@@ -1219,6 +1219,34 @@ def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> Non
     assert result["response_bytes"] <= result["response_budget_bytes"]
 
 
+def test_list_operation_locks_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    class Manager:
+        def list_operation_locks(self, repo_name=None, *, include_stale=True):
+            return [
+                {
+                    "repo_name": repo_name or "repo",
+                    "run_id": f"run_{index}",
+                    "tool": "tool",
+                    "stale": not include_stale,
+                    "diagnostic": "x" * 1000,
+                }
+                for index in range(20)
+            ]
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+
+    compact = server.list_operation_locks(
+        "repo", limit=20, response_budget_bytes=4096
+    )
+    full = server.list_operation_locks("repo", limit=20, view="full")
+
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert len(full["locks"]) == 20
+    assert "response_bytes" not in full
+
+
 def test_repo_apply_returns_durable_compact_ack(monkeypatch) -> None:
     class Manager:
         def start_repo_apply(self, repo_name, operation, payload):
