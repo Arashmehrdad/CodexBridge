@@ -3376,14 +3376,8 @@ def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
     return {"ok": True, "signal": _signal_record_json(record)}
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def trading_signal_get(request: TradingSignalGetRequest) -> dict:
-    """Read one immutable Trading Lab signal."""
-    record = _trading_signal_journal().get(request.signal_id)
-    signal = _signal_record_json(record)
-    if request.view == "full":
-        return {"ok": True, "signal": signal}
-    if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+def _compact_trading_signal_response(signal: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     signal = dict(signal)
     draft = dict(signal.get("draft") or {})
@@ -3396,9 +3390,9 @@ def trading_signal_get(request: TradingSignalGetRequest) -> dict:
         "signal": signal,
         "truncated": False,
         "has_more": False,
-        "response_budget_bytes": request.response_budget_bytes,
+        "response_budget_bytes": response_budget_bytes,
     }
-    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
         reduced = False
         for field in (
             "news_context",
@@ -3419,6 +3413,15 @@ def trading_signal_get(request: TradingSignalGetRequest) -> dict:
         response["has_more"] = True
     response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
     return response
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def trading_signal_get(request: TradingSignalGetRequest) -> dict:
+    """Read one immutable Trading Lab signal."""
+    signal = _signal_record_json(_trading_signal_journal().get(request.signal_id))
+    if request.view == "full":
+        return {"ok": True, "signal": signal}
+    return _compact_trading_signal_response(signal, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3448,7 +3451,10 @@ def trading_signal_list(request: TradingSignalListRequest) -> dict:
 def trading_signal_cancel_before_entry(request: TradingSignalCancelRequest) -> dict:
     """Cancel one submitted signal before entry without editing its payload."""
     record = _trading_signal_journal().cancel_before_entry(request.signal_id, request.reason)
-    return {"ok": True, "signal": _signal_record_json(record)}
+    signal = _signal_record_json(record)
+    if request.view == "full":
+        return {"ok": True, "signal": signal}
+    return _compact_trading_signal_response(signal, request.response_budget_bytes)
 
 
 @_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

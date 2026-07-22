@@ -280,6 +280,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert signal_get.maximum_response_bytes == 12 * 1024
     assert "view=full" in signal_get.notes
 
+    signal_cancel = _entry_for("trading_signal_cancel_before_entry", "invoke")
+    assert signal_cancel.default_response_bytes == 12 * 1024
+    assert signal_cancel.maximum_response_bytes == 12 * 1024
+    assert "view=full" in signal_cancel.notes
+
     search = _entry_for("repo_query", "search_text")
     assert search.default_response_bytes == 16 * 1024
     assert search.maximum_response_bytes == 16 * 1024

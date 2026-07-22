@@ -695,6 +695,12 @@ Thirty-ninth independently reviewable slice — bounded single-signal retrieval:
 - `view="full"` preserves explicit complete immutable signal-record retrieval and existing journal/idempotency behavior;
 - focused CodexBridge pytest validation passed with 57 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fortieth independently reviewable slice — bounded signal cancellation results:
+
+- `trading_signal_cancel_before_entry` now returns the same compact 12-KB UTF-8 signal projection as single-signal reads, with bounded narrative fields and response-byte accounting;
+- cancellation state transitions and immutable journal payloads remain unchanged, while `view="full"` preserves explicit complete record access;
+- focused CodexBridge pytest validation passed with 58 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

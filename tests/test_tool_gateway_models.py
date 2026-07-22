@@ -291,7 +291,9 @@ def test_trading_signal_models_are_strict() -> None:
     signal_list = TypeAdapter(TradingSignalListRequest).validate_python({})
     assert signal_list.limit == 100
     assert signal_list.response_budget_bytes == 12 * 1024
-    assert TypeAdapter(TradingSignalCancelRequest).validate_python({"signal_id": "sig_1", "reason": "wrong premise"}).reason == "wrong premise"
+    cancel = TypeAdapter(TradingSignalCancelRequest).validate_python({"signal_id": "sig_1", "reason": "wrong premise"})
+    assert cancel.reason == "wrong premise"
+    assert cancel.response_budget_bytes == 12 * 1024
     with pytest.raises(ValidationError):
         submit.validate_python({**_signal_request_payload(), "market_packet_hash": "bad"})
     with pytest.raises(ValidationError):
@@ -337,6 +339,31 @@ def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
     )
     result = server.trading_signal_get(
         TradingSignalGetRequest(signal_id="sig_1", response_budget_bytes=1024)
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 1024
+
+
+def test_trading_signal_cancel_honors_response_budget(monkeypatch) -> None:
+    class Journal:
+        def cancel_before_entry(self, signal_id, reason):
+            return object()
+
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server,
+        "_signal_record_json",
+        lambda record: {
+            "signal_id": "sig_1",
+            "draft": {"reason": "r" * 4000, "news_context": "n" * 4000},
+            "status": "cancelled",
+        },
+    )
+    result = server.trading_signal_cancel_before_entry(
+        TradingSignalCancelRequest(
+            signal_id="sig_1", reason="wrong premise", response_budget_bytes=1024
+        )
     )
     assert result["truncated"] is True
     assert result["has_more"] is True
