@@ -510,6 +510,12 @@ Eighth independently reviewable slice — bounded ordinary result reads:
 - `view="full"` remains an explicit authoritative retrieval path, and callers that supply the existing chunk cursor are promoted to that full path for compatibility and exact reconstruction;
 - focused CodexBridge pytest validation passed with 5 public-result gateway tests. Native compilation and `git diff --check` passed; Ruff reports the pre-existing unused import in `server.py`.
 
+Ninth independently reviewable slice — bounded knowledge search freshness envelope:
+
+- repository knowledge search now applies a deterministic 12-KB UTF-8 response budget after capability metadata is attached, preserving generation/head/branch freshness identities while collapsing excess wiki and memory hits;
+- the response reports `response_bytes` and `truncated`, and existing repository-scoped search semantics, stale-generation metadata, and explicit wiki-page retrieval remain unchanged;
+- focused CodexBridge pytest validation passed with 7 knowledge-integration tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green from the preceding slice.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

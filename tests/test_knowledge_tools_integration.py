@@ -7,7 +7,10 @@ from types import ModuleType
 from typing import Any
 
 from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.knowledge_tools_integration import register_knowledge_tools
+from codexbridge.knowledge_tools_integration import (
+    _bounded_knowledge_search,
+    register_knowledge_tools,
+)
 from codexbridge.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
 from pydantic import TypeAdapter
 
@@ -125,6 +128,7 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
                 "repo_name": "seedmind",
                 "decision": "SeedMind project knowledge must remain repository-scoped.",
             }
+
         )
     )
     result = mcp.tools["knowledge_query"]["function"](
@@ -140,6 +144,42 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])
     assert len(result["server_build_hash"]) == 64
     assert len(remembered["schema_hash"]) == 64
+
+
+def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:
+    result = {
+        "ok": True,
+        "repo_name": "seedmind",
+        "query": "needle",
+        "wiki_hits": [
+            {"source": "wiki", "page": f"page-{index}", "line": index, "snippet": "x" * 2_000}
+            for index in range(20)
+        ],
+        "memory_hits": [
+            {
+                "memory_id": f"memory-{index}",
+                "memory_type": "decision",
+                "title": "t" * 500,
+                "summary": "s" * 1_000,
+                "tags": [],
+                "repo_name": "seedmind",
+            }
+            for index in range(20)
+        ],
+        "generation_id": "generation-1",
+        "stale": False,
+        "indexed_head": "a" * 40,
+        "indexed_branch": "main",
+        "source_generation": 1,
+        "indexed_source_generation": 1,
+        "error": "",
+    }
+
+    bounded = _bounded_knowledge_search(result)
+
+    assert bounded["truncated"] is True
+    assert bounded["response_bytes"] <= 12 * 1024
+    assert bounded["wiki_hits"] or bounded["memory_hits"]
 
 
 def test_knowledge_tools_follow_the_active_config_after_reload(

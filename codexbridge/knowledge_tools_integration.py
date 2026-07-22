@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from functools import wraps
 from typing import Any, Callable
@@ -144,6 +145,8 @@ KNOWLEDGE_SEARCH_OUTPUT = {
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
+        "response_bytes": {"type": "integer"},
+        "truncated": {"type": "boolean"},
     },
     "required": ["ok", "repo_name", "query", "wiki_hits", "memory_hits", "error"],
 }
@@ -245,6 +248,33 @@ def _with_capability_metadata(
     for key, value in capability_metadata(schema).items():
         enriched.setdefault(key, value)
     return enriched
+
+
+def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -> dict[str, Any]:
+    """Keep knowledge search deterministic and connector-safe while preserving freshness metadata."""
+    bounded = dict(result)
+    bounded["truncated"] = False
+    bounded["response_bytes"] = 0
+    while len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > budget:
+        wiki_hits = bounded.get("wiki_hits") or []
+        memory_hits = bounded.get("memory_hits") or []
+        if wiki_hits:
+            wiki_hits.pop()
+        elif memory_hits:
+            memory_hits.pop()
+        else:
+            for key in ("query", "indexed_branch", "indexed_head"):
+                if bounded.get(key):
+                    bounded[key] = bounded[key][:256]
+                    break
+            else:
+                bounded["truncated"] = True
+                break
+        bounded["truncated"] = True
+    bounded["response_bytes"] = len(
+        json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return bounded
 
 
 def register_knowledge_tools(mcp: Any) -> None:
@@ -355,7 +385,7 @@ def register_knowledge_tools(mcp: Any) -> None:
                 limit=maximum,
             )
             memory_hits = [_memory_hit(record) for record in result.records]
-            return _with_capability_metadata(
+            return _bounded_knowledge_search(_with_capability_metadata(
                 {
                     "ok": True,
                     "repo_name": canonical_name,
@@ -371,7 +401,7 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "error": "",
                 },
                 KNOWLEDGE_SEARCH_OUTPUT,
-            )
+            ))
         except Exception as exc:
             return _with_capability_metadata(
                 {
