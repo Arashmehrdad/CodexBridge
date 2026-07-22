@@ -17,6 +17,7 @@ def test_transaction_context_does_not_scan_unrelated_workspace(
     (repo / ".git").mkdir()
     target = repo / "sample.txt"
     target.write_text("before\n", encoding="utf-8")
+    expected_content = target.read_bytes()
     unrelated = repo / "runs" / "large-artifact.bin"
     unrelated.parent.mkdir()
     unrelated.write_bytes(b"artifact")
@@ -31,7 +32,7 @@ def test_transaction_context_does_not_scan_unrelated_workspace(
 
     context = TransactionContext(repo, ["sample.txt"])
 
-    assert context.file_snapshots["sample.txt"].content == b"before\n"
+    assert context.file_snapshots["sample.txt"].content == expected_content
 
 
 def test_transaction_context_tracks_baseline_and_rollback(tmp_path: Path) -> None:
