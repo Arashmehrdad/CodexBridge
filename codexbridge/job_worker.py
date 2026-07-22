@@ -49,6 +49,7 @@ from .gateway_models import (
     validate_root_ssh_shell_request,
 )
 from .managed_artifacts import (
+    apply_managed_artifact_cleanup,
     cleanup_new_managed_artifacts,
     snapshot_managed_artifacts,
 )
@@ -84,6 +85,7 @@ from .runner import (
     open_codex_prompt_stream,
 )
 from .repo_wiki import mark_repo_wiki_stale
+from . import repo_writer
 from .remote_controller_state import validate_remote_controller_state_contract
 from .remote_powershell import (
     complete_remote_powershell_artifact_manifest,
@@ -1234,6 +1236,8 @@ class JobWorker:
         repo_name = input_data["repo_name"]
         repo_root = resolve_repo(self.config, repo_name)
 
+        if tool == "repo_apply":
+            return self._execute_repo_apply(started_at, repo_name, repo_root, input_data)
         if tool == "project_command":
             return self._execute_project_command(
                 started_at, repo_name, repo_root, input_data
@@ -2631,6 +2635,58 @@ class JobWorker:
             "command_result": command_result,
             **commit_data,
         }
+
+    def _execute_repo_apply(
+        self,
+        started_at: str,
+        repo_name: str,
+        repo_root: Path,
+        input_data: dict,
+    ) -> dict:
+        operation = str(input_data["operation"])
+        runs_dir = self.config.resolve_runs_dir()
+        if operation == "previewed_change":
+            result = repo_writer.apply_previewed_repo_change(
+                repo_root, str(input_data["patch_id"]), runs_dir
+            )
+        elif operation == "cleanup":
+            result = apply_managed_artifact_cleanup(
+                repo_root, runs_dir, str(input_data["cleanup_id"])
+            )
+        elif operation == "revert":
+            result = repo_writer.revert_managed_patch(
+                repo_root, str(input_data["patch_id"]), runs_dir
+            )
+        else:
+            result = repo_writer.move_repo_file(
+                repo_root,
+                str(input_data["source_path"]),
+                str(input_data["destination_path"]),
+                str(input_data["expected_sha256"]),
+                runs_dir,
+            )
+        result = dict(result)
+        result["run_id"] = self.run_id
+        result["operation"] = operation
+        result["started_at"] = started_at
+        if result.get("ok") and result.get("changed_files"):
+            commit_data = self._finalize_commit(
+                repo_root,
+                list(result["changed_files"]),
+                tool_name="repo_apply",
+            )
+            result.update(commit_data)
+            if commit_data.get("commit_attempted") and commit_data.get("commit_error"):
+                result["ok"] = False
+                result["status"] = "commit_failed"
+                result["error"] = commit_data["commit_error"]
+            else:
+                result["wiki_freshness"] = mark_repo_wiki_stale(
+                    repo_root, repo_name, reason="repo_apply"
+                )
+        result.setdefault("status", "completed" if result.get("ok") else "failed")
+        result.setdefault("error", "")
+        return result
 
     def _execute_project_command(
         self,

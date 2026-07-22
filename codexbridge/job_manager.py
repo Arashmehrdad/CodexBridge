@@ -1257,6 +1257,30 @@ class JobManager:
         response["command_id"] = command_id
         return response
 
+    def start_repo_apply(
+        self, repo_name: str, operation: str, payload: dict[str, object]
+    ) -> dict:
+        """Durably record and launch one managed repository apply request."""
+        resolve_repo(self.config, repo_name)
+        if operation not in {"previewed_change", "cleanup", "revert", "move_file"}:
+            raise ValueError(f"Unsupported repository apply operation: {operation}")
+        input_data = {"repo_name": repo_name, "operation": operation, **payload}
+        decision = PolicyDecision(
+            accepted=True,
+            tier=4,
+            risk_level="medium",
+            requires_human=False,
+            reason="Hash-verified managed repository apply is approved for durable execution",
+            estimated_duration_minutes=1,
+            recommended_check_after_minutes=1,
+        )
+        response = self._create_and_launch(
+            "repo_apply", repo_name, input_data, decision
+        )
+        response.setdefault("repo_name", repo_name)
+        response["operation"] = operation
+        return response
+
     def start_pytest_path(
         self, repo_name: str, path: str, *, reserved_run_id: str | None = None
     ) -> dict:

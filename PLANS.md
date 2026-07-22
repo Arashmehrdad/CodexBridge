@@ -474,6 +474,12 @@ Second independently reviewable slice — single bounded preflight:
 - the response is capped at 12 KB with explicit truncation and byte-count fields; existing individual status, list, lock, summary, and full-evidence operations remain available for detail retrieval;
 - focused CodexBridge pytest validation passed with 36 gateway-model tests, 27 server tests, and 6 gateway-inventory tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports the same pre-existing unused import in `server.py`.
 
+Third independently reviewable slice — immediate managed-apply acknowledgement:
+
+- `repo_apply` now records a durable `repo_apply` run and repository lock before returning a compact acknowledgement containing transaction/run identity, accepted state, preview or cleanup identity, bounded control polling, and explicit terminal evidence access;
+- the durable worker reuses the existing hash-verified apply, rollback, commit, wiki-staleness, and manifest lifecycle behavior; duplicate requests are refused while the same transaction is active, and completed manifest replay remains idempotent without reapplying files;
+- the acknowledgement is capped at 4 KB and the operation inventory records its durable-input and bounded-response contract. CodexBridge pytest validation passed with 28 server tests, 6 gateway-inventory tests, and 72 job-manager tests; native compilation and `git diff --check` passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

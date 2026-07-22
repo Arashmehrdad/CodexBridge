@@ -185,15 +185,17 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "summary",
         "summary_list",
         "control",
-            "events",
-            "terminal",
-            "preflight",
-        }
+        "events",
+        "terminal",
+        "preflight",
+        "repo_apply",
+    }
     assert all(
         entry.default_response_bytes is None
         and entry.maximum_response_bytes is None
         for entry in PUBLIC_GATEWAY_OPERATION_INVENTORY
-        if compact_operations.isdisjoint(entry.operation_names)
+        if entry.gateway == "run_query"
+        and compact_operations.isdisjoint(entry.operation_names)
     )
 
     output = _entry_for("run_query", "output")

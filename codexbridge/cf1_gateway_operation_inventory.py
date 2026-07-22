@@ -775,9 +775,17 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "repo_apply",
         ("previewed_change", "cleanup", "revert", "move_file"),
-        "codexbridge.server:repo_apply",
-        "direct managed change lifecycle result",
-        notes="Responses contain changed-file and lifecycle metadata.",
+        "codexbridge.server:repo_apply -> codexbridge.job_manager:JobManager.start_repo_apply",
+        "durable compact managed-apply acknowledgement",
+        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
+        json_decode_cost=JsonDecodeCost.NONE,
+        default_response_bytes=4 * 1024,
+        maximum_response_bytes=4 * 1024,
+        notes=(
+            "The gateway records the validated request and repository lock before "
+            "returning a transaction/run identifier. Compact control polling and "
+            "terminal/evidence retrieval preserve the existing full apply result."
+        ),
     ),
     _entry(
         "repo_commit",

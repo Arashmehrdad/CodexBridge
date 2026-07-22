@@ -4,7 +4,10 @@ from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
 
+from pydantic import TypeAdapter
+
 from codexbridge.config import AppConfig, RepoConfig
+from codexbridge.gateway_models import RepoApplyRequest
 from codexbridge.git_tools import CommitMetadataError
 from codexbridge.server import parse_args
 import codexbridge.server as server
@@ -1214,6 +1217,41 @@ def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> Non
     assert result["runs"]["launch_pending"][0]["status"] == "launch_pending"
     assert result["locks"][0]["repo_name"] == "repo"
     assert result["response_bytes"] <= result["response_budget_bytes"]
+
+
+def test_repo_apply_returns_durable_compact_ack(monkeypatch) -> None:
+    class Manager:
+        def start_repo_apply(self, repo_name, operation, payload):
+            assert repo_name == "repo"
+            assert operation == "previewed_change"
+            assert payload == {"patch_id": "patch_1"}
+            return {
+                "accepted": True,
+                "status": "queued",
+                "run_id": "run_apply_1",
+                "repo_name": "repo",
+                "reason": "recorded",
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+    request = TypeAdapter(RepoApplyRequest).validate_python(
+        {
+            "operation": "previewed_change",
+            "repo_name": "repo",
+            "patch_id": "patch_1",
+        }
+    )
+
+    result = server.repo_apply(request)
+
+    assert result["accepted"] is True
+    assert result["transaction_id"] == "run_apply_1"
+    assert result["polling"]["request"] == {
+        "operation": "control",
+        "run_id": "run_apply_1",
+    }
+    assert result["evidence"]["request"]["operation"] == "terminal"
+    assert result["response_bytes"] <= 4 * 1024
 
 
 def test_server_ssh_probe_tools_delegate_to_structured_collectors(monkeypatch) -> None:

@@ -3288,17 +3288,46 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def repo_apply(request: RepoApplyRequest) -> dict:
     """Write gateway for hash-verified preview application, cleanup, rollback, and moves."""
-    if request.operation == "previewed_change":
-        return apply_previewed_repo_change(request.repo_name, request.patch_id)
-    if request.operation == "cleanup":
-        return apply_managed_artifact_cleanup(request.repo_name, request.cleanup_id)
-    if request.operation == "revert":
-        return revert_managed_patch(request.repo_name, request.patch_id)
-    return move_repo_file(
-        request.repo_name,
-        request.source_path,
-        request.destination_path,
-        request.expected_sha256,
+    payload = request.model_dump(exclude={"operation", "repo_name"})
+    response = get_job_manager().start_repo_apply(
+        request.repo_name, request.operation, payload
+    )
+    ack = {
+        "ok": bool(response.get("accepted")),
+        "accepted": bool(response.get("accepted")),
+        "status": response.get("status", "refused"),
+        "operation": request.operation,
+        "repo_name": response.get("repo_name", request.repo_name),
+        "transaction_id": response.get("run_id", ""),
+        "run_id": response.get("run_id", ""),
+        "patch_id": getattr(request, "patch_id", ""),
+        "cleanup_id": getattr(request, "cleanup_id", ""),
+        "polling": {
+            "tool": "run_query",
+            "request": {
+                "operation": "control",
+                "run_id": response.get("run_id", ""),
+            },
+        },
+        "evidence": {
+            "tool": "run_query",
+            "request": {
+                "operation": "terminal",
+                "run_id": response.get("run_id", ""),
+            },
+        },
+        "reason": response.get("reason", ""),
+        "duplicate": bool(response.get("duplicate", False)),
+        "error": response.get("error", ""),
+    }
+    return _bounded_preflight_response(
+        {
+            "locks": [],
+            "runs": {"running": [], "queued": [], "launch_pending": []},
+            "tracked_worktree": {"files": []},
+            **ack,
+        },
+        budget=4 * 1024,
     )
 
 
