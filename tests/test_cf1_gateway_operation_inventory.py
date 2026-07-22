@@ -392,6 +392,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert supervisor_lifecycle.default_response_bytes == 12 * 1024
     assert supervisor_lifecycle.maximum_response_bytes == 12 * 1024
     assert "view=full" in supervisor_lifecycle.notes
+    trading_scalar = _entry_for("trading_query", "health")
+    assert trading_scalar.default_response_bytes == 12 * 1024
+    assert trading_scalar.maximum_response_bytes == 12 * 1024
+    assert "view=full" in trading_scalar.notes
 
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024

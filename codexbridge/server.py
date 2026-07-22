@@ -3424,6 +3424,29 @@ def supervisor_action(request: SupervisorActionRequest) -> dict:
     return _bounded_supervisor_snapshot(result, request.response_budget_bytes)
 
 
+def _bounded_trading_scalar_response(response: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = dict(response)
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = budget
+    if len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > budget:
+        result = compact.get("result")
+        if isinstance(result, dict):
+            compact["result"] = {
+                key: value
+                for key, value in result.items()
+                if isinstance(value, (bool, int, float)) or key in {"symbol", "status", "connected"}
+            }
+        else:
+            compact["result"] = str(result or "")[:512]
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def trading_query(request: TradingQueryRequest) -> dict:
     """Read-only gateway for the configured demo MT5 market-data adapter."""
@@ -3434,7 +3457,10 @@ def trading_query(request: TradingQueryRequest) -> dict:
     try:
         health = provider.connect()
         if request.operation == "health":
-            return {"ok": True, "operation": request.operation, "result": _trading_json(health)}
+            response = {"ok": True, "operation": request.operation, "result": _trading_json(health)}
+            if request.view == "full":
+                return response
+            return _bounded_trading_scalar_response(response, request.response_budget_bytes)
         if not health.connected:
             return {"ok": False, "status": "disconnected", "error": "MT5 terminal is disconnected", "health": _trading_json(health)}
         if health.account_environment != "demo":
@@ -3455,6 +3481,10 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
             result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
         response = {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+        if request.operation in {"specification", "tick"}:
+            if request.view == "full":
+                return response
+            return _bounded_trading_scalar_response(response, request.response_budget_bytes)
         if request.operation == "symbols":
             response["truncated"] = False
             response["has_more"] = False

@@ -240,6 +240,8 @@ WorkflowActionRequest = Annotated[
 
 class TradingHealthQuery(GatewayModel):
     operation: Literal["health"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingSymbolsQuery(GatewayModel):
@@ -250,10 +252,14 @@ class TradingSymbolsQuery(GatewayModel):
 
 class TradingSpecificationQuery(GatewayModel):
     operation: Literal["specification"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingTickQuery(GatewayModel):
     operation: Literal["tick"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingH4Query(GatewayModel):

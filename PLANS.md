@@ -773,6 +773,12 @@ Fifty-second independently reviewable slice — bounded supervisor lifecycle mut
 - `view="full"` remains explicit complete supervisor evidence access, and durable lifecycle transitions remain unchanged;
 - focused CodexBridge pytest validation passed with 66 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifty-third independently reviewable slice — bounded scalar trading queries:
+
+- `trading_query(operation="health"|"specification"|"tick")` now defaults to compact 12-KB scalar projections retaining provider-safe scalar fields while bounding oversized adapter payloads;
+- `view="full"` remains explicit complete adapter evidence access, and existing symbols/candle/historical bounds plus provider lifecycle behavior remain unchanged;
+- focused CodexBridge pytest validation passed with 67 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

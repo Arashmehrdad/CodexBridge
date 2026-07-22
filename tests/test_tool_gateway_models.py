@@ -111,6 +111,9 @@ def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     assert h4.response_budget_bytes == 12 * 1024
     symbols = adapter.validate_python({"operation": "symbols"})
     assert symbols.response_budget_bytes == 12 * 1024
+    assert adapter.validate_python({"operation": "health"}).response_budget_bytes == 12 * 1024
+    assert adapter.validate_python({"operation": "specification"}).response_budget_bytes == 12 * 1024
+    assert adapter.validate_python({"operation": "tick"}).response_budget_bytes == 12 * 1024
     historical = adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"})
     assert historical.end_utc.hour == 7
     assert historical.response_budget_bytes == 12 * 1024
@@ -142,6 +145,29 @@ def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:
     assert result["symbol"] == "BITCOIN_i"
     assert result["result"]["ask"] == 2.0
     assert calls == [("tick", "BITCOIN_i"), "close"]
+
+
+def test_trading_scalar_query_projection_honors_response_budget(monkeypatch) -> None:
+    class FakeProvider:
+        def connect(self):
+            return SimpleNamespace(connected=True, account_environment="demo")
+
+        def close(self):
+            pass
+
+        def latest_tick(self, symbol):
+            return {"symbol": symbol, "bid": 1.0, "ask": 2.0, "detail": "x" * 20_000}
+
+    monkeypatch.setattr(server, "get_config", lambda: SimpleNamespace(trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")))
+    monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
+    result = server.trading_query(
+        TypeAdapter(TradingQueryRequest).validate_python(
+            {"operation": "tick", "response_budget_bytes": 4096}
+        )
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
 
 
 def test_run_query_group_projection_honors_response_budget(monkeypatch) -> None:

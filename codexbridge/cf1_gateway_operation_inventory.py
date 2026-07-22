@@ -773,8 +773,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "trading_query",
         ("health", "specification", "tick"),
         "codexbridge.server:trading_query",
-        "direct market-data adapter object",
-        notes="Scalar market-data responses preserve direct adapter compatibility.",
+        "bounded compact scalar market-data projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact scalar market-data responses retain provider-safe scalar fields under a UTF-8 budget; view=full remains explicit complete adapter evidence.",
     ),
     _entry(
         "trading_query",
