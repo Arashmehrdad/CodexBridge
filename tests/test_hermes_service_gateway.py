@@ -450,6 +450,80 @@ def test_registry_reload_holds_named_administration_lock(
         gateway.close()
 
 
+def test_five_sessions_execute_concurrently_with_isolated_durable_results(
+    tmp_path: Path,
+) -> None:
+    probe = DispatchProbe()
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    store = RunStore(runs_dir)
+    store.init_db()
+    workers: list[GateWorker] = []
+    try:
+
+        def worker_factory(worker_id: str) -> GateWorker:
+            worker = GateWorker(
+                worker_id, dispatch_delay=0.25, probe=probe
+            )
+            workers.append(worker)
+            return worker
+
+        def supervisor_factory() -> HermesServiceSupervisor:
+            supervisor = HermesServiceSupervisor(
+                HermesSupervisorConfig(
+                    service_instance_id="hermes-shared-five",
+                    service_build_identity="build-test",
+                    worker_count=5,
+                    state_path=tmp_path / "state-five.json",
+                ),
+                worker_factory=worker_factory,
+            )
+            supervisor.start()
+            return supervisor
+
+        gateway = HermesServiceGateway(
+            run_store=store,
+            runs_dir=runs_dir,
+            supervisor_factory=supervisor_factory,
+        )
+        sessions = [f"Session-{index}" for index in range(1, 6)]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                session: executor.submit(
+                    execute, gateway, session_id=session
+                )
+                for session in sessions
+            }
+            responses = {
+                session: future.result(timeout=10)
+                for session, future in futures.items()
+            }
+
+        assert probe.max_active == 5, "sessions did not truly overlap"
+        run_ids = {r["run_id"] for r in responses.values()}
+        request_ids = {r["request_id"] for r in responses.values()}
+        assert len(run_ids) == 5
+        assert len(request_ids) == 5
+        for session, response in responses.items():
+            assert response["ok"] is True
+            assert response["session_id"] == session
+            owned = gateway.get_result(
+                run_id=response["run_id"], session_id=session
+            )
+            assert owned["status"] == "completed"
+            for other_session in sessions:
+                if other_session == session:
+                    continue
+                with pytest.raises(HermesServiceOwnershipError):
+                    gateway.get_result(
+                        run_id=response["run_id"],
+                        session_id=other_session,
+                    )
+        assert len(workers) == 5
+    finally:
+        gateway.close()
+
+
 def test_health_reports_unavailable_service_and_fallback(
     tmp_path: Path,
 ) -> None:
