@@ -899,6 +899,12 @@ Seventy-third independently reviewable slice — versioned compact recent-file l
 - explicit full recent-file evidence and live filesystem ordering remain unchanged;
 - focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Seventy-fourth independently reviewable slice — versioned compact commit logs:
+
+- `repo_query(operation="log")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
+- explicit full and legacy git-log retrieval remain unchanged, including path scoping and bounded commit-list trimming;
+- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

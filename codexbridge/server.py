@@ -4516,6 +4516,10 @@ def git_log(
     commits = list(result.get("commits") or [])
     compact = {
         "ok": result.get("ok", False),
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "repo_name": result.get("repo_name", canonical_name),
         "path": result.get("path", path),
         "commits": commits,

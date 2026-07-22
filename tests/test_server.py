@@ -1466,6 +1466,9 @@ def test_git_log_has_bounded_compact_and_explicit_full_views(monkeypatch) -> Non
     compact = server.git_log(
         "repo", limit=40, view="compact", response_budget_bytes=4096
     )
+    assert compact["projection_version"] == "cf1.v1"
+    assert compact["non_authoritative"] is True
+    assert "authoritative" in compact["notice"]
     assert compact["truncated"] is True
     assert compact["has_more"] is True
     assert compact["response_bytes"] <= 4096
