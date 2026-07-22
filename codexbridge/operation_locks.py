@@ -64,6 +64,84 @@ class OperationLockStore:
                 "lease_generation",
                 "INTEGER NOT NULL DEFAULT 1",
             )
+            self.store._ensure_column(
+                conn,
+                "operation_locks",
+                "run_state_version_bound",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+
+    @staticmethod
+    def _bump_run_state_version(conn, run_id: str) -> bool:
+        cursor = conn.execute(
+            "UPDATE runs SET state_version = state_version + 1 WHERE run_id = ?",
+            (run_id,),
+        )
+        return int(cursor.rowcount) == 1
+
+    @classmethod
+    def _bind_run_ownership_in_connection(
+        cls,
+        conn,
+        *,
+        repo_name: str,
+        run_id: str,
+        owner_token: str,
+        lease_generation: int,
+    ) -> bool:
+        row = conn.execute(
+            """
+            SELECT run_state_version_bound
+            FROM operation_locks
+            WHERE repo_name = ? AND run_id = ?
+              AND owner_token = ? AND lease_generation = ?
+            """,
+            (repo_name, run_id, owner_token, int(lease_generation)),
+        ).fetchone()
+        if row is None:
+            return False
+        if bool(row["run_state_version_bound"]):
+            return True
+        if not cls._bump_run_state_version(conn, run_id):
+            return False
+        cursor = conn.execute(
+            """
+            UPDATE operation_locks
+            SET run_state_version_bound = 1
+            WHERE repo_name = ? AND run_id = ?
+              AND owner_token = ? AND lease_generation = ?
+              AND run_state_version_bound = 0
+            """,
+            (repo_name, run_id, owner_token, int(lease_generation)),
+        )
+        if int(cursor.rowcount) != 1:
+            raise RuntimeError("Repository lock decision-version binding lost a race")
+        return True
+
+    def bind_run_ownership(
+        self,
+        repo_name: str,
+        run_id: str,
+        owner_token: str,
+        lease_generation: int,
+    ) -> bool:
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            bound = self._bind_run_ownership_in_connection(
+                conn,
+                repo_name=repo_name,
+                run_id=run_id,
+                owner_token=owner_token,
+                lease_generation=lease_generation,
+            )
+            conn.commit()
+            return bound
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def acquire(
         self,
@@ -86,10 +164,12 @@ class OperationLockStore:
             if row is not None:
                 existing = dict(row)
                 if self._is_stale(conn, existing):
-                    conn.execute(
+                    cursor = conn.execute(
                         "DELETE FROM operation_locks WHERE repo_name = ?",
                         (repo_name,),
                     )
+                    if int(cursor.rowcount) == 1:
+                        self._bump_run_state_version(conn, str(existing["run_id"]))
                 else:
                     duplicate = (
                         existing["tool"] == tool
@@ -124,6 +204,12 @@ class OperationLockStore:
                     now,
                 ),
             )
+        self.bind_run_ownership(
+            repo_name,
+            run_id,
+            owner_token,
+            lease_generation,
+        )
         return LockAcquisition(
             acquired=True,
             duplicate=False,
@@ -146,12 +232,44 @@ class OperationLockStore:
         if lease_generation is not None:
             where += " AND lease_generation = ?"
             params.append(int(lease_generation))
-        with self.store.connect() as conn:
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                f"""
+                SELECT owner_pid, lease_generation, run_state_version_bound
+                FROM operation_locks WHERE {where}
+                """,
+                params[2:],
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return False
+            actual_generation = int(row["lease_generation"] or 1)
+            self._bind_run_ownership_in_connection(
+                conn,
+                repo_name=repo_name,
+                run_id=run_id,
+                owner_token=owner_token,
+                lease_generation=actual_generation,
+            )
+            owner_changed = int(row["owner_pid"] or 0) != int(owner_pid)
             cursor = conn.execute(
                 f"UPDATE operation_locks SET owner_pid = ?, heartbeat_at = ? WHERE {where}",
                 params,
             )
-        return int(cursor.rowcount) == 1
+            if int(cursor.rowcount) != 1:
+                conn.rollback()
+                return False
+            if owner_changed:
+                self._bump_run_state_version(conn, run_id)
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def heartbeat(
         self,
@@ -192,7 +310,10 @@ class OperationLockStore:
             params.append(int(lease_generation))
         with self.store.connect() as conn:
             cursor = conn.execute(f"DELETE FROM operation_locks WHERE {where}", params)
-        return int(cursor.rowcount) == 1
+            released = int(cursor.rowcount) == 1
+            if released:
+                self._bump_run_state_version(conn, run_id)
+        return released
 
     def reserve_next_launch(
         self,
@@ -247,7 +368,7 @@ class OperationLockStore:
                 """
                 UPDATE operation_locks
                 SET owner_pid = ?, owner_token = ?, lease_generation = ?,
-                    heartbeat_at = ?
+                    heartbeat_at = ?, run_state_version_bound = 1
                 WHERE repo_name = ? AND run_id = ?
                   AND owner_token = ? AND lease_generation = ?
                 """,
@@ -354,6 +475,13 @@ class OperationLockStore:
             rows = conn.execute("SELECT * FROM operation_locks").fetchall()
             for row in rows:
                 existing = dict(row)
+                self._bind_run_ownership_in_connection(
+                    conn,
+                    repo_name=str(existing["repo_name"]),
+                    run_id=str(existing["run_id"]),
+                    owner_token=str(existing["owner_token"] or ""),
+                    lease_generation=int(existing.get("lease_generation") or 1),
+                )
                 if self._is_stale(conn, existing):
                     cursor = conn.execute(
                         """
@@ -368,7 +496,12 @@ class OperationLockStore:
                             int(existing.get("lease_generation") or 1),
                         ),
                     )
-                    removed += int(cursor.rowcount)
+                    removed_now = int(cursor.rowcount)
+                    if removed_now == 1:
+                        self._bump_run_state_version(
+                            conn, str(existing["run_id"])
+                        )
+                    removed += removed_now
         return removed
 
     def _is_stale(self, conn, row: dict[str, Any]) -> bool:

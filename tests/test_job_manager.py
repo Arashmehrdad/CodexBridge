@@ -307,6 +307,17 @@ def test_start_async_project_command_creates_durable_run(
     status = manager.get_status(response["run_id"])
     assert status["tool"] == "project_command"
     assert status["input"]["command_id"] == "pytest"
+    with manager.store.connect() as conn:
+        lock = conn.execute(
+            """
+            SELECT run_state_version_bound
+            FROM operation_locks
+            WHERE repo_name = ? AND run_id = ?
+            """,
+            ("sample", response["run_id"]),
+        ).fetchone()
+    assert lock is not None
+    assert lock["run_state_version_bound"] == 1
 
 
 def test_start_docker_action_creates_durable_run(tmp_path: Path, monkeypatch) -> None:

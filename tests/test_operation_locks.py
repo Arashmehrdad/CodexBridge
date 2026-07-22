@@ -9,6 +9,88 @@ from codexbridge.operation_locks import OperationLockStore
 RUN_ID = "20260706T120000Z_project_command_deadbeef"
 
 
+def test_lock_decision_version_tracks_ownership_but_not_heartbeats(
+    tmp_path: Path,
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    initial_version = store.store.get_run(RUN_ID)["state_version"]
+
+    acquired = store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_pid=111,
+        owner_token="lease-token",
+        lease_generation=1,
+    )
+    assert acquired.acquired is True
+    acquired_version = store.store.get_run(RUN_ID)["state_version"]
+    assert acquired_version == initial_version + 1
+
+    assert store.heartbeat("sample", RUN_ID, "lease-token", 1) is True
+    assert store.store.get_run(RUN_ID)["state_version"] == acquired_version
+
+    assert store.claim_owner(
+        "sample",
+        RUN_ID,
+        owner_pid=222,
+        owner_token="lease-token",
+        lease_generation=1,
+    )
+    claimed_version = store.store.get_run(RUN_ID)["state_version"]
+    assert claimed_version == acquired_version + 1
+
+    assert store.claim_owner(
+        "sample",
+        RUN_ID,
+        owner_pid=222,
+        owner_token="lease-token",
+        lease_generation=1,
+    )
+    assert store.store.get_run(RUN_ID)["state_version"] == claimed_version
+
+    assert store.release("sample", RUN_ID, "wrong-token", 1) is False
+    assert store.store.get_run(RUN_ID)["state_version"] == claimed_version
+    assert store.release("sample", RUN_ID, "lease-token", 1) is True
+    assert store.store.get_run(RUN_ID)["state_version"] == claimed_version + 1
+
+
+def test_lock_acquired_before_run_binds_exactly_once(tmp_path: Path) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    acquired = store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={},
+        run_id=RUN_ID,
+        owner_pid=111,
+        owner_token="lease-token",
+        lease_generation=1,
+    )
+    assert acquired.acquired is True
+    assert store.bind_run_ownership("sample", RUN_ID, "lease-token", 1) is False
+
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+    )
+    assert store.store.get_run(RUN_ID)["state_version"] == 0
+    assert store.bind_run_ownership("sample", RUN_ID, "lease-token", 1) is True
+    assert store.store.get_run(RUN_ID)["state_version"] == 1
+    assert store.bind_run_ownership("sample", RUN_ID, "lease-token", 1) is True
+    assert store.store.get_run(RUN_ID)["state_version"] == 1
+
+
 def test_operation_lock_rejects_duplicate_active_task(tmp_path: Path) -> None:
     store = OperationLockStore(tmp_path / "runs")
     store.store.create_run(
@@ -126,8 +208,13 @@ def test_operation_lock_removes_terminal_dead_owner(
         operation_locks, "process_is_running", lambda _pid: False
     )
 
+    version_before_recovery = store.store.get_run(RUN_ID)["state_version"]
     assert store.recover_stale() == 1
     assert store.find_lock("sample", RUN_ID) is None
+    assert (
+        store.store.get_run(RUN_ID)["state_version"]
+        == version_before_recovery + 1
+    )
 
 
 def test_operation_lock_retains_terminal_run_with_verified_worker(
@@ -190,6 +277,7 @@ def test_operation_lock_listing_is_sanitized_and_filterable(tmp_path: Path) -> N
     assert listed[0]["run_status"] == "queued"
     assert "input_fingerprint" not in listed[0]
     assert "owner_token" not in listed[0]
+    assert "run_state_version_bound" not in listed[0]
     found = store.find_lock("sample", RUN_ID)
     assert found is not None
     assert found["run_id"] == listed[0]["run_id"]

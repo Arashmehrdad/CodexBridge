@@ -1988,6 +1988,15 @@ class JobManager:
                 worker_lease_token=lease_token,
             )
             run_created = True
+            if repository_lock_required and not self.locks.bind_run_ownership(
+                repo_name,
+                run_id,
+                lease_token,
+                1,
+            ):
+                raise RuntimeError(
+                    "Durable run could not bind repository lock ownership"
+                )
             event = self.store.append_event(
                 run_id,
                 level="info",
