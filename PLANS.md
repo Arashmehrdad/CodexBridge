@@ -887,6 +887,12 @@ Seventy-first independently reviewable slice — versioned compact repository st
 - existing tool-owned filtering, byte-budget trimming, direct compatibility behavior, and full status evidence remain unchanged;
 - focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Seventy-second independently reviewable slice — versioned compact repository file lists:
+
+- `repo_query(operation="list_files")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
+- explicit full file-list retrieval and existing repository-relative path/security checks remain unchanged;
+- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

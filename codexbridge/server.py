@@ -4030,6 +4030,10 @@ def list_repo_files(
     files = list(result.get("files") or [])
     compact = {
         "ok": result.get("ok", False),
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "repo_name": result.get("repo_name", canonical_name),
         "directory": result.get("directory", directory),
         "files": files,
