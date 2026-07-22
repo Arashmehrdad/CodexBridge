@@ -1305,7 +1305,7 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## H2 - Shared Multi-Session Hermes Service
 
-Status: **complete; reactivated by user selection on 2026-07-22 after CF1 local acceptance, implemented and accepted the same day pending one final full-suite durable validation recorded below**.
+Status: **complete; reactivated by user selection on 2026-07-22 after CF1 local acceptance, implemented, live-accepted, and validated the same day**. Final durable full-suite validation: run `20260722T212128Z_project_command_262b02fe` reported **1537 passed, 5 skipped, 0 failed** in 284.60 s with exit code 0 and an unchanged repository-state guard — including the formerly full-suite-failing Hermes persistent-worker PID test, now passing under the durable venv interpreter.
 
 The production motivation remains valid: the H1 one-request companion path pays the full Hermes and MCP startup cost on every call, and live handshake run `20260720T191848Z_executable_profile_4c2eff11` measured **23.501 seconds** under registry generation `85` and effective schema hash `8ccc02adee339326497a10953c749d73ae5eade6a92f41c21bb59cde573cd987`, with `model_runtime_initialized: false`, empty protected stderr, and no repository lock.
 
