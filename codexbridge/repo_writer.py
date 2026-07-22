@@ -43,6 +43,8 @@ from .git_tools import _validate_commit_metadata
 MAX_PATCH_FILES = 50
 MAX_PATCH_LINES = 10_000
 MAX_PATCH_BYTES = 2 * 1024 * 1024  # 2 MB total content change
+MAX_NEWLINE_DIAGNOSTIC_BYTES = 8 * 1024
+MAX_NEWLINE_DIAGNOSTIC_LOCATIONS = 20
 MAX_CREATE_BYTES = 200 * 1024  # 200 KB for create_repo_file
 MANAGED_PATCHES_DIR = "managed_patches"
 
@@ -187,6 +189,50 @@ def _dominant_newline(text: str) -> str:
 def _restore_newlines(text: str, newline: str) -> str:
     normalized = _normalize_newlines(text)
     return normalized if newline == "\n" else normalized.replace("\n", newline)
+
+
+def _newline_diagnostic(old_text: str, new_text: str) -> dict[str, Any]:
+    """Return a small, exact diagnostic for newline-form changes."""
+    def counts(text: str) -> dict[str, int]:
+        crlf = text.count("\r\n")
+        bare_cr = text.replace("\r\n", "").count("\r")
+        lf = text.replace("\r\n", "").count("\n")
+        return {"lf": lf, "crlf": crlf, "cr": bare_cr}
+
+    def endings(text: str) -> list[str]:
+        return [
+            "crlf" if line.endswith("\r\n") else "cr" if line.endswith("\r") else "lf"
+            for line in text.splitlines(keepends=True)
+            if line.endswith(("\r\n", "\r", "\n"))
+        ]
+
+    old_endings = endings(old_text)
+    new_endings = endings(new_text)
+    affected = [
+        index + 1
+        for index in range(max(len(old_endings), len(new_endings)))
+        if (old_endings[index] if index < len(old_endings) else "")
+        != (new_endings[index] if index < len(new_endings) else "")
+    ]
+    locations = affected[:MAX_NEWLINE_DIAGNOSTIC_LOCATIONS]
+    return {
+        "old_counts": counts(old_text),
+        "new_counts": counts(new_text),
+        "mixed_old": sum(value > 0 for value in counts(old_text).values()) > 1,
+        "mixed_new": sum(value > 0 for value in counts(new_text).values()) > 1,
+        "affected_lines": locations,
+        "affected_lines_total": len(affected),
+        "affected_lines_truncated": len(affected) > len(locations),
+    }
+
+
+def _bounded_newline_diagnostics(items: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = {"items": items, "truncated": False}
+    while len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) > MAX_NEWLINE_DIAGNOSTIC_BYTES and payload["items"]:
+        payload["items"].pop()
+        payload["truncated"] = True
+    payload["response_bytes"] = len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    return payload
 
 
 def _git_head(repo_root: Path) -> str:
@@ -450,6 +496,7 @@ def _write_preview_bundle(
                 "logical_changed_lines", op["changed_lines"]
             ),
             "newline_only_changed_lines": op.get("newline_only_changed_lines", 0),
+            "newline_diagnostic": op.get("newline_diagnostic", {}),
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
@@ -1074,6 +1121,7 @@ def _validate_operations(
             logical_changed_lines,
             newline_only_changed_lines,
         ) = _change_line_counts(current_text, new_content, path_str)
+        newline_diagnostic = _newline_diagnostic(current_text, new_content)
         if state["newline_mode"] == "preserved" and newline_only_changed_lines:
             errors.append(
                 f"Patch for '{path_str}' introduces "
@@ -1097,6 +1145,7 @@ def _validate_operations(
                 "changed_lines": changed_lines,
                 "logical_changed_lines": logical_changed_lines,
                 "newline_only_changed_lines": newline_only_changed_lines,
+                "newline_diagnostic": newline_diagnostic,
                 "changed_bytes": changed_bytes,
                 "operation_count": len(state["validation_results"]),
                 "validation_results": list(state["validation_results"]),
@@ -1150,6 +1199,7 @@ def preview_repo_patch(
     total_newline_only_changed_lines = 0
     total_changed_bytes = 0
     bundle_operations: list[dict[str, Any]] = []
+    newline_diagnostics: list[dict[str, Any]] = []
 
     for op in validated:
         combined_diff += op["diff"]
@@ -1157,6 +1207,9 @@ def preview_repo_patch(
         total_changed_lines += op["changed_lines"]
         total_logical_changed_lines += op["logical_changed_lines"]
         total_newline_only_changed_lines += op["newline_only_changed_lines"]
+        newline_diagnostics.append(
+            {"path": op["path"], **op["newline_diagnostic"]}
+        )
         total_changed_bytes += op["changed_bytes"]
         bundle_operations.append(
             {
@@ -1167,6 +1220,7 @@ def preview_repo_patch(
                 "changed_lines": op["changed_lines"],
                 "logical_changed_lines": op["logical_changed_lines"],
                 "newline_only_changed_lines": op["newline_only_changed_lines"],
+                "newline_diagnostic": op["newline_diagnostic"],
                 "changed_bytes": op["changed_bytes"],
             }
         )
@@ -1192,6 +1246,7 @@ def preview_repo_patch(
         "changed_lines": total_changed_lines,
         "logical_changed_lines": total_logical_changed_lines,
         "newline_only_changed_lines": total_newline_only_changed_lines,
+        "newline_diagnostics": _bounded_newline_diagnostics(newline_diagnostics),
         "changed_bytes": total_changed_bytes,
         "git_head": head,
         "validation_errors": errors,

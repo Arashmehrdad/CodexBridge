@@ -522,6 +522,12 @@ Tenth independently reviewable slice — caller-bound preview commit metadata:
 - preview apply returns only the manifest-bound metadata, and managed commit finalization preserves that title while appending the durable run ID and deterministic changed-path SHA-256, preventing replay or a later request from substituting commit identity;
 - focused CodexBridge pytest validation passed with 92 repository-writer tests, 37 Git-tool tests, 36 gateway-model tests, and the legacy server compatibility regression. The full-suite run before that compatibility adjustment reported 1,386 passed and 5 skipped with two failures; the focused rerun removed the preview-wrapper failure, leaving only the already-documented Hermes persistent-process PID assertion. Native compilation, `git diff --check`, and `python -m pip check` passed; Ruff reports only the pre-existing unused imports.
 
+Eleventh independently reviewable slice — bounded mixed-newline diagnostics:
+
+- patch previews now report exact old/new LF, CRLF, and bare-CR counts, whether each version is mixed, and the first 20 affected line locations with total-count and truncation fields;
+- diagnostic projection is capped at 8 KB before returning or persisting preview metadata, while the existing byte-preserving default and explicit legacy normalization behavior remain unchanged;
+- focused CodexBridge pytest validation passed with 94 repository-writer tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

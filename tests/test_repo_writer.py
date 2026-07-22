@@ -189,6 +189,41 @@ def test_preview_reports_intentional_newline_only_churn(tmp_path: Path) -> None:
     assert manifest["operations"][0]["newline_only_changed_lines"] == 2
 
 
+def test_preview_returns_bounded_mixed_newline_diagnostics(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "mixed_diagnostic.txt"
+    target.write_bytes(b"a\r\nb\nc\rd\n")
+    operation = {
+        "path": "mixed_diagnostic.txt",
+        "expected_sha256": sha256_file(target),
+        "old_text": "b",
+        "new_text": "B",
+        "preserve_newlines": False,
+    }
+
+    result = preview_repo_patch(repo, [operation], runs)
+    diagnostic = result["newline_diagnostics"]["items"][0]
+
+    assert diagnostic["old_counts"] == {"lf": 2, "crlf": 1, "cr": 1}
+    assert diagnostic["new_counts"] == {"lf": 4, "crlf": 0, "cr": 0}
+    assert diagnostic["mixed_old"] is True
+    assert diagnostic["affected_lines"] == [1, 3]
+    assert diagnostic["affected_lines_truncated"] is False
+    assert result["newline_diagnostics"]["response_bytes"] <= 8 * 1024
+
+
+def test_newline_diagnostic_caps_affected_line_locations() -> None:
+    old = "".join("line\r\n" if index % 2 else "line\n" for index in range(50))
+    new = "line\n" * 50
+
+    diagnostic = rw._newline_diagnostic(old, new)
+
+    assert len(diagnostic["affected_lines"]) == 20
+    assert diagnostic["affected_lines_total"] == 25
+    assert diagnostic["affected_lines_truncated"] is True
+
+
 def test_preview_rejects_newline_only_churn_in_preserved_mode(
     tmp_path: Path, monkeypatch
 ) -> None:
