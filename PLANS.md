@@ -821,6 +821,12 @@ Sixtieth independently reviewable slice — capability identity convergence:
 - convergence checks are read-only and do not reload or mutate services; existing capability discovery and system-query operations remain available, with `view="full"` preserving the complete identity record;
 - focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-first independently reviewable slice — operation-inventory drift check:
+
+- capability identity now includes a deterministic operation-inventory hash and gateway count, and compares a caller-supplied connector/discovery inventory hash to report explicit operation-schema drift;
+- inventory hashing normalizes operation sets deterministically, remains read-only, and preserves all existing capability identity and compact/full behavior;
+- focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

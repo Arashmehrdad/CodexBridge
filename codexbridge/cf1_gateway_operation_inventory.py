@@ -679,7 +679,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Reports source and running server/schema identities plus caller-supplied connector identity mismatches under a bounded projection.",
+        notes="Reports source and running server/schema identities, operation-inventory hash, and caller-supplied connector identity mismatches under a bounded projection.",
     ),
     _entry(
         "system_query",

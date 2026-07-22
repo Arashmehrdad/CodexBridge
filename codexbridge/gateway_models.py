@@ -1178,6 +1178,7 @@ class SystemCapabilityIdentityQuery(GatewayModel):
     expected_server_build_hash: str = Field(default="", max_length=64)
     expected_schema_hash: str = Field(default="", max_length=64)
     expected_capability_epoch: str = Field(default="", max_length=128)
+    expected_operation_inventory_hash: str = Field(default="", max_length=64)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 

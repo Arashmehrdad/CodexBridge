@@ -20,6 +20,7 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
+from .cf1_gateway_operation_inventory import operation_names_by_gateway
 from .cloudflare_tools import authorize_cloudflare_profile
 from .cloudflare_tools import cloudflare_health as _cloudflare_health
 from .cloudflare_tools import (
@@ -3224,6 +3225,9 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
 def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
     source_build = server_build_hash()
     source_schema = schema_hash(PATCH_OPERATION_SCHEMA)
+    operation_inventory_hash = schema_hash(
+        {gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()}
+    )
     running_build = _PROCESS_CAPABILITY_METADATA["server_build_hash"]
     running_schema = _PROCESS_CAPABILITY_METADATA["schema_hash"]
     running_epoch = _PROCESS_CAPABILITY_METADATA["capability_epoch"]
@@ -3238,6 +3242,11 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         mismatches.append("connector_schema_hash")
     if request.expected_capability_epoch and request.expected_capability_epoch != running_epoch:
         mismatches.append("connector_capability_epoch")
+    if (
+        request.expected_operation_inventory_hash
+        and request.expected_operation_inventory_hash != operation_inventory_hash
+    ):
+        mismatches.append("connector_operation_inventory_hash")
     return {
         "ok": not mismatches,
         "converged": not mismatches,
@@ -3246,6 +3255,8 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "running_server_build_hash": running_build,
         "running_schema_hash": running_schema,
         "running_capability_epoch": running_epoch,
+        "operation_inventory_hash": operation_inventory_hash,
+        "operation_inventory_gateway_count": len(operation_names_by_gateway()),
         "mismatches": mismatches,
         "error": "capability identities do not converge" if mismatches else "",
     }
