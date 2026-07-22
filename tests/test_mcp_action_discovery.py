@@ -1750,7 +1750,8 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
         if item["properties"]["operation"].get("const") == "commit_range"
     )
     assert set(commit_range_schema["properties"]) == {
-        "operation", "repo_name", "base_commit", "head_commit"
+        "operation", "repo_name", "base_commit", "head_commit",
+        "view", "response_budget_bytes",
     }
 
     assert "dry_run_stage_manifest" in RETIRED_DIRECT_ACTIONS
@@ -1760,15 +1761,21 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
         item for item in repo_query_schema["oneOf"]
         if item["properties"]["operation"].get("const") == "compact_status"
     )
-    assert set(compact_status_schema["properties"]) == {"operation", "repo_name"}
+    assert set(compact_status_schema["properties"]) == {
+        "operation", "repo_name", "response_budget_bytes"
+    }
 
 
 def test_cloudflare_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     query = actions["cloudflare_query"]["inputSchema"]["properties"]["request"]
     variants = {item["properties"]["operation"]["const"]: item for item in query["oneOf"]}
-    assert set(variants["capabilities"]["properties"]) == {"operation", "repo_name"}
-    assert set(variants["health"]["properties"]) == {"operation", "repo_name", "profile_id"}
+    assert set(variants["capabilities"]["properties"]) == {
+        "operation", "repo_name", "view", "response_budget_bytes"
+    }
+    assert set(variants["health"]["properties"]) == {
+        "operation", "repo_name", "profile_id", "view", "response_budget_bytes"
+    }
     assert "inspection" in variants["inspect"]["properties"]
     action = actions["cloudflare_action"]["inputSchema"]["properties"]["request"]
     assert len(action["oneOf"]) == 5
