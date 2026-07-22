@@ -528,6 +528,12 @@ Eleventh independently reviewable slice — bounded mixed-newline diagnostics:
 - diagnostic projection is capped at 8 KB before returning or persisting preview metadata, while the existing byte-preserving default and explicit legacy normalization behavior remain unchanged;
 - focused CodexBridge pytest validation passed with 94 repository-writer tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green.
 
+Twelfth independently reviewable slice — explicit normalization-risk warning:
+
+- mixed-newline patch previews now warn before an explicitly requested normalized edit would rewrite the file’s newline forms, while the default preserved mode remains byte-preserving and apply still requires the existing expected content hash;
+- the warning is copied into the protected preview manifest and remains non-fatal, so callers can deliberately request legacy normalization without confusing it with an accidental default behavior;
+- focused CodexBridge pytest validation passed with 95 repository-writer tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

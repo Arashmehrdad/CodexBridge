@@ -451,6 +451,7 @@ def _write_preview_bundle(
     *,
     git_head: str,
     errors: list[str],
+    warnings: list[str] | None = None,
     commit_title: str = "",
     commit_description: str = "",
 ) -> Path:
@@ -478,6 +479,7 @@ def _write_preview_bundle(
         "status": "preview_failed" if errors else "preview_ok",
         "operations": [],
         "errors": errors,
+        "warnings": list(warnings or []),
         "commit_title": commit_title,
         "commit_description": commit_description,
     }
@@ -497,6 +499,7 @@ def _write_preview_bundle(
             ),
             "newline_only_changed_lines": op.get("newline_only_changed_lines", 0),
             "newline_diagnostic": op.get("newline_diagnostic", {}),
+            "warnings": list(op.get("warnings") or []),
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
@@ -1122,6 +1125,16 @@ def _validate_operations(
             newline_only_changed_lines,
         ) = _change_line_counts(current_text, new_content, path_str)
         newline_diagnostic = _newline_diagnostic(current_text, new_content)
+        warnings: list[str] = []
+        if (
+            state["newline_mode"] == "normalized"
+            and newline_diagnostic["mixed_old"]
+            and newline_diagnostic["old_counts"] != newline_diagnostic["new_counts"]
+        ):
+            warnings.append(
+                f"'{path_str}' requests whole-file newline normalization; "
+                "set preserve_newlines=true to keep untouched newline sequences"
+            )
         if state["newline_mode"] == "preserved" and newline_only_changed_lines:
             errors.append(
                 f"Patch for '{path_str}' introduces "
@@ -1146,6 +1159,7 @@ def _validate_operations(
                 "logical_changed_lines": logical_changed_lines,
                 "newline_only_changed_lines": newline_only_changed_lines,
                 "newline_diagnostic": newline_diagnostic,
+                "warnings": warnings,
                 "changed_bytes": changed_bytes,
                 "operation_count": len(state["validation_results"]),
                 "validation_results": list(state["validation_results"]),
@@ -1200,6 +1214,7 @@ def preview_repo_patch(
     total_changed_bytes = 0
     bundle_operations: list[dict[str, Any]] = []
     newline_diagnostics: list[dict[str, Any]] = []
+    warnings: list[str] = []
 
     for op in validated:
         combined_diff += op["diff"]
@@ -1210,6 +1225,7 @@ def preview_repo_patch(
         newline_diagnostics.append(
             {"path": op["path"], **op["newline_diagnostic"]}
         )
+        warnings.extend(op.get("warnings") or [])
         total_changed_bytes += op["changed_bytes"]
         bundle_operations.append(
             {
@@ -1233,6 +1249,7 @@ def preview_repo_patch(
         combined_diff,
         git_head=head,
         errors=errors,
+        warnings=warnings,
         commit_title=commit_title,
         commit_description=bound_commit_description,
     )
@@ -1247,6 +1264,7 @@ def preview_repo_patch(
         "logical_changed_lines": total_logical_changed_lines,
         "newline_only_changed_lines": total_newline_only_changed_lines,
         "newline_diagnostics": _bounded_newline_diagnostics(newline_diagnostics),
+        "warnings": warnings[:20],
         "changed_bytes": total_changed_bytes,
         "git_head": head,
         "validation_errors": errors,

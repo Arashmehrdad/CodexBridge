@@ -189,6 +189,34 @@ def test_preview_reports_intentional_newline_only_churn(tmp_path: Path) -> None:
     assert manifest["operations"][0]["newline_only_changed_lines"] == 2
 
 
+def test_preview_warns_before_explicit_mixed_file_normalization(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "normalization_warning.txt"
+    target.write_bytes(b"first\r\nold\nlast\r\n")
+    operation = {
+        "path": "normalization_warning.txt",
+        "expected_sha256": sha256_file(target),
+        "old_text": "old",
+        "new_text": "new",
+        "preserve_newlines": False,
+    }
+
+    preview = preview_repo_patch(repo, [operation], runs)
+    manifest = json.loads(
+        (runs / "managed_patches" / preview["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert preview["warnings"] == [
+        "'normalization_warning.txt' requests whole-file newline normalization; "
+        "set preserve_newlines=true to keep untouched newline sequences"
+    ]
+    assert manifest["warnings"] == preview["warnings"]
+    assert preview["ok"] is True
+
+
 def test_preview_returns_bounded_mixed_newline_diagnostics(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
