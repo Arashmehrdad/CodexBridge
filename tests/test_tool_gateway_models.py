@@ -144,6 +144,46 @@ def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:
     assert calls == [("tick", "BITCOIN_i"), "close"]
 
 
+def test_run_query_group_projection_honors_response_budget(monkeypatch) -> None:
+    class FakeJobs:
+        def get_powershell_group(self, group_id: str) -> dict:
+            return {
+                "group_id": group_id,
+                "repo_name": "codexbridge",
+                "status": "running",
+                "mode": "powershell",
+                "failure_policy": "continue_all",
+                "repository_lock_policy": "none",
+                "requested_concurrency": 4,
+                "created_at": "2026-07-22T00:00:00Z",
+                "children": [
+                    {
+                        "position": index,
+                        "run_id": f"run_{index}",
+                        "status": "completed",
+                        "current_phase": "terminal",
+                        "summary": "x" * 800,
+                        "error": "e" * 800,
+                        "exit_code": 0,
+                        "started_at": "2026-07-22T00:00:00Z",
+                        "ended_at": "2026-07-22T00:00:01Z",
+                        "artifacts": {"stdout": "protected"},
+                    }
+                    for index in range(20)
+                ],
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    request = TypeAdapter(RunQueryRequest).validate_python(
+        {"operation": "group_status", "group_id": "group_1", "response_budget_bytes": 4096}
+    )
+    result = server.run_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+    assert "artifacts" not in result["children"][0]
+
+
 def test_trading_symbols_query_honors_response_budget(monkeypatch) -> None:
     class FakeProvider:
         def connect(self):
@@ -731,6 +771,7 @@ def test_run_query_dispatches_powershell_group_operations(monkeypatch) -> None:
             adapter.validate_python({"operation": operation, "group_id": "group_1"})
         )
         assert result["group_id"] == "group_1"
+        assert result["response_budget_bytes"] == 12 * 1024
     assert calls == [("get", "group_1"), ("get", "group_1")]
 
 

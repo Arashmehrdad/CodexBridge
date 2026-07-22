@@ -186,9 +186,11 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "summary_list",
         "control",
         "events",
-            "terminal",
-            "locks",
-            "preflight",
+        "terminal",
+        "locks",
+        "preflight",
+        "group_status",
+        "group_result",
         "repo_apply",
     }
     assert all(
@@ -329,6 +331,16 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert historical_ticks.maximum_response_bytes == 12 * 1024
     assert historical_ticks.pagination is PaginationBehavior.NONE
     assert "UTF-8 byte budget" in historical_ticks.notes
+
+    group_status = _entry_for("run_query", "group_status")
+    assert group_status.default_response_bytes == 12 * 1024
+    assert group_status.maximum_response_bytes == 12 * 1024
+    assert "view=full" in group_status.notes
+
+    group_result = _entry_for("run_query", "group_result")
+    assert group_result.default_response_bytes == 12 * 1024
+    assert group_result.maximum_response_bytes == 12 * 1024
+    assert "view=full" in group_result.notes
 
     symbols = _entry_for("trading_query", "symbols")
     assert symbols.default_response_bytes == 12 * 1024

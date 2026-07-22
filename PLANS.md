@@ -665,6 +665,12 @@ Thirty-fourth independently reviewable slice — bounded symbol discovery:
 - the trading inventory now separates symbol discovery from scalar health/specification/tick operations and records a bounded-object 12-KB default/maximum response contract;
 - focused CodexBridge pytest validation passed with 46 server tests, 52 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-fifth independently reviewable slice — bounded parallel-group reads:
+
+- `run_query(operation="group_status"|"group_result")` now defaults to a compact 12-KB UTF-8 projection that omits request and artifact payloads, bounds child summaries, and reports truncation and response-byte metadata;
+- `view="full"` remains an explicit complete group/evidence path, while group query schemas and the gateway inventory now record the compact/full distinction and bounded response contract;
+- focused CodexBridge pytest validation passed with 53 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

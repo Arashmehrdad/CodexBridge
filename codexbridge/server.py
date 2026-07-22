@@ -2806,6 +2806,70 @@ def cancel_run(run_id: str) -> dict:
     return get_job_manager().cancel_run(run_id)
 
 
+def _truncate_group_text(value: Any, maximum_bytes: int = 512) -> str:
+    text = str(value or "")
+    encoded = text.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return text
+    return encoded[:maximum_bytes].decode("utf-8", errors="ignore")
+
+
+def _bounded_group_response(group: dict[str, Any], response_budget_bytes: int) -> dict:
+    children = []
+    for child in group.get("children", []):
+        children.append(
+            {
+                key: (
+                    _truncate_group_text(child.get(key))
+                    if key in {"summary", "error"}
+                    else child.get(key)
+                )
+                for key in (
+                    "position",
+                    "run_id",
+                    "status",
+                    "current_phase",
+                    "summary",
+                    "error",
+                    "exit_code",
+                    "started_at",
+                    "ended_at",
+                )
+            }
+        )
+    response = {
+        "ok": True,
+        "group_id": group.get("group_id"),
+        "repo_name": group.get("repo_name"),
+        "status": group.get("status"),
+        "mode": group.get("mode"),
+        "failure_policy": group.get("failure_policy"),
+        "repository_lock_policy": group.get("repository_lock_policy"),
+        "requested_concurrency": group.get("requested_concurrency"),
+        "created_at": group.get("created_at"),
+        "ended_at": group.get("ended_at"),
+        "child_count": group.get("child_count", len(children)),
+        "terminal_child_count": group.get("terminal_child_count"),
+        "status_counts": group.get("status_counts", {}),
+        "children": children,
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if response["children"]:
+            response["children"].pop()
+            response["truncated"] = True
+            response["has_more"] = True
+            continue
+        for field in ("summary", "error"):
+            for child in response["children"]:
+                child[field] = _truncate_group_text(child.get(field), 128)
+        break
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_query(request: RunQueryRequest) -> dict:
     """Read-only gateway for durable run summaries, status, evidence, lists, and locks."""
@@ -2845,7 +2909,10 @@ def run_query(request: RunQueryRequest) -> dict:
             return get_run_result(request.run_id)
         return get_run_terminal_result(request.run_id)
     if request.operation in {"group_status", "group_result"}:
-        return get_job_manager().get_powershell_group(request.group_id)
+        group = get_job_manager().get_powershell_group(request.group_id)
+        if request.view == "full":
+            return group
+        return _bounded_group_response(group, request.response_budget_bytes)
     if request.operation == "list":
         return list_runs(request.repo_name, request.status, request.limit)
     if request.operation == "preflight":
