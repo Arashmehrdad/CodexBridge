@@ -842,6 +842,7 @@ class RunStore:
         expected_heartbeat_at: Any = _UNSET,
         reject_terminal: bool = False,
         bump_state_version: bool = True,
+        bump_state_version_if_phase_changes: bool = False,
     ) -> dict[str, Any] | None:
         """Apply one ownership-sensitive update only when all observed state matches."""
         validate_run_id(run_id)
@@ -849,13 +850,27 @@ class RunStore:
         if unknown:
             raise ValueError(f"Unsupported conditional run fields: {sorted(unknown)}")
         normalized = self._normalize_update_values(fields)
-        if not normalized and not bump_state_version:
+        if bump_state_version and bump_state_version_if_phase_changes:
+            raise ValueError("State version bump modes are mutually exclusive")
+        if not normalized and not (
+            bump_state_version or bump_state_version_if_phase_changes
+        ):
             raise ValueError("Conditional update requires fields or a version bump")
 
         assignments = [f"{key} = ?" for key in normalized]
         params: list[Any] = list(normalized.values())
         if bump_state_version:
             assignments.append("state_version = state_version + 1")
+        elif bump_state_version_if_phase_changes:
+            if "current_phase" not in normalized:
+                raise ValueError(
+                    "Phase-sensitive state version bump requires current_phase"
+                )
+            assignments.append(
+                "state_version = state_version + "
+                "CASE WHEN current_phase IS NOT ? THEN 1 ELSE 0 END"
+            )
+            params.append(normalized["current_phase"])
 
         where = ["run_id = ?"]
         params.append(run_id)
@@ -915,11 +930,17 @@ class RunStore:
             "data": data or {},
         }
         if update_run_metadata:
-            self.update_run(
+            updated = self.conditional_update(
                 run_id,
-                heartbeat_at=event["timestamp"],
-                current_phase=stage,
+                fields={
+                    "heartbeat_at": event["timestamp"],
+                    "current_phase": stage,
+                },
+                bump_state_version=False,
+                bump_state_version_if_phase_changes=True,
             )
+            if updated is None:
+                raise KeyError(f"Run not found: {run_id}")
         with self.connect() as conn:
             conn.execute(
                 """
@@ -1094,6 +1115,7 @@ class RunStore:
                 expected_lease_token=lease_token,
                 expected_lease_generation=lease_generation,
                 bump_state_version=False,
+                bump_state_version_if_phase_changes=True,
             )
             is not None
         )
@@ -1355,7 +1377,15 @@ class RunStore:
         }
         if elapsed_seconds is not None:
             fields["elapsed_seconds"] = elapsed_seconds
-        return self.update_run(run_id, **fields)
+        updated = self.conditional_update(
+            run_id,
+            fields=fields,
+            bump_state_version=False,
+            bump_state_version_if_phase_changes=True,
+        )
+        if updated is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return updated
 
     def heartbeat(
         self,

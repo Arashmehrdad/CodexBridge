@@ -228,6 +228,77 @@ def test_worker_launch_claim_and_heartbeat_are_lease_scoped(tmp_path: Path) -> N
     assert store.get_run(RUN_ID)["progress"]["phase"] == "active"
 
 
+def test_decision_version_advances_only_for_phase_changes(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={},
+        status="launch_pending",
+        worker_lease_token="lease-token",
+    )
+    launched = store.record_worker_launch(RUN_ID, 111)
+    assert launched is not None
+    assert store.claim_worker(
+        RUN_ID,
+        lease_token="lease-token",
+        worker_pid=222,
+        worker_identity="222:windows:1",
+    )
+    running = store.get_run(RUN_ID)
+
+    assert store.update_worker_progress(
+        RUN_ID,
+        lease_token="lease-token",
+        lease_generation=1,
+        phase="execute",
+        elapsed_seconds=1.0,
+    )
+    execute = store.get_run(RUN_ID)
+    assert execute["state_version"] == running["state_version"] + 1
+
+    assert store.update_worker_progress(
+        RUN_ID,
+        lease_token="lease-token",
+        lease_generation=1,
+        phase="execute",
+        elapsed_seconds=2.0,
+    )
+    assert store.get_run(RUN_ID)["state_version"] == execute["state_version"]
+
+    assert store.heartbeat_worker(
+        RUN_ID,
+        lease_token="lease-token",
+        lease_generation=1,
+        elapsed_seconds=3.0,
+        progress_updates={"last_output_at": "now"},
+    )
+    assert store.get_run(RUN_ID)["state_version"] == execute["state_version"]
+
+    store.append_event(
+        RUN_ID,
+        level="info",
+        stage="validate",
+        message="validation started",
+    )
+    validate = store.get_run(RUN_ID)
+    assert validate["state_version"] == execute["state_version"] + 1
+    store.append_event(
+        RUN_ID,
+        level="info",
+        stage="validate",
+        message="validation continued",
+    )
+    assert store.get_run(RUN_ID)["state_version"] == validate["state_version"]
+
+    publish = store.set_progress(RUN_ID, phase="publish", elapsed_seconds=4.0)
+    assert publish["state_version"] == validate["state_version"] + 1
+    repeated = store.set_progress(RUN_ID, phase="publish", elapsed_seconds=5.0)
+    assert repeated["state_version"] == publish["state_version"]
+
+
 def test_recoverable_run_listing_and_legacy_stale_method_are_conservative(
     tmp_path: Path,
 ) -> None:
