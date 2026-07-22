@@ -73,7 +73,14 @@ from .run_store import (
     RunStore,
     validate_run_id,
 )
-from .run_publication import publish_run_result
+from .run_public_result import (
+    PUBLIC_RESULT_SCHEMA_VERSION,
+    PUBLIC_RESULT_STATUS_FALLBACK,
+    PUBLIC_RESULT_STATUS_READY,
+    build_pending_public_result,
+    build_public_result_fallback,
+)
+from .run_publication import materialize_public_result, publish_run_result
 from .remote_controller_state import (
     build_remote_controller_state_contract,
     reconcile_remote_controller_state,
@@ -2455,6 +2462,35 @@ class JobManager:
         return redact_and_truncate(
             self.locks.list_locks(normalized_name, include_stale=include_stale)
         )
+
+    def get_terminal_result(self, run_id: str) -> dict:
+        """Return the bounded durable terminal projection without decoding full JSON."""
+        try:
+            snapshot = self.store.get_public_result_snapshot(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
+        if snapshot["status"] not in TERMINAL_STATUSES:
+            return build_pending_public_result(snapshot)
+
+        stored = snapshot.get("public_result") or {}
+        if (
+            stored
+            and snapshot.get("public_result_schema_version")
+            == PUBLIC_RESULT_SCHEMA_VERSION
+            and snapshot.get("public_result_status")
+            in {PUBLIC_RESULT_STATUS_READY, PUBLIC_RESULT_STATUS_FALLBACK}
+            and snapshot.get("public_result_source_sha256")
+        ):
+            return dict(stored)
+
+        try:
+            return materialize_public_result(self.store, run_id)
+        except Exception as exc:
+            return build_public_result_fallback(
+                snapshot,
+                str(snapshot.get("public_result_source_sha256") or ""),
+                f"{type(exc).__name__}: {exc}",
+            )
 
     def get_result_payload(self, run_id: str) -> dict:
         try:

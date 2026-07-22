@@ -2304,6 +2304,12 @@ def get_run_events(
     )
 
 
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_terminal_result(run_id: str) -> dict:
+    """Read-only: return the bounded source-hash-bound terminal projection."""
+    return get_job_manager().get_terminal_result(run_id)
+
+
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_result(run_id: str) -> dict:
     """Read-only: return the final or current structured result for an async run."""
@@ -2380,6 +2386,8 @@ def run_query(request: RunQueryRequest) -> dict:
             request.after_id,
             request.cursor,
         )
+    if request.operation == "terminal":
+        return get_run_terminal_result(request.run_id)
     if request.operation == "result":
         return get_run_result(request.run_id)
     if request.operation in {"group_status", "group_result"}:

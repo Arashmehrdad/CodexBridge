@@ -96,6 +96,11 @@ class RunEventsQuery(GatewayModel):
         return self
 
 
+class RunTerminalQuery(GatewayModel):
+    operation: Literal["terminal"]
+    run_id: str = Field(min_length=1, max_length=128)
+
+
 class RunResultQuery(GatewayModel):
     operation: Literal["result"]
     run_id: str = Field(min_length=1, max_length=128)
@@ -155,6 +160,7 @@ RunQueryRequest = Annotated[
     | RunControlQuery
     | RunOutputQuery
     | RunEventsQuery
+    | RunTerminalQuery
     | RunResultQuery
     | PowerShellGroupStatusQuery
     | PowerShellGroupResultQuery

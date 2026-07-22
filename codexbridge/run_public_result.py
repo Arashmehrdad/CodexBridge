@@ -350,6 +350,53 @@ def build_public_result_projection(
     raise ValueError("Terminal public projection cannot fit its public byte budget")
 
 
+def build_pending_public_result(run: dict[str, Any]) -> dict[str, Any]:
+    """Build the bounded response used when a run is not terminal yet."""
+    summary, summary_meta = _bounded_text(run.get("summary") or "", 512)
+    error, error_meta = _bounded_text(run.get("error") or "", 512)
+    compact_result: dict[str, Any] = {
+        "status": run.get("status"),
+        "outcome": NormalizedOutcome.PENDING.value,
+        "summary": summary,
+        "error": error,
+        "safety_failure": bool(run.get("safety_failure")),
+        "started_at": run.get("started_at"),
+        "ended_at": run.get("ended_at"),
+        "duration_seconds": run.get("duration_seconds"),
+    }
+    truncation = {
+        key: value
+        for key, value in {"summary": summary_meta, "error": error_meta}.items()
+        if value
+    }
+    if truncation:
+        compact_result["truncated_fields"] = truncation
+    return _finalize(
+        {
+            "ok": False,
+            "operation": "terminal",
+            "run_id": run["run_id"],
+            "repo_name": run["repo_name"],
+            "tool": run["tool"],
+            "result": compact_result,
+            "result_available": False,
+            "projection_status": "pending",
+            "source_result_sha256": "",
+            "evidence": {
+                "authoritative_operation": "control",
+                "run_id": run["run_id"],
+            },
+            "error": "",
+            "view": PublicView.SUMMARY.value,
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "public_result_schema_version": PUBLIC_RESULT_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+            "byte_budget": DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result,
+        }
+    )
+
+
 def build_public_result_fallback(
     run: dict[str, Any], source_sha256: str, error: str
 ) -> dict[str, Any]:

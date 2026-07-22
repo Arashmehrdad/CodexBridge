@@ -9,7 +9,7 @@ from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.2.gateway-operations.v4"
+    "cf1.3.gateway-operations.v5"
 )
 
 
@@ -454,6 +454,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Current list queries select full rows, including input_json, "
             "progress_json, result_json, worker lease data, and run_dir."
+        ),
+    ),
+    _entry(
+        "run_query",
+        ("terminal",),
+        "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.get_terminal_result",
+        "bounded source-hash-bound non-authoritative terminal projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result,
+        notes=(
+            "Current projections are served from bounded public_result_json without "
+            "decoding authoritative result_json. Legacy or stale rows are rebuilt "
+            "once through source-hash- and schema-bound compare-and-set materialization; "
+            "the explicit result operation preserves the full chunked archive."
         ),
     ),
     _entry(
