@@ -900,6 +900,32 @@ def _mark_wiki_stale_safely(
         return {"ok": False, "stale": None, "error": str(exc)}
 
 
+def _operation_identity_metadata() -> dict[str, Any]:
+    """Build stable identities for the public operation contract."""
+    operation_inventory = {
+        gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()
+    }
+    operation_inventory_hash = schema_hash(operation_inventory)
+    public_schema_hash = schema_hash(
+        {
+            "inventory_version": CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
+            "operation_inventory_hash": operation_inventory_hash,
+        }
+    )
+    return {
+        "operation_inventory_hash": operation_inventory_hash,
+        "operation_inventory_gateway_count": len(operation_inventory),
+        "public_schema_hash": public_schema_hash,
+        "discovery_cache_generation": schema_hash(
+            {
+                "public_schema_hash": public_schema_hash,
+                "operation_inventory_hash": operation_inventory_hash,
+            }
+        ),
+        "operation_inventory": operation_inventory,
+    }
+
+
 def _locked_repo_operation(
     repo_name: str,
     tool: str,
@@ -952,6 +978,13 @@ async def list_capabilities() -> dict:
         "patch_operation_schema": PATCH_OPERATION_SCHEMA,
         "error": "",
     }
+    result.update(
+        {
+            key: value
+            for key, value in _operation_identity_metadata().items()
+            if key != "operation_inventory"
+        }
+    )
     return _with_capability_metadata(result)
 
 
@@ -968,15 +1001,21 @@ def _list_capabilities_sync() -> dict[str, Any]:
             **_PROCESS_CAPABILITY_METADATA,
         }
     actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
-    return _with_capability_metadata(
-        {
+    result = {
             "ok": True,
             "actions": actions,
             "action_names": sorted(str(action.get("name", "")) for action in actions),
             "patch_operation_schema": PATCH_OPERATION_SCHEMA,
             "error": "",
         }
+    result.update(
+        {
+            key: value
+            for key, value in _operation_identity_metadata().items()
+            if key != "operation_inventory"
+        }
     )
+    return _with_capability_metadata(result)
 
 
 def _system_capabilities_result() -> dict[str, Any]:
@@ -3322,22 +3361,11 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
 def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
     source_build = server_build_hash()
     source_schema = schema_hash(PATCH_OPERATION_SCHEMA)
-    operation_inventory = {
-        gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()
-    }
-    operation_inventory_hash = schema_hash(operation_inventory)
-    public_schema_hash = schema_hash(
-        {
-            "inventory_version": CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
-            "operation_inventory_hash": operation_inventory_hash,
-        }
-    )
-    discovery_cache_generation = schema_hash(
-        {
-            "public_schema_hash": public_schema_hash,
-            "operation_inventory_hash": operation_inventory_hash,
-        }
-    )
+    identity = _operation_identity_metadata()
+    operation_inventory = identity["operation_inventory"]
+    operation_inventory_hash = identity["operation_inventory_hash"]
+    public_schema_hash = identity["public_schema_hash"]
+    discovery_cache_generation = identity["discovery_cache_generation"]
     live_operation_schema_hashes, live_schema_error, discovery_passes_converged = (
         _live_operation_schema_hashes_sync()
     )

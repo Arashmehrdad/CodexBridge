@@ -857,6 +857,12 @@ Sixty-sixth independently reviewable slice — consecutive discovery convergence
 - the compact response includes pass count and convergence state, while schema mismatches retain affected operation names and bounded connector-refresh guidance;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-seventh independently reviewable slice — capability-payload identity metadata:
+
+- authoritative `list_capabilities` responses now carry the same operation-inventory, public-schema, and discovery-cache identities as `capability_identity`, enabling connector refresh checks directly against the live capability payload;
+- compact capability projections retain identity scalars and full capability views preserve the complete action/schema evidence, with no service mutation or reload;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
