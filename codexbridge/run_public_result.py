@@ -36,6 +36,49 @@ _MAX_RISKS = 8
 _MAX_ARTIFACTS = 12
 
 
+def _managed_apply_summary(run: dict[str, Any], result: dict[str, Any]) -> dict[str, object] | None:
+    """Return bounded terminal metadata for managed writes without exposing raw output."""
+    if str(run.get("tool") or result.get("tool") or "") != "repo_apply":
+        return None
+
+    summary: dict[str, object] = {}
+    for key in ("operation", "patch_id", "cleanup_id", "commit_hash", "idempotent_replay"):
+        value = result.get(key)
+        if value not in (None, "", [], {}):
+            summary[key] = value if isinstance(value, (bool, int, float)) else _bounded_text(value, 256)[0]
+
+    rollback_status = result.get("rollback_status")
+    if rollback_status in (None, ""):
+        rollback = result.get("rollback")
+        if isinstance(rollback, dict):
+            rollback_status = rollback.get("status") or rollback.get("state")
+        elif rollback not in (None, ""):
+            rollback_status = rollback
+    if rollback_status not in (None, ""):
+        summary["rollback_status"] = _bounded_text(rollback_status, 128)[0]
+
+    validation = result.get("validation_results")
+    if isinstance(validation, list):
+        summary["validation_summary"] = {
+            "total": len(validation),
+            "passed": sum(1 for item in validation if isinstance(item, dict) and item.get("ok") is True),
+            "failed": sum(1 for item in validation if isinstance(item, dict) and item.get("ok") is False),
+        }
+    elif validation not in (None, "", [], {}):
+        summary["validation_summary"] = _canonical_preview(validation, 512)[0]
+
+    preserved = result.get("preserved_preexisting_changes")
+    if isinstance(preserved, list):
+        summary["preserved_work"] = {"count": len(preserved)}
+    elif isinstance(preserved, int):
+        summary["preserved_work"] = {"count": preserved}
+    if result.get("remaining_dirty_files") not in (None, "", [], {}):
+        remaining = result["remaining_dirty_files"]
+        summary["remaining_work"] = {"count": len(remaining)} if isinstance(remaining, list) else _bounded_text(remaining, 256)[0]
+
+    return summary or {"operation": "managed_write"}
+
+
 def canonical_public_json_bytes(value: object) -> bytes:
     return json.dumps(
         value,
@@ -310,6 +353,9 @@ def _candidate(
         "tests": tests_preview,
         "diagnostics": diagnostics_preview,
     }
+    managed_apply = _managed_apply_summary(run, result)
+    if managed_apply is not None:
+        compact_result["managed_apply"] = managed_apply
     if truncated_fields:
         compact_result["truncated_fields"] = truncated_fields
     if collection_truncation:

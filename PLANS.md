@@ -480,6 +480,12 @@ Third independently reviewable slice — immediate managed-apply acknowledgement
 - the durable worker reuses the existing hash-verified apply, rollback, commit, wiki-staleness, and manifest lifecycle behavior; duplicate requests are refused while the same transaction is active, and completed manifest replay remains idempotent without reapplying files;
 - the acknowledgement is capped at 4 KB and the operation inventory records its durable-input and bounded-response contract. CodexBridge pytest validation passed with 28 server tests, 6 gateway-inventory tests, 72 job-manager tests, and 36 gateway-model tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports only pre-existing unused imports.
 
+Fourth independently reviewable slice — compact managed-apply terminal projection:
+
+- terminal `repo_apply` results now expose bounded operation/patch identity, changed-file projection, commit hash, idempotent replay state, rollback status when present, validation pass/fail counts, and collapsed preserved/remaining-work counts;
+- raw stdout/stderr and full validation payloads remain evidence-only, while the existing public-result UTF-8 budget, redaction, source hash, and explicit evidence handle continue to apply;
+- focused CodexBridge pytest validation passed with 20 public-result materialization tests. Native compilation, Ruff, and `git diff --check` passed; `python -m pip check` remains green from the preceding slice.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -170,6 +170,39 @@ def test_large_projection_is_deterministic_and_prefix_bounded() -> None:
     assert first["result"]["truncated_collections"]
 
 
+def test_managed_apply_projection_exposes_bounded_terminal_metadata() -> None:
+    run = {
+        "run_id": RUN_ID,
+        "repo_name": "sample",
+        "tool": "repo_apply",
+        "status": "completed",
+    }
+    result = {
+        "status": "completed",
+        "operation": "previewed_change",
+        "patch_id": "patch_123",
+        "commit_hash": "a" * 40,
+        "idempotent_replay": False,
+        "changed_files": [f"src/file_{index}.py" for index in range(100)],
+        "preserved_preexisting_changes": ["README.md", "notes.txt"],
+        "validation_results": [{"ok": True}, {"ok": False}, {"ok": True}],
+        "stdout": "secret output must remain evidence-only",
+    }
+
+    projection = build_public_result_projection(
+        run, result, authoritative_result_sha256(json.dumps(result, sort_keys=True))
+    )
+
+    managed = projection["result"]["managed_apply"]
+    assert managed["operation"] == "previewed_change"
+    assert managed["patch_id"] == "patch_123"
+    assert managed["commit_hash"] == "a" * 40
+    assert managed["preserved_work"] == {"count": 2}
+    assert managed["validation_summary"] == {"total": 3, "passed": 2, "failed": 1}
+    assert "stdout" not in projection["result"]
+    assert len(canonical_public_json_bytes(projection)) <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
+
+
 @pytest.mark.parametrize(
     ("run", "result", "expected"),
     [
