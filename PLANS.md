@@ -86,7 +86,7 @@ Only CF1 is active. Every other implementation lane is intentionally paused.
 8. CF1.7: complete connector-visible and cross-project rollout acceptance.
 9. Review CF1 evidence and explicitly decide whether H2, TL5, or another lane resumes next.
 
-Do not resume H2, TL5, SSH work, reliability/autonomy work, or any other roadmap batch until CF1 is complete and this document explicitly reactivates it.
+Do not resume TL5, SSH work, reliability/autonomy work, or any other roadmap batch until CF1 is complete and this document explicitly reactivates it. H2 was explicitly reactivated by user selection on 2026-07-22 after CF1 local acceptance completed, and its implementation is recorded in the H2 section below.
 
 ## Priority 0 - CF1 Chat Footprint and Progressive Disclosure
 
@@ -366,7 +366,7 @@ Status: **complete; exercised end to end by `tests/test_chat_footprint_acceptanc
 
 ### CF1.4 - Manifest-secured exact evidence retrieval
 
-Status: **implementation complete for manifest-bound output compatibility; acceptance blocked by one unrelated full-suite Hermes persistent-worker PID failure**.
+Status: **implementation complete for manifest-bound output compatibility; the previously blocking full-suite Hermes persistent-worker PID failure was root-caused and fixed on 2026-07-22 (venv launcher redirection, see H2)**.
 
 Current implementation and validation evidence:
 
@@ -1305,13 +1305,13 @@ No real-money purchase, booking, cancellation, or refund is used as an acceptanc
 
 ## H2 - Shared Multi-Session Hermes Service
 
-Status: **paused after H2.2; CF1 is the sole active roadmap lane**.
+Status: **complete; reactivated by user selection on 2026-07-22 after CF1 local acceptance, implemented and accepted the same day pending one final full-suite durable validation recorded below**.
 
 The production motivation remains valid: the H1 one-request companion path pays the full Hermes and MCP startup cost on every call, and live handshake run `20260720T191848Z_executable_profile_4c2eff11` measured **23.501 seconds** under registry generation `85` and effective schema hash `8ccc02adee339326497a10953c749d73ae5eade6a92f41c21bb59cde573cd987`, with `model_runtime_initialized: false`, empty protected stderr, and no repository lock.
 
 H2.1 established the generation-scoped service-runtime foundation. H2.2 added a process-identity-verified persistent stdio worker, exact request cancellation, bounded stderr evidence, and live warm-process reuse: focused run `20260720T204859Z_executable_profile_907209be` passed `21` tests plus compilation and `git diff --check`; live run `20260720T205034Z_executable_profile_5aa2fc68` launched pinned Hermes in **37.152 seconds** and served two bound `searchconsole` searches through verified PID `34824` in **0.004 seconds** and **0.003 seconds**, with no model runtime and empty protected stderr. The observed registry generation was `85` and schema hash was `467d7969a09e309505aa66560c61e0b27e38c51e659f35f04e00e5517ea459d4`.
 
-This work is preserved as an isolated building block only. H2 remains incomplete: durable service supervision, worker replacement, restart adoption, public gateway routing, explicit H1 fallback, five-live-session acceptance, and a real Search Console API call through the shared path are still required. No further lifecycle, shared-service, gateway, adoption, or live H2 work may proceed until CF1 is complete and H2 is explicitly reactivated.
+On 2026-07-22 the remaining H2 scope — durable service supervision, deterministic worker replacement, restart adoption, public gateway routing, narrow concurrency controls, explicit H1 fallback, five-live-session acceptance, and a real Search Console API call through the shared path — was implemented and accepted; see the H2 completion record below.
 
 The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a CodexBridge repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
 
@@ -1344,7 +1344,33 @@ Serialize only the resource that can actually conflict:
 - Two unrelated providers can run concurrently, while two mutations against the same external resource are serialized or safely reconciled.
 - Service restart adoption, health recovery, output bounds, protected evidence, and fallback to the one-request companion are demonstrated under live acceptance.
 
-The 2026-07-20 concurrent H2/Trading decision is superseded by the CF1 priority decision. H2 and Trading Lab are both paused implementation lanes. Their completed work and acceptance criteria remain preserved, but neither may resume until CF1 passes and the user explicitly selects the next lane. Future H2 batches must still refresh HEAD, active and queued durable runs, and repository locks before every write or validation and must regenerate previews against the latest HEAD. No H2 completion claim is allowed until persistent process reuse, five-session isolation, cancellation isolation, atomic registry reload, deterministic restart/adoption, explicit H1 fallback, and read-only Search Console acceptance are demonstrated with live evidence.
+### H2 completion record (2026-07-22)
+
+**Root cause of the documented full-suite-only PID failure.** The failure was never a race or test pollution: the durable full suite runs under `.venv`, whose Windows `python.exe` is a launcher redirector, so the companion that serves requests is a child of the `Popen` PID. Manual isolated runs used the direct system interpreter and passed. The failure reproduced deterministically in isolation under the venv interpreter. The fix binds worker process-identity verification to the serving process: the companion self-reports its PID in the handshake `python_identity`, `PersistentHermesWorker` verifies the serving identity for ready/dispatch/cancel while keeping the launch root as the termination anchor, and cancel/close terminate both trees, closing an orphan leak when the redirector root exits first. Redirector-shape regression tests reproduce the venv topology on any interpreter. No assertion was weakened and no timing sleep was added.
+
+**Architecture.** `HermesServiceRuntime` (H2.1/H2.2 generation and ownership core) is now owned by `HermesServiceSupervisor` (worker launch, deterministic replacement of dead unleased workers with exact registry-identity equality, supervised registry reload, persisted worker-identity records, restart adopt-or-replace), fronted by `HermesServiceGateway` (public `run_start` operation `hermes_service`; distinct durable CodexBridge run ID plus Hermes request ID per invocation; result reads and cancellation enforced against the owning run/request/session triple; stale schema-bound requests fail closed with no fallback; exactly one explicit bounded fallback to the H1 one-request companion when the service is unavailable, labelled with mode and reason). `hermes_concurrency` provides the narrow H2B controls: a named Hermes-administration lock (install/upgrade/configuration/removal/registry-reload only), per-credential locks keyed and reported solely by SHA-256 digests, glob-scoped tool concurrency and min-interval rate limits leaving unmatched tools fully concurrent, and resource-scoped mutation locks serializing only same-resource mutations. Configuration is the opt-in `hermes_service` section (checkout, python_executable, worker_count, state_path, fallback profile, tool_limits).
+
+**Acceptance evidence (live, pinned checkout `runs/hermes-pinned-validation` at the pinned revision, registry generation `85`, schema `467d7969…459d4`, `model_runtime_initialized: false`; JSON evidence under `.codex-tmp/h2c-acceptance/`).**
+
+- Five live sessions concurrently issued bounded `tool_search` calls through the production gateway: five distinct durable run and request IDs, all completed, and every one of the twenty cross-session result reads was rejected with an ownership error. A focused regression additionally proves five-way true overlap with per-session ownership enforcement.
+- A real bounded Search Console API call (`mcp__searchconsole__gsc_list_sites`) succeeded through the shared service in 0.823 s with 498 bounded output bytes and exact tool identity plus tool-schema hash, while an unrelated provider call (`read_file`) genuinely overlapped on a second worker.
+- A live in-flight `gsc_search_analytics` request was cancelled by its owning triple: the request terminated as `cancelled`, the shared service survived, and health returned ready.
+- A worker tree was killed mid-service: the next two calls completed on distinct run IDs (no duplicate publication), capacity was restored by deterministic replacement (replacement count 2), and health returned two ready workers.
+- Restart adoption: a second service instance found four recorded still-live worker PIDs from a severed instance, terminated them deterministically (including redirector/serving PID pairs such as 49448/51896), and started fresh verified workers; zero survivors.
+- A shared-service read completed in 0.013 s while the repository operation lock was held — no lock interference.
+- Same-generation registry reload failed closed (`candidate registry generation must be newer`); the newer-generation atomic publish, drain, and stale fail-closed paths are regression-locked in focused tests; a live stale-generation request failed closed with `stale_identity`.
+- Explicit H1 fallback under a simulated service outage executed exactly one one-request companion call (4.233 s) labelled `one_request_companion_fallback` with the outage reason.
+
+**Performance.** Cold shared-service start: 14.203 s total for two workers (10.102 s + 4.100 s). Warm shared calls: 0.026-0.128 s, versus the documented 23.501 s H1 per-call cost — the per-call Hermes startup cost is removed on the shared path.
+
+**Bounded output and protected evidence.** All shared results honoured `max_output_bytes` (observed 498-50001 encoded bytes ≤ 65536); worker stderr remains bounded (64 KiB ring) and surfaces only as a bounded tail inside deterministic error messages.
+
+**Remaining risks.**
+
+- Live conflicting-mutation serialization was proven at the mechanism level (gateway resource-lock tests); no real external mutation was exercised because H2C acceptance forbids side-effectful calls against production properties.
+- The live CodexBridge server process predates this build; the shared service activates in the connector after the next service restart with `hermes_service.enabled: true` configured.
+- A gateway built before a configuration reload keeps its original service settings until restart.
+- Supervisor capacity restoration after a failed request is synchronous and can add one worker-launch latency (~10 s) to the failing caller's response.
 
 ## OP1 - Evidence-Driven Real-Project Pilot
 
