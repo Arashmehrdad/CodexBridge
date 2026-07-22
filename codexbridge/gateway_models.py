@@ -1144,6 +1144,8 @@ SSHActionRequest = Annotated[
 
 class SystemCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SystemSelfCheckQuery(GatewayModel):
@@ -1154,14 +1156,20 @@ class SystemSelfCheckQuery(GatewayModel):
 
 class SystemLocalModelHealthQuery(GatewayModel):
     operation: Literal["local_model_health"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SystemValidateConfigQuery(GatewayModel):
     operation: Literal["validate_config"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SystemReloadStatusQuery(GatewayModel):
     operation: Literal["reload_status"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 SystemQueryRequest = Annotated[

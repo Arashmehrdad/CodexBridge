@@ -779,6 +779,12 @@ Fifty-third independently reviewable slice — bounded scalar trading queries:
 - `view="full"` remains explicit complete adapter evidence access, and existing symbols/candle/historical bounds plus provider lifecycle behavior remain unchanged;
 - focused CodexBridge pytest validation passed with 67 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifty-fourth independently reviewable slice — bounded system summaries:
+
+- `system_query(operation="capabilities"|"local_model_health"|"validate_config"|"reload_status")` now defaults to compact projections retaining scalar health/configuration fields and collection counts under a caller-selected 1–64-KB UTF-8 budget;
+- `view="full"` remains explicit complete system evidence access, while `self_check` and the underlying individual system functions retain their existing behavior;
+- focused CodexBridge pytest validation passed with 68 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

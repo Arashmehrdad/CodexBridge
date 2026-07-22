@@ -1770,6 +1770,10 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
         {"operation": "self_check"}
     )
     assert self_check.response_budget_bytes == 12 * 1024
+    for operation in ("capabilities", "local_model_health", "validate_config", "reload_status"):
+        assert TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": operation}
+        ).response_budget_bytes == 12 * 1024
     assert TypeAdapter(SystemQueryRequest).validate_python(
         {"operation": "reload_status"}
     ).operation == "reload_status"
@@ -1803,3 +1807,31 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
         TypeAdapter(KnowledgeQueryRequest).validate_python(
             {"operation": "read_wiki", "repo_name": "repo", "query": "wrong"}
         )
+
+
+def test_system_scalar_queries_use_bounded_compact_projection(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "list_capabilities",
+        lambda: {
+            "ok": True,
+            "capability_epoch": "epoch-1",
+            "tools": [{"name": f"tool-{index}"} for index in range(5000)],
+            "diagnostic": "x" * 20_000,
+        },
+    )
+    result = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capabilities", "response_budget_bytes": 4096}
+        )
+    )
+    assert result["tools_count"] == 5000
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+    full = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capabilities", "view": "full"}
+        )
+    )
+    assert len(full["tools"]) == 5000

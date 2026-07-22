@@ -1363,6 +1363,54 @@ def _bounded_self_check_response(result: dict[str, Any], response_budget_bytes: 
     return response
 
 
+def _bounded_system_query_response(result: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact: dict[str, Any] = {}
+    truncated = False
+    for key, value in result.items():
+        if isinstance(value, (bool, int, float)) or value is None:
+            compact[key] = value
+        elif isinstance(value, str):
+            text = value[:512]
+            compact[key] = text
+            truncated = truncated or len(text) != len(value)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            truncated = True
+        elif isinstance(value, dict):
+            nested: dict[str, Any] = {}
+            for nested_key, nested_value in value.items():
+                if isinstance(nested_value, (bool, int, float)) or nested_value is None:
+                    nested[nested_key] = nested_value
+                elif isinstance(nested_value, str):
+                    nested[nested_key] = nested_value[:256]
+                    truncated = truncated or len(nested[nested_key]) != len(nested_value)
+            compact[key] = nested
+            if len(nested) != len(value):
+                compact[f"{key}_count"] = len(value)
+                truncated = True
+        else:
+            compact[key] = str(value)[:256]
+            truncated = True
+    compact["truncated"] = truncated
+    compact["has_more"] = truncated
+    compact["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        candidates = [
+            key
+            for key in compact
+            if key not in {"truncated", "has_more", "response_budget_bytes", "response_bytes", "ok"}
+        ]
+        if not candidates:
+            break
+        compact.pop(max(candidates, key=lambda key: len(json.dumps(compact[key], ensure_ascii=False))))
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @_internal_tool(output_schema=LOCAL_MODEL_HEALTH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def local_model_health() -> dict:
     """Read-only: verify configured Ollama/OpenAI-compatible local model connectivity with a tiny smoke prompt."""
@@ -3166,17 +3214,21 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
 def system_query(request: SystemQueryRequest) -> dict:
     """Read-only system gateway for capabilities, health, configuration validation, and reload status."""
     if request.operation == "capabilities":
-        return list_capabilities()
-    if request.operation == "self_check":
+        result = list_capabilities()
+    elif request.operation == "self_check":
         result = run_local_self_check()
         if request.view == "full":
             return result
         return _bounded_self_check_response(result, request.response_budget_bytes)
-    if request.operation == "local_model_health":
-        return local_model_health()
-    if request.operation == "validate_config":
-        return validate_service_config()
-    return get_service_reload_status()
+    elif request.operation == "local_model_health":
+        result = local_model_health()
+    elif request.operation == "validate_config":
+        result = validate_service_config()
+    else:
+        result = get_service_reload_status()
+    if request.view == "full":
+        return result
+    return _bounded_system_query_response(result, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
