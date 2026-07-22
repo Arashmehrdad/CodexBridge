@@ -2700,7 +2700,7 @@ def search_repo_text(
     budget_ms: int = 5_000,
     file_path: str = "",
     cursor: str = "",
-    response_budget_bytes: int | None = None,
+    response_budget_bytes: int | None = _repo_reader.DEFAULT_SEARCH_RESPONSE_BYTES,
 ) -> dict:
     """Read-only: search for a literal string in repository text files. Returns path, line, and redacted snippets."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
