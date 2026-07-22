@@ -1791,6 +1791,26 @@ def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> N
     }
 
 
+def test_get_output_compact_view_enforces_whole_response_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_plan("sample", "inspect docs")
+    run = manager.store.get_run(response["run_id"])
+    run_dir = Path(run["run_dir"])
+    (run_dir / "stdout.txt").write_text("stdout-" + ("x" * 40_000), encoding="utf-8")
+    (run_dir / "stderr.txt").write_text("stderr-" + ("y" * 40_000), encoding="utf-8")
+
+    output = manager.get_output(
+        response["run_id"], "combined", tail_bytes=200_000, response_budget_bytes=12 * 1024
+    )
+
+    assert output["response_bytes"] <= 12 * 1024
+    assert output["response_budget_bytes"] == 12 * 1024
+    assert output["truncated"] is True
+    assert output["streams"]["stdout"]["artifact"]["evidence"]["operation"] == "output"
+
+
 def test_get_output_reads_manifest_bound_protected_binary_streams(
     tmp_path: Path, monkeypatch
 ) -> None:

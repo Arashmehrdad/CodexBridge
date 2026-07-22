@@ -255,6 +255,11 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
     assert adapters["query"].validate_python(
         {"operation": "search_text", "repo_name": "repo", "query": "needle"}
     ).query == "needle"
+    output_query = TypeAdapter(RunQueryRequest).validate_python(
+        {"operation": "output", "run_id": "run_1"}
+    )
+    assert output_query.view == "compact"
+    assert output_query.response_budget_bytes == 12 * 1024
     diff_query = adapters["query"].validate_python(
         {"operation": "diff", "repo_name": "repo"}
     )

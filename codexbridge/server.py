@@ -2296,10 +2296,23 @@ def get_run_control_status(
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_output(
-    run_id: str, stream: str = "combined", tail_bytes: int = 20000
+    run_id: str,
+    stream: str = "combined",
+    tail_bytes: int = 20000,
+    view: str = "legacy",
+    response_budget_bytes: int | None = None,
 ) -> dict:
     """Read-only: return a bounded redacted tail of durable stdout and/or stderr."""
-    return get_job_manager().get_output(run_id, stream, tail_bytes)
+    if view not in {"compact", "full", "legacy"}:
+        raise ValueError("view must be compact, full, or legacy")
+    if view == "legacy":
+        return get_job_manager().get_output(run_id, stream, tail_bytes)
+    return get_job_manager().get_output(
+        run_id,
+        stream,
+        tail_bytes,
+        response_budget_bytes,
+    )
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -2401,7 +2414,13 @@ def run_query(request: RunQueryRequest) -> dict:
     if request.operation == "control":
         return get_run_control_status(request.run_id, request.if_state_version)
     if request.operation == "output":
-        return get_run_output(request.run_id, request.stream, request.tail_bytes)
+        return get_run_output(
+            request.run_id,
+            request.stream,
+            request.tail_bytes,
+            request.view,
+            request.response_budget_bytes,
+        )
     if request.operation == "events":
         return get_run_events(
             request.run_id,

@@ -461,6 +461,13 @@ diffs:
 
 ### CF1.6 - Remaining public gateway conformance and compact envelopes
 
+First independently reviewable slice — bounded `run_query(output)`:
+
+- ordinary `RunQueryRequest(operation="output")` now selects a compact view with a fixed 12-KB serialized UTF-8 budget, preserving redacted stream tails, artifact metadata, truncation state, and evidence handles;
+- explicit `view="full"` and legacy direct `get_run_output` calls retain the existing tail and manifest-bound evidence behavior, so exact protected output remains deliberately retrievable;
+- focused validation passed with 72 `JobManager` tests, 36 gateway-model tests, and 26 server regressions;
+- the complete repository suite reported 1,378 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports only pre-existing unused imports in `job_manager.py` and `server.py`;
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

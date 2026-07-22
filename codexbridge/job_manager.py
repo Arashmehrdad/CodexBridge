@@ -483,6 +483,32 @@ def _build_run_event_response(
     )
 
 
+def _fit_output_response(response: dict, response_budget_bytes: int) -> None:
+    budget = max(4 * 1024, min(int(response_budget_bytes), 12 * 1024))
+    response["response_budget_bytes"] = budget
+    response["truncated"] = False
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > budget:
+        candidates = [
+            (name, item.get("text", ""))
+            for name, item in response.get("streams", {}).items()
+            if isinstance(item, dict) and item.get("text")
+        ]
+        if not candidates:
+            response["truncated"] = True
+            break
+        name, text = max(candidates, key=lambda pair: len(pair[1]))
+        encoded = text.encode("utf-8")
+        reduced = max(0, len(encoded) - max(256, len(encoded) // 4))
+        response["streams"][name]["text"] = encoded[:reduced].decode(
+            "utf-8", errors="ignore"
+        )
+        response["streams"][name]["truncated"] = True
+        response["truncated"] = True
+    response["response_bytes"] = len(
+        json.dumps(response, ensure_ascii=False).encode("utf-8")
+    )
+
+
 class JobManager:
     def __init__(self, config: AppConfig, config_path: Path | None):
         self.config = config
@@ -2401,7 +2427,11 @@ class JobManager:
         return _build_run_control_response(control)
 
     def get_output(
-        self, run_id: str, stream: str = "combined", tail_bytes: int = 20000
+        self,
+        run_id: str,
+        stream: str = "combined",
+        tail_bytes: int = 20000,
+        response_budget_bytes: int | None = None,
     ) -> dict:
         validate_run_id(run_id)
         normalized_stream = str(stream or "combined").strip().lower()
@@ -2421,7 +2451,7 @@ class JobManager:
             )
             for name in selected
         }
-        return {
+        response = {
             "ok": True,
             "run_id": run_id,
             "status": run["status"],
@@ -2430,6 +2460,10 @@ class JobManager:
             "streams": streams,
             "error": "",
         }
+        if response_budget_bytes is not None:
+            _fit_output_response(response, response_budget_bytes)
+        return response
+
 
     def list_operation_locks(
         self, repo_name: str | None = None, *, include_stale: bool = True
