@@ -2979,13 +2979,16 @@ def preview_repo_patch(
 ) -> dict:
     """Read-only: validate patch operations and return a unified diff with a patch_id. Makes no changes."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = _repo_writer.preview_repo_patch(
-        repo_root,
-        operations,
-        _get_runs_dir(),
-        commit_title=commit_title,
-        commit_description=commit_description,
-    )
+    if commit_title or commit_description:
+        result = _repo_writer.preview_repo_patch(
+            repo_root,
+            operations,
+            _get_runs_dir(),
+            commit_title=commit_title,
+            commit_description=commit_description,
+        )
+    else:
+        result = _repo_writer.preview_repo_patch(repo_root, operations, _get_runs_dir())
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
