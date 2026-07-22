@@ -260,7 +260,7 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     ).repo_name == "repo"
     assert supervisor_query.validate_python(
         {"operation": "notifications", "supervisor_id": "sup_1"}
-    ).limit == 50
+    ).response_budget_bytes == 12 * 1024
     assert supervisor_action.validate_python(
         {"action": "pause", "supervisor_id": "sup_1"}
     ).supervisor_id == "sup_1"

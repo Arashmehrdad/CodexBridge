@@ -630,7 +630,9 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=50,
         maximum_item_limit=500,
-        notes="Notification lists remain item limited but have no public byte ceiling.",
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Notifications remain item limited and delivery-status filtered, with a serialized UTF-8 budget and truncation metadata.",
     ),
     _entry(
         "supervisor_action",

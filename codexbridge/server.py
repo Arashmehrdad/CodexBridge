@@ -2844,10 +2844,15 @@ def cancel_supervisor(supervisor_id: str) -> dict:
 
 @_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_supervisor_notifications(
-    supervisor_id: str, delivery_status: str = "", limit: int = 50
+    supervisor_id: str,
+    delivery_status: str = "",
+    limit: int = 50,
+    response_budget_bytes: int = 12 * 1024,
 ) -> dict:
     """Read-only: return persisted supervisor notification rows."""
-    return _wrap_item_list(
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    result = _wrap_item_list(
         "notifications",
         "supervisor_id",
         supervisor_id,
@@ -2855,6 +2860,18 @@ def get_supervisor_notifications(
             supervisor_id, delivery_status or None, limit
         ),
     )
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        notifications = result.get("notifications")
+        if not isinstance(notifications, list) or not notifications:
+            break
+        notifications.pop()
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 @_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -2876,7 +2893,10 @@ def supervisor_query(request: SupervisorQueryRequest) -> dict:
         return get_supervisor_result(request.supervisor_id)
     if request.operation == "notifications":
         return get_supervisor_notifications(
-            request.supervisor_id, request.delivery_status, request.limit
+            request.supervisor_id,
+            request.delivery_status,
+            request.limit,
+            request.response_budget_bytes,
         )
     return get_supervisor_resume_prompt(request.supervisor_id)
 

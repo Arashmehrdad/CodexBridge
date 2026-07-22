@@ -606,6 +606,12 @@ Twenty-fourth independently reviewable slice — bounded supervisor events:
 - events and notifications are now represented separately in the gateway inventory, with the event operation carrying a bounded-object 12-KB default/maximum budget while notification compatibility remains unchanged;
 - focused CodexBridge pytest validation passed with 38 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-fifth independently reviewable slice — bounded supervisor notifications:
+
+- `supervisor_query(operation="notifications")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the notification list, preserving delivery-status filtering, ordering, supervisor identity, and the existing item limit;
+- the notification inventory now records the bounded-object 12-KB default/maximum response contract alongside the previously bounded event operation;
+- focused CodexBridge pytest validation passed with 39 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -152,6 +152,23 @@ def test_server_supervisor_tool_functions_delegate(monkeypatch) -> None:
     assert server.get_supervisor_resume_prompt(supervisor_id)["tool"] == "prompt"
 
 
+def test_supervisor_notifications_honor_response_budget(monkeypatch) -> None:
+    class Service:
+        def get_notifications(self, supervisor_id, delivery_status, limit):
+            return [
+                {"id": index, "delivery_status": delivery_status, "message": "x" * 180}
+                for index in range(limit)
+            ]
+
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: Service())
+    result = server.get_supervisor_notifications(
+        "sup_1", "pending", 50, response_budget_bytes=4096
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_workflow_tool_functions_delegate(monkeypatch) -> None:
     monkeypatch.setattr(server, "get_workflow_manager", lambda: FakeWorkflowManager())
     workflow_id = "20260711T203357Z_workflow_deadbeef"
