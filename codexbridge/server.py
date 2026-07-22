@@ -2907,8 +2907,23 @@ def trading_query(request: TradingQueryRequest) -> dict:
             completed, developing = provider.h4_candles(trading.symbol, completed_count=request.completed_count)
             result = {"completed": completed, "developing": developing}
         else:
+            if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+                raise ValueError("response_budget_bytes must be between 1024 and 65536")
             result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
         response = {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+        if request.operation == "historical_ticks":
+            response["truncated"] = False
+            response["has_more"] = False
+            response["response_budget_bytes"] = request.response_budget_bytes
+            while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+                ticks = response.get("result")
+                if isinstance(ticks, list) and ticks:
+                    ticks.pop()
+                else:
+                    break
+                response["truncated"] = True
+                response["has_more"] = True
+            response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
         if request.operation == "h4_candles":
             response["truncated"] = False
             response["has_more"] = False

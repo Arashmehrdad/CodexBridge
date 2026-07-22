@@ -594,6 +594,12 @@ Twenty-second independently reviewable slice — bounded H4 candle retrieval:
 - the H4 candle inventory now records a bounded-object response contract with a 12-KB default/maximum budget and limit-only pagination semantics;
 - focused CodexBridge pytest validation passed with 37 server tests, 45 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-third independently reviewable slice — bounded historical-tick retrieval:
+
+- `trading_query(operation="historical_ticks")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims the returned tick list deterministically while preserving timezone-aware range validation and the configured demo-terminal checks;
+- the historical-tick inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
+- focused CodexBridge pytest validation passed with 37 server tests, 46 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

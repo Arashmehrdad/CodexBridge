@@ -109,7 +109,9 @@ def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     h4 = adapter.validate_python({"operation": "h4_candles"})
     assert h4.completed_count == 200
     assert h4.response_budget_bytes == 12 * 1024
-    assert adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"}).end_utc.hour == 7
+    historical = adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"})
+    assert historical.end_utc.hour == 7
+    assert historical.response_budget_bytes == 12 * 1024
     with pytest.raises(ValidationError):
         adapter.validate_python({"operation": "tick", "completed_count": 1})
     with pytest.raises(ValidationError):
@@ -155,6 +157,33 @@ def test_trading_h4_query_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
     request = TypeAdapter(TradingQueryRequest).validate_python(
         {"operation": "h4_candles", "completed_count": 100, "response_budget_bytes": 4096}
+    )
+    result = server.trading_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
+def test_trading_historical_ticks_honors_response_budget(monkeypatch) -> None:
+    class FakeProvider:
+        def connect(self):
+            return SimpleNamespace(connected=True, account_environment="demo")
+
+        def close(self):
+            pass
+
+        def historical_ticks(self, symbol, start_utc, end_utc):
+            return [{"time": index, "bid": "x" * 160} for index in range(100)]
+
+    monkeypatch.setattr(server, "get_config", lambda: SimpleNamespace(trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")))
+    monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
+    request = TypeAdapter(TradingQueryRequest).validate_python(
+        {
+            "operation": "historical_ticks",
+            "start_utc": "2026-07-20T06:00:00+00:00",
+            "end_utc": "2026-07-20T07:00:00+00:00",
+            "response_budget_bytes": 4096,
+        }
     )
     result = server.trading_query(request)
     assert result["truncated"] is True

@@ -273,8 +273,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert "UTF-8 byte budget" in docker_inspect.notes
 
     historical_ticks = _entry_for("trading_query", "historical_ticks")
+    assert historical_ticks.default_response_bytes == 12 * 1024
+    assert historical_ticks.maximum_response_bytes == 12 * 1024
     assert historical_ticks.pagination is PaginationBehavior.NONE
-    assert "no result count" in historical_ticks.notes
+    assert "UTF-8 byte budget" in historical_ticks.notes
 
 
 def test_durable_action_paths_record_request_echo_explicitly() -> None:

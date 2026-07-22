@@ -253,6 +253,7 @@ class TradingHistoricalTicksQuery(GatewayModel):
     operation: Literal["historical_ticks"]
     start_utc: datetime
     end_utc: datetime
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
     @model_validator(mode="after")
     def validate_range(self) -> "TradingHistoricalTicksQuery":

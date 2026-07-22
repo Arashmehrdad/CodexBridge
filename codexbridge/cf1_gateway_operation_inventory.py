@@ -661,10 +661,13 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "trading_query",
         ("historical_ticks",),
         "codexbridge.server:trading_query",
-        "direct historical tick series",
+        "bounded historical tick series",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         notes=(
-            "The time range is validated but there is no result count, cursor, or "
-            "public byte ceiling."
+            "The time range remains validated and the serialized tick series is "
+            "capped by a UTF-8 byte budget with truncation metadata."
         ),
     ),
     _entry(
