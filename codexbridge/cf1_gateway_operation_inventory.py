@@ -409,13 +409,25 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "workflow_query",
-        ("status", "result"),
+        ("status",),
         "codexbridge.server:workflow_query",
-        "direct durable workflow snapshot",
+        "bounded durable workflow status projection",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        notes=(
-            "Nested steps and child results can grow without a public byte ceiling."
-        ),
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        notes="Compact status bounds step diagnostics and omits objective, process, and artifact payloads; view=full remains explicit evidence access.",
+    ),
+    _entry(
+        "workflow_query",
+        ("result",),
+        "codexbridge.server:workflow_query",
+        "bounded durable workflow result projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        notes="Compact result bounds step diagnostics and omits objective, process, and artifact payloads; view=full remains explicit evidence access.",
     ),
     _entry(
         "workflow_query",

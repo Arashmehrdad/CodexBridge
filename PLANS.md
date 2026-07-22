@@ -677,6 +677,12 @@ Thirty-sixth independently reviewable slice — bounded supervisor resume prompt
 - compact prompt responses omit local filesystem paths, while `view="full"` retains the existing explicit prompt/evidence path and supervisor compatibility behavior;
 - focused CodexBridge pytest validation passed with 54 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-seventh independently reviewable slice — bounded workflow snapshots:
+
+- `workflow_query(operation="status"|"result")` now defaults to compact 12-KB UTF-8 projections with bounded step diagnostics, explicit truncation, and response-byte accounting;
+- compact workflow responses omit objective, process, and artifact payloads, while `view="full"` remains explicit complete snapshot/evidence access;
+- focused CodexBridge pytest validation passed with 55 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

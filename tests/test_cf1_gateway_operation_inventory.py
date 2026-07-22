@@ -255,6 +255,16 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert workflow_events.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in workflow_events.notes
 
+    workflow_status = _entry_for("workflow_query", "status")
+    assert workflow_status.default_response_bytes == 12 * 1024
+    assert workflow_status.maximum_response_bytes == 12 * 1024
+    assert "view=full" in workflow_status.notes
+
+    workflow_result = _entry_for("workflow_query", "result")
+    assert workflow_result.default_response_bytes == 12 * 1024
+    assert workflow_result.maximum_response_bytes == 12 * 1024
+    assert "view=full" in workflow_result.notes
+
     ssh_inspection = _entry_for("ssh_inspect", "inspection")
     assert ssh_inspection.default_response_bytes == 12 * 1024
     assert ssh_inspection.maximum_response_bytes == 12 * 1024

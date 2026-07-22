@@ -323,6 +323,12 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     workflow_events = workflow_query.validate_python({"operation": "events", "workflow_id": "wf_1"})
     assert workflow_events.limit == 100
     assert workflow_events.response_budget_bytes == 12 * 1024
+    assert workflow_query.validate_python(
+        {"operation": "status", "workflow_id": "wf_1"}
+    ).response_budget_bytes == 12 * 1024
+    assert workflow_query.validate_python(
+        {"operation": "result", "workflow_id": "wf_1"}
+    ).response_budget_bytes == 12 * 1024
     assert workflow_action.validate_python(
         {"action": "start", "repo_name": "repo", "objective": "ship", "steps": [{"id": "one"}]}
     ).repo_name == "repo"
@@ -378,6 +384,40 @@ def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(m
             {"action": "pause", "supervisor_id": "sup_1"}
         )
     )["status"] == "paused"
+
+
+def test_workflow_query_projection_honors_response_budget(monkeypatch) -> None:
+    class Manager:
+        def get_status(self, workflow_id):
+            return {
+                "ok": True,
+                "workflow_id": workflow_id,
+                "repo_name": "codexbridge",
+                "status": "running",
+                "terminal_status": "",
+                "created_at": "2026-07-22T00:00:00Z",
+                "steps": [
+                    {
+                        "id": str(index),
+                        "type": "powershell",
+                        "status": "completed",
+                        "depends_on": [],
+                        "child_run_id": f"run_{index}",
+                        "summary": "s" * 900,
+                        "error": "e" * 900,
+                    }
+                    for index in range(20)
+                ],
+            }
+
+    monkeypatch.setattr(server, "get_workflow_manager", lambda: Manager())
+    request = TypeAdapter(WorkflowQueryRequest).validate_python(
+        {"operation": "status", "workflow_id": "wf_1", "response_budget_bytes": 4096}
+    )
+    result = server.workflow_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
 
 
 def test_supervisor_resume_prompt_honors_response_budget(monkeypatch) -> None:

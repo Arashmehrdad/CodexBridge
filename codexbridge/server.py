@@ -2532,6 +2532,59 @@ def get_workflow_result(workflow_id: str) -> dict:
     return get_workflow_manager().get_result(workflow_id)
 
 
+def _truncate_workflow_text(value: Any, maximum_bytes: int = 512) -> str:
+    encoded = str(value or "").encode("utf-8")
+    return encoded[:maximum_bytes].decode("utf-8", errors="ignore")
+
+
+def _bounded_workflow_response(workflow: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    steps = []
+    for step in workflow.get("steps", []):
+        steps.append(
+            {
+                "id": step.get("id"),
+                "type": step.get("type"),
+                "status": step.get("status"),
+                "depends_on": step.get("depends_on", []),
+                "child_run_id": step.get("child_run_id"),
+                "summary": _truncate_workflow_text(step.get("summary")),
+                "error": _truncate_workflow_text(step.get("error")),
+            }
+        )
+    response = {
+        "ok": bool(workflow.get("ok", True)),
+        "workflow_id": workflow.get("workflow_id"),
+        "repo_name": workflow.get("repo_name"),
+        "status": workflow.get("status"),
+        "terminal_status": workflow.get("terminal_status", ""),
+        "created_at": workflow.get("created_at"),
+        "updated_at": workflow.get("updated_at"),
+        "started_at": workflow.get("started_at"),
+        "ended_at": workflow.get("ended_at"),
+        "active_child_run_id": workflow.get("active_child_run_id"),
+        "state_version": workflow.get("state_version"),
+        "launch_attempts": workflow.get("launch_attempts"),
+        "publication_status": workflow.get("publication_status"),
+        "step_count": workflow.get("step_count", len(steps)),
+        "steps": steps,
+        "error": workflow.get("error", ""),
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if response["steps"]:
+            response["steps"].pop()
+            response["truncated"] = True
+            response["has_more"] = True
+            continue
+        break
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
+
+
 @_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def cancel_workflow(workflow_id: str) -> dict:
     """Write tool: cancel a workflow and request cancellation of its active child run."""
@@ -2542,12 +2595,18 @@ def cancel_workflow(workflow_id: str) -> dict:
 def workflow_query(request: WorkflowQueryRequest) -> dict:
     """Read-only gateway for durable workflow status, events, and results."""
     if request.operation == "status":
-        return get_workflow_status(request.workflow_id)
+        workflow = get_workflow_status(request.workflow_id)
+        if request.view == "full":
+            return workflow
+        return _bounded_workflow_response(workflow, request.response_budget_bytes)
     if request.operation == "events":
         return get_workflow_events(
             request.workflow_id, request.limit, request.response_budget_bytes
         )
-    return get_workflow_result(request.workflow_id)
+    workflow = get_workflow_result(request.workflow_id)
+    if request.view == "full":
+        return workflow
+    return _bounded_workflow_response(workflow, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)
