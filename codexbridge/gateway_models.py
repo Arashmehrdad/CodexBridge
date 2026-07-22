@@ -748,6 +748,16 @@ class HermesCompanionStart(GatewayModel):
     timeout_seconds: int = Field(default=120, ge=1, le=600)
 
 
+class HermesServiceStart(GatewayModel):
+    operation: Literal["hermes_service"]
+    session_id: str = Field(min_length=1, max_length=256)
+    service_operation: Literal["tool_search", "tool_describe", "tool_call"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=100)
+    expected_registry_generation: int = Field(ge=0)
+    expected_schema_hash: str = Field(min_length=64, max_length=64)
+    worker_wait_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+
+
 class RemotePowerShellStart(GatewayModel):
     operation: Literal["remote_powershell"]
     host_id: str = Field(min_length=1, max_length=128)
@@ -763,7 +773,7 @@ RunStartRequest = Annotated[
     PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
     | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
     | LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart
-    | HermesCompanionStart,
+    | HermesCompanionStart | HermesServiceStart,
     Field(discriminator="operation"),
 ]
 

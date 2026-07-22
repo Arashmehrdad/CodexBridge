@@ -8,6 +8,7 @@ import inspect
 import json
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -52,7 +53,6 @@ from .git_tools import CommitMetadataError, CommitPolicyError
 from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
-from .git_tools import changed_files as _changed_files
 from .git_tools import diff_stat, git_head, git_status, inspect_status
 from .git_tools import finalize_explicit_changes
 from .git_tools import inspect_status_compact
@@ -64,6 +64,11 @@ from .git_tools import stage_all as _stage_all
 from .git_tools import unstage_all as _unstage_all
 from .job_manager import JobManager
 from .hermes_companion_client import build_companion_launch, start_companion_request
+from .hermes_service_gateway import (
+    HermesServiceGateway,
+    build_supervisor_from_config,
+)
+from .run_store import RunStore
 from .managed_artifacts import (
     apply_managed_artifact_cleanup as _apply_managed_artifact_cleanup,
     preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
@@ -901,6 +906,59 @@ def get_job_manager() -> JobManager:
 
 def get_workflow_manager() -> WorkflowManager:
     return WorkflowManager(get_config(), get_config_path())
+
+
+_hermes_service_gateway: HermesServiceGateway | None = None
+_hermes_service_gateway_lock = threading.Lock()
+
+
+def get_hermes_service_gateway() -> HermesServiceGateway:
+    """Long-lived shared-service gateway; workers outlive individual calls."""
+    global _hermes_service_gateway
+    with _hermes_service_gateway_lock:
+        if _hermes_service_gateway is None:
+            _hermes_service_gateway = _build_hermes_service_gateway()
+        return _hermes_service_gateway
+
+
+def _build_hermes_service_gateway() -> HermesServiceGateway:
+    config = get_config()
+    service_config = config.hermes_service
+    fallback_starter = None
+    if (
+        service_config.fallback_enabled
+        and service_config.fallback_repo_name
+        and service_config.checkout
+    ):
+
+        def fallback_starter(
+            *,
+            operation: str,
+            payload: dict[str, Any],
+            expected_registry_generation: int,
+            expected_schema_hash: str,
+        ) -> dict:
+            launch = build_companion_launch(
+                profile_id=service_config.fallback_profile_id,
+                checkout=service_config.checkout,
+                operation=operation,
+                payload=payload,
+                expected_registry_generation=expected_registry_generation,
+                expected_schema_hash=expected_schema_hash,
+                hermes_home=service_config.hermes_home or None,
+            )
+            return start_companion_request(
+                get_job_manager(),
+                service_config.fallback_repo_name,
+                launch,
+            )
+
+    return HermesServiceGateway(
+        run_store=RunStore(config.resolve_runs_dir()),
+        runs_dir=config.resolve_runs_dir(),
+        supervisor_factory=lambda: build_supervisor_from_config(config),
+        fallback_starter=fallback_starter,
+    )
 
 
 def get_supervisor_service() -> SupervisorService:
@@ -2879,6 +2937,15 @@ def start_local_powershell_group_async(
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def run_start(request: RunStartRequest) -> dict:
     """Write gateway for durable validation and unrestricted permissive PowerShell runs."""
+    if request.operation == "hermes_service":
+        return get_hermes_service_gateway().execute(
+            session_id=request.session_id,
+            operation=request.service_operation,
+            payload=request.payload,
+            expected_registry_generation=request.expected_registry_generation,
+            expected_schema_hash=request.expected_schema_hash,
+            worker_wait_timeout_seconds=request.worker_wait_timeout_seconds,
+        )
     if request.operation == "hermes_companion":
         launch = build_companion_launch(
             profile_id=request.profile_id,
@@ -2933,6 +3000,34 @@ def run_start(request: RunStartRequest) -> dict:
     return start_external_fixture_validation_async(
         request.repo_name, request.url, request.expected_sha256, request.validation
     )
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def hermes_service_health() -> dict:
+    """Read-only: shared Hermes service health, identity, and supervision evidence."""
+    return get_hermes_service_gateway().health()
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def hermes_service_cancel(run_id: str, request_id: str, session_id: str) -> dict:
+    """Write: cancel one owned shared-service Hermes request by its exact identity triple."""
+    return get_hermes_service_gateway().cancel(
+        run_id=run_id, request_id=request_id, session_id=session_id
+    )
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def hermes_service_result(run_id: str, session_id: str) -> dict:
+    """Read-only: durable shared-service result, released only to the owning session."""
+    return get_hermes_service_gateway().get_result(
+        run_id=run_id, session_id=session_id
+    )
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def hermes_service_reload_registry() -> dict:
+    """Write: atomically publish one new Hermes registry generation to the shared service."""
+    return get_hermes_service_gateway().reload_registry()
 
 
 @_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=WRITE_ANNOTATIONS)

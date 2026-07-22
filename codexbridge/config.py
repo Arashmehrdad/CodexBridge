@@ -664,6 +664,20 @@ class LocalModelConfig(BaseModel):
     max_tokens: int = Field(default=1024, ge=1, le=32768)
 
 
+class HermesServiceConfig(BaseModel):
+    enabled: bool = False
+    checkout: str = ""
+    python_executable: str = ""
+    hermes_home: str = ""
+    worker_count: int = Field(default=2, ge=1, le=32)
+    max_output_bytes: int | None = Field(default=None, ge=256, le=1_000_000)
+    startup_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    state_path: str = ""
+    fallback_enabled: bool = True
+    fallback_profile_id: str = "hermes_python"
+    fallback_repo_name: str = ""
+
+
 class ReturnLoopConfig(BaseModel):
     return_loop_enabled: bool = True
     max_resume_prompt_bytes: int = Field(default=20000, ge=1, le=1000000)
@@ -894,6 +908,9 @@ class AppConfig(BaseModel):
     codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+    hermes_service: HermesServiceConfig = Field(
+        default_factory=HermesServiceConfig
+    )
     return_loop: ReturnLoopConfig = Field(default_factory=ReturnLoopConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
@@ -921,6 +938,14 @@ class AppConfig(BaseModel):
         if not runs.is_absolute():
             runs = self.config_dir / runs
         return runs.resolve()
+
+    def resolve_hermes_service_state_path(self) -> Path:
+        if self.hermes_service.state_path:
+            path = Path(self.hermes_service.state_path)
+            if not path.is_absolute():
+                path = self.config_dir / path
+            return path.resolve()
+        return self.resolve_runs_dir() / "hermes-service-state.json"
 
     def resolve_memory_db_path(self) -> Path:
         if self.memory.memory_db_path:

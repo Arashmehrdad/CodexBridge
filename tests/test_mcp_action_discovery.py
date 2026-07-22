@@ -1726,6 +1726,7 @@ def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> Non
         "powershell",
         "powershell_group",
         "hermes_companion",
+        "hermes_service",
     }
     assert actions["run_start"]["annotations"]["readOnlyHint"] is False
     for name in {

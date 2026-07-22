@@ -219,6 +219,7 @@ _RUN_START_OPERATIONS: Final[tuple[str, ...]] = (
     "remote_powershell",
     "powershell_group",
     "hermes_companion",
+    "hermes_service",
 )
 
 
