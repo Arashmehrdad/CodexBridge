@@ -1044,6 +1044,21 @@ def test_docker_health_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_docker_health_compact_envelope(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "_docker_health",
+        lambda config: {"ok": True, "engine": {"status": "ok"}, "compose": {}},
+    )
+    result = server.docker_health(response_budget_bytes=4096)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
+    assert result["response_bytes"] <= 4096
+
+
 def test_cloudflare_inspect_model_exposes_response_budget() -> None:
     request = TypeAdapter(CloudflareQueryRequest).validate_python(
         {

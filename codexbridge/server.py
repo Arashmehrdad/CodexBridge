@@ -1748,6 +1748,14 @@ def docker_health(response_budget_bytes: int = 12 * 1024) -> dict:
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _docker_health(get_config())
+    result.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
