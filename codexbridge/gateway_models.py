@@ -246,6 +246,7 @@ class TradingTickQuery(GatewayModel):
 class TradingH4Query(GatewayModel):
     operation: Literal["h4_candles"]
     completed_count: int = Field(default=200, ge=1, le=2_000)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingHistoricalTicksQuery(GatewayModel):

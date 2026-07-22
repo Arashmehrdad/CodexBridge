@@ -2902,11 +2902,29 @@ def trading_query(request: TradingQueryRequest) -> dict:
         elif request.operation == "tick":
             result = provider.latest_tick(trading.symbol)
         elif request.operation == "h4_candles":
+            if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+                raise ValueError("response_budget_bytes must be between 1024 and 65536")
             completed, developing = provider.h4_candles(trading.symbol, completed_count=request.completed_count)
             result = {"completed": completed, "developing": developing}
         else:
             result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
-        return {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+        response = {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+        if request.operation == "h4_candles":
+            response["truncated"] = False
+            response["has_more"] = False
+            response["response_budget_bytes"] = request.response_budget_bytes
+            while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+                candles = response["result"].get("completed")
+                if isinstance(candles, list) and candles:
+                    candles.pop()
+                elif isinstance(response["result"].get("developing"), dict) and response["result"]["developing"]:
+                    response["result"]["developing"].pop(next(reversed(response["result"]["developing"])))
+                else:
+                    break
+                response["truncated"] = True
+                response["has_more"] = True
+            response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+        return response
     except Exception as exc:
         return {"ok": False, "status": "provider_error", "error": str(exc)}
     finally:

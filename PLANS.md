@@ -588,6 +588,12 @@ Twenty-first independently reviewable slice — bounded Cloudflare inspection:
 - the Cloudflare inspection inventory now records a bounded-object response contract with a 12-KB default/maximum budget and retains page-number pagination metadata;
 - focused CodexBridge pytest validation passed with 37 server tests, 44 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-second independently reviewable slice — bounded H4 candle retrieval:
+
+- `trading_query(operation="h4_candles")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims completed candles deterministically while preserving the configured demo-terminal checks, completed-count limit, and developing-candle shape;
+- the H4 candle inventory now records a bounded-object response contract with a 12-KB default/maximum budget and limit-only pagination semantics;
+- focused CodexBridge pytest validation passed with 37 server tests, 45 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -106,7 +106,9 @@ def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
 
 def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     adapter = TypeAdapter(TradingQueryRequest)
-    assert adapter.validate_python({"operation": "h4_candles"}).completed_count == 200
+    h4 = adapter.validate_python({"operation": "h4_candles"})
+    assert h4.completed_count == 200
+    assert h4.response_budget_bytes == 12 * 1024
     assert adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"}).end_utc.hour == 7
     with pytest.raises(ValidationError):
         adapter.validate_python({"operation": "tick", "completed_count": 1})
@@ -136,6 +138,28 @@ def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:
     assert result["symbol"] == "BITCOIN_i"
     assert result["result"]["ask"] == 2.0
     assert calls == [("tick", "BITCOIN_i"), "close"]
+
+
+def test_trading_h4_query_honors_response_budget(monkeypatch) -> None:
+    class FakeProvider:
+        def connect(self):
+            return SimpleNamespace(connected=True, account_environment="demo")
+
+        def close(self):
+            pass
+
+        def h4_candles(self, symbol, completed_count):
+            return ([{"time": index, "close": "x" * 160} for index in range(completed_count)], {"close": "y" * 200})
+
+    monkeypatch.setattr(server, "get_config", lambda: SimpleNamespace(trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")))
+    monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
+    request = TypeAdapter(TradingQueryRequest).validate_python(
+        {"operation": "h4_candles", "completed_count": 100, "response_budget_bytes": 4096}
+    )
+    result = server.trading_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
 
 
 def _signal_request_payload() -> dict:
