@@ -257,6 +257,10 @@ def test_run_query_group_projection_honors_response_budget(monkeypatch) -> None:
         {"operation": "group_status", "group_id": "group_1", "response_budget_bytes": 4096}
     )
     result = server.run_query(request)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096

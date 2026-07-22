@@ -3256,6 +3256,10 @@ def _bounded_group_response(group: dict[str, Any], response_budget_bytes: int) -
         )
     response = {
         "ok": True,
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "group_id": group.get("group_id"),
         "repo_name": group.get("repo_name"),
         "status": group.get("status"),

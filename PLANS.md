@@ -941,6 +941,12 @@ Eightieth independently reviewable slice — versioned compact supervisor resume
 - protected prompt-path omission, supervisor identity, truncation behavior, and explicit full prompt retrieval remain unchanged;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Eighty-first independently reviewable slice — versioned compact parallel-group responses:
+
+- compact `run_query(operation="group_status"/"group_result")` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing child-count/truncation/byte metadata;
+- group child lifecycle fields, protected artifact omission, bounded summaries/errors, and explicit full group evidence remain unchanged;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
