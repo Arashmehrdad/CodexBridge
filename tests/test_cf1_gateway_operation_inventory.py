@@ -258,6 +258,13 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert signal_list.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in signal_list.notes
 
+    search = _entry_for("repo_query", "search_text")
+    assert search.default_response_bytes == 16 * 1024
+    assert search.maximum_response_bytes == 16 * 1024
+    assert search.pagination is PaginationBehavior.CURSOR
+    assert "exact-file scope" in search.notes
+    assert "timeout/partial-result reporting" in search.notes
+
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
     assert "aggregate returned content" in repo_read.notes

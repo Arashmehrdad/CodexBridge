@@ -809,11 +809,18 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("search_text",),
         "codexbridge.server:repo_query -> codexbridge.repo_tools:search_repo_text",
-        "direct repository search result",
-        pagination=PaginationBehavior.LIMIT_ONLY,
+        "bounded content-bound repository search result",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=16 * 1024,
+        maximum_response_bytes=16 * 1024,
+        pagination=PaginationBehavior.CURSOR,
         default_item_limit=50,
         maximum_item_limit=500,
-        notes="Search results are item limited but have no cursor or byte ceiling.",
+        notes=(
+            "Search preserves exact-file scope, snapshot/hash-bound continuation, and "
+            "timeout/partial-result reporting under a fixed 16-KB serialized UTF-8 "
+            "budget; the full evidence path remains explicit."
+        ),
     ),
     _entry(
         "repo_query",
