@@ -710,10 +710,24 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "repo_query",
-        ("compact_status", "patch_status"),
+        ("compact_status",),
         "codexbridge.server:repo_query",
         "direct repository or patch summary object",
         notes="No public response byte ceiling is enforced.",
+    ),
+    _entry(
+        "repo_query",
+        ("patch_status",),
+        "codexbridge.server:repo_query -> codexbridge.repo_writer:get_patch_status",
+        "bounded compact managed-patch status projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The default compact view exposes lifecycle identifiers, changed-file and "
+            "error counts under a serialized UTF-8 budget; view=full preserves the "
+            "complete patch manifest evidence path."
+        ),
     ),
     _entry(
         "repo_query",

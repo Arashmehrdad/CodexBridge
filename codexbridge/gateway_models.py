@@ -399,6 +399,8 @@ class RepoPatchStatusQuery(GatewayModel):
     operation: Literal["patch_status"]
     repo_name: str = Field(min_length=1, max_length=128)
     patch_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class RepoListFilesQuery(GatewayModel):

@@ -3179,14 +3179,53 @@ def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_patch_status(repo_name: str, patch_id: str) -> dict:
+def get_patch_status(
+    repo_name: str,
+    patch_id: str,
+    view: str = "full",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: return the durable lifecycle state for one managed patch."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.get_patch_status(repo_root, patch_id, _get_runs_dir())
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
-    return result
+    if view == "full":
+        return result
+    changed_files = list(result.get("changed_files") or [])
+    errors = list(result.get("errors") or [])
+    apply_result = result.get("apply_result")
+    compact = {
+        "ok": result.get("ok", False),
+        "repo_name": result.get("repo_name", canonical_name),
+        "patch_id": result.get("patch_id", patch_id),
+        "status": result.get("status", "unknown"),
+        "created_at": result.get("created_at", ""),
+        "applied_at": result.get("applied_at", ""),
+        "reverted_at": result.get("reverted_at", ""),
+        "changed_files": changed_files,
+        "changed_file_count": len(changed_files),
+        "error_count": len(errors),
+        "apply_ok": bool(apply_result.get("ok")) if isinstance(apply_result, dict) else False,
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+        "error": result.get("error", ""),
+    }
+    if "requested_repo_name" in result:
+        compact["requested_repo_name"] = result["requested_repo_name"]
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and compact["changed_files"]:
+        compact["changed_files"].pop()
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["changed_file_count"] = len(compact["changed_files"])
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3453,7 +3492,12 @@ def repo_query(request: RepoQueryRequest) -> dict:
     if request.operation == "compact_status":
         return inspect_repo_status_compact(request.repo_name)
     if request.operation == "patch_status":
-        return get_patch_status(request.repo_name, request.patch_id)
+        return get_patch_status(
+            request.repo_name,
+            request.patch_id,
+            request.view,
+            request.response_budget_bytes,
+        )
     if request.operation == "list_files":
         return list_repo_files(
             request.repo_name,

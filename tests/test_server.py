@@ -1304,6 +1304,48 @@ def test_repo_status_has_bounded_compact_and_explicit_full_views(monkeypatch) ->
     assert "response_bytes" not in full
 
 
+def test_patch_status_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    changed = [f"src/{index:04d}-" + ("x" * 160) + ".py" for index in range(40)]
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(
+        server,
+        "_repo_writer",
+        type(
+            "Writer",
+            (),
+            {
+                "get_patch_status": staticmethod(
+                    lambda _root, _patch_id, _runs: {
+                        "ok": True,
+                        "patch_id": "patch_1",
+                        "status": "previewed",
+                        "created_at": "2026-07-22T00:00:00Z",
+                        "applied_at": "",
+                        "reverted_at": "",
+                        "changed_files": changed,
+                        "apply_result": {"ok": True, "details": "x" * 2000},
+                        "errors": ["error " + ("y" * 2000)],
+                        "error": "",
+                    }
+                )
+            },
+        )(),
+    )
+
+    compact = server.get_patch_status(
+        "repo", "patch_1", view="compact", response_budget_bytes=4096
+    )
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert compact["changed_file_count"] < 40
+    assert compact["error_count"] == 1
+
+    full = server.get_patch_status("repo", "patch_1", view="full")
+    assert full["changed_files"] == changed
+    assert "response_bytes" not in full
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):
