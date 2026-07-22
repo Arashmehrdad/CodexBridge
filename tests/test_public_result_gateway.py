@@ -158,3 +158,27 @@ def test_terminal_model_and_gateway_are_additive_and_strict(monkeypatch) -> None
         adapter.validate_python(
             {"operation": "terminal", "run_id": "run_1", "cursor": "not-allowed"}
         )
+
+
+def test_result_defaults_to_bounded_projection_and_full_view_is_explicit(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class FakeJobs:
+        def get_terminal_result(self, run_id: str) -> dict:
+            calls.append(("terminal", run_id))
+            return {"operation": "terminal", "run_id": run_id}
+
+        def get_result(self, run_id: str) -> dict:
+            calls.append(("result", run_id))
+            return {"operation": "result", "run_id": run_id, "detail": "full"}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    adapter = TypeAdapter(RunQueryRequest)
+    compact = adapter.validate_python({"operation": "result", "run_id": "run_1"})
+    full = adapter.validate_python(
+        {"operation": "result", "run_id": "run_1", "view": "full"}
+    )
+
+    assert server.run_query(compact)["operation"] == "terminal"
+    assert server.run_query(full)["operation"] == "result"
+    assert [kind for kind, _run_id in calls] == ["terminal", "result"]

@@ -107,9 +107,12 @@ class RunResultQuery(GatewayModel):
     operation: Literal["result"]
     run_id: str = Field(min_length=1, max_length=128)
     cursor: str = Field(default="", max_length=2048)
+    view: Literal["compact", "full"] = "compact"
 
     @model_validator(mode="after")
     def encode_chunk_reference(self) -> "RunResultQuery":
+        if self.cursor and self.view == "compact":
+            self.view = "full"
         self.run_id = encode_run_reference(self.run_id, self.cursor)
         return self
 

@@ -2535,7 +2535,9 @@ def run_query(request: RunQueryRequest) -> dict:
     if request.operation == "terminal":
         return get_run_terminal_result(request.run_id)
     if request.operation == "result":
-        return get_run_result(request.run_id)
+        if request.view == "full":
+            return get_run_result(request.run_id)
+        return get_run_terminal_result(request.run_id)
     if request.operation in {"group_status", "group_result"}:
         return get_job_manager().get_powershell_group(request.group_id)
     if request.operation == "list":

@@ -504,6 +504,12 @@ Seventh independently reviewable slice — bounded dedicated-validator controls:
 - validator terminal results include a compact structured validation summary with pass/fail state, error count, representative redacted diagnostic text, and truncation state, while full streams remain available only through explicit evidence retrieval;
 - focused CodexBridge pytest validation passed with 36 gateway-model tests, 21 public-result tests, and 28 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the three pre-existing unused imports in `job_manager.py`, `job_worker.py`, and `server.py`.
 
+Eighth independently reviewable slice — bounded ordinary result reads:
+
+- `run_query(operation="result")` now routes to the bounded source-hash-bound terminal projection by default, preventing legacy diagnosis payloads from returning oversized authoritative JSON through the ordinary gateway;
+- `view="full"` remains an explicit authoritative retrieval path, and callers that supply the existing chunk cursor are promoted to that full path for compatibility and exact reconstruction;
+- focused CodexBridge pytest validation passed with 5 public-result gateway tests. Native compilation and `git diff --check` passed; Ruff reports the pre-existing unused import in `server.py`.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

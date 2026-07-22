@@ -475,13 +475,14 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "run_query",
         ("status", "result"),
         "codexbridge.server:run_query -> codexbridge.job_manager:JobManager",
-        "full run row or chunked JSON resource",
-        request_echo=RequestEchoBehavior.FULL_AUTHORITATIVE_ROW,
-        json_decode_cost=JsonDecodeCost.FULL_JSON_BLOBS,
+        "bounded terminal projection by default; explicit full result view",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         pagination=PaginationBehavior.CHUNK_CURSOR,
         notes=(
-            "Current status and result paths decode full JSON blob columns before "
-            "returning the public object."
+            "Status remains scalar control metadata. Result defaults to the bounded "
+            "source-hash-bound terminal projection; view=full or a legacy cursor "
+            "retains the authoritative chunked archive."
         ),
     ),
     _entry(
