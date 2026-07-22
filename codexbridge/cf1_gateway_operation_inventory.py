@@ -785,9 +785,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "trading_signal_get",
         ("invoke",),
         "codexbridge.server:trading_signal_get",
-        "direct trading journal record",
+        "bounded trading journal record",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        notes="A complete signal record is returned without pagination.",
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact signal retrieval bounds narrative fields and response bytes; view=full remains explicit complete record access.",
     ),
     _entry(
         "trading_signal_list",

@@ -285,7 +285,9 @@ def test_trading_signal_models_are_strict() -> None:
     submit = TypeAdapter(TradingSignalSubmitRequest)
     request = submit.validate_python(_signal_request_payload())
     assert request.confidence == 73
-    assert TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"}).signal_id == "sig_1"
+    signal_get = TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"})
+    assert signal_get.signal_id == "sig_1"
+    assert signal_get.response_budget_bytes == 12 * 1024
     signal_list = TypeAdapter(TradingSignalListRequest).validate_python({})
     assert signal_list.limit == 100
     assert signal_list.response_budget_bytes == 12 * 1024
@@ -312,6 +314,33 @@ def test_trading_signal_gateways_share_repository_owned_journal(tmp_path, monkey
     )
     assert cancelled["signal"]["status"] == "cancelled"
     assert cancelled["signal"]["draft"] == first["signal"]["draft"]
+
+
+def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
+    class Journal:
+        def get(self, signal_id):
+            return object()
+
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server,
+        "_signal_record_json",
+        lambda record: {
+            "signal_id": "sig_1",
+            "draft": {
+                "reason": "r" * 4000,
+                "news_context": "n" * 4000,
+                "latest_completed_4h_candle": "c" * 800,
+                "developing_4h_candle": "d" * 800,
+            },
+        },
+    )
+    result = server.trading_signal_get(
+        TradingSignalGetRequest(signal_id="sig_1", response_budget_bytes=1024)
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 1024
 
 
 def test_workflow_and_supervisor_models_are_operation_specific() -> None:

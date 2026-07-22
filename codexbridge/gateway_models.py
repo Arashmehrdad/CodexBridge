@@ -313,6 +313,8 @@ class TradingSignalSubmitRequest(GatewayModel):
 
 class TradingSignalGetRequest(GatewayModel):
     signal_id: str = Field(min_length=1, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingSignalListRequest(GatewayModel):

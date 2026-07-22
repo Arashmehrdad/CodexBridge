@@ -689,6 +689,12 @@ Thirty-eighth independently reviewable slice — bounded system self-check:
 - compact self-check responses omit verbose command streams, while `view="full"` preserves explicit complete diagnostics and existing direct self-check behavior;
 - focused CodexBridge pytest validation passed with 56 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-ninth independently reviewable slice — bounded single-signal retrieval:
+
+- `trading_signal_get` now defaults to a compact 12-KB UTF-8 projection that bounds narrative and candle-context fields and reports truncation and serialized response bytes;
+- `view="full"` preserves explicit complete immutable signal-record retrieval and existing journal/idempotency behavior;
+- focused CodexBridge pytest validation passed with 57 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

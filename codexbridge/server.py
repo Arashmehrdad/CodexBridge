@@ -3380,7 +3380,45 @@ def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
 def trading_signal_get(request: TradingSignalGetRequest) -> dict:
     """Read one immutable Trading Lab signal."""
     record = _trading_signal_journal().get(request.signal_id)
-    return {"ok": True, "signal": _signal_record_json(record)}
+    signal = _signal_record_json(record)
+    if request.view == "full":
+        return {"ok": True, "signal": signal}
+    if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    signal = dict(signal)
+    draft = dict(signal.get("draft") or {})
+    for field in ("reason", "news_context", "latest_completed_4h_candle", "developing_4h_candle"):
+        if field in draft:
+            draft[field] = str(draft[field])[:512]
+    signal["draft"] = draft
+    response = {
+        "ok": True,
+        "signal": signal,
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": request.response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+        reduced = False
+        for field in (
+            "news_context",
+            "reason",
+            "latest_completed_4h_candle",
+            "developing_4h_candle",
+        ):
+            value = response["signal"].get("draft", {}).get(field, "")
+            if value:
+                next_value = value[: max(0, len(value) - 128)]
+                response["signal"]["draft"][field] = next_value
+                reduced = next_value != value
+                if reduced:
+                    break
+        if not reduced:
+            break
+        response["truncated"] = True
+        response["has_more"] = True
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
