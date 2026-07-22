@@ -3822,6 +3822,14 @@ def _bounded_trading_scalar_response(response: dict[str, Any], budget: int) -> d
     if budget < 1024 or budget > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     compact = dict(response)
+    compact.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     compact["truncated"] = False
     compact["has_more"] = False
     compact["response_budget_bytes"] = budget

@@ -218,6 +218,10 @@ def test_trading_scalar_query_projection_honors_response_budget(monkeypatch) -> 
             {"operation": "tick", "response_budget_bytes": 4096}
         )
     )
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
