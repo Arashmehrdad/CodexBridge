@@ -2691,7 +2691,25 @@ class JobWorker:
                     repo_root, repo_name, reason="repo_apply"
                 )
         result.setdefault("status", "completed" if result.get("ok") else "failed")
+        if result["status"] not in TERMINAL_STATUSES:
+            result["status"] = "completed" if result.get("ok") else "failed"
         result.setdefault("error", "")
+        ended_at = str(result.get("ended_at") or _utc_now())
+        result["ended_at"] = ended_at
+        result.setdefault("duration_seconds", _duration(started_at, ended_at))
+        result.setdefault("exit_code", 0 if result["status"] == "completed" else 1)
+        result.setdefault("process_success", result["exit_code"] == 0)
+        result.setdefault(
+            "classification",
+            "success" if result["status"] == "completed" else "semantic_failure",
+        )
+        result.setdefault(
+            "summary",
+            result.get("error")
+            or f"Repository apply {operation} {result['status']}",
+        )
+        result.setdefault("remaining_risks", [])
+        result.setdefault("safety_failure", False)
         return result
 
     def _execute_project_command(

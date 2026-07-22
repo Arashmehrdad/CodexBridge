@@ -205,6 +205,84 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "1 passed\n"
 
 
+def test_repo_apply_worker_persists_successful_commit_as_completed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260722T000000Z_repo_apply_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="repo_apply",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "operation": "previewed_change",
+            "patch_id": "20260722T000000Z_patch_deadbeef",
+        },
+    )
+    monkeypatch.setattr(
+        "codexbridge.job_worker.repo_writer.apply_previewed_repo_change",
+        lambda _repo_root, patch_id, _runs_dir: {
+            "ok": True,
+            "patch_id": patch_id,
+            "changed_files": ["updated.py"],
+            "commit_title": "Finish managed apply",
+            "commit_description": "Regression fixture",
+            "error": "",
+        },
+    )
+
+    def fake_finalize(
+        self,
+        repo_root: Path,
+        changed_files: list[str],
+        *,
+        tool_name: str,
+        commit_title: str = "",
+        commit_description: str = "",
+    ) -> dict:
+        assert repo_root == repo
+        assert changed_files == ["updated.py"]
+        assert tool_name == "repo_apply"
+        assert commit_title == "Finish managed apply"
+        assert commit_description == "Regression fixture"
+        return {
+            "commit_required": True,
+            "commit_attempted": True,
+            "commit_hash": "a" * 40,
+            "commit_error": "",
+            "commit_result": {"ok": True},
+        }
+
+    monkeypatch.setattr(JobWorker, "_finalize_commit", fake_finalize)
+    monkeypatch.setattr(
+        "codexbridge.job_worker.mark_repo_wiki_stale",
+        lambda *_args, **_kwargs: {"ok": True, "stale": True},
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 0
+    persisted = store.get_run(run_id)
+    result = persisted["result"]
+    assert persisted["status"] == "completed"
+    assert result["status"] == "completed"
+    assert result["ended_at"]
+    assert result["duration_seconds"] >= 0
+    assert result["exit_code"] == 0
+    assert result["process_success"] is True
+    assert result["classification"] == "success"
+    assert result["commit_hash"] == "a" * 40
+    assert persisted["safety_failure"] is False
+
+
 def test_terminal_database_record_is_not_stranded_by_legacy_artifact_writer_failure(
     monkeypatch, tmp_path: Path
 ) -> None:
