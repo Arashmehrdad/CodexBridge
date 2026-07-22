@@ -297,6 +297,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert ssh_inspection.default_response_bytes == 12 * 1024
     assert ssh_inspection.maximum_response_bytes == 12 * 1024
     assert "UTF-8 budget" in ssh_inspection.notes
+    ssh_health = _entry_for("ssh_inspect", "host_health")
+    assert ssh_health.default_response_bytes == 12 * 1024
+    assert ssh_health.maximum_response_bytes == 12 * 1024
+    assert "view=full" in ssh_health.notes
 
     signal_list = _entry_for("trading_signal_list", "invoke")
     assert signal_list.default_response_bytes == 12 * 1024

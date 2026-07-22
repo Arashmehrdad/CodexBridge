@@ -30,16 +30,22 @@ class GatewayModel(BaseModel):
 class SSHHostHealth(GatewayModel):
     operation: Literal["host_health"]
     host_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SSHEnvironmentProbe(GatewayModel):
     operation: Literal["environment_probe"]
     host_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SSHGpuTelemetry(GatewayModel):
     operation: Literal["gpu_telemetry"]
     host_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SSHBoundedInspection(GatewayModel):

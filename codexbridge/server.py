@@ -1982,20 +1982,24 @@ def ssh_inspect_legacy(
 def ssh_inspect(request: SSHInspectRequest) -> dict:
     """Read-only SSH gateway for strict health, telemetry, and bounded inspections."""
     if request.operation == "host_health":
-        return ssh_host_health(request.host_id)
-    if request.operation == "environment_probe":
-        return ssh_environment_probe(request.host_id)
-    if request.operation == "gpu_telemetry":
-        return ssh_gpu_telemetry(request.host_id)
-    return ssh_inspect_legacy(
-        request.host_id,
-        request.inspection,
-        path=request.path,
-        target=request.target,
-        deployment_id=request.deployment_id,
-        tail=request.tail,
-        response_budget_bytes=request.response_budget_bytes,
-    )
+        result = ssh_host_health(request.host_id)
+    elif request.operation == "environment_probe":
+        result = ssh_environment_probe(request.host_id)
+    elif request.operation == "gpu_telemetry":
+        result = ssh_gpu_telemetry(request.host_id)
+    else:
+        return ssh_inspect_legacy(
+            request.host_id,
+            request.inspection,
+            path=request.path,
+            target=request.target,
+            deployment_id=request.deployment_id,
+            tail=request.tail,
+            response_budget_bytes=request.response_budget_bytes,
+        )
+    if request.view == "full":
+        return result
+    return _bounded_system_query_response(result, request.response_budget_bytes)
 
 
 @_internal_tool(

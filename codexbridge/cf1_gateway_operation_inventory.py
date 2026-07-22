@@ -229,8 +229,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "ssh_inspect",
         ("host_health", "environment_probe", "gpu_telemetry"),
         "codexbridge.server:ssh_inspect",
-        "direct SSH health and telemetry object",
-        notes="Structured SSH health and telemetry responses remain compatibility-shaped.",
+        "bounded compact SSH health and telemetry projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact SSH health and telemetry retain scalar host fields and collection counts under a UTF-8 budget; view=full remains explicit complete evidence access.",
     ),
     _entry(
         "ssh_inspect",

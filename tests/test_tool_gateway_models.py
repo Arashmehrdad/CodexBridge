@@ -104,6 +104,28 @@ def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
     assert result["host_id"] == "dev"
 
 
+def test_ssh_health_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "ssh_host_health",
+        lambda host_id: {
+            "host_id": host_id,
+            "ok": True,
+            "status": "healthy",
+            "interfaces": [{"name": f"eth{index}"} for index in range(5000)],
+            "diagnostic": "x" * 20_000,
+        },
+    )
+    result = server.ssh_inspect(
+        TypeAdapter(SSHInspectRequest).validate_python(
+            {"operation": "host_health", "host_id": "dev", "response_budget_bytes": 4096}
+        )
+    )
+    assert result["interfaces_count"] == 5000
+    assert result["truncated"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     adapter = TypeAdapter(TradingQueryRequest)
     h4 = adapter.validate_python({"operation": "h4_candles"})
