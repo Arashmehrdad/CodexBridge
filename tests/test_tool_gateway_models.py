@@ -654,6 +654,10 @@ def test_supervisor_resume_prompt_honors_response_budget(monkeypatch) -> None:
         }
     )
     result = server.supervisor_query(request)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096

@@ -935,6 +935,12 @@ Seventy-ninth independently reviewable slice — versioned compact supervisor sn
 - supervisor lifecycle identifiers, bounded summaries, child status, and explicit full snapshot evidence remain unchanged;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Eightieth independently reviewable slice — versioned compact supervisor resume prompts:
+
+- compact supervisor resume-prompt responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing UTF-8 content/truncation/byte metadata;
+- protected prompt-path omission, supervisor identity, truncation behavior, and explicit full prompt retrieval remain unchanged;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

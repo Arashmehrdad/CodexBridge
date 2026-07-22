@@ -3680,6 +3680,10 @@ def _bounded_supervisor_resume_prompt(
     content = str(source.get("content") or "")
     response = {
         "ok": True,
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "supervisor_id": source.get("supervisor_id", supervisor_id),
         "exists": bool(source.get("exists")),
         "content": content,
