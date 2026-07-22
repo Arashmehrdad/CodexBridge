@@ -223,6 +223,29 @@ codex:
   default_timeout_seconds: 1800
 gemini:
   enabled: false
+# Shared multi-session Hermes service (H2). Disabled by default; when enabled,
+# run_start operation "hermes_service" routes through one supervised,
+# version-pinned persistent Hermes worker pool instead of paying the H1
+# per-call companion startup cost. The fallback settings keep the H1
+# one-request companion path available when the shared service is down.
+hermes_service:
+  enabled: false
+  checkout: "D:/path/to/pinned-hermes-checkout"
+  python_executable: "D:/path/to/venv/Scripts/python.exe"
+  worker_count: 2
+  max_output_bytes: 65536
+  startup_timeout_seconds: 180
+  state_path: "runs/hermes-service-state.json"
+  fallback_enabled: true
+  fallback_profile_id: "hermes_python"
+  fallback_repo_name: ""
+  # Optional provider/tool concurrency and rate limits. Tools matching no
+  # pattern run fully concurrent.
+  tool_limits: []
+  # tool_limits:
+  #   - pattern: "mcp__searchconsole__*"
+  #     max_concurrent: 2
+  #     min_interval_seconds: 0.0
 supervisors:
   default_autonomy_profile: "permissive"
   autonomy_profiles:
