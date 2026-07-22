@@ -59,7 +59,9 @@ def test_ssh_inspection_models_are_discriminated_and_strict() -> None:
 
 def test_gateway_model_requires_operation_specific_fields() -> None:
     adapter = TypeAdapter(RunQueryRequest)
-    assert adapter.validate_python({"operation": "events", "run_id": "run_1"}).limit == 50
+    events = adapter.validate_python({"operation": "events", "run_id": "run_1"})
+    assert events.limit == 20
+    assert events.cursor == ""
     assert adapter.validate_python(
         {"operation": "group_status", "group_id": "group_1"}
     ).group_id == "group_1"
@@ -69,6 +71,12 @@ def test_gateway_model_requires_operation_specific_fields() -> None:
     for payload in (
         {"operation": "events"},
         {"operation": "events", "run_id": "run_1", "stream": "stdout"},
+        {
+            "operation": "events",
+            "run_id": "run_1",
+            "after_id": 1,
+            "cursor": "opaque",
+        },
         {"operation": "group_status", "run_id": "run_1"},
         {"operation": "group_result", "group_id": "group_1", "limit": 1},
     ):

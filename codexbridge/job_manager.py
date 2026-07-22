@@ -234,6 +234,12 @@ RUN_CONTROL_TEXT_BYTE_LIMITS = {
     "recovery_reason": 512,
     "result_publication_error": 1024,
 }
+RUN_EVENT_TEXT_BYTE_LIMITS = {
+    "level": 64,
+    "stage": 128,
+    "message": 1024,
+}
+RUN_EVENT_DATA_BYTE_LIMIT = 2048
 
 
 def _canonical_public_json_bytes(value: object) -> bytes:
@@ -404,6 +410,83 @@ def _build_unchanged_control_response(run_id: str, state_version: int) -> dict:
             "run_id": run_id,
             "state_version": state_version,
             "authoritative_operation": "status",
+            "error": "",
+            **_compact_projection_metadata(byte_budget, view=PublicView.STANDARD),
+        },
+        byte_budget,
+    )
+
+
+def _project_run_event(event: dict) -> dict:
+    projected = {
+        field: event[field]
+        for field in ("id", "timestamp", "run_id", "level", "stage", "message")
+        if field in event
+    }
+    truncated_fields: dict[str, dict[str, object]] = {}
+    for field, maximum_bytes in RUN_EVENT_TEXT_BYTE_LIMITS.items():
+        safe_value = redact_secret_values(str(projected.get(field) or ""))
+        truncated = truncate_utf8(safe_value, maximum_bytes)
+        projected[field] = truncated.text
+        if truncated.truncated:
+            truncated_fields[field] = {
+                "original_bytes": truncated.original_bytes,
+                "returned_bytes": truncated.returned_bytes,
+                "omitted_sha256": truncated.omitted_sha256,
+            }
+
+    safe_data = redact_and_truncate(event.get("data", {}), 512)
+    encoded_data = _canonical_public_json_bytes(safe_data)
+    if len(encoded_data) <= RUN_EVENT_DATA_BYTE_LIMIT:
+        projected["data"] = safe_data
+    else:
+        preview = truncate_utf8(
+            encoded_data.decode("utf-8", errors="replace"),
+            RUN_EVENT_DATA_BYTE_LIMIT,
+        )
+        projected["data"] = {
+            "truncated": True,
+            "original_bytes": len(encoded_data),
+            "returned_bytes": preview.returned_bytes,
+            "content_sha256": sha256(encoded_data).hexdigest(),
+            "preview": preview.text,
+        }
+    if truncated_fields:
+        projected["truncated_fields"] = truncated_fields
+    return projected
+
+
+def _build_run_event_response(
+    page: dict,
+    *,
+    requested_limit: int,
+    byte_limited: bool,
+    projected_events: list[dict] | None = None,
+) -> dict:
+    byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.events
+    events = (
+        [_project_run_event(event) for event in page["events"]]
+        if projected_events is None
+        else list(projected_events)
+    )
+    if len(events) != len(page["events"]):
+        raise ValueError("Projected event count does not match the source page")
+    return _finalize_compact_projection(
+        {
+            "ok": True,
+            "operation": "events",
+            "run_id": events[0]["run_id"] if events else page.get("run_id", ""),
+            "events": events,
+            "limit": page["limit"],
+            "requested_limit": requested_limit,
+            "returned_count": len(events),
+            "byte_limited": byte_limited,
+            "has_more": page["has_more"],
+            "next_after_id": page["next_after_id"],
+            "next_cursor": page["next_cursor"],
+            "ordering": page["ordering"],
+            "cursor_expires_at_utc": page["cursor_expires_at_utc"],
+            "authoritative_operation": "events",
             "error": "",
             **_compact_projection_metadata(byte_budget, view=PublicView.STANDARD),
         },
@@ -2259,6 +2342,46 @@ class JobManager:
         self, run_id: str, limit: int = 50, after_id: int | None = None
     ) -> list[dict]:
         return redact_and_truncate(self.store.get_events(run_id, limit, after_id))
+
+    def get_event_page(
+        self,
+        run_id: str,
+        limit: int = 20,
+        after_id: int | None = None,
+        cursor: str | None = None,
+    ) -> dict:
+        requested_limit = limit
+        page = self.store.get_event_page(
+            run_id,
+            limit=limit,
+            after_id=after_id,
+            cursor=cursor,
+        )
+        page["run_id"] = run_id
+        if not page["events"]:
+            return _build_run_event_response(
+                page,
+                requested_limit=requested_limit,
+                byte_limited=False,
+            )
+
+        projected_events = [_project_run_event(event) for event in page["events"]]
+        for returned_count in range(len(page["events"]), 0, -1):
+            candidate = (
+                page
+                if returned_count == len(page["events"])
+                else self.store.truncate_event_page(page, returned_count)
+            )
+            try:
+                return _build_run_event_response(
+                    candidate,
+                    requested_limit=requested_limit,
+                    byte_limited=returned_count < len(page["events"]),
+                    projected_events=projected_events[:returned_count],
+                )
+            except ValueError:
+                continue
+        raise ValueError("Run event page cannot fit its public byte budget")
 
     def get_control_status(
         self, run_id: str, if_state_version: int | None = None

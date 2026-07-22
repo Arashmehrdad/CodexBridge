@@ -62,6 +62,10 @@ RUN_SUMMARY_DEFAULT_LIMIT: Final[int] = 10
 RUN_SUMMARY_MAX_LIMIT: Final[int] = 100
 RUN_SUMMARY_CURSOR_OPERATION: Final[str] = "run_summary_list"
 RUN_SUMMARY_CURSOR_TTL_SECONDS: Final[int] = 300
+RUN_EVENT_DEFAULT_LIMIT: Final[int] = 20
+RUN_EVENT_MAX_LIMIT: Final[int] = 500
+RUN_EVENT_CURSOR_OPERATION: Final[str] = "run_event_delta"
+RUN_EVENT_CURSOR_TTL_SECONDS: Final[int] = 300
 
 RUN_SUMMARY_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
     "run_id",
@@ -575,6 +579,101 @@ class RunStore:
         return payload
 
     @staticmethod
+    def _encode_event_cursor(payload: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+        return f"{body}.{sha256(encoded).hexdigest()}"
+
+    @classmethod
+    def _decode_event_cursor(
+        cls,
+        cursor: str,
+        *,
+        run_id: str,
+        byte_budget: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        if not isinstance(cursor, str) or not cursor or cursor.count(".") != 1:
+            raise ValueError("Invalid run event cursor")
+        body, checksum = cursor.split(".")
+        if not body or len(checksum) != 64:
+            raise ValueError("Invalid run event cursor")
+        try:
+            encoded = urlsafe_b64decode(body + ("=" * (-len(body) % 4)))
+            canonical_body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+            if canonical_body != body:
+                raise ValueError("Invalid run event cursor")
+            if sha256(encoded).hexdigest() != checksum:
+                raise ValueError("Run event cursor checksum mismatch")
+            payload = json.loads(encoded.decode("utf-8"))
+            canonical = json.dumps(
+                payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        except ValueError:
+            raise
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError):
+            raise ValueError("Invalid run event cursor") from None
+        if canonical != encoded or not isinstance(payload, dict):
+            raise ValueError("Invalid run event cursor")
+        expected_keys = {
+            "operation",
+            "run_id",
+            "after_id",
+            "view",
+            "projection_version",
+            "byte_budget",
+            "expires_at_utc",
+        }
+        if set(payload) != expected_keys:
+            raise ValueError("Invalid run event cursor")
+        if payload.get("operation") != RUN_EVENT_CURSOR_OPERATION:
+            raise ValueError("Run event cursor operation mismatch")
+        if payload.get("run_id") != run_id:
+            raise ValueError("Run event cursor run mismatch")
+        if payload.get("view") != PublicView.STANDARD.value:
+            raise ValueError("Run event cursor view mismatch")
+        if payload.get("projection_version") != PUBLIC_PROJECTION_SCHEMA_VERSION:
+            raise ValueError("Run event cursor projection version mismatch")
+        if payload.get("byte_budget") != byte_budget:
+            raise ValueError("Run event cursor byte budget mismatch")
+        try:
+            after_id = payload["after_id"]
+            expires_at = cls._scalar_datetime(payload["expires_at_utc"])
+            if (
+                isinstance(after_id, bool)
+                or not isinstance(after_id, int)
+                or after_id < 0
+                or expires_at is None
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Invalid run event cursor") from None
+        if expires_at <= now:
+            raise ValueError("Run event cursor expired")
+        return payload
+
+    @classmethod
+    def _event_cursor_payload(
+        cls,
+        *,
+        run_id: str,
+        after_id: int,
+        byte_budget: int,
+        expires_at: datetime,
+    ) -> dict[str, Any]:
+        return {
+            "operation": RUN_EVENT_CURSOR_OPERATION,
+            "run_id": run_id,
+            "after_id": after_id,
+            "view": PublicView.STANDARD.value,
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "byte_budget": byte_budget,
+            "expires_at_utc": expires_at.isoformat(),
+        }
+
+    @staticmethod
     def _summary_filter_sql(
         filters: dict[str, str | None],
     ) -> tuple[list[str], list[Any]]:
@@ -1011,6 +1110,160 @@ class RunStore:
                     (run_id, max(0, int(after_id)), limit),
                 ).fetchall()
         return [self._row_to_event(row) for row in rows]
+
+    def get_event_page(
+        self,
+        run_id: str,
+        *,
+        limit: int = RUN_EVENT_DEFAULT_LIMIT,
+        after_id: int | None = None,
+        cursor: str | None = None,
+        byte_budget: int = DEFAULT_PUBLIC_BYTE_BUDGETS.events,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        validate_run_id(run_id)
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("event limit must be an integer")
+        limit = max(1, min(limit, RUN_EVENT_MAX_LIMIT))
+        byte_budget = self._positive_byte_budget(byte_budget)
+        if cursor and after_id is not None:
+            raise ValueError("Run event cursor cannot be combined with after_id")
+        current = self._compact_now(now)
+        effective_after_id: int | None
+        if cursor:
+            binding = self._decode_event_cursor(
+                cursor,
+                run_id=run_id,
+                byte_budget=byte_budget,
+                now=current,
+            )
+            effective_after_id = int(binding["after_id"])
+            expires_at = self._scalar_datetime(binding["expires_at_utc"])
+        else:
+            if isinstance(after_id, bool):
+                raise ValueError("after_id must be a non-negative integer")
+            effective_after_id = None if after_id is None else max(0, int(after_id))
+            expires_at = current + timedelta(seconds=RUN_EVENT_CURSOR_TTL_SECONDS)
+        assert expires_at is not None
+
+        with self.connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone() is None:
+                raise KeyError(f"Run not found: {run_id}")
+            bounds = conn.execute(
+                "SELECT MIN(id), MAX(id) FROM events WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            earliest_event_id = int(bounds[0]) if bounds and bounds[0] is not None else None
+            latest_event_id = int(bounds[1]) if bounds and bounds[1] is not None else None
+
+            if effective_after_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT * FROM events WHERE run_id = ? ORDER BY id DESC LIMIT ?
+                    ) ORDER BY id ASC
+                    """,
+                    (run_id, limit),
+                ).fetchall()
+                has_more = False
+            else:
+                if effective_after_id > 0:
+                    anchor = conn.execute(
+                        "SELECT 1 FROM events WHERE run_id = ? AND id = ?",
+                        (run_id, effective_after_id),
+                    ).fetchone()
+                    if anchor is None:
+                        if latest_event_id is None or effective_after_id > latest_event_id:
+                            raise ValueError("Run event cursor ahead of latest event")
+                        raise ValueError(
+                            "Run event cursor gap: anchor event is unavailable"
+                        )
+                rows = conn.execute(
+                    """
+                    SELECT * FROM events
+                    WHERE run_id = ? AND id > ?
+                    ORDER BY id ASC LIMIT ?
+                    """,
+                    (run_id, effective_after_id, limit + 1),
+                ).fetchall()
+                has_more = len(rows) > limit
+                rows = rows[:limit]
+
+        events = [self._row_to_event(row) for row in rows]
+        if events:
+            next_after_id = int(events[-1]["id"])
+        elif effective_after_id is not None:
+            next_after_id = effective_after_id
+        else:
+            next_after_id = latest_event_id or 0
+        next_cursor = self._encode_event_cursor(
+            self._event_cursor_payload(
+                run_id=run_id,
+                after_id=next_after_id,
+                byte_budget=byte_budget,
+                expires_at=expires_at,
+            )
+        )
+        return {
+            "events": events,
+            "limit": limit,
+            "has_more": has_more,
+            "next_after_id": next_after_id,
+            "next_cursor": next_cursor,
+            "ordering": "id ASC",
+            "effective_after_id": effective_after_id,
+            "earliest_event_id": earliest_event_id,
+            "latest_event_id": latest_event_id,
+            "cursor_expires_at_utc": expires_at.isoformat(),
+            "view": PublicView.STANDARD.value,
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "byte_budget": byte_budget,
+        }
+
+    def truncate_event_page(
+        self,
+        page: dict[str, Any],
+        returned_count: int,
+    ) -> dict[str, Any]:
+        events = page.get("events")
+        if (
+            not isinstance(events, list)
+            or isinstance(returned_count, bool)
+            or not isinstance(returned_count, int)
+            or returned_count < 1
+            or returned_count > len(events)
+        ):
+            raise ValueError("returned_count must select a non-empty event prefix")
+        if page.get("view") != PublicView.STANDARD.value:
+            raise ValueError("Run event page view mismatch")
+        if page.get("projection_version") != PUBLIC_PROJECTION_SCHEMA_VERSION:
+            raise ValueError("Run event page projection version mismatch")
+        byte_budget = self._positive_byte_budget(page.get("byte_budget"))
+        expires_at = self._scalar_datetime(page.get("cursor_expires_at_utc"))
+        if expires_at is None:
+            raise ValueError("Invalid run event page expiry")
+
+        selected = events[:returned_count]
+        next_after_id = int(selected[-1]["id"])
+        resized = dict(page)
+        resized.update(
+            {
+                "events": selected,
+                "limit": returned_count,
+                "has_more": returned_count < len(events) or bool(page.get("has_more")),
+                "next_after_id": next_after_id,
+                "next_cursor": self._encode_event_cursor(
+                    self._event_cursor_payload(
+                        run_id=str(selected[-1]["run_id"]),
+                        after_id=next_after_id,
+                        byte_budget=byte_budget,
+                        expires_at=expires_at,
+                    )
+                ),
+            }
+        )
+        return resized
 
     def list_recoverable_runs(self) -> list[dict[str, Any]]:
         with self.connect() as conn:

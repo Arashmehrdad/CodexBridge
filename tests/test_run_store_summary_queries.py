@@ -499,6 +499,120 @@ def test_public_run_control_is_scalar_bounded_and_version_pollable(
     assert refreshed["state_version"] > changed["state_version"]
 
 
+def test_public_event_pages_are_bounded_redacted_and_lossless(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id = _create(store, tmp_path, 1)
+    for index in range(35):
+        store.append_event(
+            run_id,
+            level="info",
+            stage="execute",
+            message=f"token=secret-{index} " + ("m" * 1200),
+            data={"password": f"value-{index}", "blob": "🙂" * 2000},
+            update_run_metadata=False,
+        )
+
+    manager = _manager(store)
+    first = manager.get_event_page(run_id)
+    assert first["ok"] is True
+    assert first["operation"] == "events"
+    assert first["requested_limit"] == 20
+    assert first["returned_count"] <= 20
+    assert first["payload_bytes"] == _payload_bytes_without_counter(first)
+    assert _wire_bytes(first) <= DEFAULT_PUBLIC_BYTE_BUDGETS.events
+    assert "secret-" not in json.dumps(first, ensure_ascii=False)
+    assert "value-" not in json.dumps(first, ensure_ascii=False)
+    assert [event["id"] for event in first["events"]] == sorted(
+        event["id"] for event in first["events"]
+    )
+
+    seen = [event["id"] for event in first["events"]]
+    cursor = first["next_cursor"]
+    while first["has_more"]:
+        first = manager.get_event_page(run_id, cursor=cursor)
+        assert _wire_bytes(first) <= DEFAULT_PUBLIC_BYTE_BUDGETS.events
+        seen.extend(event["id"] for event in first["events"])
+        cursor = first["next_cursor"]
+    assert len(seen) == len(set(seen))
+    assert seen == sorted(seen)
+
+    empty = manager.get_event_page(run_id, cursor=cursor)
+    assert empty["events"] == []
+    assert empty["next_after_id"] == seen[-1]
+
+
+def test_event_cursor_errors_are_explicit_and_ignore_global_id_gaps(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id = _create(store, tmp_path, 1)
+    other_run_id = _create(store, tmp_path, 2)
+    for index in range(4):
+        store.append_event(
+            run_id,
+            level="info",
+            stage="test",
+            message=str(index),
+            update_run_metadata=False,
+        )
+        store.append_event(
+            other_run_id,
+            level="info",
+            stage="other",
+            message=str(index),
+            update_run_metadata=False,
+        )
+
+    page = store.get_event_page(run_id, limit=2, after_id=0, now=NOW)
+    assert [event["message"] for event in page["events"]] == ["0", "1"]
+    continuation = store.get_event_page(
+        run_id, limit=2, cursor=page["next_cursor"], now=NOW
+    )
+    assert [event["message"] for event in continuation["events"]] == ["2", "3"]
+
+    with pytest.raises(ValueError, match="expired"):
+        store.get_event_page(
+            run_id,
+            cursor=page["next_cursor"],
+            now=NOW + timedelta(seconds=301),
+        )
+    with pytest.raises(ValueError, match="checksum"):
+        store.get_event_page(
+            run_id,
+            cursor=page["next_cursor"][:-1] + ("0" if page["next_cursor"][-1] != "0" else "1"),
+            now=NOW,
+        )
+    with pytest.raises(ValueError, match="run mismatch"):
+        store.get_event_page(other_run_id, cursor=page["next_cursor"], now=NOW)
+    with pytest.raises(ValueError, match="ahead"):
+        store.get_event_page(run_id, after_id=999999, now=NOW)
+
+    anchor = page["next_after_id"]
+    with store.connect() as conn:
+        conn.execute("DELETE FROM events WHERE run_id = ? AND id = ?", (run_id, anchor))
+    with pytest.raises(ValueError, match="gap"):
+        store.get_event_page(run_id, after_id=anchor, now=NOW)
+
+
+def test_event_gateway_dispatches_cursor_and_after_id(monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    class FakeJobs:
+        def get_event_page(self, run_id, limit=20, after_id=None, cursor=None):
+            calls.append((run_id, limit, after_id, cursor))
+            return {"ok": True, "operation": "events", "events": []}
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+    adapter = TypeAdapter(RunQueryRequest)
+    request = adapter.validate_python(
+        {"operation": "events", "run_id": "run_1", "limit": 7, "cursor": "opaque"}
+    )
+    assert server.run_query(request)["operation"] == "events"
+    assert calls == [("run_1", 7, None, "opaque")]
+
+
 def test_public_run_summary_list_preserves_snapshot_cursor_when_byte_limited(
     tmp_path: Path,
 ) -> None:

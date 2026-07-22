@@ -2015,8 +2015,21 @@ def test_inspect_repo_status_compact_excludes_full_status_payload(
 
 def test_event_list_actions_return_wrapped_dicts(monkeypatch, tmp_path) -> None:
     class FakeJobManager:
-        def get_events(self, run_id, limit=50):
-            return [{"stage": "queued", "message": "Run queued"}]
+        def get_event_page(self, run_id, limit=20, after_id=None, cursor=None):
+            return {
+                "ok": True,
+                "operation": "events",
+                "run_id": run_id,
+                "events": [{"stage": "queued", "message": "Run queued"}],
+                "limit": limit,
+                "requested_limit": limit,
+                "returned_count": 1,
+                "byte_limited": False,
+                "has_more": False,
+                "next_after_id": 1,
+                "next_cursor": "cursor",
+                "error": "",
+            }
 
     class FakeSupervisorService:
         def get_events(self, supervisor_id, limit=50):

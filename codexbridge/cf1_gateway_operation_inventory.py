@@ -9,7 +9,7 @@ from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.2.gateway-operations.v3"
+    "cf1.2.gateway-operations.v4"
 )
 
 
@@ -499,15 +499,19 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "run_query",
         ("events",),
-        "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.get_events",
-        "direct run event list",
+        "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.get_event_page",
+        "bounded forward-pollable run event page",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         pagination=PaginationBehavior.CURSOR,
-        default_item_limit=50,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.events,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.events,
+        default_item_limit=20,
         maximum_item_limit=500,
         notes=(
-            "after_id provides forward event pagination; item count is bounded but "
-            "serialized bytes are not."
+            "Legacy after_id remains supported. Opaque run-bound cursors expire after "
+            "five minutes and return explicit malformed, checksum, run-mismatch, "
+            "gap, ahead-of-latest, and expiry errors. Pages expose next_after_id, "
+            "next_cursor, and has_more under a 12 KiB serialized ceiling."
         ),
     ),
     _entry(

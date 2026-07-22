@@ -90,7 +90,7 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     grouped = operation_inventory_by_gateway()
 
     assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == (
-        "cf1.2.gateway-operations.v3"
+        "cf1.2.gateway-operations.v4"
     )
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
@@ -154,6 +154,7 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     summary = _entry_for("run_query", "summary")
     summary_list = _entry_for("run_query", "summary_list")
     control = _entry_for("run_query", "control")
+    events = _entry_for("run_query", "events")
     assert summary.default_response_bytes == 6 * 1024
     assert summary.maximum_response_bytes == 6 * 1024
     assert summary_list.default_response_bytes == 12 * 1024
@@ -165,8 +166,15 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     assert control.maximum_response_bytes == 8 * 1024
     assert control.json_decode_cost is JsonDecodeCost.NONE
     assert "1 KiB" in control.notes
+    assert events.default_response_bytes == 12 * 1024
+    assert events.maximum_response_bytes == 12 * 1024
+    assert events.default_item_limit == 20
+    assert events.maximum_item_limit == 500
+    assert events.pagination is PaginationBehavior.CURSOR
+    assert "gap" in events.notes
+    assert "expiry" in events.notes
 
-    compact_operations = {"summary", "summary_list", "control"}
+    compact_operations = {"summary", "summary_list", "control", "events"}
     assert all(
         entry.default_response_bytes is None
         and entry.maximum_response_bytes is None

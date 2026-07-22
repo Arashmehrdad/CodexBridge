@@ -85,8 +85,15 @@ class RunOutputQuery(GatewayModel):
 class RunEventsQuery(GatewayModel):
     operation: Literal["events"]
     run_id: str = Field(min_length=1, max_length=128)
-    limit: int = Field(default=50, ge=1, le=500)
+    limit: int = Field(default=20, ge=1, le=500)
     after_id: int | None = Field(default=None, ge=0)
+    cursor: str = Field(default="", max_length=2048)
+
+    @model_validator(mode="after")
+    def validate_cursor_selection(self) -> "RunEventsQuery":
+        if self.cursor and self.after_id is not None:
+            raise ValueError("cursor cannot be combined with after_id")
+        return self
 
 
 class RunResultQuery(GatewayModel):

@@ -2289,15 +2289,18 @@ def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dic
 
 
 @_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_run_events(run_id: str, limit: int = 50, after_id: int | None = None) -> dict:
-    """Read-only: return recent timeline events for an async run."""
-    events = (
-        get_job_manager().get_events(run_id, limit)
-        if after_id is None
-        else get_job_manager().get_events(run_id, limit, after_id)
-    )
-    return _wrap_item_list(
-        "events", "run_id", run_id, events
+def get_run_events(
+    run_id: str,
+    limit: int = 20,
+    after_id: int | None = None,
+    cursor: str = "",
+) -> dict:
+    """Read-only: return a bounded forward-pollable event page for an async run."""
+    return get_job_manager().get_event_page(
+        run_id,
+        limit,
+        after_id,
+        cursor or None,
     )
 
 
@@ -2371,7 +2374,12 @@ def run_query(request: RunQueryRequest) -> dict:
     if request.operation == "output":
         return get_run_output(request.run_id, request.stream, request.tail_bytes)
     if request.operation == "events":
-        return get_run_events(request.run_id, request.limit, request.after_id)
+        return get_run_events(
+            request.run_id,
+            request.limit,
+            request.after_id,
+            request.cursor,
+        )
     if request.operation == "result":
         return get_run_result(request.run_id)
     if request.operation in {"group_status", "group_result"}:
