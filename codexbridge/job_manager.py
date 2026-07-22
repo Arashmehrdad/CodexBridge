@@ -81,6 +81,7 @@ from .run_public_result import (
     build_public_result_fallback,
 )
 from .run_publication import materialize_public_result, publish_run_result
+from .run_artifacts import read_redacted_output_tail, resolve_output_artifacts
 from .remote_controller_state import (
     build_remote_controller_state_contract,
     reconcile_remote_controller_state,
@@ -139,25 +140,6 @@ def _ssh_policy_metadata(policy: SSHActionAuthorizationResult) -> dict[str, obje
         "policy_decision": policy.decision.value,
         "policy_authorized": policy.authorized,
         "approval_source": policy.approval_source,
-    }
-
-
-def _read_output_tail(path: Path, tail_bytes: int) -> dict:
-    if not path.exists():
-        return {"text": "", "size_bytes": 0, "truncated": False, "available": False}
-    if not path.is_file() or path.is_symlink():
-        raise ValueError(f"Run output is not a regular file: {path.name}")
-    size = path.stat().st_size
-    offset = max(0, size - tail_bytes)
-    with path.open("rb") as handle:
-        handle.seek(offset)
-        data = handle.read(tail_bytes)
-    text = data.decode("utf-8", errors="replace")
-    return {
-        "text": redact_and_truncate(text, tail_bytes),
-        "size_bytes": size,
-        "truncated": offset > 0,
-        "available": True,
     }
 
 
@@ -2427,18 +2409,16 @@ class JobManager:
             raise ValueError("stream must be stdout, stderr, or combined")
         bounded_tail = max(1, min(int(tail_bytes), 200000))
         run = self.store.get_run(run_id)
-        raw_run_dir = Path(run["run_dir"])
-        if raw_run_dir.is_symlink():
-            raise ValueError("Run directory must not be a symlink")
-        run_dir = raw_run_dir.resolve()
-        run_dir.relative_to(self.config.resolve_runs_dir())
+        artifacts = resolve_output_artifacts(run, self.config.resolve_runs_dir())
         selected = (
             [normalized_stream]
             if normalized_stream in {"stdout", "stderr"}
             else ["stdout", "stderr"]
         )
         streams = {
-            name: _read_output_tail(run_dir / f"{name}.txt", bounded_tail)
+            name: read_redacted_output_tail(
+                artifacts[name], run_id=run_id, tail_bytes=bounded_tail
+            )
             for name in selected
         }
         return {

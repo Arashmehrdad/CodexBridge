@@ -364,6 +364,17 @@ Required acceptance evidence:
 
 ### CF1.4 - Manifest-secured exact evidence retrieval
 
+Status: **implementation complete for manifest-bound output compatibility; acceptance blocked by one unrelated full-suite Hermes persistent-worker PID failure**.
+
+Current implementation and validation evidence:
+
+- `run_query(output)` now resolves executable-profile `stdout.bin` and `stderr.bin` only through the durable staging manifest, validates run identity, classification, containment, regular-file and symlink safety, and returns bounded redacted text tails with source size, SHA-256, manifest generation, and opaque artifact identity without exposing local paths;
+- runs without a staging manifest retain compatibility through an explicit fixed-name legacy adapter for `stdout.txt` and `stderr.txt`; a present but invalid manifest fails rather than falling back to guessed filenames;
+- focused validation passed with 74 combined artifact-resolver and job-manager tests after formatting, plus 3 executable-staging tests and 26 server tests; the exact unrelated Hermes failure passed alone with 1 test;
+- two complete repository runs each reported 1,367 passed and 5 skipped, with the same unrelated `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` PID assertion failing only in the full-suite context; H2 remains paused and untouched;
+- `python -m pip check` reported no broken requirements; repository-virtual-environment Ruff format and lint checks passed for the two new Python files, and all four changed Python files compiled successfully. Legacy-file whole-file formatting was deliberately not retained because it produced unrelated churn;
+- no new CF1 retrieval choke point was discovered. The full-suite-only Hermes process instability remains an acceptance blocker to resolve in its owning lane or test-isolation boundary, not authorization to resume H2 during CF1.4.
+
 Add narrow run-evidence operations:
 
 ```text

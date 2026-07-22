@@ -1781,6 +1781,66 @@ def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> N
     assert output["streams"]["stdout"]["text"] == "abcdef"
     assert output["streams"]["stdout"]["truncated"] is True
     assert output["streams"]["stderr"]["available"] is False
+    artifact = output["streams"]["stdout"]["artifact"]
+    assert artifact["manifest_source"] == "legacy_output_adapter_v1"
+    assert artifact["source_sha256"] == sha256(b"0123456789abcdef").hexdigest()
+    assert artifact["evidence"] == {
+        "operation": "output",
+        "run_id": response["run_id"],
+        "stream": "stdout",
+    }
+
+
+def test_get_output_reads_manifest_bound_protected_binary_streams(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"fixture")
+    manager.config.executable_profiles["powershell"] = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        target="local",
+        autonomy_profile="permissive",
+        working_directory_policy="arbitrary",
+        environment_policy="arbitrary",
+        stdin_mode="text",
+        stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact",
+        timeout_seconds=30,
+        cancellation_policy="process_tree",
+        unrestricted_argv=True,
+        unrestricted_paths=True,
+        unrestricted_environment=True,
+        unrestricted_network=True,
+        unrestricted_child_processes=True,
+    )
+    response = manager.start_executable_profile(
+        "sample",
+        "powershell",
+        ["-Command", "Write-Output ok"],
+        working_directory=str(tmp_path / "repo"),
+        stdin_text="",
+    )
+    run = manager.store.get_run(response["run_id"])
+    run_dir = Path(run["run_dir"])
+    stdout = b"prefix API_KEY=abc123 suffix"
+    (run_dir / "stdout.bin").write_bytes(stdout)
+    (run_dir / "stderr.bin").write_bytes(b"")
+
+    output = manager.get_output(response["run_id"], "combined", tail_bytes=200)
+
+    assert output["streams"]["stdout"]["available"] is True
+    assert "abc123" not in output["streams"]["stdout"]["text"]
+    artifact = output["streams"]["stdout"]["artifact"]
+    assert artifact["artifact_id"].startswith("artifact_")
+    assert artifact["classification"] == "protected_evidence"
+    assert artifact["encoding"] == "binary"
+    assert artifact["source_sha256"] == sha256(stdout).hexdigest()
+    assert artifact["size_bytes"] == len(stdout)
+    assert artifact["manifest_source"] == "staging_manifest"
+    assert "stdout.bin" not in str(output)
 
 
 def test_get_control_status_reports_process_and_lock_state(
