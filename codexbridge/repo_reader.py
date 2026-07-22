@@ -35,6 +35,10 @@ DEFAULT_READ_RESPONSE_BYTES = DEFAULT_PUBLIC_BYTE_BUDGETS.repository_read_batch
 MAX_READ_RESPONSE_BYTES = 128 * 1024
 _READ_RESPONSE_METADATA_RESERVE = 4 * 1024
 _FILE_CURSOR_VERSION = 1
+DEFAULT_SEARCH_RESPONSE_BYTES = 16 * 1024
+MAX_SEARCH_RESPONSE_BYTES = 16 * 1024
+_SEARCH_CURSOR_VERSION = 1
+_SEARCH_SNIPPET_CHARS = 800
 
 # ---------------------------------------------------------------------------
 # Blocked path components (applies to every segment of a path)
@@ -641,6 +645,10 @@ def search_repo_text(
     case_sensitive: bool = False,
     file_patterns: list[str] | None = None,
     budget_ms: int = 5_000,
+    *,
+    file_path: str = "",
+    cursor: str = "",
+    response_budget_bytes: int | None = None,
 ) -> dict:
     """
     Search for *query* as a literal substring in text files under *directory*.
@@ -670,6 +678,22 @@ def search_repo_text(
         for pattern in patterns
     ):
         raise ValueError("file_patterns must contain safe, non-empty glob patterns")
+
+    if file_path or cursor or response_budget_bytes is not None:
+        return _search_repo_text_bounded(
+            repo_root,
+            query,
+            directory=directory,
+            file_path=file_path,
+            max_results=max_results,
+            case_sensitive=case_sensitive,
+            file_patterns=patterns,
+            budget_ms=budget_ms,
+            cursor=cursor,
+            response_budget_bytes=response_budget_bytes
+            if response_budget_bytes is not None
+            else DEFAULT_SEARCH_RESPONSE_BYTES,
+        )
 
     rg = shutil.which("rg")
     if rg:
@@ -762,6 +786,243 @@ def search_repo_text(
         "max_results": max_results,
         "error": "",
     }
+
+
+def _search_repo_text_bounded(
+    repo_root: Path,
+    query: str,
+    *,
+    directory: str,
+    file_path: str,
+    max_results: int,
+    case_sensitive: bool,
+    file_patterns: list[str],
+    budget_ms: int,
+    cursor: str,
+    response_budget_bytes: int,
+) -> dict:
+    if file_path and (directory or file_patterns):
+        raise ValueError("file_path cannot be combined with directory or file_patterns")
+    response_budget_bytes = max(
+        1_024, min(int(response_budget_bytes), MAX_SEARCH_RESPONSE_BYTES)
+    )
+    started = time.monotonic()
+    if file_path:
+        target = _resolve_and_validate(repo_root, file_path)
+        if not target.is_file() or target.is_symlink():
+            raise ValueError(f"Not a regular file: {file_path}")
+        candidates = [target]
+    else:
+        base_abs = _resolve_and_validate(repo_root, directory) if directory else repo_root
+        if not base_abs.is_dir():
+            raise ValueError(f"Not a directory: {directory}")
+        candidates = []
+        for dirpath, dirnames, filenames in os.walk(base_abs):
+            current = Path(dirpath)
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if _path_is_allowed(repo_root, current / name)
+                and not (current / name).is_symlink()
+            ]
+            for filename in sorted(filenames):
+                child = current / filename
+                if not _path_is_allowed(repo_root, child) or child.is_symlink():
+                    continue
+                if file_patterns and not any(Path(filename).match(p) for p in file_patterns):
+                    continue
+                candidates.append(child)
+        candidates.sort(key=lambda item: _posix_relative(repo_root, item))
+
+    file_entries: list[dict[str, str]] = []
+    searchable: list[Path] = []
+    for candidate in candidates:
+        if _is_binary(candidate):
+            continue
+        try:
+            stat = candidate.stat()
+            if stat.st_size > MAX_FILE_BYTES:
+                continue
+            digest = _sha256_file(candidate)
+        except OSError:
+            continue
+        relative = _posix_relative(repo_root, candidate)
+        file_entries.append({"path": relative, "sha256": digest})
+        searchable.append(candidate)
+    snapshot_sha256 = hashlib.sha256(
+        json.dumps(file_entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    cursor_state: dict | None = None
+    if cursor:
+        try:
+            cursor_state = _decode_search_cursor(cursor)
+        except ValueError as exc:
+            return _search_error_response(
+                query, directory, file_path, case_sensitive, max_results, budget_ms,
+                "invalid_cursor", str(exc), started,
+            )
+        expected = {
+            "query": query,
+            "directory": directory,
+            "file_path": file_path,
+            "case_sensitive": case_sensitive,
+            "file_patterns": file_patterns,
+            "max_results": max_results,
+            "snapshot_sha256": snapshot_sha256,
+        }
+        if any(cursor_state.get(key) != value for key, value in expected.items()):
+            return _search_error_response(
+                query, directory, file_path, case_sensitive, max_results, budget_ms,
+                "stale_content", "Search snapshot changed; restart the search", started,
+            )
+        file_index = max(0, int(cursor_state.get("file_index", 0)))
+        start_line = max(1, int(cursor_state.get("line", 1)))
+    else:
+        file_index = 0
+        start_line = 1
+
+    deadline = started + budget_ms / 1000
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = re.compile(re.escape(query), flags)
+    hits: list[dict[str, object]] = []
+    next_file_index, next_line = file_index, start_line
+    timed_out = False
+    truncation_reason = ""
+    for index in range(file_index, len(searchable)):
+        path = searchable[index]
+        line_start = start_line if index == file_index else 1
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if line_number < line_start:
+                        continue
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        next_file_index, next_line = index, line_number
+                        break
+                    if pattern.search(line):
+                        hit = {
+                            "path": _posix_relative(repo_root, path),
+                            "line": line_number,
+                            "snippet": _redact_text(line.rstrip("\r\n")[:_SEARCH_SNIPPET_CHARS]),
+                        }
+                        candidate = _search_result_payload(
+                            query, directory, file_path, case_sensitive, max_results,
+                            response_budget_bytes, hits + [hit], snapshot_sha256,
+                        )
+                        if len(json.dumps(candidate, separators=(",", ":")).encode("utf-8")) > response_budget_bytes:
+                            truncation_reason = "response_budget"
+                            next_file_index, next_line = index, line_number
+                            break
+                        hits.append(hit)
+                        next_file_index, next_line = index, line_number + 1
+                        if len(hits) >= max_results:
+                            truncation_reason = "max_results"
+                            break
+                if timed_out or truncation_reason:
+                    break
+        except OSError:
+            next_file_index, next_line = index + 1, 1
+            continue
+        if timed_out or truncation_reason:
+            break
+        next_file_index, next_line = index + 1, 1
+
+    has_more = next_file_index < len(searchable)
+    next_cursor = (
+        _encode_search_cursor(
+            query=query, directory=directory, file_path=file_path,
+            case_sensitive=case_sensitive, file_patterns=file_patterns,
+            max_results=max_results, snapshot_sha256=snapshot_sha256,
+            file_index=next_file_index, line=next_line,
+        )
+        if has_more else ""
+    )
+    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    partial = timed_out
+    result = {
+        "ok": not timed_out,
+        "status": "search_timeout" if timed_out else "available",
+        "fresh": not timed_out,
+        "partial": partial,
+        "timeout": timed_out,
+        "repo_name": "",
+        "query": query,
+        "directory": directory,
+        "file_path": file_path,
+        "case_sensitive": case_sensitive,
+        "file_patterns": file_patterns,
+        "response_budget_bytes": response_budget_bytes,
+        "snapshot_sha256": snapshot_sha256,
+        "hits": hits,
+        "partial_results": hits if partial else [],
+        "count": len(hits),
+        "files_examined": len(searchable),
+        "duration_ms": duration_ms,
+        "truncated": bool(has_more or truncation_reason),
+        "truncation_reason": truncation_reason,
+        "max_results": max_results,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+        "recommended_action": "Continue with next_cursor" if has_more else "",
+        "error": "Search timed out; results are partial" if timed_out else "",
+    }
+    while len(json.dumps(result, separators=(",", ":")).encode("utf-8")) > response_budget_bytes and result["hits"]:
+        result["hits"].pop()
+        if timed_out:
+            result["partial_results"] = result["hits"]
+        result["count"] = len(result["hits"])
+    result["response_bytes"] = len(json.dumps(result, separators=(",", ":")).encode("utf-8"))
+    return result
+
+
+def _search_result_payload(*args: object) -> dict:
+    query, directory, file_path, case_sensitive, max_results, response_budget, hits, snapshot = args
+    return {
+        "ok": True, "status": "available", "fresh": True,
+        "query": query, "directory": directory, "file_path": file_path,
+        "case_sensitive": case_sensitive, "response_budget_bytes": response_budget,
+        "snapshot_sha256": snapshot, "hits": hits, "count": len(hits),
+        "max_results": max_results,
+    }
+
+
+def _search_error_response(
+    query: str, directory: str, file_path: str, case_sensitive: bool,
+    max_results: int, budget_ms: int, status: str, error: str, started: float,
+) -> dict:
+    return {
+        "ok": False, "status": status, "fresh": False, "partial": False,
+        "timeout": False, "repo_name": "", "query": query, "directory": directory,
+        "file_path": file_path, "case_sensitive": case_sensitive, "hits": [],
+        "partial_results": [], "count": 0, "files_examined": 0,
+        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+        "truncated": False, "max_results": max_results, "budget_ms": budget_ms,
+        "has_more": False, "next_cursor": "", "error": error,
+    }
+
+
+def _encode_search_cursor(**payload: object) -> str:
+    encoded = json.dumps(
+        {"version": _SEARCH_CURSOR_VERSION, **payload}, sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+    return f"{body}.{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _decode_search_cursor(cursor: str) -> dict:
+    try:
+        body, checksum = cursor.split(".", 1)
+        encoded = urlsafe_b64decode(body + ("=" * (-len(body) % 4)))
+        if hashlib.sha256(encoded).hexdigest() != checksum:
+            raise ValueError("Search continuation checksum mismatch")
+        payload = json.loads(encoded.decode("utf-8"))
+    except (BinasciiError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid search continuation") from exc
+    if payload.get("version") != _SEARCH_CURSOR_VERSION:
+        raise ValueError("Unsupported search continuation version")
+    return payload
 
 
 def _search_with_ripgrep(

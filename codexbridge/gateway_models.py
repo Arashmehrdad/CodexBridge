@@ -405,10 +405,19 @@ class RepoSearchTextQuery(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     query: str = Field(min_length=1, max_length=10_000)
     directory: str = Field(default="", max_length=1024)
+    file_path: str = Field(default="", max_length=1024)
     max_results: int = Field(default=50, ge=1, le=500)
     case_sensitive: bool = False
     file_patterns: list[str] = Field(default_factory=list, max_length=20)
     budget_ms: int = Field(default=5_000, ge=100, le=30_000)
+    cursor: str = Field(default="", max_length=4096)
+    response_budget_bytes: int = Field(default=16 * 1024, ge=16 * 1024, le=16 * 1024)
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "RepoSearchTextQuery":
+        if self.file_path and (self.directory or self.file_patterns):
+            raise ValueError("file_path cannot be combined with directory or file_patterns")
+        return self
 
 
 class RepoRecentFilesQuery(GatewayModel):

@@ -249,6 +249,69 @@ def test_search_repo_text_supports_targeted_patterns(tmp_path: Path) -> None:
     assert [hit["path"] for hit in result["hits"]] == ["src/module.py"]
 
 
+def test_bounded_search_exact_file_continuation_is_snapshot_bound(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "target.txt", "\n".join(f"needle-{index}" for index in range(6)) + "\n")
+    write(repo / "sibling.txt", "needle-sibling\n")
+
+    first = search_repo_text(
+        repo,
+        "needle",
+        file_path="target.txt",
+        max_results=2,
+        response_budget_bytes=4_096,
+    )
+
+    assert first["ok"] is True
+    assert first["has_more"] is True
+    assert first["next_cursor"]
+    assert {hit["path"] for hit in first["hits"]} == {"target.txt"}
+    assert first["response_bytes"] <= 4_096
+
+    second = search_repo_text(
+        repo,
+        "needle",
+        file_path="target.txt",
+        max_results=2,
+        cursor=first["next_cursor"],
+        response_budget_bytes=4_096,
+    )
+    assert second["ok"] is True
+    assert [hit["line"] for hit in second["hits"]] == [3, 4]
+
+    write(repo / "target.txt", "needle-replaced\n")
+    stale = search_repo_text(
+        repo,
+        "needle",
+        file_path="target.txt",
+        max_results=2,
+        cursor=first["next_cursor"],
+        response_budget_bytes=4_096,
+    )
+    assert stale["ok"] is False
+    assert stale["status"] == "stale_content"
+    assert stale["fresh"] is False
+
+
+def test_bounded_search_rejects_tampered_cursor(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "target.txt", "needle\n")
+    result = search_repo_text(
+        repo, "needle", file_path="target.txt", response_budget_bytes=1_024
+    )
+    tampered = result["next_cursor"] or "bad.cursor"
+    tampered = tampered[:-1] + ("0" if tampered[-1] != "0" else "1")
+    invalid = search_repo_text(
+        repo,
+        "needle",
+        file_path="target.txt",
+        cursor=tampered,
+        response_budget_bytes=1_024,
+    )
+    assert invalid["ok"] is False
+    assert invalid["status"] == "invalid_cursor"
+
+
 def test_search_repo_text_budget_exhaustion_is_structured(
     tmp_path: Path, monkeypatch
 ) -> None:

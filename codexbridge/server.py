@@ -451,6 +451,7 @@ SEARCH_REPO_TEXT_OUTPUT = {
         "repo_name": {"type": "string"},
         "query": {"type": "string"},
         "directory": {"type": "string"},
+        "file_path": {"type": "string"},
         "case_sensitive": {"type": "boolean"},
         "file_patterns": {"type": "array", "items": {"type": "string"}},
         "budget_ms": {"type": "integer"},
@@ -474,6 +475,12 @@ SEARCH_REPO_TEXT_OUTPUT = {
         },
         "count": {"type": "integer"},
         "truncated": {"type": "boolean"},
+        "partial": {"type": "boolean"},
+        "timeout": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "next_cursor": {"type": "string"},
+        "snapshot_sha256": {"type": "string"},
+        "response_bytes": {"type": "integer"},
         "max_results": {"type": "integer"},
         "error": {"type": "string"},
     },
@@ -2691,6 +2698,9 @@ def search_repo_text(
     case_sensitive: bool = False,
     file_patterns: list[str] | None = None,
     budget_ms: int = 5_000,
+    file_path: str = "",
+    cursor: str = "",
+    response_budget_bytes: int | None = None,
 ) -> dict:
     """Read-only: search for a literal string in repository text files. Returns path, line, and redacted snippets."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
@@ -2702,6 +2712,9 @@ def search_repo_text(
         case_sensitive=case_sensitive,
         file_patterns=file_patterns,
         budget_ms=budget_ms,
+        file_path=file_path,
+        cursor=cursor,
+        response_budget_bytes=response_budget_bytes,
     )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
@@ -3083,6 +3096,9 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.case_sensitive,
             request.file_patterns,
             request.budget_ms,
+            request.file_path,
+            request.cursor,
+            request.response_budget_bytes,
         )
     if request.operation == "recent_files":
         return get_recently_modified_files(request.repo_name, request.limit)

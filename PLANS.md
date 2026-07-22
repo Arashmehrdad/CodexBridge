@@ -399,7 +399,7 @@ result_full
 
 ### CF1.5 - Repository progressive disclosure and content-bound continuation
 
-Status: **first file-read slice complete; repository search and diff slices have not started**.
+Status: **first file-read and search slices complete; the diff slice has not started**.
 
 First-slice implementation and validation evidence:
 
@@ -410,6 +410,15 @@ First-slice implementation and validation evidence:
 - the complete repository suite reported 1,371 passed and 5 skipped, with only the already-documented full-suite-only `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` PID assertion failing; H2 remains paused and untouched;
 - scoped Ruff lint, Python compilation, `git diff --check`, and `python -m pip check` passed. Whole-file Ruff formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting;
 - no new choke point was added. Windows `CRLF` read normalization was caught during focused validation and restored for compatibility; mixed-newline diagnostics and write-normalization protection remain assigned to existing choke points 8 and 9.
+
+Search-slice implementation and validation evidence:
+
+- `repo_query(search_text)` now has a bounded public path with a 16-KB response ceiling, 800-character redacted snippets, explicit `partial`/`timeout` flags, and a structured `search_timeout` result that preserves partial hits and a continuation when the time budget expires;
+- exact repository-relative `file_path` scope is first-class, mutually exclusive with directory/pattern scope, and reports the resolved scope without scanning sibling files; legacy directory and ripgrep callers remain compatible when they do not request the bounded contract;
+- opaque search cursors checksum-bind the query, scope, patterns, case mode, result limit, deterministic file ordering, and a SHA-256 worktree snapshot; a changed file, added/deleted candidate, or mismatched request returns bounded `stale_content` rather than mixing result generations;
+- focused repository-reader validation passed with 72 tests, including exact-file exclusion, cursor continuation, tamper rejection, stale-result rejection, and redacted bounded results; gateway-model validation passed with 36 tests after adding the scope, cursor, and response-budget contract;
+- native Python compilation passed for all changed Python files. Ruff lint still reports only the pre-existing unused `server.py` import, while whole-file formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting. Pytest evidence is retained from CodexBridge runs; `.codex-tmp/` remains preserved;
+- no new choke point was discovered. Search scope/continuation is now covered by existing choke point 13; diff behavior remains explicitly deferred to the next CF1.5 slice.
 
 Chat-facing defaults:
 
