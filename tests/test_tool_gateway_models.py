@@ -1062,6 +1062,7 @@ def test_docker_capabilities_compact_envelope(monkeypatch) -> None:
 
 def test_docker_health_model_exposes_response_budget() -> None:
     request = TypeAdapter(DockerQueryRequest).validate_python({"operation": "health"})
+    assert request.view == "compact"
     assert request.response_budget_bytes == 12 * 1024
 
 
@@ -1126,7 +1127,130 @@ def test_cloudflare_health_model_exposes_response_budget() -> None:
     request = TypeAdapter(CloudflareQueryRequest).validate_python(
         {"operation": "health", "repo_name": "repo", "profile_id": "production"}
     )
+    assert request.view == "compact"
     assert request.response_budget_bytes == 12 * 1024
+
+
+def test_docker_query_full_views_preserve_authoritative_payloads(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "_list_docker_capabilities",
+        lambda config, repo_config=None: {
+            "ok": True,
+            "actions": [f"action-{index}" for index in range(5000)],
+        },
+    )
+    capabilities = server.docker_query(
+        TypeAdapter(DockerQueryRequest).validate_python(
+            {"operation": "capabilities", "view": "full", "response_budget_bytes": 1024}
+        )
+    )
+    assert len(capabilities["actions"]) == 5000
+    assert "projection_version" not in capabilities
+
+    monkeypatch.setattr(
+        server,
+        "_docker_health",
+        lambda config: {"ok": True, "details": "h" * 50_000},
+    )
+    health = server.docker_query(
+        TypeAdapter(DockerQueryRequest).validate_python(
+            {"operation": "health", "view": "full", "response_budget_bytes": 1024}
+        )
+    )
+    assert len(health["details"]) == 50_000
+
+    monkeypatch.setattr(
+        server, "_repo_context", lambda repo_name: (repo_name, object(), repo_name)
+    )
+    monkeypatch.setattr(
+        server, "resolve_repo_config", lambda config, repo_name: (repo_name, object())
+    )
+    monkeypatch.setattr(
+        server,
+        "_run_docker_inspection",
+        lambda *args, **kwargs: {"ok": True, "stdout": "x" * 50_000},
+    )
+    inspection = server.docker_query(
+        TypeAdapter(DockerQueryRequest).validate_python(
+            {
+                "operation": "inspect",
+                "repo_name": "repo",
+                "inspection": "compose_ps",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(inspection["stdout"]) == 50_000
+
+
+def test_cloudflare_query_full_views_preserve_authoritative_payloads(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "_list_cloudflare_capabilities",
+        lambda config, repo_name: {
+            "ok": True,
+            "actions": [f"action-{index}" for index in range(5000)],
+        },
+    )
+    capabilities = server.cloudflare_query(
+        TypeAdapter(CloudflareQueryRequest).validate_python(
+            {
+                "operation": "capabilities",
+                "repo_name": "repo",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(capabilities["actions"]) == 5000
+    assert "projection_version" not in capabilities
+
+    monkeypatch.setattr(
+        server,
+        "authorize_cloudflare_profile",
+        lambda config, repo_name, profile_id: (repo_name, object()),
+    )
+    monkeypatch.setattr(
+        server,
+        "_cloudflare_health",
+        lambda config, profile_id: {"ok": True, "details": "h" * 50_000},
+    )
+    health = server.cloudflare_query(
+        TypeAdapter(CloudflareQueryRequest).validate_python(
+            {
+                "operation": "health",
+                "repo_name": "repo",
+                "profile_id": "production",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(health["details"]) == 50_000
+
+    monkeypatch.setattr(
+        server,
+        "_run_cloudflare_inspection",
+        lambda *args, **kwargs: {"ok": True, "result": ["x" * 5000] * 20},
+    )
+    inspection = server.cloudflare_query(
+        TypeAdapter(CloudflareQueryRequest).validate_python(
+            {
+                "operation": "inspect",
+                "repo_name": "repo",
+                "profile_id": "production",
+                "inspection": "dns_records",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(inspection["result"]) == 20
+    assert len(inspection["result"][0]) == 5000
 
 
 def test_cloudflare_health_compact_envelope(monkeypatch) -> None:

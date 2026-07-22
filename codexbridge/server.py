@@ -1726,8 +1726,11 @@ def _finish_local_model_health(result: dict, started: float) -> dict:
 def list_docker_capabilities(
     repo_name: str = "",
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: list bounded Docker operations, risk gates, and configured exec profiles."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
@@ -1740,6 +1743,8 @@ def list_docker_capabilities(
         result["repo_name"] = canonical_name
         if requested_name != canonical_name:
             result["requested_repo_name"] = requested_name
+    if view == "full":
+        return result
     result.update(
         {
             "view": "compact",
@@ -1771,11 +1776,18 @@ def list_docker_capabilities(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
-def docker_health(response_budget_bytes: int = 12 * 1024) -> dict:
+def docker_health(
+    response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
+) -> dict:
     """Read-only: verify Docker Engine and Docker Compose connectivity."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _docker_health(get_config())
+    if view == "full":
+        return result
     result.update(
         {
             "view": "compact",
@@ -1817,8 +1829,11 @@ def docker_inspect(
     service: str = "",
     tail: int = 200,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: run one fixed Docker or Compose inspection operation."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
@@ -1836,6 +1851,8 @@ def docker_inspect(
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if view == "full":
+        return result
     result.setdefault("truncated", False)
     result["response_budget_bytes"] = response_budget_bytes
     result["has_more"] = False
@@ -1865,11 +1882,16 @@ def docker_inspect(
 def list_cloudflare_capabilities(
     repo_name: str,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: list Cloudflare capabilities and profiles authorized for one repository."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _list_cloudflare_capabilities(get_config(), repo_name)
+    if view == "full":
+        return result
     result.update(
         {
             "view": "compact",
@@ -1905,14 +1927,19 @@ def cloudflare_health(
     repo_name: str,
     profile_id: str,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: verify an authorized repository Cloudflare profile and token."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
     canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _cloudflare_health(config, profile_id)
     result["repo_name"] = canonical_repo_name
+    if view == "full":
+        return result
     result.update(
         {
             "view": "compact",
@@ -1958,8 +1985,11 @@ def cloudflare_inspect(
     page: int = 1,
     per_page: int = 100,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: run one bounded Cloudflare inspection for an authorized repository."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
@@ -1976,6 +2006,8 @@ def cloudflare_inspect(
         per_page=per_page,
     )
     result["repo_name"] = canonical_repo_name
+    if view == "full":
+        return result
     result.setdefault("truncated", False)
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -2461,10 +2493,10 @@ def docker_query(request: DockerQueryRequest) -> dict:
     """Read-only Docker gateway for capabilities, health, and bounded inspection."""
     if request.operation == "capabilities":
         return list_docker_capabilities(
-            request.repo_name, request.response_budget_bytes
+            request.repo_name, request.response_budget_bytes, request.view
         )
     if request.operation == "health":
-        return docker_health(request.response_budget_bytes)
+        return docker_health(request.response_budget_bytes, request.view)
     return docker_inspect(
         request.repo_name,
         request.inspection,
@@ -2472,6 +2504,7 @@ def docker_query(request: DockerQueryRequest) -> dict:
         request.service,
         request.tail,
         request.response_budget_bytes,
+        request.view,
     )
 
 
@@ -2498,17 +2531,17 @@ def cloudflare_query(request: CloudflareQueryRequest) -> dict:
     """Read-only Cloudflare gateway for authorized capabilities, health, and inspection."""
     if request.operation == "capabilities":
         return list_cloudflare_capabilities(
-            request.repo_name, request.response_budget_bytes
+            request.repo_name, request.response_budget_bytes, request.view
         )
     if request.operation == "health":
         return cloudflare_health(
-            request.repo_name, request.profile_id, request.response_budget_bytes
+            request.repo_name, request.profile_id, request.response_budget_bytes, request.view
         )
     return cloudflare_inspect(
         request.repo_name, request.profile_id, request.inspection,
         resource_id=request.resource_id, name=request.name, record_type=request.record_type,
         since_minutes=request.since_minutes, page=request.page, per_page=request.per_page,
-        response_budget_bytes=request.response_budget_bytes,
+        response_budget_bytes=request.response_budget_bytes, view=request.view,
     )
 
 

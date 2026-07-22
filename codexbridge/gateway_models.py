@@ -764,11 +764,13 @@ RunStartRequest = Annotated[
 class DockerCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
     repo_name: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class DockerHealthQuery(GatewayModel):
     operation: Literal["health"]
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -776,6 +778,7 @@ class DockerInspectQuery(GatewayModel):
     operation: Literal["inspect"]
     repo_name: str = Field(min_length=1, max_length=128)
     inspection: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
     target: str = Field(default="", max_length=512)
     service: str = Field(default="", max_length=256)
     tail: int = Field(default=200, ge=1, le=20_000)
@@ -839,6 +842,7 @@ DockerActionRequest = Annotated[
 class CloudflareCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
     repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -846,6 +850,7 @@ class CloudflareHealthQuery(GatewayModel):
     operation: Literal["health"]
     repo_name: str = Field(min_length=1, max_length=128)
     profile_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -854,6 +859,7 @@ class CloudflareInspectQuery(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     profile_id: str = Field(min_length=1, max_length=128)
     inspection: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
     resource_id: str = Field(default="", max_length=256)
     name: str = Field(default="", max_length=256)
     record_type: str = Field(default="", max_length=32)
