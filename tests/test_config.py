@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from codexbridge.config import (
+from soma.config import (
     AppConfig,
     CloudflareConfig,
     CloudflareProfileConfig,
@@ -56,7 +56,7 @@ def test_config_example_loads_without_repo_validation() -> None:
     hermes_python = config.executable_profiles["hermes_python"]
     assert hermes_python.profile_id == "hermes_python"
     assert hermes_python.enabled is False
-    assert hermes_python.executable_path == "D:/Github/CodexBridge/.venv/Scripts/python.exe"
+    assert hermes_python.executable_path == "D:/Github/Soma/.venv/Scripts/python.exe"
     assert hermes_python.autonomy_profile == "permissive"
     assert hermes_python.environment_policy == "arbitrary"
     assert hermes_python.unrestricted_environment is True
@@ -121,7 +121,7 @@ def test_config_defaults_to_permissive_supervisor_profile(tmp_path: Path) -> Non
     assert config.local_model.base_url == "http://localhost:11434/v1"
     assert config.local_model.model == "llama3.2"
     assert config.return_loop.return_loop_enabled is True
-    assert config.return_loop.conversation_target == "codexbridge_gpt"
+    assert config.return_loop.conversation_target == "soma_gpt"
     assert config.memory.memory_enabled is True
     assert (
         config.resolve_memory_db_path()
@@ -370,7 +370,7 @@ def test_ssh_host_rejects_duplicate_command_ids() -> None:
 def test_ssh_command_profile_supports_remote_runs_beyond_one_hour() -> None:
     profile = SSHCommandProfileConfig(
         command_id="r4_live_process_tree",
-        argv=["python3", "/var/tmp/codexbridge-r4/r4_parent.py"],
+        argv=["python3", "/var/tmp/soma-r4/r4_parent.py"],
         timeout_seconds=4500,
         watchdog_eligible=True,
     )
@@ -691,14 +691,14 @@ def test_resolve_repo_config_accepts_case_insensitive_name(tmp_path: Path) -> No
     repo = tmp_path / "repo"
     init_repo(repo)
     config = AppConfig(
-        repos={"codexbridge": RepoConfig(path=str(repo))}, config_dir=tmp_path
+        repos={"soma": RepoConfig(path=str(repo))}, config_dir=tmp_path
     )
 
-    resolved_name, resolved_repo = resolve_repo_config(config, "CodexBridge")
+    resolved_name, resolved_repo = resolve_repo_config(config, "Soma")
 
-    assert resolved_name == "codexbridge"
+    assert resolved_name == "soma"
     assert resolved_repo.path == str(repo)
-    assert resolve_repo(config, "CodexBridge") == repo.resolve()
+    assert resolve_repo(config, "Soma") == repo.resolve()
 
 
 def test_repo_commit_policy_fields_accept_overrides() -> None:

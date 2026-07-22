@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from codexbridge.jobs.long_run_manager import LongRunJobManager
-from codexbridge.jobs.models import JobStatus
+from soma.jobs.long_run_manager import LongRunJobManager
+from soma.jobs.models import JobStatus
 
 
 class FakeProcess:
@@ -172,7 +172,7 @@ def test_timeout_job_transitions_to_timeout(tmp_path: Path) -> None:
     factory, _calls = fake_popen(returncode=None)
     manager = legacy_manager(tmp_path, factory)
     start = manager.start_job(profile_id="dummy_timeout", repo_path=tmp_path)
-    manager.processes[start.job.job_id]._codexbridge_started_monotonic -= 2
+    manager.processes[start.job.job_id]._soma_started_monotonic -= 2
     result = manager.refresh_status(start.job.job_id)
 
     assert result.job.status == JobStatus.TIMEOUT
@@ -230,7 +230,7 @@ def test_refresh_status_does_not_block_for_running_job(tmp_path: Path) -> None:
 def test_job_modules_do_not_import_codex_pulsesender_browser_or_ollama() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("codexbridge/jobs").glob("*.py")
+        for path in Path("soma/jobs").glob("*.py")
     )
 
     assert "CodexRunner" not in source

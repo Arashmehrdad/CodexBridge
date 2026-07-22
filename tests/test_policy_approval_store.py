@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.policy import PolicyEngine, PolicyEvaluationRequest
-from codexbridge.policy.models import ApprovalStatus, CanonicalPermissionTier
+from soma.policy import PolicyEngine, PolicyEvaluationRequest
+from soma.policy.models import ApprovalStatus, CanonicalPermissionTier
 
 
 def test_approval_request_lifecycle_and_reload(tmp_path: Path) -> None:

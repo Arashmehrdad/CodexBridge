@@ -6,8 +6,8 @@ from decimal import Decimal
 
 import pytest
 
-from codexbridge.trading.signal_journal import SignalDecision
-from codexbridge.trading.threshold_simulator import (
+from soma.trading.signal_journal import SignalDecision
+from soma.trading.threshold_simulator import (
     NORMALIZED_STAKE_USD,
     CohortTransition,
     initialize_threshold_experiment,

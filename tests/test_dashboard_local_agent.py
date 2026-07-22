@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
+from soma.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
 
 
 def test_local_agent_routes_dashboard_summary_read_only(tmp_path: Path) -> None:

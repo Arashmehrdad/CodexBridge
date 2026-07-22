@@ -11,9 +11,9 @@ from typing import Any
 from jsonschema import Draft202012Validator, validate
 from pydantic import TypeAdapter
 
-from codexbridge.config import AppConfig, LocalModelConfig, RepoConfig
-from codexbridge.knowledge_tools_integration import register_knowledge_tools
-import codexbridge.server as server
+from soma.config import AppConfig, LocalModelConfig, RepoConfig
+from soma.knowledge_tools_integration import register_knowledge_tools
+import soma.server as server
 
 
 ACTION_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -258,17 +258,17 @@ REALISTIC_ACTION_OUTPUTS = {
         "ok": True,
         "repo_name": "repo",
         "branch": "main",
-        "git_status": "## main\n M codexbridge/server.py\n",
+        "git_status": "## main\n M soma/server.py\n",
         "recent_commits": ["abc123 hotfix", "def456 previous change"],
-        "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
-        "changed_files": ["codexbridge/server.py"],
+        "diff_stat": " soma/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
+        "changed_files": ["soma/server.py"],
     },
     "inspect_repo_status_compact": {
         "ok": True,
         "repo_name": "repo",
         "branch": "main",
         "recent_commits": ["abc123 hotfix", "def456 previous change"],
-        "diff_stat": " codexbridge/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
+        "diff_stat": " soma/server.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
         "complete_status_scan": True,
         "total_status_entry_count": 2,
         "returned_entry_count": 1,
@@ -277,7 +277,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "unsampled_tool_owned_count": 0,
         "files": [
             {
-                "path": "codexbridge/server.py",
+                "path": "soma/server.py",
                 "size_bytes": 10,
                 "line_count": 1,
                 "tool_owned": False,
@@ -328,14 +328,14 @@ REALISTIC_ACTION_OUTPUTS = {
         "error": "",
     },
     "git_diff_summary": {
-        "git_status": "## main\n M codexbridge/server.py\n",
+        "git_status": "## main\n M soma/server.py\n",
         "diff_stat": " 1 file changed\n",
     },
     "commit_selected_files": {
         "ok": True,
         "repo_name": "repo",
         "commit_sha": "abc123",
-        "files": ["codexbridge/server.py"],
+        "files": ["soma/server.py"],
         "message": "hotfix",
         "error": "",
     },
@@ -344,7 +344,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "repo_name": "repo",
         "status": "preview",
         "error": "",
-        "staged_files": ["codexbridge/server.py"],
+        "staged_files": ["soma/server.py"],
         "unstaged_files": ["tests/test_server.py"],
     },
     "stage_all": {
@@ -353,14 +353,14 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "staged",
         "error": "",
         "before": {"staged_files": []},
-        "after": {"staged_files": ["codexbridge/server.py"]},
+        "after": {"staged_files": ["soma/server.py"]},
     },
     "unstage_all": {
         "ok": True,
         "repo_name": "repo",
         "status": "unstaged",
         "error": "",
-        "before": {"staged_files": ["codexbridge/server.py"]},
+        "before": {"staged_files": ["soma/server.py"]},
         "after": {"staged_files": []},
     },
     "commit_all_changes": {
@@ -735,7 +735,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "queued",
         "repo_name": "repo",
         "command_id": "py_compile_path",
-        "path": "codexbridge/server.py",
+        "path": "soma/server.py",
         "result": {},
         "error": "",
     },
@@ -860,12 +860,12 @@ REALISTIC_ACTION_OUTPUTS = {
         "message": "",
         "error": "",
         "config_lifecycle": {
-            "active_config_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "active_config_path": "D:\\Github\\Soma\\config.yaml",
             "active_loaded_at": "2026-07-11T02:57:19Z",
             "last_known_good_loaded_at": "2026-07-11T02:57:19Z",
             "previous_loaded_at": "2026-07-11T02:55:00Z",
             "last_validated_at": "2026-07-11T02:57:10Z",
-            "last_candidate_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "last_candidate_path": "D:\\Github\\Soma\\config.yaml",
             "last_operation": "reload",
             "last_status": "reloaded",
             "last_error": "",
@@ -881,17 +881,17 @@ REALISTIC_ACTION_OUTPUTS = {
     "validate_service_config": {
         "ok": True,
         "validated": True,
-        "candidate_config_path": "D:\\Github\\CodexBridge\\config.yaml",
+        "candidate_config_path": "D:\\Github\\Soma\\config.yaml",
         "validated_at": "2026-07-11T02:57:10Z",
         "message": "Configuration candidate validated successfully.",
         "error": "",
         "config_lifecycle": {
-            "active_config_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "active_config_path": "D:\\Github\\Soma\\config.yaml",
             "active_loaded_at": "2026-07-11T02:57:19Z",
             "last_known_good_loaded_at": "2026-07-11T02:57:19Z",
             "previous_loaded_at": "2026-07-11T02:55:00Z",
             "last_validated_at": "2026-07-11T02:57:10Z",
-            "last_candidate_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "last_candidate_path": "D:\\Github\\Soma\\config.yaml",
             "last_operation": "validate",
             "last_status": "validated",
             "last_error": "",
@@ -910,12 +910,12 @@ REALISTIC_ACTION_OUTPUTS = {
         "message": "",
         "error": "",
         "config_lifecycle": {
-            "active_config_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "active_config_path": "D:\\Github\\Soma\\config.yaml",
             "active_loaded_at": "2026-07-11T02:57:19Z",
             "last_known_good_loaded_at": "2026-07-11T02:57:19Z",
             "previous_loaded_at": "2026-07-11T02:55:00Z",
             "last_validated_at": "2026-07-11T02:57:10Z",
-            "last_candidate_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "last_candidate_path": "D:\\Github\\Soma\\config.yaml",
             "last_operation": "validate",
             "last_status": "validated",
             "last_error": "",
@@ -934,12 +934,12 @@ REALISTIC_ACTION_OUTPUTS = {
         "message": "Rolled back to the previous last-known-good configuration.",
         "error": "",
         "config_lifecycle": {
-            "active_config_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "active_config_path": "D:\\Github\\Soma\\config.yaml",
             "active_loaded_at": "2026-07-11T02:58:00Z",
             "last_known_good_loaded_at": "2026-07-11T02:55:00Z",
             "previous_loaded_at": "2026-07-11T02:55:00Z",
             "last_validated_at": "2026-07-11T02:57:10Z",
-            "last_candidate_path": "D:\\Github\\CodexBridge\\config.yaml",
+            "last_candidate_path": "D:\\Github\\Soma\\config.yaml",
             "last_operation": "rollback",
             "last_status": "rolled_back",
             "last_error": "",
@@ -1009,7 +1009,7 @@ REALISTIC_ACTION_OUTPUTS = {
     "get_supervisor_resume_prompt": {
         "supervisor_id": "sup_1",
         "exists": True,
-        "path": "D:\\Github\\CodexBridge\\runs\\supervisors\\sup_1\\resume_prompt.txt",
+        "path": "D:\\Github\\Soma\\runs\\supervisors\\sup_1\\resume_prompt.txt",
         "content": "resume prompt",
     },
     # repo reader tools (batch)
@@ -1017,7 +1017,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "ok": True,
         "repo_name": "repo",
         "directory": "",
-        "files": ["codexbridge/__init__.py", "codexbridge/server.py"],
+        "files": ["soma/__init__.py", "soma/server.py"],
         "count": 2,
         "truncated": False,
         "max_results": 500,
@@ -1027,7 +1027,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "ok": True,
         "repo_name": "repo",
         "path": "README.md",
-        "content": "# CodexBridge\n",
+        "content": "# Soma\n",
         "start_line": 1,
         "end_line": 1,
         "total_lines": 1,
@@ -1045,7 +1045,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "case_sensitive": False,
         "hits": [
             {
-                "path": "codexbridge/server.py",
+                "path": "soma/server.py",
                 "line": 10,
                 "snippet": "def main() -> None:",
             }
@@ -1058,7 +1058,7 @@ REALISTIC_ACTION_OUTPUTS = {
     "get_recently_modified_files": {
         "ok": True,
         "repo_name": "repo",
-        "files": [{"path": "codexbridge/server.py", "mtime": 1720000000.0}],
+        "files": [{"path": "soma/server.py", "mtime": 1720000000.0}],
         "count": 1,
         "limit": 50,
         "error": "",
@@ -1066,7 +1066,7 @@ REALISTIC_ACTION_OUTPUTS = {
     "repo_git_status": {
         "ok": True,
         "repo_name": "repo",
-        "status": "## main\n M codexbridge/server.py\n",
+        "status": "## main\n M soma/server.py\n",
         "error": "",
     },
     "repo_git_diff": {
@@ -1074,7 +1074,7 @@ REALISTIC_ACTION_OUTPUTS = {
         "repo_name": "repo",
         "path": "",
         "staged": False,
-        "diff": "diff --git a/codexbridge/server.py b/codexbridge/server.py\n",
+        "diff": "diff --git a/soma/server.py b/soma/server.py\n",
         "truncated": False,
         "error": "",
     },
@@ -1288,7 +1288,7 @@ REALISTIC_ACTION_OUTPUTS.update(
             "ok": True,
             "repo_name": "repo",
             "status": "unchanged",
-            "wiki_root": ".codexbridge/wiki",
+            "wiki_root": ".soma/wiki",
             "pages": ["overview.md"],
             "source_file_count": 1,
             "changed_source_files": [],
@@ -1946,10 +1946,10 @@ def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -
         "inspect_status",
         lambda repo_root: {
             "branch": "main",
-            "git_status": "## main\n M codexbridge/server.py\n",
+            "git_status": "## main\n M soma/server.py\n",
             "recent_commits": "abc123 first\n\ndef456 second\n",
             "diff_stat": " 1 file changed\n",
-            "changed_files": ["codexbridge/server.py"],
+            "changed_files": ["soma/server.py"],
         },
     )
     action = {item["name"]: item for item in discovered_actions()}["repo_query"]
@@ -1957,7 +1957,7 @@ def test_inspect_repo_status_normalizes_live_git_shapes(monkeypatch, tmp_path) -
     result = server.inspect_repo_status("repo")
 
     assert result["recent_commits"] == ["abc123 first", "def456 second"]
-    assert result["changed_files"] == ["codexbridge/server.py"]
+    assert result["changed_files"] == ["soma/server.py"]
     validate(instance=result, schema=action["outputSchema"])
 
 
@@ -1984,7 +1984,7 @@ def test_inspect_repo_status_compact_excludes_full_status_payload(
             "unsampled_tool_owned_count": 0,
             "files": [
                 {
-                    "path": "codexbridge/server.py",
+                    "path": "soma/server.py",
                     "size_bytes": 1,
                     "line_count": 1,
                     "tool_owned": False,
@@ -2008,8 +2008,8 @@ def test_inspect_repo_status_compact_excludes_full_status_payload(
                 "truncated": False,
             },
             "fallback_tool": "inspect_repo_status",
-            "git_status": "## main\n M codexbridge/server.py\n",
-            "manifest": {"git_status": "## main\n M codexbridge/server.py\n"},
+            "git_status": "## main\n M soma/server.py\n",
+            "manifest": {"git_status": "## main\n M soma/server.py\n"},
         },
     )
     action = {item["name"]: item for item in discovered_actions()}["repo_query"]

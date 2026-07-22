@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.remote_controller_state import build_remote_controller_state_contract
-from codexbridge.remote_resource_enforcement import RemoteMemoryPolicy
-from codexbridge.ssh_watchdog import _start_controller_source
+from soma.remote_controller_state import build_remote_controller_state_contract
+from soma.remote_resource_enforcement import RemoteMemoryPolicy
+from soma.ssh_watchdog import _start_controller_source
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups and /proc")
 

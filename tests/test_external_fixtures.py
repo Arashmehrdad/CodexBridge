@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import ExternalFixturesConfig
-from codexbridge.external_fixtures import (
+from soma.config import ExternalFixturesConfig
+from soma.external_fixtures import (
     fetch_validate_and_discard,
     validate_fixture_request,
 )

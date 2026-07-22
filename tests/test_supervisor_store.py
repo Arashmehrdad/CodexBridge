@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.supervisor_store import SupervisorStore, validate_supervisor_id
+from soma.supervisor_store import SupervisorStore, validate_supervisor_id
 
 
 SUPERVISOR_ID = "20260428T120000Z_supervisor_abcdef12"
@@ -40,7 +40,7 @@ def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> No
     store = make_store(tmp_path)
     created = store.create_supervisor(
         supervisor_id=SUPERVISOR_ID,
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="coordinate a safe docs update",
         metadata={"batch": 1},
     )
@@ -56,7 +56,7 @@ def test_supervisor_create_get_list_update_survives_reload(tmp_path: Path) -> No
     reloaded = make_store(tmp_path)
     assert reloaded.get_supervisor(SUPERVISOR_ID)["summary"] == "started"
     assert (
-        reloaded.list_supervisors(repo_name="codexbridge", status="running")[0][
+        reloaded.list_supervisors(repo_name="soma", status="running")[0][
             "supervisor_id"
         ]
         == SUPERVISOR_ID
@@ -74,7 +74,7 @@ def test_supervisor_conditional_update_rejects_stale_version(
     store = make_store(tmp_path)
     created = store.create_supervisor(
         supervisor_id=SUPERVISOR_ID,
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="conditional update",
     )
     assert created["state_version"] == 0
@@ -103,7 +103,7 @@ def test_attach_child_is_atomic_and_version_guarded(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     created = store.create_supervisor(
         supervisor_id=SUPERVISOR_ID,
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="attach child",
         metadata={"active_child": None},
     )
@@ -148,7 +148,7 @@ def test_attach_child_is_atomic_and_version_guarded(tmp_path: Path) -> None:
 def test_supervisor_events_ordering_and_limit(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     store.create_supervisor(
-        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="test events"
+        supervisor_id=SUPERVISOR_ID, repo_name="soma", objective="test events"
     )
     for index in range(4):
         store.append_event(
@@ -167,7 +167,7 @@ def test_supervisor_events_ordering_and_limit(tmp_path: Path) -> None:
 def test_supervisor_run_links_persist_after_reload(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     store.create_supervisor(
-        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="link runs"
+        supervisor_id=SUPERVISOR_ID, repo_name="soma", objective="link runs"
     )
     link = store.add_run_link(
         SUPERVISOR_ID, "20260428T120001Z_codex_plan_task_12345678", "plan"
@@ -185,7 +185,7 @@ def test_supervisor_store_removes_legacy_repo_write_lock_schema(
 ) -> None:
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True)
-    db_path = runs_dir / "codexbridge.sqlite3"
+    db_path = runs_dir / "soma.sqlite3"
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
@@ -228,7 +228,7 @@ def test_supervisor_notifications_crud_dedupe_and_delivery_update(
 ) -> None:
     store = make_store(tmp_path)
     store.create_supervisor(
-        supervisor_id=SUPERVISOR_ID, repo_name="codexbridge", objective="notify"
+        supervisor_id=SUPERVISOR_ID, repo_name="soma", objective="notify"
     )
     notification = store.create_notification(
         SUPERVISOR_ID,

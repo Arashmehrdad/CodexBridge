@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.job_worker import JobWorker
-from codexbridge.remote_powershell import (
+from soma.job_worker import JobWorker
+from soma.remote_powershell import (
     bind_remote_powershell_controller_request,
     build_remote_powershell_artifact_manifest,
     complete_remote_powershell_artifact_manifest,
@@ -17,7 +17,7 @@ from codexbridge.remote_powershell import (
     validate_remote_powershell_durable_input,
     validate_remote_powershell_request,
 )
-from codexbridge.run_store import RunStore
+from soma.run_store import RunStore
 
 
 def test_remote_powershell_envelope_preserves_exact_values_and_binary_stdin() -> None:
@@ -392,10 +392,10 @@ def test_remote_powershell_worker_dispatches_exact_controller_inputs(
             "download_sha256": hashlib.sha256(payload).hexdigest(),
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.start_monitored_ssh_command", execute_remote)
-    monkeypatch.setattr("codexbridge.job_worker.run_ssh_transfer", retrieve_remote)
+    monkeypatch.setattr("soma.job_worker.start_monitored_ssh_command", execute_remote)
+    monkeypatch.setattr("soma.job_worker.run_ssh_transfer", retrieve_remote)
     monkeypatch.setattr(
-        "codexbridge.job_worker.probe_remote_controller_state",
+        "soma.job_worker.probe_remote_controller_state",
         lambda config, host_id, controller_state: {
             "ok": True,
             "state": {},

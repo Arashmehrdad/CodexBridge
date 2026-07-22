@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import codexbridge.process_control as process_control
+import soma.process_control as process_control
 
 
 def test_process_group_popen_kwargs_are_platform_specific(monkeypatch) -> None:

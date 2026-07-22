@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import load_config
-from codexbridge.job_manager import JobManager
-from codexbridge.parallel_groups import ParallelGroupStore
-from codexbridge.process_control import process_is_running
+from soma.config import load_config
+from soma.job_manager import JobManager
+from soma.parallel_groups import ParallelGroupStore
+from soma.process_control import process_is_running
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell acceptance")

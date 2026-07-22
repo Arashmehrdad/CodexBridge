@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from codexbridge.prompts import build_implementation_prompt, build_plan_prompt
+from soma.prompts import build_implementation_prompt, build_plan_prompt
 
 
 def test_plan_prompt_includes_no_edit_delete_commit_push_rules() -> None:

@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.events import redact_and_truncate
-from codexbridge.public_projection_contract import (
+from soma.events import redact_and_truncate
+from soma.public_projection_contract import (
     DEFAULT_PUBLIC_BYTE_BUDGETS,
     NormalizedOutcome,
 )
-from codexbridge.run_public_result import (
+from soma.run_public_result import (
     PUBLIC_RESULT_SCHEMA_VERSION,
     PUBLIC_RESULT_STATUS_FALLBACK,
     PUBLIC_RESULT_STATUS_NOT_MATERIALIZED,
@@ -21,8 +21,8 @@ from codexbridge.run_public_result import (
     canonical_public_json_bytes,
     normalized_outcome,
 )
-from codexbridge.run_publication import materialize_public_result, publish_run_result
-from codexbridge.run_store import RunStore, utc_now
+from soma.run_publication import materialize_public_result, publish_run_result
+from soma.run_store import RunStore, utc_now
 
 
 RUN_ID = "20260722T040000Z_project_command_c0ffee00"
@@ -277,7 +277,7 @@ def test_projector_failure_publishes_bounded_fallback(
     result = {"status": "completed", "summary": "winner"}
     store, run_id, _run_dir = _terminal_run(tmp_path, result)
     monkeypatch.setattr(
-        "codexbridge.run_publication.build_public_result_projection",
+        "soma.run_publication.build_public_result_projection",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("projector boom")),
     )
 
@@ -300,11 +300,11 @@ def test_fallback_failure_still_publishes_emergency_projection(
     result = {"status": "completed", "summary": "winner"}
     store, run_id, _run_dir = _terminal_run(tmp_path, result)
     monkeypatch.setattr(
-        "codexbridge.run_publication.build_public_result_projection",
+        "soma.run_publication.build_public_result_projection",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("primary boom")),
     )
     monkeypatch.setattr(
-        "codexbridge.run_publication.build_public_result_fallback",
+        "soma.run_publication.build_public_result_fallback",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fallback boom")),
     )
 

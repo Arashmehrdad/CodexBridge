@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-import codexbridge.git_tools as git_tools
-from codexbridge.git_tools import (
+import soma.git_tools as git_tools
+from soma.git_tools import (
     CommitMetadataError,
     CommitPolicyError,
     GitCommandError,
@@ -205,38 +205,38 @@ def test_selected_file_commit_accepts_modified_file_outside_sparse_checkout(
 def test_selected_file_commit_accepts_files_inside_untracked_directory(
     repo: Path,
 ) -> None:
-    wiki = repo / ".codexbridge" / "wiki"
+    wiki = repo / ".soma" / "wiki"
     wiki.mkdir(parents=True)
     (wiki / "overview.md").write_text("# Overview\n", encoding="utf-8")
     (wiki / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
 
-    assert ".codexbridge/wiki/overview.md" in changed_files(repo)
-    assert ".codexbridge/wiki/architecture.md" in changed_files(repo)
+    assert ".soma/wiki/overview.md" in changed_files(repo)
+    assert ".soma/wiki/architecture.md" in changed_files(repo)
 
     result = commit_selected_files(
         repo,
-        [".codexbridge/wiki/overview.md"],
+        [".soma/wiki/overview.md"],
         "docs: add repository wiki",
     )
 
     assert result["commit_hash"]
-    assert ".codexbridge/wiki/overview.md" not in result["remaining_dirty_files"]
-    assert ".codexbridge/wiki/architecture.md" in result["remaining_dirty_files"]
+    assert ".soma/wiki/overview.md" not in result["remaining_dirty_files"]
+    assert ".soma/wiki/architecture.md" in result["remaining_dirty_files"]
 
 
 def test_selected_file_commit_accepts_unignored_wiki_files(repo: Path) -> None:
     (repo / ".gitignore").write_text(
-        ".codexbridge/*\n!.codexbridge/wiki/\n!.codexbridge/wiki/**\n",
+        ".soma/*\n!.soma/wiki/\n!.soma/wiki/**\n",
         encoding="utf-8",
     )
-    wiki = repo / ".codexbridge" / "wiki"
+    wiki = repo / ".soma" / "wiki"
     wiki.mkdir(parents=True)
     files = {
-        ".codexbridge/wiki/architecture.md": "# Architecture\n",
-        ".codexbridge/wiki/manifest.json": "{}\n",
-        ".codexbridge/wiki/modules.md": "# Modules\n",
-        ".codexbridge/wiki/overview.md": "# Overview\n",
-        ".codexbridge/wiki/validation.md": "# Validation\n",
+        ".soma/wiki/architecture.md": "# Architecture\n",
+        ".soma/wiki/manifest.json": "{}\n",
+        ".soma/wiki/modules.md": "# Modules\n",
+        ".soma/wiki/overview.md": "# Overview\n",
+        ".soma/wiki/validation.md": "# Validation\n",
     }
     for relative, content in files.items():
         (repo / relative).write_text(content, encoding="utf-8")
@@ -467,7 +467,7 @@ def test_finalize_explicit_changes_commits_only_requested_paths(repo: Path) -> N
         check=True,
     ).stdout.splitlines()
     assert "selected.txt" not in staged
-    git_temp_root = repo / ".git" / "codexbridge-tmp"
+    git_temp_root = repo / ".git" / "soma-tmp"
     assert not git_temp_root.exists() or not any(git_temp_root.iterdir())
 
 

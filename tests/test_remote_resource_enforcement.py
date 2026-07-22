@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from codexbridge.remote_resource_enforcement import (
+from soma.remote_resource_enforcement import (
     DEFAULT_CONSERVATIVE_MEMORY_BYTES,
     DEFAULT_GRACEFUL_MEMORY_BYTES,
     DEFAULT_HARD_MEMORY_BYTES,

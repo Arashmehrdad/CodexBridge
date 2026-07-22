@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.payload_chunks import (
+from soma.payload_chunks import (
     PAYLOAD_CHUNK_BYTES,
     assemble_payload,
     build_payload_parts,
 )
-from codexbridge.repo_writer import apply_previewed_repo_change, preview_repo_patch
+from soma.repo_writer import apply_previewed_repo_change, preview_repo_patch
 
 
 def test_payload_chunks_round_trip_and_detect_tampering() -> None:

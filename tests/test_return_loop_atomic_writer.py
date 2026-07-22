@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.return_loop import atomic_writer
-from codexbridge.return_loop.atomic_writer import atomic_write_json, atomic_write_text
+from soma.return_loop import atomic_writer
+from soma.return_loop.atomic_writer import atomic_write_json, atomic_write_text
 
 
 def test_atomic_text_write_creates_complete_final_file(tmp_path: Path) -> None:

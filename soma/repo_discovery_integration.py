@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+from . import config as config_module
+from .repo_discovery import (
+    canonical_repo_name,
+    diagnose_repository_miss,
+    discover_repository,
+)
+
+
+_ORIGINAL_RESOLVE_REPO = config_module.resolve_repo
+_ORIGINAL_RESOLVE_REPO_IDENTITY = config_module.resolve_repo_identity
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSEY = {"0", "false", "no", "off"}
+_DEFAULT_EXCLUDES = (".fallow", "secrets")
+
+
+def _discovery_enabled() -> bool:
+    raw = os.getenv("SOMA_AUTO_DISCOVER_REPOS", "1").strip().lower()
+    if raw in _FALSEY:
+        return False
+    return raw in _TRUTHY or raw == ""
+
+
+def _configured_roots(config: config_module.AppConfig) -> list[Path]:
+    roots: list[Path] = []
+    raw_roots = os.getenv("SOMA_REPO_ROOTS", "")
+    for item in raw_roots.replace("\n", ";").split(";"):
+        item = item.strip()
+        if item:
+            roots.append(Path(item).expanduser().resolve())
+
+    # Existing explicit repositories define trusted parent directories. This
+    # makes D:/Github automatic when at least one configured repo lives there.
+    for repo in config.repos.values():
+        roots.append(Path(repo.path).expanduser().resolve().parent)
+
+    deduplicated: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).casefold()
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(root)
+    return deduplicated
+
+
+def _excluded_names() -> tuple[str, ...]:
+    raw = os.getenv("SOMA_REPO_EXCLUDES", "")
+    if not raw.strip():
+        return _DEFAULT_EXCLUDES
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _max_depth() -> int:
+    raw = os.getenv("SOMA_REPO_MAX_DEPTH", "1").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1
+    return min(max(value, 1), 8)
+
+
+def _discover_repo_identity(
+    config: config_module.AppConfig, repo_name: str
+) -> tuple[str, Path, config_module.RepoConfig]:
+    try:
+        return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, repo_name)
+    except ValueError as original_error:
+        if not str(original_error).startswith("Unknown repo_name:"):
+            raise
+        if not _discovery_enabled():
+            raise
+
+    roots = _configured_roots(config)
+    max_depth = _max_depth()
+    exclude_names = _excluded_names()
+    match = discover_repository(
+        roots=roots,
+        requested_name=repo_name,
+        max_depth=max_depth,
+        require_git=True,
+        exclude_names=exclude_names,
+    )
+    if match is None:
+        detail = diagnose_repository_miss(
+            roots=roots,
+            requested_name=repo_name,
+            max_depth=max_depth,
+            exclude_names=exclude_names,
+        )
+        suffix = f" ({detail})" if detail else ""
+        raise ValueError(f"Unknown repo_name: {repo_name}{suffix}")
+
+    canonical_name = canonical_repo_name(match.folder_name)
+    config.repos[canonical_name] = config_module.RepoConfig(path=str(match.path))
+    return _ORIGINAL_RESOLVE_REPO_IDENTITY(config, canonical_name)
+
+
+def resolve_repo_identity_with_discovery(
+    config: config_module.AppConfig, repo_name: str
+) -> tuple[str, Path, config_module.RepoConfig]:
+    """Resolve explicit repositories first, then rescan trusted parent roots."""
+    return _discover_repo_identity(config, repo_name)
+
+
+def resolve_repo_with_discovery(
+    config: config_module.AppConfig, repo_name: str
+) -> Path:
+    _, repo_path, _ = resolve_repo_identity_with_discovery(config, repo_name)
+    return repo_path
+
+
+def _install_server_binding() -> None:
+    # ``python -m soma.server`` owns the active MCP instance from the
+    # ``__main__`` module, while imported/test servers use ``soma.server``.
+    # Rebind both forms after a runtime config reload so repository tools keep
+    # using the same canonical resolver.
+    for module_name in ("soma.server", "__main__"):
+        server_module = sys.modules.get(module_name)
+        if server_module is not None and getattr(server_module, "mcp", None) is not None:
+            server_module.resolve_repo_identity = resolve_repo_identity_with_discovery
+
+
+def install_repo_discovery() -> None:
+    """Install automatic discovery without changing the public config API."""
+    global _ORIGINAL_RESOLVE_REPO
+    global _ORIGINAL_RESOLVE_REPO_IDENTITY
+    if config_module.resolve_repo is not resolve_repo_with_discovery:
+        _ORIGINAL_RESOLVE_REPO = config_module.resolve_repo
+    if config_module.resolve_repo_identity is not resolve_repo_identity_with_discovery:
+        _ORIGINAL_RESOLVE_REPO_IDENTITY = config_module.resolve_repo_identity
+
+    config_module.resolve_repo_identity = resolve_repo_identity_with_discovery
+    config_module.resolve_repo = resolve_repo_with_discovery
+    _install_server_binding()

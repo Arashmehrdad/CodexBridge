@@ -6,8 +6,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from codexbridge.local_agent.models import LocalModelStatus
-from codexbridge.local_agent.ollama_adapter import OllamaChatAdapter
+from soma.local_agent.models import LocalModelStatus
+from soma.local_agent.ollama_adapter import OllamaChatAdapter
 
 
 class FakeResponse:

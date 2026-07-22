@@ -1,13 +1,13 @@
-# CodexBridge Active Engineering Plan
+# Soma Active Engineering Plan
 
 ## Purpose
 
-CodexBridge is the durable control plane connecting this ChatGPT conversation to local machines, repositories, services, remote hosts, and external tool runtimes.
+Soma is the durable control plane connecting this ChatGPT conversation to local machines, repositories, services, remote hosts, and external tool runtimes.
 
 ```text
 ChatGPT conversation
   -> reasoning, user context, tool selection, and approvals
-  -> CodexBridge MCP
+  -> Soma MCP
       -> durable identity, policy, execution, cancellation, and evidence
       -> local and remote engineering substrates
       -> Hermes searchable tool runtime
@@ -27,15 +27,15 @@ Every accepted asynchronous operation must persist launch intent, request identi
 ### ChatGPT remains the brain
 
 - The live ChatGPT conversation owns reasoning, user context, planning, and tool selection.
-- CodexBridge exposes governed capabilities to that conversation.
+- Soma exposes governed capabilities to that conversation.
 - Hermes is a tool runtime, not a delegated reasoning agent, for this integration.
 - The design does not depend on exporting ChatGPT's private memory store. Relevant context stays in the conversation; only required tool arguments or explicit context are transmitted.
 
 ### Reuse Hermes rather than duplicate it
 
 - Reuse Hermes registration, availability checks, toolsets, plugin discovery, MCP discovery, and searchable dispatch where feasible.
-- Do not create one CodexBridge wrapper for every Hermes tool.
-- New Hermes plugins or MCP tools should become discoverable without corresponding CodexBridge source changes.
+- Do not create one Soma wrapper for every Hermes tool.
+- New Hermes plugins or MCP tools should become discoverable without corresponding Soma source changes.
 - Pin and negotiate the supported Hermes interface so upstream changes fail explicitly.
 
 ### Existing execution decisions remain in force
@@ -48,13 +48,13 @@ Every accepted asynchronous operation must persist launch intent, request identi
 
 ### No paid infrastructure for validation
 
-- Do not start, rent, or retain RunPod or any other paid remote/GPU host solely for CodexBridge testing, acceptance, or roadmap evidence.
+- Do not start, rent, or retain RunPod or any other paid remote/GPU host solely for Soma testing, acceptance, or roadmap evidence.
 - Prefer local Windows validation, deterministic mocks and replayed fixtures, existing free CI, or infrastructure already running for an actual user-requested workload.
 - OS-, provider-, or hardware-specific execution evidence that cannot be obtained without new cost is non-blocking deferred evidence. Collect it opportunistically during real work rather than making it a roadmap gate.
 
 ### Evidence before Roadmap V3
 
-After the Hermes integration reaches its bounded gate, architectural feature expansion pauses. CodexBridge will be exercised on real projects before another broad reliability roadmap is created.
+After the Hermes integration reaches its bounded gate, architectural feature expansion pauses. Soma will be exercised on real projects before another broad reliability roadmap is created.
 
 ## Current Baseline
 
@@ -67,7 +67,7 @@ Parallel PowerShell cancellation acceptance is complete. Whole-group and individ
 Known observations, not yet separate repair programs:
 
 - occasional HTTP 502 responses from the ChatGPT connector path;
-- external acceptance fixtures that may disappear independently of CodexBridge;
+- external acceptance fixtures that may disappear independently of Soma;
 - increased complexity in durable state and reconciliation contracts.
 
 Collect operational evidence before prescribing broad fixes for these observations.
@@ -94,9 +94,9 @@ Status: **active; highest priority**.
 
 ### Objective
 
-Reduce the total CodexBridge tool footprint inserted into ChatGPT conversations by at least **90 percent** while preserving complete authoritative evidence, exact command inputs and outputs, cancellation and recovery semantics, repository locks, result hashes, debugging capability, model access to requested detail, and current execution throughput.
+Reduce the total Soma tool footprint inserted into ChatGPT conversations by at least **90 percent** while preserving complete authoritative evidence, exact command inputs and outputs, cancellation and recovery semantics, repository locks, result hashes, debugging capability, model access to requested detail, and current execution throughput.
 
-The repair applies globally to every CodexBridge-managed project and public gateway, including CodexBridge, Andiya, Wan2.2, Hermes, Trading Lab, supervisors, workflows, SSH, parallel groups, and future repositories.
+The repair applies globally to every Soma-managed project and public gateway, including Soma, Andiya, Wan2.2, Hermes, Trading Lab, supervisors, workflows, SSH, parallel groups, and future repositories.
 
 ### Architectural boundary
 
@@ -419,7 +419,7 @@ Search-slice implementation and validation evidence:
 - exact repository-relative `file_path` scope is first-class, mutually exclusive with directory/pattern scope, and reports the resolved scope without scanning sibling files; legacy directory and ripgrep callers remain compatible when they do not request the bounded contract;
 - opaque search cursors checksum-bind the query, scope, patterns, case mode, result limit, deterministic file ordering, and a SHA-256 worktree snapshot; a changed file, added/deleted candidate, or mismatched request returns bounded `stale_content` rather than mixing result generations;
 - focused repository-reader validation passed with 72 tests, including exact-file exclusion, cursor continuation, tamper rejection, stale-result rejection, and redacted bounded results; gateway-model validation passed with 36 tests after adding the scope, cursor, and response-budget contract;
-- native Python compilation passed for all changed Python files. Ruff lint still reports only the pre-existing unused `server.py` import, while whole-file formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting. Pytest evidence is retained from CodexBridge runs; `.codex-tmp/` remains preserved;
+- native Python compilation passed for all changed Python files. Ruff lint still reports only the pre-existing unused `server.py` import, while whole-file formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting. Pytest evidence is retained from Soma runs; `.codex-tmp/` remains preserved;
 - no new choke point was discovered. Search scope/continuation is now covered by existing choke point 13; diff behavior remains explicitly deferred to the next CF1.5 slice.
 
 Diff-slice implementation and validation evidence:
@@ -474,504 +474,504 @@ Second independently reviewable slice — single bounded preflight:
 
 - `run_query(operation="preflight", repo_name=...)` now combines fresh compact tracked-worktree state (branch, HEAD, cleanliness, changed-file and collapsed tool-owned counts), running/queued/launch-pending run summaries, repository locks, and the live capability epoch in one read-only projection;
 - the response is capped at 12 KB with explicit truncation and byte-count fields; existing individual status, list, lock, summary, and full-evidence operations remain available for detail retrieval;
-- focused CodexBridge pytest validation passed with 36 gateway-model tests, 27 server tests, and 6 gateway-inventory tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports the same pre-existing unused import in `server.py`.
+- focused Soma pytest validation passed with 36 gateway-model tests, 27 server tests, and 6 gateway-inventory tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports the same pre-existing unused import in `server.py`.
 
 Third independently reviewable slice — immediate managed-apply acknowledgement:
 
 - `repo_apply` now records a durable `repo_apply` run and repository lock before returning a compact acknowledgement containing transaction/run identity, accepted state, preview or cleanup identity, bounded control polling, and explicit terminal evidence access;
 - the durable worker reuses the existing hash-verified apply, rollback, commit, wiki-staleness, and manifest lifecycle behavior; duplicate requests are refused while the same transaction is active, and completed manifest replay remains idempotent without reapplying files;
-- the acknowledgement is capped at 4 KB and the operation inventory records its durable-input and bounded-response contract. CodexBridge pytest validation passed with 28 server tests, 6 gateway-inventory tests, 72 job-manager tests, and 36 gateway-model tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports only pre-existing unused imports.
+- the acknowledgement is capped at 4 KB and the operation inventory records its durable-input and bounded-response contract. Soma pytest validation passed with 28 server tests, 6 gateway-inventory tests, 72 job-manager tests, and 36 gateway-model tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports only pre-existing unused imports.
 
 Fourth independently reviewable slice — compact managed-apply terminal projection:
 
 - terminal `repo_apply` results now expose bounded operation/patch identity, changed-file projection, commit hash, idempotent replay state, rollback status when present, validation pass/fail counts, and collapsed preserved/remaining-work counts;
 - raw stdout/stderr and full validation payloads remain evidence-only, while the existing public-result UTF-8 budget, redaction, source hash, and explicit evidence handle continue to apply;
-- focused CodexBridge pytest validation passed with 20 public-result materialization tests. Native compilation, Ruff, and `git diff --check` passed; `python -m pip check` remains green from the preceding slice.
+- focused Soma pytest validation passed with 20 public-result materialization tests. Native compilation, Ruff, and `git diff --check` passed; `python -m pip check` remains green from the preceding slice.
 
 Fifth independently reviewable slice — repository-bound local executable defaults:
 
 - local executable-profile runs that omit `working_directory` now bind their process current directory to the registered repository root when the profile uses `service_default`; arbitrary and fixed directory policies retain their existing validation rules;
 - the durable input records the resolved absolute directory before launch, preventing an omitted directory from silently inheriting the service process directory while preserving explicit full evidence and existing profile security checks;
-- focused CodexBridge pytest validation passed with 7 executable-profile tests. Native compilation and `git diff --check` passed; Ruff reports the same pre-existing unused import in `job_manager.py`.
+- focused Soma pytest validation passed with 7 executable-profile tests. Native compilation and `git diff --check` passed; Ruff reports the same pre-existing unused import in `job_manager.py`.
 
 Sixth independently reviewable slice — hash-bound automatic commit metadata:
 
 - automatic managed-write commits now include a deterministic SHA-256 of the exact normalized changed-path batch alongside the durable run ID in the commit body;
 - the structured commit report exposes a metadata hash, and the recorded Git commit is verified to contain the same run and changed-path binding, so replay cannot substitute a different batch identity silently;
-- focused CodexBridge pytest validation passed with 36 Git-tool tests. Native compilation, Ruff, and `git diff --check` passed; the only Ruff finding remains the pre-existing unused import in `job_manager.py`.
+- focused Soma pytest validation passed with 36 Git-tool tests. Native compilation, Ruff, and `git diff --check` passed; the only Ruff finding remains the pre-existing unused import in `job_manager.py`.
 
 Seventh independently reviewable slice — bounded dedicated-validator controls:
 
 - Python compile, Bash syntax, and JSON validation gateway schemas now accept an explicit bounded `timeout_seconds` control, persist it in the durable request, and enforce the same 1–604,800-second envelope before launch;
 - validator terminal results include a compact structured validation summary with pass/fail state, error count, representative redacted diagnostic text, and truncation state, while full streams remain available only through explicit evidence retrieval;
-- focused CodexBridge pytest validation passed with 36 gateway-model tests, 21 public-result tests, and 28 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the three pre-existing unused imports in `job_manager.py`, `job_worker.py`, and `server.py`.
+- focused Soma pytest validation passed with 36 gateway-model tests, 21 public-result tests, and 28 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the three pre-existing unused imports in `job_manager.py`, `job_worker.py`, and `server.py`.
 
 Eighth independently reviewable slice — bounded ordinary result reads:
 
 - `run_query(operation="result")` now routes to the bounded source-hash-bound terminal projection by default, preventing legacy diagnosis payloads from returning oversized authoritative JSON through the ordinary gateway;
 - `view="full"` remains an explicit authoritative retrieval path, and callers that supply the existing chunk cursor are promoted to that full path for compatibility and exact reconstruction;
-- focused CodexBridge pytest validation passed with 5 public-result gateway tests. Native compilation and `git diff --check` passed; Ruff reports the pre-existing unused import in `server.py`.
+- focused Soma pytest validation passed with 5 public-result gateway tests. Native compilation and `git diff --check` passed; Ruff reports the pre-existing unused import in `server.py`.
 
 Ninth independently reviewable slice — bounded knowledge search freshness envelope:
 
 - repository knowledge search now applies a deterministic 12-KB UTF-8 response budget after capability metadata is attached, preserving generation/head/branch freshness identities while collapsing excess wiki and memory hits;
 - the response reports `response_bytes` and `truncated`, and existing repository-scoped search semantics, stale-generation metadata, and explicit wiki-page retrieval remain unchanged;
-- focused CodexBridge pytest validation passed with 7 knowledge-integration tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green from the preceding slice.
+- focused Soma pytest validation passed with 7 knowledge-integration tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green from the preceding slice.
 
 Tenth independently reviewable slice — caller-bound preview commit metadata:
 
 - patch previews now accept bounded caller-supplied commit title and description fields, validate them with the existing commit-message policy, and persist them in the protected manifest together with an opaque `Preview-ID` binding;
 - preview apply returns only the manifest-bound metadata, and managed commit finalization preserves that title while appending the durable run ID and deterministic changed-path SHA-256, preventing replay or a later request from substituting commit identity;
-- focused CodexBridge pytest validation passed with 92 repository-writer tests, 37 Git-tool tests, 36 gateway-model tests, and the legacy server compatibility regression. The full-suite run before that compatibility adjustment reported 1,386 passed and 5 skipped with two failures; the focused rerun removed the preview-wrapper failure, leaving only the already-documented Hermes persistent-process PID assertion. Native compilation, `git diff --check`, and `python -m pip check` passed; Ruff reports only the pre-existing unused imports.
+- focused Soma pytest validation passed with 92 repository-writer tests, 37 Git-tool tests, 36 gateway-model tests, and the legacy server compatibility regression. The full-suite run before that compatibility adjustment reported 1,386 passed and 5 skipped with two failures; the focused rerun removed the preview-wrapper failure, leaving only the already-documented Hermes persistent-process PID assertion. Native compilation, `git diff --check`, and `python -m pip check` passed; Ruff reports only the pre-existing unused imports.
 
 Eleventh independently reviewable slice — bounded mixed-newline diagnostics:
 
 - patch previews now report exact old/new LF, CRLF, and bare-CR counts, whether each version is mixed, and the first 20 affected line locations with total-count and truncation fields;
 - diagnostic projection is capped at 8 KB before returning or persisting preview metadata, while the existing byte-preserving default and explicit legacy normalization behavior remain unchanged;
-- focused CodexBridge pytest validation passed with 94 repository-writer tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green.
+- focused Soma pytest validation passed with 94 repository-writer tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green.
 
 Twelfth independently reviewable slice — explicit normalization-risk warning:
 
 - mixed-newline patch previews now warn before an explicitly requested normalized edit would rewrite the file’s newline forms, while the default preserved mode remains byte-preserving and apply still requires the existing expected content hash;
 - the warning is copied into the protected preview manifest and remains non-fatal, so callers can deliberately request legacy normalization without confusing it with an accidental default behavior;
-- focused CodexBridge pytest validation passed with 95 repository-writer tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+- focused Soma pytest validation passed with 95 repository-writer tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
 Thirteenth independently reviewable slice — bounded lock reads:
 
 - `run_query(operation="locks")` now defaults to a compact lock projection with bounded item count, a caller-selected 1–64-KB response budget, explicit `has_more`/truncation metadata, and response byte accounting;
 - `view="full"` preserves the existing complete lock evidence path, while the operation inventory and gateway schema expose the compact/full distinction explicitly;
-- focused CodexBridge pytest validation passed with 29 server tests and 36 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 29 server tests and 36 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fourteenth independently reviewable slice — bounded repository file lists:
 
 - `repo_query(operation="list_files")` now defaults to a compact repository-relative path projection with a caller-selected 1–64-KB serialized UTF-8 budget, explicit `count`/`total_count`, `has_more`, truncation, and response byte accounting;
 - the direct `list_repo_files` compatibility wrapper remains full by default, while `view="full"` preserves complete path evidence and the operation inventory records the compact/full distinction;
-- focused CodexBridge pytest validation passed with 30 server tests, 37 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 30 server tests, 37 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifteenth independently reviewable slice — bounded recent-file lists:
 
 - `repo_query(operation="recent_files")` now defaults to a compact recent-file projection with a caller-selected 1–64-KB serialized UTF-8 budget, explicit `count`/`total_count`, `has_more`, truncation, and response byte accounting;
 - the direct `get_recently_modified_files` compatibility wrapper remains full by default, while `view="full"` preserves complete recent-file evidence and the operation inventory records the compact/full distinction;
-- focused CodexBridge pytest validation passed with 31 server tests, 38 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 31 server tests, 38 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixteenth independently reviewable slice — bounded commit-log lists:
 
 - `repo_query(operation="log")` now defaults to a compact commit projection with a caller-selected 1–64-KB serialized UTF-8 budget, explicit `count`/`total_count`, `has_more`, truncation, and response byte accounting;
 - the direct `git_log` compatibility wrapper remains full by default, while `view="full"` preserves complete commit-log evidence and the operation inventory records the compact/full distinction;
-- focused CodexBridge pytest validation passed with 32 server tests, 39 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 32 server tests, 39 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventeenth independently reviewable slice — bounded repository status:
 
 - `repo_query(operation="status")` now defaults to a compact live-status projection with a caller-selected 1–64-KB serialized UTF-8 budget, preserved changed-file totals, `has_more`, truncation, and response byte accounting;
 - the direct `inspect_repo_status` compatibility wrapper remains full by default, while `view="full"` preserves complete status evidence and the operation inventory distinguishes it from the existing compact-status operation;
-- focused CodexBridge pytest validation passed with 33 server tests, 40 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 33 server tests, 40 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighteenth independently reviewable slice — bounded managed-patch status:
 
 - `repo_query(operation="patch_status")` now defaults to a compact managed-patch lifecycle projection with a caller-selected 1–64-KB serialized UTF-8 budget, changed-file/error counts, `apply_ok`, `has_more`, truncation, and response byte accounting;
 - the direct `get_patch_status` compatibility wrapper remains full by default, while `view="full"` preserves complete patch manifest evidence and compact mode omits full apply/error payloads;
-- focused CodexBridge pytest validation passed with 34 server tests, 41 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 34 server tests, 41 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Nineteenth independently reviewable slice — bounded compact repository status:
 
 - `repo_query(operation="compact_status")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget while preserving its compatibility-shaped status fields, and reports `truncated`, `has_more`, `response_budget_bytes`, and `response_bytes` when the projection is reduced;
 - the compact status operation inventory now records the bounded-object response contract and 12-KB default/maximum budget; existing direct status behavior and tool-owned-field filtering remain unchanged;
-- focused CodexBridge pytest validation passed with 35 server tests, 42 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 35 server tests, 42 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twentieth independently reviewable slice — bounded Docker inspection:
 
 - `docker_query(operation="inspect")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims redacted stdout/stderr and diagnostic fields deterministically while preserving the existing inspection result shape, explicit truncation state, and command safety checks;
 - the Docker inspection inventory now records a bounded-object response contract with a 12-KB default/maximum budget; capabilities, health, and direct inspection compatibility remain available;
-- focused CodexBridge pytest validation passed with 36 server tests, 43 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 36 server tests, 43 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-first independently reviewable slice — bounded Cloudflare inspection:
 
 - `cloudflare_query(operation="inspect")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and deterministically trims paginated provider results or diagnostic metadata while preserving profile authorization, page/per-page compatibility, and explicit truncation state;
 - the Cloudflare inspection inventory now records a bounded-object response contract with a 12-KB default/maximum budget and retains page-number pagination metadata;
-- focused CodexBridge pytest validation passed with 37 server tests, 44 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 37 server tests, 44 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-second independently reviewable slice — bounded H4 candle retrieval:
 
 - `trading_query(operation="h4_candles")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims completed candles deterministically while preserving the configured demo-terminal checks, completed-count limit, and developing-candle shape;
 - the H4 candle inventory now records a bounded-object response contract with a 12-KB default/maximum budget and limit-only pagination semantics;
-- focused CodexBridge pytest validation passed with 37 server tests, 45 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 37 server tests, 45 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-third independently reviewable slice — bounded historical-tick retrieval:
 
 - `trading_query(operation="historical_ticks")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims the returned tick list deterministically while preserving timezone-aware range validation and the configured demo-terminal checks;
 - the historical-tick inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
-- focused CodexBridge pytest validation passed with 37 server tests, 46 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 37 server tests, 46 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-fourth independently reviewable slice — bounded supervisor events:
 
 - `supervisor_query(operation="events")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the ordered event list, preserving supervisor identity, event ordering, and the existing item limit;
 - events and notifications are now represented separately in the gateway inventory, with the event operation carrying a bounded-object 12-KB default/maximum budget while notification compatibility remains unchanged;
-- focused CodexBridge pytest validation passed with 38 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 38 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-fifth independently reviewable slice — bounded supervisor notifications:
 
 - `supervisor_query(operation="notifications")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the notification list, preserving delivery-status filtering, ordering, supervisor identity, and the existing item limit;
 - the notification inventory now records the bounded-object 12-KB default/maximum response contract alongside the previously bounded event operation;
-- focused CodexBridge pytest validation passed with 39 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 39 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-sixth independently reviewable slice — bounded workflow events:
 
 - `workflow_query(operation="events")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the ordered event list, preserving workflow identity, event ordering, and the existing 100–500 item limit;
 - the workflow event inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
-- focused CodexBridge pytest validation passed with 40 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 40 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-seventh independently reviewable slice — bounded SSH inspection:
 
 - `ssh_inspect(operation="inspection")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims redacted stdout/stderr and diagnostics deterministically while preserving host/path/target validation, bounded tail input, and existing structured health/telemetry variants;
 - the SSH inventory now separates inspection from structured health/telemetry and records a bounded-object 12-KB default/maximum response contract for inspection;
-- focused CodexBridge pytest validation passed with 41 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 41 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-eighth independently reviewable slice — bounded Trading Lab signal list:
 
 - `trading_signal_list` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the immutable journal projection, preserving its limit and record fields;
 - the signal-list inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
-- focused CodexBridge pytest validation passed with 42 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 42 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Twenty-ninth independently reviewable slice — search contract convergence:
 
 - the authoritative CF1 gateway inventory now matches the implemented `repo_query(operation="search_text")` contract: fixed 16-KB UTF-8 budgeting, cursor pagination, exact-file scope, snapshot/hash-bound continuation, and explicit timeout/partial-result reporting;
-- focused CodexBridge pytest validation passed with 6 gateway-inventory tests and 47 gateway-model tests. Native compilation, pip check, `git diff --check`, and focused Ruff checks passed; no runtime search behavior changed in this documentation/contract-convergence slice.
+- focused Soma pytest validation passed with 6 gateway-inventory tests and 47 gateway-model tests. Native compilation, pip check, `git diff --check`, and focused Ruff checks passed; no runtime search behavior changed in this documentation/contract-convergence slice.
 
 Thirtieth independently reviewable slice — bounded Docker capability discovery:
 
 - `docker_query(operation="capabilities")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims capability lists deterministically while preserving policy gates, configured profiles, and the direct health path;
 - the Docker inventory now separates capabilities from health and records a bounded-object 12-KB default/maximum response contract for capability discovery;
-- focused CodexBridge pytest validation passed with 43 server tests, 48 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 43 server tests, 48 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-first independently reviewable slice — bounded Cloudflare capability discovery:
 
 - `cloudflare_query(operation="capabilities")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims capability lists deterministically while preserving authorized profile/action metadata and the direct health path;
 - the Cloudflare inventory now separates capabilities from health and records a bounded-object 12-KB default/maximum response contract for capability discovery;
-- focused CodexBridge pytest validation passed with 44 server tests, 49 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 44 server tests, 49 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-second independently reviewable slice — bounded Docker health:
 
 - `docker_query(operation="health")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims verbose engine/Compose diagnostics deterministically while preserving provider health fields and the existing capability/inspection paths;
 - the Docker health inventory now records a bounded-object 12-KB default/maximum response contract;
-- focused CodexBridge pytest validation passed with 45 server tests, 50 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 45 server tests, 50 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-third independently reviewable slice — bounded Cloudflare health:
 
 - `cloudflare_query(operation="health")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims verbose profile diagnostics deterministically while preserving profile authorization, health fields, and the capability/inspection paths;
 - the Cloudflare health inventory now records a bounded-object 12-KB default/maximum response contract;
-- focused CodexBridge pytest validation passed with 46 server tests, 51 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests, 51 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-fourth independently reviewable slice — bounded symbol discovery:
 
 - `trading_query(operation="symbols")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the symbol list, preserving configured demo-terminal checks and scalar trading-query behavior;
 - the trading inventory now separates symbol discovery from scalar health/specification/tick operations and records a bounded-object 12-KB default/maximum response contract;
-- focused CodexBridge pytest validation passed with 46 server tests, 52 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests, 52 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-fifth independently reviewable slice — bounded parallel-group reads:
 
 - `run_query(operation="group_status"|"group_result")` now defaults to a compact 12-KB UTF-8 projection that omits request and artifact payloads, bounds child summaries, and reports truncation and response-byte metadata;
 - `view="full"` remains an explicit complete group/evidence path, while group query schemas and the gateway inventory now record the compact/full distinction and bounded response contract;
-- focused CodexBridge pytest validation passed with 53 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 53 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-sixth independently reviewable slice — bounded supervisor resume prompts:
 
 - `supervisor_query(operation="resume_prompt")` now defaults to a compact 12-KB UTF-8 content projection with explicit truncation, `has_more`, original content-byte count, and serialized response-byte accounting;
 - compact prompt responses omit local filesystem paths, while `view="full"` retains the existing explicit prompt/evidence path and supervisor compatibility behavior;
-- focused CodexBridge pytest validation passed with 54 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 54 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-seventh independently reviewable slice — bounded workflow snapshots:
 
 - `workflow_query(operation="status"|"result")` now defaults to compact 12-KB UTF-8 projections with bounded step diagnostics, explicit truncation, and response-byte accounting;
 - compact workflow responses omit objective, process, and artifact payloads, while `view="full"` remains explicit complete snapshot/evidence access;
-- focused CodexBridge pytest validation passed with 55 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 55 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-eighth independently reviewable slice — bounded system self-check:
 
 - `system_query(operation="self_check")` now defaults to a compact 12-KB projection retaining per-check outcome, status, error, warning, exit-code, and duration fields with explicit truncation and response-byte accounting;
 - compact self-check responses omit verbose command streams, while `view="full"` preserves explicit complete diagnostics and existing direct self-check behavior;
-- focused CodexBridge pytest validation passed with 56 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 56 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Thirty-ninth independently reviewable slice — bounded single-signal retrieval:
 
 - `trading_signal_get` now defaults to a compact 12-KB UTF-8 projection that bounds narrative and candle-context fields and reports truncation and serialized response bytes;
 - `view="full"` preserves explicit complete immutable signal-record retrieval and existing journal/idempotency behavior;
-- focused CodexBridge pytest validation passed with 57 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 57 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fortieth independently reviewable slice — bounded signal cancellation results:
 
 - `trading_signal_cancel_before_entry` now returns the same compact 12-KB UTF-8 signal projection as single-signal reads, with bounded narrative fields and response-byte accounting;
 - cancellation state transitions and immutable journal payloads remain unchanged, while `view="full"` preserves explicit complete record access;
-- focused CodexBridge pytest validation passed with 58 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 58 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Forty-first independently reviewable slice — bounded signal submission results:
 
 - `trading_signal_submit` now defaults to the compact 12-KB UTF-8 signal projection, bounding narrative fields and reporting truncation and response-byte metadata;
 - immutable journal insertion, idempotency replay, and validation remain unchanged, while `view="full"` preserves explicit complete record access;
-- focused CodexBridge pytest validation passed with 59 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 59 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Forty-second independently reviewable slice — bounded wiki-page retrieval:
 
 - `knowledge_query(operation="read_wiki")` now defaults to a compact 12-KB serialized UTF-8 page projection with truncation, `has_more`, and response-byte metadata while preserving generation, freshness, and page identity fields;
 - `view="full"` remains explicit complete-page access, and repository wiki validation/error behavior is unchanged;
-- focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
+- focused Soma pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
 
 Forty-third independently reviewable slice — bounded knowledge search contract:
 
 - `knowledge_query(operation="search")` now exposes a caller-selected 1–64-KB serialized UTF-8 response budget with `truncated`, `has_more`, and response-byte metadata over the existing wiki/memory freshness envelope;
 - item limits, repository scoping, global-memory opt-in, and search ranking remain unchanged;
-- focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
+- focused Soma pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
 
 Forty-fourth independently reviewable slice — bounded repo-commit results:
 
 - `repo_commit` now defaults to a compact 12-KB UTF-8 mutation projection retaining operation/status, commit identity, and changed-file metadata with truncation and response-byte accounting;
 - selected-file and branch-creation policy checks remain unchanged, while `view="full"` preserves explicit complete mutation metadata access;
-- focused CodexBridge pytest validation passed with 60 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 60 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Forty-fifth independently reviewable slice — bounded supervisor snapshots:
 
 - `supervisor_query(operation="status"|"result")` now defaults to compact 12-KB UTF-8 projections retaining lifecycle, publication, diagnostic, and link-count metadata while omitting nested plan/implementation payloads;
 - `view="full"` remains explicit complete snapshot/evidence access, and supervisor lifecycle behavior is unchanged;
-- focused CodexBridge pytest validation passed with 61 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 61 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Forty-sixth independently reviewable slice — bounded system action acknowledgements:
 
 - `system_action(action="reload"|"rollback")` now defaults to a compact 12-KB acknowledgement retaining lifecycle status, operation counts, rollback outcome, and bounded diagnostics;
 - `view="full"` preserves explicit complete lifecycle evidence access and the existing direct reload/rollback tools remain unchanged;
-- focused CodexBridge pytest validation passed with 62 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 62 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Forty-seventh independently reviewable slice — bounded knowledge action acknowledgements:
 
 - `knowledge_action(action="refresh_wiki"|"remember_decision")` now defaults to a compact 12-KB acknowledgement retaining lifecycle identity, freshness metadata, and page/file or memory counts while bounding diagnostics and summaries;
 - `view="full"` preserves explicit complete mutation evidence access, and the existing direct wiki-refresh and decision-write functions remain unchanged;
-- focused CodexBridge pytest validation passed with 9 knowledge-integration tests, 62 gateway-model tests, and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+- focused Soma pytest validation passed with 9 knowledge-integration tests, 62 gateway-model tests, and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
 Forty-eighth independently reviewable slice — bounded repository batch reads:
 
 - `repo_query(operation="read_files")` now publishes explicit aggregate `has_more`, `truncated_batch`, `payload_bytes`, and `response_bytes` metadata while enforcing the serialized response budget at the final boundary;
 - the existing 20-file limit, streamed per-file content, redaction, hash-bound continuation, and compatibility behavior remain intact;
-- focused CodexBridge pytest validation passed with 72 repository-reader tests and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+- focused Soma pytest validation passed with 72 repository-reader tests and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
 Forty-ninth independently reviewable slice — bounded SSH query projections:
 
 - `ssh_query(operation="capabilities"|"profile_preview"|"profile_status")` now defaults to compact 12-KB projections retaining host/lifecycle/hash identity and collapsing large capability diffs to counts;
 - `view="full"` preserves explicit complete capability and profile evidence access, while existing internal SSH query functions and security validation remain unchanged;
-- focused CodexBridge pytest validation passed with 63 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 63 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fiftieth independently reviewable slice — bounded workflow cancellation:
 
 - `workflow_action(action="cancel")` now defaults to the compact 12-KB workflow projection, retaining lifecycle identity and bounded step diagnostics while preserving cancellation semantics;
 - `view="full"` remains explicit complete workflow evidence access, and workflow starts plus direct cancellation behavior remain compatible;
-- focused CodexBridge pytest validation passed with 64 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 64 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-first independently reviewable slice — bounded direct run cancellation:
 
 - `cancel_run` now defaults to a compact 12-KB acknowledgement retaining run/group identity, status, and diagnostic counts while bounding process-tree details;
 - explicit `view="full"` preserves complete cancellation evidence, and legacy one-argument callers plus cancellation routing remain compatible;
-- focused CodexBridge pytest validation passed with 65 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 65 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-second independently reviewable slice — bounded supervisor lifecycle mutations:
 
 - `supervisor_action(action="resume"|"pause"|"cancel")` now defaults to compact 12-KB lifecycle projections retaining supervisor identity/status/publication metadata and bounded diagnostics;
 - `view="full"` remains explicit complete supervisor evidence access, and durable lifecycle transitions remain unchanged;
-- focused CodexBridge pytest validation passed with 66 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 66 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-third independently reviewable slice — bounded scalar trading queries:
 
 - `trading_query(operation="health"|"specification"|"tick")` now defaults to compact 12-KB scalar projections retaining provider-safe scalar fields while bounding oversized adapter payloads;
 - `view="full"` remains explicit complete adapter evidence access, and existing symbols/candle/historical bounds plus provider lifecycle behavior remain unchanged;
-- focused CodexBridge pytest validation passed with 67 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 67 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-fourth independently reviewable slice — bounded system summaries:
 
 - `system_query(operation="capabilities"|"local_model_health"|"validate_config"|"reload_status")` now defaults to compact projections retaining scalar health/configuration fields and collection counts under a caller-selected 1–64-KB UTF-8 budget;
 - `view="full"` remains explicit complete system evidence access, while `self_check` and the underlying individual system functions retain their existing behavior;
-- focused CodexBridge pytest validation passed with 68 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 68 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-fifth independently reviewable slice — bounded SSH health and telemetry:
 
 - `ssh_inspect(operation="host_health"|"environment_probe"|"gpu_telemetry")` now defaults to compact projections retaining scalar host/health fields and collection counts under a caller-selected 1–64-KB UTF-8 budget;
 - `view="full"` remains explicit complete SSH evidence access, while bounded inspection, underlying SSH probes, and existing host security checks remain unchanged;
-- focused CodexBridge pytest validation passed with 69 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 69 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-sixth independently reviewable slice — bounded SSH profile apply:
 
 - `ssh_action(action="profile_apply")` now defaults to a compact mutation projection retaining change/status/activation scalars and counts under a caller-selected 1–64-KB UTF-8 budget;
 - `view="full"` remains explicit complete profile-apply evidence access, while hash verification, repository locking, activation, and existing SSH action behavior remain unchanged;
-- focused CodexBridge pytest validation passed with 70 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 70 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-seventh independently reviewable slice — bounded repository previews:
 
 - `repo_preview` now defaults to compact preview metadata retaining patch/cleanup identity, changed-line and byte statistics, diagnostic counts, and diff byte size under a caller-selected 1–64-KB UTF-8 budget;
 - `view="full"` remains explicit complete diff and validation evidence access, while opaque preview persistence, path/hash validation, and apply compatibility remain unchanged;
-- focused CodexBridge pytest validation passed with 71 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 71 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-eighth independently reviewable slice — bounded commit-range inspection:
 
 - `repo_query(operation="commit_range")` now defaults to a compact projection retaining both commit identities, changed-file count, diff statistics, and diff byte size under a caller-selected 1–64-KB UTF-8 budget;
 - `view="full"` remains explicit complete commit-range evidence access, while full-hash validation, canonical repository binding, and legacy direct inspection remain unchanged;
-- focused CodexBridge pytest validation passed with 72 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 72 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Fifty-ninth independently reviewable slice — explicit supervisor notification evidence:
 
 - `supervisor_query(operation="notifications")` keeps its compact item- and UTF-8-bounded default while accepting `view="full"` for complete delivery-status-filtered notification evidence;
 - notification ordering, limit enforcement, supervisor identity, and existing internal bounded reads remain unchanged;
-- focused CodexBridge pytest validation passed with 73 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 73 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixtieth independently reviewable slice — capability identity convergence:
 
 - `system_query(operation="capability_identity")` now reports source-derived and running-service build/schema/epoch identities and compares caller-supplied connector/discovery identities, returning explicit mismatch names under the compact envelope;
 - convergence checks are read-only and do not reload or mutate services; existing capability discovery and system-query operations remain available, with `view="full"` preserving the complete identity record;
-- focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-first independently reviewable slice — operation-inventory drift check:
 
 - capability identity now includes a deterministic operation-inventory hash and gateway count, and compares a caller-supplied connector/discovery inventory hash to report explicit operation-schema drift;
 - inventory hashing normalizes operation sets deterministically, remains read-only, and preserves all existing capability identity and compact/full behavior;
-- focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-second independently reviewable slice — synchronous live capability discovery:
 
 - `system_query(operation="capabilities")` now resolves the async live MCP tool listing through a safe synchronous bridge, while preserving compatibility with synchronous test/legacy providers and compact/full projections;
 - discovery failures remain explicit structured errors, and no service reload or mutation is performed;
-- focused CodexBridge pytest validation passed with 75 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 75 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-third independently reviewable slice — explicit public-schema and discovery-cache identities:
 
 - `system_query(operation="capability_identity")` now exposes distinct public-schema and discovery-cache generation identities alongside the legacy source/running capability fields;
 - callers can bind connector-loaded public schema, operation inventory, and discovery-cache expectations, with bounded explicit mismatch names and preserved legacy schema checks;
-- focused CodexBridge pytest validation passed with 76 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 76 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-fourth independently reviewable slice — managed-write knowledge freshness:
 
 - compact terminal projections for `repo_apply` now retain bounded knowledge freshness state, source and indexed generations, stale reason, and an explicit `knowledge_action(refresh_wiki)` recommendation without embedding wiki content;
 - authoritative apply results and full evidence remain unchanged, while callers can detect stale knowledge directly from the ordinary managed-write projection;
-- focused CodexBridge pytest validation passed with 21 public-result tests and 46 adjacent server tests. Native compilation, pip check, `git diff --check`, and scoped Ruff passed.
+- focused Soma pytest validation passed with 21 public-result tests and 46 adjacent server tests. Native compilation, pip check, `git diff --check`, and scoped Ruff passed.
 
 Sixty-fifth independently reviewable slice — per-operation schema drift reporting:
 
 - `system_query(operation="capability_identity")` now discovers live MCP input schemas, fingerprints each operation, and reports bounded missing, extra, and connector-schema mismatches by operation name;
 - lazy knowledge-tool registration is included in the live discovery pass, and any drift or discovery failure returns explicit bounded refresh guidance without mutating or reloading the service;
-- focused CodexBridge pytest validation passed with 77 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 77 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-sixth independently reviewable slice — consecutive discovery convergence:
 
 - capability identity now performs two consecutive live operation-schema discovery passes and reports pass disagreement explicitly, rather than treating one transient snapshot as converged;
 - the compact response includes pass count and convergence state, while schema mismatches retain affected operation names and bounded connector-refresh guidance;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-seventh independently reviewable slice — capability-payload identity metadata:
 
 - authoritative `list_capabilities` responses now carry the same operation-inventory, public-schema, and discovery-cache identities as `capability_identity`, enabling connector refresh checks directly against the live capability payload;
 - compact capability projections retain identity scalars and full capability views preserve the complete action/schema evidence, with no service mutation or reload;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-eighth independently reviewable slice — live input-schema aggregate identity:
 
 - capability discovery and identity responses now include a deterministic aggregate hash of the live gateway input schemas, supplementing operation-inventory and per-operation fingerprints;
 - the aggregate is checked across both consecutive discovery passes, so structural connector drift cannot hide behind an unchanged operation-name inventory;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Sixty-ninth independently reviewable slice — connector binding for live input schemas:
 
 - `capability_identity` now accepts an explicit connector expectation for the aggregate live-input-schema hash and reports `connector_live_input_schema_hash` drift separately from legacy schema and operation-inventory mismatches;
 - matching expectations remain read-only and bounded, while stale expectations retain affected mismatch names and refresh guidance;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventieth independently reviewable slice — versioned system compact envelopes:
 
 - compact `system_query` projections, including the dedicated `self_check` path, now carry the standard projection version, compact view marker, non-authoritative notice, truncation state, and response-byte accounting;
 - explicit `view="full"` system responses remain complete authoritative evidence and are unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-first independently reviewable slice — versioned compact repository status:
 
 - `repo_query(operation="compact_status")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
 - existing tool-owned filtering, byte-budget trimming, direct compatibility behavior, and full status evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-second independently reviewable slice — versioned compact repository file lists:
 
 - `repo_query(operation="list_files")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
 - explicit full file-list retrieval and existing repository-relative path/security checks remain unchanged;
-- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-third independently reviewable slice — versioned compact recent-file lists:
 
 - `repo_query(operation="recent_files")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
 - explicit full recent-file evidence and live filesystem ordering remain unchanged;
-- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-fourth independently reviewable slice — versioned compact commit logs:
 
 - `repo_query(operation="log")` now carries the standard compact projection version, view marker, non-authoritative notice, truncation state, and response-byte accounting;
 - explicit full and legacy git-log retrieval remain unchanged, including path scoping and bounded commit-list trimming;
-- focused CodexBridge pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 46 server tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-fifth independently reviewable slice — versioned compact cancellation acknowledgements:
 
 - compact `cancel_run` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing byte/count/truncation metadata;
 - cancellation routing, status/error distinctions, process-tree counts, and explicit full cancellation evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-sixth independently reviewable slice — versioned compact workflow projections:
 
 - compact workflow status/result responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing step/truncation/byte metadata;
 - workflow identifiers, child-run linkage, bounded step summaries/errors, and explicit full workflow evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-seventh independently reviewable slice — versioned compact system-action responses:
 
 - compact `system_action` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing lifecycle/count/truncation/byte metadata;
 - reload/rollback routing, lifecycle error detail, bounded module lists, and explicit full action evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-eighth independently reviewable slice — versioned compact SSH-query responses:
 
 - compact `ssh_query` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing host/capability-count/truncation/byte metadata;
 - SSH capability and profile-preview routing, hash/error fields, and explicit full query evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Seventy-ninth independently reviewable slice — versioned compact supervisor snapshots:
 
 - compact supervisor status/result snapshots now carry the standard projection version, compact view marker, non-authoritative notice, and existing run-link/presence/truncation/byte metadata;
 - supervisor lifecycle identifiers, bounded summaries, child status, and explicit full snapshot evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eightieth independently reviewable slice — versioned compact supervisor resume prompts:
 
 - compact supervisor resume-prompt responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing UTF-8 content/truncation/byte metadata;
 - protected prompt-path omission, supervisor identity, truncation behavior, and explicit full prompt retrieval remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-first independently reviewable slice — versioned compact parallel-group responses:
 
 - compact `run_query(operation="group_status"/"group_result")` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing child-count/truncation/byte metadata;
 - group child lifecycle fields, protected artifact omission, bounded summaries/errors, and explicit full group evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-second independently reviewable slice — versioned compact Trading Lab scalar responses:
 
 - compact Trading Lab scalar query responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing provider-result/truncation/byte metadata;
 - demo-only provider gating, scalar field filtering, disabled/disconnected behavior, and explicit full query responses remain unchanged;
-- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-third independently reviewable slice — versioned compact Docker health responses:
 
 - compact Docker health responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing engine/Compose truncation/byte metadata;
 - Docker connectivity semantics, bounded diagnostic reduction, and explicit full health evidence remain unchanged;
-- focused CodexBridge pytest validation passed with 79 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 79 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-fourth independently reviewable slice — versioned compact Docker capability listings:
 
 - compact Docker capability listings now carry the standard projection version, compact view marker, non-authoritative notice, and existing operation-array/truncation/byte metadata;
 - capability risk gates, repository scoping, requested-name handling, and bounded operation contents remain unchanged;
-- focused CodexBridge pytest validation passed with 80 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 80 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-fifth independently reviewable slice — versioned compact Cloudflare health responses:
 
 - compact Cloudflare health responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing authorized-profile/diagnostic truncation/byte metadata;
 - profile authorization, token/engine diagnostics, repository identity, and bounded health semantics remain unchanged;
-- focused CodexBridge pytest validation passed with 81 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+- focused Soma pytest validation passed with 81 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
 Eighty-sixth independently reviewable slice — versioned compact Cloudflare capability listings: the compact capability projection carries the standard envelope while profile authorization, bounded operation contents, and full evidence remain unchanged.
 
@@ -1007,7 +1007,7 @@ Status: **local chat-footprint acceptance complete; connector-live rollout (step
 - performance: compact terminal projection p50 0.041 ms / p95 0.052 ms (2 ms gate); full retrieval medians 61.3 ms vs the 62.4 ms direct-retrieval baseline per 50-call batch (no regression against the 5% gate); compact SQL summary paths decode no JSON blobs; the MCP text summary is serialization-free and capped at 512 bytes;
 - compatibility and safety: direct Python callers receive dictionaries, MCP callers receive structured content plus the bounded text summary, legacy rows materialize once and reuse, stale bindings rebuild, and compact responses exclude lease tokens, run directories, secret values, reviewed scripts, and protected stdout/stderr while evidence handles stay usable.
 
-Full-suite validation ran three times through durable CodexBridge pytest execution. The first run was invalidated by a concurrent documentation edit (the read-only guard correctly flagged the changed worktree) and exposed three real failures fixed in `14c6502` (the strict `knowledge_action` output schema rejected its own compact refresh acknowledgement) and `2bef4c1` (discovery exactness inventories missing the intentionally restored `view`/`response_budget_bytes` fields). The final run reports 1,505 passed, 5 skipped, and exactly one failure: the documented, unrelated `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` full-suite-only PID instability, which passes alone and remains outside CF1 scope. A one-off pid-file read race in `test_powershell_acceptance.py` was observed once under full-suite load, passes alone, and is tracked separately.
+Full-suite validation ran three times through durable Soma pytest execution. The first run was invalidated by a concurrent documentation edit (the read-only guard correctly flagged the changed worktree) and exposed three real failures fixed in `14c6502` (the strict `knowledge_action` output schema rejected its own compact refresh acknowledgement) and `2bef4c1` (discovery exactness inventories missing the intentionally restored `view`/`response_budget_bytes` fields). The final run reports 1,505 passed, 5 skipped, and exactly one failure: the documented, unrelated `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` full-suite-only PID instability, which passes alone and remains outside CF1 scope. A one-off pid-file read race in `test_powershell_acceptance.py` was observed once under full-suite load, passes alone, and is tracked separately.
 
 Compatibility rollout:
 
@@ -1022,7 +1022,7 @@ Compatibility rollout:
 9. measure server bytes, MCP bytes, connector-visible bytes, request bytes, and total conversation transcript bytes;
 10. only after acceptance decide whether legacy `list`, `status`, and `result` become compact aliases.
 
-Live acceptance covers CodexBridge, Andiya, and Wan2.2 with an ordinary implementation, failed validation, active long run, unchanged poll, cancellation, partial result, ambiguous mutation and reconciliation, parallel group, large repository file, search continuation, frozen diff hunks, workflow/supervisor result, SSH state, executable binary artifact, and Hermes-backed call.
+Live acceptance covers Soma, Andiya, and Wan2.2 with an ordinary implementation, failed validation, active long run, unchanged poll, cancellation, partial result, ambiguous mutation and reconciliation, parallel group, large repository file, search continuation, frozen diff hunks, workflow/supervisor result, SSH state, executable binary artifact, and Hermes-backed call.
 
 Acceptance must prove exact full-evidence reconstruction, authoritative-result hash equality, no connector-visible duplication, no lost error or safety state, no worker-path regression, and at least 90-percent total session-footprint reduction.
 ### Performance and size gates
@@ -1145,7 +1145,7 @@ The audit produces a compact decision and implementation scope; it must not sile
 H1A decision (2026-07-18):
 
 - Pin `NousResearch/hermes-agent` revision `862b1b37bf0aadba3a98b3756c7d71779379b53b` as the initial compatibility target.
-- Use a small versioned Hermes companion process over stdio; do not import Hermes into the CodexBridge service process and do not invoke a Hermes model-agent loop.
+- Use a small versioned Hermes companion process over stdio; do not import Hermes into the Soma service process and do not invoke a Hermes model-agent loop.
 - The existing upstream `mcp_serve.py` is session/event/approval oriented and is not the required generic tool-runtime boundary.
 - Hermes catalog search and schema description can execute as pure registry reads. Deferred `tool_call` can invoke the underlying tool without model inference while preserving the normal Hermes hook, guardrail, edit-approval, and approval path.
 - Built-ins, plugins, and connected MCP tools converge in the effective registry. Skills remain instruction resources unless associated code registers an actual tool.
@@ -1194,7 +1194,7 @@ Live public H1B gate completed on 2026-07-19:
 - `tests/test_hermes_companion.py` reported `6 passed`, the adapter compiled, and the compatibility fixes were committed as `620913c5b9a78e8741681d2d96f96c302486c82f` and `baa7354696ca841efd56070fb066d19aa36d8048`;
 - the public MCP `run_start(operation="hermes_companion")` handshake completed as run `20260719T035330Z_executable_profile_9e38e2d0`, publishing registry generation `57`, effective schema hash `9489c958268618207783c6e4e31e2b93d37db06841c49657de4d194f78e71445`, pinned revision identity, and `model_runtime_initialized: false`;
 - schema-bound public search completed as run `20260719T035421Z_executable_profile_d0111a56`, and exact describe completed as run `20260719T035424Z_executable_profile_c7ec0d5a`; both published verified `hermes_response` data, terminal result hashes, and protected stdout/stderr artifact hashes under the same catalog identity;
-- the current CodexBridge environment initially lacked the pinned Hermes core dependency `requests==2.33.0`, so five built-in modules (`browser_tool`, `delegate_tool`, `terminal_tool`, `vision_tools`, and `x_search_tool`) were unavailable and emitted bounded protected warnings;
+- the current Soma environment initially lacked the pinned Hermes core dependency `requests==2.33.0`, so five built-in modules (`browser_tool`, `delegate_tool`, `terminal_tool`, `vision_tools`, and `x_search_tool`) were unavailable and emitted bounded protected warnings;
 - installed that exact upstream-pinned dependency into the live companion environment, then reran the pinned handshake as run `20260719T051116Z_executable_profile_7cf66ac2`;
 - the aligned handshake completed with empty stderr, registry generation `72`, effective schema hash `3c409ad2b545f2251550f22e5924d6af6c0fd1775cd4840f8c21fca6b5eab870`, and `model_runtime_initialized: false`; protected stdout hash `1613bdd8197cbe5e4e7c7602e7316bfb6f0803436cad4fa577458032c9c1808e` and empty-stderr hash `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` were durably published.
 
@@ -1210,7 +1210,7 @@ Bound tool-call path completed on 2026-07-19:
 Plugin and MCP discovery alignment completed on 2026-07-19:
 
 - companion startup now invokes the pinned Hermes `discover_plugins()` and `discover_mcp_tools()` entry points before freezing the effective registry snapshot;
-- plugin and connected-MCP tools therefore enter the same schema-bound catalog and normal `model_tools.handle_function_call` execution path without tool-specific CodexBridge wrappers;
+- plugin and connected-MCP tools therefore enter the same schema-bound catalog and normal `model_tools.handle_function_call` execution path without tool-specific Soma wrappers;
 - pinned interface drift for either discovery entry point fails closed, while ordinary plugin/server discovery failures are retained as bounded handshake initialization warnings;
 - synthetic connected-MCP registration coverage proves a newly discovered MCP tool appears in the catalog, contributes its dynamic toolset, and executes through the generic bound executor;
 - focused validation: `tests/test_hermes_companion.py` reported `7 passed`, and the companion module compiled.
@@ -1218,7 +1218,7 @@ Plugin and MCP discovery alignment completed on 2026-07-19:
 Disposable connected-MCP execution evidence completed on 2026-07-19:
 
 - added a repository-owned stdio MCP fixture and a reusable acceptance harness using an isolated `HERMES_HOME` under ignored `runs`, leaving the user's real Hermes configuration untouched;
-- the actual pinned Hermes checkout discovered `mcp__codexbridge_fixture__echo_fixture`, included it in registry generation `85`, and bound it to effective schema hash `8b43af99fe9ea6e41bfd82542f4f42764816bf36bf53156cd64c6fe6c59db160`;
+- the actual pinned Hermes checkout discovered `mcp__soma_fixture__echo_fixture`, included it in registry generation `85`, and bound it to effective schema hash `8b43af99fe9ea6e41bfd82542f4f42764816bf36bf53156cd64c6fe6c59db160`;
 - exact describe published tool-schema hash `87fb4050ba48900df327f896d8fcae53dfca0203e8eb6350352f016b380b2074`;
 - the generic policy-preserving executor returned the fixture marker and value `durable-mcp-gate` with `model_runtime_initialized: false`;
 - durable validation run `20260719T092053Z_executable_profile_616c1625` completed with empty stderr, both fixture scripts compiled, and `tests/test_hermes_companion.py` remained `7 passed`.
@@ -1235,10 +1235,10 @@ Public connected-MCP gateway acceptance completed on 2026-07-19:
 - corrected the dedicated Hermes executable profile to use `environment_policy: arbitrary` with unrestricted environment delivery, while the public companion contract still injects only the validated repository-owned `HERMES_HOME` key;
 - validated and reloaded the live configuration without restarting the service or tunnel;
 - public handshake run `20260719T184837Z_executable_profile_e3d7d21e` published registry generation `85`, effective schema hash `8b43af99fe9ea6e41bfd82542f4f42764816bf36bf53156cd64c6fe6c59db160`, protected stdout SHA-256 `db40d703b817243b48e525ca413a58e0e7cced73f2b65085aba8298e6068d3e9`, and empty protected stderr;
-- public search run `20260719T184845Z_executable_profile_00575f0e` discovered `mcp__codexbridge_fixture__echo_fixture` under the same catalog identity;
+- public search run `20260719T184845Z_executable_profile_00575f0e` discovered `mcp__soma_fixture__echo_fixture` under the same catalog identity;
 - public describe run `20260719T184849Z_executable_profile_82d878a9` bound tool-schema hash `87fb4050ba48900df327f896d8fcae53dfca0203e8eb6350352f016b380b2074`;
-- public call run `20260719T184854Z_executable_profile_f5fd4fb2` returned source `codexbridge-disposable-mcp` and value `public-durable-mcp-gate`, with protected stdout SHA-256 `54c65db5b8c13717f273dcacb22901d7938ca5d3a5d3434d421e81ab62604dd9` and empty protected stderr;
-- no Hermes model-agent loop or tool-specific CodexBridge wrapper participated in the path.
+- public call run `20260719T184854Z_executable_profile_f5fd4fb2` returned source `soma-disposable-mcp` and value `public-durable-mcp-gate`, with protected stdout SHA-256 `54c65db5b8c13717f273dcacb22901d7938ca5d3a5d3434d421e81ab62604dd9` and empty protected stderr;
+- no Hermes model-agent loop or tool-specific Soma wrapper participated in the path.
 
 Repository-owned reversible side-effect fixture contract completed on 2026-07-19:
 
@@ -1250,7 +1250,7 @@ Repository-owned reversible side-effect fixture contract completed on 2026-07-19
 Public reversible side-effect acceptance completed on 2026-07-19:
 
 - fresh public handshake run `20260719T201034Z_executable_profile_6130c7ba` bound registry generation `88` and effective schema hash `d6c2814409cad1c28c075bd134d4ea1806617154f3b7206b10173ec8e5cdfc39`, with `model_runtime_initialized: false`, protected stdout SHA-256 `f898728d1a176770ba0939294754a4a2de2f59fc5873a076e5d8b91af468b125`, and empty protected stderr;
-- public search run `20260719T201113Z_executable_profile_fd0f7afd` bound `mcp__codexbridge_fixture__apply_reversible_fixture` to tool-schema hash `4eff7674906c70b559b9255711bd10dd560326232299bf1fd4b5f4a2e117b90c`;
+- public search run `20260719T201113Z_executable_profile_fd0f7afd` bound `mcp__soma_fixture__apply_reversible_fixture` to tool-schema hash `4eff7674906c70b559b9255711bd10dd560326232299bf1fd4b5f4a2e117b90c`;
 - ambiguous apply run `20260719T201158Z_executable_profile_5291aff8` committed idempotency key `h1-public-side-effect-20260719-2012` and then returned the intentional post-commit error, with protected stdout SHA-256 `150ac9686f4cc112cc0d5e4c28893cc841fd95851f2c8fa5e61d250516cbc7dc` and empty stderr;
 - reconciliation run `20260719T201203Z_executable_profile_a17bc66e` verified the authoritative outcome existed with value `public-durable-side-effect` and `application_count: 1`;
 - replay run `20260719T201207Z_executable_profile_60006013` returned `applied: false` while preserving the same single application, proving the ambiguous result was not blindly duplicated;
@@ -1260,7 +1260,7 @@ Public reversible side-effect acceptance completed on 2026-07-19:
 
 Lifecycle acceptance completed on 2026-07-19:
 
-- added a bounded, side-effect-free `mcp__codexbridge_fixture__wait_fixture` tool for deterministic lifecycle testing;
+- added a bounded, side-effect-free `mcp__soma_fixture__wait_fixture` tool for deterministic lifecycle testing;
 - fresh public handshake run `20260719T211753Z_executable_profile_56f93e9f` bound registry generation `89` and effective schema hash `a308c1820ae7e601a71cedc6ff27be866c5d40221070244b826ca657b7f2aa78`, with `model_runtime_initialized: false` and empty protected stderr;
 - exact describe run `20260719T211801Z_executable_profile_7213674c` bound tool-schema hash `012082dc6fb140f730f2e93f1add7934e895517f0b4123ebab6096a9c8c74104`;
 - cancellable call run `20260719T211806Z_executable_profile_94dcc96d` reached verified `running` ownership with result publication still `not_published`, then `cancel_run` confirmed process-tree termination for the child and worker and published one terminal `cancelled` result;
@@ -1268,7 +1268,7 @@ Lifecycle acceptance completed on 2026-07-19:
 - startup reconciliation regression coverage proves a persisted active Hermes worker with verified process identity is adopted with exact companion catalog metadata intact, its repository lock retained, and result publication left `not_published` until the worker finishes;
 - focused validation: `tests/test_hermes_mcp_fixture.py` reported `5 passed`, and `tests/test_job_manager.py` reported `69 passed`.
 
-H1 acceptance is complete. The next executable unit is OP1: begin the evidence-driven real-project pilot with a repository-owned pilot evidence log and record representative ordinary CodexBridge/Hermes work without architectural expansion.
+H1 acceptance is complete. The next executable unit is OP1: begin the evidence-driven real-project pilot with a repository-owned pilot evidence log and record representative ordinary Soma/Hermes work without architectural expansion.
 
 ### H1B - Minimal external surface
 
@@ -1279,7 +1279,7 @@ The contract must preserve Hermes version, registry generation or schema hash, t
 ### H1C - Execution and policy
 
 - ChatGPT plans and chooses the tool; Hermes must not reinterpret the task through a second model.
-- CodexBridge remains authoritative for request identity, durability, cancellation, bounded output, protected evidence, and applicable locks.
+- Soma remains authoritative for request identity, durability, cancellation, bounded output, protected evidence, and applicable locks.
 - Search and description are read-only.
 - Side effects include communications, bookings, purchases, refunds, credential changes, destructive actions, and real-money operations.
 - Ambiguous transport failure must never cause blind replay of a mutation.
@@ -1293,7 +1293,7 @@ R6 secret-reference work is conditional supporting scope: implement only the min
 
 - ChatGPT searches Hermes without loading every deferred schema into the connector.
 - ChatGPT inspects and invokes one read-only built-in or plugin tool.
-- ChatGPT invokes one Hermes-connected MCP tool without tool-specific CodexBridge code.
+- ChatGPT invokes one Hermes-connected MCP tool without tool-specific Soma code.
 - Evidence proves no Hermes model-agent invocation occurred.
 - Exact tool/schema identity and arguments are durable.
 - One approved reversible side effect executes once and its external outcome is verified.
@@ -1313,14 +1313,14 @@ H2.1 established the generation-scoped service-runtime foundation. H2.2 added a 
 
 On 2026-07-22 the remaining H2 scope — durable service supervision, deterministic worker replacement, restart adoption, public gateway routing, narrow concurrency controls, explicit H1 fallback, five-live-session acceptance, and a real Search Console API call through the shared path — was implemented and accepted; see the H2 completion record below.
 
-The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a CodexBridge repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
+The completed H1 path remains the safe compatibility baseline: each ChatGPT request launches one durable, schema-bound Hermes companion process. Commit `9bb17f0452fe9419138b6f99a606a885bbe3a664` removes the incorrect repository-wide serialization from new Hermes companion runs, so independent discovery and tool calls can execute concurrently without taking a Soma repository operation lock. This fixes the immediate multi-chat blocker but does not turn the one-request companion into the final shared service.
 
-H2 will replace per-call companion startup as the primary path with one persistent Hermes service that is independent of any repository and supports concurrent, isolated sessions from multiple ChatGPT conversations. Repository identity is optional context supplied only to tools that genuinely need it; Trading Lab work, repository writes, and ordinary Search Console or other read-only calls must not block one another merely because they pass through the same CodexBridge instance.
+H2 will replace per-call companion startup as the primary path with one persistent Hermes service that is independent of any repository and supports concurrent, isolated sessions from multiple ChatGPT conversations. Repository identity is optional context supplied only to tools that genuinely need it; Trading Lab work, repository writes, and ordinary Search Console or other read-only calls must not block one another merely because they pass through the same Soma instance.
 
 ### H2A - Shared service and session contract
 
 - Run one version-pinned, supervised Hermes service with explicit health, build, protocol, registry-generation, and effective-schema identity.
-- Give every invocation a durable CodexBridge run ID plus a distinct Hermes request/session ID; one chat must never consume, cancel, or publish another chat's result.
+- Give every invocation a durable Soma run ID plus a distinct Hermes request/session ID; one chat must never consume, cancel, or publish another chat's result.
 - Preserve current exact tool identity, tool-schema hash, accepted arguments, bounded output, protected evidence, cancellation, restart recovery, and no-model-runtime guarantees.
 - Keep the current one-request companion as a bounded fallback and compatibility path until persistent-service acceptance is complete.
 - Permit multiple read-only discovery, description, and tool-call requests to overlap without a repository lock or one global Hermes execution lock.
@@ -1348,7 +1348,7 @@ Serialize only the resource that can actually conflict:
 
 **Root cause of the documented full-suite-only PID failure.** The failure was never a race or test pollution: the durable full suite runs under `.venv`, whose Windows `python.exe` is a launcher redirector, so the companion that serves requests is a child of the `Popen` PID. Manual isolated runs used the direct system interpreter and passed. The failure reproduced deterministically in isolation under the venv interpreter. The fix binds worker process-identity verification to the serving process: the companion self-reports its PID in the handshake `python_identity`, `PersistentHermesWorker` verifies the serving identity for ready/dispatch/cancel while keeping the launch root as the termination anchor, and cancel/close terminate both trees, closing an orphan leak when the redirector root exits first. Redirector-shape regression tests reproduce the venv topology on any interpreter. No assertion was weakened and no timing sleep was added.
 
-**Architecture.** `HermesServiceRuntime` (H2.1/H2.2 generation and ownership core) is now owned by `HermesServiceSupervisor` (worker launch, deterministic replacement of dead unleased workers with exact registry-identity equality, supervised registry reload, persisted worker-identity records, restart adopt-or-replace), fronted by `HermesServiceGateway` (public `run_start` operation `hermes_service`; distinct durable CodexBridge run ID plus Hermes request ID per invocation; result reads and cancellation enforced against the owning run/request/session triple; stale schema-bound requests fail closed with no fallback; exactly one explicit bounded fallback to the H1 one-request companion when the service is unavailable, labelled with mode and reason). `hermes_concurrency` provides the narrow H2B controls: a named Hermes-administration lock (install/upgrade/configuration/removal/registry-reload only), per-credential locks keyed and reported solely by SHA-256 digests, glob-scoped tool concurrency and min-interval rate limits leaving unmatched tools fully concurrent, and resource-scoped mutation locks serializing only same-resource mutations. Configuration is the opt-in `hermes_service` section (checkout, python_executable, worker_count, state_path, fallback profile, tool_limits).
+**Architecture.** `HermesServiceRuntime` (H2.1/H2.2 generation and ownership core) is now owned by `HermesServiceSupervisor` (worker launch, deterministic replacement of dead unleased workers with exact registry-identity equality, supervised registry reload, persisted worker-identity records, restart adopt-or-replace), fronted by `HermesServiceGateway` (public `run_start` operation `hermes_service`; distinct durable Soma run ID plus Hermes request ID per invocation; result reads and cancellation enforced against the owning run/request/session triple; stale schema-bound requests fail closed with no fallback; exactly one explicit bounded fallback to the H1 one-request companion when the service is unavailable, labelled with mode and reason). `hermes_concurrency` provides the narrow H2B controls: a named Hermes-administration lock (install/upgrade/configuration/removal/registry-reload only), per-credential locks keyed and reported solely by SHA-256 digests, glob-scoped tool concurrency and min-interval rate limits leaving unmatched tools fully concurrent, and resource-scoped mutation locks serializing only same-resource mutations. Configuration is the opt-in `hermes_service` section (checkout, python_executable, worker_count, state_path, fallback profile, tool_limits).
 
 **Acceptance evidence (live, pinned checkout `runs/hermes-pinned-validation` at the pinned revision, registry generation `85`, schema `467d7969…459d4`, `model_runtime_initialized: false`; JSON evidence under `.codex-tmp/h2c-acceptance/`).**
 
@@ -1368,7 +1368,7 @@ Serialize only the resource that can actually conflict:
 **Remaining risks.**
 
 - Live conflicting-mutation serialization was proven at the mechanism level (gateway resource-lock tests); no real external mutation was exercised because H2C acceptance forbids side-effectful calls against production properties.
-- The live CodexBridge server process predates this build; the shared service activates in the connector after the next service restart with `hermes_service.enabled: true` configured.
+- The live Soma server process predates this build; the shared service activates in the connector after the next service restart with `hermes_service.enabled: true` configured.
 - A gateway built before a configuration reload keeps its original service settings until restart.
 - Supervisor capacity restoration after a failed request is synchronous and can add one worker-launch latency (~10 s) to the failing caller's response.
 
@@ -1376,7 +1376,7 @@ Serialize only the resource that can actually conflict:
 
 Status: **complete; observation review closed on 2026-07-20**.
 
-The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution was disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. A second entry records a successful durable Hermes-backed connected-MCP call under registry generation `89`, with exact tool/schema identity, no model runtime, empty protected stderr, and no lost or duplicated work after correcting one caller-side PowerShell invocation mistake. A third entry records a second pre-acceptance parallel rejection under the same live build during a genuinely independent two-test workload. A fourth entry records a clean durable serial regression of the reversible-side-effect and lifecycle fixture with five passing tests, one worker claim, one terminal publication, and no repository mutation. A fifth entry proves the repeated parallel rejection was live configuration drift rather than a code defect: `parallel_execution.enabled` remained `false` despite the completed X2A contract. The ignored config was changed to `true`, validated, and hot-reloaded without restarting CodexBridge or Cloudflare; public group `20260720T010132Z_powershell_group_3da40097` then completed two overlapping child runs successfully. A sixth entry exercises the repaired capability on a real two-test workload: the first group exposed the known shared Windows pytest-temp permission problem, while an immediate retry with isolated repository-owned basetemps completed both children concurrently with `5 passed` and `6 passed`. A seventh entry records a successful schema-bound Hermes `read_file` call against the live OP1 section of `PLANS.md` under registry generation `79`, with the exact tool schema, accepted arguments, no model runtime, empty protected stderr, and no repository mutation after correcting one caller-side request-construction mistake. An eighth entry exercises a Hermes-connected reversible action under registry generation `89`: an intentionally ambiguous post-commit response was authoritatively reconciled at exactly one application, replay returned `applied: false`, reversal succeeded, and final reconciliation proved absence. Several caller-harness and transport mistakes caused bounded failed attempts but no lost or duplicated work. A ninth entry reruns the complete seven-test Windows parallel lifecycle acceptance suite through the durable validation gateway, covering fan-out, restart adoption, exact cancellation, and pending-child refill with no lost or duplicated work. A tenth entry exercises the complete live service self-check, promotes the known stale `run_start` schema assertion from observation to a bounded repair, and restores the full gate to `1194 passed, 5 skipped` with healthy imports, configuration, dependencies, stores, and HTTP transport. An eleventh entry exercises bounded real-service capability and health paths: Cloudflare correctly reports no configured repository profiles, while Docker reports an installed Windows client and Compose runtime but an unavailable Docker Desktop Linux engine. Neither condition caused mutation, lost work, duplicate work, or a CodexBridge defect, and no service was started solely for evidence. A twelfth entry repairs two real-workflow contract defects: `repo_query diff` no longer crashes if a Git capture stream is absent, and the advertised `stdin_text` field now UTF-8 encodes safely for byte-capable PowerShell profiles. Focused and adjacent suites passed, a server-only durable restart adopted its worker and published once, the Cloudflare PID remained unchanged, and both public paths were verified under the new build. Parallel execution is available and usable for representative validation. The formal review found no unresolved security, destructive-targeting, corruption, lost-work, duplicate-work, or continuation-blocking defect. Bounded contract defects discovered during real use were repaired and regression-locked; configuration and infrastructure availability observations remain operational evidence rather than architectural programs. OP1 is complete, no Roadmap V3 promotion threshold was crossed, and the next roadmap unit is TL0.
+The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution was disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. A second entry records a successful durable Hermes-backed connected-MCP call under registry generation `89`, with exact tool/schema identity, no model runtime, empty protected stderr, and no lost or duplicated work after correcting one caller-side PowerShell invocation mistake. A third entry records a second pre-acceptance parallel rejection under the same live build during a genuinely independent two-test workload. A fourth entry records a clean durable serial regression of the reversible-side-effect and lifecycle fixture with five passing tests, one worker claim, one terminal publication, and no repository mutation. A fifth entry proves the repeated parallel rejection was live configuration drift rather than a code defect: `parallel_execution.enabled` remained `false` despite the completed X2A contract. The ignored config was changed to `true`, validated, and hot-reloaded without restarting Soma or Cloudflare; public group `20260720T010132Z_powershell_group_3da40097` then completed two overlapping child runs successfully. A sixth entry exercises the repaired capability on a real two-test workload: the first group exposed the known shared Windows pytest-temp permission problem, while an immediate retry with isolated repository-owned basetemps completed both children concurrently with `5 passed` and `6 passed`. A seventh entry records a successful schema-bound Hermes `read_file` call against the live OP1 section of `PLANS.md` under registry generation `79`, with the exact tool schema, accepted arguments, no model runtime, empty protected stderr, and no repository mutation after correcting one caller-side request-construction mistake. An eighth entry exercises a Hermes-connected reversible action under registry generation `89`: an intentionally ambiguous post-commit response was authoritatively reconciled at exactly one application, replay returned `applied: false`, reversal succeeded, and final reconciliation proved absence. Several caller-harness and transport mistakes caused bounded failed attempts but no lost or duplicated work. A ninth entry reruns the complete seven-test Windows parallel lifecycle acceptance suite through the durable validation gateway, covering fan-out, restart adoption, exact cancellation, and pending-child refill with no lost or duplicated work. A tenth entry exercises the complete live service self-check, promotes the known stale `run_start` schema assertion from observation to a bounded repair, and restores the full gate to `1194 passed, 5 skipped` with healthy imports, configuration, dependencies, stores, and HTTP transport. An eleventh entry exercises bounded real-service capability and health paths: Cloudflare correctly reports no configured repository profiles, while Docker reports an installed Windows client and Compose runtime but an unavailable Docker Desktop Linux engine. Neither condition caused mutation, lost work, duplicate work, or a Soma defect, and no service was started solely for evidence. A twelfth entry repairs two real-workflow contract defects: `repo_query diff` no longer crashes if a Git capture stream is absent, and the advertised `stdin_text` field now UTF-8 encodes safely for byte-capable PowerShell profiles. Focused and adjacent suites passed, a server-only durable restart adopted its worker and published once, the Cloudflare PID remained unchanged, and both public paths were verified under the new build. Parallel execution is available and usable for representative validation. The formal review found no unresolved security, destructive-targeting, corruption, lost-work, duplicate-work, or continuation-blocking defect. Bounded contract defects discovered during real use were repaired and regression-locked; configuration and infrastructure availability observations remain operational evidence rather than architectural programs. OP1 is complete, no Roadmap V3 promotion threshold was crossed, and the next roadmap unit is TL0.
 
 After H1, freeze architectural expansion and exercise:
 
@@ -1390,7 +1390,7 @@ Create a separate pilot evidence log. Each entry records timestamp, project, exp
 
 Record normal friction before redesign. Repair immediately only for security violations, destructive targeting, lost or duplicated work, unrecoverable corruption, or a blocker preventing continuation.
 
-## TL - CodexBridge Trading Lab
+## TL - Soma Trading Lab
 
 Status: **paused at TL5 while CF1 is the sole active roadmap lane; TL0 through TL4 accepted on 2026-07-20**.
 
@@ -1407,7 +1407,7 @@ MetaTrader 5 terminal
   <->
 Official MetaTrader5 Python integration
   <->
-CodexBridge Trading Lab
+Soma Trading Lab
   <->
 ChatGPT
 ```
@@ -1421,7 +1421,7 @@ Python communicates locally with a running MT5 terminal rather than a cloud REST
 Do not force MT5 through Hermes merely because Hermes exposes tools.
 
 ```text
-CodexBridge Trading domain
+Soma Trading domain
   |- MT5 adapter
   |    prices, candles, account, orders, positions
   |- Trading Lab
@@ -1430,7 +1430,7 @@ CodexBridge Trading domain
        news, economic events, and optional external research tools
 ```
 
-CodexBridge owns durable trading state, account and terminal identity, signals, portfolios, positions, orders, reconciliation, and lifecycle evidence. Hermes may supply external context, but it must not own balances, positions, orders, or trade lifecycle.
+Soma owns durable trading state, account and terminal identity, signals, portfolios, positions, orders, reconciliation, and lifecycle evidence. Hermes may supply external context, but it must not own balances, positions, orders, or trade lifecycle.
 
 ### Frozen v1 experiment
 
@@ -1533,7 +1533,7 @@ This naturally includes broker spread.
 
 A trade ends only when its take-profit or stop-loss is reached. The 4H interval is the analysis candle timeframe, not a four-hour holding deadline.
 
-After connectivity loss, CodexBridge retrieves missed ticks where available. If both stop-loss and take-profit appear inside the same historical candle and reliable tick ordering cannot be recovered, the outcome is `AMBIGUOUS_DATA`; the system must never choose the favourable result silently.
+After connectivity loss, Soma retrieves missed ticks where available. If both stop-loss and take-profit appear inside the same historical candle and reliable tick ordering cannot be recovered, the outcome is `AMBIGUOUS_DATA`; the system must never choose the favourable result silently.
 
 ### Main components
 
@@ -1620,7 +1620,7 @@ This component performs no analysis. It only:
 - recovers open trades after service restart;
 - resolves every position exactly once.
 
-It must reuse CodexBridge durable workers, leases, heartbeats, protected evidence, process ownership, cancellation, and restart reconciliation rather than creating another durability subsystem.
+It must reuse Soma durable workers, leases, heartbeats, protected evidence, process ownership, cancellation, and restart reconciliation rather than creating another durability subsystem.
 
 #### 6. Evaluation engine
 
@@ -1642,7 +1642,7 @@ Report per threshold:
 
 Do not select the single highest-profit threshold. Prefer positive performance with enough trades, acceptable drawdown, stability across neighbouring thresholds, and persistence across genuinely fresh periods.
 
-### CodexBridge tool surface
+### Soma tool surface
 
 Read tools:
 
@@ -1675,7 +1675,7 @@ There is no live-order tool in v1.
 
 ### Safety model
 
-Trading environment and autonomy remain separate axes. The current CodexBridge deployment remains permissive-only; any future restoration of additional autonomy profiles must never change trading execution mode implicitly.
+Trading environment and autonomy remain separate axes. The current Soma deployment remains permissive-only; any future restoration of additional autonomy profiles must never change trading execution mode implicitly.
 
 ```yaml
 execution_mode:
@@ -1726,7 +1726,7 @@ Before repository implementation:
 
 Gate: a written evidence bundle containing symbol name, minimum volume, contract size, spread, account mode, captured account equity and currency, order-check and demo-order results, reconnection evidence, and screenshots or protected logs. The evidence must show that the baseline is read from MT5 rather than hard-coded; the current practice-account example is 1,000 USD.
 
-No CodexBridge trading source file may be created before TL0 passes.
+No Soma trading source file may be created before TL0 passes.
 
 #### TL1 - Read-only MT5 adapter
 
@@ -1760,7 +1760,7 @@ A deterministic standard-library PNG renderer now consumes only the immutable pa
 
 Acceptance evidence:
 
-- commit `b82860de70319931cb26df8bc7918e80067ec877` added `codexbridge/trading/market_packet.py`;
+- commit `b82860de70319931cb26df8bc7918e80067ec877` added `soma/trading/market_packet.py`;
 - commit `0523968510868983edd2444e11264255bf658d2f` added deterministic packet regressions;
 - commit `f3ca56101736eea4769c582372dd0b3f929910f1` added deterministic candlestick PNG rendering;
 - commits `5a795f841005f7be0ef872bf54b7f1d35e3deae3` and `06b7d0433c6b5bdd45614a69e6c6c06b426fef7a` added and corrected focused chart regressions;
@@ -1866,7 +1866,7 @@ Reuse:
 - MT5 terminal;
 - official MetaTrader5 Python package;
 - Alpari price feed and demo execution;
-- CodexBridge durability, policy, artifact, cancellation, and reconciliation infrastructure;
+- Soma durability, policy, artifact, cancellation, and reconciliation infrastructure;
 - Hermes external research tools.
 
 Build:
@@ -1886,7 +1886,7 @@ The next preserved Trading Lab gate is TL5: implement the deterministic durable 
 
 Promote an observation when it violates a durability/security invariant, can lose or duplicate work, blocks a representative workflow, repeatedly requires manual recovery, reveals a repeated architectural pattern, or carries sufficient expected impact.
 
-Attribute connector 502s before repair. Treat external fixture loss as infrastructure unavailability unless CodexBridge mishandles it. Write Roadmap V3 only after representative pilot evidence is reviewed.
+Attribute connector 502s before repair. Treat external fixture loss as infrastructure unavailability unless Soma mishandles it. Write Roadmap V3 only after representative pilot evidence is reviewed.
 
 ## Deferred Work
 

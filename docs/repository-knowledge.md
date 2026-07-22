@@ -1,6 +1,6 @@
 # Repository knowledge system
 
-CodexBridge combines a generated repository wiki with persistent project memory.
+Soma combines a generated repository wiki with persistent project memory.
 
 ## Knowledge hierarchy
 
@@ -16,7 +16,7 @@ The wiki is a cache. Critical claims must still be checked against live source b
 Each repository receives a local generated wiki under:
 
 ```text
-.codexbridge/wiki/
+.soma/wiki/
 ├── overview.md
 ├── architecture.md
 ├── modules.md
@@ -80,7 +80,7 @@ Persist an accepted decision under one repository.
 The knowledge gateways expose strict discriminated schemas. After pulling the implementation:
 
 1. Run the relevant tests.
-2. Restart the CodexBridge server.
-3. Refresh the CodexBridge connector/action catalog in ChatGPT.
+2. Restart the Soma server.
+3. Refresh the Soma connector/action catalog in ChatGPT.
 
 A full disconnect and reconnect is not normally required.

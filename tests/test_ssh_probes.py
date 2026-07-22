@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from codexbridge.config import (
+from soma.config import (
     SSHCommandProfileConfig,
     SSHHostConfig,
     SSHWatchdogConfig,
 )
-from codexbridge.ssh_commands import validate_ssh_command_profile
-from codexbridge.ssh_probes import (
+from soma.ssh_commands import validate_ssh_command_profile
+from soma.ssh_probes import (
     environment_probe_specs,
     evaluate_watchdog,
     gpu_probe_specs,

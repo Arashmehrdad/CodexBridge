@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from codexbridge.hermes_companion import (
+from soma.hermes_companion import (
     HermesCompanion,
     HermesCompanionRuntimeError,
     HermesRegistrySnapshot,
     load_pinned_registry,
     serve_stdio,
 )
-from codexbridge.hermes_companion_protocol import (
+from soma.hermes_companion_protocol import (
     HERMES_COMPANION_PROTOCOL_VERSION,
     PINNED_HERMES_REVISION,
 )
@@ -141,8 +141,8 @@ def test_pinned_loader_rejects_revision_drift_before_import(monkeypatch, tmp_pat
         imported = True
         raise AssertionError(name)
 
-    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
-    monkeypatch.setattr("codexbridge.hermes_companion.importlib.import_module", fake_import)
+    monkeypatch.setattr("soma.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.hermes_companion.importlib.import_module", fake_import)
 
     with pytest.raises(HermesCompanionRuntimeError, match="revision drift"):
         load_pinned_registry(tmp_path)
@@ -181,7 +181,7 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
         discovered["called"] = True
         return ["tools.filesystem"]
 
-    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.hermes_companion.subprocess.run", fake_run)
     observed_calls: list[tuple[str, dict, list[str], list[str]]] = []
 
     def fake_handle_function_call(
@@ -216,7 +216,7 @@ def test_pinned_loader_uses_discovered_pinned_registry_catalog(monkeypatch, tmp_
         raise AssertionError(name)
 
     monkeypatch.setattr(
-        "codexbridge.hermes_companion.importlib.import_module",
+        "soma.hermes_companion.importlib.import_module",
         fake_import,
     )
 
@@ -277,8 +277,8 @@ def test_pinned_loader_imports_only_registry_and_rejects_model_runtime(monkeypat
             return SimpleNamespace(discover_mcp_tools=lambda: [])
         raise AssertionError(name)
 
-    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
-    monkeypatch.setattr("codexbridge.hermes_companion.importlib.import_module", fake_import)
+    monkeypatch.setattr("soma.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.hermes_companion.importlib.import_module", fake_import)
     try:
         with pytest.raises(ValueError, match="model runtime"):
             load_pinned_registry(tmp_path)
@@ -359,9 +359,9 @@ def test_pinned_loader_includes_plugin_and_mcp_registered_tools(monkeypatch, tmp
             return SimpleNamespace(handle_function_call=fake_handle_function_call)
         raise AssertionError(name)
 
-    monkeypatch.setattr("codexbridge.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.hermes_companion.subprocess.run", fake_run)
     monkeypatch.setattr(
-        "codexbridge.hermes_companion.importlib.import_module", fake_import
+        "soma.hermes_companion.importlib.import_module", fake_import
     )
 
     snapshot = load_pinned_registry(tmp_path)

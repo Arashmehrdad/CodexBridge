@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.local_agent import (
+from soma.local_agent import (
     LocalAgentOrchestrator,
     LocalAgentTaskInput,
     LocalAgentTaskType,

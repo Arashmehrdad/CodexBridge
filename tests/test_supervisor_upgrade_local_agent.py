@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
-from codexbridge.supervisor import SupervisorStatus, SupervisorTaskRequest
+from soma.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
+from soma.supervisor import SupervisorStatus, SupervisorTaskRequest
 
 
 class FakeSupervisorManager:
@@ -108,7 +108,7 @@ def test_local_agent_lists_supervisors_read_only() -> None:
 
 
 def test_local_agent_forwards_durable_context_to_supervisor_manager(monkeypatch) -> None:
-    from codexbridge.local_agent import orchestrator as orchestrator_module
+    from soma.local_agent import orchestrator as orchestrator_module
 
     captured = {}
 

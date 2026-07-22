@@ -8,7 +8,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("codexbridge-disposable-fixture")
+mcp = FastMCP("soma-disposable-fixture")
 
 
 def _state_path() -> Path:
@@ -17,7 +17,7 @@ def _state_path() -> Path:
         raise RuntimeError("HERMES_HOME is required for fixture state")
     home = Path(configured_home).resolve()
     home.mkdir(parents=True, exist_ok=True)
-    return home / "codexbridge-side-effect-fixture.json"
+    return home / "soma-side-effect-fixture.json"
 
 
 def _load_state() -> dict[str, Any]:
@@ -39,8 +39,8 @@ def _save_state(state: dict[str, Any]) -> None:
 
 @mcp.tool()
 def echo_fixture(value: str) -> dict[str, str]:
-    """Echo a value through the CodexBridge disposable MCP fixture."""
-    return {"source": "codexbridge-disposable-mcp", "value": value}
+    """Echo a value through the Soma disposable MCP fixture."""
+    return {"source": "soma-disposable-mcp", "value": value}
 
 
 @mcp.tool()
@@ -51,7 +51,7 @@ def wait_fixture(seconds: float, value: str = "completed") -> dict[str, Any]:
         raise ValueError("seconds must be between 0 and 300")
     time.sleep(duration)
     return {
-        "source": "codexbridge-disposable-mcp",
+        "source": "soma-disposable-mcp",
         "value": value,
         "waited_seconds": duration,
     }

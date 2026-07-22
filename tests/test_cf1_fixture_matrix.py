@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from codexbridge.cf1_fixture_matrix import (
+from soma.cf1_fixture_matrix import (
     CF1_FIXTURE_MATRIX,
     CF1_FIXTURE_MATRIX_VERSION,
     FixtureClass,

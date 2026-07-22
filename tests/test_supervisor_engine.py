@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.supervisor_engine import FakeChildJobBackend, SupervisorEngine
-from codexbridge import supervisor_resume_prompt as supervisor_resume_prompt_module
-from codexbridge.supervisor_resume_prompt import supervisor_prompt_path, write_resume_prompt
-from codexbridge.supervisor_store import SupervisorStore
-from codexbridge.policy import BalancedAutonomyProfile
+from soma.supervisor_engine import FakeChildJobBackend, SupervisorEngine
+from soma import supervisor_resume_prompt as supervisor_resume_prompt_module
+from soma.supervisor_resume_prompt import supervisor_prompt_path, write_resume_prompt
+from soma.supervisor_store import SupervisorStore
+from soma.policy import BalancedAutonomyProfile
 
 
 def make_engine(
@@ -35,7 +35,7 @@ def make_engine_with_profile(
 
 def create_supervisor(engine: SupervisorEngine) -> dict:
     return engine.create_plan_supervisor(
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="make a safe docs change",
         task="inspect README",
         constraints="do not edit",
@@ -46,7 +46,7 @@ def create_supervisor_with_task(
     engine: SupervisorEngine, task: str, constraints: str = ""
 ) -> dict:
     return engine.create_plan_supervisor(
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="policy test",
         task=task,
         constraints=constraints,
@@ -66,7 +66,7 @@ def test_write_resume_prompt_atomically_replaces_existing_prompt(
 ) -> None:
     supervisor = {
         "supervisor_id": "supervisor-1",
-        "repo_name": "codexbridge",
+        "repo_name": "soma",
         "status": "completed",
         "summary": "new database-derived content",
     }
@@ -100,7 +100,7 @@ def test_write_resume_prompt_replace_failure_preserves_existing_prompt(
 ) -> None:
     supervisor = {
         "supervisor_id": "supervisor-1",
-        "repo_name": "codexbridge",
+        "repo_name": "soma",
         "status": "failed",
         "error": "new database-derived error",
     }
@@ -231,7 +231,7 @@ def test_approve_plan_starts_fake_implementation(tmp_path: Path) -> None:
     assert implementing["metadata"]["active_child"]["kind"] == "implementation"
     ownership = implementing["metadata"]["implementation_lock"]
     assert ownership["authority"] == "operation_locks"
-    assert ownership["repo_name"] == "codexbridge"
+    assert ownership["repo_name"] == "soma"
     assert ownership["run_id"] == active_run_id(implementing)
     assert ownership["lease_generation"] == 1
     assert len(jobs.jobs) == 2
@@ -301,7 +301,7 @@ def test_approve_plan_hard_stops_before_lock_when_profile_disallows_tier_two(
         "implementation_tier_exceeds_profile"
         in stopped["metadata"]["hard_stop"]["reasons"]
     )
-    assert store.operation_locks.list_locks("codexbridge") == []
+    assert store.operation_locks.list_locks("soma") == []
     assert len(jobs.jobs) == 1
     assert store.list_notifications(stopped["supervisor_id"])[0]["kind"] == "hard_stop"
 
@@ -322,7 +322,7 @@ def test_approve_plan_hard_stops_when_tests_required_for_non_docs_changes(
         "tests_required_for_non_docs_changes"
         in stopped["metadata"]["hard_stop"]["reasons"]
     )
-    assert store.operation_locks.list_locks("codexbridge") == []
+    assert store.operation_locks.list_locks("soma") == []
     assert len(jobs.jobs) == 1
 
 
@@ -384,7 +384,7 @@ def test_completed_implementation_marks_supervisor_completed(tmp_path: Path) -> 
     assert completed["summary"] == "implementation summary"
     assert completed["metadata"]["implementation_result"]["changed_files"] == []
     assert completed["metadata"]["implementation_lock"] is None
-    assert _store.operation_locks.list_locks("codexbridge") == []
+    assert _store.operation_locks.list_locks("soma") == []
     notifications = _store.list_notifications(completed["supervisor_id"])
     assert len(notifications) == 1
     assert notifications[0]["kind"] == "completed"
@@ -430,7 +430,7 @@ def test_implementation_failure_marks_supervisor_failed(tmp_path: Path) -> None:
     assert failed["status"] == "failed"
     assert failed["error"] == "implementation failed"
     assert failed["metadata"]["implementation_lock"] is None
-    assert _store.operation_locks.list_locks("codexbridge") == []
+    assert _store.operation_locks.list_locks("soma") == []
 
 
 def test_cancelled_implementation_child_clears_ownership_metadata(
@@ -445,7 +445,7 @@ def test_cancelled_implementation_child_clears_ownership_metadata(
     cancelled = engine.tick(needs_input["supervisor_id"])
     assert cancelled["status"] == "cancelled"
     assert cancelled["metadata"]["implementation_lock"] is None
-    assert store.operation_locks.list_locks("codexbridge") == []
+    assert store.operation_locks.list_locks("soma") == []
 
 
 def test_cancel_active_plan_marks_cancelled(tmp_path: Path) -> None:
@@ -471,7 +471,7 @@ def test_cancel_active_implementation_marks_cancelled(tmp_path: Path) -> None:
     assert cancelled["status"] == "cancelled"
     assert jobs.get(active_run_id(implementing)).status == "cancelled"
     assert cancelled["metadata"]["implementation_lock"] is None
-    assert _store.operation_locks.list_locks("codexbridge") == []
+    assert _store.operation_locks.list_locks("soma") == []
 
 
 def test_cancel_with_unowned_child_requires_manual_verification(tmp_path: Path) -> None:
@@ -591,7 +591,7 @@ def test_existing_reserved_plan_child_is_adopted_without_duplicate_launch(
     )
     assert attached is not None
     jobs.start_plan(
-        "codexbridge",
+        "soma",
         "inspect README",
         "do not edit",
         reserved_run_id=run_id,

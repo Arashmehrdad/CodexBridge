@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.events import (
+from soma.events import (
     ArtifactWriter,
     append_jsonl,
     read_jsonl,

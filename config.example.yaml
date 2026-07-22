@@ -51,7 +51,7 @@ executable_profiles:
   hermes_python:
     profile_id: "hermes_python"
     enabled: false
-    executable_path: "D:/Github/CodexBridge/.venv/Scripts/python.exe"
+    executable_path: "D:/Github/Soma/.venv/Scripts/python.exe"
     target: "local"
     working_directory_policy: "arbitrary"
     environment_policy: "arbitrary"

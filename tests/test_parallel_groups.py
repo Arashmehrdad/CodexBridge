@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import (
+from soma.config import (
     AppConfig,
     ExecutableProfileConfig,
     ParallelExecutionConfig,
     RepoConfig,
 )
-from codexbridge.parallel_groups import ParallelGroupStore, launch_powershell_group
+from soma.parallel_groups import ParallelGroupStore, launch_powershell_group
 
 
 def child_spec(runs_dir: Path, suffix: str) -> dict:

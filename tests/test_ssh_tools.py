@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import codexbridge.ssh_tools as ssh_tools
-from codexbridge.config import (
+import soma.ssh_tools as ssh_tools
+from soma.config import (
     AppConfig,
     RepoConfig,
     SSHCommandProfileConfig,

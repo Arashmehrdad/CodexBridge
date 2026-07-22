@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.transactions import (
+from soma.transactions import (
     TransactionContext,
     build_transaction_result,
     rollback_transaction,

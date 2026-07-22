@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.supervisor_resume_prompt import (
+from soma.supervisor_resume_prompt import (
     PULSESENDER_DELIVERY_NOTE,
     build_resume_prompt,
     supervisor_prompt_path,
@@ -17,7 +17,7 @@ RUN_ID = "20260428T120001Z_codex_plan_task_12345678"
 def supervisor(status: str, metadata: dict | None = None, **overrides) -> dict:
     data = {
         "supervisor_id": SUPERVISOR_ID,
-        "repo_name": "codexbridge",
+        "repo_name": "soma",
         "status": status,
         "objective": "resume work",
         "summary": "summary",
@@ -36,7 +36,7 @@ def test_needs_input_prompt_includes_plan_result_and_artifact_references(
         supervisor("needs_input", {"plan_result": {"summary": "plan ready"}}),
         tmp_path / "runs",
     )
-    assert "You are Codex resuming a CodexBridge supervisor context." in prompt
+    assert "You are Codex resuming a Soma supervisor context." in prompt
     assert "status: needs_input" in prompt
     assert f"plan: {RUN_ID}" in prompt
     assert str(tmp_path / "runs" / RUN_ID / "result.json") in prompt

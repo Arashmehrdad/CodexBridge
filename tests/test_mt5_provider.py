@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from codexbridge.trading.mt5_provider import MT5Provider
+from soma.trading.mt5_provider import MT5Provider
 
 
 UTC = timezone.utc

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import codexbridge.docker_tools as docker_tools
-from codexbridge.config import (
+import soma.docker_tools as docker_tools
+from soma.config import (
     AppConfig,
     DockerConfig,
     DockerExecProfileConfig,

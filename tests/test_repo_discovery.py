@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import (
+from soma.config import (
     AppConfig,
     RepoConfig,
     resolve_repo,
     resolve_repo_identity,
 )
-from codexbridge.repo_discovery import (
+from soma.repo_discovery import (
     canonical_repo_name,
     discover_repositories,
     discover_repository,
@@ -148,7 +148,7 @@ def test_discovery_can_be_disabled(
     root = tmp_path / "Github"
     config = config_with_known_repo(root, tmp_path)
     make_git_repo(root / "SeedMind")
-    monkeypatch.setenv("CODEXBRIDGE_AUTO_DISCOVER_REPOS", "0")
+    monkeypatch.setenv("SOMA_AUTO_DISCOVER_REPOS", "0")
 
     with pytest.raises(ValueError, match="Unknown repo_name"):
         resolve_repo(config, "seedmind")
@@ -160,6 +160,6 @@ def test_environment_root_allows_empty_static_repo_map(
     root = tmp_path / "Github"
     repo = make_git_repo(root / "SeedMind")
     config = AppConfig(repos={}, config_dir=tmp_path)
-    monkeypatch.setenv("CODEXBRIDGE_REPO_ROOTS", str(root))
+    monkeypatch.setenv("SOMA_REPO_ROOTS", str(root))
 
     assert resolve_repo(config, "seedmind") == repo.resolve()

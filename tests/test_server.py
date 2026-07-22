@@ -7,11 +7,11 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.gateway_models import RepoApplyRequest
-from codexbridge.git_tools import CommitMetadataError
-from codexbridge.server import parse_args
-import codexbridge.server as server
+from soma.config import AppConfig, RepoConfig
+from soma.gateway_models import RepoApplyRequest
+from soma.git_tools import CommitMetadataError
+from soma.server import parse_args
+import soma.server as server
 import pytest
 
 
@@ -591,7 +591,7 @@ def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
 
     assert server.list_ssh_capabilities()["actions"] == ["service_restart"]
     assert server.ssh_host_health("my_vps")["status"] == "ok"
-    from codexbridge.gateway_models import SSHBoundedInspection
+    from soma.gateway_models import SSHBoundedInspection
 
     assert server.ssh_inspect(
         SSHBoundedInspection(operation="inspection", host_id="my_vps", inspection="uptime")
@@ -855,7 +855,7 @@ def test_commit_selected_files_respects_repo_policy_options(
 def test_preview_tools_preserve_canonical_repo_name(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
-        repos={"codexbridge": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+        repos={"soma": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
     server.set_config(config, tmp_path / "config.yaml")
     monkeypatch.setattr(
@@ -882,10 +882,10 @@ def test_preview_tools_preserve_canonical_repo_name(monkeypatch, tmp_path) -> No
         ),
     )
 
-    result = server.preview_repo_patch("CodexBridge", [])
+    result = server.preview_repo_patch("Soma", [])
 
-    assert result["repo_name"] == "codexbridge"
-    assert result["requested_repo_name"] == "CodexBridge"
+    assert result["repo_name"] == "soma"
+    assert result["requested_repo_name"] == "Soma"
 
 
 def test_direct_write_tools_finalize_commits(monkeypatch, tmp_path) -> None:
@@ -1095,7 +1095,7 @@ def test_dry_run_stage_manifest_accepts_include_ignored(monkeypatch, tmp_path) -
                 "unstaged": [],
                 "untracked": [],
                 "deleted": [],
-                "ignored": [".codexbridge/wiki/overview.md"] if include_ignored else [],
+                "ignored": [".soma/wiki/overview.md"] if include_ignored else [],
                 "renamed": [],
                 "tool_owned": [],
                 "files": [],
@@ -1106,7 +1106,7 @@ def test_dry_run_stage_manifest_accepts_include_ignored(monkeypatch, tmp_path) -
 
     result = server.dry_run_stage_manifest("repo", include_ignored=True)
 
-    assert result["ignored"] == [".codexbridge/wiki/overview.md"]
+    assert result["ignored"] == [".soma/wiki/overview.md"]
 
 
 def test_inspect_commit_range_uses_canonical_repo_context(
@@ -1114,7 +1114,7 @@ def test_inspect_commit_range_uses_canonical_repo_context(
 ) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
-        repos={"codexbridge": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
+        repos={"soma": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
     server.set_config(config, tmp_path / "config.yaml")
     monkeypatch.setattr(
@@ -1132,10 +1132,10 @@ def test_inspect_commit_range_uses_canonical_repo_context(
         },
     )
 
-    result = server.inspect_commit_range("CodexBridge", "a" * 40, "b" * 40)
+    result = server.inspect_commit_range("Soma", "a" * 40, "b" * 40)
 
-    assert result["repo_name"] == "codexbridge"
-    assert result["requested_repo_name"] == "CodexBridge"
+    assert result["repo_name"] == "soma"
+    assert result["requested_repo_name"] == "Soma"
 
 
 def test_inspect_repo_status_compact_normalizes_live_git_shapes(
@@ -1161,7 +1161,7 @@ def test_inspect_repo_status_compact_normalizes_live_git_shapes(
             "unsampled_tool_owned_count": 0,
             "files": [
                 {
-                    "path": "codexbridge/server.py",
+                    "path": "soma/server.py",
                     "size_bytes": 1,
                     "line_count": 1,
                     "tool_owned": False,
@@ -1316,7 +1316,7 @@ def test_server_apply_ssh_profile_change_uses_global_lock_and_activates(
 
     assert result["ok"] is True
     assert result["activation"]["modules"] == ["config"]
-    assert locks[0]["repo_name"] == "__codexbridge_config__"
+    assert locks[0]["repo_name"] == "__soma_config__"
     assert locks[0]["tool"] == "apply_ssh_profile_change"
     assert locks[0]["normalized_input"] == {"change_id": "change_1"}
     assert activated == [(config, config_path)]

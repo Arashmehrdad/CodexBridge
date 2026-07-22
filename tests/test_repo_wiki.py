@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.repo_wiki import RepoWikiService
+from soma.repo_wiki import RepoWikiService
 
 
 def _init_git_repo(root: Path) -> None:
@@ -20,7 +20,7 @@ def _init_git_repo(root: Path) -> None:
         capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "CodexBridge Tests"],
+        ["git", "config", "user.name", "Soma Tests"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -79,10 +79,10 @@ def test_refresh_generates_repository_wiki(tmp_path: Path) -> None:
     assert result["scan_truncated"] is False
     assert result["stale"] is False
     assert result["indexed_head"] == ""
-    current_path = tmp_path / ".codexbridge" / "wiki" / "CURRENT.json"
+    current_path = tmp_path / ".soma" / "wiki" / "CURRENT.json"
     current = json.loads(current_path.read_text(encoding="utf-8"))
     generation = (
-        tmp_path / ".codexbridge" / "wiki" / "generations" / current["generation_id"]
+        tmp_path / ".soma" / "wiki" / "generations" / current["generation_id"]
     )
     assert (generation / "index.md").is_file()
     assert (generation / "overview.md").is_file()
@@ -224,11 +224,11 @@ def test_refresh_applies_custom_wiki_exclusions(tmp_path: Path) -> None:
     service.refresh()
 
     current = json.loads(
-        (tmp_path / ".codexbridge" / "wiki" / "CURRENT.json").read_text(
+        (tmp_path / ".soma" / "wiki" / "CURRENT.json").read_text(
             encoding="utf-8"
         )
     )
-    generation = tmp_path / ".codexbridge" / "wiki" / "generations" / current["generation_id"]
+    generation = tmp_path / ".soma" / "wiki" / "generations" / current["generation_id"]
     source_index = json.loads(
         (generation / "machine" / "source-index.json").read_text(encoding="utf-8")
     )
@@ -255,11 +255,11 @@ def test_refresh_falls_back_to_filesystem_when_git_discovery_fails(
 
     assert result["ok"] is True
     current = json.loads(
-        (tmp_path / ".codexbridge" / "wiki" / "CURRENT.json").read_text(
+        (tmp_path / ".soma" / "wiki" / "CURRENT.json").read_text(
             encoding="utf-8"
         )
     )
-    generation = tmp_path / ".codexbridge" / "wiki" / "generations" / current["generation_id"]
+    generation = tmp_path / ".soma" / "wiki" / "generations" / current["generation_id"]
     source_index = json.loads(
         (generation / "machine" / "source-index.json").read_text(encoding="utf-8")
     )

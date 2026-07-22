@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import (
+from soma.config import (
     AppConfig,
     CloudflareProfileConfig,
     CodexConfig,
@@ -19,8 +19,8 @@ from codexbridge.config import (
     SSHDeploymentProfileConfig,
     SSHHostConfig,
 )
-from codexbridge.job_manager import JobManager
-from codexbridge.parallel_groups import ParallelGroupStore
+from soma.job_manager import JobManager
+from soma.parallel_groups import ParallelGroupStore
 
 
 class FakeProcess:
@@ -57,7 +57,7 @@ def make_manager(
                         ),
                         SSHCommandProfileConfig(
                             command_id="write_marker",
-                            argv=["touch", "/tmp/codexbridge-marker"],
+                            argv=["touch", "/tmp/soma-marker"],
                             timeout_seconds=30,
                             writes_remote=True,
                         ),
@@ -69,7 +69,7 @@ def make_manager(
         config_dir=tmp_path,
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.subprocess.Popen",
+        "soma.job_manager.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
     return JobManager(config, config_path)
@@ -114,7 +114,7 @@ def test_concurrent_hermes_companion_runs_do_not_take_repository_lock(
         return manager.start_executable_profile(
             "sample",
             "hermes_python",
-            ["-m", "codexbridge.hermes_companion"],
+            ["-m", "soma.hermes_companion"],
             working_directory=repository,
             stdin_text='{"operation":"handshake"}\n',
             timeout_seconds=30,
@@ -144,7 +144,7 @@ def test_start_powershell_group_delegates_to_two_phase_launcher(
         observed.update(kwargs)
         return {"accepted": True, "group_id": "group_1"}
 
-    monkeypatch.setattr("codexbridge.job_manager.launch_powershell_group", fake_launch)
+    monkeypatch.setattr("soma.job_manager.launch_powershell_group", fake_launch)
     children = [{"idempotency_key": "one", "argv": ["-Command", "one"]}]
 
     result = manager.start_powershell_group(
@@ -452,7 +452,7 @@ def test_start_ssh_monitored_command_creates_durable_run(
     assert controller_state["lease_generation"] == 1
     assert controller_state["remote"]["authoritative_state"] == "launch_pending"
     assert controller_state["local"]["reconciliation_state"] == "not_started"
-    assert controller_state["remote"]["state_dir"].startswith(".codexbridge/jobs/")
+    assert controller_state["remote"]["state_dir"].startswith(".soma/jobs/")
     assert controller_state["local"]["remote_job_id"] == controller_state["execution_id"]
     manifest = status["input"]["staging_manifest"]
     assert manifest["tool"] == "ssh_monitored_command"
@@ -1118,7 +1118,7 @@ def test_cloudflare_action_rejects_unauthorized_repository(
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        "codexbridge.job_manager.subprocess.run", lambda *args, **kwargs: None
+        "soma.job_manager.subprocess.run", lambda *args, **kwargs: None
     )
     response = manager.start_plan("sample", "inspect docs")
     cancelled = manager.cancel_run(response["run_id"])
@@ -1146,7 +1146,7 @@ def test_reconcile_startup_contains_legacy_running_record_without_identity(
         worker_identity="",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     assert manager.reconcile_startup() == 1
@@ -1170,11 +1170,11 @@ def test_reconcile_startup_adopts_verified_active_worker(
         worker_identity="222:windows:100",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_matches_identity",
+        "soma.job_manager.process_matches_identity",
         lambda pid, identity: pid == 222 and identity == "222:windows:100",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     assert manager.reconcile_startup() == 1
@@ -1206,7 +1206,7 @@ def test_reconcile_startup_adopts_verified_active_hermes_worker_without_publicat
         tool="executable_profile",
         input_json={
             "profile_id": "hermes_python",
-            "argv": ["-m", "codexbridge.hermes_companion"],
+            "argv": ["-m", "soma.hermes_companion"],
             "hermes_companion": companion,
         },
         status="running",
@@ -1216,11 +1216,11 @@ def test_reconcile_startup_adopts_verified_active_hermes_worker_without_publicat
         result_publication_status="not_published",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_matches_identity",
+        "soma.job_manager.process_matches_identity",
         lambda pid, identity: pid == 222 and identity == "222:windows:100",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     assert manager.reconcile_startup() == 1
@@ -1246,11 +1246,11 @@ def test_reconcile_startup_fails_dead_claimed_worker_and_releases_lock(
         worker_identity="222:windows:100",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_matches_identity",
+        "soma.job_manager.process_matches_identity",
         lambda _pid, _identity: False,
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     assert manager.reconcile_startup() == 1
@@ -1268,7 +1268,7 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     response = manager.start_plan("sample", "inspect docs")
     manager.store.update_run(response["run_id"], launcher_pid=None)
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     assert manager.reconcile_startup() == 1
@@ -1460,10 +1460,10 @@ def test_worker_launch_uses_independent_process_group_options(
         return FakeProcess()
 
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_group_popen_kwargs",
+        "soma.job_manager.process_group_popen_kwargs",
         lambda: {"creationflags": 512},
     )
-    monkeypatch.setattr("codexbridge.job_manager.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("soma.job_manager.subprocess.Popen", fake_popen)
 
     response = manager.start_plan("sample", "inspect docs")
 
@@ -1477,7 +1477,7 @@ def test_cancel_run_is_fail_closed_when_termination_is_unconfirmed(
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_plan("sample", "inspect docs")
     monkeypatch.setattr(
-        "codexbridge.job_manager.terminate_process_tree",
+        "soma.job_manager.terminate_process_tree",
         lambda pid: {
             "pid": pid,
             "method": "simulated",
@@ -1521,7 +1521,7 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
         }
 
     monkeypatch.setattr(
-        "codexbridge.job_manager.terminate_process_tree", fake_terminate
+        "soma.job_manager.terminate_process_tree", fake_terminate
     )
 
     cancelled = manager.cancel_run(response["run_id"])
@@ -1624,7 +1624,7 @@ def test_cancel_monitored_run_persists_remote_completion_before_local_terminal(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_manager.cancel_remote_controller", fake_cancel)
+    monkeypatch.setattr("soma.job_manager.cancel_remote_controller", fake_cancel)
 
     cancelled = manager.cancel_run(run_id)
 
@@ -1695,8 +1695,8 @@ def test_cancel_monitored_run_natural_completion_race_publishes_winner_once(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_manager.publish_run_result", fake_publish)
-    monkeypatch.setattr("codexbridge.job_manager.cancel_remote_controller", fake_cancel)
+    monkeypatch.setattr("soma.job_manager.publish_run_result", fake_publish)
+    monkeypatch.setattr("soma.job_manager.cancel_remote_controller", fake_cancel)
 
     cancelled = manager.cancel_run(run_id)
 
@@ -1743,14 +1743,14 @@ def test_restart_reconciles_completed_remote_cancellation_once(
     }
     publications: list[str] = []
 
-    monkeypatch.setattr("codexbridge.job_manager.process_matches_identity", lambda *_: False)
-    monkeypatch.setattr("codexbridge.job_manager.process_is_running", lambda *_: False)
+    monkeypatch.setattr("soma.job_manager.process_matches_identity", lambda *_: False)
+    monkeypatch.setattr("soma.job_manager.process_is_running", lambda *_: False)
     monkeypatch.setattr(
-        "codexbridge.job_manager.probe_remote_controller_state",
+        "soma.job_manager.probe_remote_controller_state",
         lambda *_: {"ok": True, "state": observed, "result": remote_result, "error": ""},
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.publish_run_result",
+        "soma.job_manager.publish_run_result",
         lambda store, published_run_id: (
             publications.append(published_run_id) or {"ok": True, "error": ""}
         ),
@@ -1869,10 +1869,10 @@ def test_get_control_status_reports_process_and_lock_state(
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_plan("sample", "inspect docs")
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda pid: pid == 12345
+        "soma.job_manager.process_is_running", lambda pid: pid == 12345
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_matches_identity",
+        "soma.job_manager.process_matches_identity",
         lambda _pid, _identity: False,
     )
 
@@ -1923,7 +1923,7 @@ def test_launch_failure_after_persistence_is_terminal_and_unlocks(
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        "codexbridge.job_manager.subprocess.Popen",
+        "soma.job_manager.subprocess.Popen",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("launch boom")),
     )
 
@@ -1971,7 +1971,7 @@ def test_duplicate_reconcilers_cannot_both_relaunch(
     manager.store.update_run(response["run_id"], launcher_pid=None)
     observed = manager.store.get_run(response["run_id"])
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
     launches: list[str] = []
 
@@ -2005,11 +2005,11 @@ def test_duplicate_reconcilers_record_one_adoption(
     )
     observed = manager.store.get_run(response["run_id"])
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_matches_identity",
+        "soma.job_manager.process_matches_identity",
         lambda pid, identity: pid == 222 and identity == "222:windows:100",
     )
     monkeypatch.setattr(
-        "codexbridge.job_manager.process_is_running", lambda _pid: False
+        "soma.job_manager.process_is_running", lambda _pid: False
     )
 
     manager._reconcile_run(observed)
@@ -2044,14 +2044,14 @@ def test_remote_reconciliation_poller_deduplicates_and_stops_at_terminal(
 
     class FakeThread:
         def __init__(self, *, target, name, daemon):
-            assert name == f"codexbridge-remote-reconcile-{run_id}"
+            assert name == f"soma-remote-reconcile-{run_id}"
             assert daemon is True
             self.target = target
 
         def start(self):
             started.append(self.target)
 
-    monkeypatch.setattr("codexbridge.job_manager.threading.Thread", FakeThread)
+    monkeypatch.setattr("soma.job_manager.threading.Thread", FakeThread)
 
     assert manager._start_remote_reconciliation_poller(run_id) is True
     assert manager._start_remote_reconciliation_poller(run_id) is False

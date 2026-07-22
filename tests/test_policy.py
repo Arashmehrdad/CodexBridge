@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from codexbridge.policy import (
+from soma.policy import (
     BalancedAutonomyProfile,
     decide_implementation_task,
     decide_plan_task,

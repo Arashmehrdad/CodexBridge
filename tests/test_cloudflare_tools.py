@@ -9,8 +9,8 @@ import urllib.error
 
 import pytest
 
-from codexbridge import cloudflare_tools
-from codexbridge.config import (
+from soma import cloudflare_tools
+from soma.config import (
     AppConfig,
     CloudflareConfig,
     CloudflareProfileConfig,
@@ -811,7 +811,7 @@ def test_turnstile_rotation_writes_secret_only_to_destination(
     env_text = destination.read_text(encoding="utf-8")
     if generated_secret not in env_text or old_value in env_text:
         pytest.fail("Turnstile secret destination was not replaced", pytrace=False)
-    assert not list(tmp_path.glob(".*.codexbridge-*.tmp"))
+    assert not list(tmp_path.glob(".*.soma-*.tmp"))
 
 
 def test_turnstile_create_writes_secret_without_returning_it(
@@ -871,7 +871,7 @@ def test_turnstile_secret_destination_uses_real_git_ignore_rule(tmp_path: Path) 
     prepared = cloudflare_tools._prepare_secret_destination(tmp_path, profile)
     try:
         assert prepared.path == tmp_path / ".env.production"
-        assert prepared.temp_path.name.startswith(".env.production.codexbridge-")
+        assert prepared.temp_path.name.startswith(".env.production.soma-")
         assert cloudflare_tools._git_path_is_ignored(tmp_path, prepared.path) is True
         assert (
             cloudflare_tools._git_path_is_ignored(tmp_path, prepared.temp_path) is True
@@ -944,7 +944,7 @@ def test_turnstile_secret_http_errors_do_not_echo_response_content(
         )
     if generated_secret in str(exc.value):
         pytest.fail("Turnstile secret leaked into an exception", pytrace=False)
-    assert not list(tmp_path.glob(".*.codexbridge-*.tmp"))
+    assert not list(tmp_path.glob(".*.soma-*.tmp"))
 
 
 def test_exact_write_aliases_preserve_existing_bounded_implementations(

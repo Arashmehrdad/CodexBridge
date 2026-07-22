@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, ExecutableProfileConfig, RepoConfig
-from codexbridge.executable_profiles import build_local_executable_run_request
-from codexbridge.job_worker import JobWorker
-from codexbridge.process_control import process_is_running, terminate_process_tree
-from codexbridge.run_store import RunStore, utc_now
+from soma.config import AppConfig, ExecutableProfileConfig, RepoConfig
+from soma.executable_profiles import build_local_executable_run_request
+from soma.job_worker import JobWorker
+from soma.process_control import process_is_running, terminate_process_tree
+from soma.run_store import RunStore, utc_now
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell acceptance")

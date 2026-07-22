@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.local_agent import LocalAgentOrchestrator
-from codexbridge.local_agent.models import LocalAgentTaskType, RoutingDecision
-from codexbridge.memory.models import (
+from soma.local_agent import LocalAgentOrchestrator
+from soma.local_agent.models import LocalAgentTaskType, RoutingDecision
+from soma.memory.models import (
     MemoryRecord,
     MemoryType,
     RepoProfileMemory,
     ValidationRecipeMemory,
 )
-from codexbridge.memory.repository import ProjectMemoryRepository
+from soma.memory.repository import ProjectMemoryRepository
 
 
 def repo(tmp_path: Path) -> ProjectMemoryRepository:
@@ -34,7 +34,7 @@ def test_decision_validation_and_repo_profile_memory(tmp_path: Path) -> None:
             repo_name="repo",
             test_command_ids=["pytest"],
             job_profile_ids=["dummy_success"],
-            notes="CodexBridge repo",
+            notes="Soma repo",
         )
     )
 
@@ -62,7 +62,7 @@ def test_orchestrator_routes_explicit_memory_tasks(tmp_path: Path) -> None:
     orchestrator = LocalAgentOrchestrator(memory_repository=memory_repo)
 
     remembered = orchestrator.handle_task(
-        "remember project fact: CodexBridge uses allowlisted commands"
+        "remember project fact: Soma uses allowlisted commands"
     )
     search = orchestrator.handle_task("search memory: allowlisted")
 
@@ -82,7 +82,7 @@ def test_orchestrator_continue_last_task_uses_memory_only(tmp_path: Path) -> Non
     )
 
     result = LocalAgentOrchestrator(memory_repository=memory_repo).handle_task(
-        "continue last CodexBridge task"
+        "continue last Soma task"
     )
 
     assert result.memory_result["title"] == "Latest job"
@@ -100,7 +100,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_memory(tmp_path: Path) -> Non
 def test_memory_modules_do_not_execute_commands_or_call_external_agents() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("codexbridge/memory").glob("*.py")
+        for path in Path("soma/memory").glob("*.py")
     )
 
     assert "subprocess" not in source

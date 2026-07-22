@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.job_worker import JobWorker
-from codexbridge.run_store import RunStore
+from soma.job_worker import JobWorker
+from soma.run_store import RunStore
 
 
 class FakePipe:
@@ -61,11 +61,11 @@ def test_durable_codex_worker_uses_file_stdin_and_isolated_environment(
     )
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        "soma.job_worker.CodexRunner._resolve_codex_executable",
         lambda self: "codex.exe",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        "soma.job_worker.CodexRunner._codex_exec_help",
         lambda self, _executable: "--sandbox",
     )
     captured: dict[str, object] = {}
@@ -76,9 +76,9 @@ def test_durable_codex_worker_uses_file_stdin_and_isolated_environment(
         captured["env"] = dict(kwargs["env"])
         return FakeProcess()
 
-    monkeypatch.setattr("codexbridge.job_worker.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("soma.job_worker.subprocess.Popen", fake_popen)
     monkeypatch.setattr(
-        "codexbridge.job_worker._stream_pipe",
+        "soma.job_worker._stream_pipe",
         lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
             ["Bridge inspection complete\n", "PLAN_STATUS: ready\n"]
             if output_path.name == "stdout.txt"
@@ -86,23 +86,23 @@ def test_durable_codex_worker_uses_file_stdin_and_isolated_environment(
         ),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files", lambda _repo_root: []
+        "soma.job_worker.git_tools.changed_files", lambda _repo_root: []
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status", lambda _repo_root: ""
+        "soma.job_worker.git_tools.git_status", lambda _repo_root: ""
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat", lambda _repo_root: ""
+        "soma.job_worker.git_tools.diff_stat", lambda _repo_root: ""
     )
     monkeypatch.setenv("MCP_FAKE_CONNECTOR", "must-not-leak")
 
@@ -113,6 +113,6 @@ def test_durable_codex_worker_uses_file_stdin_and_isolated_environment(
     assert task in captured["stdin_text"]
     assert "PLAN-ONLY mode" in captured["stdin_text"]
     assert "MCP_FAKE_CONNECTOR" not in env
-    assert env["CODEXBRIDGE_CONNECTOR_ISOLATION"] == "enabled"
+    assert env["SOMA_CONNECTOR_ISOLATION"] == "enabled"
     assert env["TMP"] == str(run_dir / "tmp")
     assert store.get_run(run_id)["status"] == "completed"

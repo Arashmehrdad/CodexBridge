@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from codexbridge.cf1_gateway_operation_inventory import (
+from soma.cf1_gateway_operation_inventory import (
     CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
     PUBLIC_GATEWAY_OPERATION_INVENTORY,
     ConnectorRepresentation,
@@ -14,9 +14,9 @@ from codexbridge.cf1_gateway_operation_inventory import (
     operation_names_by_gateway,
     validate_gateway_operation_inventory,
 )
-from codexbridge.knowledge_tools_integration import register_knowledge_tools
-from codexbridge.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
-import codexbridge.server as server
+from soma.knowledge_tools_integration import register_knowledge_tools
+from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
+import soma.server as server
 
 
 def _resolve_schema(value: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +119,7 @@ def test_every_operation_records_required_cf1_measurement_dimensions() -> None:
     assert PUBLIC_GATEWAY_OPERATION_INVENTORY
 
     for entry in PUBLIC_GATEWAY_OPERATION_INVENTORY:
-        assert entry.implementation_path.startswith("codexbridge.")
+        assert entry.implementation_path.startswith("soma.")
         assert ":" in entry.implementation_path
         assert entry.response_path
         assert entry.notes

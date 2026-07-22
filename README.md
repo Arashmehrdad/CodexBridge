@@ -1,13 +1,13 @@
-# CodexBridge
+# Soma
 
-CodexBridge is a Windows-first local FastMCP bridge between ChatGPT, whitelisted Git repositories, Codex CLI, allowlisted host commands, Git, repository knowledge, and durable run artifacts. It keeps repository inspection separate from write operations, validates every repo by name from `config.yaml`, and records durable run state under `runs/`.
+Soma is a Windows-first local FastMCP bridge between ChatGPT, whitelisted Git repositories, Codex CLI, allowlisted host commands, Git, repository knowledge, and durable run artifacts. It keeps repository inspection separate from write operations, validates every repo by name from `config.yaml`, and records durable run state under `runs/`.
 
 ## Architecture
 
 ```text
 ChatGPT
   -> MCP connector
-  -> CodexBridge FastMCP server (HTTP /mcp)
+  -> Soma FastMCP server (HTTP /mcp)
      -> repo whitelist + repo-relative path validation
      -> repository read tools
      -> repository write/preview tools
@@ -27,7 +27,7 @@ The bridge is designed so ChatGPT can inspect first, plan safely, execute narrow
 ## Setup
 
 ```powershell
-cd D:\Github\CodexBridge
+cd D:\Github\Soma
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
@@ -79,7 +79,7 @@ supervisors:
 Direct server start:
 
 ```powershell
-python -m codexbridge.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp
+python -m soma.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp
 ```
 
 That default route serves at `http://127.0.0.1:8000/mcp`.
@@ -87,10 +87,10 @@ That default route serves at `http://127.0.0.1:8000/mcp`.
 Helper script:
 
 ```powershell
-.\scripts\start_codexbridge_mcp.ps1
+.\scripts\start_soma_mcp.ps1
 ```
 
-`scripts/start_codexbridge_mcp.ps1` can:
+`scripts/start_soma_mcp.ps1` can:
 
 - check the local MCP endpoint
 - start the FastMCP server if it is not ready
@@ -103,25 +103,25 @@ Windows service controller:
 
 ```powershell
 # Open the interactive TUI.
-.\codexbridge-service.cmd
+.\soma-service.cmd
 
 # Direct service actions.
-.\codexbridge-service.cmd start
-.\codexbridge-service.cmd stop
-.\codexbridge-service.cmd restart
-.\codexbridge-service.cmd status
-.\codexbridge-service.cmd logs
-.\codexbridge-service.cmd diagnostics
+.\soma-service.cmd start
+.\soma-service.cmd stop
+.\soma-service.cmd restart
+.\soma-service.cmd status
+.\soma-service.cmd logs
+.\soma-service.cmd diagnostics
 
 # Inspect or change the supervisor autonomy profile.
-.\codexbridge-service.cmd profile-status
-.\codexbridge-service.cmd profile-set -Profile permissive
-.\codexbridge-service.cmd profile-set -Profile balanced -RestartAfterProfileChange
+.\soma-service.cmd profile-status
+.\soma-service.cmd profile-set -Profile permissive
+.\soma-service.cmd profile-set -Profile balanced -RestartAfterProfileChange
 ```
 
 The TUI displays the configured supervisor profile and the current server/tunnel process state. Choose **Select supervisor profile** to switch among the profiles defined under `supervisors.autonomy_profiles` in `config.yaml`. The update is validated and rolled back automatically if the resulting configuration is invalid. A running server must be restarted before the new profile takes effect; the TUI offers to do this immediately.
 
-Server `start`, `stop`, and `restart` actions manage only the local CodexBridge server. They never stop or restart the Cloudflare tunnel. Use the separate tunnel actions or the explicit combined actions when both processes should change. The lifecycle controller supports both Windows PowerShell 5.1 and PowerShell 7, including the normal connection-refused period while a stopped server is starting.
+Server `start`, `stop`, and `restart` actions manage only the local Soma server. They never stop or restart the Cloudflare tunnel. Use the separate tunnel actions or the explicit combined actions when both processes should change. The lifecycle controller supports both Windows PowerShell 5.1 and PowerShell 7, including the normal connection-refused period while a stopped server is starting.
 
 The controller writes service output under `runs\service_logs`. Actions that require elevation use the normal Windows UAC prompt, and the manager verifies process identity before stopping a server or tunnel.
 
@@ -144,9 +144,9 @@ Use the bridge in this order:
 
 Pushing through the current ChatGPT/OpenAI tool path is unavailable because prior attempts were blocked by the platform. A developer may still push locally with Git outside the bridge workflow.
 
-OpenAI safety checks may also intermittently block an otherwise valid MCP tool call before it reaches CodexBridge. Because the request never arrives at the server, CodexBridge cannot inspect, log, retry, or bypass that block. When no CodexBridge response or `run_id` was returned, one identical retry may be appropriate. Once a `run_id` exists, do not repeat the start action; poll the existing run instead.
+OpenAI safety checks may also intermittently block an otherwise valid MCP tool call before it reaches Soma. Because the request never arrives at the server, Soma cannot inspect, log, retry, or bypass that block. When no Soma response or `run_id` was returned, one identical retry may be appropriate. Once a `run_id` exists, do not repeat the start action; poll the existing run instead.
 
-These are limitations of the current ChatGPT/OpenAI tool path, not CodexBridge product policies.
+These are limitations of the current ChatGPT/OpenAI tool path, not Soma product policies.
 
 The human is not expected to run setup or routine repository validation during the normal bridge workflow.
 
@@ -179,7 +179,7 @@ Repository knowledge is exposed through:
 - `search_repo_knowledge`
 - `remember_repo_decision`
 
-`refresh_repo_wiki` generates or incrementally refreshes wiki pages under `.codexbridge/wiki` inside the target repository. That directory is generated local knowledge, should stay ignored by Git, and existing generated pages are reused instead of being force-rewritten outside a refresh request. `read_repo_wiki` reads a generated page such as `overview.md`. `search_repo_knowledge` searches both the generated wiki and repository-scoped decision memory in one call. `remember_repo_decision` stores a repository-scoped decision record by default so later planning and recovery runs can reuse the context.
+`refresh_repo_wiki` generates or incrementally refreshes wiki pages under `.soma/wiki` inside the target repository. That directory is generated local knowledge, should stay ignored by Git, and existing generated pages are reused instead of being force-rewritten outside a refresh request. `read_repo_wiki` reads a generated page such as `overview.md`. `search_repo_knowledge` searches both the generated wiki and repository-scoped decision memory in one call. `remember_repo_decision` stores a repository-scoped decision record by default so later planning and recovery runs can reuse the context.
 
 ## Allowlisted Project Commands
 
@@ -198,10 +198,10 @@ Command execution rules:
 - Project commands remain an internal durable substrate for workflows and typed validation adapters; unrestricted PowerShell is the public arbitrary-command gateway.
 - Full `pytest` is configured async-only and uses that durable command path.
 - `start_pytest_path_async(repo_name, path)` is the dedicated scoped pytest entrypoint for one validated repo-relative directory or `.py` file target, with optional `::` node selectors.
-- Scoped pytest accepts no arbitrary flags, command strings, environment overrides, or extra argv. CodexBridge validates and normalizes the target before queueing and again in the worker.
+- Scoped pytest accepts no arbitrary flags, command strings, environment overrides, or extra argv. Soma validates and normalizes the target before queueing and again in the worker.
 - Async `pytest` runs get per-run temp directories, isolated `--basetemp`, and persisted `stdout.txt` / `stderr.txt` artifacts under the run directory.
 - Read-only command profiles intentionally fail if they change tracked or untracked repository state. If a test command must generate repository artifacts, register a separate profile with `writes_files: true` or change the tests so they stop writing into the repository.
-- Host capabilities such as CUDA are available only if the server account, driver, project environment, and command profile already support them. CodexBridge does not install CUDA, Python packages, or project dependencies.
+- Host capabilities such as CUDA are available only if the server account, driver, project environment, and command profile already support them. Soma does not install CUDA, Python packages, or project dependencies.
 
 If a long command times out in synchronous mode, retrying it synchronously is not the correct recovery path. Register or use the durable async profile and recover through the run tools instead.
 
@@ -245,7 +245,7 @@ Push, cleanup, removals, and `compose down` with volumes require two independent
 
 ## Cloudflare DNS, Edge, Rulesets, and Tunnels
 
-Cloudflare support is a global CodexBridge service with repository-scoped access. Credentials and account/zone profiles are defined once under `cloudflare.profiles`; each repository explicitly lists the profile IDs it may use. Adding another website requires only a new global profile and a repository binding, not new Cloudflare code or project-specific tools. It uses the official client-v4 API through Python HTTPS requests and does not expose arbitrary URLs, endpoint paths, HTTP methods, headers, tokens, or GraphQL text.
+Cloudflare support is a global Soma service with repository-scoped access. Credentials and account/zone profiles are defined once under `cloudflare.profiles`; each repository explicitly lists the profile IDs it may use. Adding another website requires only a new global profile and a repository binding, not new Cloudflare code or project-specific tools. It uses the official client-v4 API through Python HTTPS requests and does not expose arbitrary URLs, endpoint paths, HTTP methods, headers, tokens, or GraphQL text.
 
 ```yaml
 repos:
@@ -329,7 +329,7 @@ Payloads are bounded and schema-checked, DNS names remain within the configured 
 
 ## SSH Deployment and Remote Debugging
 
-CodexBridge uses the local Windows OpenSSH and SCP clients through stable aliases from `%USERPROFILE%/.ssh/config`. Tailscale MagicDNS can provide stable private hostnames, but it is optional; public IP addresses also work behind an alias.
+Soma uses the local Windows OpenSSH and SCP clients through stable aliases from `%USERPROFILE%/.ssh/config`. Tailscale MagicDNS can provide stable private hostnames, but it is optional; public IP addresses also work behind an alias.
 
 ```sshconfig
 Host my-vps
@@ -413,9 +413,9 @@ Service stops, Compose shutdown, package administration, deletion, reboot, shutd
 
 Monitored SSH commands are opt-in and separate from ordinary SSH commands. A monitored start is refused unless the command profile has `watchdog_eligible: true` and the host watchdog is enabled. Automatic termination is active only when all of the following are true: `enabled`, `enforcement_mode: "terminate"`, `allow_automatic_termination: true`, and the profile is watchdog-eligible. Observe-only monitored runs record breaches and never terminate solely on a threshold breach.
 
-When termination is active, CodexBridge starts the configured remote argv in a new remote session/process group, persists bounded remote identity metadata (`pid`, `pgid`, `/proc` start-time ticks), samples the structured environment/GPU probe at the configured interval, requires the configured number of consecutive breached samples, and attempts confirmed remote process-group termination. Timeout and cancellation handling are fail-closed: if remote termination is unconfirmed, the run remains `cancellation_pending` or fails with `safety_failure: true` instead of claiming the remote process stopped safely.
+When termination is active, Soma starts the configured remote argv in a new remote session/process group, persists bounded remote identity metadata (`pid`, `pgid`, `/proc` start-time ticks), samples the structured environment/GPU probe at the configured interval, requires the configured number of consecutive breached samples, and attempts confirmed remote process-group termination. Timeout and cancellation handling are fail-closed: if remote termination is unconfirmed, the run remains `cancellation_pending` or fails with `safety_failure: true` instead of claiming the remote process stopped safely.
 
-A completed remote write means the remote command exited successfully; CodexBridge still reports `remote_state_verified: false` unless a separate inspection or deployment health check confirms the relevant state.
+A completed remote write means the remote command exited successfully; Soma still reports `remote_state_verified: false` unless a separate inspection or deployment health check confirms the relevant state.
 
 ## Controlled External Fixtures
 
@@ -495,14 +495,14 @@ Workflow:
 
 Scoped pytest example:
 
-1. Call `start_pytest_path_async("codexbridge", "tests/test_job_worker.py::test_project_command_worker_rebuilds_scoped_pytest_profile")`.
+1. Call `start_pytest_path_async("soma", "tests/test_job_worker.py::test_project_command_worker_rebuilds_scoped_pytest_profile")`.
 2. Save the returned `run_id`.
 3. Poll `get_run_status(run_id)` until the status is terminal.
 4. Read `get_run_result(run_id)` for the final `path`, argv, exit code, and saved output summary.
 
-If OpenAI safety blocks a tool call before CodexBridge returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
+If OpenAI safety blocks a tool call before Soma returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 
-Async state is durable across process restarts because run metadata is stored in `runs/codexbridge.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
+Async state is durable across process restarts because run metadata is stored in `runs/soma.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
 
 ### Durable Workflows
 
@@ -527,7 +527,7 @@ Example:
 
 ```powershell
 start_workflow `
-  -repo_name "codexbridge" `
+  -repo_name "soma" `
   -objective "Implement batch and validate it" `
   -steps @(
     @{
@@ -535,7 +535,7 @@ start_workflow `
       type = "codex_implement"
       parameters = @{
         approved_plan = "Implement the approved batch"
-        allowed_files = @("codexbridge/workflows/models.py", "tests/test_workflows.py")
+        allowed_files = @("soma/workflows/models.py", "tests/test_workflows.py")
         tests = @("python -m pytest -q tests/test_workflows.py")
       }
     },
@@ -590,7 +590,7 @@ Current limits are intentional:
 Recommended browser-launch path:
 
 ```powershell
-.\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -UserDataDir "D:\Github\CodexBridge\.pulse-chrome-profile" -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
+.\scripts\start_chrome_cdp.ps1 -Browser chrome -Port 9222 -UserDataDir "D:\Github\Soma\.pulse-chrome-profile" -ChatUrl "https://chatgpt.com/c/REAL_CHAT_ID"
 ```
 
 Dry-run smoke test:
@@ -614,7 +614,7 @@ Current limitations remain explicit:
 
 ## Safety Model
 
-CodexBridge's practical safety boundary is:
+Soma's practical safety boundary is:
 
 - repository whitelist enforcement by `repo_name`
 - repo-relative path validation for reads and writes

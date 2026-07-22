@@ -4,21 +4,21 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import LocalCodingConfig
-from codexbridge.local_agent.models import (
+from soma.config import LocalCodingConfig
+from soma.local_agent.models import (
     CommandRunResult,
     CommandRunStatus,
     PermissionTier,
 )
-from codexbridge.local_coding import (
+from soma.local_coding import (
     LocalCodingManager,
     LocalCodingRequest,
     LocalCodingStatus,
     LocalPatchOperation,
     LocalPatchOperationType,
 )
-from codexbridge.policy import PolicyEngine
-from codexbridge.run_store import utc_now
+from soma.policy import PolicyEngine
+from soma.run_store import utc_now
 
 
 class FakeCommandRunner:
@@ -141,7 +141,7 @@ def test_docs_line_update_and_json_metadata_preview(tmp_path: Path) -> None:
                     operation_type=LocalPatchOperationType.UPDATE_JSON_KEY,
                     target_file=Path("README.md"),
                     json_key="name",
-                    json_value="codexbridge",
+                    json_value="soma",
                 )
             ],
         )
@@ -409,7 +409,7 @@ def test_unavailable_local_model_does_not_fail_explicit_patch(tmp_path: Path) ->
 def test_local_coding_package_introduces_no_codex_pulsesender_browser_or_subprocess_imports() -> (
     None
 ):
-    package = Path("codexbridge/local_coding")
+    package = Path("soma/local_coding")
     text = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
     assert "PulseSender" not in text
     assert "playwright" not in text

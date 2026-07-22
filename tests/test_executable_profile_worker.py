@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, ExecutableProfileConfig, RepoConfig
-from codexbridge.executable_profiles import build_local_executable_run_request
-from codexbridge.job_worker import JobWorker
-from codexbridge.run_store import RunStore, utc_now
+from soma.config import AppConfig, ExecutableProfileConfig, RepoConfig
+from soma.executable_profiles import build_local_executable_run_request
+from soma.job_worker import JobWorker
+from soma.run_store import RunStore, utc_now
 
 
 def _write_config(config_path: Path, repo: Path, runs_dir: Path) -> None:
@@ -146,7 +146,7 @@ def test_executable_worker_rejects_identity_change_before_launch(
         launched = True
         raise AssertionError("process launch must not occur")
 
-    monkeypatch.setattr("codexbridge.job_worker.subprocess.Popen", unexpected_launch)
+    monkeypatch.setattr("soma.job_worker.subprocess.Popen", unexpected_launch)
 
     with pytest.raises(ValueError, match="identity does not match"):
         worker._execute_executable_profile(utc_now(), input_data)
@@ -169,12 +169,12 @@ def test_executable_worker_terminates_child_when_attachment_fails(
 
     terminated: list[int] = []
     monkeypatch.setattr(
-        "codexbridge.job_worker.subprocess.Popen",
+        "soma.job_worker.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
     monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: False)
     monkeypatch.setattr(
-        "codexbridge.job_worker.terminate_process_tree",
+        "soma.job_worker.terminate_process_tree",
         lambda pid: terminated.append(pid) or {"terminated": True},
     )
 
@@ -209,12 +209,12 @@ def test_executable_worker_marks_verified_timeout_termination(
             raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout)
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.subprocess.Popen",
+        "soma.job_worker.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
     monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "codexbridge.job_worker.terminate_process_tree",
+        "soma.job_worker.terminate_process_tree",
         lambda pid: {"terminated": True, "pid": pid},
     )
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from pydantic import TypeAdapter, ValidationError
 import pytest
 
-from codexbridge.gateway_models import (
+from soma.gateway_models import (
     RepoApplyRequest,
     RepoCommitRequest,
     RepoPreviewRequest,
@@ -43,7 +43,7 @@ from codexbridge.gateway_models import (
     WorkflowActionRequest,
     WorkflowQueryRequest,
 )
-import codexbridge.server as server
+import soma.server as server
 
 
 def _assert_compact_envelope(result: dict) -> None:
@@ -294,7 +294,7 @@ def test_run_query_group_projection_honors_response_budget(monkeypatch) -> None:
         def get_powershell_group(self, group_id: str) -> dict:
             return {
                 "group_id": group_id,
-                "repo_name": "codexbridge",
+                "repo_name": "soma",
                 "status": "running",
                 "mode": "powershell",
                 "failure_policy": "continue_all",
@@ -867,7 +867,7 @@ def test_workflow_query_projection_honors_response_budget(monkeypatch) -> None:
             return {
                 "ok": True,
                 "workflow_id": workflow_id,
-                "repo_name": "codexbridge",
+                "repo_name": "soma",
                 "status": "running",
                 "terminal_status": "",
                 "created_at": "2026-07-22T00:00:00Z",
@@ -2601,9 +2601,9 @@ def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
         "reload_service",
         lambda modules: {
             "ok": True,
-            "reloaded": [f"codexbridge.module_{index}" for index in range(5000)],
-            "resolved_modules": [f"codexbridge.module_{index}" for index in range(5000)],
-            "restart_required": [f"codexbridge.restart_{index}" for index in range(5000)],
+            "reloaded": [f"soma.module_{index}" for index in range(5000)],
+            "resolved_modules": [f"soma.module_{index}" for index in range(5000)],
+            "restart_required": [f"soma.restart_{index}" for index in range(5000)],
             "message": "m" * 20_000,
             "config_lifecycle": {"last_status": "reloaded", "last_error": "e" * 20_000},
         },

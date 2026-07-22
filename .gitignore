@@ -5,9 +5,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-codexbridge-server*.log
+soma-server*.log
 .env
 config.yaml
 runs/*
 !runs/.gitkeep
-.codexbridge/wiki/
+.soma/wiki/

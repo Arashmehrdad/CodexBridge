@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.run_guards import (
+from soma.run_guards import (
     allowed_write_directories,
     assess_implementation_output,
     assess_implementation_output_against,

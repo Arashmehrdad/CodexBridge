@@ -6,16 +6,16 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.knowledge_tools_integration import (
+from soma.config import AppConfig, RepoConfig
+from soma.knowledge_tools_integration import (
     _bounded_knowledge_action,
     _bounded_knowledge_search,
     _bounded_wiki_page,
     register_knowledge_tools,
 )
-from codexbridge.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
-from codexbridge.memory.repository import ProjectMemoryRepository
-from codexbridge.repo_wiki import RepoWikiService
+from soma.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
+from soma.memory.repository import ProjectMemoryRepository
+from soma.repo_wiki import RepoWikiService
 from pydantic import TypeAdapter
 
 
@@ -73,7 +73,7 @@ def test_tools_resolve_config_from_active_mcp_module(
 
     config = AppConfig(repos={"seedmind": RepoConfig(path=str(repo))})
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_active_server")
+    runtime_module = ModuleType("soma_test_active_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: config
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -87,10 +87,10 @@ def test_tools_resolve_config_from_active_mcp_module(
 
     assert result["ok"] is True
     assert result["status"] == "generated"
-    current = repo / ".codexbridge" / "wiki" / "CURRENT.json"
+    current = repo / ".soma" / "wiki" / "CURRENT.json"
     generation_id = json.loads(current.read_text(encoding="utf-8"))["generation_id"]
-    assert (repo / ".codexbridge" / "wiki" / "generations" / generation_id / "overview.md").is_file()
-    assert getattr(mcp, "_codexbridge_runtime_config") is config
+    assert (repo / ".soma" / "wiki" / "generations" / generation_id / "overview.md").is_file()
+    assert getattr(mcp, "_soma_runtime_config") is config
     assert len(result["server_build_hash"]) == 64
     assert len(result["schema_hash"]) == 64
     assert result["capability_epoch"]
@@ -114,7 +114,7 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
         config_dir=tmp_path,
     )
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_combined_knowledge_server")
+    runtime_module = ModuleType("soma_test_combined_knowledge_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: config
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -162,7 +162,7 @@ def test_knowledge_search_full_view_preserves_complete_hits(
         config_dir=tmp_path,
     )
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_full_knowledge_server")
+    runtime_module = ModuleType("soma_test_full_knowledge_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: config
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -324,7 +324,7 @@ def test_knowledge_tools_follow_the_active_config_after_reload(
     )
     active = {"config": first}
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_reloaded_knowledge_server")
+    runtime_module = ModuleType("soma_test_reloaded_knowledge_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: active["config"]
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -349,8 +349,8 @@ def test_knowledge_tools_follow_the_active_config_after_reload(
     assert page["ok"] is True
     assert page["repo_name"] == "second"
     assert "second repository marker" in page["content"]
-    assert (first_repo / ".codexbridge" / "wiki" / "CURRENT.json").is_file()
-    assert (second_repo / ".codexbridge" / "wiki" / "CURRENT.json").is_file()
+    assert (first_repo / ".soma" / "wiki" / "CURRENT.json").is_file()
+    assert (second_repo / ".soma" / "wiki" / "CURRENT.json").is_file()
 
 
 def test_refresh_read_and_search_share_the_active_wiki_generation(
@@ -369,7 +369,7 @@ def test_refresh_read_and_search_share_the_active_wiki_generation(
         config_dir=tmp_path,
     )
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_generation_knowledge_server")
+    runtime_module = ModuleType("soma_test_generation_knowledge_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: config
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)

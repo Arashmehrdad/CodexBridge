@@ -10,8 +10,8 @@ from typing import Any
 import jsonschema
 from fastmcp import Client, FastMCP
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.knowledge_tools_integration import (
+from soma.config import AppConfig, RepoConfig
+from soma.knowledge_tools_integration import (
     KNOWLEDGE_ACTION_OUTPUT,
     register_knowledge_tools,
 )
@@ -22,7 +22,7 @@ def _wiki_result() -> dict[str, Any]:
         "ok": True,
         "repo_name": "seedmind",
         "status": "generated",
-        "wiki_root": ".codexbridge/wiki",
+        "wiki_root": ".soma/wiki",
         "pages": ["index.md"],
         "source_file_count": 1,
         "changed_source_files": ["README.md"],
@@ -95,7 +95,7 @@ def test_registered_fastmcp_knowledge_action_accepts_refresh_and_remember(
     )
 
     mcp = FastMCP("knowledge-schema-test")
-    runtime_module = ModuleType("codexbridge_test_real_knowledge_server")
+    runtime_module = ModuleType("soma_test_real_knowledge_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: config
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -135,5 +135,5 @@ def test_registered_fastmcp_knowledge_action_accepts_refresh_and_remember(
         assert len(result.structured_content["schema_hash"]) == 64
         assert result.structured_content["capability_epoch"]
 
-    current = repo / ".codexbridge" / "wiki" / "CURRENT.json"
+    current = repo / ".soma" / "wiki" / "CURRENT.json"
     assert json.loads(current.read_text(encoding="utf-8"))["generation_id"]

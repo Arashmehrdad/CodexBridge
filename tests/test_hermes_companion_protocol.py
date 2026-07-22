@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from codexbridge.hermes_companion_protocol import (
+from soma.hermes_companion_protocol import (
     HERMES_COMPANION_PROTOCOL_VERSION,
     PINNED_HERMES_REVISION,
     HermesCompanionProtocolError,

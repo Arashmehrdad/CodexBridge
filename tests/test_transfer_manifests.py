@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.transfer_manifests import (
+from soma.transfer_manifests import (
     build_download_cleanup_manifest,
     build_upload_transfer_manifest,
     cleanup_transfer_staging,

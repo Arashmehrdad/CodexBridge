@@ -1,12 +1,12 @@
-# CodexBridge Agent Instructions
+# Soma Agent Instructions
 
 ## Project Purpose
 
-CodexBridge is evolving from a ChatGPT-to-Codex bridge into a local engineering control plane.
+Soma is evolving from a ChatGPT-to-Codex bridge into a local engineering control plane.
 
 Target operating model:
 - ChatGPT decides strategy and normal engineering actions.
-- CodexBridge MCP receives requests and owns durable execution state.
+- Soma MCP receives requests and owns durable execution state.
 - The local agent handles cheap, repetitive, operational, and long-running work.
 - Codex CLI is reserved for real coding/editing tasks.
 - PulseSender remains separate and returns prepared reports to the ChatGPT conversation.
@@ -51,7 +51,7 @@ The active sequence is:
 
 Do not resume H2, TL5, SSH expansion, reliability/autonomy work, or any other roadmap batch until CF1 is complete and the active `PLANS.md` explicitly reactivates that lane.
 
-Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. CodexBridge does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
+Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. Soma does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
 
 Local `JobManager`/`RunStore` execution and R4 monitored remote SSH execution may be described as restart-safe where their acceptance tests apply. New remote execution surfaces must reuse the authoritative controller, reattachment, identity-scoped cancellation, and exactly-once publication protocol rather than creating parallel ownership models.
 

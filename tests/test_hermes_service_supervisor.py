@@ -8,18 +8,18 @@ from typing import Any, Mapping
 
 import pytest
 
-from codexbridge.hermes_service import (
+from soma.hermes_service import (
     HermesRegistryIdentity,
     HermesServiceError,
     HermesServiceNotReadyError,
     HermesServiceReloadError,
     HermesServiceRequest,
 )
-from codexbridge.hermes_service_supervisor import (
+from soma.hermes_service_supervisor import (
     HermesServiceSupervisor,
     HermesSupervisorConfig,
 )
-from codexbridge.process_control import (
+from soma.process_control import (
     process_group_popen_kwargs,
     process_identity,
     process_is_running,

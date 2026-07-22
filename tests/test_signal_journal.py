@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from codexbridge.trading.signal_journal import (
+from soma.trading.signal_journal import (
     SignalDecision,
     SignalDraft,
     SignalJournal,

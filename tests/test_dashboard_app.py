@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.dashboard.app import create_dashboard_app
+from soma.config import AppConfig, RepoConfig
+from soma.dashboard.app import create_dashboard_app
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_dashboard_api_routes_are_read_only(tmp_path: Path) -> None:
 def test_dashboard_package_introduces_no_pulsesender_browser_codex_or_subprocess_calls() -> (
     None
 ):
-    package = Path("codexbridge/dashboard")
+    package = Path("soma/dashboard")
     text = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
     assert "import PulseSender" not in text
     assert "from PulseSender" not in text

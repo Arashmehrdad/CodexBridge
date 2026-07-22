@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.cf1_contract_freeze import (
+from soma.cf1_contract_freeze import (
     ARTIFACT_VISIBILITY_SEMANTICS,
     CF1_COMPATIBILITY_INVARIANTS,
     CF1_CONTRACT_FREEZE_VERSION,
@@ -21,7 +21,7 @@ from codexbridge.cf1_contract_freeze import (
     RedactionAction,
     validate_cf1_contract_freeze,
 )
-from codexbridge.public_projection_contract import (
+from soma.public_projection_contract import (
     DEFAULT_PUBLIC_BYTE_BUDGETS,
     ArtifactVisibility,
     DecisionRelevantTransition,

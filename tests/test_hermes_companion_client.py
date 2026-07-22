@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.hermes_companion_client import (
+from soma.hermes_companion_client import (
     build_companion_launch,
     parse_companion_result,
     start_companion_request,
 )
-from codexbridge.hermes_companion_protocol import (
+from soma.hermes_companion_protocol import (
     HERMES_COMPANION_PROTOCOL_VERSION,
     PINNED_HERMES_REVISION,
 )
@@ -44,7 +44,7 @@ def test_build_handshake_launch_is_one_bounded_request(tmp_path: Path) -> None:
 
     request = json.loads(launch.stdin_text)
     assert request == {"operation": "handshake"}
-    assert launch.argv[:3] == ("-m", "codexbridge.hermes_companion", "--hermes-checkout")
+    assert launch.argv[:3] == ("-m", "soma.hermes_companion", "--hermes-checkout")
     assert launch.checkout == str(checkout.resolve())
     assert launch.stdin_text.endswith("\n")
 

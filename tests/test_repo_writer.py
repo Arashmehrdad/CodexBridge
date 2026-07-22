@@ -1,5 +1,5 @@
 """
-Tests for codexbridge/repo_writer.py and related server tools.
+Tests for soma/repo_writer.py and related server tools.
 No CodexRunner, Gemini, Ollama, or local-model calls are made.
 """
 
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge import repo_writer as rw
-from codexbridge.repo_writer import (
+from soma import repo_writer as rw
+from soma.repo_writer import (
     preview_repo_patch,
     preview_repo_file_creation,
     preview_repo_file_removal,
@@ -66,7 +66,7 @@ def init_git_repo(path: Path) -> None:
         capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "CodexBridge Tests"],
+        ["git", "config", "user.name", "Soma Tests"],
         cwd=path,
         check=True,
         capture_output=True,
@@ -94,10 +94,10 @@ def test_atomic_write_bytes_cleans_up_temp_file_on_replace_failure(
     monkeypatch.setattr(rw.os, "replace", fail_replace)
 
     with pytest.raises(OSError, match="replace failed"):
-        rw._atomic_write_bytes(target, b"payload", ".codexbridge_test_tmp")
+        rw._atomic_write_bytes(target, b"payload", ".soma_test_tmp")
 
     assert not target.exists()
-    assert list(tmp_path.glob("*.codexbridge_test_tmp")) == []
+    assert list(tmp_path.glob("*.soma_test_tmp")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -1993,7 +1993,7 @@ def test_python_ast_allows_explicit_legacy_newline_normalization(
 def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
     import ast
 
-    import codexbridge.repo_writer as rw_mod
+    import soma.repo_writer as rw_mod
 
     source = Path(rw_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -2018,8 +2018,8 @@ def test_repo_writer_does_not_import_codex_runner(tmp_path: Path) -> None:
 
 
 def test_server_preview_and_apply(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     init_git_repo(tmp_path)
     write_file(tmp_path / "target.py", "x = 0\n")
@@ -2049,8 +2049,8 @@ def test_server_preview_and_apply(tmp_path: Path) -> None:
 
 
 def test_server_create_and_delete_file(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     init_git_repo(tmp_path)
     config = AppConfig(
@@ -2074,8 +2074,8 @@ def test_server_create_and_delete_file(tmp_path: Path) -> None:
 def test_server_preview_creation_removal_and_apply_previewed_change(
     tmp_path: Path,
 ) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     init_git_repo(tmp_path)
     write_file(tmp_path / "remove_me.py", "print('bye')\n")
@@ -2108,8 +2108,8 @@ def test_server_preview_creation_removal_and_apply_previewed_change(
 
 
 def test_server_move_file(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     init_git_repo(tmp_path)
     write_file(tmp_path / "old_name.py", "content\n")

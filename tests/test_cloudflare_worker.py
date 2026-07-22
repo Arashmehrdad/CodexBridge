@@ -4,9 +4,9 @@ import json
 import secrets
 from pathlib import Path
 
-from codexbridge import cloudflare_tools
-from codexbridge.job_worker import JobWorker
-from codexbridge.run_store import RunStore
+from soma import cloudflare_tools
+from soma.job_worker import JobWorker
+from soma.run_store import RunStore
 
 
 def test_cloudflare_action_worker_persists_result(monkeypatch, tmp_path: Path) -> None:
@@ -62,7 +62,7 @@ def test_cloudflare_action_worker_persists_result(monkeypatch, tmp_path: Path) -
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_cloudflare_action",
+        "soma.job_worker.run_cloudflare_action",
         lambda config, profile_id, action, **kwargs: {
             "ok": True,
             "profile_id": profile_id,
@@ -210,7 +210,7 @@ def test_turnstile_rotation_worker_never_persists_secret(
     )
     database_bytes = b"".join(
         path.read_bytes()
-        for path in runs_dir.glob("codexbridge.sqlite3*")
+        for path in runs_dir.glob("soma.sqlite3*")
         if path.is_file()
     )
     if any(

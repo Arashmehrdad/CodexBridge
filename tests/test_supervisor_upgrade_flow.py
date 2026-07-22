@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import LocalSupervisorConfig
-from codexbridge.codex_router.models import CodexEscalationStatus, CodexRouterResult
-from codexbridge.codex_router.models import CodexInvocationResult
-from codexbridge.local_agent.models import (
+from soma.config import LocalSupervisorConfig
+from soma.codex_router.models import CodexEscalationStatus, CodexRouterResult
+from soma.codex_router.models import CodexInvocationResult
+from soma.local_agent.models import (
     CommandRunResult,
     CommandRunStatus,
     PermissionTier,
 )
-from codexbridge.return_loop.models import ReportManifest
-from codexbridge.run_store import utc_now
-from codexbridge.supervisor import (
+from soma.return_loop.models import ReportManifest
+from soma.run_store import utc_now
+from soma.supervisor import (
     LocalSupervisorManager,
     SupervisorStatus,
     SupervisorTaskRequest,
@@ -139,7 +139,7 @@ def test_local_only_supervisor_completes_without_codex_packet(tmp_path: Path) ->
     assert manifest.ready is True
     assert manifest.source_kind == "supervisor"
     resume = (run_dir / "resume_prompt.txt").read_text(encoding="utf-8")
-    assert "CodexBridge supervisor completed." in resume
+    assert "Soma supervisor completed." in resume
     assert "codex_invoked: False" in resume
 
 
@@ -266,7 +266,7 @@ def test_cancel_and_resume_are_status_oriented(tmp_path: Path) -> None:
 def test_supervisor_package_introduces_no_pulsesender_browser_or_subprocess_imports() -> (
     None
 ):
-    package = Path("codexbridge/supervisor")
+    package = Path("soma/supervisor")
     text = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
     assert "PulseSender" not in text
     assert "playwright" not in text

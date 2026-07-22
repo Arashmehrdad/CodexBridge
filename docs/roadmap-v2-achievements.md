@@ -1,4 +1,4 @@
-# CodexBridge Roadmap V2 Achievement Record
+# Soma Roadmap V2 Achievement Record
 
 > Preservation snapshot created on 2026-07-18 from `PLANS.md` at commit
 > `d1c43340af48c03ca31505ef64f4c6a60248f61c`. The roadmap below is retained
@@ -8,17 +8,17 @@
 
 ---
 
-# CodexBridge Unified Engineering Roadmap
+# Soma Unified Engineering Roadmap
 
 ## Executive Direction
 
-CodexBridge is a local engineering control plane between ChatGPT and the user's machines, repositories, services, and remote hosts.
+Soma is a local engineering control plane between ChatGPT and the user's machines, repositories, services, and remote hosts.
 
 The target operating model is:
 
 ```text
 ChatGPT
-  -> CodexBridge MCP
+  -> Soma MCP
   -> local policy and orchestration
       -> repository inspection and managed patching
       -> durable command and executable runs
@@ -54,21 +54,21 @@ Every accepted asynchronous operation must have durable launch intent, ownership
 - `permissive` is the only active execution profile and the only profile that may receive execution capability work.
 - C1 removed legacy execution-profile routing from active configuration, runtime schemas, policy evaluation, workers, and public capability output. Removed names may remain only in negative validation tests or historical migration evidence.
 - General permission tiers, delegated-approval terminology, and supervisor planning profiles are separate policy concepts and are not compatibility execution routes.
-- `human_only` remains a classification for managed CodexBridge tools. It is not a reliable boundary inside an unrestricted PowerShell session.
+- `human_only` remains a classification for managed Soma tools. It is not a reliable boundary inside an unrestricted PowerShell session.
 
 ### Operator risk acceptance
 
-The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, CodexBridge should not repeatedly ask for per-invocation approval.
+The operator may durably enable a permissive capability and accept its risk once in configuration. After that capability is enabled, Soma should not repeatedly ask for per-invocation approval.
 
 The generic executable substrate exists only to launch the configured PowerShell executable durably and directly. It is not a product-level requirement to create separate unrestricted profiles for every program PowerShell can invoke.
 
-Unrestricted PowerShell is an explicit operator override and the single arbitrary-command gateway. It can run any command, executable, script, shell, cmdlet, function, module, provider, or child process available to the service account, including SSH, Git, OpenSSL, Docker, Python, package managers, compilers, deployment tools, network clients, service controls, and user-installed programs. CodexBridge must not filter commands by executable name, command type, verb, arguments, path, destination, or purpose after this profile is enabled. The service account, Windows security model, remote credentials, installed software, and host permissions are the effective boundaries.
+Unrestricted PowerShell is an explicit operator override and the single arbitrary-command gateway. It can run any command, executable, script, shell, cmdlet, function, module, provider, or child process available to the service account, including SSH, Git, OpenSSL, Docker, Python, package managers, compilers, deployment tools, network clients, service controls, and user-installed programs. Soma must not filter commands by executable name, command type, verb, arguments, path, destination, or purpose after this profile is enabled. The service account, Windows security model, remote credentials, installed software, and host permissions are the effective boundaries.
 
 ### Direct process launch where possible
 
-CodexBridge launches the configured absolute PowerShell executable directly with `shell=False`. PowerShell is intentionally an unrestricted command interpreter and may create arbitrary child processes, invoke other shells, or launch any installed executable available to the service account.
+Soma launches the configured absolute PowerShell executable directly with `shell=False`. PowerShell is intentionally an unrestricted command interpreter and may create arbitrary child processes, invoke other shells, or launch any installed executable available to the service account.
 
-The direct launch prevents an additional accidental `cmd.exe` or local shell layer. It does not restrict what an enabled unrestricted PowerShell process can do, and it does not require separate CodexBridge gateways for SSH, Git, OpenSSL, Docker, Python, or other commands.
+The direct launch prevents an additional accidental `cmd.exe` or local shell layer. It does not restrict what an enabled unrestricted PowerShell process can do, and it does not require separate Soma gateways for SSH, Git, OpenSSL, Docker, Python, or other commands.
 
 ### Full evidence, bounded public output
 
@@ -144,7 +144,7 @@ Checkpoint (2026-07-15):
 - Preview results and manifests report raw changed lines, logical changed lines, and newline-only changed lines separately.
 - Preserved-mode previews reject unrelated newline-only churn before any repository write.
 - Focused repository-writer validation passed with `91 passed`; changed `repo_writer.py` passed `py_compile`; `tests/test_capabilities.py` passed with `5 passed`.
-- The live mixed-newline `codexbridge/server.py` acceptance gate changed exactly one semantic line in commit `13479fd4317466bd4b49f34c4809473632d8e08d` and reverted it exactly in commit `ba3272925778938e93240089bfbac159c95b6709`.
+- The live mixed-newline `soma/server.py` acceptance gate changed exactly one semantic line in commit `13479fd4317466bd4b49f34c4809473632d8e08d` and reverted it exactly in commit `ba3272925778938e93240089bfbac159c95b6709`.
 - The reverted `server.py` SHA-256 is `301271cbbe32f2756917643df0bfa38ac4b47b0a65039059144c8f14796331a4`, matching the pre-apply hash; the worktree is clean and no file was rewritten solely to normalize line endings.
 - G0 exit validation passed with the full repository suite at `1053 passed, 1 skipped`; `python -m pip check` found no broken requirements; `repo_writer.py` and `server.py` passed `py_compile`; `git diff --check` passed.
 
@@ -300,11 +300,11 @@ executable_profiles:
     allow_no_timeout: true
 ```
 
-A separately configured `powershell.exe` profile may be supported for Windows PowerShell compatibility. CodexBridge must use the configured absolute path and must not silently substitute one PowerShell edition for another.
+A separately configured `powershell.exe` profile may be supported for Windows PowerShell compatibility. Soma must use the configured absolute path and must not silently substitute one PowerShell edition for another.
 
 Required capability:
 
-- any command means any command available to the service account: no CodexBridge allowlist or special per-program gateway is required;
+- any command means any command available to the service account: no Soma allowlist or special per-program gateway is required;
 - arbitrary PowerShell argv;
 - arbitrary `-Command`, `-File`, `-EncodedCommand`, and stdin script content;
 - arbitrary scripts, functions, modules, profiles, providers, execution-policy flags, and language features supported by the selected PowerShell executable;
@@ -316,9 +316,9 @@ Required capability:
 - configurable timeout or no timeout;
 - exact process-tree cancellation and durable restart-safe run state.
 
-There must be no cmdlet, verb, module, script-text, argument, path, registry, service, process, child-executable, executable-name, command-type, remoting, or network-target filtering after the permissive PowerShell profile is enabled. If PowerShell can invoke it under the service account, CodexBridge must allow it.
+There must be no cmdlet, verb, module, script-text, argument, path, registry, service, process, child-executable, executable-name, command-type, remoting, or network-target filtering after the permissive PowerShell profile is enabled. If PowerShell can invoke it under the service account, Soma must allow it.
 
-CodexBridge may offer safer helpers for protected secrets, temporary files, transcripts, and environment references, but those helpers must not restrict the commands PowerShell can execute.
+Soma may offer safer helpers for protected secrets, temporary files, transcripts, and environment references, but those helpers must not restrict the commands PowerShell can execute.
 
 Acceptance:
 
@@ -404,7 +404,7 @@ parallel_execution:
   repository_lock_policy: caller_selected
 ```
 
-- `max_concurrent_powershell: null` means CodexBridge imposes no product-level cap on how many unrestricted PowerShell processes may be open concurrently and attempts to launch every accepted child immediately; operating-system, account, memory, process, network, and remote-host limits remain effective.
+- `max_concurrent_powershell: null` means Soma imposes no product-level cap on how many unrestricted PowerShell processes may be open concurrently and attempts to launch every accepted child immediately; operating-system, account, memory, process, network, and remote-host limits remain effective.
 - An optional integer `max_concurrent_powershell` sets the maximum number of simultaneously open unrestricted PowerShell processes. Additional accepted children remain durably pending until a process slot becomes available.
 - A command group may request a lower per-group concurrency value, but it may not silently exceed a configured global limit unless the global value is `null`.
 - `repository_lock_policy: none` allows commands to run concurrently against the same repository or directory, accepting race and corruption risk.
@@ -419,13 +419,13 @@ Durability and lifecycle:
 - track `pending`, `launch_pending`, `running`, `completed`, `failed`, `cancelled`, and `recovery_pending` independently per child;
 - track aggregate counts and group state without treating one child failure as implicit cancellation of the others;
 - support group policies `continue_all`, `cancel_remaining_on_failure`, and `cancel_group_on_request`, with `continue_all` as the permissive default;
-- survive CodexBridge restart by reconciling and adopting every verifiably active child independently;
+- survive Soma restart by reconciling and adopting every verifiably active child independently;
 - prevent restart reconciliation from launching a duplicate child whose process or remote controller already exists;
 - allow cancellation of one child, all active children, or pending children only;
 - preserve independent stdout, stderr, transcripts, binary artifacts, and terminal results;
 - stream or query interleaved group events without merging child output into an ambiguous shared stream.
 
-The implementation must use independent durable child runs rather than relying solely on PowerShell background jobs inside one host process. A PowerShell child may itself create jobs or processes, but CodexBridge group ownership must remain outside that child so one host failure does not erase the state of the other commands.
+The implementation must use independent durable child runs rather than relying solely on PowerShell background jobs inside one host process. A PowerShell child may itself create jobs or processes, but Soma group ownership must remain outside that child so one host failure does not erase the state of the other commands.
 
 Acceptance:
 
@@ -482,7 +482,7 @@ Required capability:
 
 There must be no OpenSSL subcommand, option, path, provider, engine, configuration-file, key-size, algorithm, or network-target filtering in the permissive profile.
 
-Passwords and key material may be supplied by any method OpenSSL supports. CodexBridge should additionally offer protected stdin, temporary file, and environment-reference paths so the operator is not forced to expose secrets on the process command line. This is an ergonomic protection, not a restriction on OpenSSL capability.
+Passwords and key material may be supplied by any method OpenSSL supports. Soma should additionally offer protected stdin, temporary file, and environment-reference paths so the operator is not forced to expose secrets on the process command line. This is an ergonomic protection, not a restriction on OpenSSL capability.
 
 Acceptance:
 
@@ -516,11 +516,11 @@ Checkpoint (2026-07-16 through 2026-07-17):
 - Persisted SSH worker fixtures and canonical policy assertions now use `permissive` for active command, reviewed-script, action, transfer, and deployment paths. Removed-profile and tampered-policy cases still prove deterministic rejection, while `T6_HUMAN_ONLY_RISKY_ACTION` deployment evidence remains human-authorized. Implementation commits: `7116775a28ed4c05d8df8af890d0a7c2ed186cf9`, `1b1c44d6a0d4051725cfc5c7580b19c5c5cbd6c8`, and `05a6c095acb436e088877c9b21bf6aa14d9203a4`.
 - Focused validation passed: `tests/test_ssh_worker.py` 37 passed.
 - Server SSH helper annotations are now permissive-only, including the deployment helper default; the unrelated supervisor autonomy default remains unchanged. Persisted generic SSH worker inputs now reject non-permissive autonomy values before policy evaluation while preserving stable validation wording. Implementation commits: `0bfacd439f0a60fe9913d4278c0b79f7304fc194`, `d2adf4a0d933ae14f4138bb95733865c4322bd6d`, `984fb4ea17f59bd0f4bdb8be738f7bfed351fb7c`, and `95444d07c24dde4d49ef73f7746917e96045bd41`.
-- Focused validation passed: `codexbridge/server.py` py_compile; `tests/test_server.py` 27 passed; `tests/test_ssh_worker.py` 37 passed.
+- Focused validation passed: `soma/server.py` py_compile; `tests/test_server.py` 27 passed; `tests/test_ssh_worker.py` 37 passed.
 - The remaining monitored-SSH worker success fixture now persists `permissive` instead of the removed `balanced` profile. Regression validation passed: the targeted worker test 1 passed; the full durable suite 1094 passed and 1 skipped. Implementation commit: `48f9591a252453040a3fd2759b2d8ea0ddde22ad`.
 - The local self-check now uses a run-scoped pytest `--basetemp`, a 600-second suite allowance, and a 60-second MCP transport readiness window, eliminating the global Windows temp ACL failure and premature startup-probe timeout. Regression validation passed: `tests/test_self_check.py` 6 passed; the full durable suite 1096 passed and 1 skipped; the complete durable self-check returned `ok: true` with dependency, Git, WAL-store, permissive supervisor, and HTTP 406 MCP readiness checks all green. Implementation commit: `c6750ae1089758ff6e321c2b64b4988347a234d9`.
 - The synchronous server `run_project_command` compatibility tool has been removed together with its discovery metadata, direct server/discovery tests, and README guidance. Durable workflow `project_command` steps, typed validation operations, and the independent `LocalAgentCommandRunner.run_project_command` remain intact. Implementation commit: `414acbf39d16c9baacc5d4fd4d6af5e984879ad3`.
-- Focused validation passed: `codexbridge/server.py` py_compile; `tests/test_server.py` 25 passed; `tests/test_mcp_action_discovery.py` 30 passed. A separate broad PowerShell pytest run failed only on the pre-existing global `pytest-of-arash` permission issue; isolated durable pytest runs remained authoritative.
+- Focused validation passed: `soma/server.py` py_compile; `tests/test_server.py` 25 passed; `tests/test_mcp_action_discovery.py` 30 passed. A separate broad PowerShell pytest run failed only on the pre-existing global `pytest-of-arash` permission issue; isolated durable pytest runs remained authoritative.
 - The active `LocalAgentCommandRunner.run_project_command` call chain is now classified. It directly serves local-agent task routing and synchronous validation in local-coding and supervisor flows. Unlike durable `JobManager` commands, it writes a separate local-agent artifact tree and has no RunStore lease, restart adoption, process-tree cancellation, repository-operation lock, or protected binary-output contract; deleting it would break callers that currently require immediate results.
 - Added `DurableProjectCommandRunner`, which launches through `JobManager.start_project_command`, waits on authoritative `RunStore` state, preserves the immediate `CommandRunResult` contract, returns durable artifact references, and requests durable cancellation when the bounded synchronous wait expires. Direct lifecycle coverage proves success, nonzero exit, timeout cancellation, repository mismatch, and permission rejection. Implementation commits: `a17905253a270fe33ed14884990b22a9dad3130e`, `48323721f7dd14d8c6df4d8c72c6201f36a9b5cc`, `7fe1145419626e8dd3734b29dd520894c2d23129`, and `7f1f717cd4909d21245f180ded8c97437517ed10`.
 - Local-coding and supervisor construction paths now accept the application configuration, configuration path, and shared `JobManager`, selecting `DurableProjectCommandRunner` when configured while preserving explicit runner injection and the existing immediate-result API. Implementation commits: `00bb86c0236e8d79c67a54e678b6d99731a37f80` and `f48c15adb469dd434771e042237a393777e05497`.
@@ -536,7 +536,7 @@ Checkpoint (2026-07-16 through 2026-07-17):
 - Focused validation passed: `tests/test_tool_gateway_models.py` 29 passed; `tests/test_mcp_action_discovery.py` 29 passed; `tests/test_server.py` 25 passed.
 - Built-in `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and duplicate `git_diff_check` profiles are removed after repository-wide call-site inspection found no runtime callers. Unrestricted PowerShell replaces ad hoc lint/format/typecheck execution, while retained `git_readonly(operation="diff_check")` provides the fixed Git validation. Repository-configured profiles remain internal durable workflow contracts because live configuration still uses them for repository-specific validation, repair, and service-management operations. Implementation commit: `21662eb3419fa2a726f20cfc30b100bd36330c32`.
 - Focused validation passed: `tests/test_command_profiles.py` 59 passed.
-- Live configuration inventory now classifies all repository-configured project-command profiles. CodexBridge retains `andia_ssh_config_check`, `andia_ssh_alias_repair`, and `codexbridge_service_restart` because they provide reviewed inspection, rollback-capable repair, or service lifecycle semantics. The Andia frontend `eslint`, `typecheck`, `vitest`, and `frontend_validate` profiles are ordinary validation commands with no tracked workflow or operational caller in this repository and are candidates for deterministic migration to unrestricted PowerShell before removal from the active external configuration.
+- Live configuration inventory now classifies all repository-configured project-command profiles. Soma retains `andia_ssh_config_check`, `andia_ssh_alias_repair`, and `soma_service_restart` because they provide reviewed inspection, rollback-capable repair, or service lifecycle semantics. The Andia frontend `eslint`, `typecheck`, `vitest`, and `frontend_validate` profiles are ordinary validation commands with no tracked workflow or operational caller in this repository and are candidates for deterministic migration to unrestricted PowerShell before removal from the active external configuration.
 - Configuration validation now emits deterministic `ordinary_validation_command_profiles_v1` reports for ordinary repository-configured validation profiles. Each report records the repository, candidate IDs, the complete configured profile as rollback data, an exact unrestricted-PowerShell request with working directory and timeout, and the durable-history preservation guarantee. Implementation commit: `8fcab876d4669c836e742974cb29f539de72d764`.
 - Focused validation passed: `tests/test_config.py` 24 passed; `tests/test_service_reload.py` 8 passed.
 - Live unrestricted-PowerShell replacement smoke evidence (2026-07-17): `typecheck` completed with exit code 0; `vitest` completed with 6 files and 20 tests passed; `frontend_validate` completed with exit code 0. The original `eslint .` replacement exposed an inaccessible pre-existing `.pytest_cache` and then a generated `output/run-production-smoke.mjs` file that is already excluded from version control. A reviewed non-destructive replacement using ESLint `--ignore-pattern .pytest_cache/** --ignore-pattern output/**` completed with exit code 0 without changing ACLs or deleting generated data.
@@ -586,11 +586,11 @@ Checkpoint (2026-07-17):
 - Existing durable transfer runs created before the manifest contract remain executable, while any present malformed manifest fails before the transfer executor is called.
 - Windows text-file fixtures now derive size and digest from actual bytes, preserving CRLF correctness.
 - Implementation commits: `df22eebdc679c79e0e66425e7cf599b1fecc7afa`, `18b31e47fca665fc5ad0a92bdb79e48a1f743c53`, and `4453c49158bcd523101233c6676d8866fb387492`.
-- Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/job_manager.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Focused validation passed: `tests/test_job_manager.py` 59 passed; `tests/test_ssh_worker.py` 37 passed; `soma/job_manager.py` and `soma/job_worker.py` passed `py_compile`; `git diff --check` passed.
 - Downloads now use a deterministic hidden partial path, remove stale partial state before retry, verify the completed artifact byte length and SHA-256, and publish to the final run-relative destination with `os.replace` only after successful SCP completion.
 - Failed downloads remove partial staging content and never publish an ambiguous final artifact. Binary payload coverage includes NUL and non-UTF-8 bytes.
 - Download-publication implementation commits: `84815e824718a457f69defee9d7d7f70ecfe2b13`, `833140fba1b99eabab87e57fd25dd11233ddb497`, `9b56dce83d3c6f518c7738ef4a401c9f91cb5bb6`, and `9ca4adbe0f7baa52c30934e65ffa49fc6689f353`.
-- Focused validation passed: `tests/test_ssh_tools.py` 14 passed; `tests/test_ssh_worker.py` 37 passed; `codexbridge/ssh_tools.py` and `codexbridge/job_worker.py` passed `py_compile`; `git diff --check` passed.
+- Focused validation passed: `tests/test_ssh_tools.py` 14 passed; `tests/test_ssh_worker.py` 37 passed; `soma/ssh_tools.py` and `soma/job_worker.py` passed `py_compile`; `git diff --check` passed.
 - Recursive directory uploads now persist deterministic manifests with stable POSIX relative-path ordering, per-file byte lengths and SHA-256 hashes, aggregate file count, and aggregate byte count. Empty directories produce an explicit zero-file manifest; symbolic links and non-regular entries are rejected before durable launch.
 - The worker rebuilds the complete recursive manifest immediately before SCP and rejects any added, removed, renamed, resized, or content-changed file before transfer execution. Historical pre-manifest transfers remain compatible.
 - Recursive-manifest implementation commits: `13d8ba82ff473cebc3199805707850018e53ed9f`, `2c92bcf3555ab83248fccb70f39971e0cdd6c891`, and `69fbb3d91aa59822901505877f953c15d5b35efd`.
@@ -676,7 +676,7 @@ Checkpoint (2026-07-17):
 - Windows-origin reviewed Bash/`sh` and permissive root-shell scripts now verify the submitted content hash, canonicalize CRLF or lone CR to LF before durable persistence, stage and execute the canonical bytes under a new exact hash, and retain the submitted hash plus an explicit normalization flag as audit metadata. Direct SSH argv execution and PowerShell payloads remain unchanged and byte-preserving.
 - R4 is complete. Its durable remote controller and managed staging foundation are available to monitored Linux-native SSH work and the optional X4 remote PowerShell capability.
 
-Goal: remote work survives CodexBridge restart and local worker loss.
+Goal: remote work survives Soma restart and local worker loss.
 
 Remote controller state must include:
 
@@ -710,7 +710,7 @@ Required behavior:
 Acceptance:
 
 - remote work runs beyond one hour;
-- CodexBridge restarts during execution and reattaches;
+- Soma restarts during execution and reattaches;
 - duplicate reconcilers cannot start duplicate remote controllers;
 - cancellation kills the verified process group and descendants;
 - terminal evidence is published once.
@@ -739,11 +739,11 @@ Checkpoint (2026-07-18):
 - Public-gateway implementation commit: `65d2293b5cef0a85d6f4f6ea34fdfec68892f70c`. Focused validation passed: `tests/test_tool_gateway_models.py` **31 passed**; `tests/test_server.py` **25 passed**; changed gateway and server modules passed `py_compile`; `git diff --check` passed.
 - Every newly accepted X4 durable input now includes a versioned protected artifact manifest bound to the invoking run, lease generation, R4 execution ID, authoritative remote stdout/stderr paths, deterministic run-relative local binary publication paths, binary transfer encoding, and pending publication state.
 - Worker-side durable-input reconstruction rejects any remote path, local path, classification, encoding, execution identity, run identity, or lease-generation drift before remote launch.
-- Artifact-manifest implementation commit: `079f348535cc5b698a48dae3349b682a4f08a03d`. Focused validation passed: `tests/test_remote_powershell.py` **13 passed**; adjacent `tests/test_job_manager.py` **64 passed**; `codexbridge/remote_powershell.py` passed `py_compile`.
+- Artifact-manifest implementation commit: `079f348535cc5b698a48dae3349b682a4f08a03d`. Focused validation passed: `tests/test_remote_powershell.py` **13 passed**; adjacent `tests/test_job_manager.py` **64 passed**; `soma/remote_powershell.py` passed `py_compile`.
 - The worker now retrieves authoritative remote stdout and stderr with the existing binary SCP transfer path, atomically publishes them at the declared protected artifact locations, independently verifies byte length and SHA-256 after publication, and records a completed manifest without routing arbitrary output bytes through the SSH text stream.
 - Binary-publication implementation commit: `c4190ce5946e79f110311540a9605bbcbaf3f5aa`. Focused validation passed: `tests/test_remote_powershell.py` **14 passed**; adjacent `tests/test_job_manager.py` **64 passed**; changed worker and contract modules passed `py_compile`; `git diff --check` passed.
 - The remote controller now captures the requested and resolved PowerShell executable paths, exact byte length, SHA-256, and PowerShell version before launching the accepted command. The evidence is persisted in authoritative remote input/state/result files, re-probed after terminal completion, and bound to the accepted request fingerprint and R4 execution identity in the protected terminal result.
-- Identity/version implementation commit: `2c4ebf745375064d88d7555a0f11a46024b31b3b`. Focused validation passed: `tests/test_remote_powershell.py` **16 passed**; adjacent `tests/test_ssh_watchdog.py` **9 passed**; `codexbridge/remote_powershell.py` passed `py_compile`.
+- Identity/version implementation commit: `2c4ebf745375064d88d7555a0f11a46024b31b3b`. Focused validation passed: `tests/test_remote_powershell.py` **16 passed**; adjacent `tests/test_ssh_watchdog.py` **9 passed**; `soma/remote_powershell.py` passed `py_compile`.
 - Operator scope decision (2026-07-18): the deployed VPS fleet uses Linux-native SSH, Bash, Python, and direct executable tooling. Remote PowerShell remains available as an optional feature for registered hosts that already provide `pwsh` or `powershell`; installing or staging PowerShell on Linux hosts solely for acceptance is not required.
 - The live remote-PowerShell native-command and loopback-network gate is removed as a roadmap blocker. Existing focused automated contract, gateway, worker, staging, artifact, identity, reconciliation, and cancellation coverage remains authoritative for the optional feature.
 - X4 is complete under this scope decision. The next executable roadmap unit is R5 absolute resource enforcement.
@@ -778,7 +778,7 @@ Checkpoint (2026-07-18):
 - Absolute cgroup memory samples are evaluated before optional host-percentage evidence; every result records the exact sample, configured thresholds, matched threshold, action, and precedence decision.
 - Permissive policy metadata can explicitly raise or disable thresholds while preserving validation and visibility.
 - Implementation commits: `4ad26247afd84ffeeb8f7a2af7121772d1a36150` and `8b6ce72e00fff829c54af8582779e385d6cb841d`.
-- Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `codexbridge/remote_resource_enforcement.py` passed `py_compile`.
+- Focused validation passed: `tests/test_remote_resource_enforcement.py` **7 passed**; `soma/remote_resource_enforcement.py` passed `py_compile`.
 - The accepted memory policy is now part of every new authoritative R4 controller contract before launch. Remote controller input and running state persist the exact policy, current cgroup memory sample, source path, deterministic decision, sample timestamp, and explicit absolute-cgroup-first evidence.
 - Every authoritative remote heartbeat refreshes the resource-monitor evidence atomically with the heartbeat while leaving termination behavior disabled for this unit. Missing or inaccessible cgroup files are recorded as `unavailable` rather than inferred from host percentages or treated as terminal.
 - Implementation commits: `753746db272f83552fb0b1cd05a6c603f71f671c`, `fc5d665a4799a498ba05bdf4a7d4d3281491fe83`, and `817c3586a6fbdced3c34abbc7c0938c4a84da309`.
@@ -787,7 +787,7 @@ Checkpoint (2026-07-18):
 - The triggering cgroup sample, source path, exact threshold decision, process-identity verification, signals sent, timestamps, confirmation state, error, and terminal resource-enforcement outcome are persisted in controller state and terminal result evidence.
 - Internal encoded controllers now have a separate bounded `16_384`-byte transport ceiling while ordinary configured SSH command profiles retain the existing `4_096`-byte limit.
 - Implementation commits: `e5cc6fd4ad8adaad8feebd4eb781d48cabdcf9bd`, `de4ff4e9b3765ae6f98566e4cb6fcccead36e1a5`, `5fbd4c5f4a052fc24503d4e37f77894057e8f7cb`, and `7e86a09b03251f4bc1d582e15e04d35790f5dbe5`.
-- Focused validation passed: `tests/test_ssh_watchdog.py` **9 passed** and `tests/test_ssh_commands.py` **29 passed**; `codexbridge/ssh_watchdog.py` passed `py_compile`.
+- Focused validation passed: `tests/test_ssh_watchdog.py` **9 passed** and `tests/test_ssh_commands.py` **29 passed**; `soma/ssh_watchdog.py` passed `py_compile`.
 - Added POSIX execution-level coverage that runs the generated controller against disposable local process groups for graceful exit, forced escalation, direct hard termination, identity-mismatch refusal, and exact persisted state/result evidence.
 - Implementation commit: `f460329a15d662cca76e99f4aac195d66bc2d06f`.
 - Windows validation collected the suite successfully with **4 skipped** because the service host has no POSIX process groups; adjacent validation passed with `tests/test_ssh_watchdog.py` **9 passed**, `tests/test_remote_resource_enforcement.py` **7 passed**, and the new execution test passed `py_compile`.
@@ -952,7 +952,7 @@ For documentation-only batches:
 
 - one start request can durably reserve and launch multiple independent child commands concurrently;
 - the start response returns group and child IDs without waiting for any child to finish;
-- `max_concurrent_powershell` controls the number of simultaneously open unrestricted PowerShell processes, and a `null` value removes the CodexBridge product-level cap;
+- `max_concurrent_powershell` controls the number of simultaneously open unrestricted PowerShell processes, and a `null` value removes the Soma product-level cap;
 - each child retains independent process identity, leases, output, artifacts, status, cancellation, and restart adoption;
 - group restart reconciliation does not duplicate surviving children;
 - group and individual cancellation target exact verified process trees;
@@ -981,5 +981,5 @@ For documentation-only batches:
 - only the permissive execution profile remains active;
 - ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
 - ChatGPT can launch multiple independent commands concurrently and receive control immediately with durable group and child IDs;
-- unrestricted PowerShell is explicit, operator-enabled, auditable, and permits any command available to the service account without CodexBridge command allowlists;
+- unrestricted PowerShell is explicit, operator-enabled, auditable, and permits any command available to the service account without Soma command allowlists;
 - UI and local-model expansion do not outrun execution correctness.

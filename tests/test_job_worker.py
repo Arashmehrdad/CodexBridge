@@ -4,9 +4,9 @@ import subprocess
 from hashlib import sha256
 from pathlib import Path
 
-from codexbridge.job_worker import JobWorker
-from codexbridge.operation_locks import OperationLockStore
-from codexbridge.run_store import RunStore, utc_now
+from soma.job_worker import JobWorker
+from soma.operation_locks import OperationLockStore
+from soma.run_store import RunStore, utc_now
 
 
 def write_config(
@@ -25,15 +25,15 @@ def write_config(
 
 def install_fake_codex_process(monkeypatch, run_dir: Path, output: str) -> None:
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        "soma.job_worker.CodexRunner._resolve_codex_executable",
         lambda self: "codex",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        "soma.job_worker.CodexRunner._codex_exec_help",
         lambda self, _executable: "",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_args",
+        "soma.job_worker.CodexRunner._codex_exec_args",
         lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
             "codex"
         ],
@@ -55,11 +55,11 @@ def install_fake_codex_process(monkeypatch, run_dir: Path, output: str) -> None:
             return 0
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
     )
     (run_dir / "stdout.txt").write_text(output, encoding="utf-8")
     monkeypatch.setattr(
-        "codexbridge.job_worker._stream_pipe",
+        "soma.job_worker._stream_pipe",
         lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
             output_path.read_text(encoding="utf-8").splitlines(keepends=True)
             if output_path.exists()
@@ -182,10 +182,10 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
     worker = JobWorker(config_path, run_id)
 
     assert worker.execute() == 0
@@ -250,10 +250,10 @@ def test_text_validator_reports_exact_newline_diagnostic(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
 
     assert JobWorker(config_path, run_id).execute() == 0
     result = store.get_run(run_id)["result"]
@@ -299,7 +299,7 @@ def test_repo_apply_worker_persists_successful_commit_as_completed(
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.repo_writer.apply_previewed_repo_change",
+        "soma.job_worker.repo_writer.apply_previewed_repo_change",
         lambda _repo_root, patch_id, _runs_dir: {
             "ok": True,
             "patch_id": patch_id,
@@ -334,7 +334,7 @@ def test_repo_apply_worker_persists_successful_commit_as_completed(
 
     monkeypatch.setattr(JobWorker, "_finalize_commit", fake_finalize)
     monkeypatch.setattr(
-        "codexbridge.job_worker.mark_repo_wiki_stale",
+        "soma.job_worker.mark_repo_wiki_stale",
         lambda *_args, **_kwargs: {"ok": True, "stale": True},
     )
 
@@ -387,7 +387,7 @@ def test_terminal_database_record_is_not_stranded_by_legacy_artifact_writer_fail
     }
     monkeypatch.setattr(worker, "_execute_inner", lambda _started_at: result)
     monkeypatch.setattr(
-        "codexbridge.run_publication.atomic_write_json",
+        "soma.run_publication.atomic_write_json",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
 
@@ -452,10 +452,10 @@ def test_docker_action_worker_persists_bounded_result(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_docker_action", fake_run)
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.run_docker_action", fake_run)
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
     worker = JobWorker(config_path, run_id)
 
     assert worker.execute() == 0
@@ -525,10 +525,10 @@ def test_project_command_worker_rebuilds_scoped_pytest_profile(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
     worker = JobWorker(config_path, run_id)
 
     assert worker.execute() == 0
@@ -607,14 +607,14 @@ def test_project_command_worker_reports_only_introduced_changes(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr("soma.job_worker.run_command_profile", fake_run)
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status",
+        "soma.job_worker.git_tools.git_status",
         lambda _: " M preexisting.txt\n?? generated.txt\n",
     )
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files",
+        "soma.job_worker.git_tools.changed_files",
         lambda _: ["preexisting.txt", "generated.txt"],
     )
 
@@ -661,7 +661,7 @@ def test_project_command_worker_resolves_profiles_case_insensitively(
         input_data={"repo_name": "Sample", "command_id": "custom"},
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_command_profile",
+        "soma.job_worker.run_command_profile",
         lambda profile, cwd, *, extra_env=None: {
             "ok": True,
             "command_id": "custom",
@@ -675,9 +675,9 @@ def test_project_command_worker_resolves_profiles_case_insensitively(
             "error": "",
         },
     )
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
 
     worker = JobWorker(config_path, run_id)
 
@@ -728,29 +728,29 @@ def test_implementation_worker_requires_all_manifest_ids_to_finish_completed(
         },
     )
     worker = JobWorker(config_path, run_id)
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        "soma.job_worker.CodexRunner._resolve_codex_executable",
         lambda self: "codex",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        "soma.job_worker.CodexRunner._codex_exec_help",
         lambda self, _executable: "",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_args",
+        "soma.job_worker.CodexRunner._codex_exec_args",
         lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
             "codex"
         ],
@@ -772,7 +772,7 @@ def test_implementation_worker_requires_all_manifest_ids_to_finish_completed(
             return 0
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
     )
     (run_dir / "stdout.txt").write_text(
         "\n".join(
@@ -786,7 +786,7 @@ def test_implementation_worker_requires_all_manifest_ids_to_finish_completed(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker._stream_pipe",
+        "soma.job_worker._stream_pipe",
         lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
             output_path.read_text(encoding="utf-8").splitlines(keepends=True)
             if output_path.exists()
@@ -839,30 +839,30 @@ def test_implementation_worker_finalizes_commit_after_success(
         ),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     workspace_sequences = iter([{}, {"README.md": (1, 2)}])
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace",
+        "soma.job_worker.snapshot_workspace",
         lambda _repo_root, _ignored=(): next(workspace_sequences),
     )
     changed_sequences = iter([[], ["README.md"], []])
     status_sequences = iter(["", " M README.md\n", ""])
     diff_sequences = iter([" README.md | 1 +\n", ""])
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files",
+        "soma.job_worker.git_tools.changed_files",
         lambda _repo_root: next(changed_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status",
+        "soma.job_worker.git_tools.git_status",
         lambda _repo_root: next(status_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat",
+        "soma.job_worker.git_tools.diff_stat",
         lambda _repo_root: next(diff_sequences),
     )
     captured: dict[str, object] = {}
@@ -937,24 +937,24 @@ def test_implementation_worker_validation_failure_does_not_commit(
         ),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files",
+        "soma.job_worker.git_tools.changed_files",
         lambda _repo_root: [] if not hasattr(_repo_root, "unused") else [],
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status", lambda _repo_root: ""
+        "soma.job_worker.git_tools.git_status", lambda _repo_root: ""
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat", lambda _repo_root: ""
+        "soma.job_worker.git_tools.diff_stat", lambda _repo_root: ""
     )
 
     def unexpected_finalize(*args, **kwargs):
@@ -1008,30 +1008,30 @@ def test_implementation_worker_commit_failure_prevents_completed_status(
         ),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     workspace_sequences = iter([{}, {"README.md": (1, 2)}])
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace",
+        "soma.job_worker.snapshot_workspace",
         lambda _repo_root, _ignored=(): next(workspace_sequences),
     )
     changed_sequences = iter([[], ["README.md"], ["README.md"]])
     status_sequences = iter(["", " M README.md\n", " M README.md\n"])
     diff_sequences = iter(["", " README.md | 1 +\n", " README.md | 1 +\n"])
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files",
+        "soma.job_worker.git_tools.changed_files",
         lambda _repo_root: next(changed_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status",
+        "soma.job_worker.git_tools.git_status",
         lambda _repo_root: next(status_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat",
+        "soma.job_worker.git_tools.diff_stat",
         lambda _repo_root: next(diff_sequences),
     )
     monkeypatch.setattr(
@@ -1099,7 +1099,7 @@ def test_project_command_worker_commits_only_for_write_profiles(
         input_data={"repo_name": "sample", "command_id": "reader"},
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_command_profile",
+        "soma.job_worker.run_command_profile",
         lambda profile, cwd, *, extra_env=None: {
             "ok": True,
             "command_id": profile.command_id,
@@ -1122,22 +1122,22 @@ def test_project_command_worker_commits_only_for_write_profiles(
         ]
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace",
+        "soma.job_worker.snapshot_workspace",
         lambda _repo_root, _ignored=(): next(workspace_sequences),
     )
     changed_sequences = iter([[], ["generated.txt"], [], [], []])
     status_sequences = iter(["", " M generated.txt\n", "", "", ""])
     diff_sequences = iter(["", " generated.txt | 1 +\n", "", "", ""])
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files",
+        "soma.job_worker.git_tools.changed_files",
         lambda _repo_root: next(changed_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status",
+        "soma.job_worker.git_tools.git_status",
         lambda _repo_root: next(status_sequences),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat",
+        "soma.job_worker.git_tools.diff_stat",
         lambda _repo_root: next(diff_sequences),
     )
     calls: list[tuple[str, list[str]]] = []
@@ -1213,27 +1213,27 @@ def test_codex_timeout_terminates_process_tree_and_records_report(
         return TimedOutProcess()
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._resolve_codex_executable",
+        "soma.job_worker.CodexRunner._resolve_codex_executable",
         lambda self: "codex",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_help",
+        "soma.job_worker.CodexRunner._codex_exec_help",
         lambda self, _executable: "",
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.CodexRunner._codex_exec_args",
+        "soma.job_worker.CodexRunner._codex_exec_args",
         lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
             "codex"
         ],
     )
-    monkeypatch.setattr("codexbridge.job_worker.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("soma.job_worker.subprocess.Popen", fake_popen)
     monkeypatch.setattr(
-        "codexbridge.job_worker.process_group_popen_kwargs",
+        "soma.job_worker.process_group_popen_kwargs",
         lambda: {"creationflags": 512},
     )
     terminations: list[int] = []
     monkeypatch.setattr(
-        "codexbridge.job_worker.terminate_process_tree",
+        "soma.job_worker.terminate_process_tree",
         lambda pid: (
             terminations.append(pid)
             or {
@@ -1248,23 +1248,23 @@ def test_codex_timeout_terminates_process_tree_and_records_report(
         ),
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
+        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.cleanup_new_managed_artifacts",
+        "soma.job_worker.cleanup_new_managed_artifacts",
         lambda _repo_root, _before: [],
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
+        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.changed_files", lambda _repo_root: []
+        "soma.job_worker.git_tools.changed_files", lambda _repo_root: []
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.git_status", lambda _repo_root: ""
+        "soma.job_worker.git_tools.git_status", lambda _repo_root: ""
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.git_tools.diff_stat", lambda _repo_root: ""
+        "soma.job_worker.git_tools.diff_stat", lambda _repo_root: ""
     )
 
     worker = JobWorker(config_path, run_id)
@@ -1331,7 +1331,7 @@ def test_monitored_ssh_worker_persists_structured_result(
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.start_monitored_ssh_command",
+        "soma.job_worker.start_monitored_ssh_command",
         lambda *args, **kwargs: {
             "ok": True,
             "status": "completed",
@@ -1396,9 +1396,9 @@ def test_attached_monitored_ssh_worker_finalizes_matching_cancellation_pending(
         run_id=run_id,
         owner_token="lease-1",
     )
-    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr("soma.job_worker.os.getpid", lambda: 4321)
     monkeypatch.setattr(
-        "codexbridge.job_worker.process_identity",
+        "soma.job_worker.process_identity",
         lambda pid: f"{pid}:windows:100",
     )
     worker = JobWorker(config_path, run_id, lease_token="lease-1")
@@ -1467,9 +1467,9 @@ def test_attached_monitored_ssh_worker_cannot_overwrite_cancellation_pending(
         run_id=run_id,
         owner_token="lease-1",
     )
-    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr("soma.job_worker.os.getpid", lambda: 4321)
     monkeypatch.setattr(
-        "codexbridge.job_worker.process_identity",
+        "soma.job_worker.process_identity",
         lambda pid: f"{pid}:windows:100",
     )
     worker = JobWorker(config_path, run_id, lease_token="lease-1")
@@ -1538,9 +1538,9 @@ def test_worker_claims_canonical_pid_identity_and_lease(
         run_id=run_id,
         owner_token="lease-1",
     )
-    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr("soma.job_worker.os.getpid", lambda: 4321)
     monkeypatch.setattr(
-        "codexbridge.job_worker.process_identity",
+        "soma.job_worker.process_identity",
         lambda pid: f"{pid}:windows:100",
     )
     worker = JobWorker(config_path, run_id, lease_token="lease-1")
@@ -1640,9 +1640,9 @@ def test_stale_worker_cannot_complete_or_release_replacement_lock(
         owner_token="lease-old",
         lease_generation=1,
     )
-    monkeypatch.setattr("codexbridge.job_worker.os.getpid", lambda: 4321)
+    monkeypatch.setattr("soma.job_worker.os.getpid", lambda: 4321)
     monkeypatch.setattr(
-        "codexbridge.job_worker.process_identity",
+        "soma.job_worker.process_identity",
         lambda pid: f"{pid}:windows:100",
     )
     worker = JobWorker(config_path, run_id, lease_token="lease-old")

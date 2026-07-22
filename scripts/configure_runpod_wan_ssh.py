@@ -13,8 +13,8 @@ import tempfile
 DEFAULT_RUNPOD_HOSTNAME = "ssh.runpod.io"
 DEFAULT_RUNPOD_USER = "fhxnfase3ezwmn-644113c6"
 DEFAULT_RUNPOD_PORT = 22
-START_MARKER = "# BEGIN CODEXBRIDGE RUNPOD WAN"
-END_MARKER = "# END CODEXBRIDGE RUNPOD WAN"
+START_MARKER = "# BEGIN SOMA RUNPOD WAN"
+END_MARKER = "# END SOMA RUNPOD WAN"
 
 
 class ConfigurationError(RuntimeError):
@@ -145,7 +145,7 @@ def update_ssh_config(
     temporary_path: Path | None = None
     try:
         descriptor, raw_temporary = tempfile.mkstemp(
-            prefix=f".{config.name}.codexbridge-",
+            prefix=f".{config.name}.soma-",
             dir=config.parent,
         )
         temporary_path = Path(raw_temporary)

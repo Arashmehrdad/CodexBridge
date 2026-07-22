@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.jobs.long_run_manager import LongRunJobManager
-from codexbridge.jobs.models import JobStatus
-from codexbridge.local_agent import LocalAgentOrchestrator
-from codexbridge.local_agent.models import LocalAgentTaskType, RoutingDecision
+from soma.jobs.long_run_manager import LongRunJobManager
+from soma.jobs.models import JobStatus
+from soma.local_agent import LocalAgentOrchestrator
+from soma.local_agent.models import LocalAgentTaskType, RoutingDecision
 
 
 class FakeProcess:

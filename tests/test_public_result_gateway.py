@@ -5,17 +5,17 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-import codexbridge.server as server
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.gateway_models import RunQueryRequest
-from codexbridge.job_manager import JobManager
-from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
-from codexbridge.run_public_result import (
+import soma.server as server
+from soma.config import AppConfig, RepoConfig
+from soma.gateway_models import RunQueryRequest
+from soma.job_manager import JobManager
+from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
+from soma.run_public_result import (
     PUBLIC_RESULT_STATUS_READY,
     canonical_public_json_bytes,
 )
-from codexbridge.run_publication import publish_run_result
-from codexbridge.run_store import utc_now
+from soma.run_publication import publish_run_result
+from soma.run_store import utc_now
 
 
 RUN_ID = "20260722T043000Z_project_command_facefeed"
@@ -54,7 +54,7 @@ def _complete(manager: JobManager, run_id: str) -> None:
             "process_success": True,
             "summary": "gateway complete",
             "stdout": "archive-only output",
-            "changed_files": ["codexbridge/server.py"],
+            "changed_files": ["soma/server.py"],
         },
         expected_statuses=("queued",),
         expected_state_version=current["state_version"],

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import codexbridge.run_store as run_store_module
-from codexbridge.cf1_run_path_benchmark import (
+import soma.run_store as run_store_module
+from soma.cf1_run_path_benchmark import (
     CF1_RUN_PATH_BENCHMARK_VERSION,
     measure_run_path,
 )
-from codexbridge.config import AppConfig, CodexConfig, RepoConfig
-from codexbridge.job_manager import JobManager
+from soma.config import AppConfig, CodexConfig, RepoConfig
+from soma.job_manager import JobManager
 
 
 def _make_manager(tmp_path: Path) -> JobManager:

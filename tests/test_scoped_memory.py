@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.memory.repository import ProjectMemoryRepository
+from soma.memory.repository import ProjectMemoryRepository
 
 
 def test_scoped_search_does_not_cross_repositories(tmp_path: Path) -> None:

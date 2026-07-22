@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.remote_controller_state import build_remote_controller_state_contract
+from soma.remote_controller_state import build_remote_controller_state_contract
 
-import codexbridge.ssh_watchdog as ssh_watchdog
-from codexbridge.config import (
+import soma.ssh_watchdog as ssh_watchdog
+from soma.config import (
     AppConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
     SSHHostConfig,
 )
-from codexbridge.ssh_watchdog import (
+from soma.ssh_watchdog import (
     validate_monitored_command_start,
     watchdog_termination_active,
 )
@@ -137,11 +137,11 @@ def test_encoded_controller_is_validator_safe_and_attached() -> None:
 
 
 def test_marker_parser_accepts_forced_pty_banner_and_trailer() -> None:
-    marker = "__CODEXBRIDGE_REMOTE_TERMINATION_test__="
+    marker = "__SOMA_REMOTE_TERMINATION_test__="
     output = (
         "Welcome to host\r\n"
         f"noise-prefix {marker}{{\"terminated\":true,\"identity_verified\":true}}\r\n"
-        "__CODEXBRIDGE_EXIT_0__\r\n"
+        "__SOMA_EXIT_0__\r\n"
     )
 
     payload = ssh_watchdog._find_marker_payload(output, marker)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.run_store import RunStore, validate_run_id
+from soma.run_store import RunStore, validate_run_id
 
 
 RUN_ID = "20260427T120000Z_codex_plan_task_abcdef12"

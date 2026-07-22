@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.jobs.job_reporter import generate_job_report
-from codexbridge.jobs.models import JobResult, JobStatus
-from codexbridge.local_agent.models import PermissionTier
-from codexbridge.run_store import utc_now
+from soma.jobs.job_reporter import generate_job_report
+from soma.jobs.models import JobResult, JobStatus
+from soma.local_agent.models import PermissionTier
+from soma.run_store import utc_now
 
 
 def make_job(tmp_path: Path, status: JobStatus) -> JobResult:
@@ -90,7 +90,7 @@ def test_return_loop_modules_do_not_import_pulsesender_codex_browser_or_shell_ex
 ):
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("codexbridge/return_loop").glob("*.py")
+        for path in Path("soma/return_loop").glob("*.py")
     )
 
     assert "import PulseSender" not in source

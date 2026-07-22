@@ -8,15 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-import codexbridge.ssh_commands as ssh_commands
-from codexbridge.config import (
+import soma.ssh_commands as ssh_commands
+from soma.config import (
     AppConfig,
     RepoConfig,
     SSHCommandProfileConfig,
     SSHConfig,
     SSHHostConfig,
 )
-from codexbridge.ssh_commands import (
+from soma.ssh_commands import (
     build_ssh_argv,
     build_ssh_payload_argv,
     list_ssh_capabilities,
@@ -311,7 +311,7 @@ def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
         captured["kwargs"] = kwargs
         return SimpleNamespace(
             stdout=(
-                "RunPod banner\r\nuptime output\r\n__CODEXBRIDGE_REMOTE_EXIT__=0\r\n"
+                "RunPod banner\r\nuptime output\r\n__SOMA_REMOTE_EXIT__=0\r\n"
             ),
             stderr="",
             returncode=0,
@@ -327,10 +327,10 @@ def test_runpod_proxy_command_uses_pty_stdin_and_exit_marker(
     assert "input" in captured["kwargs"]
     assert "stdin" not in captured["kwargs"]
     assert b"uptime\n" in captured["kwargs"]["input"]
-    assert b"__CODEXBRIDGE_REMOTE_EXIT__=" in captured["kwargs"]["input"]
+    assert b"__SOMA_REMOTE_EXIT__=" in captured["kwargs"]["input"]
     assert result["ok"] is True
     assert result["exit_code"] == 0
-    assert "__CODEXBRIDGE_REMOTE_EXIT__=" not in result["stdout"]
+    assert "__SOMA_REMOTE_EXIT__=" not in result["stdout"]
 
 
 def test_runpod_proxy_marker_controls_remote_exit_code(
@@ -353,7 +353,7 @@ def test_runpod_proxy_marker_controls_remote_exit_code(
         ssh_commands.subprocess,
         "run",
         lambda argv, **kwargs: SimpleNamespace(
-            stdout="\r\n__CODEXBRIDGE_REMOTE_EXIT__=7\r\n",
+            stdout="\r\n__SOMA_REMOTE_EXIT__=7\r\n",
             stderr="",
             returncode=0,
         ),
@@ -622,7 +622,7 @@ def test_forced_pty_payload_is_encoded_and_echo_redacted(
         captured["argv"] = list(argv)
         captured["kwargs"] = kwargs
         return SimpleNamespace(
-            stdout=f"{encoded}\r\n__CODEXBRIDGE_REMOTE_EXIT__=0\r\n",
+            stdout=f"{encoded}\r\n__SOMA_REMOTE_EXIT__=0\r\n",
             stderr="",
             returncode=0,
         )
@@ -672,7 +672,7 @@ def test_forced_pty_pwsh_payload_quotes_arguments(
         captured["argv"] = list(argv)
         captured["kwargs"] = kwargs
         return SimpleNamespace(
-            stdout="__CODEXBRIDGE_REMOTE_EXIT__=0\r\n",
+            stdout="__SOMA_REMOTE_EXIT__=0\r\n",
             stderr="",
             returncode=0,
         )
@@ -694,7 +694,7 @@ def test_forced_pty_pwsh_payload_quotes_arguments(
     stdin_text = captured["kwargs"]["input"].decode("utf-8")
     assert (
         'pwsh -NoLogo -NoProfile -NonInteractive -File '
-        '"$__codexbridge_payload" \'safe value\' --mode=test'
+        '"$__soma_payload" \'safe value\' --mode=test'
         in stdin_text
     )
     assert payload not in stdin_text
@@ -718,7 +718,7 @@ def test_root_payload_verifies_effective_uid_and_strips_internal_marker(
         captured["kwargs"] = kwargs
         return SimpleNamespace(
             stdout="root payload finished\n",
-            stderr="__CODEXBRIDGE_ROOT_EUID__=0\n",
+            stderr="__SOMA_ROOT_EUID__=0\n",
             returncode=0,
         )
 
@@ -739,8 +739,8 @@ def test_root_payload_verifies_effective_uid_and_strips_internal_marker(
     assert captured["kwargs"]["input"] == payload.encode("utf-8")
     assert result["ok"] is True
     assert result["root_identity_verified"] is True
-    assert "__CODEXBRIDGE_ROOT_EUID__" not in result["stderr"]
-    assert "__CODEXBRIDGE_ROOT_EUID__" not in result["error"]
+    assert "__SOMA_ROOT_EUID__" not in result["stderr"]
+    assert "__SOMA_ROOT_EUID__" not in result["error"]
     assert result["argv"][-1] == "<root shell via stdin>"
 
 
@@ -791,7 +791,7 @@ def test_root_payload_nonzero_exit_has_clean_error_after_marker_removal(
         "run",
         lambda argv, **kwargs: SimpleNamespace(
             stdout="",
-            stderr="__CODEXBRIDGE_ROOT_EUID__=0\n",
+            stderr="__SOMA_ROOT_EUID__=0\n",
             returncode=7,
         ),
     )

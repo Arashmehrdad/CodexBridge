@@ -18,7 +18,7 @@ def test_wait_fixture_is_bounded_and_returns_marker(monkeypatch) -> None:
     result = wait_fixture(1.5, "lifecycle-complete")
 
     assert result == {
-        "source": "codexbridge-disposable-mcp",
+        "source": "soma-disposable-mcp",
         "value": "lifecycle-complete",
         "waited_seconds": 1.5,
     }
@@ -63,7 +63,7 @@ def test_ambiguous_response_reconciles_without_duplicate_mutation(monkeypatch, t
     reconciled = reconcile_reversible_fixture("ambiguous-key")
     replay = apply_reversible_fixture("ambiguous-key", "committed-value")
     state = json.loads(
-        (tmp_path / "codexbridge-side-effect-fixture.json").read_text(encoding="utf-8")
+        (tmp_path / "soma-side-effect-fixture.json").read_text(encoding="utf-8")
     )
 
     assert reconciled["exists"] is True

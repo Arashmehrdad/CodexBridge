@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from codexbridge.policy.models import CanonicalPermissionTier, PolicyDecisionValue
-from codexbridge.ssh_policy import (
+from soma.policy.models import CanonicalPermissionTier, PolicyDecisionValue
+from soma.ssh_policy import (
     AUTONOMY_PROFILES,
     CANONICAL_AUTONOMY_PROFILES,
     CANONICAL_SSH_EXECUTION_MODES,

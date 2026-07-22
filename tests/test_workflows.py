@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import pytest
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.return_loop.pulse_contract import discover_ready_reports
-from codexbridge.workflows.manager import WorkflowManager
-from codexbridge.workflows.store import WorkflowStore
-from codexbridge.workflows.worker import WorkflowWorker
-from codexbridge.workflows.models import WorkflowEvent, WorkflowRecord, WorkflowStatus
+from soma.config import AppConfig, RepoConfig
+from soma.return_loop.pulse_contract import discover_ready_reports
+from soma.workflows.manager import WorkflowManager
+from soma.workflows.store import WorkflowStore
+from soma.workflows.worker import WorkflowWorker
+from soma.workflows.models import WorkflowEvent, WorkflowRecord, WorkflowStatus
 
 
 class FakeWorkflowStore:
@@ -152,19 +152,19 @@ def patch_atomic_writes(monkeypatch):
         return {"path": str(path)}
 
     monkeypatch.setattr(
-        "codexbridge.workflows.reporter.atomic_write_text", write_text
+        "soma.workflows.reporter.atomic_write_text", write_text
     )
     monkeypatch.setattr(
-        "codexbridge.workflows.reporter.atomic_write_json", write_json
+        "soma.workflows.reporter.atomic_write_json", write_json
     )
     monkeypatch.setattr(
-        "codexbridge.return_loop.pulse_contract.atomic_write_json", write_json
+        "soma.return_loop.pulse_contract.atomic_write_json", write_json
     )
     monkeypatch.setattr(
-        "codexbridge.return_loop.atomic_writer.atomic_write_text", write_text
+        "soma.return_loop.atomic_writer.atomic_write_text", write_text
     )
     monkeypatch.setattr(
-        "codexbridge.return_loop.atomic_writer.atomic_write_json", write_json
+        "soma.return_loop.atomic_writer.atomic_write_json", write_json
     )
 
 
@@ -412,7 +412,7 @@ def test_workflow_worker_advances_ordered_steps_dependencies_continue_and_local_
             },
         ],
     )
-    monkeypatch.setattr("codexbridge.workflows.worker.JobManager", FakeJobManager)
+    monkeypatch.setattr("soma.workflows.worker.JobManager", FakeJobManager)
     worker = WorkflowWorker(config_path, started["workflow_id"], sleep_fn=lambda *_args: None)
     assert worker.execute() == 0
 
@@ -457,7 +457,7 @@ def test_workflow_worker_stops_on_failure_and_skips_remaining_steps(
             {"id": "two", "type": "project_command", "parameters": {"command_id": "ok"}},
         ],
     )
-    monkeypatch.setattr("codexbridge.workflows.worker.JobManager", FakeJobManager)
+    monkeypatch.setattr("soma.workflows.worker.JobManager", FakeJobManager)
     worker = WorkflowWorker(config_path, started["workflow_id"], sleep_fn=lambda *_args: None)
     assert worker.execute() == 0
 
@@ -546,7 +546,7 @@ def test_workflow_result_and_events_snapshots_are_written(tmp_path: Path, monkey
             {"id": "two", "type": "local_summary", "parameters": {}, "depends_on": ["one"]},
         ],
     )
-    monkeypatch.setattr("codexbridge.workflows.worker.JobManager", FakeJobManager)
+    monkeypatch.setattr("soma.workflows.worker.JobManager", FakeJobManager)
     worker = WorkflowWorker(config_path, started["workflow_id"], sleep_fn=lambda *_args: None)
     worker.execute()
 

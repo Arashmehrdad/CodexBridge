@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from codexbridge.hermes_concurrency import (
+from soma.hermes_concurrency import (
     CredentialLockRegistry,
     HermesAdministrationLock,
     HermesConcurrencyControls,

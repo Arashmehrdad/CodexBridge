@@ -5,13 +5,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.return_loop.report_manifest import file_sha256
-from codexbridge.workflows.manager import WorkflowManager
-from codexbridge.workflows.models import WorkflowStatus, WorkflowStepStatus
-from codexbridge.workflows.publication import publish_workflow
-from codexbridge.workflows.reporter import generate_workflow_report, write_workflow_snapshot
-from codexbridge.workflows.store import WorkflowStore
+from soma.config import AppConfig, RepoConfig
+from soma.return_loop.report_manifest import file_sha256
+from soma.workflows.manager import WorkflowManager
+from soma.workflows.models import WorkflowStatus, WorkflowStepStatus
+from soma.workflows.publication import publish_workflow
+from soma.workflows.reporter import generate_workflow_report, write_workflow_snapshot
+from soma.workflows.store import WorkflowStore
 
 
 def _config(tmp_path: Path) -> tuple[AppConfig, Path]:

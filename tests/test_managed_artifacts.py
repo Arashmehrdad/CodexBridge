@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.managed_artifacts import (
+from soma.managed_artifacts import (
     MANAGED_ARTIFACT_ROOTS,
     apply_managed_artifact_cleanup,
     cleanup_new_managed_artifacts,

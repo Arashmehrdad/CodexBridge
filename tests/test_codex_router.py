@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.codex_router import CodexEscalationRequest, CodexEscalationRouter
-from codexbridge.codex_router.codex_client import NoopCodexClient
-from codexbridge.codex_router.models import CodexEscalationStatus, CodexInvocationResult
-from codexbridge.config import CodexRouterConfig
-from codexbridge.memory.repository import ProjectMemoryRepository
-from codexbridge.policy import PolicyEngine
+from soma.codex_router import CodexEscalationRequest, CodexEscalationRouter
+from soma.codex_router.codex_client import NoopCodexClient
+from soma.codex_router.models import CodexEscalationStatus, CodexInvocationResult
+from soma.config import CodexRouterConfig
+from soma.memory.repository import ProjectMemoryRepository
+from soma.policy import PolicyEngine
 
 
 def router(tmp_path: Path, **kwargs) -> CodexEscalationRouter:
@@ -147,7 +147,7 @@ def test_memory_context_and_local_model_summary_are_optional(tmp_path: Path) -> 
         def compress_context(self, text):
             return type("Result", (), {"content": "compressed summary"})()
 
-    from codexbridge.codex_router.context_builder import CodexContextBuilder
+    from soma.codex_router.context_builder import CodexContextBuilder
 
     builder = CodexContextBuilder(
         memory_repository=memory_repo, local_model=FakeLocalModel()
@@ -200,7 +200,7 @@ def test_noop_codex_client_does_not_call_codex(tmp_path: Path) -> None:
 def test_router_modules_do_not_introduce_forbidden_integrations() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("codexbridge/codex_router").glob("*.py")
+        for path in Path("soma/codex_router").glob("*.py")
     )
 
     assert "subprocess" not in source

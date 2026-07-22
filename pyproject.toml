@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "codexbridge"
+name = "soma"
 version = "0.1.0"
 description = "Local Windows MCP bridge between ChatGPT and Codex CLI"
 readme = "README.md"
@@ -27,5 +27,5 @@ pulse = [
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["codexbridge*"]
+include = ["soma*"]
 exclude = ["runs*", "tests*"]

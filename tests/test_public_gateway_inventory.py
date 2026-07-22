@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from codexbridge.public_gateway_inventory import (
+from soma.public_gateway_inventory import (
     PUBLIC_GATEWAY_INVENTORY,
     PUBLIC_GATEWAY_INVENTORY_VERSION,
     PUBLIC_GATEWAY_NAMES,
@@ -11,8 +11,8 @@ from codexbridge.public_gateway_inventory import (
 
 
 PUBLIC_TOOL_SOURCES = (
-    Path("codexbridge/server.py"),
-    Path("codexbridge/knowledge_tools_integration.py"),
+    Path("soma/server.py"),
+    Path("soma/knowledge_tools_integration.py"),
 )
 
 
@@ -45,8 +45,8 @@ def test_inventory_entries_are_versioned_unique_and_actionable() -> None:
         assert entry.name
         assert entry.family
         assert entry.source in {
-            "codexbridge.server",
-            "codexbridge.knowledge_tools_integration",
+            "soma.server",
+            "soma.knowledge_tools_integration",
         }
         assert entry.response_path
         assert entry.cf1_risk

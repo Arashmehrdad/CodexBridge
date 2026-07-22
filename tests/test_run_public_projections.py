@@ -4,7 +4,7 @@ from hashlib import sha256
 
 import pytest
 
-from codexbridge.public_projection_contract import (
+from soma.public_projection_contract import (
     DEFAULT_PUBLIC_BYTE_BUDGETS,
     NON_AUTHORITATIVE_NOTICE,
     PUBLIC_PROJECTION_SCHEMA_VERSION,

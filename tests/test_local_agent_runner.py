@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskInput
-from codexbridge.local_agent.models import (
+from soma.local_agent import LocalAgentOrchestrator, LocalAgentTaskInput
+from soma.local_agent.models import (
     CommandRunResult,
     CommandRunStatus,
     PermissionTier,
@@ -88,7 +88,7 @@ def test_orchestrator_requires_explicit_execution_context_for_project_commands(
 def test_orchestrator_uses_durable_runner_when_app_config_is_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from codexbridge.local_agent import orchestrator as orchestrator_module
+    from soma.local_agent import orchestrator as orchestrator_module
 
     captured = {}
 
@@ -118,7 +118,7 @@ def test_orchestrator_uses_durable_runner_when_app_config_is_available(
 
 
 def test_local_agent_runner_introduces_no_codex_or_local_model_calls() -> None:
-    source = Path("codexbridge/local_agent/orchestrator.py").read_text(encoding="utf-8")
+    source = Path("soma/local_agent/orchestrator.py").read_text(encoding="utf-8")
 
     assert "CodexRunner" not in source
     assert "ollama" not in source.lower()

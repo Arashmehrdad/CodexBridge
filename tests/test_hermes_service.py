@@ -7,10 +7,10 @@ from typing import Any, Mapping
 
 import pytest
 
-from codexbridge.hermes_companion_protocol import (
+from soma.hermes_companion_protocol import (
     HermesInterfaceDriftError,
 )
-from codexbridge.hermes_service import (
+from soma.hermes_service import (
     HermesRegistryIdentity,
     HermesServiceError,
     HermesServiceIdentity,

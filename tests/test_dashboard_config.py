@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.config import AppConfig, DashboardConfig, RepoConfig
+from soma.config import AppConfig, DashboardConfig, RepoConfig
 
 
 def test_dashboard_config_defaults_are_read_only(tmp_path: Path) -> None:

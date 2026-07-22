@@ -1,5 +1,5 @@
 """
-Tests for codexbridge/command_profiles.py.
+Tests for soma/command_profiles.py.
 Covers blocked-pattern rejection, unknown IDs, built-in profiles,
 repo-level overrides, repository virtual environments, and shell=False execution.
 """
@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import codexbridge.command_profiles as cp
-from codexbridge.command_profiles import (
+import soma.command_profiles as cp
+from soma.command_profiles import (
     BASH_N_PATH_COMMAND_ID,
     BUILTIN_PROFILES,
     GIT_READONLY_COMMAND_ID,

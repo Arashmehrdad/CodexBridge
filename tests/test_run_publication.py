@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.run_publication import publish_run_result
-from codexbridge.run_store import RunStore, utc_now
+from soma.run_publication import publish_run_result
+from soma.run_store import RunStore, utc_now
 
 
 def _terminal_run(tmp_path: Path, result: dict) -> tuple[RunStore, str, Path]:
@@ -55,7 +55,7 @@ def test_publication_failure_preserves_terminal_database_result(
     winner = {"run_id": "winner", "status": "completed", "summary": "database"}
     store, run_id, _ = _terminal_run(tmp_path, winner)
     monkeypatch.setattr(
-        "codexbridge.run_publication.atomic_write_json",
+        "soma.run_publication.atomic_write_json",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
 

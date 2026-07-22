@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from codexbridge.gateway_models import RunListQuery, RunResultQuery, RunStatusQuery
-from codexbridge.job_manager import JobManager
-from codexbridge.run_query_chunks import RUN_QUERY_CHUNK_CHARACTERS
+from soma.gateway_models import RunListQuery, RunResultQuery, RunStatusQuery
+from soma.job_manager import JobManager
+from soma.run_query_chunks import RUN_QUERY_CHUNK_CHARACTERS
 
 
 RUN_ID = "20260714T000000Z_project_command_12345678"
@@ -33,7 +33,7 @@ class FakeRunStore:
 def make_run(detail: str) -> dict[str, Any]:
     return {
         "run_id": RUN_ID,
-        "repo_name": "codexbridge",
+        "repo_name": "soma",
         "tool": "project_command",
         "status": "completed",
         "current_phase": "result",

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.supervisor_store import SupervisorStore
+from soma.supervisor_store import SupervisorStore
 
 
 SCRIPT_PATH = (

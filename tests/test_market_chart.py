@@ -5,8 +5,8 @@ from hashlib import sha256
 
 import pytest
 
-from codexbridge.trading.market_chart import PNG_SIGNATURE, render_market_packet_chart
-from codexbridge.trading.market_packet import MarketPacket, packet_content_hash
+from soma.trading.market_chart import PNG_SIGNATURE, render_market_packet_chart
+from soma.trading.market_packet import MarketPacket, packet_content_hash
 
 from test_market_packet import build
 

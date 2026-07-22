@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.config import (
+from soma.config import (
     AppConfig,
     RepoConfig,
     SupervisorNotificationsConfig,
     SupervisorWebhookNotificationSinkConfig,
     SupervisorsConfig,
 )
-from codexbridge.self_check import _start_server_probe, run_self_check
+from soma.self_check import _start_server_probe, run_self_check
 
 
 def test_self_check_result_structure_without_live_server(
@@ -24,7 +24,7 @@ def test_self_check_result_structure_without_live_server(
             "ok": True,
         }
 
-    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    monkeypatch.setattr("soma.self_check._run", fake_run)
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
@@ -50,7 +50,7 @@ def test_self_check_reports_supervisor_readiness(monkeypatch, tmp_path: Path) ->
             "ok": True,
         }
 
-    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    monkeypatch.setattr("soma.self_check._run", fake_run)
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
@@ -101,7 +101,7 @@ def test_self_check_does_not_expose_webhook_url_values(
             "ok": True,
         }
 
-    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    monkeypatch.setattr("soma.self_check._run", fake_run)
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))},
         config_dir=tmp_path,
@@ -152,9 +152,9 @@ def test_self_check_reports_transport_readiness(monkeypatch, tmp_path: Path) -> 
 
     config_file = tmp_path / "config.yaml"
     config_file.write_text("repos: {}\n", encoding="utf-8")
-    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    monkeypatch.setattr("soma.self_check._run", fake_run)
     monkeypatch.setattr(
-        "codexbridge.self_check._start_server_probe", fake_start_server_probe
+        "soma.self_check._start_server_probe", fake_start_server_probe
     )
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
@@ -183,7 +183,7 @@ def test_self_check_uses_isolated_pytest_basetemp(
             "ok": True,
         }
 
-    monkeypatch.setattr("codexbridge.self_check._run", fake_run)
+    monkeypatch.setattr("soma.self_check._run", fake_run)
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path
     )
@@ -223,7 +223,7 @@ def test_server_probe_uses_extended_readiness_window(
             self.terminated = True
 
     monkeypatch.setattr(
-        "codexbridge.self_check.subprocess.Popen",
+        "soma.self_check.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
 
@@ -232,7 +232,7 @@ def test_server_probe_uses_extended_readiness_window(
         return {"url": url, "status": 406, "ok": True}
 
     monkeypatch.setattr(
-        "codexbridge.self_check._wait_for_endpoint", fake_wait_for_endpoint
+        "soma.self_check._wait_for_endpoint", fake_wait_for_endpoint
     )
 
     result = _start_server_probe(

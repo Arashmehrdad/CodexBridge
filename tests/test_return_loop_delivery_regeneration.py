@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.return_loop.models import ReturnLoopStatus
-from codexbridge.return_loop.pulse_contract import (
+from soma.return_loop.models import ReturnLoopStatus
+from soma.return_loop.pulse_contract import (
     build_report_manifest,
     discover_ready_reports,
     mark_sent_by_external_pulsesender,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.config import AppConfig, LocalCodingConfig, RepoConfig
+from soma.config import AppConfig, LocalCodingConfig, RepoConfig
 
 
 def test_local_coding_config_defaults_are_preview_only(tmp_path: Path) -> None:

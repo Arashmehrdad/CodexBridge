@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from codexbridge.codex_router import CodexEscalationRouter
-from codexbridge.local_agent import LocalAgentOrchestrator
-from codexbridge.local_agent.models import LocalAgentTaskType, RoutingDecision
-from codexbridge.policy import PolicyEngine
+from soma.codex_router import CodexEscalationRouter
+from soma.local_agent import LocalAgentOrchestrator
+from soma.local_agent.models import LocalAgentTaskType, RoutingDecision
+from soma.policy import PolicyEngine
 
 
 def test_local_agent_routes_explicit_codex_packet_request(tmp_path):

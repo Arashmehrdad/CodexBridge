@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from codexbridge.hermes_companion_protocol import HERMES_COMPANION_PROTOCOL_VERSION
+from soma.hermes_companion_protocol import HERMES_COMPANION_PROTOCOL_VERSION
 
-FIXTURE_QUERY = "CodexBridge disposable MCP fixture"
+FIXTURE_QUERY = "Soma disposable MCP fixture"
 FIXTURE_VALUE = "durable-mcp-gate"
 
 
@@ -39,7 +39,7 @@ def validate(checkout: Path, repository: Path) -> dict[str, Any]:
     config = runtime_home / "config.yaml"
     config.write_text(
         "mcp_servers:\n"
-        "  codexbridge_fixture:\n"
+        "  soma_fixture:\n"
         f"    command: {json.dumps(sys.executable)}\n"
         "    args:\n"
         f"      - {json.dumps(str(fixture))}\n"
@@ -58,7 +58,7 @@ def validate(checkout: Path, repository: Path) -> dict[str, Any]:
     command = [
         sys.executable,
         "-m",
-        "codexbridge.hermes_companion",
+        "soma.hermes_companion",
         "--hermes-checkout",
         str(checkout),
     ]
@@ -106,7 +106,7 @@ def validate(checkout: Path, repository: Path) -> dict[str, Any]:
             },
         )
         result_text = call["result"] if isinstance(call["result"], str) else json.dumps(call["result"])
-        if "codexbridge-disposable-mcp" not in result_text or FIXTURE_VALUE not in result_text:
+        if "soma-disposable-mcp" not in result_text or FIXTURE_VALUE not in result_text:
             raise RuntimeError(f"unexpected disposable MCP result: {call['result']!r}")
         if handshake.get("model_runtime_initialized") is not False:
             raise RuntimeError("Hermes model runtime initialization evidence is invalid")

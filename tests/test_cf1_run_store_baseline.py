@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.cf1_run_store_baseline import (
+from soma.cf1_run_store_baseline import (
     CF1_RUN_STORE_BASELINE_VERSION,
     RUN_INTERNAL_ONLY_COLUMNS,
     RUN_JSON_BLOB_COLUMNS,
     RUN_SCALAR_SUMMARY_COLUMNS,
     RUN_STORE_INDEX_PROPOSALS,
 )
-from codexbridge.run_store import RunStore
+from soma.run_store import RunStore
 
 
 def _table_columns(store: RunStore) -> set[str]:

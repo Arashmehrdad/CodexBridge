@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from codexbridge.local_agent.durable_command_runner import DurableProjectCommandRunner
-from codexbridge.local_agent.models import CommandRunStatus, PermissionTier
+from soma.local_agent.durable_command_runner import DurableProjectCommandRunner
+from soma.local_agent.models import CommandRunStatus, PermissionTier
 
 
 class FakeStore:
@@ -57,19 +57,19 @@ def configured_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     )
     durable_profile = SimpleNamespace(argv=["python", "-m", "pytest", "-q"])
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner.resolve_repo_config",
+        "soma.local_agent.durable_command_runner.resolve_repo_config",
         lambda config, repo_name: ("sample", SimpleNamespace(command_profiles=[])),
     )
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner.resolve_repo",
+        "soma.local_agent.durable_command_runner.resolve_repo",
         lambda config, repo_name: repo.resolve(),
     )
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner._get_command_policy",
+        "soma.local_agent.durable_command_runner._get_command_policy",
         lambda command_id: command_policy if command_id == "pytest" else None,
     )
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner.resolve_command_profile",
+        "soma.local_agent.durable_command_runner.resolve_command_profile",
         lambda command_id, profiles: durable_profile,
     )
 
@@ -121,7 +121,7 @@ def test_wait_timeout_requests_durable_cancellation(
 ) -> None:
     moments = iter((0.0, 1.0))
     monkeypatch.setattr(
-        "codexbridge.local_agent.durable_command_runner.time.monotonic",
+        "soma.local_agent.durable_command_runner.time.monotonic",
         lambda: next(moments),
     )
     repo, make = configured_runner

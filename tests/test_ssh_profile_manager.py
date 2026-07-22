@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codexbridge.ssh_profile_manager import (
+from soma.ssh_profile_manager import (
     apply_ssh_profile_change,
     get_ssh_profile_change_status,
     preview_ssh_profile_change,

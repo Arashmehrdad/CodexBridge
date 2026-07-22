@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.ssh_staging import (
+from soma.ssh_staging import (
     build_ssh_staging_manifest,
     stage_ssh_inputs,
     validate_ssh_staging_manifest,

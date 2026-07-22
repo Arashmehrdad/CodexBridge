@@ -7,8 +7,8 @@ $ErrorActionPreference = "Stop"
 
 $sshDirectory = Join-Path $env:USERPROFILE ".ssh"
 $configPath = Join-Path $sshDirectory "config"
-$startMarker = "# BEGIN CODEXBRIDGE RUNPOD WAN"
-$endMarker = "# END CODEXBRIDGE RUNPOD WAN"
+$startMarker = "# BEGIN SOMA RUNPOD WAN"
+$endMarker = "# END SOMA RUNPOD WAN"
 
 if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
     throw "SSH private key was not found: $IdentityFile"

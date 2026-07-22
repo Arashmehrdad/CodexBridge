@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from codexbridge.events import redact_and_truncate
-from codexbridge.supervisor_store import SupervisorStore, validate_supervisor_id
+from soma.events import redact_and_truncate
+from soma.supervisor_store import SupervisorStore, validate_supervisor_id
 
 
 HANDOFF_STATUSES = {"needs_input", "completed", "failed", "cancelled"}
@@ -67,10 +67,10 @@ def build_prompt(
         )
 
     fallback = (
-        "CodexBridge supervisor handoff.\n"
+        "Soma supervisor handoff.\n"
         f"supervisor_id: {supervisor_id}\n"
         f"status: {status}\n"
-        "Please retrieve the supervisor status, events, result, and resume prompt from CodexBridge."
+        "Please retrieve the supervisor status, events, result, and resume prompt from Soma."
     )
     return str(redact_and_truncate(fallback, limit=DEFAULT_PROMPT_LIMIT))
 
@@ -210,7 +210,7 @@ def run_once(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Send a local browser pulse for a CodexBridge supervisor handoff."
+        description="Send a local browser pulse for a Soma supervisor handoff."
     )
     parser.add_argument("--runs-dir", default="runs")
     parser.add_argument("--supervisor-id", required=True)

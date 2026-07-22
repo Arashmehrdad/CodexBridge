@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 
-from codexbridge.public_footprint_measurement import (
+from soma.public_footprint_measurement import (
     PUBLIC_FOOTPRINT_MEASUREMENT_VERSION,
     measure_public_footprint,
 )
@@ -14,7 +14,7 @@ def _canonical_bytes(value: object) -> bytes:
 
 
 def test_measurement_records_every_cf1_transport_layer_and_duplicate_copy() -> None:
-    request = {"operation": "list", "repo_name": "CodexBridge", "limit": 20}
+    request = {"operation": "list", "repo_name": "Soma", "limit": 20}
     projection = [{"run_id": "run-1", "status": "completed", "summary": "done"}]
     projection_text = _canonical_bytes(projection).decode("utf-8")
     connector = {

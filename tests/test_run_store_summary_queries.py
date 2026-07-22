@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-import codexbridge.job_manager as job_manager_module
-import codexbridge.server as server
-from codexbridge.gateway_models import RunQueryRequest
-from codexbridge.job_manager import JobManager
-from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
-from codexbridge.run_store import (
+import soma.job_manager as job_manager_module
+import soma.server as server
+from soma.gateway_models import RunQueryRequest
+from soma.job_manager import JobManager
+from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
+from soma.run_store import (
     RUN_CONTROL_PROJECTION_COLUMNS,
     RUN_SUMMARY_ORDERING,
     RUN_SUMMARY_PROJECTION_COLUMNS,
@@ -117,7 +117,7 @@ def test_compact_sql_is_explicit_and_never_decodes_json(
     monkeypatch.setattr(
         store, "connect", lambda: TracedConnection(original_connect())
     )
-    monkeypatch.setattr("codexbridge.run_store.loads", lambda value: pytest.fail("loads called"))
+    monkeypatch.setattr("soma.run_store.loads", lambda value: pytest.fail("loads called"))
 
     store.get_run_summary(run_id, now=NOW)
     store.get_run_control_snapshot(run_id, now=NOW)

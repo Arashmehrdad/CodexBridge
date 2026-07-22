@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.run_artifacts import resolve_output_artifacts
+from soma.run_artifacts import resolve_output_artifacts
 
 
 def _run(run_dir: Path, manifest: object | None) -> dict:

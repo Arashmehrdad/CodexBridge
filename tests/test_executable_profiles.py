@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, ExecutableProfileConfig, RepoConfig
-from codexbridge.executable_profiles import (
+from soma.config import AppConfig, ExecutableProfileConfig, RepoConfig
+from soma.executable_profiles import (
     build_local_executable_run_request,
     inspect_executable_identity,
     resolve_executable_profile,

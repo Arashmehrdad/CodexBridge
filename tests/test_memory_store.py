@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.memory.models import MemoryRecord, MemoryType
-from codexbridge.memory.store import ProjectMemoryStore
+from soma.memory.models import MemoryRecord, MemoryType
+from soma.memory.store import ProjectMemoryStore
 
 
 def store(tmp_path: Path, *, block_sensitive: bool = True) -> ProjectMemoryStore:

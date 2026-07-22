@@ -23,7 +23,7 @@ This document is the final C1 capability and retention record. Local unrestricte
 | Duplicate local-agent command-profile registry and artifact tree | Removed | Canonical durable command-profile registry and durable run artifacts |
 | Built-in `ruff_check`, `ruff_format_check`, `ruff_format`, `mypy`, and duplicate `git_diff_check` | Removed | Unrestricted PowerShell; retained typed `git_readonly(diff_check)` where a fixed validation operation is useful |
 | Ordinary Andia `eslint`, `typecheck`, `vitest`, and `frontend_validate` configured profiles | Removed after live replacement smoke tests | Unrestricted PowerShell with the repository working directory and explicit timeout |
-| CodexBridge inspection, rollback repair, and service-restart configured profiles | Retained | These carry reviewed operational semantics and remain internal durable workflow contracts, not public arbitrary-command gateways |
+| Soma inspection, rollback repair, and service-restart configured profiles | Retained | These carry reviewed operational semantics and remain internal durable workflow contracts, not public arbitrary-command gateways |
 | SSH reviewed-script, administration, transfer, and deployment wrappers | Retained and assigned to R3/R4/X4 | They still provide remote transport, staging, controller, and evidence behavior that local PowerShell cannot replace safely before remote durability parity |
 | Durable history and protected evidence from removed routes | Retained | Explicit C1 retention policy below |
 

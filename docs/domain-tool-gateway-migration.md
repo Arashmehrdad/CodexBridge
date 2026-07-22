@@ -4,7 +4,7 @@ Status: approved end-to-end implementation plan; implementation has not started.
 
 Baseline:
 
-- Repository: `CodexBridge`
+- Repository: `Soma`
 - Working branch at plan creation: `feature/automatic-repo-discovery`
 - Clean baseline commit: `17207ed` (`Complete workflow orchestration and stabilize MCP tool surface`)
 - Local recovery branch: `checkpoint/pre-domain-gateway-migration-20260711`
@@ -178,7 +178,7 @@ Purpose: create the testing and typed-model foundation without changing the publ
 
 Allowed files:
 
-- new focused gateway model/module files under `codexbridge/`
+- new focused gateway model/module files under `soma/`
 - new focused tests under `tests/`
 - `docs/domain-tool-gateway-migration.md` only if implementation findings require a factual correction
 
@@ -214,7 +214,7 @@ Purpose: use the existing `ssh_inspect` gateway for environment and GPU inspecti
 Allowed files:
 
 - SSH gateway model module created in Phase 0
-- `codexbridge/server.py`
+- `soma/server.py`
 - existing SSH implementation modules only if a minimal dispatch adapter is required
 - `tests/test_mcp_action_discovery.py`
 - focused SSH tests
@@ -248,7 +248,7 @@ Purpose: replace overlapping read-only run retrieval tools with `run_query`.
 Allowed files:
 
 - gateway model/dispatch modules
-- `codexbridge/server.py`
+- `soma/server.py`
 - job manager/store only for additive `after_id` event-cursor support
 - run-focused tests
 - action-discovery tests

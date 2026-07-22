@@ -4,7 +4,7 @@ Date: 2026-07-18
 
 ## Scope and isolation
 
-The controlled gate used the registered QuoteFollow Oracle host only as an isolated acceptance fixture. Test files were confined to `/var/tmp/codexbridge-r4` and `/home/ubuntu/.codexbridge`. The production `quotefollow.service` unit and `/opt/quotefollow/current` were not modified.
+The controlled gate used the registered QuoteFollow Oracle host only as an isolated acceptance fixture. Test files were confined to `/var/tmp/soma-r4` and `/home/ubuntu/.soma`. The production `quotefollow.service` unit and `/opt/quotefollow/current` were not modified.
 
 ## Durable execution identity
 
@@ -18,11 +18,11 @@ The controlled gate used the registered QuoteFollow Oracle host only as an isola
 
 Before cancellation, the controller had run for 3,931.55 seconds. Its authoritative state was `running`, its heartbeat age was 2.88 seconds, and the PID/PPID/PGID table showed exactly one parent-child-grandchild tree in process group `1567113`.
 
-The local worker was intentionally lost and the CodexBridge service restarted. Startup reconciliation adopted the existing remote controller with the same execution ID, PID, PGID, and process-start identity. Two additional concurrent reconcilers also completed without launching a duplicate controller. The remote host still contained only the original process tree.
+The local worker was intentionally lost and the Soma service restarted. Startup reconciliation adopted the existing remote controller with the same execution ID, PID, PGID, and process-start identity. Two additional concurrent reconcilers also completed without launching a duplicate controller. The remote host still contained only the original process tree.
 
 ## Identity-scoped cancellation
 
-Cancellation was requested through `JobManager.cancel_run`, the same validated CodexBridge cancellation path used by the gateway. The cancellation report recorded:
+Cancellation was requested through `JobManager.cancel_run`, the same validated Soma cancellation path used by the gateway. The cancellation report recorded:
 
 - identity verified: true
 - cancellation request persisted: true
@@ -32,7 +32,7 @@ Cancellation was requested through `JobManager.cancel_run`, the same validated C
 - remote completion persisted: true
 - identity changed: false
 
-Remote `state.json` and `result.json` both converged to authoritative state `cancelled`. The result retained execution ID, PID, PGID, process-start identity, request ID, cancellation timestamps, and return code `-15`. Independent `kill -0` checks confirmed PIDs `1567113`, `1567114`, and `1567115` were all gone, with no remaining `/var/tmp/codexbridge-r4/r4_*` process.
+Remote `state.json` and `result.json` both converged to authoritative state `cancelled`. The result retained execution ID, PID, PGID, process-start identity, request ID, cancellation timestamps, and return code `-15`. Independent `kill -0` checks confirmed PIDs `1567113`, `1567114`, and `1567115` were all gone, with no remaining `/var/tmp/soma-r4/r4_*` process.
 
 ## Canonical terminal publication
 

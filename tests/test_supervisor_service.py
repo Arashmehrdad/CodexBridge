@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, RepoConfig
-from codexbridge.run_store import RunStore
-from codexbridge.supervisor_engine import FakeChildJobBackend
-from codexbridge.supervisor_resume_prompt import write_resume_prompt
-from codexbridge.supervisor_service import SupervisorService
+from soma.config import AppConfig, RepoConfig
+from soma.run_store import RunStore
+from soma.supervisor_engine import FakeChildJobBackend
+from soma.supervisor_resume_prompt import write_resume_prompt
+from soma.supervisor_service import SupervisorService
 
 
 RUN_ID = "20260428T120000Z_codex_plan_task_abcdef12"
@@ -38,7 +38,7 @@ def make_service(
     config_path = tmp_path / "config.yaml"
     config_path.write_text("repos: {}\n", encoding="utf-8")
     config = AppConfig(
-        repos={"codexbridge": RepoConfig(path=str(repo))},
+        repos={"soma": RepoConfig(path=str(repo))},
         runs_dir=str(tmp_path / "runs"),
         config_dir=tmp_path,
     )
@@ -50,7 +50,7 @@ def create_source_run(config: AppConfig) -> None:
     store = RunStore(config.resolve_runs_dir())
     store.create_run(
         run_id=RUN_ID,
-        repo_name="codexbridge",
+        repo_name="soma",
         tool="codex_plan_task",
         run_dir=config.resolve_runs_dir() / RUN_ID,
         input_data={},
@@ -63,7 +63,7 @@ def active_run_id(supervisor: dict) -> str:
 
 def needs_input(service: StubSupervisorService, jobs: FakeChildJobBackend) -> dict:
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     jobs.complete(active_run_id(supervisor), summary="plan", result={"plan": "ok"})
     return service.resume(supervisor["supervisor_id"])
@@ -89,7 +89,7 @@ def test_start_supervised_recovery_task_starts_and_links_source_run(
     service, jobs, config = make_service(tmp_path)
     create_source_run(config)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task", source_run_id=RUN_ID
+        "soma", "objective", "task", source_run_id=RUN_ID
     )
     assert supervisor["status"] == "planning"
     assert supervisor["run_links"][0]["link_type"] == "source"
@@ -108,7 +108,7 @@ def test_source_run_must_match_repo(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="source_run_id"):
         service.start_supervised_recovery_task(
-            "codexbridge", "objective", "task", source_run_id=RUN_ID
+            "soma", "objective", "task", source_run_id=RUN_ID
         )
 
 
@@ -116,14 +116,14 @@ def test_unknown_autonomy_profile_rejected(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     with pytest.raises(ValueError, match="Unknown autonomy_profile"):
         service.start_supervised_recovery_task(
-            "codexbridge", "objective", "task", autonomy_profile="missing"
+            "soma", "objective", "task", autonomy_profile="missing"
         )
 
 
 def test_get_status_enriches_supervisor(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     status = service.get_status(supervisor["supervisor_id"])
     assert status["run_links"]
@@ -135,7 +135,7 @@ def test_get_status_enriches_supervisor(tmp_path: Path) -> None:
 def test_get_events_returns_limited_ordered_events(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     events = service.get_events(supervisor["supervisor_id"], limit=1)
     assert len(events) == 1
@@ -172,7 +172,7 @@ def test_get_resume_prompt_existing_and_missing(tmp_path: Path) -> None:
 def test_get_notifications_filters_status_and_limit(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "use login credentials"
+        "soma", "objective", "use login credentials"
     )
     notes = service.get_notifications(
         supervisor["supervisor_id"], delivery_status="pending", limit=1
@@ -187,7 +187,7 @@ def test_get_notifications_filters_status_and_limit(tmp_path: Path) -> None:
 def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
     service, jobs, _config = make_service(tmp_path)
     created = service.store.create_supervisor(
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="objective",
         metadata=supervisor_metadata(),
     )
@@ -201,7 +201,7 @@ def test_restart_resumes_queued_supervisor_without_duplicate_child(
 ) -> None:
     service, jobs, config = make_service(tmp_path)
     created = service.store.create_supervisor(
-        repo_name="codexbridge",
+        repo_name="soma",
         objective="objective",
         metadata=supervisor_metadata(),
     )
@@ -222,13 +222,13 @@ def test_resume_planning_and_implementing_advance_after_child_completion(
 ) -> None:
     service, jobs, _config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     jobs.complete(active_run_id(supervisor), summary="plan")
     current = service.resume(supervisor["supervisor_id"])
     assert current["status"] == "needs_input"
 
-    from codexbridge.supervisor_engine import SupervisorEngine
+    from soma.supervisor_engine import SupervisorEngine
 
     engine = SupervisorEngine(service.store, jobs)
     implementing = engine.approve_plan(
@@ -242,7 +242,7 @@ def test_resume_planning_and_implementing_advance_after_child_completion(
 def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> None:
     service, _jobs, _config = make_service(tmp_path)
     created = service.store.create_supervisor(
-        repo_name="codexbridge", objective="objective", metadata=supervisor_metadata()
+        repo_name="soma", objective="objective", metadata=supervisor_metadata()
     )
     paused = service.pause(created["supervisor_id"])
     assert paused["status"] == "paused"
@@ -256,7 +256,7 @@ def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> Non
 def test_cancel_supervisor_delegates_engine_cancel(tmp_path: Path) -> None:
     service, jobs, _config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     cancelled = service.cancel(supervisor["supervisor_id"])
     assert cancelled["status"] == "cancelled"
@@ -268,7 +268,7 @@ def test_restart_preserves_unverified_child_cancellation_state(
 ) -> None:
     service, jobs, config = make_service(tmp_path)
     supervisor = service.start_supervised_recovery_task(
-        "codexbridge", "objective", "task"
+        "soma", "objective", "task"
     )
     child_run_id = active_run_id(supervisor)
     jobs.jobs.pop(child_run_id)

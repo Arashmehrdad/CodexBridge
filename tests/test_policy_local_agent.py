@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.local_agent import LocalAgentOrchestrator
-from codexbridge.local_agent.models import LocalAgentTaskType, RoutingDecision
-from codexbridge.policy import PolicyEngine
-from codexbridge.policy.models import (
+from soma.local_agent import LocalAgentOrchestrator
+from soma.local_agent.models import LocalAgentTaskType, RoutingDecision
+from soma.policy import PolicyEngine
+from soma.policy.models import (
     CanonicalPermissionTier,
     PolicyEvaluationRequest,
 )
@@ -70,7 +70,7 @@ def test_local_agent_does_not_route_edit_tasks_through_policy_execution(
 def test_policy_modules_do_not_call_forbidden_systems() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("codexbridge/policy").glob("*.py")
+        for path in Path("soma/policy").glob("*.py")
     )
 
     assert "subprocess" not in source

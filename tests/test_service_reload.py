@@ -6,14 +6,14 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
-from codexbridge.service_reload import (
+from soma.service_reload import (
     apply_reloaded_config,
     get_reload_status,
     reload_service,
     rollback_service,
     validate_config_candidate,
 )
-from codexbridge.repo_discovery_integration import (
+from soma.repo_discovery_integration import (
     _install_server_binding,
     resolve_repo_identity_with_discovery,
 )
@@ -60,16 +60,16 @@ def test_reload_service_rebinds_server_ssh_helpers(
             "command_id": command_id,
         },
     )
-    monkeypatch.setitem(sys.modules, "codexbridge.server", fake_server)
+    monkeypatch.setitem(sys.modules, "soma.server", fake_server)
 
     result = reload_service(
         config_path,
         modules=["ssh_commands", "ssh_tools", "job_manager"],
     )
 
-    commands_module = sys.modules["codexbridge.ssh_commands"]
-    tools_module = sys.modules["codexbridge.ssh_tools"]
-    job_manager_module = sys.modules["codexbridge.job_manager"]
+    commands_module = sys.modules["soma.ssh_commands"]
+    tools_module = sys.modules["soma.ssh_tools"]
+    job_manager_module = sys.modules["soma.job_manager"]
     assert result["ok"] is True
     assert result["restart_required"] == []
     assert fake_server._list_ssh_capabilities is commands_module.list_ssh_capabilities
@@ -109,7 +109,7 @@ def test_reload_service_marks_unreloadable_modules_restart_required(
     result = reload_service(config_path, modules=["server"])
 
     assert result["ok"] is False
-    assert result["restart_required"] == ["codexbridge.server"]
+    assert result["restart_required"] == ["soma.server"]
 
 
 def test_validate_config_reports_ordinary_validation_profile_migrations(

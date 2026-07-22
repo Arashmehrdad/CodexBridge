@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.executable_staging import (
+from soma.executable_staging import (
     build_executable_staging_manifest,
     stage_executable_input,
     validate_executable_staging_manifest,

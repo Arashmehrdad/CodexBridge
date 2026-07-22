@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from codexbridge.remote_controller_state import (
+from soma.remote_controller_state import (
     REMOTE_CONTROLLER_STATE_VERSION,
     REMOTE_CONTROLLER_VERSION,
     build_remote_controller_state_contract,
@@ -39,7 +39,7 @@ def test_remote_controller_state_contract_is_deterministic_and_complete() -> Non
     assert first["controller"]["version"] == REMOTE_CONTROLLER_VERSION
     assert len(first["controller"]["fingerprint"]) == 64
     remote = first["remote"]
-    assert remote["state_dir"] == f".codexbridge/jobs/{first['execution_id']}"
+    assert remote["state_dir"] == f".soma/jobs/{first['execution_id']}"
     assert remote["state_path"].endswith("/state.json")
     assert remote["input_path"].endswith("/input.json")
     assert remote["stdout_path"].endswith("/stdout.bin")
@@ -134,7 +134,7 @@ def test_remote_controller_state_contract_changes_with_request_or_lease() -> Non
 def test_remote_controller_state_contract_rejects_persisted_drift() -> None:
     contract = _build()
     mutated = copy.deepcopy(contract)
-    mutated["remote"]["state_path"] = ".codexbridge/jobs/other/state.json"
+    mutated["remote"]["state_path"] = ".soma/jobs/other/state.json"
 
     with pytest.raises(
         ValueError,

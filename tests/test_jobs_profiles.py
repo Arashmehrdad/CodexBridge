@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from codexbridge.jobs.job_profiles import get_job_profile, list_job_profiles
-from codexbridge.local_agent.models import PermissionTier
+from soma.jobs.job_profiles import get_job_profile, list_job_profiles
+from soma.local_agent.models import PermissionTier
 
 
 def test_job_profile_registry_returns_builtins() -> None:

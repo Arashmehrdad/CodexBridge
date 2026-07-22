@@ -6,7 +6,7 @@ from pathlib import Path
 def test_readme_documents_actual_server_command() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     assert (
-        "python -m codexbridge.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp"
+        "python -m soma.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp"
         in readme
     )
 
@@ -39,7 +39,7 @@ def test_readme_documents_cloudflare_capabilities() -> None:
     assert "cloudflare_health(repo_name, profile_id)" in readme
     assert "cloudflare_inspect(repo_name, profile_id, operation, ...)" in readme
     assert "start_cloudflare_action_async(repo_name, profile_id, action, ...)" in readme
-    assert "global CodexBridge service with repository-scoped access" in readme
+    assert "global Soma service with repository-scoped access" in readme
     assert "cloudflare_profiles" in readme
     assert "CLOUDFLARE_API_TOKEN" in readme
     assert 'env_file: ".env"' in readme

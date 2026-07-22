@@ -22,25 +22,25 @@ import pytest
 from fastmcp import Client
 from pydantic import TypeAdapter
 
-import codexbridge.job_manager as job_manager_module
-import codexbridge.server as server
-from codexbridge.cf1_fixture_footprint import build_representative_fixture_payload
-from codexbridge.cf1_fixture_matrix import (
+import soma.job_manager as job_manager_module
+import soma.server as server
+from soma.cf1_fixture_footprint import build_representative_fixture_payload
+from soma.cf1_fixture_matrix import (
     CF1_FIXTURE_MATRIX,
     validate_fixture_matrix,
 )
-from codexbridge.events import redact_and_truncate
-from codexbridge.gateway_models import RunQueryRequest
-from codexbridge.git_tools import git_diff_snapshot
-from codexbridge.job_manager import JobManager
-from codexbridge.public_footprint_measurement import measure_public_footprint
-from codexbridge.public_projection_contract import (
+from soma.events import redact_and_truncate
+from soma.gateway_models import RunQueryRequest
+from soma.git_tools import git_diff_snapshot
+from soma.job_manager import JobManager
+from soma.public_footprint_measurement import measure_public_footprint
+from soma.public_projection_contract import (
     DEFAULT_PUBLIC_BYTE_BUDGETS,
     NON_AUTHORITATIVE_NOTICE,
     PUBLIC_PROJECTION_SCHEMA_VERSION,
 )
-from codexbridge.repo_reader import read_repo_files, search_repo_text
-from codexbridge.run_public_result import (
+from soma.repo_reader import read_repo_files, search_repo_text
+from soma.run_public_result import (
     PUBLIC_RESULT_SCHEMA_VERSION,
     PUBLIC_RESULT_STATUS_NOT_MATERIALIZED,
     PUBLIC_RESULT_STATUS_READY,
@@ -48,8 +48,8 @@ from codexbridge.run_public_result import (
     build_public_result_projection,
     canonical_public_json_bytes,
 )
-from codexbridge.run_publication import publish_run_result
-from codexbridge.run_store import RunStore, utc_now
+from soma.run_publication import publish_run_result
+from soma.run_store import RunStore, utc_now
 
 
 FIXTURE_NAMES = tuple(fixture.name for fixture in CF1_FIXTURE_MATRIX)
@@ -168,7 +168,7 @@ def matrix_session(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
         status = "running" if fixture.name == "active_run" else "queued"
         store.create_run(
             run_id=run_id,
-            repo_name="CodexBridge",
+            repo_name="Soma",
             tool=fixture.tool,
             run_dir=run_dir,
             input_data={"fixture": fixture.name},
@@ -227,7 +227,7 @@ def twenty_run_session(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamesp
         run_dir.mkdir(parents=True)
         store.create_run(
             run_id=run_id,
-            repo_name="CodexBridge",
+            repo_name="Soma",
             tool="project_command",
             run_dir=run_dir,
             input_data={"detail_first": detail_first, "detail_second": detail_second},
@@ -779,7 +779,7 @@ def test_compact_summary_sql_never_decodes_blobs_and_text_is_serialization_free(
     store = matrix_session.store
     run_id = matrix_session.runs["successful_run"]["run_id"]
     monkeypatch.setattr(
-        "codexbridge.run_store.loads",
+        "soma.run_store.loads",
         lambda _value: pytest.fail("compact summary path decoded a JSON blob"),
     )
     manager = _manager(store)
@@ -854,7 +854,7 @@ def test_direct_dict_mcp_wrapper_and_durable_projection_reuse(
     legacy_run_dir.mkdir(parents=True)
     legacy_store.create_run(
         run_id=legacy_run_id,
-        repo_name="CodexBridge",
+        repo_name="Soma",
         tool="project_command",
         run_dir=legacy_run_dir,
         input_data={"legacy": True},
@@ -916,7 +916,7 @@ def test_compact_responses_redact_secrets_but_keep_evidence_handles(
     run_dir.mkdir(parents=True)
     store.create_run(
         run_id=run_id,
-        repo_name="CodexBridge",
+        repo_name="Soma",
         tool="project_command",
         run_dir=run_dir,
         input_data={

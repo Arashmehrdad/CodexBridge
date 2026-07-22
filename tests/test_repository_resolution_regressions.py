@@ -9,10 +9,10 @@ import pytest
 
 from pydantic import TypeAdapter
 
-import codexbridge.server as server
-from codexbridge.config import AppConfig, RepoConfig, resolve_repo
-from codexbridge.gateway_models import RepoQueryRequest
-from codexbridge.knowledge_tools_integration import _active_server_config
+import soma.server as server
+from soma.config import AppConfig, RepoConfig, resolve_repo
+from soma.gateway_models import RepoQueryRequest
+from soma.knowledge_tools_integration import _active_server_config
 
 
 class FakeMCP:
@@ -35,7 +35,7 @@ def test_active_server_config_refreshes_cached_config(
     )
     active = {"config": first}
     mcp = FakeMCP()
-    runtime_module = ModuleType("codexbridge_test_reloaded_server")
+    runtime_module = ModuleType("soma_test_reloaded_server")
     runtime_module.mcp = mcp
     runtime_module.get_config = lambda: active["config"]
     monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
@@ -45,7 +45,7 @@ def test_active_server_config_refreshes_cached_config(
     active["config"] = second
 
     assert _active_server_config(mcp) is second
-    assert getattr(mcp, "_codexbridge_runtime_config") is second
+    assert getattr(mcp, "_soma_runtime_config") is second
 
 
 def test_resolve_repo_rejects_nested_path_without_independent_git_root(

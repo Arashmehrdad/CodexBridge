@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
-from codexbridge.local_coding import LocalCodingStatus
+from soma.local_agent import LocalAgentOrchestrator, LocalAgentTaskType
+from soma.local_coding import LocalCodingStatus
 
 
 class FakeLocalCodingManager:
@@ -105,7 +105,7 @@ def test_local_agent_routes_local_coding_apply_and_rollback() -> None:
 
 
 def test_local_agent_forwards_durable_context_to_local_coding_manager(monkeypatch) -> None:
-    from codexbridge.local_agent import orchestrator as orchestrator_module
+    from soma.local_agent import orchestrator as orchestrator_module
 
     captured = {}
 

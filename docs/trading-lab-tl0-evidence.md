@@ -4,7 +4,7 @@ Status: **complete; accepted on 2026-07-20**.
 
 ## Scope and safety
 
-TL0 was executed against the user-established Alpari MetaTrader 5 **demo** account only. The terminal and every Python probe failed closed unless `ACCOUNT_TRADE_MODE_DEMO` was active. No live account, live-money order, credential export, Trading Lab source file, CodexBridge service restart, or Cloudflare restart was used.
+TL0 was executed against the user-established Alpari MetaTrader 5 **demo** account only. The terminal and every Python probe failed closed unless `ACCOUNT_TRADE_MODE_DEMO` was active. No live account, live-money order, credential export, Trading Lab source file, Soma service restart, or Cloudflare restart was used.
 
 The official `MetaTrader5` package was installed only into the repository-owned ignored environment `runs/tl0-mt5-venv`. The tracked worktree remained clean throughout the live spike. No pre-existing `BITCOIN_i` order or position existed before the demo-order gate, and all TL0 positions were closed before terminal restart validation.
 
@@ -12,7 +12,7 @@ The official `MetaTrader5` package was installed only into the repository-owned 
 
 - Repository branch: `feature/domain-tool-gateway-migration`.
 - Repository HEAD during the live gate: `1386d5b56b1a865b4d50167a38396fccbb2a7841`.
-- CodexBridge server build: `22bf15602aeb0a661666794ab15db66d3427601bc695fe09215d98a550ff4acc`.
+- Soma server build: `22bf15602aeb0a661666794ab15db66d3427601bc695fe09215d98a550ff4acc`.
 - Public schema: `42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888`.
 - MT5 terminal executable: `C:\Program Files\MetaTrader 5\terminal64.exe`.
 - MT5 terminal build: `5660`.
@@ -24,7 +24,7 @@ The official `MetaTrader5` package was installed only into the repository-owned 
 - Account leverage: `500`.
 - Terminal state: connected, algorithmic trading allowed, external Python API enabled.
 
-The account login was masked in protected output; no password or credential was transmitted through CodexBridge.
+The account login was masked in protected output; no password or credential was transmitted through Soma.
 
 ## Symbol discovery and contract
 

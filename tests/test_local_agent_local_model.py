@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.config import LocalModelConfig
-from codexbridge.local_agent import LocalAgentOrchestrator
-from codexbridge.local_agent.local_model import LocalModelClient
-from codexbridge.local_agent.models import (
+from soma.config import LocalModelConfig
+from soma.local_agent import LocalAgentOrchestrator
+from soma.local_agent.local_model import LocalModelClient
+from soma.local_agent.models import (
     LocalAgentTaskType,
     LocalModelResult,
     LocalModelStatus,
     RoutingDecision,
 )
-from codexbridge.run_store import utc_now
+from soma.run_store import utc_now
 
 
 class FakeAdapter:
@@ -137,8 +137,8 @@ def test_local_model_modules_do_not_execute_commands_or_call_codex() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in [
-            Path("codexbridge/local_agent/local_model.py"),
-            Path("codexbridge/local_agent/ollama_adapter.py"),
+            Path("soma/local_agent/local_model.py"),
+            Path("soma/local_agent/ollama_adapter.py"),
         ]
     )
 

@@ -8,22 +8,22 @@ from typing import Any, Mapping
 
 import pytest
 
-from codexbridge.hermes_service import (
+from soma.hermes_service import (
     HermesRegistryIdentity,
     HermesServiceError,
     HermesServiceNotReadyError,
     HermesServiceOwnershipError,
 )
-from codexbridge.hermes_service_gateway import (
+from soma.hermes_service_gateway import (
     FALLBACK_EXECUTION_MODE,
     SHARED_EXECUTION_MODE,
     HermesServiceGateway,
 )
-from codexbridge.hermes_service_supervisor import (
+from soma.hermes_service_supervisor import (
     HermesServiceSupervisor,
     HermesSupervisorConfig,
 )
-from codexbridge.run_store import RunStore
+from soma.run_store import RunStore
 
 SCHEMA_HASH = "d" * 64
 GENERATION = 33

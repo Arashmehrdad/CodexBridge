@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.job_worker import JobWorker
-from codexbridge.run_store import RunStore
+from soma.job_worker import JobWorker
+from soma.run_store import RunStore
 
 
 def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None:
@@ -58,7 +58,7 @@ def test_ssh_command_worker_persists_output(monkeypatch, tmp_path: Path) -> None
     )
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_command",
+        "soma.job_worker.run_ssh_command",
         lambda config, host_id, command_id: {
             "ok": True,
             "host_id": host_id,
@@ -160,7 +160,7 @@ def _block_all_ssh_executors(monkeypatch) -> list[str]:
         "run_ssh_transfer",
         "run_ssh_deployment",
     ):
-        monkeypatch.setattr(f"codexbridge.job_worker.{name}", unexpected)
+        monkeypatch.setattr(f"soma.job_worker.{name}", unexpected)
     return called
 
 
@@ -206,7 +206,7 @@ def test_reviewed_script_worker_revalidates_and_executes_exact_payload(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_ssh_payload", execute_payload)
+    monkeypatch.setattr("soma.job_worker.run_ssh_payload", execute_payload)
 
     assert JobWorker(config_path, run_id).execute() == 0
 
@@ -242,7 +242,7 @@ def test_reviewed_script_worker_persists_timeout_and_partial_output(
     config_path, store, run_id = _create_reviewed_script_run(tmp_path, input_data)
     _block_all_ssh_executors(monkeypatch)
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_payload",
+        "soma.job_worker.run_ssh_payload",
         lambda config, host_id, interpreter, payload, **kwargs: {
             "ok": False,
             "host_id": host_id,
@@ -400,7 +400,7 @@ def test_root_shell_worker_revalidates_executes_and_verifies_root_identity(
             "error": "",
         }
 
-    monkeypatch.setattr("codexbridge.job_worker.run_ssh_payload", execute_payload)
+    monkeypatch.setattr("soma.job_worker.run_ssh_payload", execute_payload)
 
     assert JobWorker(config_path, run_id).execute() == 0
 
@@ -446,7 +446,7 @@ def test_root_shell_worker_fails_when_remote_identity_is_not_root(
     _block_all_ssh_executors(monkeypatch)
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_payload",
+        "soma.job_worker.run_ssh_payload",
         lambda config, host_id, interpreter, payload, **kwargs: {
             "ok": False,
             "host_id": host_id,
@@ -461,9 +461,9 @@ def test_root_shell_worker_fails_when_remote_identity_is_not_root(
             "timed_out": False,
             "duration_seconds": 1.0,
             "stdout": "",
-            "stderr": "CodexBridge root shell requires effective UID 0\n",
+            "stderr": "Soma root shell requires effective UID 0\n",
             "output_truncated": False,
-            "error": "CodexBridge root shell requires effective UID 0",
+            "error": "Soma root shell requires effective UID 0",
         },
     )
 
@@ -534,7 +534,7 @@ def write_extended_ssh_config(config_path: Path, repo: Path, runs_dir: Path) -> 
                 "          argv: [uptime]",
                 "          watchdog_eligible: true",
                 "        - command_id: write_marker",
-                "          argv: [touch, /tmp/codexbridge-marker]",
+                "          argv: [touch, /tmp/soma-marker]",
                 "          writes_remote: true",
                 f'runs_dir: "{runs_dir.as_posix()}"',
             ]
@@ -638,7 +638,7 @@ def test_ssh_worker_revalidates_policy_before_executor(
         raise AssertionError("SSH executor must not run after policy rejection")
 
     monkeypatch.setattr(
-        f"codexbridge.job_worker.{executor_name}", unexpected_executor
+        f"soma.job_worker.{executor_name}", unexpected_executor
     )
 
     assert JobWorker(config_path, run_id).execute() == 1
@@ -734,7 +734,7 @@ def test_ssh_worker_rejects_tampered_policy_metadata_before_executor(
         raise AssertionError("SSH executor must not run after policy rejection")
 
     monkeypatch.setattr(
-        f"codexbridge.job_worker.{executor_name}", unexpected_executor
+        f"soma.job_worker.{executor_name}", unexpected_executor
     )
 
     assert JobWorker(config_path, run_id).execute() == 1
@@ -774,7 +774,7 @@ def test_ssh_action_worker_persists_bounded_result(monkeypatch, tmp_path: Path) 
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_action",
+        "soma.job_worker.run_ssh_action",
         lambda config, host_id, action, **kwargs: {
             "ok": True,
             "host_id": host_id,
@@ -841,7 +841,7 @@ def test_ssh_transfer_worker_persists_download_metadata(
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_transfer",
+        "soma.job_worker.run_ssh_transfer",
         lambda config, host_id, direction, **kwargs: {
             "ok": True,
             "host_id": host_id,
@@ -909,7 +909,7 @@ def test_ssh_deployment_worker_persists_step_evidence(
         },
     )
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_deployment",
+        "soma.job_worker.run_ssh_deployment",
         lambda config, host_id, deployment_id, **kwargs: {
             "ok": True,
             "host_id": host_id,
@@ -1035,7 +1035,7 @@ def test_ssh_transfer_worker_revalidates_canonical_upload_policy(
         }
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_transfer",
+        "soma.job_worker.run_ssh_transfer",
         successful_transfer,
     )
 
@@ -1096,7 +1096,7 @@ def test_ssh_transfer_worker_rejects_tampered_policy_before_executor(
         raise AssertionError("SSH transfer executor must not run after rejection")
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_transfer",
+        "soma.job_worker.run_ssh_transfer",
         unexpected_executor,
     )
 
@@ -1138,7 +1138,7 @@ def test_ssh_transfer_worker_rejects_partial_policy_metadata(
         raise AssertionError("SSH transfer executor must not run after rejection")
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_transfer",
+        "soma.job_worker.run_ssh_transfer",
         unexpected_executor,
     )
 
@@ -1180,7 +1180,7 @@ def test_ssh_deployment_worker_rejects_invalid_confirmation_before_executor(
         raise AssertionError("SSH deployment executor must not run after rejection")
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_deployment",
+        "soma.job_worker.run_ssh_deployment",
         unexpected_executor,
     )
 
@@ -1221,7 +1221,7 @@ def test_ssh_transfer_worker_rejects_invalid_direction_before_executor(
         raise AssertionError("SSH transfer executor must not run after rejection")
 
     monkeypatch.setattr(
-        "codexbridge.job_worker.run_ssh_transfer",
+        "soma.job_worker.run_ssh_transfer",
         unexpected_executor,
     )
 

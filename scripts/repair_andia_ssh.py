@@ -13,8 +13,8 @@ import tempfile
 ALIAS = "andia-server"
 HOSTNAME = "100.94.44.95"
 USER = "root"
-START_MARKER = "# BEGIN CODEXBRIDGE ANDIYA"
-END_MARKER = "# END CODEXBRIDGE ANDIYA"
+START_MARKER = "# BEGIN SOMA ANDIYA"
+END_MARKER = "# END SOMA ANDIYA"
 
 
 class RepairError(RuntimeError):
@@ -205,7 +205,7 @@ def _write_atomic(config_path: Path, content: str) -> None:
     temporary: Path | None = None
     try:
         descriptor, raw_path = tempfile.mkstemp(
-            prefix=f".{config_path.name}.codexbridge-",
+            prefix=f".{config_path.name}.soma-",
             dir=config_path.parent,
         )
         temporary = Path(raw_path)

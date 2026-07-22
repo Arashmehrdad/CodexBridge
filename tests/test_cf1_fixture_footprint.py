@@ -4,13 +4,13 @@ from dataclasses import replace
 
 import pytest
 
-from codexbridge.cf1_fixture_footprint import (
+from soma.cf1_fixture_footprint import (
     CF1_FIXTURE_FOOTPRINT_VERSION,
     build_representative_fixture_payload,
     measure_fixture_footprint,
     measure_fixture_matrix,
 )
-from codexbridge.cf1_fixture_matrix import CF1_FIXTURE_MATRIX, fixture_matrix_by_name
+from soma.cf1_fixture_matrix import CF1_FIXTURE_MATRIX, fixture_matrix_by_name
 
 
 def test_representative_fixture_payload_preserves_public_distinctions_and_full_evidence() -> None:

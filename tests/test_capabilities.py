@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.capabilities import (
+from soma.capabilities import (
     PATCH_OPERATION_SCHEMA,
     capability_metadata,
     schema_hash,

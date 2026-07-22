@@ -5,15 +5,15 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from codexbridge.config import ReturnLoopConfig
-from codexbridge.return_loop.models import ReturnLoopStatus
-from codexbridge.return_loop.pulse_contract import (
+from soma.config import ReturnLoopConfig
+from soma.return_loop.models import ReturnLoopStatus
+from soma.return_loop.pulse_contract import (
     build_report_manifest,
     check_report_readiness,
     discover_ready_reports,
     mark_sent_by_external_pulsesender,
 )
-from codexbridge.run_store import utc_now
+from soma.run_store import utc_now
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def patch_atomic_write(monkeypatch):
         return {"path": str(path)}
 
     monkeypatch.setattr(
-        "codexbridge.return_loop.pulse_contract.atomic_write_json", write_json
+        "soma.return_loop.pulse_contract.atomic_write_json", write_json
     )
 
 
@@ -70,7 +70,7 @@ def test_manifest_includes_required_paths_hashes_and_ready_status(
 
     assert payload["schema_version"] == "1"
     assert payload["artifact_type"] == "combined"
-    assert payload["conversation_target"] == "codexbridge_gpt"
+    assert payload["conversation_target"] == "soma_gpt"
     assert payload["status"] == "ready"
     assert payload["ready"] is True
     assert payload["send_policy"] == "external_pulsesender_only"

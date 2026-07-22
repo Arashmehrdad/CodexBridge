@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from codexbridge.run_store import RunStore, TERMINAL_STATUSES, utc_now
+from soma.run_store import RunStore, TERMINAL_STATUSES, utc_now
 
 
 def test_concurrent_status_and_result_polling_never_observes_terminal_without_result(

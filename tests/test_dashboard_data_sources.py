@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from codexbridge.dashboard import get_dashboard_summary
+from soma.dashboard import get_dashboard_summary
 
 
 @pytest.fixture

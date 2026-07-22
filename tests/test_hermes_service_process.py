@@ -10,16 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.hermes_companion_protocol import (
+from soma.hermes_companion_protocol import (
     HERMES_COMPANION_PROTOCOL_VERSION,
     PINNED_HERMES_REVISION,
 )
-from codexbridge.hermes_service_process import (
+from soma.hermes_service_process import (
     HermesServiceProcessError,
     PersistentHermesWorker,
     PersistentHermesWorkerConfig,
 )
-from codexbridge.process_control import process_is_running
+from soma.process_control import process_is_running
 
 SCHEMA_HASH = "a" * 64
 

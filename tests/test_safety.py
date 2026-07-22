@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.safety import (
+from soma.safety import (
     is_secret_like_file,
     redact_secret_values,
     reject_destructive_command,

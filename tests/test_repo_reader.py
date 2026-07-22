@@ -1,5 +1,5 @@
 """
-Tests for codexbridge/repo_reader.py.
+Tests for soma/repo_reader.py.
 
 All tests use tmp_path; no real repos are touched.
 No CodexRunner, Gemini, Ollama, or local-model calls are made.
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge import repo_reader
-from codexbridge.repo_reader import (
+from soma import repo_reader
+from soma.repo_reader import (
     list_repo_files,
     read_repo_file,
     search_repo_text,
@@ -45,8 +45,8 @@ def write(path: Path, content: str = "hello\n") -> Path:
 
 def test_unknown_repo_raises_in_server(tmp_path: Path) -> None:
     """Server calls resolve_repo before reaching repo_reader; confirm it raises."""
-    from codexbridge.config import AppConfig, RepoConfig
-    import codexbridge.server as server
+    from soma.config import AppConfig, RepoConfig
+    import soma.server as server
 
     config = AppConfig(
         repos={"myrepo": RepoConfig(path=str(tmp_path))},
@@ -682,7 +682,7 @@ def test_list_repo_files_does_not_call_codex_runner(
     tmp_path: Path, monkeypatch
 ) -> None:
     """list_repo_files must never instantiate or call CodexRunner."""
-    import codexbridge.runner as runner_mod
+    import soma.runner as runner_mod
 
     def _fail(*args, **kwargs):
         raise AssertionError("CodexRunner must not be called from repo_reader")
@@ -698,7 +698,7 @@ def test_list_repo_files_does_not_call_codex_runner(
 
 def test_read_repo_file_does_not_import_ollama(tmp_path: Path) -> None:
     """repo_reader must not import or reference OllamaChatAdapter, CodexRunner, or any AI backend."""
-    import codexbridge.repo_reader as rr
+    import soma.repo_reader as rr
     import ast
 
     source = Path(rr.__file__).read_text(encoding="utf-8")
@@ -728,8 +728,8 @@ def test_read_repo_file_does_not_import_ollama(tmp_path: Path) -> None:
 
 
 def test_server_list_repo_files_tool(tmp_path: Path, monkeypatch) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     write(tmp_path / "hello.py", "print('hi')\n")
@@ -746,8 +746,8 @@ def test_server_list_repo_files_tool(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_server_read_repo_file_tool(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     write(tmp_path / "readme.txt", "line one\nline two\n")
@@ -764,8 +764,8 @@ def test_server_read_repo_file_tool(tmp_path: Path) -> None:
 
 
 def test_server_search_repo_text_tool(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     write(tmp_path / "module.py", "def greet():\n    return 'hello'\n")
@@ -782,8 +782,8 @@ def test_server_search_repo_text_tool(tmp_path: Path) -> None:
 
 
 def test_server_get_recently_modified_files_tool(tmp_path: Path) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     write(tmp_path / "touched.txt", "content")
@@ -799,8 +799,8 @@ def test_server_get_recently_modified_files_tool(tmp_path: Path) -> None:
 
 
 def test_server_repo_git_status_tool(tmp_path: Path, monkeypatch) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     config = AppConfig(
@@ -819,8 +819,8 @@ def test_server_repo_git_status_tool(tmp_path: Path, monkeypatch) -> None:
 def test_server_repo_status_does_not_claim_success_after_live_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     config = AppConfig(
@@ -848,8 +848,8 @@ def test_server_repo_status_does_not_claim_success_after_live_failure(
 
 
 def test_server_repo_git_diff_tool(tmp_path: Path, monkeypatch) -> None:
-    import codexbridge.server as server
-    from codexbridge.config import AppConfig, RepoConfig
+    import soma.server as server
+    from soma.config import AppConfig, RepoConfig
 
     (tmp_path / ".git").mkdir()
     config = AppConfig(

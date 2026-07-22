@@ -8,9 +8,9 @@ Pinned revision: `862b1b37bf0aadba3a98b3756c7d71779379b53b`
 
 ## Decision
 
-Proceed with H1 through a small, versioned Hermes companion process. Do not import Hermes directly into the CodexBridge service process, and do not use the existing Hermes agent loop as an intermediary.
+Proceed with H1 through a small, versioned Hermes companion process. Do not import Hermes directly into the Soma service process, and do not use the existing Hermes agent loop as an intermediary.
 
-The companion should run from a pinned Hermes checkout and environment, initialize the effective Hermes tool registry, and expose a narrow machine protocol over stdio. CodexBridge remains authoritative for durable request identity, accepted arguments, cancellation state, bounded output, protected artifacts, retry policy, and terminal publication.
+The companion should run from a pinned Hermes checkout and environment, initialize the effective Hermes tool registry, and expose a narrow machine protocol over stdio. Soma remains authoritative for durable request identity, accepted arguments, cancellation state, bounded output, protected artifacts, retry policy, and terminal publication.
 
 The existing upstream `mcp_serve.py` is not the required boundary. It exposes Hermes session, event, and approval controls to MCP clients; it does not expose the generic registry search, schema, and dispatch contract needed by H1.
 
@@ -36,7 +36,7 @@ Built-in tool modules self-register into the central registry. Toolsets select s
 
 Hermes plugin discovery can register tools and toolsets before effective definitions are assembled. Connected MCP servers are discovered and their tools are registered into the same effective catalog, with server-scoped dynamic toolsets. Tool Search can defer non-core plugin and MCP tools while keeping the small bridge surface visible.
 
-Skills are instruction and workflow resources, not automatically callable registry handlers. H1 should expose callable tools contributed by built-ins, plugins, and MCP discovery. A skill affects the runtime only when its associated code or plugin registers an actual tool; CodexBridge should not reinterpret skill prose as executable schema.
+Skills are instruction and workflow resources, not automatically callable registry handlers. H1 should expose callable tools contributed by built-ins, plugins, and MCP discovery. A skill affects the runtime only when its associated code or plugin registers an actual tool; Soma should not reinterpret skill prose as executable schema.
 
 ### Results and errors
 
@@ -46,13 +46,13 @@ Handlers may return structured objects or JSON/text results. The companion must 
 
 Direct registry dispatch can bypass behavior implemented in `model_tools.py`. The companion must use the same underlying invocation path that preserves upstream pre-tool, post-tool, edit-approval, guardrail, and approval behavior, or explicitly reproduce and test those semantics.
 
-CodexBridge policy remains an outer boundary. Hermes approval does not replace CodexBridge classification, human-only boundaries, idempotency requirements, or ambiguous-mutation reconciliation.
+Soma policy remains an outer boundary. Hermes approval does not replace Soma classification, human-only boundaries, idempotency requirements, or ambiguous-mutation reconciliation.
 
 ### Cancellation and long-running ownership
 
 The pinned runtime can cancel pending asynchronous work inside its own event-loop/thread bridge, but the registry does not expose a stable provider-neutral external job identity and cancellation protocol for arbitrary tools.
 
-Initial H1 calls must therefore be bounded synchronous companion requests. CodexBridge may terminate the companion request process on cancellation, but that alone cannot prove reversal of an already-started external mutation. Generic long-running or detached tools remain unsupported until they provide durable external ownership or an adapter-specific reconciliation contract.
+Initial H1 calls must therefore be bounded synchronous companion requests. Soma may terminate the companion request process on cancellation, but that alone cannot prove reversal of an already-started external mutation. Generic long-running or detached tools remain unsupported until they provide durable external ownership or an adapter-specific reconciliation contract.
 
 ### Runtime state and credentials
 
@@ -80,7 +80,7 @@ The adapter must not initialize a Hermes model client, agent loop, autonomous pl
 2. Launch the companion through the existing durable executable lifecycle with protected stdout/stderr and exact process identity.
 3. Implement read-only `tool_search` and `tool_describe` first.
 4. Add one bounded read-only `tool_call` using the same upstream execution path as direct Hermes tools.
-5. Prove one connected MCP tool appears without tool-specific CodexBridge source code.
+5. Prove one connected MCP tool appears without tool-specific Soma source code.
 6. Add mutation support only after exact-once, approval, idempotency, and ambiguous-result reconciliation are defined for the selected reversible action.
 
 ## Explicitly Deferred

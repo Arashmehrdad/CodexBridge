@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from codexbridge.config import AppConfig, CodexConfig, RepoConfig
-from codexbridge.runner import CodexRunner
+from soma.config import AppConfig, CodexConfig, RepoConfig
+from soma.runner import CodexRunner
 
 
 def test_runner_creates_run_artifact_structure(tmp_path: Path) -> None:
@@ -78,7 +78,7 @@ def test_stale_configured_path_falls_back_to_path(monkeypatch, tmp_path: Path) -
     fallback.parent.mkdir()
     fallback.write_text("stub\n", encoding="utf-8")
     monkeypatch.setattr(
-        "codexbridge.runner._codex_executable_candidates",
+        "soma.runner._codex_executable_candidates",
         lambda executable: [str(stale), str(fallback)],
     )
     runner = make_runner(tmp_path, executable=str(stale))
@@ -90,7 +90,7 @@ def test_missing_explicit_path_reports_checked_fallbacks(
 ) -> None:
     stale = tmp_path / "old" / "codex.exe"
     monkeypatch.setattr(
-        "codexbridge.runner._codex_executable_candidates",
+        "soma.runner._codex_executable_candidates",
         lambda executable: [str(stale)],
     )
     runner = make_runner(tmp_path, executable=str(stale))
@@ -102,7 +102,7 @@ def test_missing_explicit_path_reports_checked_fallbacks(
 def test_windowsapps_codex_executable_is_rejected(monkeypatch, tmp_path: Path) -> None:
     windowsapps = "C:/Program Files/WindowsApps/OpenAI.Codex/codex.exe"
     monkeypatch.setattr(
-        "codexbridge.runner._codex_executable_candidates",
+        "soma.runner._codex_executable_candidates",
         lambda executable: [windowsapps],
     )
     runner = make_runner(tmp_path)
@@ -192,7 +192,7 @@ def test_codex_exec_uses_stdin_marker_instead_of_prompt_argument(tmp_path: Path)
     args = runner._codex_exec_args(
         "codex.exe", "workspace-write", "--sandbox", prompt
     )
-    from codexbridge.runner import _safe_command_args
+    from soma.runner import _safe_command_args
 
     assert args[-1] == "-"
     assert prompt not in args
@@ -256,7 +256,7 @@ def test_subprocess_capture_uses_utf8_replace_and_file_backed_stdin(
 
         return Result()
 
-    monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.runner.subprocess.run", fake_run)
     runner = make_runner(tmp_path)
     runner._run_subprocess(
         ["codex", "exec", "-"], tmp_path, input_text="line one\nline two"
@@ -280,7 +280,7 @@ def test_subprocess_without_input_uses_devnull(monkeypatch, tmp_path: Path) -> N
 
         return Result()
 
-    monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.runner.subprocess.run", fake_run)
     runner = make_runner(tmp_path)
     runner._run_subprocess(["codex", "exec", "--help"], tmp_path)
     assert captured["stdin"] is subprocess.DEVNULL
@@ -301,10 +301,10 @@ def test_subprocess_env_isolates_unrelated_connector_variables(
 
         return Result()
 
-    monkeypatch.setattr("codexbridge.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("soma.runner.subprocess.run", fake_run)
     monkeypatch.setenv("MCP_FAKE_CONNECTOR", "1")
     runner = make_runner(tmp_path)
     runner._run_subprocess(["codex", "exec"], tmp_path)
 
     assert "MCP_FAKE_CONNECTOR" not in captured["env"]
-    assert captured["env"]["CODEXBRIDGE_CONNECTOR_ISOLATION"] == "enabled"
+    assert captured["env"]["SOMA_CONNECTOR_ISOLATION"] == "enabled"

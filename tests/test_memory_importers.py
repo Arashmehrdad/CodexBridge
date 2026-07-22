@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codexbridge.memory.importers import (
+from soma.memory.importers import (
     import_agents_md,
     import_command_result,
     import_job_result,
     import_pulse_manifest,
     import_runs,
 )
-from codexbridge.memory.repository import ProjectMemoryRepository
-from codexbridge.return_loop.pulse_contract import build_report_manifest
+from soma.memory.repository import ProjectMemoryRepository
+from soma.return_loop.pulse_contract import build_report_manifest
 
 
 def repo(tmp_path: Path) -> ProjectMemoryRepository:

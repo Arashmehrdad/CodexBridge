@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import codexbridge.operation_locks as operation_locks
-from codexbridge.operation_locks import OperationLockStore
+import soma.operation_locks as operation_locks
+from soma.operation_locks import OperationLockStore
 
 
 RUN_ID = "20260706T120000Z_project_command_deadbeef"

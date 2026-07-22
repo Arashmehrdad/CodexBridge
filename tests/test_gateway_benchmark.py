@@ -8,15 +8,15 @@ from fastmcp import Client
 from jsonschema import Draft202012Validator
 from pydantic import TypeAdapter, ValidationError
 
-import codexbridge.server as server
-from codexbridge.gateway_models import (
+import soma.server as server
+from soma.gateway_models import (
     RepoApplyRequest,
     RepoQueryRequest,
     RunQueryRequest,
     RunStartRequest,
 )
-from codexbridge.knowledge_tools_integration import register_knowledge_tools
-from codexbridge.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
+from soma.knowledge_tools_integration import register_knowledge_tools
+from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 
 
 def _actions() -> dict[str, dict]:

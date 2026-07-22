@@ -9,8 +9,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANAGER = ROOT / "scripts" / "manage_codexbridge_service.ps1"
-LAUNCHER = ROOT / "codexbridge-service.cmd"
+MANAGER = ROOT / "scripts" / "manage_soma_service.ps1"
+LAUNCHER = ROOT / "soma-service.cmd"
 README = ROOT / "README.md"
 WINDOWS = sys.platform == "win32"
 POWERSHELL_5 = shutil.which("powershell.exe")
@@ -32,7 +32,7 @@ def _write_isolated_config(root: Path) -> Path:
     config = root / "config.yaml"
     config.write_text(
         f'''repos:
-  codexbridge:
+  soma:
     path: "{ROOT.as_posix()}"
 runs_dir: "{(root / "runs").as_posix()}"
 supervisors:
@@ -129,7 +129,7 @@ def test_service_manager_and_launcher_exist() -> None:
 
 def test_launcher_forwards_all_arguments_to_manager() -> None:
     text = LAUNCHER.read_text(encoding="utf-8").lower()
-    assert "manage_codexbridge_service.ps1" in text
+    assert "manage_soma_service.ps1" in text
     assert "%*" in text
     assert "powershell.exe" in text
 
@@ -166,8 +166,8 @@ def test_manager_represents_hidden_lifecycle_and_stable_logs() -> None:
     assert "-RedirectStandardOutput" in text
     assert "-RedirectStandardError" in text
     assert "runs\\service_logs" in text
-    assert "codexbridge-server.pid" in text
-    assert "codexbridge-mcp-tunnel.pid" in text
+    assert "soma-server.pid" in text
+    assert "soma-mcp-tunnel.pid" in text
 
 
 def test_manager_verifies_identity_and_protects_unrelated_port_owner() -> None:
@@ -216,7 +216,7 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
     engine = str(POWERSHELL_7 or POWERSHELL_5)
     config = _write_isolated_config(tmp_path)
     port = _unused_local_port()
-    pid_file = tmp_path / "runs" / "service_logs" / "codexbridge-server.pid"
+    pid_file = tmp_path / "runs" / "service_logs" / "soma-server.pid"
 
     try:
         started = _run_manager(
@@ -319,7 +319,7 @@ def test_tui_start_restart_stop_on_isolated_port(tmp_path: Path) -> None:
 
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert output.count("CodexBridge started hidden") >= 2
+    assert output.count("Soma started hidden") >= 2
     assert "the Cloudflare tunnel will remain unchanged" in output
     assert "Stopped verified process PID" in output
     assert cleanup.returncode == 0, cleanup.stdout + cleanup.stderr
@@ -427,14 +427,14 @@ def test_interactive_menu_launches_and_displays_profile() -> None:
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert "CodexBridge Service Controller" in output
+    assert "Soma Service Controller" in output
     assert "Profile:" in output
     assert "Select supervisor profile" in output
 
 
 def test_readme_documents_controller_and_common_actions() -> None:
     text = README.read_text(encoding="utf-8")
-    assert ".\\codexbridge-service.cmd" in text
+    assert ".\\soma-service.cmd" in text
     for action in (
         "start",
         "stop",
@@ -445,7 +445,7 @@ def test_readme_documents_controller_and_common_actions() -> None:
         "profile-status",
         "profile-set",
     ):
-        assert f"codexbridge-service.cmd {action}" in text
+        assert f"soma-service.cmd {action}" in text
     assert "Select supervisor profile" in text
     assert "runs\\service_logs" in text
     assert "UAC" in text

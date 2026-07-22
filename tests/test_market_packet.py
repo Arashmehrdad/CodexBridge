@@ -5,12 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from codexbridge.trading.market_packet import (
+from soma.trading.market_packet import (
     MarketPacketBuilder,
     canonical_packet_bytes,
     packet_content_hash,
 )
-from codexbridge.trading.mt5_provider import (
+from soma.trading.mt5_provider import (
     Candle,
     ProviderHealth,
     ProviderTimestamp,

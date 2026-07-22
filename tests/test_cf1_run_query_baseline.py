@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codexbridge.cf1_run_query_baseline import (
+from soma.cf1_run_query_baseline import (
     CF1_RUN_QUERY_BASELINE_VERSION,
     CURRENT_RUN_QUERY_SPECS,
     inspect_current_run_queries,
 )
-from codexbridge.cf1_run_store_baseline import (
+from soma.cf1_run_store_baseline import (
     RUN_INTERNAL_ONLY_COLUMNS,
     RUN_JSON_BLOB_COLUMNS,
 )
-from codexbridge.run_store import RunStore
+from soma.run_store import RunStore
 
 
 def test_cf1_current_run_queries_record_column_and_plan_baseline(tmp_path: Path) -> None:
