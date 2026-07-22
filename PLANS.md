@@ -761,6 +761,12 @@ Fiftieth independently reviewable slice — bounded workflow cancellation:
 - `view="full"` remains explicit complete workflow evidence access, and workflow starts plus direct cancellation behavior remain compatible;
 - focused CodexBridge pytest validation passed with 64 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifty-first independently reviewable slice — bounded direct run cancellation:
+
+- `cancel_run` now defaults to a compact 12-KB acknowledgement retaining run/group identity, status, and diagnostic counts while bounding process-tree details;
+- explicit `view="full"` preserves complete cancellation evidence, and legacy one-argument callers plus cancellation routing remain compatible;
+- focused CodexBridge pytest validation passed with 65 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

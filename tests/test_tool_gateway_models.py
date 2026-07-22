@@ -1006,6 +1006,24 @@ def test_cancel_run_routes_powershell_groups(monkeypatch) -> None:
     ]
 
 
+def test_cancel_run_projection_honors_response_budget(monkeypatch) -> None:
+    class Manager:
+        def cancel_run(self, run_id: str) -> dict:
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "status": "cancellation_requested",
+                "process_tree": [{"pid": index} for index in range(5000)],
+                "message": "m" * 20_000,
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+    result = server.cancel_run("run_1", response_budget_bytes=4096)
+    assert result["response_bytes"] <= 4096
+    assert result["process_tree_count"] == 5000
+    assert result["has_more"] is True
+
+
 def test_run_start_models_reject_cross_operation_fields() -> None:
     adapter = TypeAdapter(RunStartRequest)
     assert adapter.validate_python(

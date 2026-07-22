@@ -477,8 +477,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "cancel_run",
         ("invoke",),
         "codexbridge.server:cancel_run",
-        "direct run cancellation result",
-        notes="The result can include bounded process-tree diagnostics.",
+        "bounded compact run cancellation acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact cancellation retains run/group identity and diagnostic counts under a UTF-8 budget; view=full remains explicit complete cancellation evidence.",
     ),
     _entry(
         "run_query",

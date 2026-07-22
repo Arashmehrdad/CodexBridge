@@ -2933,12 +2933,43 @@ def list_runs(repo_name: str = "", status: str = "", limit: int = 20) -> dict:
     }
 
 
+def _bounded_cancel_response(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = {
+        key: result[key]
+        for key in ("ok", "run_id", "group_id", "status", "repo_name", "error", "message")
+        if key in result
+    }
+    for key in ("error", "message"):
+        if compact.get(key):
+            compact[key] = str(compact[key])[:512]
+    for key in ("process_tree", "children", "diagnostics"):
+        if isinstance(result.get(key), list):
+            compact[f"{key}_count"] = len(result[key])
+    compact["truncated"] = False
+    compact["has_more"] = any(key in result for key in ("process_tree", "children", "diagnostics"))
+    compact["response_budget_bytes"] = budget
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def cancel_run(run_id: str) -> dict:
+def cancel_run(
+    run_id: str,
+    view: Literal["compact", "full"] = "compact",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Write tool: request cancellation of one durable run or PowerShell command group."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     if "_powershell_group_" in run_id:
-        return get_job_manager().cancel_powershell_group(run_id)
-    return get_job_manager().cancel_run(run_id)
+        result = get_job_manager().cancel_powershell_group(run_id)
+    else:
+        result = get_job_manager().cancel_run(run_id)
+    if view == "full":
+        return result
+    return _bounded_cancel_response(result, response_budget_bytes)
 
 
 def _truncate_group_text(value: Any, maximum_bytes: int = 512) -> str:

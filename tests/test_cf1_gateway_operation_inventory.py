@@ -384,6 +384,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert workflow_cancel.default_response_bytes == 12 * 1024
     assert workflow_cancel.maximum_response_bytes == 12 * 1024
     assert "view=full" in workflow_cancel.notes
+    cancel_run = _entry_for("cancel_run", "invoke")
+    assert cancel_run.default_response_bytes == 12 * 1024
+    assert cancel_run.maximum_response_bytes == 12 * 1024
+    assert "view=full" in cancel_run.notes
 
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024
