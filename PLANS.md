@@ -253,6 +253,16 @@ Completion decision:
 
 ### CF1.2 - Compact control, decision-version polling, and delta events
 
+Status: **in progress. The decision-version phase invariant is complete; lock-ownership binding is next. Compact polling and delta events have not started**.
+
+Completed first milestone:
+
+- decision-relevant phase changes now increment `state_version` atomically in the same SQL update that records the new phase;
+- repeated same-phase progress, output heartbeats, and ordinary worker heartbeats do not increment `state_version`;
+- event metadata and generic progress updates follow the same phase-sensitive rule instead of using unconditional version bumps;
+- validation is green with 1,334 tests passed, 5 skipped, and no broken Python requirements;
+- a full-suite durable run remained at state version 4 throughout ordinary execution heartbeats and advanced only during terminal/result publication.
+
 - Rebuild the existing bounded control projection on the scalar control query from CF1.1 while preserving lifecycle, process-tree, cancellation, heartbeat, worker identity, child identity, lock, and error information.
 - Add a monotonic `state_version` or equivalent decision version that changes for lifecycle, phase, cancellation, process attachment, restart reconciliation, lock ownership, needs-input, ambiguous-side-effect reconciliation, and terminal publication transitions.
 - Ordinary heartbeat refreshes must not increment the decision version continuously; expose liveness through bounded timestamps or a separate heartbeat generation.
