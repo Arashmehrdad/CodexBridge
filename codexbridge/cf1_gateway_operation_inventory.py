@@ -9,7 +9,7 @@ from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v5"
+    "cf1.3.gateway-operations.v6"
 )
 
 
@@ -244,8 +244,9 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes=(
-            "Inspection schemas retain bounded identifiers and tail counts, and the "
-            "serialized response now has a UTF-8 budget with truncation metadata."
+            "Compact inspections retain bounded identifiers and tail counts under a "
+            "serialized UTF-8 budget with truncation metadata; view=full preserves "
+            "the complete provider result."
         ),
     ),
     _entry(
@@ -278,7 +279,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Capability lists remain policy-shaped and are capped by a serialized UTF-8 budget with truncation metadata.",
+        notes="Compact capability lists remain policy-shaped under a serialized UTF-8 budget with truncation metadata; view=full preserves complete capability evidence.",
     ),
     _entry(
         "docker_query",
@@ -288,7 +289,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Docker health remains a compatibility-shaped provider summary under a serialized UTF-8 budget.",
+        notes="Compact Docker health remains a compatibility-shaped provider summary under a serialized UTF-8 budget; view=full preserves the complete provider payload.",
     ),
     _entry(
         "docker_query",
@@ -300,8 +301,9 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_response_bytes=12 * 1024,
         maximum_item_limit=20_000,
         notes=(
-            "The tail field remains bounded to 20,000 units and the serialized "
-            "response is capped by a UTF-8 byte budget with truncation metadata."
+            "The tail field remains bounded to 20,000 units; the compact response is "
+            "capped by a UTF-8 byte budget with truncation metadata, while view=full "
+            "preserves complete inspection evidence."
         ),
     ),
     _entry(
@@ -323,7 +325,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Capability lists remain authorization-shaped and are capped by a serialized UTF-8 budget with truncation metadata.",
+        notes="Compact capability lists remain authorization-shaped under a serialized UTF-8 budget with truncation metadata; view=full preserves complete capability evidence.",
     ),
     _entry(
         "cloudflare_query",
@@ -333,7 +335,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Cloudflare health remains a compatibility-shaped provider summary under a serialized UTF-8 budget.",
+        notes="Compact Cloudflare health remains a compatibility-shaped provider summary under a serialized UTF-8 budget; view=full preserves the complete provider payload.",
     ),
     _entry(
         "cloudflare_query",
@@ -347,9 +349,10 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_item_limit=100,
         maximum_item_limit=100,
         notes=(
-            "The request exposes page and per_page, with per_page fixed by a "
-            "default and maximum of 100; the response is capped by a serialized "
-            "UTF-8 budget with explicit truncation metadata."
+            "The request exposes page and per_page, with per_page fixed by a default "
+            "and maximum of 100; compact responses use a serialized UTF-8 budget with "
+            "explicit truncation metadata, while view=full preserves complete evidence "
+            "for the selected provider page."
         ),
     ),
     _entry(
@@ -456,7 +459,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_item_limit=500,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Events remain ordered and limit bounded, with a serialized UTF-8 budget and truncation metadata.",
+        notes="Compact events remain ordered and limit bounded under a serialized UTF-8 budget with truncation metadata; view=full preserves the complete selected event list.",
     ),
     _entry(
         "workflow_action",
@@ -752,7 +755,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_item_limit=500,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Events remain ordered and limit bounded, with a serialized UTF-8 budget and truncation metadata.",
+        notes="Compact events remain ordered and limit bounded under a serialized UTF-8 budget with truncation metadata; view=full preserves the complete selected event list.",
     ),
     _entry(
         "supervisor_query",
@@ -807,7 +810,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.LIMIT_ONLY,
-        notes="Symbol discovery is capped by a serialized UTF-8 byte budget with truncation metadata.",
+        notes="Compact symbol discovery is capped by a serialized UTF-8 byte budget with truncation metadata; view=full preserves the complete provider symbol list.",
     ),
     _entry(
         "trading_query",
@@ -820,7 +823,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=200,
         maximum_item_limit=2_000,
-        notes="Candle count remains bounded and the serialized response has a UTF-8 byte budget with truncation metadata.",
+        notes="Candle count remains request bounded; compact responses use a UTF-8 byte budget with truncation metadata, while view=full preserves the complete selected series.",
     ),
     _entry(
         "trading_query",
@@ -831,8 +834,9 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes=(
-            "The time range remains validated and the serialized tick series is "
-            "capped by a UTF-8 byte budget with truncation metadata."
+            "The time range remains validated; the compact tick series is capped by a "
+            "UTF-8 byte budget with truncation metadata, while view=full preserves the "
+            "complete selected provider series."
         ),
     ),
     _entry(
@@ -867,7 +871,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_item_limit=1_000,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="The list remains item limited and immutable, with a serialized UTF-8 budget and truncation metadata.",
+        notes="The list remains item limited and immutable; compact responses use a serialized UTF-8 budget with truncation metadata, while view=full preserves complete selected records.",
     ),
     _entry(
         "trading_signal_cancel_before_entry",
@@ -1098,7 +1102,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_item_limit=50,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Search results remain item limited and now expose a caller-selected serialized UTF-8 budget with truncation metadata.",
+        notes="Search results remain item limited; compact responses expose a caller-selected serialized UTF-8 budget with truncation metadata, while view=full preserves complete selected wiki and memory hits.",
     ),
     _entry(
         "knowledge_action",

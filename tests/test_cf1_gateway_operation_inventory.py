@@ -90,7 +90,7 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     grouped = operation_inventory_by_gateway()
 
     assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == (
-        "cf1.3.gateway-operations.v5"
+        "cf1.3.gateway-operations.v6"
     )
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
@@ -480,6 +480,25 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert symbols.maximum_response_bytes == 12 * 1024
     assert symbols.pagination is PaginationBehavior.LIMIT_ONLY
     assert "UTF-8 byte budget" in symbols.notes
+
+    full_view_routes = {
+        ("ssh_inspect", "inspection"),
+        ("docker_query", "capabilities"),
+        ("docker_query", "health"),
+        ("docker_query", "inspect"),
+        ("cloudflare_query", "capabilities"),
+        ("cloudflare_query", "health"),
+        ("cloudflare_query", "inspect"),
+        ("workflow_query", "events"),
+        ("supervisor_query", "events"),
+        ("trading_query", "symbols"),
+        ("trading_query", "h4_candles"),
+        ("trading_query", "historical_ticks"),
+        ("trading_signal_list", "invoke"),
+        ("knowledge_query", "search"),
+    }
+    for gateway, operation in full_view_routes:
+        assert "view=full" in _entry_for(gateway, operation).notes
 
 
 def test_durable_action_paths_record_request_echo_explicitly() -> None:
