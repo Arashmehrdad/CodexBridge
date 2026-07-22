@@ -3095,6 +3095,19 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
             result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
         response = {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
+        if request.operation == "symbols":
+            response["truncated"] = False
+            response["has_more"] = False
+            response["response_budget_bytes"] = request.response_budget_bytes
+            while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+                symbols = response.get("result")
+                if isinstance(symbols, list) and symbols:
+                    symbols.pop()
+                else:
+                    break
+                response["truncated"] = True
+                response["has_more"] = True
+            response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
         if request.operation == "historical_ticks":
             response["truncated"] = False
             response["has_more"] = False

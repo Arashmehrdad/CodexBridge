@@ -659,6 +659,12 @@ Thirty-third independently reviewable slice — bounded Cloudflare health:
 - the Cloudflare health inventory now records a bounded-object 12-KB default/maximum response contract;
 - focused CodexBridge pytest validation passed with 46 server tests, 51 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-fourth independently reviewable slice — bounded symbol discovery:
+
+- `trading_query(operation="symbols")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the symbol list, preserving configured demo-terminal checks and scalar trading-query behavior;
+- the trading inventory now separates symbol discovery from scalar health/specification/tick operations and records a bounded-object 12-KB default/maximum response contract;
+- focused CodexBridge pytest validation passed with 46 server tests, 52 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -235,6 +235,7 @@ class TradingHealthQuery(GatewayModel):
 class TradingSymbolsQuery(GatewayModel):
     operation: Literal["symbols"]
     query: str = Field(default="", max_length=128)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingSpecificationQuery(GatewayModel):

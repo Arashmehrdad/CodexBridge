@@ -692,10 +692,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("health", "symbols", "specification", "tick"),
+        ("health", "specification", "tick"),
         "codexbridge.server:trading_query",
         "direct market-data adapter object",
-        notes="No public response byte ceiling is enforced.",
+        notes="Scalar market-data responses preserve direct adapter compatibility.",
+    ),
+    _entry(
+        "trading_query",
+        ("symbols",),
+        "codexbridge.server:trading_query",
+        "bounded symbol discovery list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        notes="Symbol discovery is capped by a serialized UTF-8 byte budget with truncation metadata.",
     ),
     _entry(
         "trading_query",

@@ -330,6 +330,12 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert historical_ticks.pagination is PaginationBehavior.NONE
     assert "UTF-8 byte budget" in historical_ticks.notes
 
+    symbols = _entry_for("trading_query", "symbols")
+    assert symbols.default_response_bytes == 12 * 1024
+    assert symbols.maximum_response_bytes == 12 * 1024
+    assert symbols.pagination is PaginationBehavior.LIMIT_ONLY
+    assert "UTF-8 byte budget" in symbols.notes
+
 
 def test_durable_action_paths_record_request_echo_explicitly() -> None:
     for gateway, operation in {
