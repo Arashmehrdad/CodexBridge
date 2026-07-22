@@ -348,6 +348,35 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     assert queued["kwargs"]["payload"]["name"] == "api.example.com"
 
 
+def test_cloudflare_inspect_honors_response_budget(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path), cloudflare_profiles=["production"])},
+        cloudflare={"enabled": True, "profiles": {"production": {}}},
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(server, "authorize_cloudflare_profile", lambda *args: ("repo", object()))
+    monkeypatch.setattr(
+        server,
+        "_run_cloudflare_inspection",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "profile_id": "production",
+            "operation": "dns_records",
+            "result": [{"id": str(index), "content": "x" * 180} for index in range(80)],
+            "result_info": {"total": 80, "page": 1},
+            "error": "",
+        },
+    )
+    result = server.cloudflare_inspect(
+        "repo", "production", "dns_records", response_budget_bytes=4096
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(

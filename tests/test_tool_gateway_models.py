@@ -471,6 +471,18 @@ def test_docker_inspect_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_cloudflare_inspect_model_exposes_response_budget() -> None:
+    request = TypeAdapter(CloudflareQueryRequest).validate_python(
+        {
+            "operation": "inspect",
+            "repo_name": "repo",
+            "profile_id": "production",
+            "inspection": "dns_records",
+        }
+    )
+    assert request.response_budget_bytes == 12 * 1024
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 

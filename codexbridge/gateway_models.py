@@ -793,6 +793,7 @@ class CloudflareInspectQuery(GatewayModel):
     since_minutes: int = Field(default=60, ge=1, le=43_200)
     page: int = Field(default=1, ge=1, le=10_000)
     per_page: int = Field(default=100, ge=1, le=100)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 CloudflareQueryRequest = Annotated[

@@ -582,6 +582,12 @@ Twentieth independently reviewable slice — bounded Docker inspection:
 - the Docker inspection inventory now records a bounded-object response contract with a 12-KB default/maximum budget; capabilities, health, and direct inspection compatibility remain available;
 - focused CodexBridge pytest validation passed with 36 server tests, 43 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-first independently reviewable slice — bounded Cloudflare inspection:
+
+- `cloudflare_query(operation="inspect")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and deterministically trims paginated provider results or diagnostic metadata while preserving profile authorization, page/per-page compatibility, and explicit truncation state;
+- the Cloudflare inspection inventory now records a bounded-object response contract with a 12-KB default/maximum budget and retains page-number pagination metadata;
+- focused CodexBridge pytest validation passed with 37 server tests, 44 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

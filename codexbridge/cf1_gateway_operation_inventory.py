@@ -300,13 +300,17 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "cloudflare_query",
         ("inspect",),
         "codexbridge.server:cloudflare_query -> codexbridge.cloudflare_tools:inspect",
-        "direct Cloudflare provider object",
+        "bounded Cloudflare provider projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.PAGE_NUMBER,
         default_item_limit=100,
         maximum_item_limit=100,
         notes=(
             "The request exposes page and per_page, with per_page fixed by a "
-            "default and maximum of 100; the response envelope is not byte capped."
+            "default and maximum of 100; the response is capped by a serialized "
+            "UTF-8 budget with explicit truncation metadata."
         ),
     ),
     _entry(

@@ -1556,8 +1556,11 @@ def cloudflare_inspect(
     since_minutes: int = 60,
     page: int = 1,
     per_page: int = 100,
+    response_budget_bytes: int = 12 * 1024,
 ) -> dict:
     """Read-only: run one bounded Cloudflare inspection for an authorized repository."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
     canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _run_cloudflare_inspection(
@@ -1572,6 +1575,29 @@ def cloudflare_inspect(
         per_page=per_page,
     )
     result["repo_name"] = canonical_repo_name
+    result.setdefault("truncated", False)
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        payload = result.get("result")
+        if isinstance(payload, list) and payload:
+            payload.pop()
+            reduced = True
+        elif isinstance(payload, dict) and payload:
+            payload.pop(next(reversed(payload)))
+            reduced = True
+        elif isinstance(result.get("result_info"), dict) and result["result_info"]:
+            result["result_info"].pop(next(reversed(result["result_info"])))
+            reduced = True
+        elif isinstance(result.get("error"), str) and result["error"]:
+            result["error"] = ""
+            reduced = True
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
     return result
 
 
@@ -2001,6 +2027,7 @@ def cloudflare_query(request: CloudflareQueryRequest) -> dict:
         request.repo_name, request.profile_id, request.inspection,
         resource_id=request.resource_id, name=request.name, record_type=request.record_type,
         since_minutes=request.since_minutes, page=request.page, per_page=request.per_page,
+        response_budget_bytes=request.response_budget_bytes,
     )
 
 

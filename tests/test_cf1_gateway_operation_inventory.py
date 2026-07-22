@@ -221,9 +221,12 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert run_events.maximum_item_limit == 500
 
     cloudflare = _entry_for("cloudflare_query", "inspect")
+    assert cloudflare.default_response_bytes == 12 * 1024
+    assert cloudflare.maximum_response_bytes == 12 * 1024
     assert cloudflare.pagination is PaginationBehavior.PAGE_NUMBER
     assert cloudflare.default_item_limit == 100
     assert cloudflare.maximum_item_limit == 100
+    assert "serialized UTF-8 budget" in cloudflare.notes
 
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
