@@ -200,6 +200,53 @@ MEMORY_WRITE_OUTPUT = {
         "error",
     ],
 }
+WIKI_REFRESH_COMPACT_OUTPUT = {
+    # Compact refresh acknowledgements project bounded counts instead of the
+    # full page and changed-file arrays, and always carry the compact envelope.
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        **public_projection_schema_properties(),
+        "ok": {"type": "boolean"},
+        "repo_name": {"type": "string"},
+        "status": {"type": "string"},
+        "wiki_root": {"type": "string"},
+        "summary": {"type": "string"},
+        "incremental": {"type": "boolean"},
+        "scan_truncated": {"type": "boolean"},
+        "stale": {"type": "boolean"},
+        "generation_id": {"type": "string"},
+        "indexed_head": {"type": "string"},
+        "indexed_branch": {"type": "string"},
+        "source_generation": {"type": "integer"},
+        "indexed_source_generation": {"type": "integer"},
+        "refresh_operation_id": {"type": "string"},
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
+        "error": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
+        "page_count": {"type": "integer"},
+        "changed_source_file_count": {"type": "integer"},
+    },
+    "required": [
+        "ok",
+        "repo_name",
+        "status",
+        "wiki_root",
+        "scan_truncated",
+        "error",
+        "view",
+        "projection_version",
+        "non_authoritative",
+        "notice",
+        "response_budget_bytes",
+        "response_bytes",
+    ],
+}
 KNOWLEDGE_ACTION_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
@@ -210,6 +257,7 @@ KNOWLEDGE_ACTION_OUTPUT = {
     "required": ["ok", "repo_name", "error"],
     "oneOf": [
         WIKI_REFRESH_OUTPUT,
+        WIKI_REFRESH_COMPACT_OUTPUT,
         MEMORY_WRITE_OUTPUT,
     ],
 }
@@ -351,7 +399,10 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
     compact["response_budget_bytes"] = budget
     encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > budget:
-        compact.pop("summary", None)
+        # Empty rather than remove: "summary" stays schema-required for
+        # memory-write acknowledgements even when the budget forces truncation.
+        if "summary" in compact:
+            compact["summary"] = ""
         compact["truncated"] = True
         compact["has_more"] = True
     compact["response_bytes"] = len(
