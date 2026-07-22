@@ -8,6 +8,7 @@ from typing import Any
 
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.knowledge_tools_integration import (
+    _bounded_knowledge_action,
     _bounded_knowledge_search,
     _bounded_wiki_page,
     register_knowledge_tools,
@@ -203,6 +204,25 @@ def test_wiki_page_projection_is_bounded_and_marks_truncation() -> None:
     assert bounded["truncated"] is True
     assert bounded["has_more"] is True
     assert bounded["response_bytes"] <= 4096
+
+
+def test_knowledge_action_projection_is_bounded() -> None:
+    bounded = _bounded_knowledge_action(
+        {
+            "ok": True,
+            "repo_name": "seedmind",
+            "status": "generated",
+            "pages": [f"page-{index}.md" for index in range(5000)],
+            "changed_source_files": [f"src/{index}.py" for index in range(5000)],
+            "summary": "x" * 20_000,
+            "error": "",
+        },
+        4096,
+    )
+    assert bounded["response_bytes"] <= 4096
+    assert bounded["page_count"] == 5000
+    assert bounded["changed_source_file_count"] == 5000
+    assert "pages" not in bounded
 
 
 def test_knowledge_tools_follow_the_active_config_after_reload(

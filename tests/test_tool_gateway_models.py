@@ -1669,6 +1669,9 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
     assert TypeAdapter(KnowledgeActionRequest).validate_python(
         {"action": "remember_decision", "repo_name": "repo", "decision": "use locks"}
     ).decision == "use locks"
+    assert TypeAdapter(KnowledgeActionRequest).validate_python(
+        {"action": "refresh_wiki", "repo_name": "repo"}
+    ).response_budget_bytes == 12 * 1024
     with pytest.raises(ValidationError):
         TypeAdapter(SystemActionRequest).validate_python(
             {"action": "rollback", "modules": ["config"]}

@@ -1195,6 +1195,8 @@ class KnowledgeRefreshWikiAction(GatewayModel):
     action: Literal["refresh_wiki"]
     repo_name: str = Field(min_length=1, max_length=128)
     force: bool = False
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class KnowledgeRememberDecisionAction(GatewayModel):
@@ -1202,6 +1204,8 @@ class KnowledgeRememberDecisionAction(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     decision: str = Field(min_length=1, max_length=20_000)
     accepted_by: str = Field(default="chatgpt", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 KnowledgeActionRequest = Annotated[

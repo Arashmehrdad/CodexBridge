@@ -737,6 +737,12 @@ Forty-sixth independently reviewable slice — bounded system action acknowledge
 - `view="full"` preserves explicit complete lifecycle evidence access and the existing direct reload/rollback tools remain unchanged;
 - focused CodexBridge pytest validation passed with 62 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Forty-seventh independently reviewable slice — bounded knowledge action acknowledgements:
+
+- `knowledge_action(action="refresh_wiki"|"remember_decision")` now defaults to a compact 12-KB acknowledgement retaining lifecycle identity, freshness metadata, and page/file or memory counts while bounding diagnostics and summaries;
+- `view="full"` preserves explicit complete mutation evidence access, and the existing direct wiki-refresh and decision-write functions remain unchanged;
+- focused CodexBridge pytest validation passed with 9 knowledge-integration tests, 62 gateway-model tests, and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

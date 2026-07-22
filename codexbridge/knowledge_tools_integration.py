@@ -46,6 +46,12 @@ WIKI_REFRESH_OUTPUT = {
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
+        "page_count": {"type": "integer"},
+        "changed_source_file_count": {"type": "integer"},
     },
     "required": [
         "ok",
@@ -73,6 +79,8 @@ WIKI_PAGE_OUTPUT = {
         "has_more": {"type": "boolean"},
         "response_budget_bytes": {"type": "integer"},
         "response_bytes": {"type": "integer"},
+        "page_count": {"type": "integer"},
+        "changed_source_file_count": {"type": "integer"},
         "generation_id": {"type": "string"},
         "stale": {"type": "boolean"},
         "indexed_head": {"type": "string"},
@@ -167,6 +175,10 @@ MEMORY_WRITE_OUTPUT = {
         "schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
     },
     "required": [
         "ok",
@@ -299,6 +311,42 @@ def _bounded_wiki_page(result: dict[str, Any], budget: int) -> dict[str, Any]:
         json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     )
     return bounded
+
+
+def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact: dict[str, Any] = {
+        key: result[key]
+        for key in (
+            "ok", "repo_name", "status", "wiki_root", "memory_id", "memory_type",
+            "title", "incremental", "scan_truncated", "stale", "generation_id",
+            "indexed_head", "indexed_branch", "source_generation",
+            "indexed_source_generation", "refresh_operation_id", "error",
+            "server_build_hash", "schema_hash", "capability_epoch",
+        )
+        if key in result
+    }
+    for key in ("title", "error"):
+        if compact.get(key):
+            compact[key] = str(compact[key])[:512]
+    if "summary" in result:
+        compact["summary"] = str(result.get("summary") or "")[:512]
+    for key in ("pages", "changed_source_files"):
+        if key in result:
+            compact[f"{key[:-1]}_count"] = len(result.get(key) or [])
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = budget
+    encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > budget:
+        compact.pop("summary", None)
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["response_bytes"] = len(
+        json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return compact
 
 
 def register_knowledge_tools(mcp: Any) -> None:
@@ -511,10 +559,14 @@ def register_knowledge_tools(mcp: Any) -> None:
     def knowledge_action(request: KnowledgeActionRequest) -> dict:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action == "refresh_wiki":
-            return refresh_repo_wiki(request.repo_name, request.force)
-        return remember_repo_decision(
-            request.repo_name, request.decision, request.accepted_by
-        )
+            result = refresh_repo_wiki(request.repo_name, request.force)
+        else:
+            result = remember_repo_decision(
+                request.repo_name, request.decision, request.accepted_by
+            )
+        if request.view == "full":
+            return result
+        return _bounded_knowledge_action(result, request.response_budget_bytes)
 
     setattr(mcp, "_codexbridge_knowledge_tools_registered", True)
 

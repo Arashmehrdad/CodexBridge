@@ -269,6 +269,15 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert rollback_entry.maximum_response_bytes == 12 * 1024
     assert "view=full" in rollback_entry.notes
 
+    refresh_entry = _entry_for("knowledge_action", "refresh_wiki")
+    assert refresh_entry.default_response_bytes == 12 * 1024
+    assert refresh_entry.maximum_response_bytes == 12 * 1024
+    assert "view=full" in refresh_entry.notes
+    decision_entry = _entry_for("knowledge_action", "remember_decision")
+    assert decision_entry.default_response_bytes == 12 * 1024
+    assert decision_entry.maximum_response_bytes == 12 * 1024
+    assert "view=full" in decision_entry.notes
+
     workflow_events = _entry_for("workflow_query", "events")
     assert workflow_events.default_response_bytes == 12 * 1024
     assert workflow_events.maximum_response_bytes == 12 * 1024

@@ -1038,14 +1038,25 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "knowledge_action",
-        ("refresh_wiki", "remember_decision"),
+        ("refresh_wiki",),
         "codexbridge.knowledge_tools_integration:knowledge_action",
-        "direct knowledge mutation result",
+        "bounded compact wiki refresh acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes=(
-            "Repository wiki changes and decisions are persisted before the "
-            "summary result is returned."
-        ),
+        notes="Compact refresh acknowledgement returns lifecycle metadata and page/file counts under a UTF-8 budget; view=full remains explicit evidence access.",
+    ),
+    _entry(
+        "knowledge_action",
+        ("remember_decision",),
+        "codexbridge.knowledge_tools_integration:knowledge_action",
+        "bounded compact decision acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
+        notes="Compact decision acknowledgement bounds title/summary diagnostics; view=full remains explicit evidence access.",
     ),
 )
 
