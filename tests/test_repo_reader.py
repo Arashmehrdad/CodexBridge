@@ -490,6 +490,8 @@ def test_read_repo_files_enforces_serialized_response_budget(tmp_path: Path) -> 
 
     assert len(repo_reader.json.dumps(result).encode("utf-8")) <= 48 * 1024
     assert result["payload_bytes"] <= 48 * 1024
+    assert result["response_bytes"] == result["payload_bytes"]
+    assert result["has_more"] is True
     assert result["results"][0]["has_more"] is True
 
 

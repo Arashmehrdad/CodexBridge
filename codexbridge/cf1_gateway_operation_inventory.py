@@ -901,11 +901,15 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("read_files",),
         "codexbridge.server:repo_query -> codexbridge.repo_tools:read_repo_files",
-        "direct batch file-content result",
+        "bounded batch file-content projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=48 * 1024,
+        maximum_response_bytes=128 * 1024,
         maximum_item_limit=20,
         notes=(
-            "The request is capped at 20 files; aggregate returned content has no "
-            "public byte ceiling."
+            "The request remains capped at 20 files; aggregate content is enforced "
+            "under the caller budget with explicit payload/response byte accounting "
+            "and continuation metadata."
         ),
     ),
     _entry(

@@ -743,6 +743,12 @@ Forty-seventh independently reviewable slice — bounded knowledge action acknow
 - `view="full"` preserves explicit complete mutation evidence access, and the existing direct wiki-refresh and decision-write functions remain unchanged;
 - focused CodexBridge pytest validation passed with 9 knowledge-integration tests, 62 gateway-model tests, and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
+Forty-eighth independently reviewable slice — bounded repository batch reads:
+
+- `repo_query(operation="read_files")` now publishes explicit aggregate `has_more`, `truncated_batch`, `payload_bytes`, and `response_bytes` metadata while enforcing the serialized response budget at the final boundary;
+- the existing 20-file limit, streamed per-file content, redaction, hash-bound continuation, and compatibility behavior remain intact;
+- focused CodexBridge pytest validation passed with 72 repository-reader tests and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

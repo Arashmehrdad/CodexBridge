@@ -1297,10 +1297,26 @@ def read_repo_files(
         "results": results,
         "count": len(results),
         "truncated_batch": truncated_batch,
+        "has_more": truncated_batch,
         "response_budget_bytes": budget,
         "error": "",
     }
+    while len(json.dumps(response).encode("utf-8")) > budget and results:
+        item = results[-1]
+        content = str(item.get("content") or "")
+        if content:
+            item["content"] = content[: max(0, len(content) - 1024)]
+            item["truncated"] = True
+            item["has_more"] = True
+            response["truncated_batch"] = True
+            response["has_more"] = True
+        else:
+            results.pop()
+            response["count"] = len(results)
+            response["truncated_batch"] = True
+            response["has_more"] = True
     response["payload_bytes"] = len(json.dumps(response).encode("utf-8"))
+    response["response_bytes"] = response["payload_bytes"]
     return response
 
 

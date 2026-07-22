@@ -367,7 +367,9 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
 
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
-    assert "aggregate returned content" in repo_read.notes
+    assert repo_read.default_response_bytes == 48 * 1024
+    assert repo_read.maximum_response_bytes == 128 * 1024
+    assert "aggregate content is enforced" in repo_read.notes
 
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024
