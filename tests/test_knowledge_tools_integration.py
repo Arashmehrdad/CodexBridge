@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import json
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 from codexbridge.config import AppConfig, RepoConfig
@@ -14,6 +14,8 @@ from codexbridge.knowledge_tools_integration import (
     register_knowledge_tools,
 )
 from codexbridge.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
+from codexbridge.memory.repository import ProjectMemoryRepository
+from codexbridge.repo_wiki import RepoWikiService
 from pydantic import TypeAdapter
 
 
@@ -146,6 +148,68 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])
     assert len(result["server_build_hash"]) == 64
     assert len(remembered["schema_hash"]) == 64
+
+
+def test_knowledge_search_full_view_preserves_complete_hits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = tmp_path / "SeedMind"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config = AppConfig(
+        repos={"seedmind": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        config_dir=tmp_path,
+    )
+    mcp = FakeMCP()
+    runtime_module = ModuleType("codexbridge_test_full_knowledge_server")
+    runtime_module.mcp = mcp
+    runtime_module.get_config = lambda: config
+    monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
+    monkeypatch.setattr(
+        RepoWikiService,
+        "search_with_metadata",
+        lambda self, query, limit: {
+            "hits": [
+                {
+                    "source": "wiki",
+                    "page": f"page-{index}",
+                    "line": index,
+                    "snippet": "x" * 1000,
+                }
+                for index in range(limit)
+            ],
+            "generation_id": "generation-1",
+            "stale": False,
+            "indexed_head": "a" * 40,
+            "indexed_branch": "main",
+            "source_generation": 1,
+            "indexed_source_generation": 1,
+        },
+    )
+    monkeypatch.setattr(
+        ProjectMemoryRepository,
+        "search",
+        lambda self, *args, **kwargs: SimpleNamespace(records=[]),
+    )
+    register_knowledge_tools(mcp)
+
+    result = mcp.tools["knowledge_query"]["function"](
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {
+                "operation": "search",
+                "repo_name": "seedmind",
+                "query": "needle",
+                "limit": 20,
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+
+    assert len(result["wiki_hits"]) == 20
+    assert len(result["wiki_hits"][0]["snippet"]) == 1000
+    assert "truncated" not in result
 
 
 def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:

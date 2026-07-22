@@ -56,6 +56,7 @@ class SSHBoundedInspection(GatewayModel):
     target: str = Field(default="", max_length=512)
     deployment_id: str = Field(default="", max_length=128)
     tail: int = Field(default=200, ge=1, le=20_000)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -1260,6 +1261,7 @@ class KnowledgeSearchQuery(GatewayModel):
     query: str = Field(min_length=1, max_length=10_000)
     limit: int = Field(default=10, ge=1, le=50)
     include_global_memory: bool = False
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 

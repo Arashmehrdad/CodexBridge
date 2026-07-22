@@ -49,6 +49,18 @@ import codexbridge.server as server
 def test_ssh_inspection_models_are_discriminated_and_strict() -> None:
     adapter = TypeAdapter(SSHInspectRequest)
     assert adapter.validate_python({"operation": "host_health", "host_id": "dev"}).host_id == "dev"
+    inspection = adapter.validate_python(
+        {"operation": "inspection", "host_id": "dev", "inspection": "uptime"}
+    )
+    assert inspection.view == "compact"
+    assert adapter.validate_python(
+        {
+            "operation": "inspection",
+            "host_id": "dev",
+            "inspection": "uptime",
+            "view": "full",
+        }
+    ).view == "full"
     try:
         adapter.validate_python({"operation": "gpu_telemetry", "host_id": "dev", "tail": 10})
     except ValidationError:
@@ -102,6 +114,33 @@ def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
     monkeypatch.setattr(server, "ssh_environment_probe", lambda host_id: {"host_id": host_id, "ok": True})
     result = server.ssh_inspect(SSHEnvironmentProbe(operation="environment_probe", host_id="dev"))
     assert result["host_id"] == "dev"
+
+
+def test_ssh_bounded_inspection_full_view_preserves_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "_run_ssh_inspection",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "stdout": "x" * 50_000,
+            "stderr": "",
+            "argv": ["inspect"],
+        },
+    )
+    result = server.ssh_inspect(
+        TypeAdapter(SSHInspectRequest).validate_python(
+            {
+                "operation": "inspection",
+                "host_id": "dev",
+                "inspection": "uptime",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(result["stdout"]) == 50_000
+    assert "truncated" not in result
 
 
 def test_ssh_health_projection_honors_response_budget(monkeypatch) -> None:
@@ -2587,12 +2626,20 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
     assert TypeAdapter(SystemActionRequest).validate_python(
         {"action": "rollback"}
     ).response_budget_bytes == 12 * 1024
-    assert TypeAdapter(KnowledgeQueryRequest).validate_python(
+    knowledge_search = TypeAdapter(KnowledgeQueryRequest).validate_python(
         {"operation": "search", "repo_name": "repo", "query": "locks"}
-    ).query == "locks"
+    )
+    assert knowledge_search.query == "locks"
+    assert knowledge_search.view == "compact"
+    assert knowledge_search.response_budget_bytes == 12 * 1024
     assert TypeAdapter(KnowledgeQueryRequest).validate_python(
-        {"operation": "search", "repo_name": "repo", "query": "locks"}
-    ).response_budget_bytes == 12 * 1024
+        {
+            "operation": "search",
+            "repo_name": "repo",
+            "query": "locks",
+            "view": "full",
+        }
+    ).view == "full"
     wiki_query = TypeAdapter(KnowledgeQueryRequest).validate_python(
         {"operation": "read_wiki", "repo_name": "repo"}
     )

@@ -2205,8 +2205,11 @@ def ssh_inspect_legacy(
     deployment_id: str = "",
     tail: int = 200,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: run one bounded SSH system, service, log, Git, Docker, or file inspection."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _run_ssh_inspection(
@@ -2218,6 +2221,8 @@ def ssh_inspect_legacy(
         deployment_id=deployment_id,
         tail=tail,
     )
+    if view == "full":
+        return result
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -2264,6 +2269,7 @@ def ssh_inspect(request: SSHInspectRequest) -> dict:
             deployment_id=request.deployment_id,
             tail=request.tail,
             response_budget_bytes=request.response_budget_bytes,
+            view=request.view,
         )
     if request.view == "full":
         return result

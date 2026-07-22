@@ -442,8 +442,11 @@ def register_knowledge_tools(mcp: Any) -> None:
         limit: int = 10,
         include_global_memory: bool = False,
         response_budget_bytes: int = 12 * 1024,
+        view: str = "compact",
     ) -> dict:
         """Search the repository wiki and repository-scoped memory in one call."""
+        if view not in {"compact", "full"}:
+            raise ValueError("view must be compact or full")
         try:
             config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
             maximum = max(1, min(limit, 50))
@@ -458,7 +461,7 @@ def register_knowledge_tools(mcp: Any) -> None:
                 limit=maximum,
             )
             memory_hits = [_memory_hit(record) for record in result.records]
-            return _bounded_knowledge_search(_with_capability_metadata(
+            response = _with_capability_metadata(
                 {
                     "ok": True,
                     "repo_name": canonical_name,
@@ -474,7 +477,10 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "error": "",
                 },
                 KNOWLEDGE_SEARCH_OUTPUT,
-            ), response_budget_bytes)
+            )
+            if view == "full":
+                return response
+            return _bounded_knowledge_search(response, response_budget_bytes)
         except Exception as exc:
             return _with_capability_metadata(
                 {
@@ -553,6 +559,7 @@ def register_knowledge_tools(mcp: Any) -> None:
             request.limit,
             request.include_global_memory,
             request.response_budget_bytes,
+            request.view,
         )
 
     @mcp.tool(output_schema=KNOWLEDGE_ACTION_OUTPUT, annotations=WRITE_ANNOTATIONS)
