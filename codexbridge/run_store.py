@@ -401,9 +401,12 @@ class RunStore:
                 """
                 SELECT run_id, repo_name, tool, status, summary, error,
                        safety_failure, started_at, ended_at, duration_seconds,
-                       exit_code, state_version, result_json, public_result_json,
-                       public_result_schema_version, public_result_source_sha256,
-                       public_result_status, public_result_error
+                       exit_code, state_version, run_dir, result_json,
+                       result_publication_status, result_published_hash,
+                       result_published_at, result_publication_error,
+                       public_result_json, public_result_schema_version,
+                       public_result_source_sha256, public_result_status,
+                       public_result_error
                 FROM runs
                 WHERE run_id = ?
                 """,
@@ -1690,6 +1693,66 @@ class RunStore:
                 "result_published_hash": published_hash,
                 "result_published_at": published_at,
                 "result_publication_error": error,
+            },
+            expected_statuses=tuple(sorted(TERMINAL_STATUSES)),
+            expected_state_version=expected_state_version,
+        )
+
+    def record_result_publication_with_projection(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        published_hash: str = "",
+        published_at: str | None = None,
+        error: str = "",
+        public_result: dict[str, Any],
+        public_result_source_sha256: str,
+        public_result_status: str,
+        public_result_error: str = "",
+        expected_state_version: int,
+    ) -> dict[str, Any] | None:
+        if status not in {"published", "failed", "pending"}:
+            raise ValueError(f"Invalid result publication status: {status}")
+        if public_result_status not in PUBLIC_RESULT_STATUSES:
+            raise ValueError(f"Invalid public result status: {public_result_status}")
+        return self.conditional_update(
+            run_id,
+            fields={
+                "result_publication_status": status,
+                "result_published_hash": published_hash,
+                "result_published_at": published_at,
+                "result_publication_error": error,
+                "public_result_json": public_result,
+                "public_result_schema_version": PUBLIC_RESULT_SCHEMA_VERSION,
+                "public_result_source_sha256": public_result_source_sha256,
+                "public_result_status": public_result_status,
+                "public_result_error": public_result_error,
+            },
+            expected_statuses=tuple(sorted(TERMINAL_STATUSES)),
+            expected_state_version=expected_state_version,
+        )
+
+    def record_public_result(
+        self,
+        run_id: str,
+        *,
+        public_result: dict[str, Any],
+        source_sha256: str,
+        status: str,
+        error: str = "",
+        expected_state_version: int,
+    ) -> dict[str, Any] | None:
+        if status not in PUBLIC_RESULT_STATUSES:
+            raise ValueError(f"Invalid public result status: {status}")
+        return self.conditional_update(
+            run_id,
+            fields={
+                "public_result_json": public_result,
+                "public_result_schema_version": PUBLIC_RESULT_SCHEMA_VERSION,
+                "public_result_source_sha256": source_sha256,
+                "public_result_status": status,
+                "public_result_error": error,
             },
             expected_statuses=tuple(sorted(TERMINAL_STATUSES)),
             expected_state_version=expected_state_version,
