@@ -1618,6 +1618,30 @@ def test_system_self_check_projection_honors_response_budget(monkeypatch) -> Non
     assert "stdout" not in result["checks"]["check_0"]
 
 
+def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "reload_service",
+        lambda modules: {
+            "ok": True,
+            "reloaded": [f"codexbridge.module_{index}" for index in range(5000)],
+            "resolved_modules": [f"codexbridge.module_{index}" for index in range(5000)],
+            "restart_required": [f"codexbridge.restart_{index}" for index in range(5000)],
+            "message": "m" * 20_000,
+            "config_lifecycle": {"last_status": "reloaded", "last_error": "e" * 20_000},
+        },
+    )
+    request = TypeAdapter(SystemActionRequest).validate_python(
+        {"action": "reload", "response_budget_bytes": 4096}
+    )
+    result = server.system_action(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+    assert result["reloaded_count"] == 5000
+
+
+
 def test_phase7_system_and_knowledge_models_are_strict() -> None:
     self_check = TypeAdapter(SystemQueryRequest).validate_python(
         {"operation": "self_check"}
@@ -1629,6 +1653,9 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
     assert TypeAdapter(SystemActionRequest).validate_python(
         {"action": "reload", "modules": ["config"]}
     ).modules == ["config"]
+    assert TypeAdapter(SystemActionRequest).validate_python(
+        {"action": "rollback"}
+    ).response_budget_bytes == 12 * 1024
     assert TypeAdapter(KnowledgeQueryRequest).validate_python(
         {"operation": "search", "repo_name": "repo", "query": "locks"}
     ).query == "locks"

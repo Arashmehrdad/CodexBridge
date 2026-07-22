@@ -658,13 +658,23 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "system_action",
-        ("reload", "rollback"),
+        ("reload",),
         "codexbridge.server:system_action",
-        "direct service lifecycle result",
-        notes=(
-            "Reload diagnostics and capability metadata are returned inline with "
-            "no public response byte ceiling."
-        ),
+        "bounded compact service reload acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact reload acknowledgement bounds diagnostics and exposes lifecycle counts; view=full remains explicit evidence access.",
+    ),
+    _entry(
+        "system_action",
+        ("rollback",),
+        "codexbridge.server:system_action",
+        "bounded compact service rollback acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact rollback acknowledgement bounds diagnostics and exposes lifecycle metadata; view=full remains explicit evidence access.",
     ),
     _entry(
         "supervisor_query",

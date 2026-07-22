@@ -1154,10 +1154,14 @@ SystemQueryRequest = Annotated[
 class SystemReloadAction(GatewayModel):
     action: Literal["reload"]
     modules: list[str] = Field(default_factory=list, max_length=20)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SystemRollbackAction(GatewayModel):
     action: Literal["rollback"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 SystemActionRequest = Annotated[

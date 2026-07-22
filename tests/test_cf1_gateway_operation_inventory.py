@@ -260,6 +260,15 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert supervisor_result.maximum_response_bytes == 12 * 1024
     assert "view=full" in supervisor_result.notes
 
+    reload_entry = _entry_for("system_action", "reload")
+    assert reload_entry.default_response_bytes == 12 * 1024
+    assert reload_entry.maximum_response_bytes == 12 * 1024
+    assert "view=full" in reload_entry.notes
+    rollback_entry = _entry_for("system_action", "rollback")
+    assert rollback_entry.default_response_bytes == 12 * 1024
+    assert rollback_entry.maximum_response_bytes == 12 * 1024
+    assert "view=full" in rollback_entry.notes
+
     workflow_events = _entry_for("workflow_query", "events")
     assert workflow_events.default_response_bytes == 12 * 1024
     assert workflow_events.maximum_response_bytes == 12 * 1024

@@ -3050,6 +3050,45 @@ def rollback_service() -> dict:
     return result
 
 
+def _bounded_system_action_response(result: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact: dict[str, Any] = {
+        key: result[key]
+        for key in ("ok", "reloaded", "resolved_modules", "restart_required", "rolled_back", "message", "error")
+        if key in result
+    }
+    for key in ("message", "error"):
+        if compact.get(key):
+            compact[key] = str(compact[key])[:512]
+    lifecycle = result.get("config_lifecycle")
+    if isinstance(lifecycle, dict):
+        compact["config_lifecycle"] = {
+            key: lifecycle[key]
+            for key in ("last_operation", "last_status", "last_error", "has_active_config", "has_last_known_good_config", "has_previous_config")
+            if key in lifecycle
+        }
+        if compact["config_lifecycle"].get("last_error"):
+            compact["config_lifecycle"]["last_error"] = str(compact["config_lifecycle"]["last_error"])[:512]
+    compact["reloaded_count"] = len(result.get("reloaded") or [])
+    compact["restart_required_count"] = len(result.get("restart_required") or [])
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = response_budget_bytes
+    encoded = json.dumps(compact, ensure_ascii=False).encode("utf-8")
+    if len(encoded) > response_budget_bytes:
+        for key in ("resolved_modules", "restart_required", "reloaded"):
+            if key in compact:
+                compact.pop(key)
+                compact["truncated"] = True
+                compact["has_more"] = True
+                encoded = json.dumps(compact, ensure_ascii=False).encode("utf-8")
+                if len(encoded) <= response_budget_bytes:
+                    break
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def system_query(request: SystemQueryRequest) -> dict:
     """Read-only system gateway for capabilities, health, configuration validation, and reload status."""
@@ -3071,8 +3110,12 @@ def system_query(request: SystemQueryRequest) -> dict:
 def system_action(request: SystemActionRequest) -> dict:
     """Write system gateway for validated reload and last-known-good rollback."""
     if request.action == "reload":
-        return reload_service(request.modules)
-    return rollback_service()
+        result = reload_service(request.modules)
+    else:
+        result = rollback_service()
+    if request.view == "full":
+        return result
+    return _bounded_system_action_response(result, request.response_budget_bytes)
 
 
 @_internal_tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)
