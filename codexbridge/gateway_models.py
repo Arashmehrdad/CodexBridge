@@ -471,6 +471,8 @@ class RepoLogQuery(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     limit: int = Field(default=20, ge=1, le=500)
     path: str = Field(default="", max_length=1024)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class RepoCommitRangeQuery(GatewayModel):

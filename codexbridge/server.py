@@ -3259,13 +3259,49 @@ def revert_managed_patch(repo_name: str, patch_id: str) -> dict:
 
 
 @_internal_tool(output_schema=GIT_LOG_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
+def git_log(
+    repo_name: str,
+    limit: int = 20,
+    path: str = "",
+    view: str = "full",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: return structured git log entries, optionally scoped to a file path."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if limit < 1 or limit > 500:
+        raise ValueError("limit must be between 1 and 500")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.git_log(repo_root, limit=limit, path=path)
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if view == "full":
+        return result
+    commits = list(result.get("commits") or [])
+    compact = {
+        "ok": result.get("ok", False),
+        "repo_name": result.get("repo_name", canonical_name),
+        "path": result.get("path", path),
+        "commits": commits,
+        "count": len(commits),
+        "total_count": result.get("count", len(commits)),
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+        "error": result.get("error", ""),
+    }
+    if "requested_repo_name" in result:
+        compact["requested_repo_name"] = result["requested_repo_name"]
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and compact["commits"]:
+        compact["commits"].pop()
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["count"] = len(compact["commits"])
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
     return result
 
 
@@ -3405,7 +3441,13 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.response_budget_bytes,
         )
     if request.operation == "log":
-        return git_log(request.repo_name, request.limit, request.path)
+        return git_log(
+            request.repo_name,
+            request.limit,
+            request.path,
+            request.view,
+            request.response_budget_bytes,
+        )
     return inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
 
 

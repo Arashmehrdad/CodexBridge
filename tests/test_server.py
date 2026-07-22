@@ -1226,6 +1226,46 @@ def test_recent_files_has_bounded_compact_and_explicit_full_views(monkeypatch) -
     assert "response_bytes" not in full
 
 
+def test_git_log_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    commits = [
+        {
+            "sha": f"{index:064x}",
+            "author_name": "Author " + ("x" * 120),
+            "author_email": "author@example.com",
+            "date": "2026-07-22T00:00:00+00:00",
+            "subject": "Subject " + ("y" * 160),
+        }
+        for index in range(40)
+    ]
+
+    class Reader:
+        @staticmethod
+        def git_log(repo_root, *, limit, path):
+            return {
+                "ok": True,
+                "repo_name": "",
+                "commits": commits[:limit],
+                "count": min(len(commits), limit),
+                "path": path,
+                "error": "",
+            }
+
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(server, "_repo_reader", Reader())
+
+    compact = server.git_log(
+        "repo", limit=40, view="compact", response_budget_bytes=4096
+    )
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert compact["count"] < 40
+
+    full = server.git_log("repo", limit=40, view="full")
+    assert full["commits"] == commits
+    assert "response_bytes" not in full
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):
