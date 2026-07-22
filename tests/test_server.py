@@ -1266,6 +1266,44 @@ def test_git_log_has_bounded_compact_and_explicit_full_views(monkeypatch) -> Non
     assert "response_bytes" not in full
 
 
+def test_repo_status_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    changed = [f"src/{index:04d}-" + ("x" * 160) + ".py" for index in range(40)]
+    recent = [f"{index:040x} subject " + ("y" * 160) for index in range(40)]
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(
+        server,
+        "inspect_status",
+        lambda _root: {
+            "ok": True,
+            "status": "dirty",
+            "fresh": True,
+            "source": "live_git",
+            "head_commit": "a" * 40,
+            "generated_at": 1.0,
+            "duration_ms": 1.0,
+            "recent_commits": recent,
+            "changed_files": changed,
+            "diff_stat": "stat " + ("z" * 2000),
+            "git_status": "status " + ("q" * 2000),
+            "error": "",
+            "recommended_action": "",
+            "total_changed_file_count": len(changed),
+        },
+    )
+
+    compact = server.inspect_repo_status(
+        "repo", view="compact", response_budget_bytes=4096
+    )
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert compact["total_changed_file_count"] == 40
+
+    full = server.inspect_repo_status("repo", view="full")
+    assert full["changed_files"] == changed
+    assert "response_bytes" not in full
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):

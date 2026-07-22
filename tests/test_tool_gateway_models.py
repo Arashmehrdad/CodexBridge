@@ -416,6 +416,24 @@ def test_repo_log_model_exposes_compact_and_full_views() -> None:
     assert full.view == "full"
 
 
+def test_repo_status_model_exposes_compact_and_full_views() -> None:
+    compact = TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "status", "repo_name": "repo"}
+    )
+    assert compact.view == "compact"
+    assert compact.response_budget_bytes == 12 * 1024
+
+    full = TypeAdapter(RepoQueryRequest).validate_python(
+        {
+            "operation": "status",
+            "repo_name": "repo",
+            "view": "full",
+            "response_budget_bytes": 4096,
+        }
+    )
+    assert full.view == "full"
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 

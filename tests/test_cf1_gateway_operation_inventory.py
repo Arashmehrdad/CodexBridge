@@ -244,6 +244,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert log.maximum_response_bytes == 12 * 1024
     assert "view=full" in log.notes
 
+    status = _entry_for("repo_query", "status")
+    assert status.default_response_bytes == 12 * 1024
+    assert status.maximum_response_bytes == 12 * 1024
+    assert "view=full" in status.notes
+
     historical_ticks = _entry_for("trading_query", "historical_ticks")
     assert historical_ticks.pagination is PaginationBehavior.NONE
     assert "no result count" in historical_ticks.notes

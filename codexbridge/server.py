@@ -951,8 +951,16 @@ async def list_capabilities() -> dict:
 
 
 @_internal_tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def inspect_repo_status(repo_name: str) -> dict:
+def inspect_repo_status(
+    repo_name: str,
+    view: str = "full",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: return git status, branch, recent commits, changed files, and diff stat."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     try:
         result = dict(inspect_status(repo_root))
@@ -998,6 +1006,50 @@ def inspect_repo_status(repo_name: str) -> dict:
     result["total_changed_file_count"] = int(
         result.get("total_changed_file_count") or len(result["changed_files"])
     )
+    if view == "full":
+        return result
+    compact = {
+        key: result.get(key)
+        for key in (
+            "ok",
+            "repo_name",
+            "status",
+            "fresh",
+            "source",
+            "head_commit",
+            "generated_at",
+            "duration_ms",
+            "total_changed_file_count",
+            "changed_files",
+            "recent_commits",
+            "diff_stat",
+            "git_status",
+            "error",
+            "recommended_action",
+        )
+    }
+    compact["changed_files"] = list(compact.get("changed_files") or [])
+    compact["recent_commits"] = list(compact.get("recent_commits") or [])
+    compact["truncated"] = False
+    compact["has_more"] = False
+    compact["response_budget_bytes"] = response_budget_bytes
+    if "requested_repo_name" in result:
+        compact["requested_repo_name"] = result["requested_repo_name"]
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if compact["changed_files"]:
+            compact["changed_files"].pop()
+        elif compact["recent_commits"]:
+            compact["recent_commits"].pop()
+        else:
+            compact["git_status"] = ""
+            compact["diff_stat"] = ""
+            compact["recommended_action"] = ""
+        compact["truncated"] = True
+        compact["has_more"] = True
+        if not compact["changed_files"] and not compact["recent_commits"] and not compact["git_status"] and not compact["diff_stat"] and not compact["recommended_action"]:
+            break
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
     return result
 
 
@@ -3393,7 +3445,11 @@ def repo_query(request: RepoQueryRequest) -> dict:
             "error": str(exc),
         }
     if request.operation == "status":
-        return inspect_repo_status(request.repo_name)
+        return inspect_repo_status(
+            request.repo_name,
+            request.view,
+            request.response_budget_bytes,
+        )
     if request.operation == "compact_status":
         return inspect_repo_status_compact(request.repo_name)
     if request.operation == "patch_status":

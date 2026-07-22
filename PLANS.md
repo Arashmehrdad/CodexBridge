@@ -558,6 +558,12 @@ Sixteenth independently reviewable slice — bounded commit-log lists:
 - the direct `git_log` compatibility wrapper remains full by default, while `view="full"` preserves complete commit-log evidence and the operation inventory records the compact/full distinction;
 - focused CodexBridge pytest validation passed with 32 server tests, 39 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Seventeenth independently reviewable slice — bounded repository status:
+
+- `repo_query(operation="status")` now defaults to a compact live-status projection with a caller-selected 1–64-KB serialized UTF-8 budget, preserved changed-file totals, `has_more`, truncation, and response byte accounting;
+- the direct `inspect_repo_status` compatibility wrapper remains full by default, while `view="full"` preserves complete status evidence and the operation inventory distinguishes it from the existing compact-status operation;
+- focused CodexBridge pytest validation passed with 33 server tests, 40 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
