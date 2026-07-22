@@ -233,6 +233,32 @@ def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
     assert queued["kwargs"]["build"] is True
 
 
+def test_docker_inspect_honors_response_budget(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".git").mkdir()
+    config = AppConfig(repos={"repo": RepoConfig(path=str(tmp_path))}, config_dir=tmp_path)
+    server.set_config(config, tmp_path / "config.yaml")
+    monkeypatch.setattr(
+        server,
+        "_run_docker_inspection",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "action": "compose_logs",
+            "argv": ["docker", "compose", "logs"],
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "x" * 30_000,
+            "stderr": "y" * 4_000,
+            "output_truncated": False,
+            "error": "",
+        },
+    )
+    result = server.docker_inspect("repo", "compose_logs", response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(

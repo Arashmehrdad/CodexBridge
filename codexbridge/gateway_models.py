@@ -714,6 +714,7 @@ class DockerInspectQuery(GatewayModel):
     target: str = Field(default="", max_length=512)
     service: str = Field(default="", max_length=256)
     tail: int = Field(default=200, ge=1, le=20_000)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 DockerQueryRequest = Annotated[

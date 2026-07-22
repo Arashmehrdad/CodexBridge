@@ -268,11 +268,14 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "docker_query",
         ("inspect",),
         "codexbridge.server:docker_query -> codexbridge.docker_tools:inspect",
-        "direct command result with stdout and stderr",
+        "bounded command result with stdout and stderr",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         maximum_item_limit=20_000,
         notes=(
-            "The tail field is bounded to 20,000 units by the request schema; "
-            "the serialized response has no explicit byte ceiling."
+            "The tail field remains bounded to 20,000 units and the serialized "
+            "response is capped by a UTF-8 byte budget with truncation metadata."
         ),
     ),
     _entry(

@@ -1478,8 +1478,11 @@ def docker_inspect(
     target: str = "",
     service: str = "",
     tail: int = 200,
+    response_budget_bytes: int = 12 * 1024,
 ) -> dict:
     """Read-only: run one fixed Docker or Compose inspection operation."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     _, repo_config = resolve_repo_config(config, canonical_name)
@@ -1495,6 +1498,28 @@ def docker_inspect(
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    result.setdefault("truncated", False)
+    result["response_budget_bytes"] = response_budget_bytes
+    result["has_more"] = False
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("stdout", "stderr", "error"):
+            value = result.get(key)
+            if isinstance(value, str) and value:
+                encoded = value.encode("utf-8")
+                result[key] = encoded[: max(0, len(encoded) - 1024)].decode(
+                    "utf-8", errors="ignore"
+                )
+                reduced = True
+                break
+        if not reduced and isinstance(result.get("argv"), list) and result["argv"]:
+            result["argv"].pop()
+            reduced = True
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
     return result
 
 
@@ -1938,7 +1963,12 @@ def docker_query(request: DockerQueryRequest) -> dict:
     if request.operation == "health":
         return docker_health()
     return docker_inspect(
-        request.repo_name, request.inspection, request.target, request.service, request.tail
+        request.repo_name,
+        request.inspection,
+        request.target,
+        request.service,
+        request.tail,
+        request.response_budget_bytes,
     )
 
 

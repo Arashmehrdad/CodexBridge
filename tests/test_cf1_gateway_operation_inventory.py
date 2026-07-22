@@ -259,6 +259,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert compact_status.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in compact_status.notes
 
+    docker_inspect = _entry_for("docker_query", "inspect")
+    assert docker_inspect.default_response_bytes == 12 * 1024
+    assert docker_inspect.maximum_response_bytes == 12 * 1024
+    assert "UTF-8 byte budget" in docker_inspect.notes
+
     historical_ticks = _entry_for("trading_query", "historical_ticks")
     assert historical_ticks.pagination is PaginationBehavior.NONE
     assert "no result count" in historical_ticks.notes

@@ -460,6 +460,17 @@ def test_repo_compact_status_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_docker_inspect_model_exposes_response_budget() -> None:
+    request = TypeAdapter(DockerQueryRequest).validate_python(
+        {
+            "operation": "inspect",
+            "repo_name": "repo",
+            "inspection": "compose_ps",
+        }
+    )
+    assert request.response_budget_bytes == 12 * 1024
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 
