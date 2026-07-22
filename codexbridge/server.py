@@ -42,7 +42,7 @@ from .git_tools import commit_all_changes as _commit_all_changes
 from .git_tools import commit_selected_files as commit_files
 from .git_tools import dry_run_stage_manifest as _dry_run_stage_manifest
 from .git_tools import changed_files as _changed_files
-from .git_tools import diff_stat, git_status, inspect_status
+from .git_tools import diff_stat, git_head, git_status, inspect_status
 from .git_tools import finalize_explicit_changes
 from .git_tools import inspect_status_compact
 from .git_tools import inspect_commit_range as _inspect_commit_range
@@ -2324,6 +2324,104 @@ def list_operation_locks(repo_name: str = "", include_stale: bool = True) -> dic
     return {"ok": True, "locks": locks, "count": len(locks), "error": ""}
 
 
+def _bounded_preflight_response(response: dict[str, Any], budget: int = 12 * 1024) -> dict:
+    response["response_budget_bytes"] = budget
+    response["truncated"] = False
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > budget:
+        if response["locks"]:
+            response["locks"].pop()
+        else:
+            active = next((items for items in response["runs"].values() if items), None)
+            if active is not None:
+                active.pop()
+            elif response["tracked_worktree"].get("files"):
+                response["tracked_worktree"]["files"].pop()
+            else:
+                response["truncated"] = True
+                break
+        response["truncated"] = True
+    response["response_bytes"] = len(
+        json.dumps(response, ensure_ascii=False).encode("utf-8")
+    )
+    return response
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_repository_preflight(repo_name: str, include_stale: bool = False) -> dict:
+    """Read-only: return one bounded repository/work preflight projection."""
+    try:
+        canonical_name, repo_root, requested_name = _repo_context(repo_name)
+        status = dict(inspect_repo_status_compact(repo_name))
+        manager = get_job_manager()
+        runs: dict[str, list[dict[str, Any]]] = {}
+        for state in ("running", "queued", "launch_pending"):
+            page = manager.list_run_summaries(
+                repo_name=canonical_name, status=state, limit=20, cursor=None
+            )
+            runs[state] = [
+                {
+                    key: item.get(key, "")
+                    for key in (
+                        "run_id",
+                        "status",
+                        "tool",
+                        "phase",
+                        "created_at",
+                        "updated_at",
+                    )
+                    if key in item
+                }
+                for item in page.get("runs", [])
+            ]
+        tracked = {
+            "clean": not bool(status.get("total_status_entry_count", 0)),
+            "branch": status.get("branch", ""),
+            "head_commit": git_head(repo_root),
+            "changed_file_count": int(status.get("total_status_entry_count", 0) or 0),
+            "collapsed_tool_owned_count": int(
+                status.get("collapsed_tool_owned_count", 0) or 0
+            ),
+            "tool_owned_summary": status.get("tool_owned_summary", {}),
+            "files": status.get("files", []),
+            "fresh": bool(status.get("fresh", False)),
+            "status": status.get("status", "unavailable"),
+        }
+        response: dict[str, Any] = {
+            "ok": bool(status.get("ok", False)),
+            "operation": "preflight",
+            "repo_name": canonical_name,
+            "tracked_worktree": tracked,
+            "runs": runs,
+            "locks": manager.list_operation_locks(
+                canonical_name, include_stale=include_stale
+            ),
+            "live_capability_epoch": _PROCESS_CAPABILITY_METADATA.get(
+                "capability_epoch", ""
+            ),
+            "source": "live",
+            "error": status.get("error", ""),
+        }
+        if requested_name != canonical_name:
+            response["requested_repo_name"] = requested_name
+        return _bounded_preflight_response(response)
+    except Exception as exc:
+        return _bounded_preflight_response(
+            {
+                "ok": False,
+                "operation": "preflight",
+                "repo_name": repo_name,
+                "tracked_worktree": {"files": []},
+                "runs": {"running": [], "queued": [], "launch_pending": []},
+                "locks": [],
+                "live_capability_epoch": _PROCESS_CAPABILITY_METADATA.get(
+                    "capability_epoch", ""
+                ),
+                "source": "unavailable",
+                "error": str(exc),
+            }
+        )
+
+
 @_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_events(
     run_id: str,
@@ -2436,6 +2534,8 @@ def run_query(request: RunQueryRequest) -> dict:
         return get_job_manager().get_powershell_group(request.group_id)
     if request.operation == "list":
         return list_runs(request.repo_name, request.status, request.limit)
+    if request.operation == "preflight":
+        return get_repository_preflight(request.repo_name, request.include_stale)
     return list_operation_locks(request.repo_name, request.include_stale)
 
 

@@ -260,6 +260,10 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
     )
     assert output_query.view == "compact"
     assert output_query.response_budget_bytes == 12 * 1024
+    preflight_query = TypeAdapter(RunQueryRequest).validate_python(
+        {"operation": "preflight", "repo_name": "repo"}
+    )
+    assert preflight_query.include_stale is False
     diff_query = adapters["query"].validate_python(
         {"operation": "diff", "repo_name": "repo"}
     )

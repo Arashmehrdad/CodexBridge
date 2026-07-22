@@ -468,6 +468,12 @@ First independently reviewable slice — bounded `run_query(output)`:
 - focused validation passed with 72 `JobManager` tests, 36 gateway-model tests, and 26 server regressions;
 - the complete repository suite reported 1,378 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports only pre-existing unused imports in `job_manager.py` and `server.py`;
 
+Second independently reviewable slice — single bounded preflight:
+
+- `run_query(operation="preflight", repo_name=...)` now combines fresh compact tracked-worktree state (branch, HEAD, cleanliness, changed-file and collapsed tool-owned counts), running/queued/launch-pending run summaries, repository locks, and the live capability epoch in one read-only projection;
+- the response is capped at 12 KB with explicit truncation and byte-count fields; existing individual status, list, lock, summary, and full-evidence operations remain available for detail retrieval;
+- focused CodexBridge pytest validation passed with 36 gateway-model tests, 27 server tests, and 6 gateway-inventory tests; the complete suite reported 1,379 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing. Native compilation, `python -m pip check`, and `git diff --check` passed; Ruff reports the same pre-existing unused import in `server.py`.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

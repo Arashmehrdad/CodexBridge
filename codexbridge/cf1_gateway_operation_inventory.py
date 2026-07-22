@@ -545,6 +545,20 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes="The lock list has no item limit, cursor, or public byte ceiling.",
     ),
     _entry(
+        "run_query",
+        ("preflight",),
+        "codexbridge.server:run_query -> codexbridge.server:get_repository_preflight",
+        "single bounded repository/work preflight projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Combines compact live worktree identity and cleanliness, active run states, "
+            "repository locks, and capability epoch; individual operations remain the "
+            "explicit detail and evidence paths."
+        ),
+    ),
+    _entry(
         "system_query",
         (
             "capabilities",

@@ -185,9 +185,10 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "summary",
         "summary_list",
         "control",
-        "events",
-        "terminal",
-    }
+            "events",
+            "terminal",
+            "preflight",
+        }
     assert all(
         entry.default_response_bytes is None
         and entry.maximum_response_bytes is None

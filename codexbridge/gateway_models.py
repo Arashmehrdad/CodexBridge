@@ -157,6 +157,12 @@ class RunLocksQuery(GatewayModel):
     include_stale: bool = True
 
 
+class RunPreflightQuery(GatewayModel):
+    operation: Literal["preflight"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    include_stale: bool = False
+
+
 RunQueryRequest = Annotated[
     RunStatusQuery
     | RunControlQuery
@@ -169,7 +175,8 @@ RunQueryRequest = Annotated[
     | RunSummaryQuery
     | RunSummaryListQuery
     | RunListQuery
-    | RunLocksQuery,
+    | RunLocksQuery
+    | RunPreflightQuery,
     Field(discriminator="operation"),
 ]
 

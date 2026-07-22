@@ -1156,6 +1156,66 @@ def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
     assert locks["locks"][0]["repo_name"] == "sample"
 
 
+def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
+    class Manager:
+        def list_run_summaries(self, **kwargs):
+            state = kwargs["status"]
+            return {
+                "runs": [
+                    {
+                        "run_id": f"{state}_1",
+                        "status": state,
+                        "tool": "project_command",
+                        "phase": "running",
+                        "created_at": "2026-07-22T00:00:00Z",
+                        "updated_at": "2026-07-22T00:01:00Z",
+                    }
+                ]
+            }
+
+        def list_operation_locks(self, repo_name=None, *, include_stale=True):
+            return [
+                {
+                    "repo_name": repo_name,
+                    "run_id": "running_1",
+                    "tool": "project_command",
+                    "stale": False,
+                }
+            ]
+
+    monkeypatch.setattr(
+        server,
+        "_repo_context",
+        lambda name: ("repo", Path("."), name),
+    )
+    monkeypatch.setattr(
+        server,
+        "inspect_repo_status_compact",
+        lambda name: {
+            "ok": True,
+            "status": "clean",
+            "fresh": True,
+            "branch": "feature/test",
+            "total_status_entry_count": 2,
+            "collapsed_tool_owned_count": 4,
+            "tool_owned_summary": {"total_bytes": 10},
+            "files": [{"path": "tracked.py"}, {"path": "notes.md"}],
+        },
+    )
+    monkeypatch.setattr(server, "git_head", lambda root: "a" * 40)
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+
+    result = server.get_repository_preflight("repo")
+
+    assert result["operation"] == "preflight"
+    assert result["tracked_worktree"]["branch"] == "feature/test"
+    assert result["tracked_worktree"]["head_commit"] == "a" * 40
+    assert set(result["runs"]) == {"running", "queued", "launch_pending"}
+    assert result["runs"]["launch_pending"][0]["status"] == "launch_pending"
+    assert result["locks"][0]["repo_name"] == "repo"
+    assert result["response_bytes"] <= result["response_budget_bytes"]
+
+
 def test_server_ssh_probe_tools_delegate_to_structured_collectors(monkeypatch) -> None:
     config = object()
     calls: list[tuple[str, object, str]] = []
