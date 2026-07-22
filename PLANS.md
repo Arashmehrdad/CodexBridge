@@ -959,6 +959,12 @@ Eighty-third independently reviewable slice — versioned compact Docker health 
 - Docker connectivity semantics, bounded diagnostic reduction, and explicit full health evidence remain unchanged;
 - focused CodexBridge pytest validation passed with 79 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Eighty-fourth independently reviewable slice — versioned compact Docker capability listings:
+
+- compact Docker capability listings now carry the standard projection version, compact view marker, non-authoritative notice, and existing operation-array/truncation/byte metadata;
+- capability risk gates, repository scoping, requested-name handling, and bounded operation contents remain unchanged;
+- focused CodexBridge pytest validation passed with 80 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

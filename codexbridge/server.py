@@ -1720,6 +1720,14 @@ def list_docker_capabilities(
         result["repo_name"] = canonical_name
         if requested_name != canonical_name:
             result["requested_repo_name"] = requested_name
+    result.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes

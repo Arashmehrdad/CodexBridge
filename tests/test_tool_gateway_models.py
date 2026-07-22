@@ -1039,6 +1039,27 @@ def test_docker_capabilities_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_docker_capabilities_compact_envelope(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "_list_docker_capabilities",
+        lambda config, repo_config=None: {
+            "ok": True,
+            "actions": [f"action-{index}" for index in range(5000)],
+            "exec_profiles": [],
+            "read_only_operations": [],
+        },
+    )
+    result = server.list_docker_capabilities(response_budget_bytes=4096)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
+    assert result["truncated"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_docker_health_model_exposes_response_budget() -> None:
     request = TypeAdapter(DockerQueryRequest).validate_python({"operation": "health"})
     assert request.response_budget_bytes == 12 * 1024
