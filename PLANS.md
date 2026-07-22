@@ -875,6 +875,12 @@ Sixty-ninth independently reviewable slice — connector binding for live input 
 - matching expectations remain read-only and bounded, while stale expectations retain affected mismatch names and refresh guidance;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Seventieth independently reviewable slice — versioned system compact envelopes:
+
+- compact `system_query` projections, including the dedicated `self_check` path, now carry the standard projection version, compact view marker, non-authoritative notice, truncation state, and response-byte accounting;
+- explicit `view="full"` system responses remain complete authoritative evidence and are unchanged;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

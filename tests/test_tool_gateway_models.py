@@ -1846,6 +1846,9 @@ def test_system_self_check_projection_honors_response_budget(monkeypatch) -> Non
         {"operation": "self_check", "response_budget_bytes": 4096}
     )
     result = server.system_query(request)
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096

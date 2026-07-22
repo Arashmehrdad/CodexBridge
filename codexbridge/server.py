@@ -21,6 +21,7 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
+from .public_projection_contract import NON_AUTHORITATIVE_NOTICE, PUBLIC_PROJECTION_SCHEMA_VERSION
 from .cf1_gateway_operation_inventory import (
     CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
     operation_names_by_gateway,
@@ -1504,6 +1505,10 @@ def _bounded_self_check_response(result: dict[str, Any], response_budget_bytes: 
         checks[str(name)] = compact
     response = {
         "ok": bool(result.get("ok", False)),
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "checks": checks,
         "check_count": len(checks),
         "truncated": False,
@@ -1524,7 +1529,12 @@ def _bounded_self_check_response(result: dict[str, Any], response_budget_bytes: 
 def _bounded_system_query_response(result: dict[str, Any], response_budget_bytes: int) -> dict:
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
-    compact: dict[str, Any] = {}
+    compact: dict[str, Any] = {
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
+    }
     truncated = False
     for key, value in result.items():
         if isinstance(value, (bool, int, float)) or value is None:
