@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
+from fastmcp import Client
 from jsonschema import Draft202012Validator
 from pydantic import TypeAdapter, ValidationError
 
@@ -10,6 +12,7 @@ import codexbridge.server as server
 from codexbridge.gateway_models import (
     RepoApplyRequest,
     RepoQueryRequest,
+    RunQueryRequest,
     RunStartRequest,
 )
 from codexbridge.knowledge_tools_integration import register_knowledge_tools
@@ -61,6 +64,62 @@ def test_deterministic_gateway_surface_benchmark() -> None:
         "trading_signal_cancel_before_entry",
     }:
         assert actions[name]["annotations"]["readOnlyHint"] is False
+
+
+def test_mcp_transport_uses_small_text_summary_without_structured_duplication(
+    monkeypatch,
+) -> None:
+    payload = {
+        "ok": True,
+        "operation": "summary_list",
+        "runs": [
+            {
+                "run_id": f"run-{index}",
+                "status": "completed",
+                "summary": "x" * 1000,
+            }
+            for index in range(20)
+        ],
+        "error": "",
+    }
+
+    class FakeJobs:
+        def list_run_summaries(self, **kwargs):
+            assert kwargs["limit"] == 20
+            return dict(payload)
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
+
+    async def call_tool():
+        async with Client(server.mcp) as client:
+            return await client.call_tool(
+                "run_query",
+                {"request": {"operation": "summary_list", "limit": 20}},
+            )
+
+    result = asyncio.run(call_tool())
+    assert result.structured_content is not None
+    assert result.structured_content["runs"] == payload["runs"]
+    text = "".join(
+        block.text for block in result.content if getattr(block, "type", "") == "text"
+    )
+    structured_json = json.dumps(
+        result.structured_content,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    assert 0 < len(text.encode("utf-8")) <= 512
+    assert "structured result" in text
+    assert structured_json not in text
+    assert len(text.encode("utf-8")) < len(structured_json.encode("utf-8")) // 10
+
+    direct = server.run_query(
+        TypeAdapter(RunQueryRequest).validate_python(
+            {"operation": "summary_list", "limit": 20}
+        )
+    )
+    assert isinstance(direct, dict)
+    assert direct["runs"] == payload["runs"]
 
 
 def test_benchmark_schema_rejects_cross_operation_fields() -> None:

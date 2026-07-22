@@ -19,6 +19,7 @@ from typing import Any, Callable, Literal
 from typing import Sequence
 
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolResult
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
 from .public_projection_contract import (
@@ -130,7 +131,44 @@ from .gateway_models import (
 
 mcp = FastMCP("CodexBridge")
 _PROCESS_CAPABILITY_METADATA = capability_metadata(PATCH_OPERATION_SCHEMA)
+_MCP_TEXT_SUMMARY_MAX_BYTES = 512
 _original_mcp_tool = mcp.tool
+
+
+def _with_process_capability_metadata(result: Any) -> Any:
+    if not isinstance(result, dict):
+        return result
+    enriched = dict(result)
+    for key, value in _PROCESS_CAPABILITY_METADATA.items():
+        enriched.setdefault(key, value)
+    return enriched
+
+
+def _mcp_text_summary(result: dict[str, Any]) -> str:
+    parts = ["CodexBridge structured result"]
+    for key in ("operation", "status", "run_id", "group_id", "repo_name"):
+        value = str(result.get(key, "")).strip()
+        if value:
+            parts.append(f"{key}={value}")
+    if "ok" in result:
+        parts.append(f"ok={bool(result['ok'])}")
+    error = str(result.get("error", "")).strip()
+    if error:
+        parts.append(f"error={error}")
+    summary = " | ".join(parts)
+    encoded = summary.encode("utf-8")
+    if len(encoded) <= _MCP_TEXT_SUMMARY_MAX_BYTES:
+        return summary
+    return encoded[:_MCP_TEXT_SUMMARY_MAX_BYTES].decode("utf-8", errors="ignore")
+
+
+def _mcp_transport_result(result: Any) -> Any:
+    if not isinstance(result, dict):
+        return result
+    return ToolResult(
+        content=_mcp_text_summary(result),
+        structured_content=result,
+    )
 
 
 def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
@@ -140,26 +178,30 @@ def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
         if inspect.iscoroutinefunction(function):
 
             @wraps(function)
-            async def async_wrapped(*args, **kwargs):
-                result = await function(*args, **kwargs)
-                if isinstance(result, dict):
-                    result = dict(result)
-                    for key, value in _PROCESS_CAPABILITY_METADATA.items():
-                        result.setdefault(key, value)
-                return result
+            async def direct_async_wrapped(*args, **kwargs):
+                return _with_process_capability_metadata(
+                    await function(*args, **kwargs)
+                )
 
-            return register(async_wrapped)
+            @wraps(function)
+            async def mcp_async_wrapped(*args, **kwargs):
+                return _mcp_transport_result(
+                    await direct_async_wrapped(*args, **kwargs)
+                )
+
+            register(mcp_async_wrapped)
+            return direct_async_wrapped
 
         @wraps(function)
-        def sync_wrapped(*args, **kwargs):
-            result = function(*args, **kwargs)
-            if isinstance(result, dict):
-                result = dict(result)
-                for key, value in _PROCESS_CAPABILITY_METADATA.items():
-                    result.setdefault(key, value)
-            return result
+        def direct_sync_wrapped(*args, **kwargs):
+            return _with_process_capability_metadata(function(*args, **kwargs))
 
-        return register(sync_wrapped)
+        @wraps(function)
+        def mcp_sync_wrapped(*args, **kwargs):
+            return _mcp_transport_result(direct_sync_wrapped(*args, **kwargs))
+
+        register(mcp_sync_wrapped)
+        return direct_sync_wrapped
 
     return decorate
 
