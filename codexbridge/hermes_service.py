@@ -458,6 +458,72 @@ class _GenerationPool:
             workers = self._collect_closeable_locked()
         self._close_workers(workers)
 
+    def replace_worker(
+        self,
+        worker_id: str,
+        replacement: HermesServiceWorker,
+    ) -> HermesServiceWorker:
+        """Deterministically swap one dead, unleased worker for a verified one.
+
+        Replacement is only legal when the outgoing worker is not ready and
+        holds no active lease, and when the incoming worker is ready, matches
+        the pool's registry identity, and introduces no duplicate identity.
+        Returns the replaced worker; the caller owns closing it.
+        """
+        normalized_id = _opaque_id(worker_id, "worker_id")
+        replacement_id = _opaque_id(
+            replacement.worker_id, "worker_id"
+        )
+        replacement_identity = _opaque_id(
+            replacement.process_identity, "worker_process_identity"
+        )
+        with self._condition:
+            if self._closed:
+                raise HermesServiceNotReadyError(
+                    "Hermes service generation is closed"
+                )
+            target: _WorkerSlot | None = None
+            for slot in self._slots:
+                if slot.worker.worker_id == normalized_id:
+                    target = slot
+                    break
+            if target is None:
+                raise HermesServiceError(
+                    f"unknown Hermes worker_id: {normalized_id}"
+                )
+            if target.request_id is not None:
+                raise HermesServiceError(
+                    "cannot replace a Hermes worker with an active lease"
+                )
+            if target.worker.ready:
+                raise HermesServiceError(
+                    "cannot replace a ready Hermes worker"
+                )
+            for slot in self._slots:
+                if slot is target:
+                    continue
+                if slot.worker.worker_id == replacement_id:
+                    raise HermesServiceReloadError(
+                        f"duplicate Hermes worker_id: {replacement_id}"
+                    )
+                if slot.worker.process_identity == replacement_identity:
+                    raise HermesServiceReloadError(
+                        "duplicate Hermes worker process identity"
+                    )
+            if not replacement.ready:
+                raise HermesServiceReloadError(
+                    f"Hermes replacement worker is not ready: {replacement_id}"
+                )
+            if replacement.registry_identity != self.identity:
+                raise HermesServiceReloadError(
+                    f"Hermes replacement registry identity drift: "
+                    f"{replacement_id}"
+                )
+            replaced = target.worker
+            target.worker = replacement
+            self._condition.notify_all()
+            return replaced
+
     def mark_draining(self) -> None:
         workers: list[HermesServiceWorker]
         with self._condition:
@@ -477,6 +543,18 @@ class _GenerationPool:
                 workers = [slot.worker for slot in self._slots]
                 self._condition.notify_all()
         self._close_workers(workers)
+
+    def worker_states(self) -> list[dict[str, Any]]:
+        with self._condition:
+            return [
+                {
+                    "worker_id": slot.worker.worker_id,
+                    "ready": slot.worker.ready,
+                    "leased": slot.request_id is not None,
+                    "process_identity": slot.worker.process_identity,
+                }
+                for slot in self._slots
+            ]
 
     def snapshot(self) -> dict[str, Any]:
         with self._condition:
@@ -669,6 +747,35 @@ class HermesServiceRuntime:
             return True
         return bool(worker.cancel(normalized_request_id))
 
+    def replace_worker(
+        self,
+        *,
+        worker_id: str,
+        replacement: HermesServiceWorker,
+    ) -> HermesServiceWorker:
+        """Swap one dead worker in the current generation for a verified one.
+
+        This is a supervision action: it never touches leased workers, never
+        changes the published registry identity, and never blocks concurrent
+        read-only requests beyond the pool's own brief slot lock. The replaced
+        worker is returned already closed.
+        """
+        with self._administration_lock:
+            with self._state_lock:
+                if self._state != "ready":
+                    raise HermesServiceNotReadyError(
+                        f"Hermes service is not ready: {self._state}"
+                    )
+                pool = self._current_pool
+            replaced = pool.replace_worker(worker_id, replacement)
+            try:
+                replaced.close()
+            except Exception:
+                # A dead worker failing to close must not undo the completed
+                # replacement.
+                pass
+            return replaced
+
     def reload_registry(
         self,
         *,
@@ -706,6 +813,17 @@ class HermesServiceRuntime:
                 if candidate is not None and not published:
                     candidate.close_candidate()
                 raise
+
+    def current_worker_states(self) -> list[dict[str, Any]]:
+        with self._state_lock:
+            if self._state != "ready":
+                return []
+            pool = self._current_pool
+        return pool.worker_states()
+
+    def current_registry_identity(self) -> HermesRegistryIdentity:
+        with self._state_lock:
+            return self._current_pool.identity
 
     def health(self) -> dict[str, Any]:
         with self._state_lock:

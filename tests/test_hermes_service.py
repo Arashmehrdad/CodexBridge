@@ -12,6 +12,7 @@ from codexbridge.hermes_companion_protocol import (
 )
 from codexbridge.hermes_service import (
     HermesRegistryIdentity,
+    HermesServiceError,
     HermesServiceIdentity,
     HermesServiceOwnershipError,
     HermesServiceReloadError,
@@ -542,3 +543,96 @@ def test_invalid_reload_keeps_last_known_good_generation() -> None:
         )
     )
     assert result.worker_id == "Worker-Old"
+
+
+def test_replace_worker_swaps_only_dead_unleased_workers() -> None:
+    identity = registry()
+    dead = FakeWorker("Worker-Dead", identity)
+    healthy = FakeWorker("Worker-Healthy", identity)
+    runtime = HermesServiceRuntime(
+        service_identity=service_identity(),
+        registry_identity=identity,
+        workers=[dead, healthy],
+    )
+    dead._ready = False
+    replacement = FakeWorker("Worker-Replacement", identity)
+
+    replaced = runtime.replace_worker(
+        worker_id="Worker-Dead", replacement=replacement
+    )
+
+    assert replaced is dead
+    assert dead.closed is True
+    result = runtime.execute(request(request_id="Request-A"))
+    assert result.worker_id in {"Worker-Healthy", "Worker-Replacement"}
+    health = runtime.health()
+    assert health["ready_worker_count"] == 2
+
+
+def test_replace_worker_rejects_ready_or_unknown_targets() -> None:
+    identity = registry()
+    healthy = FakeWorker("Worker-Healthy", identity)
+    runtime = HermesServiceRuntime(
+        service_identity=service_identity(),
+        registry_identity=identity,
+        workers=[healthy],
+    )
+    replacement = FakeWorker("Worker-Replacement", identity)
+
+    with pytest.raises(HermesServiceError, match="ready Hermes worker"):
+        runtime.replace_worker(
+            worker_id="Worker-Healthy", replacement=replacement
+        )
+    with pytest.raises(HermesServiceError, match="unknown Hermes worker_id"):
+        runtime.replace_worker(
+            worker_id="Worker-Missing", replacement=replacement
+        )
+
+
+def test_replace_worker_rejects_registry_identity_drift() -> None:
+    identity = registry()
+    dead = FakeWorker("Worker-Dead", identity)
+    runtime = HermesServiceRuntime(
+        service_identity=service_identity(),
+        registry_identity=identity,
+        workers=[dead],
+    )
+    dead._ready = False
+    drifted = FakeWorker(
+        "Worker-Drifted", registry(generation=8, hash_character="d")
+    )
+
+    with pytest.raises(
+        HermesServiceReloadError, match="registry identity drift"
+    ):
+        runtime.replace_worker(
+            worker_id="Worker-Dead", replacement=drifted
+        )
+    assert dead.closed is False
+
+
+def test_replace_worker_rejects_leased_target() -> None:
+    identity = registry()
+    blocked = FakeWorker("Worker-Blocked", identity, block=True)
+    runtime = HermesServiceRuntime(
+        service_identity=service_identity(),
+        registry_identity=identity,
+        workers=[blocked],
+    )
+    replacement = FakeWorker("Worker-Replacement", identity)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            runtime.execute, request(request_id="Request-Blocked")
+        )
+        blocked.started.wait(3)
+        try:
+            with pytest.raises(
+                HermesServiceError, match="active lease"
+            ):
+                runtime.replace_worker(
+                    worker_id="Worker-Blocked",
+                    replacement=replacement,
+                )
+        finally:
+            blocked.release.set()
+            future.result(timeout=5)
