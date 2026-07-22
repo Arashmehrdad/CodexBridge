@@ -1110,6 +1110,7 @@ class JobManager:
             profile_id,
             argv,
             working_directory=working_directory,
+            default_working_directory=str(resolve_repo(self.config, repo_name)),
             environment=environment,
             stdin_text=stdin_text,
             stdin_bytes=stdin_bytes,

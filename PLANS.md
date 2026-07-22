@@ -486,6 +486,12 @@ Fourth independently reviewable slice — compact managed-apply terminal project
 - raw stdout/stderr and full validation payloads remain evidence-only, while the existing public-result UTF-8 budget, redaction, source hash, and explicit evidence handle continue to apply;
 - focused CodexBridge pytest validation passed with 20 public-result materialization tests. Native compilation, Ruff, and `git diff --check` passed; `python -m pip check` remains green from the preceding slice.
 
+Fifth independently reviewable slice — repository-bound local executable defaults:
+
+- local executable-profile runs that omit `working_directory` now bind their process current directory to the registered repository root when the profile uses `service_default`; arbitrary and fixed directory policies retain their existing validation rules;
+- the durable input records the resolved absolute directory before launch, preventing an omitted directory from silently inheriting the service process directory while preserving explicit full evidence and existing profile security checks;
+- focused CodexBridge pytest validation passed with 7 executable-profile tests. Native compilation and `git diff --check` passed; Ruff reports the same pre-existing unused import in `job_manager.py`.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

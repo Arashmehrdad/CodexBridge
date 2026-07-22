@@ -83,12 +83,22 @@ def _is_absolute_path(value: str) -> bool:
 def _resolve_working_directory(
     profile: ExecutableProfileConfig,
     requested_working_directory: str,
+    *,
+    default_working_directory: str = "",
 ) -> str:
     requested = str(requested_working_directory or "")
     if profile.working_directory_policy == "service_default":
         if requested:
             raise ValueError("Executable profile does not accept a working directory")
-        return ""
+        selected = str(default_working_directory or "")
+        if not selected:
+            return ""
+        if not _is_absolute_path(selected):
+            raise ValueError("Executable default working directory must be absolute")
+        path = Path(selected)
+        if not path.exists() or not path.is_dir() or path.is_symlink():
+            raise ValueError("Executable default working directory must be an existing directory")
+        return str(path.resolve())
     if profile.working_directory_policy == "fixed":
         if requested and Path(requested) != Path(profile.fixed_working_directory):
             raise ValueError("Executable profile requires its fixed working directory")
@@ -140,6 +150,7 @@ def build_local_executable_run_request(
     stdin_text: str | None = None,
     stdin_bytes: bytes | None = None,
     timeout_seconds: int | None = None,
+    default_working_directory: str = "",
 ) -> dict[str, object]:
     profile, executable_identity = resolve_verified_local_executable(config, profile_id)
     if not profile.unrestricted_argv:
@@ -170,7 +181,11 @@ def build_local_executable_run_request(
         "profile_id": profile.profile_id,
         "executable_identity": executable_identity,
         "argv": exact_argv,
-        "working_directory": _resolve_working_directory(profile, working_directory),
+        "working_directory": _resolve_working_directory(
+            profile,
+            working_directory,
+            default_working_directory=default_working_directory,
+        ),
         "environment": _resolve_environment(profile, environment),
         "inherit_environment": profile.environment_policy in {"inherit", "arbitrary"},
         "stdin_mode": profile.stdin_mode,
