@@ -15,8 +15,11 @@ import re
 import shutil
 import subprocess
 import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
 from pathlib import Path
 
+from .public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 from .safety import validate_repo_relative_path, redact_secret_values
 
 
@@ -27,6 +30,11 @@ MAX_FILE_BYTES = 500_000  # cap on file content returned
 MAX_DIFF_BYTES = 300_000  # cap on git diff output
 MAX_SEARCH_SNIPPET_BYTES = 4_000  # cap per search hit snippet (unused directly)
 MAX_BINARY_PROBE = 8_192  # bytes to probe for binary detection
+DEFAULT_FILE_WINDOW_LINES = 300
+DEFAULT_READ_RESPONSE_BYTES = DEFAULT_PUBLIC_BYTE_BUDGETS.repository_read_batch
+MAX_READ_RESPONSE_BYTES = 128 * 1024
+_READ_RESPONSE_METADATA_RESERVE = 4 * 1024
+_FILE_CURSOR_VERSION = 1
 
 # ---------------------------------------------------------------------------
 # Blocked path components (applies to every segment of a path)
@@ -346,13 +354,17 @@ def read_repo_file(
     path: str,
     start_line: int = 1,
     end_line: int = 0,
+    *,
+    start_byte: int | None = None,
+    continuation: str = "",
+    content_budget_bytes: int = 40 * 1024,
 ) -> dict:
     """
     Read a text file at *path* (repo-relative POSIX), optionally bounded by
     *start_line*/*end_line* (1-indexed, inclusive; 0 = no limit).
 
-    Rejects binary files and files larger than MAX_FILE_BYTES.
-    Redacts obvious secret values before returning.
+    Large text files are streamed. Returned content is bounded and redacted.
+    Continuations are bound to the repository-relative path and content SHA-256.
     """
     absolute = _resolve_and_validate(repo_root, path)
 
@@ -363,29 +375,83 @@ def read_repo_file(
     if absolute.is_symlink():
         raise ValueError(f"Symlinks are not allowed: {path}")
 
-    size = absolute.stat().st_size
-    if size > MAX_FILE_BYTES:
-        raise ValueError(
-            f"File exceeds {MAX_FILE_BYTES} byte limit ({size} bytes): {path}"
-        )
     if _is_binary(absolute):
         raise ValueError(f"Binary files are not supported: {path}")
 
-    raw = absolute.read_text(encoding="utf-8", errors="replace")
-    lines = raw.splitlines(keepends=True)
-    total_lines = len(lines)
-
-    # Normalise line numbers (1-indexed, inclusive)
-    start = max(1, int(start_line))
-    end = int(end_line) if end_line and end_line > 0 else total_lines
-
-    if start > end or start > total_lines:
-        selected = ""
+    initial_stat = absolute.stat()
+    size = initial_stat.st_size
+    content_sha256, total_lines = _stream_file_identity(absolute)
+    cursor_state = _decode_file_cursor(continuation) if continuation else None
+    if cursor_state:
+        if cursor_state["path"] != path:
+            raise ValueError("File continuation path mismatch")
+        if cursor_state["content_sha256"] != content_sha256:
+            return _stale_file_response(path, content_sha256, size, total_lines)
+        mode = cursor_state["mode"]
+        start = int(cursor_state["next_start_line"])
+        byte_offset = int(cursor_state["next_byte_offset"])
     else:
-        selected = "".join(lines[start - 1 : end])
+        mode = "byte" if start_byte is not None else "line"
+        start = max(1, int(start_line))
+        byte_offset = max(0, int(start_byte or 0))
 
-    content = _redact_text(selected)
-    truncated = start > 1 or end < total_lines
+    budget = max(1, int(content_budget_bytes))
+    requested_end = int(end_line) if end_line and end_line > 0 else 0
+    if mode == "byte":
+        raw, next_byte_offset = _read_byte_window(absolute, byte_offset, budget)
+        start = _line_number_at_offset(absolute, byte_offset)
+        end = _line_number_at_offset(absolute, next_byte_offset)
+        next_start_line = end
+        window_complete = next_byte_offset >= size
+    else:
+        raw, byte_offset, next_byte_offset, end, next_start_line, window_complete = (
+            _read_line_window(
+                absolute,
+                start,
+                requested_end,
+                budget,
+                initial_offset=(
+                    byte_offset if cursor_state and mode == "line" else None
+                ),
+            )
+        )
+
+    content, consumed_bytes = _decode_redacted_prefix(raw, budget)
+    if consumed_bytes < len(raw):
+        next_byte_offset = byte_offset + consumed_bytes
+        next_start_line = _line_number_at_offset(absolute, next_byte_offset)
+        window_complete = False
+        continuation_mode = "byte"
+    else:
+        continuation_mode = mode
+    unchanged = absolute.stat()
+    if (unchanged.st_size, unchanged.st_mtime_ns) != (
+        initial_stat.st_size,
+        initial_stat.st_mtime_ns,
+    ):
+        return _stale_file_response(path, _sha256_file(absolute), unchanged.st_size, 0)
+
+    has_more = not window_complete
+    next_cursor = (
+        _encode_file_cursor(
+            path=path,
+            content_sha256=content_sha256,
+            mode=continuation_mode,
+            next_start_line=next_start_line,
+            next_byte_offset=next_byte_offset,
+        )
+        if has_more
+        else ""
+    )
+    truncated = byte_offset > 0 or start > 1 or has_more
+    truncation_reason = ""
+    if has_more:
+        if requested_end and end >= requested_end:
+            truncation_reason = "requested_range"
+        elif mode == "line" and end - start + 1 >= DEFAULT_FILE_WINDOW_LINES:
+            truncation_reason = "line_window"
+        else:
+            truncation_reason = "response_budget"
 
     return {
         "ok": True,
@@ -396,10 +462,169 @@ def read_repo_file(
         "end_line": min(end, total_lines),
         "total_lines": total_lines,
         "size_bytes": size,
-        "sha256": _sha256_file(absolute),
+        "sha256": content_sha256,
+        "content_sha256": content_sha256,
+        "start_byte": byte_offset,
+        "end_byte": next_byte_offset,
+        "next_start_line": next_start_line if has_more else None,
+        "next_byte_offset": next_byte_offset if has_more else None,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "truncation_reason": truncation_reason,
         "git_head": _git_head(repo_root),
         "truncated": truncated,
         "error": "",
+    }
+
+
+def _stream_file_identity(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    newline_count = 0
+    last_byte = b""
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(64 * 1024), b""):
+            digest.update(chunk)
+            size += len(chunk)
+            newline_count += chunk.count(b"\n")
+            last_byte = chunk[-1:]
+    total_lines = newline_count + (1 if size and last_byte != b"\n" else 0)
+    return digest.hexdigest(), total_lines
+
+
+def _read_line_window(
+    path: Path,
+    start_line: int,
+    end_line: int,
+    budget: int,
+    *,
+    initial_offset: int | None = None,
+) -> tuple[bytes, int, int, int, int, bool]:
+    selected: list[bytes] = []
+    selected_bytes = 0
+    start_offset = 0
+    next_offset = 0
+    end = max(0, start_line - 1)
+    next_start_line = start_line
+    window_complete = True
+    maximum_lines = end_line - start_line + 1 if end_line else DEFAULT_FILE_WINDOW_LINES
+    with path.open("rb") as handle:
+        if initial_offset is not None:
+            handle.seek(initial_offset)
+            line_number = start_line - 1
+        else:
+            line_number = 0
+        while True:
+            line_offset = handle.tell()
+            remaining_budget = max(1, budget - selected_bytes)
+            raw_line = handle.readline(remaining_budget + 1)
+            if not raw_line:
+                break
+            line_number += 1
+            if line_number < start_line:
+                continue
+            if not selected:
+                start_offset = line_offset
+            if line_number > end_line > 0 or len(selected) >= maximum_lines:
+                next_offset = line_offset
+                next_start_line = line_number
+                window_complete = False
+                break
+            if selected and selected_bytes + len(raw_line) > budget:
+                next_offset = line_offset
+                next_start_line = line_number
+                window_complete = False
+                break
+            selected.append(raw_line)
+            selected_bytes += len(raw_line)
+            next_offset = handle.tell()
+            end = line_number
+            next_start_line = line_number + 1
+            if selected_bytes >= budget:
+                window_complete = next_offset >= path.stat().st_size
+                break
+    return b"".join(selected), start_offset, next_offset, end, next_start_line, window_complete
+
+
+def _read_byte_window(path: Path, start_byte: int, budget: int) -> tuple[bytes, int]:
+    size = path.stat().st_size
+    offset = min(start_byte, size)
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        raw = handle.read(budget)
+    return raw, offset + len(raw)
+
+
+def _line_number_at_offset(path: Path, offset: int) -> int:
+    remaining = max(0, int(offset))
+    newline_count = 0
+    with path.open("rb") as handle:
+        while remaining:
+            chunk = handle.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            newline_count += chunk.count(b"\n")
+            remaining -= len(chunk)
+    return newline_count + 1
+
+
+def _decode_redacted_prefix(raw: bytes, budget: int) -> tuple[str, int]:
+    low, high = 0, len(raw)
+    best_text = ""
+    best_size = 0
+    while low <= high:
+        midpoint = (low + high) // 2
+        decoded = raw[:midpoint].decode("utf-8", errors="replace")
+        text = _redact_text(decoded.replace("\r\n", "\n").replace("\r", "\n"))
+        if len(text.encode("utf-8")) <= budget:
+            best_text = text
+            best_size = midpoint
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best_text, best_size
+
+
+def _encode_file_cursor(**payload: object) -> str:
+    encoded = json.dumps(
+        {"version": _FILE_CURSOR_VERSION, **payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    body = urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+    return f"{body}.{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _decode_file_cursor(cursor: str) -> dict:
+    try:
+        body, checksum = cursor.split(".", 1)
+        encoded = urlsafe_b64decode(body + ("=" * (-len(body) % 4)))
+        if hashlib.sha256(encoded).hexdigest() != checksum:
+            raise ValueError("File continuation checksum mismatch")
+        payload = json.loads(encoded.decode("utf-8"))
+    except (BinasciiError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid file continuation") from exc
+    if payload.get("version") != _FILE_CURSOR_VERSION:
+        raise ValueError("Unsupported file continuation version")
+    return payload
+
+
+def _stale_file_response(path: str, sha256: str, size: int, total_lines: int) -> dict:
+    return {
+        "ok": False,
+        "status": "stale_content",
+        "fresh": False,
+        "repo_name": "",
+        "path": path,
+        "content": "",
+        "content_sha256": sha256,
+        "sha256": sha256,
+        "size_bytes": size,
+        "total_lines": total_lines,
+        "next_cursor": "",
+        "has_more": False,
+        "truncated": False,
+        "error": "File content changed; restart reading from the first window",
     }
 
 
@@ -739,19 +964,19 @@ def get_recently_modified_files(repo_root: Path, limit: int = 50) -> dict:
 # ---------------------------------------------------------------------------
 
 MAX_BATCH_REQUESTS = 20
-MAX_BATCH_COMBINED_BYTES = 2_000_000  # 2 MB combined content
 
 
 def read_repo_files(
     repo_root: Path,
     requests: list[dict],
+    response_budget_bytes: int = DEFAULT_READ_RESPONSE_BYTES,
 ) -> dict:
     """
     Read multiple files in a single call.
 
     Each request: {"path": str, "start_line": int, "end_line": int}
     At most MAX_BATCH_REQUESTS requests.
-    Combined content capped at MAX_BATCH_COMBINED_BYTES.
+    The complete public response is capped by response_budget_bytes.
     Reuses read_repo_file security, size, and redaction logic.
     """
     if not isinstance(requests, list):
@@ -761,25 +986,31 @@ def read_repo_files(
             f"Too many requests: {len(requests)} (max {MAX_BATCH_REQUESTS})"
         )
 
+    budget = max(
+        DEFAULT_READ_RESPONSE_BYTES,
+        min(int(response_budget_bytes), MAX_READ_RESPONSE_BYTES),
+    )
     results: list[dict] = []
-    combined_bytes = 0
     truncated_batch = False
 
     for req in requests:
         path = req.get("path", "")
         start_line = int(req.get("start_line", 1) or 1)
         end_line = int(req.get("end_line", 0) or 0)
+        current_size = len(json.dumps({"results": results}).encode("utf-8"))
+        content_budget = max(1, budget - current_size - _READ_RESPONSE_METADATA_RESERVE)
         try:
             item = read_repo_file(
-                repo_root, path, start_line=start_line, end_line=end_line
+                repo_root,
+                path,
+                start_line=start_line,
+                end_line=end_line,
+                start_byte=req.get("start_byte"),
+                continuation=str(req.get("continuation") or ""),
+                content_budget_bytes=content_budget,
             )
-            combined_bytes += len(item.get("content", "").encode("utf-8"))
-            if combined_bytes > MAX_BATCH_COMBINED_BYTES:
-                truncated_batch = True
-                item["content"] = ""
-                item["truncated"] = True
-                item["error"] = "Combined output limit reached; content omitted"
             results.append(item)
+            truncated_batch = truncated_batch or bool(item.get("has_more"))
         except Exception as exc:
             results.append(
                 {
@@ -794,18 +1025,22 @@ def read_repo_files(
                     "sha256": "",
                     "git_head": "",
                     "truncated": False,
+                    "status": "read_failed",
                     "error": str(exc),
                 }
             )
 
-    return {
+    response = {
         "ok": True,
         "repo_name": "",
         "results": results,
         "count": len(results),
         "truncated_batch": truncated_batch,
+        "response_budget_bytes": budget,
         "error": "",
     }
+    response["payload_bytes"] = len(json.dumps(response).encode("utf-8"))
+    return response
 
 
 # ---------------------------------------------------------------------------

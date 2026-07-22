@@ -2976,10 +2976,14 @@ def git_log(repo_name: str, limit: int = 20, path: str = "") -> dict:
 
 
 @_internal_tool(output_schema=READ_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def read_repo_files(repo_name: str, requests: list[dict]) -> dict:
-    """Read-only: read up to 20 files in one call. Each request has path, start_line, end_line."""
+def read_repo_files(
+    repo_name: str, requests: list[dict], response_budget_bytes: int = 48 * 1024
+) -> dict:
+    """Read-only: return bounded streaming file windows with hash-bound continuation."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = _repo_reader.read_repo_files(repo_root, requests)
+    result = _repo_reader.read_repo_files(
+        repo_root, requests, response_budget_bytes=response_budget_bytes
+    )
     result["repo_name"] = canonical_name
     for item in result.get("results", []):
         item["repo_name"] = canonical_name
@@ -3067,7 +3071,9 @@ def repo_query(request: RepoQueryRequest) -> dict:
     if request.operation == "list_files":
         return list_repo_files(request.repo_name, request.directory, request.max_results)
     if request.operation == "read_files":
-        return read_repo_files(request.repo_name, request.requests)
+        return read_repo_files(
+            request.repo_name, request.requests, request.response_budget_bytes
+        )
     if request.operation == "search_text":
         return search_repo_text(
             request.repo_name,

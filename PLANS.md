@@ -399,6 +399,18 @@ result_full
 
 ### CF1.5 - Repository progressive disclosure and content-bound continuation
 
+Status: **first file-read slice complete; repository search and diff slices have not started**.
+
+First-slice implementation and validation evidence:
+
+- `repo_query(read_files)` now streams text windows instead of rejecting files above 500 KB or loading complete files into memory, with a 300-line default window, 48-KB default and minimum response budget, and 128-KB hard ceiling;
+- responses expose line and byte bounds, next line and byte offsets, content SHA-256, bounded opaque continuation, explicit truncation reason, serialized payload size, and structured `stale_content` rejection when a continuation's source hash no longer matches;
+- continuations checksum-bind repository-relative path, source hash, mode, next line, and next byte; traversal, blocked paths, binary files, symlinks, secret redaction, explicit line ranges, and legacy small-file newline behavior remain covered;
+- focused file-read validation passed with 70 tests, including a one-megabyte single-line fixture, byte continuation, exact multi-window reconstruction, cursor tampering, stale-file rejection, redaction compatibility, and a 48-KB serialized response-budget fixture; adjacent server and gateway-schema validation passed with 91 tests, followed by a 36-test gateway-model rerun after the final schema-bound assertions;
+- the complete repository suite reported 1,371 passed and 5 skipped, with only the already-documented full-suite-only `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` PID assertion failing; H2 remains paused and untouched;
+- scoped Ruff lint, Python compilation, `git diff --check`, and `python -m pip check` passed. Whole-file Ruff formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting;
+- no new choke point was added. Windows `CRLF` read normalization was caught during focused validation and restored for compatibility; mixed-newline diagnostics and write-normalization protection remain assigned to existing choke points 8 and 9.
+
 Chat-facing defaults:
 
 ```yaml

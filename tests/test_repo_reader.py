@@ -271,18 +271,22 @@ def test_search_repo_text_budget_exhaustion_is_structured(
 
 
 # ---------------------------------------------------------------------------
-# Oversized file rejection
+# Oversized file streaming
 # ---------------------------------------------------------------------------
 
 
-def test_read_repo_file_rejects_oversized(tmp_path: Path, monkeypatch) -> None:
+def test_read_repo_file_streams_oversized_text(tmp_path: Path, monkeypatch) -> None:
     repo = make_repo(tmp_path)
     big = repo / "big.txt"
-    big.write_text("x" * 10, encoding="utf-8")
-    # Temporarily lower the limit
+    big.write_text("one\ntwo\nthree\n", encoding="utf-8")
     monkeypatch.setattr(repo_reader, "MAX_FILE_BYTES", 5)
-    with pytest.raises(ValueError, match="limit"):
-        read_repo_file(repo, "big.txt")
+
+    result = read_repo_file(repo, "big.txt", content_budget_bytes=10)
+
+    assert result["ok"] is True
+    assert result["content"] == "one\ntwo\n"
+    assert result["has_more"] is True
+    assert result["next_cursor"]
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +319,115 @@ def test_read_repo_file_start_line_equals_total(tmp_path: Path) -> None:
     write(repo / "small.txt", "only\n")
     result = read_repo_file(repo, "small.txt", start_line=1, end_line=1)
     assert "only" in result["content"]
+
+
+def test_read_repo_file_continuation_reconstructs_large_file(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    expected = "".join(f"line-{index:04d}\n" for index in range(700))
+    write(repo / "large.txt", expected)
+
+    parts: list[str] = []
+    cursor = ""
+    hashes: set[str] = set()
+    for _ in range(10):
+        result = read_repo_file(
+            repo,
+            "large.txt",
+            continuation=cursor,
+            content_budget_bytes=4_096,
+        )
+        parts.append(result["content"])
+        hashes.add(result["content_sha256"])
+        cursor = result["next_cursor"]
+        if not cursor:
+            break
+
+    assert "".join(parts) == expected
+    assert len(hashes) == 1
+    assert cursor == ""
+
+
+def test_read_repo_file_supports_byte_continuation(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "bytes.txt", "abcdefghij")
+
+    first = read_repo_file(
+        repo, "bytes.txt", start_byte=2, content_budget_bytes=4
+    )
+    second = read_repo_file(
+        repo,
+        "bytes.txt",
+        continuation=first["next_cursor"],
+        content_budget_bytes=4,
+    )
+
+    assert first["content"] == "cdef"
+    assert first["start_byte"] == 2
+    assert first["next_byte_offset"] == 6
+    assert second["content"] == "ghij"
+    assert second["has_more"] is False
+
+
+def test_read_repo_file_rejects_stale_continuation(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    path = write(repo / "changing.txt", "first\nsecond\nthird\n")
+    first = read_repo_file(
+        repo, "changing.txt", content_budget_bytes=6
+    )
+    path.write_text("changed\ncontent\n", encoding="utf-8")
+
+    stale = read_repo_file(
+        repo,
+        "changing.txt",
+        continuation=first["next_cursor"],
+        content_budget_bytes=6,
+    )
+
+    assert stale["ok"] is False
+    assert stale["status"] == "stale_content"
+    assert stale["fresh"] is False
+    assert stale["content"] == ""
+    assert "restart" in stale["error"].lower()
+
+
+def test_read_repo_file_rejects_tampered_continuation(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "cursor.txt", "first\nsecond\n")
+    first = read_repo_file(repo, "cursor.txt", content_budget_bytes=6)
+    cursor = first["next_cursor"]
+    tampered = cursor[:-1] + ("0" if cursor[-1] != "0" else "1")
+
+    with pytest.raises(ValueError, match="Invalid file continuation"):
+        read_repo_file(repo, "cursor.txt", continuation=tampered)
+
+
+def test_read_repo_file_bounds_one_very_long_line(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "long-line.txt", "x" * 1_000_000)
+
+    result = read_repo_file(
+        repo, "long-line.txt", content_budget_bytes=4_096
+    )
+
+    assert len(result["content"].encode("utf-8")) <= 4_096
+    assert result["end_byte"] <= 4_096
+    assert result["has_more"] is True
+    assert result["next_cursor"]
+
+
+def test_read_repo_files_enforces_serialized_response_budget(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "large.txt", "x" * 100_000)
+
+    result = repo_reader.read_repo_files(
+        repo,
+        [{"path": "large.txt"}],
+        response_budget_bytes=48 * 1024,
+    )
+
+    assert len(repo_reader.json.dumps(result).encode("utf-8")) <= 48 * 1024
+    assert result["payload_bytes"] <= 48 * 1024
+    assert result["results"][0]["has_more"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -395,6 +395,9 @@ class RepoReadFilesQuery(GatewayModel):
     operation: Literal["read_files"]
     repo_name: str = Field(min_length=1, max_length=128)
     requests: list[dict[str, Any]] = Field(min_length=1, max_length=20)
+    response_budget_bytes: int = Field(
+        default=48 * 1024, ge=48 * 1024, le=128 * 1024
+    )
 
 
 class RepoSearchTextQuery(GatewayModel):

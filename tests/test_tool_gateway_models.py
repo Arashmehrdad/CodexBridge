@@ -255,6 +255,19 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
     assert adapters["query"].validate_python(
         {"operation": "search_text", "repo_name": "repo", "query": "needle"}
     ).query == "needle"
+    read_query = adapters["query"].validate_python(
+        {"operation": "read_files", "repo_name": "repo", "requests": [{"path": "x.py"}]}
+    )
+    assert read_query.response_budget_bytes == 48 * 1024
+    with pytest.raises(ValidationError):
+        adapters["query"].validate_python(
+            {
+                "operation": "read_files",
+                "repo_name": "repo",
+                "requests": [{"path": "x.py"}],
+                "response_budget_bytes": 48 * 1024 - 1,
+            }
+        )
     assert adapters["preview"].validate_python(
         {"operation": "remove_file", "repo_name": "repo", "path": "x.py", "expected_sha256": "a" * 64}
     ).path == "x.py"
@@ -279,6 +292,7 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
 def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     monkeypatch.setattr(server, "_repo_context", lambda _repo_name: None)
     monkeypatch.setattr(server, "search_repo_text", lambda *args: {"operation": "search", "args": args})
+    monkeypatch.setattr(server, "read_repo_files", lambda *args: {"operation": "read", "args": args})
     monkeypatch.setattr(server, "preview_repo_file_removal", lambda *args: {"operation": "remove", "args": args})
     monkeypatch.setattr(server, "apply_previewed_repo_change", lambda *args: {"operation": "apply", "args": args})
     monkeypatch.setattr(server, "commit_selected_files", lambda *args: {"operation": "commit", "args": args})
@@ -286,6 +300,11 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert server.repo_query(TypeAdapter(RepoQueryRequest).validate_python(
         {"operation": "search_text", "repo_name": "repo", "query": "needle"}
     ))["operation"] == "search"
+    read_result = server.repo_query(TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "read_files", "repo_name": "repo", "requests": [{"path": "x.py"}]}
+    ))
+    assert read_result["operation"] == "read"
+    assert read_result["args"] == ("repo", [{"path": "x.py"}], 48 * 1024)
     assert server.repo_preview(TypeAdapter(RepoPreviewRequest).validate_python(
         {"operation": "remove_file", "repo_name": "repo", "path": "x", "expected_sha256": "a" * 64}
     ))["operation"] == "remove"
