@@ -3374,6 +3374,14 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
         for key in ("ok", "reloaded", "resolved_modules", "restart_required", "rolled_back", "message", "error")
         if key in result
     }
+    compact.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     for key in ("message", "error"):
         if compact.get(key):
             compact[key] = str(compact[key])[:512]

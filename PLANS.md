@@ -917,6 +917,12 @@ Seventy-sixth independently reviewable slice — versioned compact workflow proj
 - workflow identifiers, child-run linkage, bounded step summaries/errors, and explicit full workflow evidence remain unchanged;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Seventy-seventh independently reviewable slice — versioned compact system-action responses:
+
+- compact `system_action` responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing lifecycle/count/truncation/byte metadata;
+- reload/rollback routing, lifecycle error detail, bounded module lists, and explicit full action evidence remain unchanged;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
