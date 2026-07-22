@@ -3447,6 +3447,16 @@ def supervisor_query(request: SupervisorQueryRequest) -> dict:
             return snapshot
         return _bounded_supervisor_snapshot(snapshot, request.response_budget_bytes)
     if request.operation == "notifications":
+        if request.view == "full":
+            return {
+                "ok": True,
+                "supervisor_id": request.supervisor_id,
+                "notifications": get_supervisor_service().get_notifications(
+                    request.supervisor_id,
+                    request.delivery_status or None,
+                    request.limit,
+                ),
+            }
         return get_supervisor_notifications(
             request.supervisor_id,
             request.delivery_status,

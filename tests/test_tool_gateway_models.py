@@ -499,6 +499,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
         {"operation": "notifications", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
     assert supervisor_query.validate_python(
+        {"operation": "notifications", "supervisor_id": "sup_1", "view": "full"}
+    ).view == "full"
+    assert supervisor_query.validate_python(
         {"operation": "status", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
     assert supervisor_query.validate_python(
@@ -513,7 +516,6 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     assert supervisor_action.validate_python(
         {"action": "cancel", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
-
     invalid_payloads = (
         (workflow_query, {"operation": "status", "workflow_id": "wf_1", "limit": 1}),
         (workflow_action, {"action": "cancel"}),
@@ -527,6 +529,20 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
             continue
         raise AssertionError(f"invalid payload was accepted: {payload}")
 
+
+def test_supervisor_notifications_full_view_preserves_evidence(monkeypatch) -> None:
+    class FakeService:
+        def get_notifications(self, supervisor_id, delivery_status, limit):
+            return [{"id": index, "message": "x" * 1000} for index in range(limit)]
+
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: FakeService())
+    result = server.supervisor_query(
+        TypeAdapter(SupervisorQueryRequest).validate_python(
+            {"operation": "notifications", "supervisor_id": "sup_1", "view": "full", "limit": 3}
+        )
+    )
+    assert len(result["notifications"]) == 3
+    assert len(result["notifications"][0]["message"]) == 1000
 
 def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(monkeypatch) -> None:
     monkeypatch.setattr(server, "get_workflow_status", lambda workflow_id: {"workflow_id": workflow_id, "ok": True})

@@ -244,6 +244,7 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert supervisor_notifications.default_response_bytes == 12 * 1024
     assert supervisor_notifications.maximum_response_bytes == 12 * 1024
     assert "delivery-status filtered" in supervisor_notifications.notes
+    assert "view=full" in supervisor_notifications.notes
 
     supervisor_prompt = _entry_for("supervisor_query", "resume_prompt")
     assert supervisor_prompt.default_response_bytes == 12 * 1024

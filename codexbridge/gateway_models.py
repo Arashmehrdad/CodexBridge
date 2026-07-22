@@ -378,6 +378,7 @@ class SupervisorNotificationsQuery(GatewayModel):
     supervisor_id: str = Field(min_length=1, max_length=128)
     delivery_status: str = Field(default="", max_length=64)
     limit: int = Field(default=50, ge=1, le=500)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
