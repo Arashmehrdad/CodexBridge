@@ -1445,17 +1445,39 @@ def _finish_local_model_health(result: dict, started: float) -> dict:
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_docker_capabilities(repo_name: str = "") -> dict:
+def list_docker_capabilities(
+    repo_name: str = "",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: list bounded Docker operations, risk gates, and configured exec profiles."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
     if not repo_name:
-        return _list_docker_capabilities(config)
-    canonical_name, _repo_root, requested_name = _repo_context(repo_name)
-    _, repo_config = resolve_repo_config(config, canonical_name)
-    result = _list_docker_capabilities(config, repo_config)
-    result["repo_name"] = canonical_name
-    if requested_name != canonical_name:
-        result["requested_repo_name"] = requested_name
+        result = _list_docker_capabilities(config)
+    else:
+        canonical_name, _repo_root, requested_name = _repo_context(repo_name)
+        _, repo_config = resolve_repo_config(config, canonical_name)
+        result = _list_docker_capabilities(config, repo_config)
+        result["repo_name"] = canonical_name
+        if requested_name != canonical_name:
+            result["requested_repo_name"] = requested_name
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("actions", "exec_profiles", "read_only_operations"):
+            value = result.get(key)
+            if isinstance(value, list) and value:
+                value.pop()
+                reduced = True
+                break
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
     return result
 
 
@@ -2012,7 +2034,9 @@ def codex_implement(request: CodexImplementRequest) -> dict:
 def docker_query(request: DockerQueryRequest) -> dict:
     """Read-only Docker gateway for capabilities, health, and bounded inspection."""
     if request.operation == "capabilities":
-        return list_docker_capabilities(request.repo_name)
+        return list_docker_capabilities(
+            request.repo_name, request.response_budget_bytes
+        )
     if request.operation == "health":
         return docker_health()
     return docker_inspect(

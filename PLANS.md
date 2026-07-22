@@ -635,6 +635,12 @@ Twenty-ninth independently reviewable slice — search contract convergence:
 - the authoritative CF1 gateway inventory now matches the implemented `repo_query(operation="search_text")` contract: fixed 16-KB UTF-8 budgeting, cursor pagination, exact-file scope, snapshot/hash-bound continuation, and explicit timeout/partial-result reporting;
 - focused CodexBridge pytest validation passed with 6 gateway-inventory tests and 47 gateway-model tests. Native compilation, pip check, `git diff --check`, and focused Ruff checks passed; no runtime search behavior changed in this documentation/contract-convergence slice.
 
+Thirtieth independently reviewable slice — bounded Docker capability discovery:
+
+- `docker_query(operation="capabilities")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims capability lists deterministically while preserving policy gates, configured profiles, and the direct health path;
+- the Docker inventory now separates capabilities from health and records a bounded-object 12-KB default/maximum response contract for capability discovery;
+- focused CodexBridge pytest validation passed with 43 server tests, 48 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

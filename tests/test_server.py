@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from pydantic import TypeAdapter
@@ -283,6 +284,23 @@ def test_docker_inspect_honors_response_budget(monkeypatch, tmp_path) -> None:
         },
     )
     result = server.docker_inspect("repo", "compose_logs", response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
+def test_docker_capabilities_honor_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "get_config",
+        lambda: SimpleNamespace(docker=SimpleNamespace(enabled=True)),
+    )
+    monkeypatch.setattr(
+        server,
+        "_list_docker_capabilities",
+        lambda cfg: {"ok": True, "actions": ["x" * 180 for _ in range(100)], "error": ""},
+    )
+    result = server.list_docker_capabilities(response_budget_bytes=4096)
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096

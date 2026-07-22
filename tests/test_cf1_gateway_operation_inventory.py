@@ -265,6 +265,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert "exact-file scope" in search.notes
     assert "timeout/partial-result reporting" in search.notes
 
+    docker_capabilities = _entry_for("docker_query", "capabilities")
+    assert docker_capabilities.default_response_bytes == 12 * 1024
+    assert docker_capabilities.maximum_response_bytes == 12 * 1024
+    assert "serialized UTF-8 budget" in docker_capabilities.notes
+
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
     assert "aggregate returned content" in repo_read.notes

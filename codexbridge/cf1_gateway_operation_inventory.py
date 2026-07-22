@@ -269,10 +269,20 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "docker_query",
-        ("capabilities", "health"),
+        ("capabilities",),
         "codexbridge.server:docker_query",
-        "direct provider summary object",
-        notes="No public response byte ceiling is enforced.",
+        "bounded Docker capability projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Capability lists remain policy-shaped and are capped by a serialized UTF-8 budget with truncation metadata.",
+    ),
+    _entry(
+        "docker_query",
+        ("health",),
+        "codexbridge.server:docker_query",
+        "direct Docker health summary",
+        notes="Docker health remains a compatibility-shaped provider summary.",
     ),
     _entry(
         "docker_query",

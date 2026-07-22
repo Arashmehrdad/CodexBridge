@@ -528,6 +528,13 @@ def test_docker_inspect_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_docker_capabilities_model_exposes_response_budget() -> None:
+    request = TypeAdapter(DockerQueryRequest).validate_python(
+        {"operation": "capabilities"}
+    )
+    assert request.response_budget_bytes == 12 * 1024
+
+
 def test_cloudflare_inspect_model_exposes_response_budget() -> None:
     request = TypeAdapter(CloudflareQueryRequest).validate_python(
         {
