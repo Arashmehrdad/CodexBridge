@@ -377,6 +377,60 @@ def test_read_repo_file_full_file(tmp_path: Path) -> None:
     assert result["total_lines"] == 3
 
 
+def test_read_repo_file_reports_exact_bounded_mixed_newline_diagnostic(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    path = repo / "mixed.txt"
+    endings = [b"\r\n", b"\n", b"\r"]
+    path.write_bytes(
+        b"".join(
+            f"line-{index}".encode("ascii") + endings[index % 3]
+            for index in range(25)
+        )
+    )
+
+    result = read_repo_file(repo, "mixed.txt")
+    diagnostic = result["newline_diagnostic"]
+
+    assert result["total_lines"] == 25
+    assert diagnostic["counts"] == {"lf": 8, "crlf": 9, "cr": 8}
+    assert diagnostic["mixed"] is True
+    assert diagnostic["newline_ranges_total"] == 25
+    assert len(diagnostic["newline_ranges"]) == 20
+    assert diagnostic["newline_ranges"][:3] == [
+        {"start_line": 1, "end_line": 1, "newline": "crlf"},
+        {"start_line": 2, "end_line": 2, "newline": "lf"},
+        {"start_line": 3, "end_line": 3, "newline": "cr"},
+    ]
+    assert diagnostic["newline_ranges"][-1] == {
+        "start_line": 20,
+        "end_line": 20,
+        "newline": "lf",
+    }
+    assert diagnostic["newline_ranges_truncated"] is True
+    assert diagnostic["ends_with_newline"] is True
+    assert diagnostic["response_bytes"] <= 8 * 1024
+    assert len(
+        repo_reader.json.dumps(diagnostic, separators=(",", ":")).encode("utf-8")
+    ) == diagnostic["response_bytes"]
+
+
+def test_read_repo_file_counts_unterminated_lone_cr_lines(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    (repo / "classic-mac.txt").write_bytes(b"one\rtwo\rthree")
+
+    result = read_repo_file(repo, "classic-mac.txt")
+
+    assert result["total_lines"] == 3
+    assert result["newline_diagnostic"]["counts"] == {
+        "lf": 0,
+        "crlf": 0,
+        "cr": 2,
+    }
+    assert result["newline_diagnostic"]["ends_with_newline"] is False
+
+
 def test_read_repo_file_start_line_equals_total(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     write(repo / "small.txt", "only\n")

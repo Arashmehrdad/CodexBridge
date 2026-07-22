@@ -37,6 +37,8 @@ _READ_RESPONSE_METADATA_RESERVE = 4 * 1024
 _FILE_CURSOR_VERSION = 1
 DEFAULT_SEARCH_RESPONSE_BYTES = 16 * 1024
 MAX_SEARCH_RESPONSE_BYTES = 16 * 1024
+MAX_NEWLINE_DIAGNOSTIC_BYTES = 8 * 1024
+MAX_NEWLINE_DIAGNOSTIC_RANGES = 20
 _SEARCH_CURSOR_VERSION = 1
 _SEARCH_SNIPPET_CHARS = 800
 
@@ -383,8 +385,10 @@ def read_repo_file(
         raise ValueError(f"Binary files are not supported: {path}")
 
     initial_stat = absolute.stat()
-    size = initial_stat.st_size
-    content_sha256, total_lines = _stream_file_identity(absolute)
+    analysis = analyze_text_file(absolute)
+    size = analysis["size_bytes"]
+    content_sha256 = analysis["sha256"]
+    total_lines = analysis["total_lines"]
     cursor_state = _decode_file_cursor(continuation) if continuation else None
     if cursor_state:
         if cursor_state["path"] != path:
@@ -468,6 +472,7 @@ def read_repo_file(
         "size_bytes": size,
         "sha256": content_sha256,
         "content_sha256": content_sha256,
+        "newline_diagnostic": analysis["newline_diagnostic"],
         "start_byte": byte_offset,
         "end_byte": next_byte_offset,
         "next_start_line": next_start_line if has_more else None,
@@ -481,19 +486,100 @@ def read_repo_file(
     }
 
 
-def _stream_file_identity(path: Path) -> tuple[str, int]:
+def analyze_text_file(path: Path) -> dict:
+    """Return one streaming identity and exact bounded newline diagnostic."""
     digest = hashlib.sha256()
     size = 0
-    newline_count = 0
-    last_byte = b""
+    counts = {"lf": 0, "crlf": 0, "cr": 0}
+    newline_ranges: list[dict[str, int | str]] = []
+    newline_ranges_total = 0
+    current_kind = ""
+    current_end_line = 0
+    current_range_index: int | None = None
+    line_number = 1
+    pending_cr = False
+    ends_with_newline = False
+
+    def record(kind: str) -> None:
+        nonlocal current_kind, current_end_line, current_range_index
+        nonlocal line_number, newline_ranges_total
+        counts[kind] += 1
+        if current_kind == kind and current_end_line == line_number - 1:
+            current_end_line = line_number
+            if current_range_index is not None:
+                newline_ranges[current_range_index]["end_line"] = line_number
+        else:
+            current_kind = kind
+            current_end_line = line_number
+            newline_ranges_total += 1
+            if len(newline_ranges) < MAX_NEWLINE_DIAGNOSTIC_RANGES:
+                newline_ranges.append(
+                    {
+                        "start_line": line_number,
+                        "end_line": line_number,
+                        "newline": kind,
+                    }
+                )
+                current_range_index = len(newline_ranges) - 1
+            else:
+                current_range_index = None
+        line_number += 1
+
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(64 * 1024), b""):
             digest.update(chunk)
             size += len(chunk)
-            newline_count += chunk.count(b"\n")
-            last_byte = chunk[-1:]
-    total_lines = newline_count + (1 if size and last_byte != b"\n" else 0)
-    return digest.hexdigest(), total_lines
+            data = (b"\r" if pending_cr else b"") + chunk
+            pending_cr = False
+            if data.endswith(b"\r"):
+                pending_cr = True
+                data = data[:-1]
+            matches = list(re.finditer(rb"\r\n|\r|\n", data))
+            for match in matches:
+                token = match.group(0)
+                record("crlf" if token == b"\r\n" else "cr" if token == b"\r" else "lf")
+            if data:
+                ends_with_newline = bool(matches and matches[-1].end() == len(data))
+    if pending_cr:
+        record("cr")
+        ends_with_newline = True
+
+    total_lines = sum(counts.values()) + (1 if size and not ends_with_newline else 0)
+    diagnostic: dict[str, object] = {
+        "counts": counts,
+        "mixed": sum(value > 0 for value in counts.values()) > 1,
+        "newline_ranges": newline_ranges,
+        "newline_ranges_total": newline_ranges_total,
+        "newline_ranges_truncated": newline_ranges_total > len(newline_ranges),
+        "ends_with_newline": ends_with_newline,
+        "response_bytes": 0,
+    }
+    while True:
+        response_bytes = len(
+            json.dumps(diagnostic, separators=(",", ":")).encode("utf-8")
+        )
+        if response_bytes <= MAX_NEWLINE_DIAGNOSTIC_BYTES or not newline_ranges:
+            diagnostic["response_bytes"] = response_bytes
+            final_bytes = len(
+                json.dumps(diagnostic, separators=(",", ":")).encode("utf-8")
+            )
+            if final_bytes == response_bytes:
+                break
+            diagnostic["response_bytes"] = final_bytes
+            if len(
+                json.dumps(diagnostic, separators=(",", ":")).encode("utf-8")
+            ) == final_bytes:
+                break
+        else:
+            newline_ranges.pop()
+            diagnostic["newline_ranges_truncated"] = True
+
+    return {
+        "sha256": digest.hexdigest(),
+        "size_bytes": size,
+        "total_lines": total_lines,
+        "newline_diagnostic": diagnostic,
+    }
 
 
 def _read_line_window(
