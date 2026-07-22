@@ -2899,8 +2899,11 @@ def get_workflow_events(
     workflow_id: str,
     limit: int = 100,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: return ordered workflow events."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _wrap_item_list(
@@ -2909,6 +2912,8 @@ def get_workflow_events(
         workflow_id,
         get_workflow_manager().get_events(workflow_id, limit),
     )
+    if view == "full":
+        return result
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -3002,7 +3007,10 @@ def workflow_query(request: WorkflowQueryRequest) -> dict:
         return _bounded_workflow_response(workflow, request.response_budget_bytes)
     if request.operation == "events":
         return get_workflow_events(
-            request.workflow_id, request.limit, request.response_budget_bytes
+            request.workflow_id,
+            request.limit,
+            request.response_budget_bytes,
+            request.view,
         )
     workflow = get_workflow_result(request.workflow_id)
     if request.view == "full":
@@ -3677,8 +3685,11 @@ def get_supervisor_events(
     supervisor_id: str,
     limit: int = 50,
     response_budget_bytes: int = 12 * 1024,
+    view: str = "compact",
 ) -> dict:
     """Read-only: return ordered supervisor events."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     result = _wrap_item_list(
@@ -3687,6 +3698,8 @@ def get_supervisor_events(
         supervisor_id,
         get_supervisor_service().get_events(supervisor_id, limit),
     )
+    if view == "full":
+        return result
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -3852,7 +3865,10 @@ def supervisor_query(request: SupervisorQueryRequest) -> dict:
         return _bounded_supervisor_snapshot(snapshot, request.response_budget_bytes)
     if request.operation == "events":
         return get_supervisor_events(
-            request.supervisor_id, request.limit, request.response_budget_bytes
+            request.supervisor_id,
+            request.limit,
+            request.response_budget_bytes,
+            request.view,
         )
     if request.operation == "result":
         snapshot = get_supervisor_result(request.supervisor_id)
@@ -3975,6 +3991,8 @@ def trading_query(request: TradingQueryRequest) -> dict:
             if request.view == "full":
                 return response
             return _bounded_trading_scalar_response(response, request.response_budget_bytes)
+        if request.view == "full":
+            return response
         if request.operation == "symbols":
             response["truncated"] = False
             response["has_more"] = False
@@ -4116,9 +4134,12 @@ def trading_signal_list(request: TradingSignalListRequest) -> dict:
     if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     records = _trading_signal_journal().list(limit=request.limit)
+    signals = [_signal_record_json(record) for record in records]
+    if request.view == "full":
+        return {"ok": True, "signals": signals}
     response = {
         "ok": True,
-        "signals": [_signal_record_json(record) for record in records],
+        "signals": signals,
         "truncated": False,
         "has_more": False,
         "response_budget_bytes": request.response_budget_bytes,

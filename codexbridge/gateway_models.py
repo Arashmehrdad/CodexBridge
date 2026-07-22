@@ -209,6 +209,7 @@ class WorkflowEventsQuery(GatewayModel):
     operation: Literal["events"]
     workflow_id: str = Field(min_length=1, max_length=128)
     limit: int = Field(default=100, ge=1, le=500)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -253,6 +254,7 @@ class TradingHealthQuery(GatewayModel):
 class TradingSymbolsQuery(GatewayModel):
     operation: Literal["symbols"]
     query: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -271,6 +273,7 @@ class TradingTickQuery(GatewayModel):
 class TradingH4Query(GatewayModel):
     operation: Literal["h4_candles"]
     completed_count: int = Field(default=200, ge=1, le=2_000)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -278,6 +281,7 @@ class TradingHistoricalTicksQuery(GatewayModel):
     operation: Literal["historical_ticks"]
     start_utc: datetime
     end_utc: datetime
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
     @model_validator(mode="after")
@@ -335,6 +339,7 @@ class TradingSignalGetRequest(GatewayModel):
 
 class TradingSignalListRequest(GatewayModel):
     limit: int = Field(default=100, ge=1, le=1000)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
@@ -370,6 +375,7 @@ class SupervisorEventsQuery(GatewayModel):
     operation: Literal["events"]
     supervisor_id: str = Field(min_length=1, max_length=128)
     limit: int = Field(default=50, ge=1, le=500)
+    view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 

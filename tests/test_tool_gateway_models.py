@@ -161,14 +161,17 @@ def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     adapter = TypeAdapter(TradingQueryRequest)
     h4 = adapter.validate_python({"operation": "h4_candles"})
     assert h4.completed_count == 200
+    assert h4.view == "compact"
     assert h4.response_budget_bytes == 12 * 1024
     symbols = adapter.validate_python({"operation": "symbols"})
+    assert symbols.view == "compact"
     assert symbols.response_budget_bytes == 12 * 1024
     assert adapter.validate_python({"operation": "health"}).response_budget_bytes == 12 * 1024
     assert adapter.validate_python({"operation": "specification"}).response_budget_bytes == 12 * 1024
     assert adapter.validate_python({"operation": "tick"}).response_budget_bytes == 12 * 1024
     historical = adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T06:00:00+00:00", "end_utc": "2026-07-20T07:00:00+00:00"})
     assert historical.end_utc.hour == 7
+    assert historical.view == "compact"
     assert historical.response_budget_bytes == 12 * 1024
     with pytest.raises(ValidationError):
         adapter.validate_python({"operation": "tick", "completed_count": 1})
@@ -342,6 +345,97 @@ def test_trading_historical_ticks_honors_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_trading_collection_full_views_preserve_authoritative_payloads(
+    monkeypatch,
+) -> None:
+    class FakeProvider:
+        def connect(self):
+            return SimpleNamespace(connected=True, account_environment="demo")
+
+        def close(self):
+            pass
+
+        def list_symbols(self, query):
+            return [f"SYMBOL_{index}_" + "x" * 120 for index in range(100)]
+
+        def h4_candles(self, symbol, completed_count):
+            return (
+                [{"time": index, "close": "x" * 160} for index in range(completed_count)],
+                {"close": "y" * 200},
+            )
+
+        def historical_ticks(self, symbol, start_utc, end_utc):
+            return [{"time": index, "bid": "x" * 160} for index in range(100)]
+
+    monkeypatch.setattr(
+        server,
+        "get_config",
+        lambda: SimpleNamespace(
+            trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")
+        ),
+    )
+    monkeypatch.setattr(server, "_configured_mt5_provider", FakeProvider)
+
+    symbols = server.trading_query(
+        TypeAdapter(TradingQueryRequest).validate_python(
+            {
+                "operation": "symbols",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(symbols["result"]) == 100
+    assert "truncated" not in symbols
+
+    candles = server.trading_query(
+        TypeAdapter(TradingQueryRequest).validate_python(
+            {
+                "operation": "h4_candles",
+                "completed_count": 100,
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(candles["result"]["completed"]) == 100
+    assert len(candles["result"]["developing"]["close"]) == 200
+    assert "truncated" not in candles
+
+    ticks = server.trading_query(
+        TypeAdapter(TradingQueryRequest).validate_python(
+            {
+                "operation": "historical_ticks",
+                "start_utc": "2026-07-20T06:00:00+00:00",
+                "end_utc": "2026-07-20T07:00:00+00:00",
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(ticks["result"]) == 100
+    assert "truncated" not in ticks
+
+
+def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
+    class Journal:
+        def list(self, limit):
+            return [object() for _ in range(limit)]
+
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server,
+        "_signal_record_json",
+        lambda record: {"signal_id": "sig", "detail": "x" * 4000},
+    )
+    result = server.trading_signal_list(
+        TradingSignalListRequest(limit=10, view="full", response_budget_bytes=1024)
+    )
+    assert len(result["signals"]) == 10
+    assert len(result["signals"][0]["detail"]) == 4000
+    assert "truncated" not in result
+
+
 def _signal_request_payload() -> dict:
     packet_hash = "a" * 64
     return {
@@ -490,7 +584,11 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
 
     workflow_events = workflow_query.validate_python({"operation": "events", "workflow_id": "wf_1"})
     assert workflow_events.limit == 100
+    assert workflow_events.view == "compact"
     assert workflow_events.response_budget_bytes == 12 * 1024
+    assert workflow_query.validate_python(
+        {"operation": "events", "workflow_id": "wf_1", "view": "full"}
+    ).view == "full"
     assert workflow_query.validate_python(
         {"operation": "status", "workflow_id": "wf_1"}
     ).response_budget_bytes == 12 * 1024
@@ -508,6 +606,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     ).response_budget_bytes == 12 * 1024
     assert supervisor_query.validate_python(
         {"operation": "notifications", "supervisor_id": "sup_1", "view": "full"}
+    ).view == "full"
+    assert supervisor_query.validate_python(
+        {"operation": "events", "supervisor_id": "sup_1", "view": "full"}
     ).view == "full"
     assert supervisor_query.validate_python(
         {"operation": "status", "supervisor_id": "sup_1"}
@@ -536,6 +637,56 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
         except ValidationError:
             continue
         raise AssertionError(f"invalid payload was accepted: {payload}")
+
+
+def test_workflow_and_supervisor_event_full_views_preserve_evidence(
+    monkeypatch,
+) -> None:
+    class WorkflowManager:
+        def get_events(self, workflow_id, limit):
+            return [
+                {"id": index, "message": "w" * 1000}
+                for index in range(limit)
+            ]
+
+    class SupervisorService:
+        def get_events(self, supervisor_id, limit):
+            return [
+                {"id": index, "message": "s" * 1000}
+                for index in range(limit)
+            ]
+
+    monkeypatch.setattr(server, "get_workflow_manager", lambda: WorkflowManager())
+    workflow = server.workflow_query(
+        TypeAdapter(WorkflowQueryRequest).validate_python(
+            {
+                "operation": "events",
+                "workflow_id": "wf_1",
+                "limit": 20,
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(workflow["events"]) == 20
+    assert len(workflow["events"][0]["message"]) == 1000
+    assert "truncated" not in workflow
+
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: SupervisorService())
+    supervisor = server.supervisor_query(
+        TypeAdapter(SupervisorQueryRequest).validate_python(
+            {
+                "operation": "events",
+                "supervisor_id": "sup_1",
+                "limit": 20,
+                "view": "full",
+                "response_budget_bytes": 1024,
+            }
+        )
+    )
+    assert len(supervisor["events"]) == 20
+    assert len(supervisor["events"][0]["message"]) == 1000
+    assert "truncated" not in supervisor
 
 
 def test_supervisor_notifications_full_view_preserves_evidence(monkeypatch) -> None:
