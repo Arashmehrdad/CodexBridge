@@ -14,6 +14,11 @@ from codexbridge.public_projection_contract import (
     PUBLIC_PROJECTION_SCHEMA_VERSION,
     PublicView,
 )
+from codexbridge.run_public_result import (
+    PUBLIC_RESULT_SCHEMA_VERSION,
+    PUBLIC_RESULT_STATUSES,
+    PUBLIC_RESULT_STATUS_NOT_MATERIALIZED,
+)
 
 
 RUN_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z_[a-z0-9_]+_[a-f0-9]{8}$")
@@ -53,6 +58,11 @@ _CONDITIONAL_UPDATE_FIELDS = frozenset(
         "result_published_hash",
         "result_published_at",
         "result_publication_error",
+        "public_result_json",
+        "public_result_schema_version",
+        "public_result_source_sha256",
+        "public_result_status",
+        "public_result_error",
         "recovery_reason",
     }
 )
@@ -210,7 +220,12 @@ class RunStore:
                     result_publication_status TEXT NOT NULL DEFAULT 'not_published',
                     result_published_hash TEXT NOT NULL DEFAULT '',
                     result_published_at TEXT,
-                    result_publication_error TEXT NOT NULL DEFAULT ''
+                    result_publication_error TEXT NOT NULL DEFAULT '',
+                    public_result_json TEXT NOT NULL DEFAULT '{}',
+                    public_result_schema_version TEXT NOT NULL DEFAULT '',
+                    public_result_source_sha256 TEXT NOT NULL DEFAULT '',
+                    public_result_status TEXT NOT NULL DEFAULT 'not_materialized',
+                    public_result_error TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -298,6 +313,30 @@ class RunStore:
                 "result_publication_error",
                 "TEXT NOT NULL DEFAULT ''",
             )
+            self._ensure_column(
+                conn, "runs", "public_result_json", "TEXT NOT NULL DEFAULT '{}'"
+            )
+            self._ensure_column(
+                conn,
+                "runs",
+                "public_result_schema_version",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            self._ensure_column(
+                conn,
+                "runs",
+                "public_result_source_sha256",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            self._ensure_column(
+                conn,
+                "runs",
+                "public_result_status",
+                "TEXT NOT NULL DEFAULT 'not_materialized'",
+            )
+            self._ensure_column(
+                conn, "runs", "public_result_error", "TEXT NOT NULL DEFAULT ''"
+            )
 
     def journal_mode(self) -> str:
         with self.connect() as conn:
@@ -353,6 +392,55 @@ class RunStore:
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
         return self._row_to_run(row)
+
+    def get_result_source_snapshot(self, run_id: str) -> dict[str, Any]:
+        """Return projection inputs including the exact authoritative JSON text."""
+        validate_run_id(run_id)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, repo_name, tool, status, summary, error,
+                       safety_failure, started_at, ended_at, duration_seconds,
+                       exit_code, state_version, result_json, public_result_json,
+                       public_result_schema_version, public_result_source_sha256,
+                       public_result_status, public_result_error
+                FROM runs
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        snapshot = dict(row)
+        snapshot["safety_failure"] = bool(snapshot["safety_failure"])
+        raw_result = str(snapshot["result_json"] or "{}")
+        snapshot["result_json"] = raw_result
+        snapshot["result"] = loads(raw_result)
+        snapshot["public_result"] = loads(snapshot.pop("public_result_json"))
+        return snapshot
+
+    def get_public_result_snapshot(self, run_id: str) -> dict[str, Any]:
+        """Return only the bounded public result and its scalar bindings."""
+        validate_run_id(run_id)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, repo_name, tool, status, summary, error,
+                       safety_failure, started_at, ended_at, duration_seconds,
+                       exit_code, state_version, public_result_json,
+                       public_result_schema_version, public_result_source_sha256,
+                       public_result_status, public_result_error
+                FROM runs
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        snapshot = dict(row)
+        snapshot["safety_failure"] = bool(snapshot["safety_failure"])
+        snapshot["public_result"] = loads(snapshot.pop("public_result_json"))
+        return snapshot
 
     def list_runs(
         self, repo_name: str | None = None, status: str | None = None, limit: int = 20
@@ -924,6 +1012,10 @@ class RunStore:
             normalized["result_json"], str
         ):
             normalized["result_json"] = dumps(normalized["result_json"])
+        if "public_result_json" in normalized and not isinstance(
+            normalized["public_result_json"], str
+        ):
+            normalized["public_result_json"] = dumps(normalized["public_result_json"])
         if "progress_json" in normalized and not isinstance(
             normalized["progress_json"], str
         ):
@@ -948,6 +1040,14 @@ class RunStore:
             normalized["result_publication_error"] = str(
                 normalized["result_publication_error"]
             )[:2000]
+        for column, maximum in (
+            ("public_result_schema_version", 128),
+            ("public_result_source_sha256", 128),
+            ("public_result_status", 32),
+            ("public_result_error", 2000),
+        ):
+            if column in normalized:
+                normalized[column] = str(normalized[column] or "")[:maximum]
         return normalized
 
     def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
@@ -1551,6 +1651,11 @@ class RunStore:
             "result_published_hash": "",
             "result_published_at": None,
             "result_publication_error": "",
+            "public_result_json": {},
+            "public_result_schema_version": "",
+            "public_result_source_sha256": "",
+            "public_result_status": PUBLIC_RESULT_STATUS_NOT_MATERIALIZED,
+            "public_result_error": "",
             "recovery_reason": recovery_reason,
         }
         if progress is not None:
@@ -1738,6 +1843,7 @@ class RunStore:
         result["input"] = loads(result.pop("input_json"))
         result["progress"] = loads(result.pop("progress_json"))
         result["result"] = loads(result.pop("result_json"))
+        result["public_result"] = loads(result.pop("public_result_json"))
 
         now = datetime.now(timezone.utc)
         started_at = result.get("started_at")
