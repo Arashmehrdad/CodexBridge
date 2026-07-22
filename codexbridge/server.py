@@ -1329,6 +1329,40 @@ def run_local_self_check() -> dict:
     return run_self_check(config=config, config_path=get_config_path(), live_port=8765)
 
 
+def _bounded_self_check_response(result: dict[str, Any], response_budget_bytes: int) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    checks: dict[str, Any] = {}
+    for name, check in (result.get("checks") or {}).items():
+        if not isinstance(check, dict):
+            checks[str(name)] = {"ok": False, "error": "invalid check payload"}
+            continue
+        compact = {"ok": bool(check.get("ok", False))}
+        for key in ("status", "error", "warning", "exit_code", "duration_seconds"):
+            if key in check and key != "error":
+                compact[key] = check[key]
+        if check.get("error"):
+            compact["error"] = str(check["error"])[:512]
+        checks[str(name)] = compact
+    response = {
+        "ok": bool(result.get("ok", False)),
+        "checks": checks,
+        "check_count": len(checks),
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if response["checks"]:
+            response["checks"].pop(next(reversed(response["checks"])))
+            response["truncated"] = True
+            response["has_more"] = True
+            continue
+        break
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
+
+
 @_internal_tool(output_schema=LOCAL_MODEL_HEALTH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def local_model_health() -> dict:
     """Read-only: verify configured Ollama/OpenAI-compatible local model connectivity with a tiny smoke prompt."""
@@ -3022,7 +3056,10 @@ def system_query(request: SystemQueryRequest) -> dict:
     if request.operation == "capabilities":
         return list_capabilities()
     if request.operation == "self_check":
-        return run_local_self_check()
+        result = run_local_self_check()
+        if request.view == "full":
+            return result
+        return _bounded_self_check_response(result, request.response_budget_bytes)
     if request.operation == "local_model_health":
         return local_model_health()
     if request.operation == "validate_config":

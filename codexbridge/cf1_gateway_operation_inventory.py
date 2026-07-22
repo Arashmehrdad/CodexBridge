@@ -640,17 +640,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "system_query",
-        (
-            "capabilities",
-            "self_check",
-            "local_model_health",
-            "validate_config",
-            "reload_status",
-        ),
+        ("capabilities", "local_model_health", "validate_config", "reload_status"),
         "codexbridge.server:system_query",
         "direct system summary object",
         request_echo=RequestEchoBehavior.NONE,
         notes="System query responses are direct and unpaginated.",
+    ),
+    _entry(
+        "system_query",
+        ("self_check",),
+        "codexbridge.server:system_query -> codexbridge.server:run_local_self_check",
+        "bounded compact system self-check projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact self-check diagnostics retain per-check outcome fields under a UTF-8 budget; view=full remains explicit evidence access.",
     ),
     _entry(
         "system_action",

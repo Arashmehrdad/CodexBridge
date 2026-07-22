@@ -683,6 +683,12 @@ Thirty-seventh independently reviewable slice — bounded workflow snapshots:
 - compact workflow responses omit objective, process, and artifact payloads, while `view="full"` remains explicit complete snapshot/evidence access;
 - focused CodexBridge pytest validation passed with 55 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-eighth independently reviewable slice — bounded system self-check:
+
+- `system_query(operation="self_check")` now defaults to a compact 12-KB projection retaining per-check outcome, status, error, warning, exit-code, and duration fields with explicit truncation and response-byte accounting;
+- compact self-check responses omit verbose command streams, while `view="full"` preserves explicit complete diagnostics and existing direct self-check behavior;
+- focused CodexBridge pytest validation passed with 56 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

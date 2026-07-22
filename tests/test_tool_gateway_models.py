@@ -1453,7 +1453,37 @@ def test_ssh_transfer_and_deployment_gateway_forward_execution_policy(
     }
 
 
+def test_system_self_check_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "run_local_self_check",
+        lambda: {
+            "ok": False,
+            "checks": {
+                f"check_{index}": {
+                    "ok": False,
+                    "error": "diagnostic " + "x" * 1000,
+                    "stdout": "protected " + "y" * 1000,
+                }
+                for index in range(20)
+            },
+        },
+    )
+    request = TypeAdapter(SystemQueryRequest).validate_python(
+        {"operation": "self_check", "response_budget_bytes": 4096}
+    )
+    result = server.system_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+    assert "stdout" not in result["checks"]["check_0"]
+
+
 def test_phase7_system_and_knowledge_models_are_strict() -> None:
+    self_check = TypeAdapter(SystemQueryRequest).validate_python(
+        {"operation": "self_check"}
+    )
+    assert self_check.response_budget_bytes == 12 * 1024
     assert TypeAdapter(SystemQueryRequest).validate_python(
         {"operation": "reload_status"}
     ).operation == "reload_status"

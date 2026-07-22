@@ -1114,6 +1114,8 @@ class SystemCapabilitiesQuery(GatewayModel):
 
 class SystemSelfCheckQuery(GatewayModel):
     operation: Literal["self_check"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SystemLocalModelHealthQuery(GatewayModel):
