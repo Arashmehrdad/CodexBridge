@@ -259,10 +259,19 @@ def test_powershell_process_tree_is_terminated_exactly(tmp_path: Path) -> None:
     )
     try:
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and not child_pid_path.exists():
+        child_pid: int | None = None
+        while time.monotonic() < deadline:
+            if child_pid_path.exists():
+                content = child_pid_path.read_text(encoding="utf-8").strip()
+                if content:
+                    try:
+                        child_pid = int(content)
+                    except ValueError:
+                        pass
+                    else:
+                        break
             time.sleep(0.05)
-        assert child_pid_path.exists()
-        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        assert child_pid is not None
         assert process_is_running(process.pid)
         assert process_is_running(child_pid)
 
