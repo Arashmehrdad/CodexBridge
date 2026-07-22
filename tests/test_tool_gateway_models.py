@@ -1898,6 +1898,39 @@ def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_capability_identity_binds_public_schema_and_discovery_cache() -> None:
+    baseline = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capability_identity", "view": "full"}
+        )
+    )
+    request = TypeAdapter(SystemQueryRequest).validate_python(
+        {
+            "operation": "capability_identity",
+            "expected_connector_schema_hash": baseline["public_schema_hash"],
+            "expected_public_schema_hash": baseline["public_schema_hash"],
+            "expected_operation_inventory_hash": baseline["operation_inventory_hash"],
+            "expected_discovery_cache_generation": baseline[
+                "discovery_cache_generation"
+            ],
+            "response_budget_bytes": 4096,
+        }
+    )
+    result = server.system_query(request)
+    assert result["converged"] is True
+    assert result["connector_schema_hash"] == baseline["public_schema_hash"]
+    stale = TypeAdapter(SystemQueryRequest).validate_python(
+        {
+            "operation": "capability_identity",
+            "expected_discovery_cache_generation": "0" * 64,
+            "response_budget_bytes": 4096,
+        }
+    )
+    stale_result = server.system_query(stale)
+    assert stale_result["converged"] is False
+    assert "connector_discovery_cache_generation" in stale_result["mismatches"]
+
+
 def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
         server,

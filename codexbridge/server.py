@@ -21,7 +21,10 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
-from .cf1_gateway_operation_inventory import operation_names_by_gateway
+from .cf1_gateway_operation_inventory import (
+    CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
+    operation_names_by_gateway,
+)
 from .cloudflare_tools import authorize_cloudflare_profile
 from .cloudflare_tools import cloudflare_health as _cloudflare_health
 from .cloudflare_tools import (
@@ -3260,8 +3263,21 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
 def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
     source_build = server_build_hash()
     source_schema = schema_hash(PATCH_OPERATION_SCHEMA)
-    operation_inventory_hash = schema_hash(
-        {gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()}
+    operation_inventory = {
+        gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()
+    }
+    operation_inventory_hash = schema_hash(operation_inventory)
+    public_schema_hash = schema_hash(
+        {
+            "inventory_version": CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
+            "operation_inventory_hash": operation_inventory_hash,
+        }
+    )
+    discovery_cache_generation = schema_hash(
+        {
+            "public_schema_hash": public_schema_hash,
+            "operation_inventory_hash": operation_inventory_hash,
+        }
     )
     running_build = _PROCESS_CAPABILITY_METADATA["server_build_hash"]
     running_schema = _PROCESS_CAPABILITY_METADATA["schema_hash"]
@@ -3275,6 +3291,12 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         mismatches.append("connector_server_build_hash")
     if request.expected_schema_hash and request.expected_schema_hash != running_schema:
         mismatches.append("connector_schema_hash")
+    connector_schema_hash = request.expected_connector_schema_hash
+    if (
+        connector_schema_hash
+        and connector_schema_hash != public_schema_hash
+    ):
+        mismatches.append("connector_public_schema_hash")
     if request.expected_capability_epoch and request.expected_capability_epoch != running_epoch:
         mismatches.append("connector_capability_epoch")
     if (
@@ -3282,6 +3304,16 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         and request.expected_operation_inventory_hash != operation_inventory_hash
     ):
         mismatches.append("connector_operation_inventory_hash")
+    if (
+        request.expected_public_schema_hash
+        and request.expected_public_schema_hash != public_schema_hash
+    ):
+        mismatches.append("connector_public_schema_hash")
+    if (
+        request.expected_discovery_cache_generation
+        and request.expected_discovery_cache_generation != discovery_cache_generation
+    ):
+        mismatches.append("connector_discovery_cache_generation")
     return {
         "ok": not mismatches,
         "converged": not mismatches,
@@ -3290,6 +3322,9 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "running_server_build_hash": running_build,
         "running_schema_hash": running_schema,
         "running_capability_epoch": running_epoch,
+        "public_schema_hash": public_schema_hash,
+        "connector_schema_hash": connector_schema_hash,
+        "discovery_cache_generation": discovery_cache_generation,
         "operation_inventory_hash": operation_inventory_hash,
         "operation_inventory_gateway_count": len(operation_names_by_gateway()),
         "mismatches": mismatches,

@@ -833,6 +833,12 @@ Sixty-second independently reviewable slice — synchronous live capability disc
 - discovery failures remain explicit structured errors, and no service reload or mutation is performed;
 - focused CodexBridge pytest validation passed with 75 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-third independently reviewable slice — explicit public-schema and discovery-cache identities:
+
+- `system_query(operation="capability_identity")` now exposes distinct public-schema and discovery-cache generation identities alongside the legacy source/running capability fields;
+- callers can bind connector-loaded public schema, operation inventory, and discovery-cache expectations, with bounded explicit mismatch names and preserved legacy schema checks;
+- focused CodexBridge pytest validation passed with 76 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
