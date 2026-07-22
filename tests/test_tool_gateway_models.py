@@ -1879,6 +1879,7 @@ def test_system_capabilities_resolves_live_async_discovery(monkeypatch) -> None:
     assert len(full["operation_inventory_hash"]) == 64
     assert len(full["public_schema_hash"]) == 64
     assert len(full["discovery_cache_generation"]) == 64
+    assert len(full["live_input_schema_hash"]) == 64
 
 
 def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:

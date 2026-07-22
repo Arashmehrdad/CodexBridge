@@ -926,6 +926,16 @@ def _operation_identity_metadata() -> dict[str, Any]:
     }
 
 
+def _input_schema_hash_from_actions(actions: list[dict[str, Any]]) -> str:
+    """Hash the live gateway input schemas in deterministic name order."""
+    schemas = {
+        str(action.get("name", "")): action.get("inputSchema", {})
+        for action in actions
+        if str(action.get("name", ""))
+    }
+    return schema_hash(schemas)
+
+
 def _locked_repo_operation(
     repo_name: str,
     tool: str,
@@ -985,6 +995,7 @@ async def list_capabilities() -> dict:
             if key != "operation_inventory"
         }
     )
+    result["live_input_schema_hash"] = _input_schema_hash_from_actions(actions)
     return _with_capability_metadata(result)
 
 
@@ -1015,6 +1026,7 @@ def _list_capabilities_sync() -> dict[str, Any]:
             if key != "operation_inventory"
         }
     )
+    result["live_input_schema_hash"] = _input_schema_hash_from_actions(actions)
     return _with_capability_metadata(result)
 
 
@@ -1028,7 +1040,7 @@ def _system_capabilities_result() -> dict[str, Any]:
     return _list_capabilities_sync()
 
 
-def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool]:
+def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str]:
     """Return live per-operation identities and two-pass discovery stability."""
     try:
         from .knowledge_tools_integration import register_knowledge_tools
@@ -1037,7 +1049,7 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool]:
         first_tools = asyncio.run(mcp.list_tools())
         second_tools = asyncio.run(mcp.list_tools())
     except Exception as exc:
-        return {}, f"live operation-schema discovery unavailable: {exc}", False
+        return {}, f"live operation-schema discovery unavailable: {exc}", False, ""
 
     def _hashes(tools: list[Any]) -> dict[str, str]:
         hashes: dict[str, str] = {}
@@ -1084,7 +1096,16 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool]:
 
     first_hashes = _hashes(first_tools)
     second_hashes = _hashes(second_tools)
-    return second_hashes, "", first_hashes == second_hashes
+    first_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in first_tools]
+    second_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in second_tools]
+    first_input_schema_hash = _input_schema_hash_from_actions(first_actions)
+    second_input_schema_hash = _input_schema_hash_from_actions(second_actions)
+    return (
+        second_hashes,
+        "",
+        first_hashes == second_hashes and first_input_schema_hash == second_input_schema_hash,
+        second_input_schema_hash,
+    )
 
 
 @_internal_tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3366,9 +3387,12 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
     operation_inventory_hash = identity["operation_inventory_hash"]
     public_schema_hash = identity["public_schema_hash"]
     discovery_cache_generation = identity["discovery_cache_generation"]
-    live_operation_schema_hashes, live_schema_error, discovery_passes_converged = (
-        _live_operation_schema_hashes_sync()
-    )
+    (
+        live_operation_schema_hashes,
+        live_schema_error,
+        discovery_passes_converged,
+        live_input_schema_hash,
+    ) = _live_operation_schema_hashes_sync()
     inventory_operation_names = {
         operation for names in operation_inventory.values() for operation in names
     }
@@ -3438,6 +3462,7 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "operation_schema_hashes": live_operation_schema_hashes,
         "operation_schema_count": len(live_operation_schema_hashes),
         "operation_schema_error": live_schema_error,
+        "live_input_schema_hash": live_input_schema_hash,
         "discovery_pass_count": 2,
         "discovery_passes_converged": discovery_passes_converged,
         "operation_inventory_hash": operation_inventory_hash,
