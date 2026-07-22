@@ -243,6 +243,10 @@ def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:
 
     bounded = _bounded_knowledge_search(result)
 
+    assert bounded["view"] == "compact"
+    assert bounded["projection_version"] == "cf1.v1"
+    assert bounded["non_authoritative"] is True
+    assert "authoritative" in bounded["notice"]
     assert bounded["truncated"] is True
     assert bounded["has_more"] is True
     assert bounded["response_budget_bytes"] == 12 * 1024
@@ -265,6 +269,9 @@ def test_wiki_page_projection_is_bounded_and_marks_truncation() -> None:
         },
         4096,
     )
+    assert bounded["view"] == "compact"
+    assert bounded["projection_version"] == "cf1.v1"
+    assert bounded["non_authoritative"] is True
     assert bounded["truncated"] is True
     assert bounded["has_more"] is True
     assert bounded["response_bytes"] <= 4096
@@ -283,6 +290,9 @@ def test_knowledge_action_projection_is_bounded() -> None:
         },
         4096,
     )
+    assert bounded["view"] == "compact"
+    assert bounded["projection_version"] == "cf1.v1"
+    assert bounded["non_authoritative"] is True
     assert bounded["response_bytes"] <= 4096
     assert bounded["page_count"] == 5000
     assert bounded["changed_source_file_count"] == 5000

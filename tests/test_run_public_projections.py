@@ -13,6 +13,8 @@ from codexbridge.public_projection_contract import (
     NormalizedOutcome,
     PublicByteBudgets,
     PublicView,
+    apply_compact_projection_envelope,
+    public_projection_schema_properties,
     truncate_utf8,
 )
 
@@ -22,6 +24,24 @@ def test_public_projection_contract_is_versioned_and_explicitly_non_authoritativ
     assert "non-authoritative" in NON_AUTHORITATIVE_NOTICE
     assert "authoritative record remains available" in NON_AUTHORITATIVE_NOTICE
     assert {view.value for view in PublicView} == {"summary", "standard", "full"}
+
+
+def test_compact_projection_envelope_and_schema_share_one_contract() -> None:
+    payload = apply_compact_projection_envelope({"ok": True})
+    assert payload == {
+        "ok": True,
+        "view": "compact",
+        "projection_version": "cf1.v1",
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
+    }
+    properties = public_projection_schema_properties()
+    assert properties["view"] == {"type": "string", "const": "compact"}
+    assert properties["projection_version"]["const"] == "cf1.v1"
+    assert properties["non_authoritative"]["const"] is True
+    assert properties["notice"]["const"] == NON_AUTHORITATIVE_NOTICE
+    properties["view"]["const"] = "mutated"
+    assert public_projection_schema_properties()["view"]["const"] == "compact"
 
 
 def test_normalized_outcomes_preserve_operational_distinctions() -> None:

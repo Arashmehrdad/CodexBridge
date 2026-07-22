@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from typing import Final
+from typing import Any, Final
 
 
 PUBLIC_PROJECTION_SCHEMA_VERSION: Final[str] = "cf1.v1"
@@ -11,6 +11,32 @@ NON_AUTHORITATIVE_NOTICE: Final[str] = (
     "This is a non-authoritative public projection. "
     "The complete authoritative record remains available through explicit evidence retrieval."
 )
+
+
+def apply_compact_projection_envelope(payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach the canonical CF1 metadata to one compact public projection."""
+    payload.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
+    return payload
+
+
+def public_projection_schema_properties() -> dict[str, dict[str, Any]]:
+    """Return fresh JSON-schema properties for the canonical compact envelope."""
+    return {
+        "view": {"type": "string", "const": "compact"},
+        "projection_version": {
+            "type": "string",
+            "const": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        },
+        "non_authoritative": {"type": "boolean", "const": True},
+        "notice": {"type": "string", "const": NON_AUTHORITATIVE_NOTICE},
+    }
 
 
 class PublicView(str, Enum):

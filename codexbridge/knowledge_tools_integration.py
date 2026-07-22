@@ -7,6 +7,10 @@ from typing import Any, Callable
 
 from .capabilities import capability_metadata
 from .gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
+from .public_projection_contract import (
+    apply_compact_projection_envelope,
+    public_projection_schema_properties,
+)
 
 
 READ_ONLY_ANNOTATIONS = {
@@ -26,6 +30,7 @@ WIKI_REFRESH_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        **public_projection_schema_properties(),
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "status": {"type": "string"},
@@ -69,6 +74,7 @@ WIKI_PAGE_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        **public_projection_schema_properties(),
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "status": {"type": "string"},
@@ -106,6 +112,7 @@ KNOWLEDGE_SEARCH_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        **public_projection_schema_properties(),
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "query": {"type": "string"},
@@ -157,7 +164,9 @@ KNOWLEDGE_SEARCH_OUTPUT = {
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "response_bytes": {"type": "integer"},
+        "response_budget_bytes": {"type": "integer"},
         "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
     },
     "required": ["ok", "repo_name", "query", "wiki_hits", "memory_hits", "error"],
 }
@@ -165,6 +174,7 @@ MEMORY_WRITE_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        **public_projection_schema_properties(),
         "ok": {"type": "boolean"},
         "repo_name": {"type": "string"},
         "memory_id": {"type": "string"},
@@ -267,7 +277,7 @@ def _with_capability_metadata(
 
 def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -> dict[str, Any]:
     """Keep knowledge search deterministic and connector-safe while preserving freshness metadata."""
-    bounded = dict(result)
+    bounded = apply_compact_projection_envelope(dict(result))
     bounded["truncated"] = False
     bounded["has_more"] = False
     bounded["response_budget_bytes"] = budget
@@ -296,7 +306,7 @@ def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -
 
 
 def _bounded_wiki_page(result: dict[str, Any], budget: int) -> dict[str, Any]:
-    bounded = dict(result)
+    bounded = apply_compact_projection_envelope(dict(result))
     bounded["has_more"] = False
     bounded["response_budget_bytes"] = budget
     bounded.setdefault("truncated", False)
@@ -335,6 +345,7 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
     for key in ("pages", "changed_source_files"):
         if key in result:
             compact[f"{key[:-1]}_count"] = len(result.get(key) or [])
+    apply_compact_projection_envelope(compact)
     compact["truncated"] = False
     compact["has_more"] = False
     compact["response_budget_bytes"] = budget
