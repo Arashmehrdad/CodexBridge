@@ -307,7 +307,22 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
 
 
 def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
+    class FakeJobs:
+        def start_repo_apply(self, repo_name, operation, payload):
+            assert (repo_name, operation, payload) == (
+                "repo",
+                "previewed_change",
+                {"patch_id": "patch_1"},
+            )
+            return {
+                "accepted": True,
+                "status": "queued",
+                "run_id": "run_apply_1",
+                "repo_name": "repo",
+            }
+
     monkeypatch.setattr(server, "_repo_context", lambda _repo_name: None)
+    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
     monkeypatch.setattr(server, "search_repo_text", lambda *args: {"operation": "search", "args": args})
     monkeypatch.setattr(server, "read_repo_files", lambda *args: {"operation": "read", "args": args})
     monkeypatch.setattr(server, "preview_repo_file_removal", lambda *args: {"operation": "remove", "args": args})
@@ -325,9 +340,12 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert server.repo_preview(TypeAdapter(RepoPreviewRequest).validate_python(
         {"operation": "remove_file", "repo_name": "repo", "path": "x", "expected_sha256": "a" * 64}
     ))["operation"] == "remove"
-    assert server.repo_apply(TypeAdapter(RepoApplyRequest).validate_python(
+    apply_result = server.repo_apply(TypeAdapter(RepoApplyRequest).validate_python(
         {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
-    ))["operation"] == "apply"
+    ))
+    assert apply_result["operation"] == "previewed_change"
+    assert apply_result["accepted"] is True
+    assert apply_result["transaction_id"] == "run_apply_1"
     assert server.repo_commit(TypeAdapter(RepoCommitRequest).validate_python(
         {"operation": "commit_selected", "repo_name": "repo", "files": ["x"], "title": "fix: x"}
     ))["operation"] == "commit"
