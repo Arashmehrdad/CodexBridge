@@ -761,6 +761,9 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert TypeAdapter(RepoPreviewRequest).validate_python(
         {"operation": "patch", "repo_name": "repo", "operations": [{"action": "modify", "path": "x"}]}
     ).response_budget_bytes == 12 * 1024
+    assert TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "commit_range", "repo_name": "repo", "base_commit": "a" * 40, "head_commit": "b" * 40}
+    ).response_budget_bytes == 12 * 1024
     apply_result = server.repo_apply(TypeAdapter(RepoApplyRequest).validate_python(
         {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
     ))
@@ -833,6 +836,50 @@ def test_repo_preview_projection_honors_response_budget(monkeypatch) -> None:
                 "operation": "patch",
                 "repo_name": "repo",
                 "operations": [{"action": "modify", "path": "x"}],
+                "view": "full",
+            }
+        )
+    )
+    assert len(full["diff"]) == 50_000
+
+
+def test_commit_range_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(server, "_repo_context", lambda _repo_name: ("repo", None, "repo"))
+    monkeypatch.setattr(
+        server,
+        "inspect_commit_range",
+        lambda *args: {
+            "ok": True,
+            "repo_name": "repo",
+            "base_commit": "a" * 40,
+            "head_commit": "b" * 40,
+            "name_status": "M\tfile.py\n" * 5000,
+            "diff_stat": "file.py | 1 +\n" * 500,
+            "diff": "d" * 50_000,
+            "error": "",
+        },
+    )
+    result = server.repo_query(
+        TypeAdapter(RepoQueryRequest).validate_python(
+            {
+                "operation": "commit_range",
+                "repo_name": "repo",
+                "base_commit": "a" * 40,
+                "head_commit": "b" * 40,
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    assert result["name_status_count"] == 5000
+    assert result["truncated"] is True
+    assert result["response_bytes"] <= 4096
+    full = server.repo_query(
+        TypeAdapter(RepoQueryRequest).validate_python(
+            {
+                "operation": "commit_range",
+                "repo_name": "repo",
+                "base_commit": "a" * 40,
+                "head_commit": "b" * 40,
                 "view": "full",
             }
         )

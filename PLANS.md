@@ -803,6 +803,12 @@ Fifty-seventh independently reviewable slice — bounded repository previews:
 - `view="full"` remains explicit complete diff and validation evidence access, while opaque preview persistence, path/hash validation, and apply compatibility remain unchanged;
 - focused CodexBridge pytest validation passed with 71 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifty-eighth independently reviewable slice — bounded commit-range inspection:
+
+- `repo_query(operation="commit_range")` now defaults to a compact projection retaining both commit identities, changed-file count, diff statistics, and diff byte size under a caller-selected 1–64-KB UTF-8 budget;
+- `view="full"` remains explicit complete commit-range evidence access, while full-hash validation, canonical repository binding, and legacy direct inspection remain unchanged;
+- focused CodexBridge pytest validation passed with 72 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

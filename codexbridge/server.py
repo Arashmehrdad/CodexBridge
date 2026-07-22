@@ -3944,6 +3944,28 @@ def inspect_commit_range(repo_name: str, base_commit: str, head_commit: str) -> 
     return result
 
 
+def _bounded_commit_range_response(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = {
+        key: result[key]
+        for key in (
+            "ok", "repo_name", "requested_repo_name", "base_commit", "head_commit", "error"
+        )
+        if key in result
+    }
+    compact["name_status_count"] = len(
+        [line for line in str(result.get("name_status") or "").splitlines() if line]
+    )
+    compact["diff_stat"] = str(result.get("diff_stat") or "")[:2048]
+    compact["diff_bytes"] = len(str(result.get("diff") or "").encode("utf-8"))
+    compact["truncated"] = bool(result.get("diff") or result.get("name_status"))
+    compact["has_more"] = compact["truncated"]
+    compact["response_budget_bytes"] = budget
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 def _get_runs_dir() -> "Path":
     return get_config().resolve_runs_dir()
 
@@ -4372,7 +4394,10 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.view,
             request.response_budget_bytes,
         )
-    return inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
+    result = inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
+    if request.view == "full":
+        return result
+    return _bounded_commit_range_response(result, request.response_budget_bytes)
 
 
 def _bounded_repo_preview_response(result: dict[str, Any], budget: int) -> dict[str, Any]:

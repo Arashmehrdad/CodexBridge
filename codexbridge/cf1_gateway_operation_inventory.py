@@ -996,12 +996,25 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "repo_query",
-        ("diff", "commit_range"),
+        ("diff",),
         "codexbridge.server:repo_query -> codexbridge.repo_tools",
-        "direct diff content and metadata",
+        "bounded immutable diff snapshot",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=16 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes="Diff statistics, hunk indexes, selected hunks, and explicit full retrieval share an immutable snapshot identity and UTF-8 budget.",
+    ),
+    _entry(
+        "repo_query",
+        ("commit_range",),
+        "codexbridge.server:repo_query -> codexbridge.server:inspect_commit_range",
+        "bounded compact commit-range projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         notes=(
-            "Diff helpers may mark content truncated, but the public contract does "
-            "not expose a shared byte budget."
+            "Compact commit-range responses retain commit identities, file counts, "
+            "diff statistics, and diff byte size; view=full preserves complete range evidence."
         ),
     ),
     _entry(

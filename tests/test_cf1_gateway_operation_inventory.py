@@ -424,6 +424,16 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert log.maximum_response_bytes == 12 * 1024
     assert "view=full" in log.notes
 
+    diff = _entry_for("repo_query", "diff")
+    assert diff.default_response_bytes == 16 * 1024
+    assert diff.maximum_response_bytes == 64 * 1024
+    assert "immutable snapshot" in diff.notes
+
+    commit_range = _entry_for("repo_query", "commit_range")
+    assert commit_range.default_response_bytes == 12 * 1024
+    assert commit_range.maximum_response_bytes == 12 * 1024
+    assert "view=full" in commit_range.notes
+
     status = _entry_for("repo_query", "status")
     assert status.default_response_bytes == 12 * 1024
     assert status.maximum_response_bytes == 12 * 1024
