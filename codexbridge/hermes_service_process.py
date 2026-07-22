@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, Thread
-from typing import Any, Mapping, Sequence, TextIO
+from typing import Any, Mapping, TextIO
 
 from .hermes_companion import MAX_REQUEST_BYTES
 from .hermes_companion_client import (
@@ -135,6 +135,8 @@ class PersistentHermesWorker:
         )
         self._pid = int(self._process.pid)
         self._process_identity = process_identity(self._pid)
+        self._service_pid = self._pid
+        self._service_process_identity = self._process_identity
         if not self._process_identity:
             self._terminate_unverified_startup()
             raise HermesServiceProcessError(
@@ -161,9 +163,52 @@ class PersistentHermesWorker:
                 expected_operation="handshake",
             )
             self._registry_identity = HermesRegistryIdentity.from_handshake(verified)
+            self._adopt_service_process(verified)
         except Exception:
             self.close()
             raise
+
+    def _adopt_service_process(self, handshake: Mapping[str, Any]) -> None:
+        """Verify the identity of the process that actually serves requests.
+
+        A Windows virtual-environment ``python.exe`` is a redirector: the
+        interpreter that executes the companion is a child of the launched
+        process, so the Popen PID identifies only the launch root. The
+        companion self-reports its serving PID in the handshake
+        ``python_identity``; identity verification must bind to that serving
+        process while termination stays rooted at the launched tree.
+        """
+        python_identity = handshake.get("python_identity")
+        reported = (
+            python_identity.get("pid")
+            if isinstance(python_identity, Mapping)
+            else None
+        )
+        if reported is None:
+            # Older companions do not self-report; the launch root is the
+            # serving process.
+            self._service_pid = self._pid
+            self._service_process_identity = self._process_identity
+            return
+        if (
+            isinstance(reported, bool)
+            or not isinstance(reported, int)
+            or reported <= 0
+        ):
+            raise HermesServiceProcessError(
+                "persistent Hermes handshake python_identity pid is invalid"
+            )
+        if reported == self._pid:
+            self._service_pid = self._pid
+            self._service_process_identity = self._process_identity
+            return
+        service_identity = process_identity(reported)
+        if not service_identity:
+            raise HermesServiceProcessError(
+                "persistent Hermes serving-process identity is unavailable"
+            )
+        self._service_pid = int(reported)
+        self._service_process_identity = service_identity
 
     @property
     def worker_id(self) -> str:
@@ -171,6 +216,10 @@ class PersistentHermesWorker:
 
     @property
     def process_identity(self) -> str:
+        return self._service_process_identity
+
+    @property
+    def launcher_process_identity(self) -> str:
         return self._process_identity
 
     @property
@@ -183,12 +232,18 @@ class PersistentHermesWorker:
             return (
                 not self._closed
                 and self._process.poll() is None
-                and process_matches_identity(self._pid, self._process_identity)
+                and process_matches_identity(
+                    self._service_pid, self._service_process_identity
+                )
             )
 
     @property
     def pid(self) -> int:
         return self._pid
+
+    @property
+    def service_pid(self) -> int:
+        return self._service_pid
 
     @property
     def active_request_id(self) -> str | None:
@@ -216,7 +271,7 @@ class PersistentHermesWorker:
             )
         with self._state_lock:
             if self._closed or not process_matches_identity(
-                self._pid, self._process_identity
+                self._service_pid, self._service_process_identity
             ):
                 raise HermesServiceProcessError(
                     "persistent Hermes worker is not ready"
@@ -238,10 +293,12 @@ class PersistentHermesWorker:
         with self._state_lock:
             if self._closed or self._active_request_id != normalized:
                 return False
-            if not process_matches_identity(self._pid, self._process_identity):
+            if not process_matches_identity(
+                self._service_pid, self._service_process_identity
+            ):
                 self._closed = True
                 return False
-            report = terminate_process_tree(self._pid)
+            report = self._terminate_owned_tree()
             self._termination_report = dict(report)
             self._closed = bool(report.get("terminated"))
             return bool(report.get("terminated"))
@@ -250,13 +307,16 @@ class PersistentHermesWorker:
         with self._state_lock:
             if self._closed:
                 return
-            identity_matches = process_matches_identity(
+            launcher_matches = process_matches_identity(
                 self._pid, self._process_identity
+            )
+            service_matches = process_matches_identity(
+                self._service_pid, self._service_process_identity
             )
             self._closed = True
         report: dict[str, Any]
-        if identity_matches:
-            report = terminate_process_tree(self._pid)
+        if launcher_matches or service_matches:
+            report = self._terminate_owned_tree()
         else:
             report = {
                 "pid": self._pid,
@@ -315,6 +375,34 @@ class PersistentHermesWorker:
                 "persistent Hermes response must be a JSON object"
             )
         return response
+
+    def _terminate_owned_tree(self) -> dict[str, Any]:
+        """Terminate the launched tree and any distinct serving process.
+
+        ``taskkill /T`` on the launch root normally covers a redirector's
+        serving child, but a root that already exited would leave the serving
+        process orphaned; terminating the verified serving PID directly closes
+        that leak without touching any unrelated process.
+        """
+        report = terminate_process_tree(self._pid)
+        if self._service_pid == self._pid:
+            return dict(report)
+        combined = dict(report)
+        if process_matches_identity(
+            self._service_pid, self._service_process_identity
+        ):
+            service_report = terminate_process_tree(self._service_pid)
+            combined["service_pid"] = self._service_pid
+            combined["service_terminated"] = bool(
+                service_report.get("terminated")
+            )
+            combined["terminated"] = bool(
+                report.get("terminated")
+            ) and bool(service_report.get("terminated"))
+        else:
+            combined["service_pid"] = self._service_pid
+            combined["service_terminated"] = True
+        return combined
 
     def _dead_process_message(self, phase: str) -> str:
         return_code = self._process.poll()

@@ -8,7 +8,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence, TextIO
+from typing import Any, Mapping, Sequence, TextIO
 
 from .hermes_companion_protocol import (
     DEFAULT_PUBLIC_OUTPUT_MAX_BYTES,
@@ -215,7 +215,11 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         registry_generation=_registry_generation(registry),
         tool_definitions=definitions,
         active_toolsets=_active_toolsets(registry),
-        python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
+        python_identity={
+            "executable": sys.executable,
+            "version": sys.version.split()[0],
+            "pid": os.getpid(),
+        },
         imported_modules=imported,
         initialization_warnings=initialization_warnings,
     )
@@ -230,7 +234,11 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
         registry_generation=_registry_generation(registry),
         tool_definitions=definitions,
         active_toolsets=_active_toolsets(registry),
-        python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
+        python_identity={
+            "executable": sys.executable,
+            "version": sys.version.split()[0],
+            "pid": os.getpid(),
+        },
         imported_modules=imported,
     )
 
@@ -265,7 +273,11 @@ class HermesCompanion:
             registry_generation=snapshot.generation,
             tool_definitions=snapshot.definitions,
             active_toolsets=snapshot.active_toolsets,
-            python_identity={"executable": sys.executable, "version": sys.version.split()[0]},
+            python_identity={
+                "executable": sys.executable,
+                "version": sys.version.split()[0],
+                "pid": os.getpid(),
+            },
             imported_modules=(),
             initialization_warnings=snapshot.initialization_warnings,
             max_bytes=max_output_bytes,
