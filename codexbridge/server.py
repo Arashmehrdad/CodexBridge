@@ -2374,14 +2374,32 @@ def get_workflow_status(workflow_id: str) -> dict:
 
 
 @_internal_tool(output_schema=EVENT_LIST_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_workflow_events(workflow_id: str, limit: int = 100) -> dict:
+def get_workflow_events(
+    workflow_id: str,
+    limit: int = 100,
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: return ordered workflow events."""
-    return _wrap_item_list(
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    result = _wrap_item_list(
         "events",
         "workflow_id",
         workflow_id,
         get_workflow_manager().get_events(workflow_id, limit),
     )
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        events = result.get("events")
+        if not isinstance(events, list) or not events:
+            break
+        events.pop()
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 @_internal_tool(output_schema=WORKFLOW_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -2402,7 +2420,9 @@ def workflow_query(request: WorkflowQueryRequest) -> dict:
     if request.operation == "status":
         return get_workflow_status(request.workflow_id)
     if request.operation == "events":
-        return get_workflow_events(request.workflow_id, request.limit)
+        return get_workflow_events(
+            request.workflow_id, request.limit, request.response_budget_bytes
+        )
     return get_workflow_result(request.workflow_id)
 
 

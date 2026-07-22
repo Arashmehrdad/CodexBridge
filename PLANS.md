@@ -612,6 +612,12 @@ Twenty-fifth independently reviewable slice — bounded supervisor notifications
 - the notification inventory now records the bounded-object 12-KB default/maximum response contract alongside the previously bounded event operation;
 - focused CodexBridge pytest validation passed with 39 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-sixth independently reviewable slice — bounded workflow events:
+
+- `workflow_query(operation="events")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the ordered event list, preserving workflow identity, event ordering, and the existing 100–500 item limit;
+- the workflow event inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
+- focused CodexBridge pytest validation passed with 40 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

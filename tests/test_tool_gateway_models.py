@@ -254,7 +254,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     supervisor_query = TypeAdapter(SupervisorQueryRequest)
     supervisor_action = TypeAdapter(SupervisorActionRequest)
 
-    assert workflow_query.validate_python({"operation": "events", "workflow_id": "wf_1"}).limit == 100
+    workflow_events = workflow_query.validate_python({"operation": "events", "workflow_id": "wf_1"})
+    assert workflow_events.limit == 100
+    assert workflow_events.response_budget_bytes == 12 * 1024
     assert workflow_action.validate_python(
         {"action": "start", "repo_name": "repo", "objective": "ship", "steps": [{"id": "one"}]}
     ).repo_name == "repo"

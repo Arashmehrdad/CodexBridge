@@ -184,6 +184,18 @@ def test_server_workflow_tool_functions_delegate(monkeypatch) -> None:
     assert server.cancel_workflow(workflow_id)["tool"] == "cancel_workflow"
 
 
+def test_workflow_events_honor_response_budget(monkeypatch) -> None:
+    class Manager:
+        def get_events(self, workflow_id, limit):
+            return [{"id": index, "message": "x" * 180} for index in range(limit)]
+
+    monkeypatch.setattr(server, "get_workflow_manager", lambda: Manager())
+    result = server.get_workflow_events("wf_1", 50, response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_docker_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / "docker-compose.yml").write_text(
