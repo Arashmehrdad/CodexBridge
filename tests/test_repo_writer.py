@@ -129,6 +129,37 @@ def test_preview_returns_patch_id_and_diff(tmp_path: Path) -> None:
     assert result["validation_errors"] == []
 
 
+def test_preview_binds_commit_metadata_and_apply_preserves_it(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "metadata.txt", "before\n")
+    operation = {
+        "path": "metadata.txt",
+        "expected_sha256": sha256_file(target),
+        "old_text": "before",
+        "new_text": "after",
+    }
+
+    preview = preview_repo_patch(
+        repo,
+        [operation],
+        runs,
+        commit_title="feat: preserve caller title",
+        commit_description="Caller supplied context",
+    )
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["commit_title"] == "feat: preserve caller title"
+    assert manifest["commit_description"] == (
+        "Caller supplied context\nPreview-ID: " + preview["patch_id"]
+    )
+
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["commit_title"] == manifest["commit_title"]
+    assert applied["commit_description"] == manifest["commit_description"]
+
+
 def test_preview_reports_intentional_newline_only_churn(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"

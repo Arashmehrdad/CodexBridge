@@ -471,6 +471,26 @@ def test_finalize_explicit_changes_commits_only_requested_paths(repo: Path) -> N
     assert not git_temp_root.exists() or not any(git_temp_root.iterdir())
 
 
+def test_finalize_explicit_changes_preserves_bound_commit_metadata(repo: Path) -> None:
+    (repo / "selected.txt").write_text("selected\n", encoding="utf-8")
+
+    result = finalize_explicit_changes(
+        repo,
+        ["selected.txt"],
+        tool_name="repo_apply",
+        run_id="run-bound-metadata",
+        commit_title="feat: caller title",
+        commit_description="Preview-ID: patch_bound",
+    )
+
+    assert result["commit_error"] == ""
+    report = result["commit_result"]["commit_report"]
+    assert report["title"] == "feat: caller title"
+    assert "Preview-ID: patch_bound" in report["description"]
+    assert "Run-ID: run-bound-metadata" in report["description"]
+    assert "Changed-Paths-SHA256:" in report["description"]
+
+
 def test_finalize_explicit_changes_stages_rename_source_and_destination(
     repo: Path,
 ) -> None:

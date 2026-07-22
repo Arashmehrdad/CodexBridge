@@ -516,6 +516,12 @@ Ninth independently reviewable slice — bounded knowledge search freshness enve
 - the response reports `response_bytes` and `truncated`, and existing repository-scoped search semantics, stale-generation metadata, and explicit wiki-page retrieval remain unchanged;
 - focused CodexBridge pytest validation passed with 7 knowledge-integration tests. Native compilation, Ruff, and `git diff --check` passed; pip check remains green from the preceding slice.
 
+Tenth independently reviewable slice — caller-bound preview commit metadata:
+
+- patch previews now accept bounded caller-supplied commit title and description fields, validate them with the existing commit-message policy, and persist them in the protected manifest together with an opaque `Preview-ID` binding;
+- preview apply returns only the manifest-bound metadata, and managed commit finalization preserves that title while appending the durable run ID and deterministic changed-path SHA-256, preventing replay or a later request from substituting commit identity;
+- focused CodexBridge pytest validation passed with 92 repository-writer tests, 37 Git-tool tests, and 36 gateway-model tests. Native compilation, `git diff --check`, and `python -m pip check` passed; Ruff reports only the pre-existing unused imports.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

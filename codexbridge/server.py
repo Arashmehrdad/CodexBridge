@@ -2971,10 +2971,21 @@ def _get_runs_dir() -> "Path":
 
 
 @_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def preview_repo_patch(repo_name: str, operations: list[dict]) -> dict:
+def preview_repo_patch(
+    repo_name: str,
+    operations: list[dict],
+    commit_title: str = "",
+    commit_description: str = "",
+) -> dict:
     """Read-only: validate patch operations and return a unified diff with a patch_id. Makes no changes."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = _repo_writer.preview_repo_patch(repo_root, operations, _get_runs_dir())
+    result = _repo_writer.preview_repo_patch(
+        repo_root,
+        operations,
+        _get_runs_dir(),
+        commit_title=commit_title,
+        commit_description=commit_description,
+    )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
@@ -3283,7 +3294,12 @@ def repo_query(request: RepoQueryRequest) -> dict:
 def repo_preview(request: RepoPreviewRequest) -> dict:
     """Read-only gateway that produces opaque managed repository change previews."""
     if request.operation == "patch":
-        return preview_repo_patch(request.repo_name, request.operations)
+        return preview_repo_patch(
+            request.repo_name,
+            request.operations,
+            request.commit_title,
+            request.commit_description,
+        )
     if request.operation == "create_file":
         return preview_repo_file_creation(request.repo_name, request.path, request.content)
     if request.operation == "remove_file":

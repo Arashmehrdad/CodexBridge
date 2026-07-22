@@ -485,6 +485,8 @@ class RepoPatchPreview(GatewayModel):
     operation: Literal["patch"]
     repo_name: str = Field(min_length=1, max_length=128)
     operations: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
 
 
 class RepoCreateFilePreview(GatewayModel):

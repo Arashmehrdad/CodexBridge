@@ -34,6 +34,7 @@ from .transactions import (
     build_transaction_result,
     rollback_transaction,
 )
+from .git_tools import _validate_commit_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +405,8 @@ def _write_preview_bundle(
     *,
     git_head: str,
     errors: list[str],
+    commit_title: str = "",
+    commit_description: str = "",
 ) -> Path:
     patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
     patch_dir.mkdir(parents=True, exist_ok=True)
@@ -429,6 +432,8 @@ def _write_preview_bundle(
         "status": "preview_failed" if errors else "preview_ok",
         "operations": [],
         "errors": errors,
+        "commit_title": commit_title,
+        "commit_description": commit_description,
     }
     for index, op in enumerate(operations):
         entry = {
@@ -1113,12 +1118,28 @@ def preview_repo_patch(
     repo_root: Path,
     operations: list[dict],
     runs_dir: Path,
+    *,
+    commit_title: str = "",
+    commit_description: str = "",
 ) -> dict:
     """
     Validate operations and store a preview.  Never modifies files.
     Returns patch_id, unified diff, changed files, stats, and validation errors.
     """
     patch_id = _make_patch_id()
+    bound_commit_description = commit_description
+    if commit_title or commit_description:
+        bound_commit_description = "\n".join(
+            item
+            for item in (commit_description, f"Preview-ID: {patch_id}")
+            if item
+        )
+    if commit_title or commit_description:
+        _validate_commit_metadata(
+            commit_title or "CodexBridge: repo_apply",
+            bound_commit_description,
+            files_validated=True,
+        )
     head = _git_head(repo_root)
     validated, errors = _validate_operations(repo_root, operations)
 
@@ -1158,6 +1179,8 @@ def preview_repo_patch(
         combined_diff,
         git_head=head,
         errors=errors,
+        commit_title=commit_title,
+        commit_description=bound_commit_description,
     )
 
     return {
@@ -1173,6 +1196,8 @@ def preview_repo_patch(
         "git_head": head,
         "validation_errors": errors,
         "error": "; ".join(errors) if errors else "",
+        "commit_title": commit_title,
+        "commit_description": bound_commit_description,
     }
 
 
@@ -1448,6 +1473,8 @@ def apply_repo_patch(
         "results": written,
         "git_head": current_head,
         "error": "",
+        "commit_title": str(manifest.get("commit_title") or ""),
+        "commit_description": str(manifest.get("commit_description") or ""),
     }
     result.update(build_transaction_result(transaction))
     result["idempotent_replay"] = False
@@ -1741,6 +1768,8 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
         ],
         "git_head": current_head,
         "error": "",
+        "commit_title": str(manifest.get("commit_title") or ""),
+        "commit_description": str(manifest.get("commit_description") or ""),
     }
     result.update(build_transaction_result(transaction))
     result["idempotent_replay"] = False

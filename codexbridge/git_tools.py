@@ -1123,6 +1123,8 @@ def finalize_explicit_changes(
     tool_name: str,
     run_id: str = "",
     require_commit_report: bool = True,
+    commit_title: str | None = None,
+    commit_description: str = "",
 ) -> dict[str, Any]:
     selected = _normalize_explicit_paths(paths)
     for file_name in selected:
@@ -1159,7 +1161,15 @@ def finalize_explicit_changes(
             },
         }
 
-    title, description = _build_auto_commit_metadata(tool_name, run_id, stage_paths)
+    auto_title, auto_description = _build_auto_commit_metadata(
+        tool_name, run_id, stage_paths
+    )
+    title = commit_title or auto_title
+    description = commit_description or ""
+    if commit_title:
+        description = "\n".join(item for item in (description, auto_description) if item)
+    else:
+        description = auto_description
     _validate_commit_metadata(title, description, files_validated=True)
     manifest_before = dry_run_stage_manifest(repo_root)
     before_head = git_head(repo_root)

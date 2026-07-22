@@ -674,12 +674,16 @@ class JobWorker:
         changed_files: list[str],
         *,
         tool_name: str,
+        commit_title: str = "",
+        commit_description: str = "",
     ) -> dict[str, object]:
         return git_tools.finalize_explicit_changes(
             repo_root,
             changed_files,
             tool_name=tool_name,
             run_id=self.run_id,
+            commit_title=commit_title or None,
+            commit_description=commit_description,
         )
 
     def execute(self) -> int:
@@ -2674,6 +2678,8 @@ class JobWorker:
                 repo_root,
                 list(result["changed_files"]),
                 tool_name="repo_apply",
+                commit_title=str(result.get("commit_title") or ""),
+                commit_description=str(result.get("commit_description") or ""),
             )
             result.update(commit_data)
             if commit_data.get("commit_attempted") and commit_data.get("commit_error"):
