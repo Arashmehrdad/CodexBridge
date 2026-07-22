@@ -5,11 +5,14 @@ from threading import Lock
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
+from contextlib import ExitStack
+
 from .hermes_companion_protocol import (
     PINNED_HERMES_REVISION,
     HermesCompanionProtocolError,
     HermesInterfaceDriftError,
 )
+from .hermes_concurrency import HermesConcurrencyControls
 from .hermes_service import (
     HermesServiceError,
     HermesServiceNotReadyError,
@@ -58,11 +61,15 @@ class HermesServiceGateway:
         runs_dir: str | Path,
         supervisor_factory: SupervisorFactory,
         fallback_starter: FallbackStarter | None = None,
+        concurrency: HermesConcurrencyControls | None = None,
     ) -> None:
         self._run_store = run_store
         self._runs_dir = Path(runs_dir)
         self._supervisor_factory = supervisor_factory
         self._fallback_starter = fallback_starter
+        self._concurrency = (
+            concurrency or HermesConcurrencyControls.from_rules()
+        )
         self._state_lock = Lock()
         self._creation_lock = Lock()
         self._supervisor: HermesServiceSupervisor | None = None
@@ -175,7 +182,8 @@ class HermesServiceGateway:
                 "cancelled": False,
             }
         try:
-            result = supervisor.execute(request)
+            with self._request_scopes(operation, payload):
+                result = supervisor.execute(request)
         except HermesServiceNotReadyError as exc:
             self._finish_failed(created, error=str(exc))
             response = self._error_response(
@@ -310,7 +318,35 @@ class HermesServiceGateway:
         supervisor, reason = self._ensure_service()
         if supervisor is None:
             raise HermesServiceNotReadyError(reason)
-        return supervisor.reload_registry()
+        with self._concurrency.administration.acquire("registry_reload"):
+            return supervisor.reload_registry()
+
+    @property
+    def concurrency(self) -> HermesConcurrencyControls:
+        return self._concurrency
+
+    def _request_scopes(
+        self, operation: str, payload: Mapping[str, Any]
+    ) -> ExitStack:
+        """Narrow per-request scopes: tool limits and resource mutation locks.
+
+        Read-only discovery and description acquire nothing. A tool call
+        matching no configured limit and declaring no resource key also
+        acquires nothing, so unrelated tools and providers stay concurrent.
+        """
+        stack = ExitStack()
+        if operation == "tool_call":
+            tool_name = str(payload.get("tool_name", "") or "")
+            if tool_name:
+                stack.enter_context(
+                    self._concurrency.tool_policy.acquire(tool_name)
+                )
+            resource_key = str(payload.get("resource_key", "") or "")
+            if resource_key:
+                stack.enter_context(
+                    self._concurrency.resource_locks.acquire(resource_key)
+                )
+        return stack
 
     # -- internals ---------------------------------------------------------
 

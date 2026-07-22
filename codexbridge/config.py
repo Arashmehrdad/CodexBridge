@@ -664,6 +664,12 @@ class LocalModelConfig(BaseModel):
     max_tokens: int = Field(default=1024, ge=1, le=32768)
 
 
+class HermesToolLimitConfig(BaseModel):
+    pattern: str = Field(min_length=1, max_length=256)
+    max_concurrent: int | None = Field(default=None, ge=1, le=1000)
+    min_interval_seconds: float = Field(default=0.0, ge=0.0, le=3600.0)
+
+
 class HermesServiceConfig(BaseModel):
     enabled: bool = False
     checkout: str = ""
@@ -676,6 +682,7 @@ class HermesServiceConfig(BaseModel):
     fallback_enabled: bool = True
     fallback_profile_id: str = "hermes_python"
     fallback_repo_name: str = ""
+    tool_limits: list[HermesToolLimitConfig] = Field(default_factory=list)
 
 
 class ReturnLoopConfig(BaseModel):

@@ -37,12 +37,37 @@ def identity() -> HermesRegistryIdentity:
     )
 
 
+class DispatchProbe:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def enter(self) -> None:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+
+    def leave(self) -> None:
+        with self._lock:
+            self.active -= 1
+
+
 class GateWorker:
-    def __init__(self, worker_id: str, *, block: bool = False) -> None:
+    def __init__(
+        self,
+        worker_id: str,
+        *,
+        block: bool = False,
+        dispatch_delay: float = 0.0,
+        probe: DispatchProbe | None = None,
+    ) -> None:
         self._worker_id = worker_id
         self._registry_identity = identity()
         self._ready = True
         self._block = block
+        self._dispatch_delay = dispatch_delay
+        self._probe = probe
         self.closed = False
         self.started = Event()
         self.release = Event()
@@ -72,7 +97,11 @@ class GateWorker:
         with self._lock:
             self.active_request_id = request_id
         self.started.set()
+        if self._probe is not None:
+            self._probe.enter()
         try:
+            if self._dispatch_delay:
+                time.sleep(self._dispatch_delay)
             if self._block:
                 if not self.release.wait(5):
                     raise TimeoutError("gate worker was never released")
@@ -90,6 +119,8 @@ class GateWorker:
                 "served_by": self._worker_id,
             }
         finally:
+            if self._probe is not None:
+                self._probe.leave()
             with self._lock:
                 self.active_request_id = None
 
@@ -113,6 +144,8 @@ def make_gateway(
     block: bool = False,
     factory_failures: int = 0,
     fallback: bool = False,
+    dispatch_delay: float = 0.0,
+    probe: DispatchProbe | None = None,
 ) -> tuple[HermesServiceGateway, dict[str, Any]]:
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -125,7 +158,12 @@ def make_gateway(
     }
 
     def worker_factory(worker_id: str) -> GateWorker:
-        worker = GateWorker(worker_id, block=block)
+        worker = GateWorker(
+            worker_id,
+            block=block,
+            dispatch_delay=dispatch_delay,
+            probe=probe,
+        )
         tracking["workers"].append(worker)
         return worker
 
@@ -321,6 +359,93 @@ def test_retry_service_recovers_after_start_failure(tmp_path: Path) -> None:
         assert second["execution_mode"] == SHARED_EXECUTION_MODE
         assert second["status"] == "completed"
         assert tracking["factory_calls"] == 2
+    finally:
+        gateway.close()
+
+
+def tool_call(
+    gateway: HermesServiceGateway,
+    *,
+    session_id: str,
+    tool_name: str,
+    resource_key: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"tool_name": tool_name, "arguments": {}}
+    if resource_key:
+        payload["resource_key"] = resource_key
+    return gateway.execute(
+        session_id=session_id,
+        operation="tool_call",
+        payload=payload,
+        expected_registry_generation=GENERATION,
+        expected_schema_hash=SCHEMA_HASH,
+        worker_wait_timeout_seconds=5,
+    )
+
+
+def test_same_resource_mutations_serialize_but_distinct_overlap(
+    tmp_path: Path,
+) -> None:
+    probe = DispatchProbe()
+    gateway, _ = make_gateway(tmp_path, dispatch_delay=0.3, probe=probe)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    tool_call,
+                    gateway,
+                    session_id=f"Session-{index}",
+                    tool_name="gsc_update",
+                    resource_key="gsc:property:example.com",
+                )
+                for index in range(2)
+            ]
+            for future in futures:
+                assert future.result(timeout=10)["ok"] is True
+        assert probe.max_active == 1
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    tool_call,
+                    gateway,
+                    session_id=f"Session-{index}",
+                    tool_name="gsc_update",
+                    resource_key=f"gsc:property:site-{index}.com",
+                )
+                for index in range(2)
+            ]
+            for future in futures:
+                assert future.result(timeout=10)["ok"] is True
+        assert probe.max_active == 2
+    finally:
+        gateway.close()
+
+
+def test_registry_reload_holds_named_administration_lock(
+    tmp_path: Path,
+) -> None:
+    gateway, _ = make_gateway(tmp_path)
+    try:
+        execute(gateway)  # start the service
+
+        observed: dict[str, Any] = {}
+
+        class ReloadStub:
+            def reload_registry(self) -> dict[str, Any]:
+                observed["holder"] = (
+                    gateway.concurrency.administration.holder()
+                )
+                return {"ok": True}
+
+        real = gateway._supervisor
+        gateway._supervisor = ReloadStub()
+        try:
+            gateway.reload_registry()
+        finally:
+            gateway._supervisor = real
+        assert observed["holder"]["operation"] == "registry_reload"
+        assert gateway.concurrency.administration.holder() is None
     finally:
         gateway.close()
 

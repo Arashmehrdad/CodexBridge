@@ -64,6 +64,7 @@ from .git_tools import stage_all as _stage_all
 from .git_tools import unstage_all as _unstage_all
 from .job_manager import JobManager
 from .hermes_companion_client import build_companion_launch, start_companion_request
+from .hermes_concurrency import HermesConcurrencyControls, ToolLimitRule
 from .hermes_service_gateway import (
     HermesServiceGateway,
     build_supervisor_from_config,
@@ -958,6 +959,16 @@ def _build_hermes_service_gateway() -> HermesServiceGateway:
         runs_dir=config.resolve_runs_dir(),
         supervisor_factory=lambda: build_supervisor_from_config(config),
         fallback_starter=fallback_starter,
+        concurrency=HermesConcurrencyControls.from_rules(
+            tuple(
+                ToolLimitRule(
+                    pattern=limit.pattern,
+                    max_concurrent=limit.max_concurrent,
+                    min_interval_seconds=limit.min_interval_seconds,
+                )
+                for limit in service_config.tool_limits
+            )
+        ),
     )
 
 
