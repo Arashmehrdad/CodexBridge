@@ -1161,6 +1161,8 @@ class KnowledgeReadWikiQuery(GatewayModel):
     operation: Literal["read_wiki"]
     repo_name: str = Field(min_length=1, max_length=128)
     page: str = Field(default="overview.md", min_length=1, max_length=512)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class KnowledgeSearchQuery(GatewayModel):

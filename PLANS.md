@@ -707,6 +707,12 @@ Forty-first independently reviewable slice — bounded signal submission results
 - immutable journal insertion, idempotency replay, and validation remain unchanged, while `view="full"` preserves explicit complete record access;
 - focused CodexBridge pytest validation passed with 59 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Forty-second independently reviewable slice — bounded wiki-page retrieval:
+
+- `knowledge_query(operation="read_wiki")` now defaults to a compact 12-KB serialized UTF-8 page projection with truncation, `has_more`, and response-byte metadata while preserving generation, freshness, and page identity fields;
+- `view="full"` remains explicit complete-page access, and repository wiki validation/error behavior is unchanged;
+- focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

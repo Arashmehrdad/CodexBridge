@@ -995,8 +995,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "knowledge_query",
         ("read_wiki",),
         "codexbridge.knowledge_tools_integration:knowledge_query",
-        "direct repository wiki content",
-        notes="Wiki content has no public response byte ceiling.",
+        "bounded repository wiki page content",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact wiki pages are capped by serialized UTF-8 budget with truncation metadata; view=full remains explicit complete-page access.",
     ),
     _entry(
         "knowledge_query",

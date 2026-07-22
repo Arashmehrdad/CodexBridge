@@ -70,6 +70,9 @@ WIKI_PAGE_OUTPUT = {
         "content": {"type": "string"},
         "size_bytes": {"type": "integer"},
         "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
         "generation_id": {"type": "string"},
         "stale": {"type": "boolean"},
         "indexed_head": {"type": "string"},
@@ -277,6 +280,24 @@ def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -
     return bounded
 
 
+def _bounded_wiki_page(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    bounded = dict(result)
+    bounded["has_more"] = False
+    bounded["response_budget_bytes"] = budget
+    bounded.setdefault("truncated", False)
+    while len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > budget:
+        content = str(bounded.get("content") or "")
+        if not content:
+            break
+        bounded["content"] = content[: max(0, len(content) - 512)]
+        bounded["truncated"] = True
+        bounded["has_more"] = True
+    bounded["response_bytes"] = len(
+        json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return bounded
+
+
 def register_knowledge_tools(mcp: Any) -> None:
     """Register knowledge tools exactly once on a FastMCP instance."""
     if getattr(mcp, "_codexbridge_knowledge_tools_registered", False):
@@ -468,7 +489,12 @@ def register_knowledge_tools(mcp: Any) -> None:
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
         if request.operation == "read_wiki":
-            return read_repo_wiki(request.repo_name, request.page)
+            page = read_repo_wiki(request.repo_name, request.page)
+            if request.view == "full":
+                return page
+            if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+                raise ValueError("response_budget_bytes must be between 1024 and 65536")
+            return _bounded_wiki_page(page, request.response_budget_bytes)
         return search_repo_knowledge(
             request.repo_name, request.query, request.limit, request.include_global_memory
         )

@@ -9,6 +9,7 @@ from typing import Any
 from codexbridge.config import AppConfig, RepoConfig
 from codexbridge.knowledge_tools_integration import (
     _bounded_knowledge_search,
+    _bounded_wiki_page,
     register_knowledge_tools,
 )
 from codexbridge.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
@@ -180,6 +181,26 @@ def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:
     assert bounded["truncated"] is True
     assert bounded["response_bytes"] <= 12 * 1024
     assert bounded["wiki_hits"] or bounded["memory_hits"]
+
+
+def test_wiki_page_projection_is_bounded_and_marks_truncation() -> None:
+    bounded = _bounded_wiki_page(
+        {
+            "ok": True,
+            "repo_name": "seedmind",
+            "page": "overview.md",
+            "content": "x" * 40_000,
+            "size_bytes": 40_000,
+            "truncated": False,
+            "generation_id": "generation-1",
+            "stale": False,
+            "error": "",
+        },
+        4096,
+    )
+    assert bounded["truncated"] is True
+    assert bounded["has_more"] is True
+    assert bounded["response_bytes"] <= 4096
 
 
 def test_knowledge_tools_follow_the_active_config_after_reload(

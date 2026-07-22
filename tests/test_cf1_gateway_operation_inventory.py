@@ -290,6 +290,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert signal_cancel.maximum_response_bytes == 12 * 1024
     assert "view=full" in signal_cancel.notes
 
+    wiki_page = _entry_for("knowledge_query", "read_wiki")
+    assert wiki_page.default_response_bytes == 12 * 1024
+    assert wiki_page.maximum_response_bytes == 12 * 1024
+    assert "view=full" in wiki_page.notes
+
     search = _entry_for("repo_query", "search_text")
     assert search.default_response_bytes == 16 * 1024
     assert search.maximum_response_bytes == 16 * 1024
