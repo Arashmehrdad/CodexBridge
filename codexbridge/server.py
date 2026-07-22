@@ -989,57 +989,63 @@ def _system_capabilities_result() -> dict[str, Any]:
     return _list_capabilities_sync()
 
 
-def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str]:
-    """Return live per-operation input-schema identities for drift checks."""
+def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool]:
+    """Return live per-operation identities and two-pass discovery stability."""
     try:
         from .knowledge_tools_integration import register_knowledge_tools
 
         register_knowledge_tools(mcp)
-        tools = asyncio.run(mcp.list_tools())
+        first_tools = asyncio.run(mcp.list_tools())
+        second_tools = asyncio.run(mcp.list_tools())
     except Exception as exc:
-        return {}, f"live operation-schema discovery unavailable: {exc}"
+        return {}, f"live operation-schema discovery unavailable: {exc}", False
 
-    hashes: dict[str, str] = {}
-    for tool in tools:
-        action = tool.to_mcp_tool().model_dump(mode="json")
-        root = action.get("inputSchema")
-        if not isinstance(root, dict):
-            continue
-        request_schema = (root.get("properties") or {}).get("request")
-        if not isinstance(request_schema, dict):
-            hashes["invoke"] = schema_hash(root)
-            continue
-        variants = request_schema.get("oneOf")
-        if not isinstance(variants, list):
-            variants = [request_schema]
-        for variant in variants:
-            current = variant
-            seen: set[str] = set()
-            while isinstance(current, dict) and "$ref" in current:
-                reference = str(current["$ref"])
-                if reference in seen or not reference.startswith("#/"):
-                    break
-                seen.add(reference)
-                resolved: Any = root
-                for part in reference[2:].split("/"):
-                    resolved = resolved[part.replace("~1", "/").replace("~0", "~")]
-                current = resolved
-            if not isinstance(current, dict):
+    def _hashes(tools: list[Any]) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for tool in tools:
+            action = tool.to_mcp_tool().model_dump(mode="json")
+            root = action.get("inputSchema")
+            if not isinstance(root, dict):
                 continue
-            operation_names: list[str] = []
-            properties = current.get("properties") or {}
-            for discriminator_name in ("operation", "action"):
-                discriminator = properties.get(discriminator_name)
-                if not isinstance(discriminator, dict):
+            request_schema = (root.get("properties") or {}).get("request")
+            if not isinstance(request_schema, dict):
+                hashes["invoke"] = schema_hash(root)
+                continue
+            variants = request_schema.get("oneOf")
+            if not isinstance(variants, list):
+                variants = [request_schema]
+            for variant in variants:
+                current = variant
+                seen: set[str] = set()
+                while isinstance(current, dict) and "$ref" in current:
+                    reference = str(current["$ref"])
+                    if reference in seen or not reference.startswith("#/"):
+                        break
+                    seen.add(reference)
+                    resolved: Any = root
+                    for part in reference[2:].split("/"):
+                        resolved = resolved[part.replace("~1", "/").replace("~0", "~")]
+                    current = resolved
+                if not isinstance(current, dict):
                     continue
-                if "const" in discriminator:
-                    operation_names.append(str(discriminator["const"]))
-                values = discriminator.get("enum")
-                if isinstance(values, list):
-                    operation_names.extend(str(value) for value in values)
-            for operation_name in operation_names or ["invoke"]:
-                hashes[operation_name] = schema_hash(current)
-    return hashes, ""
+                operation_names: list[str] = []
+                properties = current.get("properties") or {}
+                for discriminator_name in ("operation", "action"):
+                    discriminator = properties.get(discriminator_name)
+                    if not isinstance(discriminator, dict):
+                        continue
+                    if "const" in discriminator:
+                        operation_names.append(str(discriminator["const"]))
+                    values = discriminator.get("enum")
+                    if isinstance(values, list):
+                        operation_names.extend(str(value) for value in values)
+                for operation_name in operation_names or ["invoke"]:
+                    hashes[operation_name] = schema_hash(current)
+        return hashes
+
+    first_hashes = _hashes(first_tools)
+    second_hashes = _hashes(second_tools)
+    return second_hashes, "", first_hashes == second_hashes
 
 
 @_internal_tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3332,7 +3338,9 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
             "operation_inventory_hash": operation_inventory_hash,
         }
     )
-    live_operation_schema_hashes, live_schema_error = _live_operation_schema_hashes_sync()
+    live_operation_schema_hashes, live_schema_error, discovery_passes_converged = (
+        _live_operation_schema_hashes_sync()
+    )
     inventory_operation_names = {
         operation for names in operation_inventory.values() for operation in names
     }
@@ -3373,6 +3381,8 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         mismatches.append("connector_discovery_cache_generation")
     if live_schema_error:
         mismatches.append("live_operation_schema_discovery")
+    elif not discovery_passes_converged:
+        mismatches.append("live_operation_schema_discovery_pass_mismatch")
     else:
         for operation_name in sorted(inventory_operation_names - set(live_operation_schema_hashes)):
             mismatches.append(f"operation_missing:{operation_name}")
@@ -3400,6 +3410,8 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "operation_schema_hashes": live_operation_schema_hashes,
         "operation_schema_count": len(live_operation_schema_hashes),
         "operation_schema_error": live_schema_error,
+        "discovery_pass_count": 2,
+        "discovery_passes_converged": discovery_passes_converged,
         "operation_inventory_hash": operation_inventory_hash,
         "operation_inventory_gateway_count": len(operation_names_by_gateway()),
         "mismatches": mismatches,

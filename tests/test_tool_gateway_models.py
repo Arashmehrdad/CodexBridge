@@ -1955,6 +1955,51 @@ def test_capability_identity_reports_operation_schema_drift() -> None:
     assert "connector_operation_missing:missing_from_connector" in result["mismatches"]
     assert result["operation_schema_count"] == len(operation_hashes)
     assert "refresh connector schema" in result["refresh_guidance"]
+    assert result["discovery_pass_count"] == 2
+    assert result["discovery_passes_converged"] is True
+
+
+def test_capability_identity_rejects_disagreeing_discovery_passes(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_list_tools():
+        nonlocal calls
+        calls += 1
+        operation = "demo_first" if calls == 1 else "demo_second"
+        return [
+            SimpleNamespace(
+                to_mcp_tool=lambda: SimpleNamespace(
+                    model_dump=lambda mode: {
+                        "name": "demo_gateway",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "request": {
+                                    "oneOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "operation": {"const": operation}
+                                            },
+                                        }
+                                    ]
+                                }
+                            },
+                        },
+                    }
+                )
+            )
+        ]
+
+    monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
+    result = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capability_identity", "response_budget_bytes": 4096}
+        )
+    )
+    assert calls == 2
+    assert result["discovery_passes_converged"] is False
+    assert "live_operation_schema_discovery_pass_mismatch" in result["mismatches"]
 
 
 def test_system_action_projection_honors_response_budget(monkeypatch) -> None:

@@ -851,6 +851,12 @@ Sixty-fifth independently reviewable slice — per-operation schema drift report
 - lazy knowledge-tool registration is included in the live discovery pass, and any drift or discovery failure returns explicit bounded refresh guidance without mutating or reloading the service;
 - focused CodexBridge pytest validation passed with 77 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-sixth independently reviewable slice — consecutive discovery convergence:
+
+- capability identity now performs two consecutive live operation-schema discovery passes and reports pass disagreement explicitly, rather than treating one transient snapshot as converged;
+- the compact response includes pass count and convergence state, while schema mismatches retain affected operation names and bounded connector-refresh guidance;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
