@@ -97,7 +97,10 @@ def _bounded_list(
 ) -> tuple[list[str], dict[str, object] | None]:
     selected: list[str] = []
     for value in values[:maximum_items]:
-        text, _metadata = _canonical_preview(value, maximum_item_bytes)
+        if isinstance(value, str):
+            text, _metadata = _bounded_text(value, maximum_item_bytes)
+        else:
+            text, _metadata = _canonical_preview(value, maximum_item_bytes)
         selected.append(text)
     if len(values) <= maximum_items:
         return selected, None
