@@ -19,7 +19,7 @@ from typing import Sequence
 
 from fastmcp import FastMCP
 
-from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
+from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
 from .cloudflare_tools import authorize_cloudflare_profile
 from .cloudflare_tools import cloudflare_health as _cloudflare_health
 from .cloudflare_tools import (
@@ -1376,8 +1376,12 @@ def _bounded_system_query_response(result: dict[str, Any], response_budget_bytes
             compact[key] = text
             truncated = truncated or len(text) != len(value)
         elif isinstance(value, list):
-            compact[f"{key}_count"] = len(value)
-            truncated = True
+            if key == "mismatches":
+                compact[key] = [str(item)[:128] for item in value[:20]]
+                truncated = truncated or len(compact[key]) != len(value)
+            else:
+                compact[f"{key}_count"] = len(value)
+                truncated = True
         elif isinstance(value, dict):
             nested: dict[str, Any] = {}
             for nested_key, nested_value in value.items():
@@ -3217,10 +3221,42 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
     return compact
 
 
+def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
+    source_build = server_build_hash()
+    source_schema = schema_hash(PATCH_OPERATION_SCHEMA)
+    running_build = _PROCESS_CAPABILITY_METADATA["server_build_hash"]
+    running_schema = _PROCESS_CAPABILITY_METADATA["schema_hash"]
+    running_epoch = _PROCESS_CAPABILITY_METADATA["capability_epoch"]
+    mismatches: list[str] = []
+    if source_build != running_build:
+        mismatches.append("source_running_server_build_hash")
+    if source_schema != running_schema:
+        mismatches.append("source_running_schema_hash")
+    if request.expected_server_build_hash and request.expected_server_build_hash != running_build:
+        mismatches.append("connector_server_build_hash")
+    if request.expected_schema_hash and request.expected_schema_hash != running_schema:
+        mismatches.append("connector_schema_hash")
+    if request.expected_capability_epoch and request.expected_capability_epoch != running_epoch:
+        mismatches.append("connector_capability_epoch")
+    return {
+        "ok": not mismatches,
+        "converged": not mismatches,
+        "source_server_build_hash": source_build,
+        "source_schema_hash": source_schema,
+        "running_server_build_hash": running_build,
+        "running_schema_hash": running_schema,
+        "running_capability_epoch": running_epoch,
+        "mismatches": mismatches,
+        "error": "capability identities do not converge" if mismatches else "",
+    }
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def system_query(request: SystemQueryRequest) -> dict:
     """Read-only system gateway for capabilities, health, configuration validation, and reload status."""
-    if request.operation == "capabilities":
+    if request.operation == "capability_identity":
+        result = _capability_identity_result(request)
+    elif request.operation == "capabilities":
         result = list_capabilities()
     elif request.operation == "self_check":
         result = run_local_self_check()

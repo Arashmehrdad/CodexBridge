@@ -815,6 +815,12 @@ Fifty-ninth independently reviewable slice — explicit supervisor notification 
 - notification ordering, limit enforcement, supervisor identity, and existing internal bounded reads remain unchanged;
 - focused CodexBridge pytest validation passed with 73 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixtieth independently reviewable slice — capability identity convergence:
+
+- `system_query(operation="capability_identity")` now reports source-derived and running-service build/schema/epoch identities and compares caller-supplied connector/discovery identities, returning explicit mismatch names under the compact envelope;
+- convergence checks are read-only and do not reload or mutate services; existing capability discovery and system-query operations remain available, with `view="full"` preserving the complete identity record;
+- focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -1852,6 +1852,23 @@ def test_system_self_check_projection_honors_response_budget(monkeypatch) -> Non
     assert "stdout" not in result["checks"]["check_0"]
 
 
+def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
+    request = TypeAdapter(SystemQueryRequest).validate_python(
+        {
+            "operation": "capability_identity",
+            "expected_server_build_hash": "f" * 64,
+            "expected_schema_hash": "e" * 64,
+            "expected_capability_epoch": "stale",
+            "response_budget_bytes": 4096,
+        }
+    )
+    result = server.system_query(request)
+    assert result["converged"] is False
+    assert "connector_server_build_hash" in result["mismatches"]
+    assert "connector_schema_hash" in result["mismatches"]
+    assert result["response_bytes"] <= 4096
+
+
 def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
         server,

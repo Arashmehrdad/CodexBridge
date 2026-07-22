@@ -673,6 +673,16 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "system_query",
+        ("capability_identity",),
+        "codexbridge.server:system_query",
+        "bounded capability identity convergence check",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Reports source and running server/schema identities plus caller-supplied connector identity mismatches under a bounded projection.",
+    ),
+    _entry(
+        "system_query",
         ("self_check",),
         "codexbridge.server:system_query -> codexbridge.server:run_local_self_check",
         "bounded compact system self-check projection",

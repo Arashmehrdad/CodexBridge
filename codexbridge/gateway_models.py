@@ -1173,6 +1173,15 @@ class SystemSelfCheckQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class SystemCapabilityIdentityQuery(GatewayModel):
+    operation: Literal["capability_identity"]
+    expected_server_build_hash: str = Field(default="", max_length=64)
+    expected_schema_hash: str = Field(default="", max_length=64)
+    expected_capability_epoch: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class SystemLocalModelHealthQuery(GatewayModel):
     operation: Literal["local_model_health"]
     view: Literal["compact", "full"] = "compact"
@@ -1192,7 +1201,8 @@ class SystemReloadStatusQuery(GatewayModel):
 
 
 SystemQueryRequest = Annotated[
-    SystemCapabilitiesQuery | SystemSelfCheckQuery | SystemLocalModelHealthQuery
+    SystemCapabilitiesQuery | SystemSelfCheckQuery | SystemCapabilityIdentityQuery
+    | SystemLocalModelHealthQuery
     | SystemValidateConfigQuery | SystemReloadStatusQuery,
     Field(discriminator="operation"),
 ]

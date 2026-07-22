@@ -377,6 +377,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert system_summary.default_response_bytes == 12 * 1024
     assert system_summary.maximum_response_bytes == 12 * 1024
     assert "view=full" in system_summary.notes
+    identity = _entry_for("system_query", "capability_identity")
+    assert identity.default_response_bytes == 12 * 1024
+    assert identity.maximum_response_bytes == 12 * 1024
+    assert "identity" in identity.notes
 
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
