@@ -1567,6 +1567,9 @@ def test_compact_repo_status_honors_response_budget(monkeypatch) -> None:
         },
     )
     compact = server.inspect_repo_status_compact("repo", response_budget_bytes=4096)
+    assert compact["projection_version"] == "cf1.v1"
+    assert compact["non_authoritative"] is True
+    assert "authoritative" in compact["notice"]
     assert compact["truncated"] is True
     assert compact["has_more"] is True
     assert compact["response_bytes"] <= 4096

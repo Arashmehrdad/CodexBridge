@@ -1253,6 +1253,10 @@ def inspect_repo_status_compact(
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     diff_stat = result.get("diff_stat")
     result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
+    result["view"] = "compact"
+    result["projection_version"] = PUBLIC_PROJECTION_SCHEMA_VERSION
+    result["non_authoritative"] = True
+    result["notice"] = NON_AUTHORITATIVE_NOTICE
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
