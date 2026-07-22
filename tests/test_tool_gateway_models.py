@@ -285,6 +285,7 @@ def test_trading_signal_models_are_strict() -> None:
     submit = TypeAdapter(TradingSignalSubmitRequest)
     request = submit.validate_python(_signal_request_payload())
     assert request.confidence == 73
+    assert request.response_budget_bytes == 12 * 1024
     signal_get = TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"})
     assert signal_get.signal_id == "sig_1"
     assert signal_get.response_budget_bytes == 12 * 1024
@@ -339,6 +340,30 @@ def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
     )
     result = server.trading_signal_get(
         TradingSignalGetRequest(signal_id="sig_1", response_budget_bytes=1024)
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 1024
+
+
+def test_trading_signal_submit_honors_response_budget(monkeypatch) -> None:
+    class Journal:
+        def submit(self, idempotency_key, draft):
+            return object()
+
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server,
+        "_signal_record_json",
+        lambda record: {
+            "signal_id": "sig_1",
+            "draft": {"reason": "r" * 4000, "news_context": "n" * 4000},
+        },
+    )
+    payload = _signal_request_payload()
+    payload["response_budget_bytes"] = 1024
+    result = server.trading_signal_submit(
+        TypeAdapter(TradingSignalSubmitRequest).validate_python(payload)
     )
     assert result["truncated"] is True
     assert result["has_more"] is True

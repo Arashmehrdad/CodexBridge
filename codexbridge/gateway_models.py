@@ -303,6 +303,8 @@ class TradingSignalSubmitRequest(GatewayModel):
     news_context: str = Field(default="", max_length=8000)
     market_snapshot_id: str = Field(min_length=1, max_length=64)
     market_packet_hash: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> "TradingSignalSubmitRequest":

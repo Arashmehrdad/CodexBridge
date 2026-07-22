@@ -3373,7 +3373,10 @@ def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
         market_packet_hash=request.market_packet_hash,
     )
     record = _trading_signal_journal().submit(request.idempotency_key, draft)
-    return {"ok": True, "signal": _signal_record_json(record)}
+    signal = _signal_record_json(record)
+    if request.view == "full":
+        return {"ok": True, "signal": signal}
+    return _compact_trading_signal_response(signal, request.response_budget_bytes)
 
 
 def _compact_trading_signal_response(signal: dict[str, Any], response_budget_bytes: int) -> dict:

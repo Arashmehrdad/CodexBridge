@@ -275,6 +275,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert signal_list.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in signal_list.notes
 
+    signal_submit = _entry_for("trading_signal_submit", "invoke")
+    assert signal_submit.default_response_bytes == 12 * 1024
+    assert signal_submit.maximum_response_bytes == 12 * 1024
+    assert "view=full" in signal_submit.notes
+
     signal_get = _entry_for("trading_signal_get", "invoke")
     assert signal_get.default_response_bytes == 12 * 1024
     assert signal_get.maximum_response_bytes == 12 * 1024
