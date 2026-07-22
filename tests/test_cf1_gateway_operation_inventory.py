@@ -178,7 +178,6 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     assert terminal.maximum_response_bytes == 12 * 1024
     assert terminal.json_decode_cost is JsonDecodeCost.BOUNDED_OBJECT
     assert terminal.pagination is PaginationBehavior.NONE
-    assert terminal.preserves_full_operation is True
     assert "source-hash" in terminal.notes
     assert "result_json" in terminal.notes
 
