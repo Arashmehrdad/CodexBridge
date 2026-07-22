@@ -424,6 +424,22 @@ def test_cloudflare_inspect_honors_response_budget(monkeypatch, tmp_path) -> Non
     assert result["response_bytes"] <= 4096
 
 
+def test_cloudflare_capabilities_honor_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "_list_cloudflare_capabilities",
+        lambda cfg, repo_name: {
+            "ok": True,
+            "actions": ["x" * 180 for _ in range(100)],
+            "error": "",
+        },
+    )
+    result = server.list_cloudflare_capabilities("repo", response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_supervisor_events_honors_response_budget(monkeypatch) -> None:
     class Service:
         def get_events(self, supervisor_id, limit):

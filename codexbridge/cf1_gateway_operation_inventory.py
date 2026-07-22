@@ -311,10 +311,20 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "cloudflare_query",
-        ("capabilities", "health"),
+        ("capabilities",),
         "codexbridge.server:cloudflare_query",
-        "direct provider summary object",
-        notes="No public response byte ceiling is enforced.",
+        "bounded Cloudflare capability projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Capability lists remain authorization-shaped and are capped by a serialized UTF-8 budget with truncation metadata.",
+    ),
+    _entry(
+        "cloudflare_query",
+        ("health",),
+        "codexbridge.server:cloudflare_query",
+        "direct Cloudflare health summary",
+        notes="Cloudflare health remains a compatibility-shaped provider summary.",
     ),
     _entry(
         "cloudflare_query",

@@ -782,6 +782,7 @@ DockerActionRequest = Annotated[
 class CloudflareCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
     repo_name: str = Field(min_length=1, max_length=128)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class CloudflareHealthQuery(GatewayModel):

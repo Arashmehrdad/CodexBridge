@@ -1546,9 +1546,31 @@ def docker_inspect(
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def list_cloudflare_capabilities(repo_name: str) -> dict:
+def list_cloudflare_capabilities(
+    repo_name: str,
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: list Cloudflare capabilities and profiles authorized for one repository."""
-    return _list_cloudflare_capabilities(get_config(), repo_name)
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    result = _list_cloudflare_capabilities(get_config(), repo_name)
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("actions", "profiles", "zones", "resources"):
+            value = result.get(key)
+            if isinstance(value, list) and value:
+                value.pop()
+                reduced = True
+                break
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 @_internal_tool(
@@ -2071,7 +2093,9 @@ def docker_action(request: DockerActionRequest) -> dict:
 def cloudflare_query(request: CloudflareQueryRequest) -> dict:
     """Read-only Cloudflare gateway for authorized capabilities, health, and inspection."""
     if request.operation == "capabilities":
-        return list_cloudflare_capabilities(request.repo_name)
+        return list_cloudflare_capabilities(
+            request.repo_name, request.response_budget_bytes
+        )
     if request.operation == "health":
         return cloudflare_health(request.repo_name, request.profile_id)
     return cloudflare_inspect(
