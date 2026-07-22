@@ -380,6 +380,24 @@ def test_repo_list_files_model_exposes_compact_and_full_views() -> None:
     assert full.view == "full"
 
 
+def test_repo_recent_files_model_exposes_compact_and_full_views() -> None:
+    compact = TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "recent_files", "repo_name": "repo", "limit": 7}
+    )
+    assert compact.view == "compact"
+    assert compact.response_budget_bytes == 12 * 1024
+
+    full = TypeAdapter(RepoQueryRequest).validate_python(
+        {
+            "operation": "recent_files",
+            "repo_name": "repo",
+            "view": "full",
+            "response_budget_bytes": 4096,
+        }
+    )
+    assert full.view == "full"
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 

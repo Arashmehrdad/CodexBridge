@@ -1192,6 +1192,40 @@ def test_list_repo_files_has_bounded_compact_and_explicit_full_views(monkeypatch
     assert "response_bytes" not in full
 
 
+def test_recent_files_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    files = [
+        {"path": f"src/{index:04d}-" + ("x" * 160) + ".py", "mtime": float(index)}
+        for index in range(40)
+    ]
+
+    class Reader:
+        @staticmethod
+        def get_recently_modified_files(repo_root, *, limit):
+            return {
+                "ok": True,
+                "repo_name": "",
+                "files": files[:limit],
+                "count": min(len(files), limit),
+                "limit": limit,
+                "error": "",
+            }
+
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(server, "_repo_reader", Reader())
+
+    compact = server.get_recently_modified_files(
+        "repo", limit=40, view="compact", response_budget_bytes=4096
+    )
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert compact["count"] < 40
+
+    full = server.get_recently_modified_files("repo", limit=40, view="full")
+    assert full["files"] == files
+    assert "response_bytes" not in full
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):

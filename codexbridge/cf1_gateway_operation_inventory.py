@@ -743,11 +743,18 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("recent_files",),
         "codexbridge.server:repo_query -> codexbridge.repo_tools:get_recent_files",
-        "direct recent-file list",
+        "bounded compact recent-file list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=50,
         maximum_item_limit=500,
-        notes="Recent-file results are item limited without a cursor.",
+        notes=(
+            "The default compact view is capped by serialized UTF-8 budget and keeps "
+            "explicit count/truncation metadata; view=full preserves compatibility "
+            "for complete recent-file evidence."
+        ),
     ),
     _entry(
         "repo_query",

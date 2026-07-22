@@ -546,6 +546,12 @@ Fourteenth independently reviewable slice — bounded repository file lists:
 - the direct `list_repo_files` compatibility wrapper remains full by default, while `view="full"` preserves complete path evidence and the operation inventory records the compact/full distinction;
 - focused CodexBridge pytest validation passed with 30 server tests, 37 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifteenth independently reviewable slice — bounded recent-file lists:
+
+- `repo_query(operation="recent_files")` now defaults to a compact recent-file projection with a caller-selected 1–64-KB serialized UTF-8 budget, explicit `count`/`total_count`, `has_more`, truncation, and response byte accounting;
+- the direct `get_recently_modified_files` compatibility wrapper remains full by default, while `view="full"` preserves complete recent-file evidence and the operation inventory records the compact/full distinction;
+- focused CodexBridge pytest validation passed with 31 server tests, 38 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

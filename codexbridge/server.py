@@ -2939,13 +2939,47 @@ def search_repo_text(
 @_internal_tool(
     output_schema=RECENTLY_MODIFIED_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS
 )
-def get_recently_modified_files(repo_name: str, limit: int = 50) -> dict:
+def get_recently_modified_files(
+    repo_name: str,
+    limit: int = 50,
+    view: str = "full",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: list files sorted by filesystem mtime, newest first. Reflects unsaved changes immediately."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if limit < 1 or limit > 500:
+        raise ValueError("limit must be between 1 and 500")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.get_recently_modified_files(repo_root, limit=limit)
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if view == "full":
+        return result
+    files = list(result.get("files") or [])
+    compact = {
+        "ok": result.get("ok", False),
+        "repo_name": result.get("repo_name", canonical_name),
+        "files": files,
+        "count": len(files),
+        "total_count": result.get("count", len(files)),
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+        "error": result.get("error", ""),
+    }
+    if "requested_repo_name" in result:
+        compact["requested_repo_name"] = result["requested_repo_name"]
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and compact["files"]:
+        compact["files"].pop()
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["count"] = len(compact["files"])
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
     return result
 
 
@@ -3354,7 +3388,12 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.response_budget_bytes,
         )
     if request.operation == "recent_files":
-        return get_recently_modified_files(request.repo_name, request.limit)
+        return get_recently_modified_files(
+            request.repo_name,
+            request.limit,
+            request.view,
+            request.response_budget_bytes,
+        )
     if request.operation == "diff":
         return repo_git_diff(
             request.repo_name,
