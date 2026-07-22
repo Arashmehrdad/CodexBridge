@@ -39,12 +39,17 @@ RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "result_published_hash",
     "result_published_at",
     "result_publication_error",
+    "public_result_schema_version",
+    "public_result_source_sha256",
+    "public_result_status",
+    "public_result_error",
 )
 
 RUN_JSON_BLOB_COLUMNS: Final[tuple[str, ...]] = (
     "input_json",
     "progress_json",
     "result_json",
+    "public_result_json",
 )
 
 RUN_INTERNAL_ONLY_COLUMNS: Final[tuple[str, ...]] = (
