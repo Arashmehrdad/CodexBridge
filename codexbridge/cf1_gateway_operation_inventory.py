@@ -652,13 +652,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "supervisor_query",
-        ("status", "result", "resume_prompt"),
+        ("status", "result"),
         "codexbridge.server:supervisor_query",
-        "direct durable supervisor snapshot or prompt",
+        "direct durable supervisor snapshot",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        notes=(
-            "Result and resume-prompt content can grow without a public byte ceiling."
-        ),
+        notes="Status and result preserve the existing durable supervisor compatibility shape.",
+    ),
+    _entry(
+        "supervisor_query",
+        ("resume_prompt",),
+        "codexbridge.server:supervisor_query -> codexbridge.supervisor_service:SupervisorService.get_resume_prompt",
+        "bounded supervisor resume-prompt projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact prompt content is UTF-8 bounded with truncation and byte accounting; view=full remains explicit evidence access.",
     ),
     _entry(
         "supervisor_query",

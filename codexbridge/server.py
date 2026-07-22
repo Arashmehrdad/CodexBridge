@@ -3091,6 +3091,36 @@ def get_supervisor_resume_prompt(supervisor_id: str) -> dict:
     return get_supervisor_service().get_resume_prompt(supervisor_id)
 
 
+def _bounded_supervisor_resume_prompt(
+    supervisor_id: str, response_budget_bytes: int
+) -> dict:
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    source = get_supervisor_resume_prompt(supervisor_id)
+    content = str(source.get("content") or "")
+    response = {
+        "ok": True,
+        "supervisor_id": source.get("supervisor_id", supervisor_id),
+        "exists": bool(source.get("exists")),
+        "content": content,
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if not response["content"]:
+            break
+        current = response["content"].encode("utf-8")
+        response["content"] = current[: max(0, len(current) - 512)].decode(
+            "utf-8", errors="ignore"
+        )
+        response["truncated"] = True
+        response["has_more"] = True
+    response["content_bytes"] = len(content.encode("utf-8"))
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def supervisor_query(request: SupervisorQueryRequest) -> dict:
     """Read-only gateway for durable supervisor state and notifications."""
@@ -3109,7 +3139,11 @@ def supervisor_query(request: SupervisorQueryRequest) -> dict:
             request.limit,
             request.response_budget_bytes,
         )
-    return get_supervisor_resume_prompt(request.supervisor_id)
+    if request.view == "full":
+        return get_supervisor_resume_prompt(request.supervisor_id)
+    return _bounded_supervisor_resume_prompt(
+        request.supervisor_id, request.response_budget_bytes
+    )
 
 
 @mcp.tool(output_schema=SUPERVISOR_OUTPUT, annotations=WRITE_ANNOTATIONS)

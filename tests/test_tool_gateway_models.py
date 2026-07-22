@@ -329,6 +329,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     assert supervisor_query.validate_python(
         {"operation": "notifications", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
+    assert supervisor_query.validate_python(
+        {"operation": "resume_prompt", "supervisor_id": "sup_1"}
+    ).response_budget_bytes == 12 * 1024
     assert supervisor_action.validate_python(
         {"action": "pause", "supervisor_id": "sup_1"}
     ).supervisor_id == "sup_1"
@@ -375,6 +378,31 @@ def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(m
             {"action": "pause", "supervisor_id": "sup_1"}
         )
     )["status"] == "paused"
+
+
+def test_supervisor_resume_prompt_honors_response_budget(monkeypatch) -> None:
+    class Service:
+        def get_resume_prompt(self, supervisor_id):
+            return {
+                "supervisor_id": supervisor_id,
+                "exists": True,
+                "path": "protected/resume_prompt.txt",
+                "content": "resume " + "x" * 20_000,
+            }
+
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: Service())
+    request = TypeAdapter(SupervisorQueryRequest).validate_python(
+        {
+            "operation": "resume_prompt",
+            "supervisor_id": "sup_1",
+            "response_budget_bytes": 4096,
+        }
+    )
+    result = server.supervisor_query(request)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+    assert "path" not in result
 
 
 def test_repo_gateway_models_are_discriminated_and_strict() -> None:
