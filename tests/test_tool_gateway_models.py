@@ -1890,6 +1890,7 @@ def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
             "expected_schema_hash": "e" * 64,
             "expected_capability_epoch": "stale",
             "expected_operation_inventory_hash": "d" * 64,
+            "expected_live_input_schema_hash": "f" * 64,
             "response_budget_bytes": 4096,
         }
     )
@@ -1898,6 +1899,7 @@ def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
     assert "connector_server_build_hash" in result["mismatches"]
     assert "connector_schema_hash" in result["mismatches"]
     assert "connector_operation_inventory_hash" in result["mismatches"]
+    assert "connector_live_input_schema_hash" in result["mismatches"]
     assert result["operation_inventory_gateway_count"] > 0
     assert result["response_bytes"] <= 4096
 
@@ -1913,6 +1915,7 @@ def test_capability_identity_binds_public_schema_and_discovery_cache() -> None:
             "operation": "capability_identity",
             "expected_connector_schema_hash": baseline["public_schema_hash"],
             "expected_public_schema_hash": baseline["public_schema_hash"],
+            "expected_live_input_schema_hash": baseline["live_input_schema_hash"],
             "expected_operation_inventory_hash": baseline["operation_inventory_hash"],
             "expected_discovery_cache_generation": baseline[
                 "discovery_cache_generation"

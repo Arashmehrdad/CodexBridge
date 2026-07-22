@@ -869,6 +869,12 @@ Sixty-eighth independently reviewable slice — live input-schema aggregate iden
 - the aggregate is checked across both consecutive discovery passes, so structural connector drift cannot hide behind an unchanged operation-name inventory;
 - focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-ninth independently reviewable slice — connector binding for live input schemas:
+
+- `capability_identity` now accepts an explicit connector expectation for the aggregate live-input-schema hash and reports `connector_live_input_schema_hash` drift separately from legacy schema and operation-inventory mismatches;
+- matching expectations remain read-only and bounded, while stale expectations retain affected mismatch names and refresh guidance;
+- focused CodexBridge pytest validation passed with 78 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

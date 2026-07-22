@@ -1183,6 +1183,7 @@ class SystemCapabilityIdentityQuery(GatewayModel):
     expected_operation_schema_hashes: dict[str, str] = Field(
         default_factory=dict, max_length=128
     )
+    expected_live_input_schema_hash: str = Field(default="", max_length=64)
     expected_public_schema_hash: str = Field(default="", max_length=64)
     expected_discovery_cache_generation: str = Field(default="", max_length=64)
     view: Literal["compact", "full"] = "compact"

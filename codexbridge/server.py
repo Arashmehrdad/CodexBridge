@@ -3431,6 +3431,11 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         and request.expected_discovery_cache_generation != discovery_cache_generation
     ):
         mismatches.append("connector_discovery_cache_generation")
+    if (
+        request.expected_live_input_schema_hash
+        and request.expected_live_input_schema_hash != live_input_schema_hash
+    ):
+        mismatches.append("connector_live_input_schema_hash")
     if live_schema_error:
         mismatches.append("live_operation_schema_discovery")
     elif not discovery_passes_converged:
