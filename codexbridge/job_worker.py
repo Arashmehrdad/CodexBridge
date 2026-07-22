@@ -85,6 +85,7 @@ from .runner import (
     open_codex_prompt_stream,
 )
 from .repo_wiki import mark_repo_wiki_stale
+from .repo_reader import analyze_text_file
 from . import repo_writer
 from .remote_controller_state import validate_remote_controller_state_contract
 from .remote_powershell import (
@@ -2864,6 +2865,26 @@ class JobWorker:
                     f"Automatic commit finalization failed: {commit_data['commit_error']}"
                 )
 
+        validation = None
+        if command_id in {
+            PY_COMPILE_PATH_COMMAND_ID,
+            BASH_N_PATH_COMMAND_ID,
+            JSON_VALIDATE_PATH_COMMAND_ID,
+        }:
+            target_analysis = analyze_text_file(repo_root / normalized_target)
+            validation = {
+                "ok": int(command_result.get("exit_code", 1)) == 0,
+                "error_count": 0 if int(command_result.get("exit_code", 1)) == 0 else 1,
+                "representative_errors": [str(stderr).strip()[:1024]]
+                if str(stderr).strip()
+                else [],
+                "truncated": len(str(stderr).encode("utf-8")) > 1024,
+                "target_sha256": target_analysis["sha256"],
+                "target_size_bytes": target_analysis["size_bytes"],
+                "target_total_lines": target_analysis["total_lines"],
+                "newline_diagnostic": target_analysis["newline_diagnostic"],
+            }
+
         ended_at = _utc_now()
         tests_run = (
             [f"{command_id}:{normalized_target}"] if normalized_target else [command_id]
@@ -2904,23 +2925,7 @@ class JobWorker:
             "safety_failure": safety_failure,
             "timed_out": bool(command_result.get("timed_out")),
             "output_truncated": bool(command_result.get("output_truncated")),
-            "validation": (
-                {
-                    "ok": int(command_result.get("exit_code", 1)) == 0,
-                    "error_count": 0 if int(command_result.get("exit_code", 1)) == 0 else 1,
-                    "representative_errors": [
-                        str(stderr).strip()[:1024]
-                    ] if str(stderr).strip() else [],
-                    "truncated": len(str(stderr).encode("utf-8")) > 1024,
-                }
-                if command_id
-                in {
-                    PY_COMPILE_PATH_COMMAND_ID,
-                    BASH_N_PATH_COMMAND_ID,
-                    JSON_VALIDATE_PATH_COMMAND_ID,
-                }
-                else None
-            ),
+            "validation": validation,
             "argv": list(command_result.get("argv", [])),
             "temporary_directory": str(temp_root),
             "pytest_basetemp": str(pytest_temp) if pytest_temp.exists() else "",

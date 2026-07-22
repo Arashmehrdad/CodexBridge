@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from hashlib import sha256
 from pathlib import Path
 
 from codexbridge.job_worker import JobWorker
@@ -203,6 +204,74 @@ def test_project_command_worker_persists_output_and_isolates_pytest(
     assert captured["extra_env"]["TMP"] == result["temporary_directory"]
     assert "--basetemp=" in captured["extra_env"]["PYTEST_ADDOPTS"]
     assert (run_dir / "stdout.txt").read_text(encoding="utf-8") == "1 passed\n"
+
+
+def test_text_validator_reports_exact_newline_diagnostic(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    target = repo / "mixed.json"
+    target.write_bytes(b'{\r\n"alpha": 1,\n"beta": 2\r}\r\n')
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260722T000001Z_project_command_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "command_id": "json_validate_path",
+            "path": "mixed.json",
+        },
+    )
+
+    def fake_run(profile, cwd, *, extra_env=None):
+        assert cwd == repo
+        assert profile.command_id == "json_validate_path"
+        assert profile.argv[-1] == "mixed.json"
+        return {
+            "ok": True,
+            "command_id": profile.command_id,
+            "argv": list(profile.argv),
+            "exit_code": 0,
+            "timed_out": False,
+            "duration_seconds": 0.1,
+            "stdout": "",
+            "stderr": "",
+            "output_truncated": False,
+            "error": "",
+        }
+
+    monkeypatch.setattr("codexbridge.job_worker.run_command_profile", fake_run)
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.git_status", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.diff_stat", lambda _: "")
+    monkeypatch.setattr("codexbridge.job_worker.git_tools.changed_files", lambda _: [])
+
+    assert JobWorker(config_path, run_id).execute() == 0
+    result = store.get_run(run_id)["result"]
+    validation = result["validation"]
+    diagnostic = validation["newline_diagnostic"]
+    assert validation["ok"] is True
+    assert validation["target_sha256"] == sha256(target.read_bytes()).hexdigest()
+    assert validation["target_size_bytes"] == target.stat().st_size
+    assert validation["target_total_lines"] == 4
+    assert diagnostic["counts"] == {"lf": 1, "crlf": 2, "cr": 1}
+    assert diagnostic["mixed"] is True
+    assert diagnostic["newline_ranges"] == [
+        {"start_line": 1, "end_line": 1, "newline": "crlf"},
+        {"start_line": 2, "end_line": 2, "newline": "lf"},
+        {"start_line": 3, "end_line": 3, "newline": "cr"},
+        {"start_line": 4, "end_line": 4, "newline": "crlf"},
+    ]
+    assert diagnostic["response_bytes"] <= 8 * 1024
 
 
 def test_repo_apply_worker_persists_successful_commit_as_completed(
