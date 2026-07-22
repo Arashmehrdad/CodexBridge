@@ -399,7 +399,7 @@ result_full
 
 ### CF1.5 - Repository progressive disclosure and content-bound continuation
 
-Status: **first file-read and search slices complete; the diff slice has not started**.
+Status: **CF1.5 repository read, search, and diff slices complete; CF1.6 remains paused**.
 
 First-slice implementation and validation evidence:
 
@@ -419,6 +419,15 @@ Search-slice implementation and validation evidence:
 - focused repository-reader validation passed with 72 tests, including exact-file exclusion, cursor continuation, tamper rejection, stale-result rejection, and redacted bounded results; gateway-model validation passed with 36 tests after adding the scope, cursor, and response-budget contract;
 - native Python compilation passed for all changed Python files. Ruff lint still reports only the pre-existing unused `server.py` import, while whole-file formatting remains intentionally unapplied because it would rewrite unrelated legacy formatting. Pytest evidence is retained from CodexBridge runs; `.codex-tmp/` remains preserved;
 - no new choke point was discovered. Search scope/continuation is now covered by existing choke point 13; diff behavior remains explicitly deferred to the next CF1.5 slice.
+
+Diff-slice implementation and validation evidence:
+
+- `repo_query(diff)` now supports a bounded summary view with changed-file additions/deletions, indexed hunk metadata, a SHA-256 snapshot identity, and a 32-KB response ceiling; path-scoped and staged selection use the existing repository-relative safety validation;
+- selected hunk and explicit full views require the summary's immutable `snapshot_id`; retrieval recomputes the current diff and returns bounded `stale_snapshot` evidence instead of mixing generations, while legacy raw diff callers remain unchanged;
+- focused diff validation passed with 36 tests covering statistics, path scoping, hunk indexes, exact selected-hunk text, explicit full retrieval, stale snapshots, and legacy Git behavior; gateway-model validation passed with 36 tests and server regressions with 26 tests;
+- native Python compilation, `python -m pip check`, and `git diff --check` passed. Ruff passes for changed files other than the pre-existing unused `server.py` import; whole-file formatting remains intentionally unapplied to avoid unrelated churn;
+- the complete repository suite reported 1,377 passed and 5 skipped, with only the already-documented Hermes persistent-process PID assertion failing; no CF1.5 diff test failed and H2 remains paused;
+- no new choke point was discovered. Diff snapshot identity and hunk retrieval satisfy the existing CF1.5 immutable-diff requirements; CF1.6 has not started.
 
 Chat-facing defaults:
 

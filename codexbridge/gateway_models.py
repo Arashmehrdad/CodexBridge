@@ -431,6 +431,20 @@ class RepoDiffQuery(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(default="", max_length=1024)
     staged: bool = False
+    view: Literal["summary", "hunk", "full", "legacy"] = "summary"
+    snapshot_id: str = Field(default="", max_length=128)
+    hunk_id: str = Field(default="", max_length=64)
+    response_budget_bytes: int = Field(default=32 * 1024, ge=32 * 1024, le=32 * 1024)
+
+    @model_validator(mode="after")
+    def validate_diff_view(self) -> "RepoDiffQuery":
+        if self.view == "hunk" and (not self.snapshot_id or not self.hunk_id):
+            raise ValueError("hunk view requires snapshot_id and hunk_id")
+        if self.view == "full" and not self.snapshot_id:
+            raise ValueError("full view requires snapshot_id")
+        if self.view == "legacy" and (self.snapshot_id or self.hunk_id):
+            raise ValueError("legacy view cannot use snapshot-bound retrieval")
+        return self
 
 
 class RepoLogQuery(GatewayModel):

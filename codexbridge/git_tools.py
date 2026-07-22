@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -21,6 +22,9 @@ TOOL_OWNED_PREFIXES = (
 )
 GIT_OPERATION_TIMEOUT_SECONDS = 10.0
 FULL_COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{40}$")
+DEFAULT_DIFF_RESPONSE_BYTES = 32 * 1024
+MAX_DIFF_RESPONSE_BYTES = 32 * 1024
+_DIFF_SNAPSHOT_VERSION = 1
 
 
 class GitCommandError(RuntimeError):
@@ -556,6 +560,231 @@ def git_diff(
         "truncated": truncated,
         "error": result.stderr.strip() if result.returncode != 0 else "",
     }
+
+
+def git_diff_snapshot(
+    repo_root: Path,
+    path: str = "",
+    staged: bool = False,
+    *,
+    view: str = "summary",
+    snapshot_id: str = "",
+    hunk_id: str = "",
+    response_budget_bytes: int = DEFAULT_DIFF_RESPONSE_BYTES,
+) -> dict:
+    """Return a bounded diff summary or snapshot-bound exact evidence view."""
+    if view not in {"summary", "hunk", "full"}:
+        raise ValueError("view must be summary, hunk, or full")
+    if view == "hunk" and not hunk_id:
+        raise ValueError("hunk_id is required for hunk view")
+    if view in {"hunk", "full"} and not snapshot_id:
+        raise ValueError("snapshot_id is required for explicit diff retrieval")
+    response_budget_bytes = max(
+        4 * 1024, min(int(response_budget_bytes), MAX_DIFF_RESPONSE_BYTES)
+    )
+    validated_path = ""
+    if path:
+        validated = validate_repo_relative_path(repo_root, path)
+        validated_path = str(validated.relative_to(repo_root)).replace(os.sep, "/")
+    args = ["diff"]
+    if staged:
+        args.append("--cached")
+    if validated_path:
+        args.extend(["--", validated_path])
+    result = _run_git(repo_root, args)
+    raw = result.stdout or ""
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "status": "failed",
+            "fresh": False,
+            "view": view,
+            "path": path,
+            "staged": staged,
+            "changed_files": [],
+            "hunks": [],
+            "snapshot_id": "",
+            "response_bytes": 0,
+            "truncated": False,
+            "error": result.stderr.strip(),
+        }
+    snapshot = _parse_diff_snapshot(raw, path, staged)
+    hunk_texts = snapshot.pop("_hunk_texts", {})
+    if snapshot_id and snapshot_id != snapshot["snapshot_id"]:
+        return {
+            "ok": False,
+            "status": "stale_snapshot",
+            "fresh": False,
+            "view": view,
+            "path": path,
+            "staged": staged,
+            "snapshot_id": snapshot["snapshot_id"],
+            "expected_snapshot_id": snapshot_id,
+            "changed_files": [],
+            "hunks": [],
+            "truncated": False,
+            "response_bytes": 0,
+            "error": "Diff changed; restart from a fresh diff summary",
+        }
+    if view == "full":
+        return _bounded_diff_result(
+            {**snapshot, "view": "full", "diff": raw, "truncated": False},
+            response_budget_bytes,
+            allow_full=True,
+        )
+    if view == "hunk":
+        selected = next(
+            (item for item in snapshot["hunks"] if item["hunk_id"] == hunk_id),
+            None,
+        )
+        if selected is None:
+            raise ValueError("Unknown hunk_id for this diff snapshot")
+        return _bounded_diff_result(
+            {
+                "ok": True,
+                "status": "available",
+                "fresh": True,
+                "view": "hunk",
+                "path": path,
+                "staged": staged,
+                "snapshot_id": snapshot["snapshot_id"],
+                "hunk_id": hunk_id,
+                "hunk": hunk_texts.get(hunk_id, ""),
+                "truncated": False,
+                "error": "",
+            },
+            response_budget_bytes,
+        )
+    return _bounded_diff_result(
+        {
+            **snapshot,
+            "view": "summary",
+            "diff": "",
+            "full_retrieval": "Use view=full with snapshot_id",
+            "truncated": False,
+        },
+        response_budget_bytes,
+    )
+
+
+def _parse_diff_snapshot(raw: str, path: str, staged: bool) -> dict:
+    identity = json.dumps(
+        {"version": _DIFF_SNAPSHOT_VERSION, "path": path, "staged": staged, "diff": raw},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    snapshot_id = hashlib.sha256(identity).hexdigest()
+    files: list[dict[str, Any]] = []
+    hunks: list[dict[str, Any]] = []
+    current_file: dict[str, Any] | None = None
+    current_hunk: dict[str, Any] | None = None
+    for line in raw.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            match = re.match(r"diff --git a/(.+) b/(.+)", line.rstrip("\r\n"))
+            file_path = match.group(2) if match else line.rstrip("\r\n")[11:]
+            current_file = {
+                "path": file_path.replace("\\", "/"),
+                "status": "modified",
+                "additions": 0,
+                "deletions": 0,
+                "hunks": [],
+            }
+            files.append(current_file)
+            current_hunk = None
+            continue
+        if line.startswith("@@ ") and current_file is not None:
+            match = re.match(
+                r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)",
+                line.rstrip("\r\n"),
+            )
+            if not match:
+                continue
+            hunk_index = len(current_file["hunks"])
+            hunk_id = hashlib.sha256(
+                f"{snapshot_id}:{current_file['path']}:{hunk_index}".encode("utf-8")
+            ).hexdigest()[:20]
+            current_hunk = {
+                "hunk_id": hunk_id,
+                "path": current_file["path"],
+                "old_start": int(match.group(1)),
+                "old_lines": int(match.group(2) or 1),
+                "new_start": int(match.group(3)),
+                "new_lines": int(match.group(4) or 1),
+                "header": line.rstrip("\r\n"),
+                "additions": 0,
+                "deletions": 0,
+                "text": line,
+            }
+            current_file["hunks"].append(current_hunk)
+            hunks.append(current_hunk)
+            continue
+        if current_hunk is not None:
+            current_hunk["text"] += line
+            if line.startswith("+") and not line.startswith("+++"):
+                current_hunk["additions"] += 1
+                current_file["additions"] += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                current_hunk["deletions"] += 1
+                current_file["deletions"] += 1
+    for item in files:
+        if item["additions"] and not item["deletions"]:
+            item["status"] = "added"
+        elif item["deletions"] and not item["additions"]:
+            item["status"] = "deleted"
+    hunk_index = [
+        {key: value for key, value in item.items() if key != "text"}
+        for item in hunks
+    ]
+    file_index = [
+        {
+            **{key: value for key, value in item.items() if key != "hunks"},
+            "hunks": [
+                {key: value for key, value in hunk.items() if key != "text"}
+                for hunk in item["hunks"]
+            ],
+        }
+        for item in files
+    ]
+    return {
+        "ok": True,
+        "status": "available",
+        "fresh": True,
+        "path": path,
+        "staged": staged,
+        "snapshot_id": snapshot_id,
+        "changed_files": file_index,
+        "hunks": hunk_index,
+        "_hunk_texts": {item["hunk_id"]: item["text"] for item in hunks},
+        "file_count": len(files),
+        "hunk_count": len(hunks),
+        "additions": sum(item["additions"] for item in files),
+        "deletions": sum(item["deletions"] for item in files),
+        "error": "",
+    }
+
+
+def _bounded_diff_result(result: dict, budget: int, *, allow_full: bool = False) -> dict:
+    if allow_full:
+        result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+        return result
+    result["changed_files"] = result.get("changed_files", [])
+    result["hunks"] = result.get("hunks", [])
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > budget:
+        if result["hunks"]:
+            removed = result["hunks"].pop()
+            for file_item in result["changed_files"]:
+                file_item["hunks"] = [
+                    item for item in file_item.get("hunks", [])
+                    if item.get("hunk_id") != removed.get("hunk_id")
+                ]
+        elif result["changed_files"]:
+            result["changed_files"].pop()
+        else:
+            result["truncated"] = True
+            break
+        result["truncated"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 def git_head(repo_root: Path) -> str:

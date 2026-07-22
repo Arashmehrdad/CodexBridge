@@ -255,6 +255,14 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
     assert adapters["query"].validate_python(
         {"operation": "search_text", "repo_name": "repo", "query": "needle"}
     ).query == "needle"
+    diff_query = adapters["query"].validate_python(
+        {"operation": "diff", "repo_name": "repo"}
+    )
+    assert diff_query.view == "summary"
+    with pytest.raises(ValidationError):
+        adapters["query"].validate_python(
+            {"operation": "diff", "repo_name": "repo", "view": "full"}
+        )
     read_query = adapters["query"].validate_python(
         {"operation": "read_files", "repo_name": "repo", "requests": [{"path": "x.py"}]}
     )

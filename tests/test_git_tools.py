@@ -22,6 +22,7 @@ from codexbridge.git_tools import (
     inspect_status_compact,
     stage_all,
     unstage_all,
+    git_diff_snapshot,
 )
 
 
@@ -104,6 +105,56 @@ def test_git_diff_normalizes_missing_captured_streams(monkeypatch, repo: Path) -
     assert result["ok"] is True
     assert result["diff"] == ""
     assert result["error"] == ""
+
+
+def test_git_diff_snapshot_indexes_bounded_hunks_and_full_retrieval(repo: Path) -> None:
+    (repo / "base.txt").write_text("base\nadded\n", encoding="utf-8")
+    (repo / "other.txt").write_text("other\n", encoding="utf-8")
+
+    summary = git_diff_snapshot(repo, path="base.txt", response_budget_bytes=32 * 1024)
+
+    assert summary["ok"] is True
+    assert summary["view"] == "summary"
+    assert summary["file_count"] == 1
+    assert summary["hunk_count"] == 1
+    assert summary["changed_files"][0]["path"] == "base.txt"
+    assert summary["changed_files"][0]["additions"] == 1
+    assert summary["response_bytes"] <= 32 * 1024
+    hunk_id = summary["hunks"][0]["hunk_id"]
+
+    hunk = git_diff_snapshot(
+        repo,
+        path="base.txt",
+        view="hunk",
+        snapshot_id=summary["snapshot_id"],
+        hunk_id=hunk_id,
+    )
+    assert hunk["ok"] is True
+    assert "@@" in hunk["hunk"]
+    assert "added" in hunk["hunk"]
+
+    full = git_diff_snapshot(
+        repo,
+        path="base.txt",
+        view="full",
+        snapshot_id=summary["snapshot_id"],
+    )
+    assert full["ok"] is True
+    assert full["view"] == "full"
+    assert "diff --git" in full["diff"]
+    assert "other.txt" not in full["diff"]
+
+
+def test_git_diff_snapshot_rejects_stale_snapshot(repo: Path) -> None:
+    (repo / "base.txt").write_text("base\nfirst\n", encoding="utf-8")
+    summary = git_diff_snapshot(repo)
+    (repo / "base.txt").write_text("base\nsecond\n", encoding="utf-8")
+
+    stale = git_diff_snapshot(repo, view="full", snapshot_id=summary["snapshot_id"])
+
+    assert stale["ok"] is False
+    assert stale["status"] == "stale_snapshot"
+    assert stale["fresh"] is False
 
 
 def test_selected_file_commit_commits_only_selected_files(repo: Path) -> None:

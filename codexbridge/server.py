@@ -47,6 +47,7 @@ from .git_tools import finalize_explicit_changes
 from .git_tools import inspect_status_compact
 from .git_tools import inspect_commit_range as _inspect_commit_range
 from .git_tools import git_diff as _git_diff_raw
+from .git_tools import git_diff_snapshot as _git_diff_snapshot
 from .git_tools import create_branch as _git_create_branch
 from .git_tools import stage_all as _stage_all
 from .git_tools import unstage_all as _unstage_all
@@ -530,6 +531,21 @@ REPO_GIT_DIFF_OUTPUT = {
         "repo_name": {"type": "string"},
         "path": {"type": "string"},
         "staged": {"type": "boolean"},
+        "view": {"type": "string"},
+        "snapshot_id": {"type": "string"},
+        "expected_snapshot_id": {"type": "string"},
+        "hunk_id": {"type": "string"},
+        "hunk": {"type": "string"},
+        "changed_files": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "hunks": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "file_count": {"type": "integer"},
+        "hunk_count": {"type": "integer"},
+        "additions": {"type": "integer"},
+        "deletions": {"type": "integer"},
+        "full_retrieval": {"type": "string"},
+        "response_bytes": {"type": "integer"},
+        "fresh": {"type": "boolean"},
+        "status": {"type": "string"},
         "diff": {"type": "string"},
         "truncated": {"type": "boolean"},
         "error": {"type": "string"},
@@ -2783,10 +2799,29 @@ def repo_git_status(repo_name: str) -> dict:
 
 
 @_internal_tool(output_schema=REPO_GIT_DIFF_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def repo_git_diff(repo_name: str, path: str = "", staged: bool = False) -> dict:
+def repo_git_diff(
+    repo_name: str,
+    path: str = "",
+    staged: bool = False,
+    view: str = "legacy",
+    snapshot_id: str = "",
+    hunk_id: str = "",
+    response_budget_bytes: int = 32 * 1024,
+) -> dict:
     """Read-only: return git diff output, optionally scoped to one validated relative path or the staging area."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
-    result = _git_diff_raw(repo_root, path=path, staged=staged)
+    if view == "legacy":
+        result = _git_diff_raw(repo_root, path=path, staged=staged)
+    else:
+        result = _git_diff_snapshot(
+            repo_root,
+            path=path,
+            staged=staged,
+            view=view,
+            snapshot_id=snapshot_id,
+            hunk_id=hunk_id,
+            response_budget_bytes=response_budget_bytes,
+        )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
@@ -3103,7 +3138,15 @@ def repo_query(request: RepoQueryRequest) -> dict:
     if request.operation == "recent_files":
         return get_recently_modified_files(request.repo_name, request.limit)
     if request.operation == "diff":
-        return repo_git_diff(request.repo_name, request.path, request.staged)
+        return repo_git_diff(
+            request.repo_name,
+            request.path,
+            request.staged,
+            request.view,
+            request.snapshot_id,
+            request.hunk_id,
+            request.response_budget_bytes,
+        )
     if request.operation == "log":
         return git_log(request.repo_name, request.limit, request.path)
     return inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
