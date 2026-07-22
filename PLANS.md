@@ -965,6 +965,12 @@ Eighty-fourth independently reviewable slice — versioned compact Docker capabi
 - capability risk gates, repository scoping, requested-name handling, and bounded operation contents remain unchanged;
 - focused CodexBridge pytest validation passed with 80 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Eighty-fifth independently reviewable slice — versioned compact Cloudflare health responses:
+
+- compact Cloudflare health responses now carry the standard projection version, compact view marker, non-authoritative notice, and existing authorized-profile/diagnostic truncation/byte metadata;
+- profile authorization, token/engine diagnostics, repository identity, and bounded health semantics remain unchanged;
+- focused CodexBridge pytest validation passed with 81 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -1885,6 +1885,14 @@ def cloudflare_health(
     canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _cloudflare_health(config, profile_id)
     result["repo_name"] = canonical_repo_name
+    result.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes

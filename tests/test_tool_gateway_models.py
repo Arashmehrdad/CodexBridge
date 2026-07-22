@@ -1106,6 +1106,30 @@ def test_cloudflare_health_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_cloudflare_health_compact_envelope(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "authorize_cloudflare_profile",
+        lambda config, repo_name, profile_id: (repo_name, object()),
+    )
+    monkeypatch.setattr(
+        server,
+        "_cloudflare_health",
+        lambda config, profile_id: {
+            "ok": True,
+            "engine": {"status": "ok"},
+            "token": {"present": True},
+        },
+    )
+    result = server.cloudflare_health("repo", "profile", response_budget_bytes=4096)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
+    assert result["response_bytes"] <= 4096
+
+
 def test_supervisor_events_model_exposes_response_budget() -> None:
     request = TypeAdapter(SupervisorQueryRequest).validate_python(
         {"operation": "events", "supervisor_id": "sup_1"}
