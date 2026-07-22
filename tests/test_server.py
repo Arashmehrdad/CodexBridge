@@ -306,6 +306,23 @@ def test_docker_capabilities_honor_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_docker_health_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "_docker_health",
+        lambda cfg: {
+            "ok": True,
+            "engine": {f"field_{index}": "x" * 180 for index in range(100)},
+            "compose": {"ok": True},
+            "error": "",
+        },
+    )
+    result = server.docker_health(response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(

@@ -281,8 +281,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "docker_query",
         ("health",),
         "codexbridge.server:docker_query",
-        "direct Docker health summary",
-        notes="Docker health remains a compatibility-shaped provider summary.",
+        "bounded Docker health summary",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Docker health remains a compatibility-shaped provider summary under a serialized UTF-8 budget.",
     ),
     _entry(
         "docker_query",

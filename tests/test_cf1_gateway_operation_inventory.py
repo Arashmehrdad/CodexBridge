@@ -270,6 +270,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert docker_capabilities.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in docker_capabilities.notes
 
+    docker_health = _entry_for("docker_query", "health")
+    assert docker_health.default_response_bytes == 12 * 1024
+    assert docker_health.maximum_response_bytes == 12 * 1024
+    assert "serialized UTF-8 budget" in docker_health.notes
+
     cloudflare_capabilities = _entry_for("cloudflare_query", "capabilities")
     assert cloudflare_capabilities.default_response_bytes == 12 * 1024
     assert cloudflare_capabilities.maximum_response_bytes == 12 * 1024

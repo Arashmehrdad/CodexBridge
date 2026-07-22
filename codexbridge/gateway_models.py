@@ -713,6 +713,7 @@ class DockerCapabilitiesQuery(GatewayModel):
 
 class DockerHealthQuery(GatewayModel):
     operation: Literal["health"]
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class DockerInspectQuery(GatewayModel):

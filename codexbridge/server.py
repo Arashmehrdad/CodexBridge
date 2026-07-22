@@ -1485,9 +1485,31 @@ def list_docker_capabilities(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
-def docker_health() -> dict:
+def docker_health(response_budget_bytes: int = 12 * 1024) -> dict:
     """Read-only: verify Docker Engine and Docker Compose connectivity."""
-    return _docker_health(get_config())
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    result = _docker_health(get_config())
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("engine", "compose"):
+            value = result.get(key)
+            if isinstance(value, dict) and value:
+                value.pop(next(reversed(value)))
+                reduced = True
+                break
+        if not reduced and isinstance(result.get("error"), str) and result["error"]:
+            result["error"] = ""
+            reduced = True
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+    return result
 
 
 @_internal_tool(
@@ -2060,7 +2082,7 @@ def docker_query(request: DockerQueryRequest) -> dict:
             request.repo_name, request.response_budget_bytes
         )
     if request.operation == "health":
-        return docker_health()
+        return docker_health(request.response_budget_bytes)
     return docker_inspect(
         request.repo_name,
         request.inspection,
