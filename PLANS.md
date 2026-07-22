@@ -253,7 +253,7 @@ Completion decision:
 
 ### CF1.2 - Compact control, decision-version polling, and delta events
 
-Status: **complete. CF1.3 is next and has not started**.
+Status: **complete**.
 
 Completion decision:
 
@@ -352,6 +352,8 @@ Required acceptance evidence:
 - stale knowledge is visible and deliberately refreshable without unbounded write responses.
 
 ### CF1.3 - Source-hash-bound terminal public projection
+
+Status: **complete; exercised end to end by `tests/test_chat_footprint_acceptance.py`**.
 
 - Add `public_result_json`, `public_result_schema_version`, `public_result_source_sha256`, and `public_result_status` or equivalent durable fields.
 - Materialize one deterministic, schema-versioned, tool-aware public projection when the authoritative terminal result publishes.
@@ -971,7 +973,16 @@ Eighty-fifth independently reviewable slice — versioned compact Cloudflare hea
 - profile authorization, token/engine diagnostics, repository identity, and bounded health semantics remain unchanged;
 - focused CodexBridge pytest validation passed with 81 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
-- Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
+Eighty-sixth independently reviewable slice — versioned compact Cloudflare capability listings: the compact capability projection carries the standard envelope while profile authorization, bounded operation contents, and full evidence remain unchanged.
+
+Eighty-seventh consolidated slice — CF1 identity, durability, evidence, and transport hardening (commits `2acf399`..`55c5bb1`):
+
+- operation schema identities are qualified by `gateway.operation`; duplicate identities with different schemas are collisions, connector expectation capacity is no longer capped at an incomplete 128-entry set, and fresh-process identity convergence is tested;
+- managed applies now persist successful results with `ended_at`/`duration_seconds` (a successful commit can no longer be reported failed) and no longer recursively scan the whole workspace per transaction; observed managed-apply time fell from ~342.9 s to ~0.665 s (~516×);
+- explicit `view="full"` retrieval was restored for every compacted route the audit identified (Docker, Cloudflare, trading, workflow/supervisor events, SSH bounded inspection, knowledge search, collections/events), protected by a table-driven gateway-inventory test;
+- one shared `cf1.v1` compact envelope (`view`, `projection_version`, `non_authoritative`, `notice`) is applied centrally, including strict knowledge output schemas; full responses stay undecorated and authoritative;
+- repository reads, patch previews, and dedicated text validators report exact newline diagnostics (LF/CRLF/lone-CR counts, first 20 immutable style ranges, truncation flag, ending-newline state) with corrected lone-CR line totals;
+- the MCP transport wraps dict results in a `ToolResult` so the complete payload appears once in structured content with a ≤512-byte human-readable text summary; direct Python callers still receive plain dictionaries.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
 - No ordinary unsolicited public result may exceed 64 KB.
