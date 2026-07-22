@@ -126,6 +126,37 @@ def test_ssh_health_projection_honors_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_ssh_profile_apply_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "apply_ssh_profile_change",
+        lambda change_id: {
+            "ok": True,
+            "change_id": change_id,
+            "status": "applied",
+            "activation": {
+                "ok": True,
+                "modules": [f"module_{index}" for index in range(5000)],
+                "message": "x" * 20_000,
+            },
+        },
+    )
+    result = server.ssh_action(
+        TypeAdapter(SSHActionRequest).validate_python(
+            {"action": "profile_apply", "change_id": "change_1", "response_budget_bytes": 4096}
+        )
+    )
+    assert result["change_id"] == "change_1"
+    assert result["truncated"] is True
+    assert result["response_bytes"] <= 4096
+    full = server.ssh_action(
+        TypeAdapter(SSHActionRequest).validate_python(
+            {"action": "profile_apply", "change_id": "change_1", "view": "full"}
+        )
+    )
+    assert len(full["activation"]["modules"]) == 5000
+
+
 def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     adapter = TypeAdapter(TradingQueryRequest)
     h4 = adapter.validate_python({"operation": "h4_candles"})

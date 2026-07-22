@@ -2307,7 +2307,10 @@ def ssh_query(request: SSHQueryRequest) -> dict:
 def ssh_action(request: SSHActionRequest) -> dict:
     """Write SSH gateway for structured, reviewed-script, and root-shell runs."""
     if request.action == "profile_apply":
-        return apply_ssh_profile_change(request.change_id)
+        result = apply_ssh_profile_change(request.change_id)
+        if request.view == "full":
+            return result
+        return _bounded_system_query_response(result, request.response_budget_bytes)
     if request.action == "command":
         return start_ssh_command_async(
             request.host_id,

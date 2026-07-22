@@ -387,8 +387,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "ssh_action",
         ("profile_apply",),
         "codexbridge.server:ssh_action -> codexbridge.ssh_tools:profile_apply",
-        "direct profile mutation result",
-        notes="The response returns profile lifecycle metadata without pagination.",
+        "bounded compact profile mutation result",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact profile mutation results retain change/status/activation scalars and counts under a UTF-8 budget; view=full remains explicit complete evidence access.",
     ),
     _entry(
         "ssh_action",

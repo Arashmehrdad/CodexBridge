@@ -301,6 +301,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert ssh_health.default_response_bytes == 12 * 1024
     assert ssh_health.maximum_response_bytes == 12 * 1024
     assert "view=full" in ssh_health.notes
+    ssh_profile_apply = _entry_for("ssh_action", "profile_apply")
+    assert ssh_profile_apply.default_response_bytes == 12 * 1024
+    assert ssh_profile_apply.maximum_response_bytes == 12 * 1024
+    assert "view=full" in ssh_profile_apply.notes
 
     signal_list = _entry_for("trading_signal_list", "invoke")
     assert signal_list.default_response_bytes == 12 * 1024

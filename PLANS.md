@@ -791,6 +791,12 @@ Fifty-fifth independently reviewable slice — bounded SSH health and telemetry:
 - `view="full"` remains explicit complete SSH evidence access, while bounded inspection, underlying SSH probes, and existing host security checks remain unchanged;
 - focused CodexBridge pytest validation passed with 69 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fifty-sixth independently reviewable slice — bounded SSH profile apply:
+
+- `ssh_action(action="profile_apply")` now defaults to a compact mutation projection retaining change/status/activation scalars and counts under a caller-selected 1–64-KB UTF-8 budget;
+- `view="full"` remains explicit complete profile-apply evidence access, while hash verification, repository locking, activation, and existing SSH action behavior remain unchanged;
+- focused CodexBridge pytest validation passed with 70 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
