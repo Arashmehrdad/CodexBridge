@@ -678,6 +678,10 @@ def test_supervisor_snapshot_projection_honors_response_budget(monkeypatch) -> N
         {"operation": "status", "supervisor_id": "sup_1", "response_budget_bytes": 4096}
     )
     result = server.supervisor_query(request)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["response_bytes"] <= 4096
     assert result["run_link_count"] == 100
     assert "plan_result" not in result

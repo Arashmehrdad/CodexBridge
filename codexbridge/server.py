@@ -3725,6 +3725,14 @@ def _bounded_supervisor_snapshot(snapshot: dict[str, Any], response_budget_bytes
         )
         if key in snapshot
     }
+    compact.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     for field in ("summary", "failure_summary", "recommended_next_action"):
         if compact.get(field):
             compact[field] = str(compact[field])[:512]
