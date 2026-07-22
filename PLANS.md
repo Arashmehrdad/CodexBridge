@@ -253,7 +253,7 @@ Completion decision:
 
 ### CF1.2 - Compact control, decision-version polling, and delta events
 
-Status: **in progress. Decision-version phase and lock-ownership invariants are complete; compact control polling is next. Delta events have not started**.
+Status: **in progress. Decision-version invariants and compact control polling are complete; delta events are next and have not started**.
 
 Completed milestones:
 
@@ -263,8 +263,12 @@ Completed milestones:
 - repository-lock acquisition is durably bound to the run exactly once, including the acquisition-before-run launch order; startup reconciliation can repair an unbound legacy or interrupted row idempotently;
 - repository-lock owner changes, successful release, and stale-lock cleanup increment `state_version` in the same SQLite transaction as the ownership change; repeated same-owner claims and rejected releases remain quiet;
 - the lock-binding marker is internal-only and excluded from public lock projections;
-- validation is green with 1,336 tests passed, 5 skipped, and no broken Python requirements;
-- a full-suite durable run remained at state version 6 throughout ordinary run and lock heartbeats, then advanced to 9 only for terminal publication and lock release.
+- public `control` now uses explicit scalar SQL and performs zero JSON decoding while preserving lifecycle, process-tree, cancellation, heartbeat, worker identity presence, child identity, lock, publication, safety, recovery, summary, and error information;
+- `last_output_at` and `cancellation_requested_at` are mirrored into scalar columns with tolerant one-time backfill; the live 3,265-row database backfilled 637 historical values with zero mismatches;
+- full compact control responses enforce an 8-KB serialized UTF-8 ceiling, and matching `if_state_version` polls return a deterministic below-1-KB envelope before process probes or lock lookup;
+- on the live database, full control measured 1,570 bytes and 1.2514-ms p95, while unchanged control measured 429 bytes and 0.6544-ms p95; full control was 81.72 percent smaller than legacy status and unchanged control was 72.68 percent smaller than full control;
+- validation is green with 1,338 tests passed, 5 skipped, and no broken Python requirements;
+- a full-suite durable run remained at state version 6 throughout ordinary run and lock heartbeats, then advanced to 9 only for terminal publication and lock release; the scalar output timestamp remained empty until output actually appeared.
 
 - Rebuild the existing bounded control projection on the scalar control query from CF1.1 while preserving lifecycle, process-tree, cancellation, heartbeat, worker identity, child identity, lock, and error information.
 - Add a monotonic `state_version` or equivalent decision version that changes for lifecycle, phase, cancellation, process attachment, restart reconciliation, lock ownership, needs-input, ambiguous-side-effect reconciliation, and terminal publication transitions.
