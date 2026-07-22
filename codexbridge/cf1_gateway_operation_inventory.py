@@ -467,8 +467,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "workflow_action",
         ("cancel",),
         "codexbridge.server:workflow_action",
-        "direct workflow cancellation result",
-        notes="Cancellation returns the updated workflow lifecycle snapshot.",
+        "bounded compact workflow cancellation projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact cancellation retains lifecycle and bounded step diagnostics; view=full remains explicit complete workflow evidence.",
     ),
     _entry(
         "cancel_run",

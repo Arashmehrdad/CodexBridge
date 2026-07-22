@@ -755,6 +755,12 @@ Forty-ninth independently reviewable slice — bounded SSH query projections:
 - `view="full"` preserves explicit complete capability and profile evidence access, while existing internal SSH query functions and security validation remain unchanged;
 - focused CodexBridge pytest validation passed with 63 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fiftieth independently reviewable slice — bounded workflow cancellation:
+
+- `workflow_action(action="cancel")` now defaults to the compact 12-KB workflow projection, retaining lifecycle identity and bounded step diagnostics while preserving cancellation semantics;
+- `view="full"` remains explicit complete workflow evidence access, and workflow starts plus direct cancellation behavior remain compatible;
+- focused CodexBridge pytest validation passed with 64 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

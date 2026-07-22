@@ -380,6 +380,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert ssh_profiles.maximum_response_bytes == 12 * 1024
     assert "view=full" in ssh_profiles.notes
 
+    workflow_cancel = _entry_for("workflow_action", "cancel")
+    assert workflow_cancel.default_response_bytes == 12 * 1024
+    assert workflow_cancel.maximum_response_bytes == 12 * 1024
+    assert "view=full" in workflow_cancel.notes
+
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024
     assert repo_list.maximum_response_bytes == 12 * 1024

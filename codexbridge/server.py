@@ -2687,7 +2687,10 @@ def workflow_action(request: WorkflowActionRequest) -> dict:
     """Write gateway for validated workflow starts and cancellations."""
     if request.action == "start":
         return start_workflow(request.repo_name, request.objective, request.steps)
-    return cancel_workflow(request.workflow_id)
+    result = cancel_workflow(request.workflow_id)
+    if request.view == "full":
+        return result
+    return _bounded_workflow_response(result, request.response_budget_bytes)
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

@@ -413,6 +413,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     assert workflow_action.validate_python(
         {"action": "start", "repo_name": "repo", "objective": "ship", "steps": [{"id": "one"}]}
     ).repo_name == "repo"
+    assert workflow_action.validate_python(
+        {"action": "cancel", "workflow_id": "wf_1"}
+    ).response_budget_bytes == 12 * 1024
     assert supervisor_query.validate_python(
         {"operation": "notifications", "supervisor_id": "sup_1"}
     ).response_budget_bytes == 12 * 1024
@@ -1666,6 +1669,29 @@ def test_ssh_query_projection_honors_response_budget(monkeypatch) -> None:
     assert result["host_count"] == 5000
     assert result["command_count"] == 5000
     assert "hosts" not in result
+
+
+def test_workflow_cancel_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "cancel_workflow",
+        lambda workflow_id: {
+            "ok": True,
+            "workflow_id": workflow_id,
+            "status": "cancelled",
+            "steps": [
+                {"id": str(index), "summary": "s" * 20_000, "error": "e" * 20_000}
+                for index in range(5000)
+            ],
+        },
+    )
+    request = TypeAdapter(WorkflowActionRequest).validate_python(
+        {"action": "cancel", "workflow_id": "wf_1", "response_budget_bytes": 4096}
+    )
+    result = server.workflow_action(request)
+    assert result["response_bytes"] <= 4096
+    assert result["truncated"] is True
+    assert result["has_more"] is True
 
 
 
