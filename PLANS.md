@@ -845,6 +845,12 @@ Sixty-fourth independently reviewable slice — managed-write knowledge freshnes
 - authoritative apply results and full evidence remain unchanged, while callers can detect stale knowledge directly from the ordinary managed-write projection;
 - focused CodexBridge pytest validation passed with 21 public-result tests and 46 adjacent server tests. Native compilation, pip check, `git diff --check`, and scoped Ruff passed.
 
+Sixty-fifth independently reviewable slice — per-operation schema drift reporting:
+
+- `system_query(operation="capability_identity")` now discovers live MCP input schemas, fingerprints each operation, and reports bounded missing, extra, and connector-schema mismatches by operation name;
+- lazy knowledge-tool registration is included in the live discovery pass, and any drift or discovery failure returns explicit bounded refresh guidance without mutating or reloading the service;
+- focused CodexBridge pytest validation passed with 77 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

@@ -1931,6 +1931,32 @@ def test_capability_identity_binds_public_schema_and_discovery_cache() -> None:
     assert "connector_discovery_cache_generation" in stale_result["mismatches"]
 
 
+def test_capability_identity_reports_operation_schema_drift() -> None:
+    baseline = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capability_identity", "view": "full"}
+        )
+    )
+    operation_hashes = baseline["operation_schema_hashes"]
+    assert operation_hashes["capabilities"]
+    result = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {
+                "operation": "capability_identity",
+                "expected_operation_schema_hashes": {
+                    "capabilities": operation_hashes["capabilities"],
+                    "missing_from_connector": "0" * 64,
+                },
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    assert result["converged"] is False
+    assert "connector_operation_missing:missing_from_connector" in result["mismatches"]
+    assert result["operation_schema_count"] == len(operation_hashes)
+    assert "refresh connector schema" in result["refresh_guidance"]
+
+
 def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
         server,
