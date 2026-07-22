@@ -3172,6 +3172,14 @@ def _bounded_cancel_response(result: dict[str, Any], budget: int) -> dict[str, A
         for key in ("ok", "run_id", "group_id", "status", "repo_name", "error", "message")
         if key in result
     }
+    compact.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     for key in ("error", "message"):
         if compact.get(key):
             compact[key] = str(compact[key])[:512]

@@ -1229,6 +1229,10 @@ def test_cancel_run_projection_honors_response_budget(monkeypatch) -> None:
 
     monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
     result = server.cancel_run("run_1", response_budget_bytes=4096)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["response_bytes"] <= 4096
     assert result["process_tree_count"] == 5000
     assert result["has_more"] is True
