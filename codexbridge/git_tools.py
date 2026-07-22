@@ -1022,7 +1022,20 @@ def _sanitize_commit_label(value: str, *, fallback: str) -> str:
     return cleaned or fallback
 
 
-def _build_auto_commit_metadata(tool_name: str, run_id: str = "") -> tuple[str, str]:
+def canonical_commit_metadata(title: str, description: str, paths: Iterable[str]) -> bytes:
+    return json.dumps(
+        {"title": title, "description": description, "paths": list(paths)},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _build_auto_commit_metadata(
+    tool_name: str,
+    run_id: str = "",
+    staged_paths: Iterable[str] | None = None,
+) -> tuple[str, str]:
     safe_tool = _sanitize_commit_label(tool_name, fallback="write")
     title = f"CodexBridge: {safe_tool}"
     if len(title) > AUTO_COMMIT_TITLE_LIMIT:
@@ -1030,7 +1043,14 @@ def _build_auto_commit_metadata(tool_name: str, run_id: str = "") -> tuple[str, 
         title = f"CodexBridge: {safe_tool[:suffix_limit].rstrip()}"
 
     safe_run_id = _sanitize_commit_label(run_id, fallback="")
-    description = f"Run-ID: {safe_run_id}" if safe_run_id else ""
+    normalized_paths = sorted(_normalize_explicit_paths(staged_paths or []))
+    path_digest = hashlib.sha256(
+        "\n".join(normalized_paths).encode("utf-8")
+    ).hexdigest()
+    metadata_lines = [f"Changed-Paths-SHA256: {path_digest}"]
+    if safe_run_id:
+        metadata_lines.insert(0, f"Run-ID: {safe_run_id}")
+    description = "\n".join(metadata_lines)
     return title, description
 
 
@@ -1043,6 +1063,10 @@ def _build_commit_report(
     files_validated: bool,
     staged_paths: Iterable[str] | None = None,
 ) -> dict[str, Any]:
+    normalized_paths = sorted(_normalize_explicit_paths(staged_paths or []))
+    metadata_sha256 = hashlib.sha256(
+        canonical_commit_metadata(title, description, normalized_paths)
+    ).hexdigest()
     return {
         "commit_hash": commit_hash,
         "title": title,
@@ -1050,6 +1074,7 @@ def _build_commit_report(
         "mode": mode,
         "files_validated": files_validated,
         "staged_paths": list(staged_paths or []),
+        "metadata_sha256": metadata_sha256,
     }
 
 
@@ -1134,7 +1159,7 @@ def finalize_explicit_changes(
             },
         }
 
-    title, description = _build_auto_commit_metadata(tool_name, run_id)
+    title, description = _build_auto_commit_metadata(tool_name, run_id, stage_paths)
     _validate_commit_metadata(title, description, files_validated=True)
     manifest_before = dry_run_stage_manifest(repo_root)
     before_head = git_head(repo_root)

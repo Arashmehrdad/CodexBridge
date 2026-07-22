@@ -492,6 +492,12 @@ Fifth independently reviewable slice — repository-bound local executable defau
 - the durable input records the resolved absolute directory before launch, preventing an omitted directory from silently inheriting the service process directory while preserving explicit full evidence and existing profile security checks;
 - focused CodexBridge pytest validation passed with 7 executable-profile tests. Native compilation and `git diff --check` passed; Ruff reports the same pre-existing unused import in `job_manager.py`.
 
+Sixth independently reviewable slice — hash-bound automatic commit metadata:
+
+- automatic managed-write commits now include a deterministic SHA-256 of the exact normalized changed-path batch alongside the durable run ID in the commit body;
+- the structured commit report exposes a metadata hash, and the recorded Git commit is verified to contain the same run and changed-path binding, so replay cannot substitute a different batch identity silently;
+- focused CodexBridge pytest validation passed with 36 Git-tool tests. Native compilation, Ruff, and `git diff --check` passed; the only Ruff finding remains the pre-existing unused import in `job_manager.py`.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

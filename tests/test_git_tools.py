@@ -445,6 +445,18 @@ def test_finalize_explicit_changes_commits_only_requested_paths(repo: Path) -> N
     assert result["commit_hash"]
     assert result["commit_error"] == ""
     assert result["commit_result"]["commit_report"]["mode"] == "explicit_isolated"
+    report = result["commit_result"]["commit_report"]
+    assert "Changed-Paths-SHA256:" in report["description"]
+    assert len(report["metadata_sha256"]) == 64
+    log_message = subprocess.run(
+        ["git", "show", "-s", "--format=%B", result["commit_hash"]],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert "Run-ID: 20260707T000000Z_run_deadbeef" in log_message
+    assert "Changed-Paths-SHA256:" in log_message
     assert "selected.txt" not in result["commit_result"]["remaining_dirty_files"]
     assert "unrelated.txt" in result["commit_result"]["remaining_dirty_files"]
     staged = subprocess.run(
