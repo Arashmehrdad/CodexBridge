@@ -1574,6 +1574,9 @@ def test_phase7_system_and_knowledge_models_are_strict() -> None:
     assert TypeAdapter(KnowledgeQueryRequest).validate_python(
         {"operation": "search", "repo_name": "repo", "query": "locks"}
     ).query == "locks"
+    assert TypeAdapter(KnowledgeQueryRequest).validate_python(
+        {"operation": "search", "repo_name": "repo", "query": "locks"}
+    ).response_budget_bytes == 12 * 1024
     wiki_query = TypeAdapter(KnowledgeQueryRequest).validate_python(
         {"operation": "read_wiki", "repo_name": "repo"}
     )

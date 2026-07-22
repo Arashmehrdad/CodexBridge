@@ -295,6 +295,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert wiki_page.maximum_response_bytes == 12 * 1024
     assert "view=full" in wiki_page.notes
 
+    knowledge_search = _entry_for("knowledge_query", "search")
+    assert knowledge_search.default_response_bytes == 12 * 1024
+    assert knowledge_search.maximum_response_bytes == 12 * 1024
+    assert "serialized UTF-8 budget" in knowledge_search.notes
+
     search = _entry_for("repo_query", "search_text")
     assert search.default_response_bytes == 16 * 1024
     assert search.maximum_response_bytes == 16 * 1024

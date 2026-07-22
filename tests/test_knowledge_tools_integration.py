@@ -179,6 +179,8 @@ def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:
     bounded = _bounded_knowledge_search(result)
 
     assert bounded["truncated"] is True
+    assert bounded["has_more"] is True
+    assert bounded["response_budget_bytes"] == 12 * 1024
     assert bounded["response_bytes"] <= 12 * 1024
     assert bounded["wiki_hits"] or bounded["memory_hits"]
 

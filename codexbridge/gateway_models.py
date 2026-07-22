@@ -1171,6 +1171,7 @@ class KnowledgeSearchQuery(GatewayModel):
     query: str = Field(min_length=1, max_length=10_000)
     limit: int = Field(default=10, ge=1, le=50)
     include_global_memory: bool = False
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 KnowledgeQueryRequest = Annotated[

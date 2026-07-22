@@ -713,6 +713,12 @@ Forty-second independently reviewable slice — bounded wiki-page retrieval:
 - `view="full"` remains explicit complete-page access, and repository wiki validation/error behavior is unchanged;
 - focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
 
+Forty-third independently reviewable slice — bounded knowledge search contract:
+
+- `knowledge_query(operation="search")` now exposes a caller-selected 1–64-KB serialized UTF-8 response budget with `truncated`, `has_more`, and response-byte metadata over the existing wiki/memory freshness envelope;
+- item limits, repository scoping, global-memory opt-in, and search ranking remain unchanged;
+- focused CodexBridge pytest validation passed with 8 knowledge-integration tests, 59 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, `git diff --check`, and scoped Ruff all passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

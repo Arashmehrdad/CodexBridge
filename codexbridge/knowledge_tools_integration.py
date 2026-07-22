@@ -257,6 +257,8 @@ def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -
     """Keep knowledge search deterministic and connector-safe while preserving freshness metadata."""
     bounded = dict(result)
     bounded["truncated"] = False
+    bounded["has_more"] = False
+    bounded["response_budget_bytes"] = budget
     bounded["response_bytes"] = 0
     while len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > budget:
         wiki_hits = bounded.get("wiki_hits") or []
@@ -274,6 +276,7 @@ def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -
                 bounded["truncated"] = True
                 break
         bounded["truncated"] = True
+        bounded["has_more"] = True
     bounded["response_bytes"] = len(
         json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     )
@@ -390,6 +393,7 @@ def register_knowledge_tools(mcp: Any) -> None:
         query: str,
         limit: int = 10,
         include_global_memory: bool = False,
+        response_budget_bytes: int = 12 * 1024,
     ) -> dict:
         """Search the repository wiki and repository-scoped memory in one call."""
         try:
@@ -422,7 +426,7 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "error": "",
                 },
                 KNOWLEDGE_SEARCH_OUTPUT,
-            ))
+            ), response_budget_bytes)
         except Exception as exc:
             return _with_capability_metadata(
                 {
@@ -496,7 +500,11 @@ def register_knowledge_tools(mcp: Any) -> None:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
             return _bounded_wiki_page(page, request.response_budget_bytes)
         return search_repo_knowledge(
-            request.repo_name, request.query, request.limit, request.include_global_memory
+            request.repo_name,
+            request.query,
+            request.limit,
+            request.include_global_memory,
+            request.response_budget_bytes,
         )
 
     @mcp.tool(output_schema=KNOWLEDGE_ACTION_OUTPUT, annotations=WRITE_ANNOTATIONS)
