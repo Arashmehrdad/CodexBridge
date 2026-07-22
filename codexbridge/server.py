@@ -21,7 +21,11 @@ from typing import Sequence
 from fastmcp import FastMCP
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
-from .public_projection_contract import NON_AUTHORITATIVE_NOTICE, PUBLIC_PROJECTION_SCHEMA_VERSION
+from .public_projection_contract import (
+    NON_AUTHORITATIVE_NOTICE,
+    PUBLIC_PROJECTION_SCHEMA_VERSION,
+    apply_compact_projection_envelope,
+)
 from .cf1_gateway_operation_inventory import (
     CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
     operation_names_by_gateway,
@@ -2223,6 +2227,7 @@ def ssh_inspect_legacy(
     )
     if view == "full":
         return result
+    apply_compact_projection_envelope(result)
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -2920,6 +2925,7 @@ def get_workflow_events(
     )
     if view == "full":
         return result
+    apply_compact_projection_envelope(result)
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -3094,15 +3100,17 @@ def list_operation_locks(
     if view == "full":
         return {"ok": True, "locks": all_locks, "count": len(all_locks), "error": ""}
     locks = list(all_locks[:limit])
-    response = {
-        "ok": True,
-        "locks": locks,
-        "count": len(locks),
-        "has_more": len(locks) < len(all_locks),
-        "truncated": False,
-        "response_budget_bytes": response_budget_bytes,
-        "error": "",
-    }
+    response = apply_compact_projection_envelope(
+        {
+            "ok": True,
+            "locks": locks,
+            "count": len(locks),
+            "has_more": len(locks) < len(all_locks),
+            "truncated": False,
+            "response_budget_bytes": response_budget_bytes,
+            "error": "",
+        }
+    )
     while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and response["locks"]:
         response["locks"].pop()
         response["truncated"] = True
@@ -3114,6 +3122,7 @@ def list_operation_locks(
 
 
 def _bounded_preflight_response(response: dict[str, Any], budget: int = 12 * 1024) -> dict:
+    apply_compact_projection_envelope(response)
     response["response_budget_bytes"] = budget
     response["truncated"] = False
     while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > budget:
@@ -3706,6 +3715,7 @@ def get_supervisor_events(
     )
     if view == "full":
         return result
+    apply_compact_projection_envelope(result)
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -3762,6 +3772,7 @@ def get_supervisor_notifications(
             supervisor_id, delivery_status or None, limit
         ),
     )
+    apply_compact_projection_envelope(result)
     result["truncated"] = False
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
@@ -3931,15 +3942,7 @@ def supervisor_action(request: SupervisorActionRequest) -> dict:
 def _bounded_trading_scalar_response(response: dict[str, Any], budget: int) -> dict[str, Any]:
     if budget < 1024 or budget > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
-    compact = dict(response)
-    compact.update(
-        {
-            "view": "compact",
-            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
-            "non_authoritative": True,
-            "notice": NON_AUTHORITATIVE_NOTICE,
-        }
-    )
+    compact = apply_compact_projection_envelope(dict(response))
     compact["truncated"] = False
     compact["has_more"] = False
     compact["response_budget_bytes"] = budget
@@ -3999,6 +4002,7 @@ def trading_query(request: TradingQueryRequest) -> dict:
             return _bounded_trading_scalar_response(response, request.response_budget_bytes)
         if request.view == "full":
             return response
+        apply_compact_projection_envelope(response)
         if request.operation == "symbols":
             response["truncated"] = False
             response["has_more"] = False
@@ -4095,13 +4099,15 @@ def _compact_trading_signal_response(signal: dict[str, Any], response_budget_byt
         if field in draft:
             draft[field] = str(draft[field])[:512]
     signal["draft"] = draft
-    response = {
-        "ok": True,
-        "signal": signal,
-        "truncated": False,
-        "has_more": False,
-        "response_budget_bytes": response_budget_bytes,
-    }
+    response = apply_compact_projection_envelope(
+        {
+            "ok": True,
+            "signal": signal,
+            "truncated": False,
+            "has_more": False,
+            "response_budget_bytes": response_budget_bytes,
+        }
+    )
     while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
         reduced = False
         for field in (
@@ -4143,13 +4149,15 @@ def trading_signal_list(request: TradingSignalListRequest) -> dict:
     signals = [_signal_record_json(record) for record in records]
     if request.view == "full":
         return {"ok": True, "signals": signals}
-    response = {
-        "ok": True,
-        "signals": signals,
-        "truncated": False,
-        "has_more": False,
-        "response_budget_bytes": request.response_budget_bytes,
-    }
+    response = apply_compact_projection_envelope(
+        {
+            "ok": True,
+            "signals": signals,
+            "truncated": False,
+            "has_more": False,
+            "response_budget_bytes": request.response_budget_bytes,
+        }
+    )
     while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
         if not response["signals"]:
             break
@@ -4986,22 +4994,24 @@ def repo_commit(request: RepoCommitRequest) -> dict:
         return result
     if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
-    compact = {
-        key: result[key]
-        for key in (
-            "ok",
-            "operation",
-            "status",
-            "repo_name",
-            "branch_name",
-            "commit_hash",
-            "commit_attempted",
-            "commit_metadata_sha256",
-            "error",
-            "message",
-        )
-        if key in result
-    }
+    compact = apply_compact_projection_envelope(
+        {
+            key: result[key]
+            for key in (
+                "ok",
+                "operation",
+                "status",
+                "repo_name",
+                "branch_name",
+                "commit_hash",
+                "commit_attempted",
+                "commit_metadata_sha256",
+                "error",
+                "message",
+            )
+            if key in result
+        }
+    )
     compact["changed_files"] = [str(path) for path in result.get("changed_files", [])]
     compact["truncated"] = False
     compact["has_more"] = False

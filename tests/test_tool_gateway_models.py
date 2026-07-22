@@ -46,6 +46,13 @@ from codexbridge.gateway_models import (
 import codexbridge.server as server
 
 
+def _assert_compact_envelope(result: dict) -> None:
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
+
+
 def test_ssh_inspection_models_are_discriminated_and_strict() -> None:
     adapter = TypeAdapter(SSHInspectRequest)
     assert adapter.validate_python({"operation": "host_health", "host_id": "dev"}).host_id == "dev"
@@ -141,6 +148,19 @@ def test_ssh_bounded_inspection_full_view_preserves_evidence(monkeypatch) -> Non
     )
     assert len(result["stdout"]) == 50_000
     assert "truncated" not in result
+
+    compact = server.ssh_inspect(
+        TypeAdapter(SSHInspectRequest).validate_python(
+            {
+                "operation": "inspection",
+                "host_id": "dev",
+                "inspection": "uptime",
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    _assert_compact_envelope(compact)
+    assert compact["response_bytes"] <= 4096
 
 
 def test_ssh_health_projection_honors_response_budget(monkeypatch) -> None:
@@ -330,6 +350,7 @@ def test_trading_symbols_query_honors_response_budget(monkeypatch) -> None:
         {"operation": "symbols", "response_budget_bytes": 4096}
     )
     result = server.trading_query(request)
+    _assert_compact_envelope(result)
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
@@ -352,6 +373,7 @@ def test_trading_h4_query_honors_response_budget(monkeypatch) -> None:
         {"operation": "h4_candles", "completed_count": 100, "response_budget_bytes": 4096}
     )
     result = server.trading_query(request)
+    _assert_compact_envelope(result)
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
@@ -379,6 +401,7 @@ def test_trading_historical_ticks_honors_response_budget(monkeypatch) -> None:
         }
     )
     result = server.trading_query(request)
+    _assert_compact_envelope(result)
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
@@ -473,6 +496,12 @@ def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
     assert len(result["signals"]) == 10
     assert len(result["signals"][0]["detail"]) == 4000
     assert "truncated" not in result
+
+    compact = server.trading_signal_list(
+        TradingSignalListRequest(limit=10, response_budget_bytes=4096)
+    )
+    _assert_compact_envelope(compact)
+    assert compact["response_bytes"] <= 4096
 
 
 def _signal_request_payload() -> dict:
@@ -710,6 +739,18 @@ def test_workflow_and_supervisor_event_full_views_preserve_evidence(
     assert len(workflow["events"]) == 20
     assert len(workflow["events"][0]["message"]) == 1000
     assert "truncated" not in workflow
+    workflow_compact = server.workflow_query(
+        TypeAdapter(WorkflowQueryRequest).validate_python(
+            {
+                "operation": "events",
+                "workflow_id": "wf_1",
+                "limit": 20,
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    _assert_compact_envelope(workflow_compact)
+    assert workflow_compact["response_bytes"] <= 4096
 
     monkeypatch.setattr(server, "get_supervisor_service", lambda: SupervisorService())
     supervisor = server.supervisor_query(
@@ -726,6 +767,18 @@ def test_workflow_and_supervisor_event_full_views_preserve_evidence(
     assert len(supervisor["events"]) == 20
     assert len(supervisor["events"][0]["message"]) == 1000
     assert "truncated" not in supervisor
+    supervisor_compact = server.supervisor_query(
+        TypeAdapter(SupervisorQueryRequest).validate_python(
+            {
+                "operation": "events",
+                "supervisor_id": "sup_1",
+                "limit": 20,
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    _assert_compact_envelope(supervisor_compact)
+    assert supervisor_compact["response_bytes"] <= 4096
 
 
 def test_supervisor_notifications_full_view_preserves_evidence(monkeypatch) -> None:
@@ -741,6 +794,19 @@ def test_supervisor_notifications_full_view_preserves_evidence(monkeypatch) -> N
     )
     assert len(result["notifications"]) == 3
     assert len(result["notifications"][0]["message"]) == 1000
+    compact = server.supervisor_query(
+        TypeAdapter(SupervisorQueryRequest).validate_python(
+            {
+                "operation": "notifications",
+                "supervisor_id": "sup_1",
+                "limit": 3,
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    _assert_compact_envelope(compact)
+    assert compact["response_bytes"] <= 4096
+
 
 def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(monkeypatch) -> None:
     monkeypatch.setattr(server, "get_workflow_status", lambda workflow_id: {"workflow_id": workflow_id, "ok": True})
