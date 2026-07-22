@@ -53,6 +53,7 @@ def test_default_public_byte_budgets_match_cf1_exit_gates() -> None:
     assert DEFAULT_PUBLIC_BYTE_BUDGETS == PublicByteBudgets(
         run_list=12 * 1024,
         run_summary=6 * 1024,
+        run_control=8 * 1024,
         terminal_result=12 * 1024,
         unchanged_poll=1024,
         events=12 * 1024,

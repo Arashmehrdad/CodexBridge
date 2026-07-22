@@ -91,6 +91,7 @@ class StaleContentResponse:
 class PublicByteBudgets:
     run_list: int = 12 * 1024
     run_summary: int = 6 * 1024
+    run_control: int = 8 * 1024
     terminal_result: int = 12 * 1024
     unchanged_poll: int = 1024
     events: int = 12 * 1024
@@ -107,6 +108,8 @@ class PublicByteBudgets:
             raise ValueError("run_list budget exceeds unsolicited_response budget")
         if self.run_summary > self.unsolicited_response:
             raise ValueError("run_summary budget exceeds unsolicited_response budget")
+        if self.run_control > self.unsolicited_response:
+            raise ValueError("run_control budget exceeds unsolicited_response budget")
         if self.terminal_result > self.unsolicited_response:
             raise ValueError("terminal_result budget exceeds unsolicited_response budget")
         if self.events > self.unsolicited_response:

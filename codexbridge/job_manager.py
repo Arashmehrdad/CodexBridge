@@ -194,6 +194,46 @@ RUN_SUMMARY_LIST_TEXT_BYTE_LIMITS = {
     "recovery_reason": 128,
     "result_publication_error": 128,
 }
+RUN_PUBLIC_CONTROL_FIELDS = (
+    "run_id",
+    "repo_name",
+    "tool",
+    "status",
+    "risk_level",
+    "requires_human",
+    "state_version",
+    "started_at",
+    "ended_at",
+    "current_phase",
+    "elapsed_seconds",
+    "heartbeat_at",
+    "heartbeat_age_seconds",
+    "worker_stale",
+    "launcher_pid",
+    "launcher_running",
+    "worker_pid",
+    "worker_identity_present",
+    "worker_running",
+    "child_pid",
+    "child_running",
+    "last_output_at",
+    "cancellation_requested_at",
+    "lock",
+    "result_publication_status",
+    "result_published_hash",
+    "result_published_at",
+    "result_publication_error",
+    "summary",
+    "error",
+    "safety_failure",
+    "recovery_reason",
+)
+RUN_CONTROL_TEXT_BYTE_LIMITS = {
+    "summary": 1024,
+    "error": 1536,
+    "recovery_reason": 512,
+    "result_publication_error": 1024,
+}
 
 
 def _canonical_public_json_bytes(value: object) -> bytes:
@@ -240,9 +280,11 @@ def _finalize_compact_projection(payload: dict, byte_budget: int) -> dict:
     return result
 
 
-def _compact_projection_metadata(byte_budget: int) -> dict:
+def _compact_projection_metadata(
+    byte_budget: int, *, view: PublicView = PublicView.SUMMARY
+) -> dict:
     return {
-        "view": PublicView.SUMMARY.value,
+        "view": view.value,
         "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
         "non_authoritative": True,
         "notice": NON_AUTHORITATIVE_NOTICE,
@@ -309,6 +351,64 @@ def _build_run_summary_list_response(
         **_compact_projection_metadata(byte_budget),
     }
     return _finalize_compact_projection(payload, byte_budget)
+
+
+def _project_run_control(control: dict, *, divisor: int = 1) -> dict:
+    projected = {
+        field: control[field] for field in RUN_PUBLIC_CONTROL_FIELDS if field in control
+    }
+    truncated_fields: dict[str, dict[str, object]] = {}
+    for field, maximum_bytes in RUN_CONTROL_TEXT_BYTE_LIMITS.items():
+        value = projected.get(field)
+        if value is None:
+            continue
+        safe_value = redact_secret_values(str(value))
+        truncated = truncate_utf8(safe_value, max(0, maximum_bytes // divisor))
+        projected[field] = truncated.text
+        if truncated.truncated:
+            truncated_fields[field] = {
+                "original_bytes": truncated.original_bytes,
+                "returned_bytes": truncated.returned_bytes,
+                "omitted_sha256": truncated.omitted_sha256,
+            }
+    if truncated_fields:
+        projected["truncated_fields"] = truncated_fields
+    return projected
+
+
+def _build_run_control_response(control: dict) -> dict:
+    byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_control
+    for divisor in (1, 2, 4, 8, 16, 32, 64, 128, 256, 1024, 4096):
+        payload = {
+            "ok": True,
+            "operation": "control",
+            "unchanged": False,
+            **_project_run_control(control, divisor=divisor),
+            "authoritative_operation": "status",
+            **_compact_projection_metadata(byte_budget, view=PublicView.STANDARD),
+        }
+        try:
+            return _finalize_compact_projection(payload, byte_budget)
+        except ValueError:
+            continue
+    raise ValueError("Run control response cannot fit its public byte budget")
+
+
+def _build_unchanged_control_response(run_id: str, state_version: int) -> dict:
+    byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.unchanged_poll
+    return _finalize_compact_projection(
+        {
+            "ok": True,
+            "operation": "control",
+            "unchanged": True,
+            "run_id": run_id,
+            "state_version": state_version,
+            "authoritative_operation": "status",
+            "error": "",
+            **_compact_projection_metadata(byte_budget, view=PublicView.STANDARD),
+        },
+        byte_budget,
+    )
 
 
 class JobManager:
@@ -2160,25 +2260,20 @@ class JobManager:
     ) -> list[dict]:
         return redact_and_truncate(self.store.get_events(run_id, limit, after_id))
 
-    def get_control_status(self, run_id: str) -> dict:
-        run = self.store.get_run(run_id)
+    def get_control_status(
+        self, run_id: str, if_state_version: int | None = None
+    ) -> dict:
+        run, worker_identity = self.store.get_run_control_observation(run_id)
+        state_version = int(run.get("state_version") or 0)
+        if if_state_version is not None and int(if_state_version) == state_version:
+            return _build_unchanged_control_response(run_id, state_version)
+
         launcher_pid = int(run.get("launcher_pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
-        worker_identity = str(run.get("worker_identity") or "")
         child_pid = int(run.get("pid") or 0)
-        progress = dict(run.get("progress") or {})
-        return redact_and_truncate(
+        control = dict(run)
+        control.update(
             {
-                "ok": True,
-                "run_id": run_id,
-                "repo_name": run["repo_name"],
-                "tool": run["tool"],
-                "status": run["status"],
-                "current_phase": run.get("current_phase") or "",
-                "elapsed_seconds": run.get("elapsed_seconds") or 0.0,
-                "heartbeat_at": run.get("heartbeat_at"),
-                "heartbeat_age_seconds": run.get("heartbeat_age_seconds"),
-                "worker_stale": bool(run.get("worker_stale")),
                 "launcher_pid": launcher_pid,
                 "launcher_running": process_is_running(launcher_pid),
                 "worker_pid": worker_pid,
@@ -2188,14 +2283,10 @@ class JobManager:
                 ),
                 "child_pid": child_pid,
                 "child_running": process_is_running(child_pid),
-                "last_output_at": progress.get("last_output_at", ""),
-                "cancellation_requested_at": progress.get(
-                    "cancellation_requested_at", ""
-                ),
                 "lock": self.locks.find_lock(run["repo_name"], run_id) or {},
-                "error": run.get("error") or "",
             }
         )
+        return _build_run_control_response(control)
 
     def get_output(
         self, run_id: str, stream: str = "combined", tail_bytes: int = 20000

@@ -2261,9 +2261,14 @@ def get_run_status(run_id: str) -> dict:
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def get_run_control_status(run_id: str) -> dict:
+def get_run_control_status(
+    run_id: str, if_state_version: int | None = None
+) -> dict:
     """Read-only: report heartbeat, process-tree, cancellation, and lock state for one run."""
-    return get_job_manager().get_control_status(run_id)
+    manager = get_job_manager()
+    if if_state_version is None:
+        return manager.get_control_status(run_id)
+    return manager.get_control_status(run_id, if_state_version=if_state_version)
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -2362,7 +2367,7 @@ def run_query(request: RunQueryRequest) -> dict:
     if request.operation == "status":
         return get_run_status(request.run_id)
     if request.operation == "control":
-        return get_run_control_status(request.run_id)
+        return get_run_control_status(request.run_id, request.if_state_version)
     if request.operation == "output":
         return get_run_output(request.run_id, request.stream, request.tail_bytes)
     if request.operation == "events":

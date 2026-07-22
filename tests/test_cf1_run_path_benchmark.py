@@ -127,7 +127,11 @@ def test_cf1_benchmarks_each_current_run_path_independently(
     assert all(item.serialized_bytes > 0 for item in measurements.values())
     assert all(item.result_sha256 for item in measurements.values())
     assert all(item.authoritative_sha256 for item in measurements.values())
-    assert all(item.json_decode_calls > 0 for item in measurements.values())
+    assert measurements["control"].json_decode_calls == 0
+    assert all(
+        measurements[name].json_decode_calls > 0
+        for name in ("list", "status", "events", "output", "result")
+    )
     assert measurements["list"].serialized_bytes > measurements["status"].serialized_bytes
     assert measurements["output"].serialized_bytes > measurements["control"].serialized_bytes
 

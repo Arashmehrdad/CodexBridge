@@ -72,6 +72,7 @@ class RunStatusQuery(GatewayModel):
 class RunControlQuery(GatewayModel):
     operation: Literal["control"]
     run_id: str = Field(min_length=1, max_length=128)
+    if_state_version: int | None = Field(default=None, ge=0)
 
 
 class RunOutputQuery(GatewayModel):

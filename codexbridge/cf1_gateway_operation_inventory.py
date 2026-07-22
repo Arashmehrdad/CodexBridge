@@ -9,7 +9,7 @@ from codexbridge.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.1.gateway-operations.v2"
+    "cf1.2.gateway-operations.v3"
 )
 
 
@@ -473,11 +473,16 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "run_query",
         ("control",),
         "codexbridge.server:run_query -> codexbridge.job_manager:JobManager.get_control_status",
-        "compact process and lock control object",
-        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        "bounded scalar process and lock control object",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.NONE,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_control,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_control,
         notes=(
-            "The control path is intentionally smaller than status but has no "
-            "formal response byte ceiling."
+            "The control path uses explicit scalar SQL with an 8 KiB serialized "
+            "response ceiling. Matching if_state_version polls return a deterministic "
+            "unchanged envelope below the 1 KiB unchanged-poll ceiling without "
+            "process probes or lock lookup."
         ),
     ),
     _entry(

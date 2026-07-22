@@ -112,6 +112,8 @@ RUN_CONTROL_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
     "current_phase",
     "elapsed_seconds",
     "heartbeat_at",
+    "last_output_at",
+    "cancellation_requested_at",
     "result_publication_status",
     "result_published_hash",
     "result_published_at",
@@ -196,6 +198,8 @@ class RunStore:
                     current_phase TEXT NOT NULL DEFAULT '',
                     elapsed_seconds REAL NOT NULL DEFAULT 0,
                     heartbeat_at TEXT,
+                    last_output_at TEXT NOT NULL DEFAULT '',
+                    cancellation_requested_at TEXT NOT NULL DEFAULT '',
                     progress_json TEXT NOT NULL DEFAULT '{}',
                     input_json TEXT NOT NULL DEFAULT '{}',
                     result_json TEXT NOT NULL DEFAULT '{}',
@@ -273,6 +277,17 @@ class RunStore:
                 conn, "runs", "result_published_hash", "TEXT NOT NULL DEFAULT ''"
             )
             self._ensure_column(conn, "runs", "result_published_at", "TEXT")
+            last_output_added = self._ensure_column(
+                conn, "runs", "last_output_at", "TEXT NOT NULL DEFAULT ''"
+            )
+            cancellation_added = self._ensure_column(
+                conn,
+                "runs",
+                "cancellation_requested_at",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            if last_output_added or cancellation_added:
+                self._backfill_progress_scalar_columns(conn)
             self._ensure_column(
                 conn,
                 "runs",
@@ -589,9 +604,10 @@ class RunStore:
             raise KeyError(f"Run not found: {run_id}")
         return self._compact_summary_from_row(row, current)
 
-    def get_run_control_snapshot(
+    def get_run_control_observation(
         self, run_id: str, *, now: datetime | None = None
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
+        """Return a scalar control snapshot plus internal worker identity."""
         validate_run_id(run_id)
         current = self._compact_now(now)
         with self.connect() as conn:
@@ -600,7 +616,15 @@ class RunStore:
             ).fetchone()
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
-        return self._compact_control_from_row(row, current)
+        return self._compact_control_from_row(row, current), str(
+            row["worker_identity"] or ""
+        )
+
+    def get_run_control_snapshot(
+        self, run_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
+        snapshot, _worker_identity = self.get_run_control_observation(run_id, now=now)
+        return snapshot
 
     def list_run_summaries(
         self,
@@ -804,7 +828,15 @@ class RunStore:
         if "progress_json" in normalized and not isinstance(
             normalized["progress_json"], str
         ):
-            normalized["progress_json"] = dumps(normalized["progress_json"])
+            progress_value = normalized["progress_json"]
+            if isinstance(progress_value, dict):
+                for column in ("last_output_at", "cancellation_requested_at"):
+                    if column in progress_value and column not in normalized:
+                        normalized[column] = str(progress_value.get(column) or "")[:128]
+            normalized["progress_json"] = dumps(progress_value)
+        for column in ("last_output_at", "cancellation_requested_at"):
+            if column in normalized:
+                normalized[column] = str(normalized[column] or "")[:128]
         if "result_publication_status" in normalized:
             normalized["result_publication_status"] = str(
                 normalized["result_publication_status"]
@@ -1407,12 +1439,44 @@ class RunStore:
     @staticmethod
     def _ensure_column(
         conn: sqlite3.Connection, table: str, column: str, definition: str
-    ) -> None:
+    ) -> bool:
         existing = {
             row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
         }
-        if column not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        if column in existing:
+            return False
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        return True
+
+    @staticmethod
+    def _backfill_progress_scalar_columns(conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT run_id, progress_json, last_output_at, cancellation_requested_at
+            FROM runs
+            WHERE progress_json NOT IN ('', '{}')
+              AND (last_output_at = '' OR cancellation_requested_at = '')
+            """
+        ).fetchall()
+        for row in rows:
+            try:
+                progress = json.loads(str(row["progress_json"] or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(progress, dict):
+                continue
+            updates: dict[str, str] = {}
+            for column in ("last_output_at", "cancellation_requested_at"):
+                value = progress.get(column)
+                if not row[column] and isinstance(value, str) and value:
+                    updates[column] = value[:128]
+            if not updates:
+                continue
+            assignments = ", ".join(f"{column} = ?" for column in updates)
+            conn.execute(
+                f"UPDATE runs SET {assignments} WHERE run_id = ?",
+                (*updates.values(), row["run_id"]),
+            )
 
     def _row_to_run(self, row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)

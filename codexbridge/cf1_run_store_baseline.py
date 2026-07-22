@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Final
 
 
-CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.1.run-store.v2"
+CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.2.run-store.v3"
 
 RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "run_id",
@@ -33,6 +33,8 @@ RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "current_phase",
     "elapsed_seconds",
     "heartbeat_at",
+    "last_output_at",
+    "cancellation_requested_at",
     "result_publication_status",
     "result_published_hash",
     "result_published_at",

@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -265,6 +266,45 @@ def test_control_snapshot_exposes_process_and_publication_state_without_identity
     assert "secret-lease" not in json.dumps(snapshot)
 
 
+def test_progress_scalar_mirrors_and_backfill_preserve_control_fields(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id = _create(store, tmp_path, 1, status="running")
+    store.update_run(
+        run_id,
+        progress_json={
+            "last_output_at": "2026-07-21T11:58:00+00:00",
+            "cancellation_requested_at": "2026-07-21T11:59:00+00:00",
+        },
+    )
+    snapshot = store.get_run_control_snapshot(run_id, now=NOW)
+    assert snapshot["last_output_at"] == "2026-07-21T11:58:00+00:00"
+    assert snapshot["cancellation_requested_at"] == "2026-07-21T11:59:00+00:00"
+
+    with store.connect() as conn:
+        conn.execute(
+            """
+            UPDATE runs
+            SET last_output_at = '', cancellation_requested_at = '', progress_json = ?
+            WHERE run_id = ?
+            """,
+            (
+                json.dumps(
+                    {
+                        "last_output_at": "2026-07-21T11:56:00+00:00",
+                        "cancellation_requested_at": "2026-07-21T11:57:00+00:00",
+                    }
+                ),
+                run_id,
+            ),
+        )
+        store._backfill_progress_scalar_columns(conn)
+    backfilled = store.get_run_control_snapshot(run_id, now=NOW)
+    assert backfilled["last_output_at"] == "2026-07-21T11:56:00+00:00"
+    assert backfilled["cancellation_requested_at"] == "2026-07-21T11:57:00+00:00"
+
+
 def test_legacy_full_methods_still_decode_full_rows(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     run_id = _create(store, tmp_path, 1)
@@ -330,9 +370,12 @@ def _wire_bytes(payload: dict) -> int:
     )
 
 
-def _manager(store: RunStore) -> JobManager:
+def _manager(store: RunStore, lock: dict | None = None) -> JobManager:
     manager = object.__new__(JobManager)
     manager.store = store
+    manager.locks = SimpleNamespace(
+        find_lock=lambda _repo_name, _run_id: dict(lock or {})
+    )
     return manager
 
 
@@ -368,6 +411,92 @@ def test_public_run_summary_is_redacted_versioned_and_byte_bounded(tmp_path: Pat
     assert "private" not in encoded
     assert response["run"]["truncated_fields"]
     encoded.encode("utf-8")
+
+
+def test_public_run_control_is_scalar_bounded_and_version_pollable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id = _create(store, tmp_path, 1, status="running")
+    store.update_run(
+        run_id,
+        pid=987,
+        launcher_pid=654,
+        worker_pid=321,
+        worker_identity="321:windows:secret-identity",
+        progress_json={
+            "last_output_at": "2026-07-21T11:58:00+00:00",
+            "cancellation_requested_at": "2026-07-21T11:59:00+00:00",
+        },
+        summary="token=secret-value " + ("s" * 10000),
+        error="password=hunter2 " + ("e" * 10000),
+        recovery_reason="credential=hidden " + ("r" * 5000),
+        result_publication_error="api_key=private " + ("p" * 5000),
+    )
+    lock = {"repo_name": "Sample", "run_id": run_id, "owner_pid": 321}
+    manager = _manager(store, lock)
+    monkeypatch.setattr(
+        job_manager_module, "process_is_running", lambda pid: pid in {654, 987}
+    )
+    monkeypatch.setattr(
+        job_manager_module,
+        "process_matches_identity",
+        lambda pid, identity: pid == 321 and identity == "321:windows:secret-identity",
+    )
+
+    changed = manager.get_control_status(run_id)
+    assert changed["ok"] is True
+    assert changed["operation"] == "control"
+    assert changed["unchanged"] is False
+    assert changed["view"] == "standard"
+    assert changed["authoritative_operation"] == "status"
+    assert changed["launcher_running"] is True
+    assert changed["worker_running"] is True
+    assert changed["child_running"] is True
+    assert changed["last_output_at"] == "2026-07-21T11:58:00+00:00"
+    assert changed["cancellation_requested_at"] == "2026-07-21T11:59:00+00:00"
+    assert changed["lock"]["run_id"] == run_id
+    assert changed["payload_bytes"] == _payload_bytes_without_counter(changed)
+    assert _wire_bytes(changed) <= DEFAULT_PUBLIC_BYTE_BUDGETS.run_control
+    encoded = json.dumps(changed, ensure_ascii=False)
+    for secret in ("secret-value", "hunter2", "hidden", "private", "secret-identity"):
+        assert secret not in encoded
+    assert not FORBIDDEN.intersection(changed)
+
+    def unexpected_probe(*_args, **_kwargs):
+        pytest.fail("unchanged control poll performed a process or lock probe")
+
+    manager.locks = SimpleNamespace(find_lock=unexpected_probe)
+    monkeypatch.setattr(job_manager_module, "process_is_running", unexpected_probe)
+    monkeypatch.setattr(job_manager_module, "process_matches_identity", unexpected_probe)
+    unchanged_first = manager.get_control_status(
+        run_id, if_state_version=changed["state_version"]
+    )
+    unchanged_second = manager.get_control_status(
+        run_id, if_state_version=changed["state_version"]
+    )
+    assert unchanged_first == unchanged_second
+    assert unchanged_first["unchanged"] is True
+    assert unchanged_first["state_version"] == changed["state_version"]
+    assert unchanged_first["payload_bytes"] == _payload_bytes_without_counter(
+        unchanged_first
+    )
+    assert _wire_bytes(unchanged_first) <= DEFAULT_PUBLIC_BYTE_BUDGETS.unchanged_poll
+
+    store.set_progress(run_id, phase="validate", elapsed_seconds=1.0)
+    manager.locks = SimpleNamespace(
+        find_lock=lambda _repo_name, _run_id: dict(lock)
+    )
+    monkeypatch.setattr(job_manager_module, "process_is_running", lambda _pid: False)
+    monkeypatch.setattr(
+        job_manager_module, "process_matches_identity", lambda _pid, _identity: False
+    )
+    refreshed = manager.get_control_status(
+        run_id, if_state_version=changed["state_version"]
+    )
+    assert refreshed["unchanged"] is False
+    assert refreshed["state_version"] > changed["state_version"]
 
 
 def test_public_run_summary_list_preserves_snapshot_cursor_when_byte_limited(
@@ -447,6 +576,12 @@ def test_run_summary_gateway_models_are_additive_and_strict(monkeypatch) -> None
             calls.append(("summary", run_id))
             return {"ok": True, "operation": "summary", "run_id": run_id}
 
+        def get_control_status(
+            self, run_id: str, if_state_version: int | None = None
+        ) -> dict:
+            calls.append(("control", run_id, if_state_version))
+            return {"ok": True, "operation": "control", "run_id": run_id}
+
         def list_run_summaries(self, **kwargs) -> dict:
             calls.append(("summary_list", kwargs))
             return {"ok": True, "operation": "summary_list", "runs": []}
@@ -454,16 +589,29 @@ def test_run_summary_gateway_models_are_additive_and_strict(monkeypatch) -> None
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
     adapter = TypeAdapter(RunQueryRequest)
     summary = adapter.validate_python({"operation": "summary", "run_id": "run_1"})
+    control = adapter.validate_python(
+        {"operation": "control", "run_id": "run_1", "if_state_version": 7}
+    )
     summary_list = adapter.validate_python({"operation": "summary_list"})
 
     assert server.run_query(summary)["operation"] == "summary"
+    assert server.run_query(control)["operation"] == "control"
     assert server.run_query(summary_list)["operation"] == "summary_list"
     assert summary_list.limit == 10
     assert calls[0] == ("summary", "run_1")
-    assert calls[1][0] == "summary_list"
+    assert calls[1] == ("control", "run_1", 7)
+    assert calls[2][0] == "summary_list"
     with pytest.raises(ValidationError):
         adapter.validate_python(
             {"operation": "summary", "run_id": "run_1", "cursor": "not-allowed"}
         )
     with pytest.raises(ValidationError):
         adapter.validate_python({"operation": "summary_list", "limit": 101})
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {"operation": "control", "run_id": "run_1", "if_state_version": -1}
+        )
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {"operation": "control", "run_id": "run_1", "cursor": "not-allowed"}
+        )
