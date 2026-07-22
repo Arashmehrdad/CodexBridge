@@ -2055,25 +2055,121 @@ def test_capability_identity_reports_operation_schema_drift() -> None:
         )
     )
     operation_hashes = baseline["operation_schema_hashes"]
-    assert operation_hashes["capabilities"]
+    assert operation_hashes["system_query.capabilities"]
+    assert "capabilities" not in operation_hashes
     result = server.system_query(
         TypeAdapter(SystemQueryRequest).validate_python(
             {
                 "operation": "capability_identity",
                 "expected_operation_schema_hashes": {
-                    "capabilities": operation_hashes["capabilities"],
-                    "missing_from_connector": "0" * 64,
+                    "system_query.capabilities": operation_hashes[
+                        "system_query.capabilities"
+                    ],
+                    "system_query.missing_from_connector": "0" * 64,
                 },
                 "response_budget_bytes": 4096,
             }
         )
     )
     assert result["converged"] is False
-    assert "connector_operation_missing:missing_from_connector" in result["mismatches"]
+    assert (
+        "connector_operation_missing:system_query.missing_from_connector"
+        in result["mismatches"]
+    )
+    assert result["operation_schema_key_format"] == "gateway.operation"
     assert result["operation_schema_count"] == len(operation_hashes)
     assert "refresh connector schema" in result["refresh_guidance"]
     assert result["discovery_pass_count"] == 2
     assert result["discovery_passes_converged"] is True
+
+
+def test_live_operation_schema_hashes_are_gateway_qualified(monkeypatch) -> None:
+    def fake_tool(name: str, marker: str):
+        return SimpleNamespace(
+            to_mcp_tool=lambda: SimpleNamespace(
+                model_dump=lambda mode: {
+                    "name": name,
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "request": {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "operation": {"const": "status"},
+                                            "marker": {"const": marker},
+                                        },
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                }
+            )
+        )
+
+    async def fake_list_tools():
+        return [fake_tool("alpha_query", "alpha"), fake_tool("beta_query", "beta")]
+
+    monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
+    hashes, error, converged, input_schema_hash = (
+        server._live_operation_schema_hashes_sync()
+    )
+    assert error == ""
+    assert converged is True
+    assert len(input_schema_hash) == 64
+    assert set(hashes) == {"alpha_query.status", "beta_query.status"}
+    assert hashes["alpha_query.status"] != hashes["beta_query.status"]
+
+
+def test_live_operation_schema_hashes_reject_conflicting_qualified_keys(
+    monkeypatch,
+) -> None:
+    def fake_tool(marker: str):
+        return SimpleNamespace(
+            to_mcp_tool=lambda: SimpleNamespace(
+                model_dump=lambda mode: {
+                    "name": "alpha_query",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "request": {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "operation": {"const": "status"},
+                                            "marker": {"const": marker},
+                                        },
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                }
+            )
+        )
+
+    async def fake_list_tools():
+        return [fake_tool("first"), fake_tool("second")]
+
+    monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
+    hashes, error, converged, _ = server._live_operation_schema_hashes_sync()
+    assert set(hashes) == {"alpha_query.status"}
+    assert error == "live operation-schema collisions: alpha_query.status"
+    assert converged is False
+
+
+def test_capability_identity_accepts_complete_schema_expectations() -> None:
+    expected = {f"gateway_{index}.operation": "0" * 64 for index in range(256)}
+    request = TypeAdapter(SystemQueryRequest).validate_python(
+        {
+            "operation": "capability_identity",
+            "expected_operation_schema_hashes": expected,
+        }
+    )
+    assert request.expected_operation_schema_hashes == expected
 
 
 def test_capability_identity_rejects_disagreeing_discovery_passes(monkeypatch) -> None:

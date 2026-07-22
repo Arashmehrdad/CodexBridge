@@ -1052,16 +1052,28 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
     except Exception as exc:
         return {}, f"live operation-schema discovery unavailable: {exc}", False, ""
 
-    def _hashes(tools: list[Any]) -> dict[str, str]:
+    def _hashes(tools: list[Any]) -> tuple[dict[str, str], list[str]]:
         hashes: dict[str, str] = {}
+        collisions: set[str] = set()
+
+        def _record(tool_name: str, operation_name: str, current_schema: dict[str, Any]) -> None:
+            qualified_name = f"{tool_name}.{operation_name}"
+            current_hash = schema_hash(current_schema)
+            previous_hash = hashes.get(qualified_name)
+            if previous_hash is not None and previous_hash != current_hash:
+                collisions.add(qualified_name)
+                return
+            hashes[qualified_name] = current_hash
+
         for tool in tools:
             action = tool.to_mcp_tool().model_dump(mode="json")
+            tool_name = str(action.get("name", "")).strip()
             root = action.get("inputSchema")
-            if not isinstance(root, dict):
+            if not tool_name or not isinstance(root, dict):
                 continue
             request_schema = (root.get("properties") or {}).get("request")
             if not isinstance(request_schema, dict):
-                hashes["invoke"] = schema_hash(root)
+                _record(tool_name, "invoke", root)
                 continue
             variants = request_schema.get("oneOf")
             if not isinstance(variants, list):
@@ -1092,15 +1104,23 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
                     if isinstance(values, list):
                         operation_names.extend(str(value) for value in values)
                 for operation_name in operation_names or ["invoke"]:
-                    hashes[operation_name] = schema_hash(current)
-        return hashes
+                    _record(tool_name, operation_name, current)
+        return hashes, sorted(collisions)
 
-    first_hashes = _hashes(first_tools)
-    second_hashes = _hashes(second_tools)
+    first_hashes, first_collisions = _hashes(first_tools)
+    second_hashes, second_collisions = _hashes(second_tools)
     first_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in first_tools]
     second_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in second_tools]
     first_input_schema_hash = _input_schema_hash_from_actions(first_actions)
     second_input_schema_hash = _input_schema_hash_from_actions(second_actions)
+    collisions = sorted(set(first_collisions) | set(second_collisions))
+    if collisions:
+        return (
+            second_hashes,
+            f"live operation-schema collisions: {', '.join(collisions)}",
+            False,
+            second_input_schema_hash,
+        )
     return (
         second_hashes,
         "",
@@ -3472,7 +3492,9 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         live_input_schema_hash,
     ) = _live_operation_schema_hashes_sync()
     inventory_operation_names = {
-        operation for names in operation_inventory.values() for operation in names
+        f"{gateway}.{operation}"
+        for gateway, names in operation_inventory.items()
+        for operation in names
     }
     running_build = _PROCESS_CAPABILITY_METADATA["server_build_hash"]
     running_schema = _PROCESS_CAPABILITY_METADATA["schema_hash"]
@@ -3543,6 +3565,7 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "connector_schema_hash": connector_schema_hash,
         "discovery_cache_generation": discovery_cache_generation,
         "operation_schema_hashes": live_operation_schema_hashes,
+        "operation_schema_key_format": "gateway.operation",
         "operation_schema_count": len(live_operation_schema_hashes),
         "operation_schema_error": live_schema_error,
         "live_input_schema_hash": live_input_schema_hash,
