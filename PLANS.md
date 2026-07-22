@@ -299,11 +299,39 @@ Status: **required cross-cutting CF1 exit gates**. These findings do not reopen 
    - The ordinary terminal path must use the source-hash-bound compact projection rather than echoing full argv, executable identity, complete stdout, and provider-specific internals.
    - Complete terminal result and exact stream bytes remain available only through explicit full-result or artifact evidence retrieval.
 
-7. **Capability and connector-schema propagation integrity — CF1.7**
-   - Expose distinct identities for service build, public tool schema, connector-loaded schema, and cache generation; do not overload one ambiguous `schema_hash` when the public discriminator set changes.
-   - After restart or refresh, capability discovery, connector invocation, and tool-resource discovery must converge on the same public schema identity. A mismatch fails explicitly with refresh guidance rather than silently serving stale contracts.
+7. **Schema-operation drift after connector refresh — CF1.7**
+   - Verify the connector-loaded operation names and input schemas against the live public operation inventory after every connector refresh; a matching aggregate schema identity is insufficient when an operation is missing, renamed, or structurally stale.
+   - Acceptance requires zero missing, extra, or schema-mismatched operations across two consecutive fresh discovery passes, and any drift must fail explicitly with the affected operation names and bounded refresh guidance.
 
-8. **Bounded knowledge freshness — CF1.6 and CF1.7**
+8. **Strong mixed-newline diagnostics — CF1.5**
+   - Repository reads, previews, and validators that inspect text must report mixed `CRLF`, `LF`, and lone `CR` content with counts and affected line locations or bounded ranges rather than one ambiguous newline label.
+   - Acceptance uses fixtures containing all three newline forms and proves exact counts, the first 20 affected locations or ranges, an explicit truncation indicator, and a diagnostic response no larger than 8 KB.
+
+9. **No accidental whole-file newline normalization — CF1.5**
+   - Repository preview and apply paths must preserve untouched byte ranges and existing newline sequences unless newline normalization is an explicit, hash-bound requested operation.
+   - Acceptance edits one bounded region in each mixed-newline fixture and proves byte-for-byte equality outside the intended edit, unchanged newline counts outside that region, and an explicit preview warning before any requested whole-file normalization.
+
+10. **Immediate managed-apply acknowledgement — CF1.6**
+   - `repo_apply` must durably record the transaction and return an immediate compact acknowledgement with transaction ID, accepted state, preview identity, repository identity, and polling operation before connector transport timeout can obscure whether the mutation was accepted.
+   - Acceptance injects a post-acceptance apply delay beyond the connector request timeout, receives the acknowledgement within 2 seconds and below 4 KB, then reaches one unambiguous terminal result through compact polling without replaying the mutation.
+
+11. **Bounded validator timeout and error schemas — CF1.6**
+   - Every dedicated validator schema must expose bounded timeout control and return compact structured validation errors with counts, representative failures, truncation state, and an evidence handle for exact diagnostics.
+   - Acceptance proves caller-selected timeouts are enforced within the requested limit plus 1 second, timeout is distinct from validation failure, and 1,000 synthetic failures produce an ordinary response no larger than 12 KB while exact errors remain retrievable.
+
+12. **Bounded legacy terminal diagnosis — CF1.6**
+   - Ordinary terminal reads, including legacy diagnosis paths that can currently exceed 30 KB, must use the bounded compact terminal projection rather than returning the authoritative full result or complete diagnostic streams.
+   - Acceptance uses a legacy terminal result with at least 30 KB of diagnostics, keeps the ordinary response at or below 12 KB, preserves terminal status and failure classification, and reconstructs the exact complete diagnosis only through explicit evidence retrieval.
+
+13. **Explicit search-text file scope — CF1.5**
+   - `search_text` must define a first-class repository-relative file-scope input, distinguish exact-file scope from directory and pattern scope, and reject ambiguous or conflicting scope combinations before scanning.
+   - Acceptance proves one exact-file search scans only that file, reports the resolved scope in the compact envelope, returns no matches from sibling files, and rejects conflicting file and directory scope with a schema-level response below 4 KB.
+
+14. **Build and schema convergence integrity — CF1.7**
+   - Expose distinct identities for source revision, running service build, public tool schema, connector-loaded schema, and discovery-cache generation; do not overload one ambiguous `schema_hash` when the public discriminator set changes.
+   - After restart or refresh, capability discovery, connector invocation, and tool-resource discovery must converge on the same source, service, public-schema, connector-schema, and discovery-cache identity set. Acceptance requires two consecutive fresh discovery passes with exact identity agreement; a mismatch fails explicitly within one pass with the divergent identities and bounded refresh guidance rather than silently serving stale contracts.
+
+15. **Bounded knowledge freshness — CF1.6 and CF1.7**
    - Managed writes must expose a compact knowledge-freshness result with source generation and stale reason, plus an explicit bounded refresh action or recommendation.
    - Do not inline a full knowledge rebuild into the write response. Acceptance proves that the repository knowledge generation can be advanced deliberately and that callers can detect stale knowledge without inspecting a giant apply payload.
 
@@ -314,7 +342,13 @@ Required acceptance evidence:
 - managed commit metadata is hash-bound and visible in `git log`;
 - repository-bound PowerShell validation succeeds without ambiguous executable semantics;
 - manifest-listed `.bin` output is retrievable through the compatibility output path;
-- service, connector, and discovery schema identities agree after refresh;
+- connector operation names and input schemas match the live inventory after refresh;
+- mixed-newline diagnostics are exact and bounded, and bounded edits preserve untouched bytes and newline sequences;
+- delayed managed apply acknowledges within 2 seconds and completes through compact polling without replay;
+- validator timeouts are enforced and 1,000 validation failures remain within 12 KB with exact evidence retrieval;
+- a legacy terminal diagnosis larger than 30 KB returns a compact projection no larger than 12 KB;
+- exact-file `search_text` scope excludes sibling files and rejects conflicting scope inputs;
+- source, service, public-schema, connector-schema, and discovery-cache identities agree after refresh;
 - stale knowledge is visible and deliberately refreshable without unbounded write responses.
 
 ### CF1.3 - Source-hash-bound terminal public projection
