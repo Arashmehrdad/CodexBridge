@@ -1346,6 +1346,28 @@ def test_patch_status_has_bounded_compact_and_explicit_full_views(monkeypatch) -
     assert "response_bytes" not in full
 
 
+def test_compact_repo_status_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(
+        server,
+        "inspect_status_compact",
+        lambda _root: {
+            "ok": True,
+            "status": "clean",
+            "fresh": True,
+            "source": "live_git",
+            "changed_files": [f"src/{i:04d}-" + ("x" * 120) for i in range(40)],
+            "recent_commits": ["commit-" + ("y" * 120) for _ in range(20)],
+            "diff_stat": "stat " + ("z" * 2000),
+            "recommended_action": "retry " + ("a" * 1000),
+        },
+    )
+    compact = server.inspect_repo_status_compact("repo", response_budget_bytes=4096)
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):

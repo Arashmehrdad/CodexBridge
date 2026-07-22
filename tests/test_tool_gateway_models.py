@@ -453,6 +453,13 @@ def test_repo_patch_status_model_exposes_compact_and_full_views() -> None:
     assert full.view == "full"
 
 
+def test_repo_compact_status_model_exposes_response_budget() -> None:
+    request = TypeAdapter(RepoQueryRequest).validate_python(
+        {"operation": "compact_status", "repo_name": "repo"}
+    )
+    assert request.response_budget_bytes == 12 * 1024
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 

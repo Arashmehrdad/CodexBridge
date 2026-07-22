@@ -712,8 +712,14 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("compact_status",),
         "codexbridge.server:repo_query",
-        "direct repository or patch summary object",
-        notes="No public response byte ceiling is enforced.",
+        "bounded compact repository status projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The compact status fields remain compatibility-shaped but are capped by "
+            "serialized UTF-8 budget with explicit truncation and byte accounting."
+        ),
     ),
     _entry(
         "repo_query",

@@ -1054,8 +1054,13 @@ def inspect_repo_status(
 
 
 @_internal_tool(output_schema=REPO_STATUS_COMPACT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def inspect_repo_status_compact(repo_name: str) -> dict:
+def inspect_repo_status_compact(
+    repo_name: str,
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: return a compact repository status with tool-owned changes summarized."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     try:
         result = dict(inspect_status_compact(repo_root))
@@ -1089,6 +1094,23 @@ def inspect_repo_status_compact(repo_name: str) -> dict:
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     diff_stat = result.get("diff_stat")
     result["diff_stat"] = diff_stat if isinstance(diff_stat, str) else ""
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        if result["changed_files"]:
+            result["changed_files"].pop()
+        elif result["recent_commits"]:
+            result["recent_commits"].pop()
+        elif result["diff_stat"]:
+            result["diff_stat"] = ""
+        elif result.get("recommended_action"):
+            result["recommended_action"] = ""
+        else:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
     return result
 
 
@@ -3490,7 +3512,10 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.response_budget_bytes,
         )
     if request.operation == "compact_status":
-        return inspect_repo_status_compact(request.repo_name)
+        return inspect_repo_status_compact(
+            request.repo_name,
+            request.response_budget_bytes,
+        )
     if request.operation == "patch_status":
         return get_patch_status(
             request.repo_name,
