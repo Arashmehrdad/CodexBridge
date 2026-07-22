@@ -827,6 +827,12 @@ Sixty-first independently reviewable slice — operation-inventory drift check:
 - inventory hashing normalizes operation sets deterministically, remains read-only, and preserves all existing capability identity and compact/full behavior;
 - focused CodexBridge pytest validation passed with 74 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-second independently reviewable slice — synchronous live capability discovery:
+
+- `system_query(operation="capabilities")` now resolves the async live MCP tool listing through a safe synchronous bridge, while preserving compatibility with synchronous test/legacy providers and compact/full projections;
+- discovery failures remain explicit structured errors, and no service reload or mutation is performed;
+- focused CodexBridge pytest validation passed with 75 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

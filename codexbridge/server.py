@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import binascii
 import inspect
@@ -949,6 +950,40 @@ async def list_capabilities() -> dict:
         "error": "",
     }
     return _with_capability_metadata(result)
+
+
+def _list_capabilities_sync() -> dict[str, Any]:
+    """Resolve live tool discovery for the synchronous system gateway."""
+    try:
+        tools = asyncio.run(mcp.list_tools())
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "actions": [],
+            "action_names": [],
+            "error": f"live capability discovery unavailable: {exc}",
+            **_PROCESS_CAPABILITY_METADATA,
+        }
+    actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    return _with_capability_metadata(
+        {
+            "ok": True,
+            "actions": actions,
+            "action_names": sorted(str(action.get("name", "")) for action in actions),
+            "patch_operation_schema": PATCH_OPERATION_SCHEMA,
+            "error": "",
+        }
+    )
+
+
+def _system_capabilities_result() -> dict[str, Any]:
+    """Preserve synchronous compatibility while resolving the real async gateway."""
+    discovered = list_capabilities()
+    if isinstance(discovered, dict):
+        return discovered
+    if inspect.iscoroutine(discovered):
+        discovered.close()
+    return _list_capabilities_sync()
 
 
 @_internal_tool(output_schema=REPO_STATUS_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3268,7 +3303,7 @@ def system_query(request: SystemQueryRequest) -> dict:
     if request.operation == "capability_identity":
         result = _capability_identity_result(request)
     elif request.operation == "capabilities":
-        result = list_capabilities()
+        result = _system_capabilities_result()
     elif request.operation == "self_check":
         result = run_local_self_check()
         if request.view == "full":

@@ -1852,6 +1852,32 @@ def test_system_self_check_projection_honors_response_budget(monkeypatch) -> Non
     assert "stdout" not in result["checks"]["check_0"]
 
 
+def test_system_capabilities_resolves_live_async_discovery(monkeypatch) -> None:
+    async def fake_list_tools():
+        return [
+            SimpleNamespace(
+                to_mcp_tool=lambda: SimpleNamespace(
+                    model_dump=lambda mode: {"name": "demo_gateway"}
+                )
+            )
+        ]
+
+    monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
+    result = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capabilities", "response_budget_bytes": 4096}
+        )
+    )
+    assert result["action_names_count"] == 1
+    assert result["response_bytes"] <= 4096
+    full = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capabilities", "view": "full"}
+        )
+    )
+    assert full["action_names"] == ["demo_gateway"]
+
+
 def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
     request = TypeAdapter(SystemQueryRequest).validate_python(
         {
