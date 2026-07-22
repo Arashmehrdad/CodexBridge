@@ -2841,9 +2841,19 @@ def trading_signal_cancel_before_entry(request: TradingSignalCancelRequest) -> d
 
 @_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def list_repo_files(
-    repo_name: str, directory: str = "", max_results: int = 500
+    repo_name: str,
+    directory: str = "",
+    max_results: int = 500,
+    view: str = "full",
+    response_budget_bytes: int = 12 * 1024,
 ) -> dict:
     """Read-only: list files in a repository directory. Returns repo-relative POSIX paths only."""
+    if view not in {"compact", "full"}:
+        raise ValueError("view must be compact or full")
+    if max_results < 1 or max_results > 5_000:
+        raise ValueError("max_results must be between 1 and 5000")
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_reader.list_repo_files(
         repo_root, directory=directory, max_results=max_results
@@ -2851,6 +2861,30 @@ def list_repo_files(
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
+    if view == "full":
+        return result
+    files = list(result.get("files") or [])
+    compact = {
+        "ok": result.get("ok", False),
+        "repo_name": result.get("repo_name", canonical_name),
+        "directory": result.get("directory", directory),
+        "files": files,
+        "count": len(files),
+        "total_count": result.get("count", len(files)),
+        "truncated": bool(result.get("truncated", False)),
+        "has_more": bool(result.get("truncated", False)),
+        "response_budget_bytes": response_budget_bytes,
+        "error": result.get("error", ""),
+    }
+    if "requested_repo_name" in result:
+        compact["requested_repo_name"] = result["requested_repo_name"]
+    while len(json.dumps(compact, ensure_ascii=False).encode("utf-8")) > response_budget_bytes and compact["files"]:
+        compact["files"].pop()
+        compact["truncated"] = True
+        compact["has_more"] = True
+    compact["count"] = len(compact["files"])
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
     return result
 
 
@@ -3295,7 +3329,13 @@ def repo_query(request: RepoQueryRequest) -> dict:
     if request.operation == "patch_status":
         return get_patch_status(request.repo_name, request.patch_id)
     if request.operation == "list_files":
-        return list_repo_files(request.repo_name, request.directory, request.max_results)
+        return list_repo_files(
+            request.repo_name,
+            request.directory,
+            request.max_results,
+            request.view,
+            request.response_budget_bytes,
+        )
     if request.operation == "read_files":
         return read_repo_files(
             request.repo_name, request.requests, request.response_budget_bytes

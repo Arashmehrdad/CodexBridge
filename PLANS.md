@@ -540,6 +540,12 @@ Thirteenth independently reviewable slice — bounded lock reads:
 - `view="full"` preserves the existing complete lock evidence path, while the operation inventory and gateway schema expose the compact/full distinction explicitly;
 - focused CodexBridge pytest validation passed with 29 server tests and 36 gateway-model tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Fourteenth independently reviewable slice — bounded repository file lists:
+
+- `repo_query(operation="list_files")` now defaults to a compact repository-relative path projection with a caller-selected 1–64-KB serialized UTF-8 budget, explicit `count`/`total_count`, `has_more`, truncation, and response byte accounting;
+- the direct `list_repo_files` compatibility wrapper remains full by default, while `view="full"` preserves complete path evidence and the operation inventory records the compact/full distinction;
+- focused CodexBridge pytest validation passed with 30 server tests, 37 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

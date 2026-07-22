@@ -705,11 +705,18 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("list_files",),
         "codexbridge.server:repo_query -> codexbridge.repo_tools:list_repo_files",
-        "direct repository path list",
+        "bounded compact repository path list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=500,
         maximum_item_limit=5_000,
-        notes="File count is bounded but there is no cursor or byte ceiling.",
+        notes=(
+            "The default compact view is capped by serialized UTF-8 budget and keeps "
+            "explicit count/truncation metadata; view=full preserves compatibility "
+            "for complete path evidence."
+        ),
     ),
     _entry(
         "repo_query",

@@ -229,6 +229,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert repo_read.maximum_item_limit == 20
     assert "aggregate returned content" in repo_read.notes
 
+    repo_list = _entry_for("repo_query", "list_files")
+    assert repo_list.default_response_bytes == 12 * 1024
+    assert repo_list.maximum_response_bytes == 12 * 1024
+    assert "view=full" in repo_list.notes
+
     historical_ticks = _entry_for("trading_query", "historical_ticks")
     assert historical_ticks.pagination is PaginationBehavior.NONE
     assert "no result count" in historical_ticks.notes

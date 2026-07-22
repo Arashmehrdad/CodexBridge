@@ -404,6 +404,8 @@ class RepoListFilesQuery(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     directory: str = Field(default="", max_length=1024)
     max_results: int = Field(default=500, ge=1, le=5_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class RepoReadFilesQuery(GatewayModel):

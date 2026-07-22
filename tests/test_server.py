@@ -1159,6 +1159,39 @@ def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
     assert locks["locks"][0]["repo_name"] == "sample"
 
 
+def test_list_repo_files_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
+    files = [f"src/{index:04d}-" + ("x" * 160) + ".py" for index in range(40)]
+
+    class Reader:
+        @staticmethod
+        def list_repo_files(repo_root, *, directory, max_results):
+            return {
+                "ok": True,
+                "repo_name": "",
+                "directory": directory,
+                "files": files[:max_results],
+                "count": min(len(files), max_results),
+                "truncated": len(files) > max_results,
+                "max_results": max_results,
+                "error": "",
+            }
+
+    monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(server, "_repo_reader", Reader())
+
+    compact = server.list_repo_files(
+        "repo", max_results=40, view="compact", response_budget_bytes=4096
+    )
+    assert compact["truncated"] is True
+    assert compact["has_more"] is True
+    assert compact["response_bytes"] <= 4096
+    assert compact["count"] < 40
+
+    full = server.list_repo_files("repo", max_results=40, view="full")
+    assert full["files"] == files
+    assert "response_bytes" not in full
+
+
 def test_server_preflight_is_compact_and_combines_live_state(monkeypatch) -> None:
     class Manager:
         def list_run_summaries(self, **kwargs):
