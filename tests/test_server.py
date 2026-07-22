@@ -457,6 +457,24 @@ def test_cloudflare_capabilities_honor_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_cloudflare_health_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(server, "authorize_cloudflare_profile", lambda *args: ("repo", object()))
+    monkeypatch.setattr(
+        server,
+        "_cloudflare_health",
+        lambda cfg, profile_id: {
+            "ok": True,
+            "profile_id": profile_id,
+            "details": {f"field_{index}": "x" * 180 for index in range(100)},
+            "error": "",
+        },
+    )
+    result = server.cloudflare_health("repo", "production", response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_supervisor_events_honors_response_budget(monkeypatch) -> None:
     class Service:
         def get_events(self, supervisor_id, limit):

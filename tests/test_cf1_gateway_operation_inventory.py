@@ -280,6 +280,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert cloudflare_capabilities.maximum_response_bytes == 12 * 1024
     assert "serialized UTF-8 budget" in cloudflare_capabilities.notes
 
+    cloudflare_health = _entry_for("cloudflare_query", "health")
+    assert cloudflare_health.default_response_bytes == 12 * 1024
+    assert cloudflare_health.maximum_response_bytes == 12 * 1024
+    assert "serialized UTF-8 budget" in cloudflare_health.notes
+
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
     assert "aggregate returned content" in repo_read.notes

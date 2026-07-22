@@ -326,8 +326,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "cloudflare_query",
         ("health",),
         "codexbridge.server:cloudflare_query",
-        "direct Cloudflare health summary",
-        notes="Cloudflare health remains a compatibility-shaped provider summary.",
+        "bounded Cloudflare health summary",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Cloudflare health remains a compatibility-shaped provider summary under a serialized UTF-8 budget.",
     ),
     _entry(
         "cloudflare_query",

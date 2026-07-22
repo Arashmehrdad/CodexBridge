@@ -1599,12 +1599,37 @@ def list_cloudflare_capabilities(
     output_schema=GENERIC_OBJECT_OUTPUT,
     annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
 )
-def cloudflare_health(repo_name: str, profile_id: str) -> dict:
+def cloudflare_health(
+    repo_name: str,
+    profile_id: str,
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
     """Read-only: verify an authorized repository Cloudflare profile and token."""
+    if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     config = get_config()
     canonical_repo_name, _ = authorize_cloudflare_profile(config, repo_name, profile_id)
     result = _cloudflare_health(config, profile_id)
     result["repo_name"] = canonical_repo_name
+    result["truncated"] = False
+    result["has_more"] = False
+    result["response_budget_bytes"] = response_budget_bytes
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
+        reduced = False
+        for key in ("engine", "token", "profile", "details"):
+            value = result.get(key)
+            if isinstance(value, dict) and value:
+                value.pop(next(reversed(value)))
+                reduced = True
+                break
+        if not reduced and isinstance(result.get("error"), str) and result["error"]:
+            result["error"] = ""
+            reduced = True
+        if not reduced:
+            break
+        result["truncated"] = True
+        result["has_more"] = True
+    result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
     return result
 
 
@@ -2119,7 +2144,9 @@ def cloudflare_query(request: CloudflareQueryRequest) -> dict:
             request.repo_name, request.response_budget_bytes
         )
     if request.operation == "health":
-        return cloudflare_health(request.repo_name, request.profile_id)
+        return cloudflare_health(
+            request.repo_name, request.profile_id, request.response_budget_bytes
+        )
     return cloudflare_inspect(
         request.repo_name, request.profile_id, request.inspection,
         resource_id=request.resource_id, name=request.name, record_type=request.record_type,

@@ -653,6 +653,12 @@ Thirty-second independently reviewable slice — bounded Docker health:
 - the Docker health inventory now records a bounded-object 12-KB default/maximum response contract;
 - focused CodexBridge pytest validation passed with 45 server tests, 50 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Thirty-third independently reviewable slice — bounded Cloudflare health:
+
+- `cloudflare_query(operation="health")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims verbose profile diagnostics deterministically while preserving profile authorization, health fields, and the capability/inspection paths;
+- the Cloudflare health inventory now records a bounded-object 12-KB default/maximum response contract;
+- focused CodexBridge pytest validation passed with 46 server tests, 51 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
