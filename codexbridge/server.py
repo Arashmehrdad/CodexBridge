@@ -4375,23 +4375,61 @@ def repo_query(request: RepoQueryRequest) -> dict:
     return inspect_commit_range(request.repo_name, request.base_commit, request.head_commit)
 
 
+def _bounded_repo_preview_response(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact = {
+        key: result[key]
+        for key in (
+            "ok", "operation", "patch_id", "cleanup_id", "repo_name", "requested_repo_name",
+            "git_head", "changed_lines", "logical_changed_lines",
+            "newline_only_changed_lines", "changed_bytes", "commit_title",
+            "error",
+        )
+        if key in result
+    }
+    for key in ("error", "commit_title"):
+        if compact.get(key):
+            compact[key] = str(compact[key])[:512]
+    compact["changed_file_count"] = len(result.get("changed_files") or [])
+    compact["validation_error_count"] = len(result.get("validation_errors") or [])
+    compact["warning_count"] = len(result.get("warnings") or [])
+    compact["newline_diagnostic_count"] = len(result.get("newline_diagnostics") or [])
+    compact["diff_bytes"] = len(str(result.get("diff") or "").encode("utf-8"))
+    compact["truncated"] = bool(
+        result.get("diff")
+        or result.get("changed_files")
+        or result.get("validation_errors")
+        or result.get("warnings")
+        or result.get("newline_diagnostics")
+    )
+    compact["has_more"] = compact["truncated"]
+    compact["response_budget_bytes"] = budget
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def repo_preview(request: RepoPreviewRequest) -> dict:
     """Read-only gateway that produces opaque managed repository change previews."""
     if request.operation == "patch":
-        return preview_repo_patch(
+        result = preview_repo_patch(
             request.repo_name,
             request.operations,
             request.commit_title,
             request.commit_description,
         )
-    if request.operation == "create_file":
-        return preview_repo_file_creation(request.repo_name, request.path, request.content)
-    if request.operation == "remove_file":
-        return preview_repo_file_removal(
+    elif request.operation == "create_file":
+        result = preview_repo_file_creation(request.repo_name, request.path, request.content)
+    elif request.operation == "remove_file":
+        result = preview_repo_file_removal(
             request.repo_name, request.path, request.expected_sha256
         )
-    return preview_managed_artifact_cleanup(request.repo_name, request.roots)
+    else:
+        result = preview_managed_artifact_cleanup(request.repo_name, request.roots)
+    if request.view == "full":
+        return result
+    return _bounded_repo_preview_response(result, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)

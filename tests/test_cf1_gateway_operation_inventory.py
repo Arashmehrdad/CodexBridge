@@ -482,3 +482,10 @@ def test_durable_action_paths_record_request_echo_explicitly() -> None:
     }:
         entry = _entry_for(gateway, operation)
         assert entry.request_echo is RequestEchoBehavior.DURABLE_INPUT_RECORD
+
+
+def test_repository_previews_are_bounded() -> None:
+    preview = _entry_for("repo_preview", "patch")
+    assert preview.default_response_bytes == 12 * 1024
+    assert preview.maximum_response_bytes == 12 * 1024
+    assert "view=full" in preview.notes

@@ -1008,19 +1008,25 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_preview",
         ("patch", "remove_file", "cleanup"),
         "codexbridge.server:repo_preview",
-        "opaque managed preview with diff metadata",
+        "bounded compact opaque managed preview",
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes="Preview records preserve proposed changes outside tracked files.",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact previews retain patch/cleanup identity, statistics, and diagnostic counts under a UTF-8 budget; view=full preserves complete diff evidence.",
     ),
     _entry(
         "repo_preview",
         ("create_file",),
         "codexbridge.server:repo_preview",
-        "opaque managed preview with diff metadata",
+        "bounded compact opaque managed preview",
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
         notes=(
-            "Request content is capped at 2,000,000 characters; the preview "
-            "response itself has no byte ceiling."
+            "Request content is capped at 2,000,000 characters; compact response "
+            "metadata is UTF-8 bounded and view=full preserves complete diff evidence."
         ),
     ),
     _entry(

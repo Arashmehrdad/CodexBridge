@@ -758,6 +758,9 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     assert server.repo_preview(TypeAdapter(RepoPreviewRequest).validate_python(
         {"operation": "remove_file", "repo_name": "repo", "path": "x", "expected_sha256": "a" * 64}
     ))["operation"] == "remove"
+    assert TypeAdapter(RepoPreviewRequest).validate_python(
+        {"operation": "patch", "repo_name": "repo", "operations": [{"action": "modify", "path": "x"}]}
+    ).response_budget_bytes == 12 * 1024
     apply_result = server.repo_apply(TypeAdapter(RepoApplyRequest).validate_python(
         {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
     ))
@@ -796,6 +799,45 @@ def test_repo_commit_projection_honors_response_budget(monkeypatch) -> None:
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
+
+
+def test_repo_preview_projection_honors_response_budget(monkeypatch) -> None:
+    preview = {
+        "ok": True,
+        "patch_id": "patch_1",
+        "repo_name": "repo",
+        "diff": "d" * 50_000,
+        "changed_files": [f"file_{index}.py" for index in range(5000)],
+        "validation_errors": ["e" * 500 for _ in range(20)],
+        "warnings": ["w" * 500 for _ in range(20)],
+        "newline_diagnostics": [{"path": f"file_{index}.py"} for index in range(20)],
+    }
+    monkeypatch.setattr(server, "preview_repo_patch", lambda *args: dict(preview))
+    result = server.repo_preview(
+        TypeAdapter(RepoPreviewRequest).validate_python(
+            {
+                "operation": "patch",
+                "repo_name": "repo",
+                "operations": [{"action": "modify", "path": "x"}],
+                "response_budget_bytes": 4096,
+            }
+        )
+    )
+    assert result["patch_id"] == "patch_1"
+    assert result["changed_file_count"] == 5000
+    assert result["truncated"] is True
+    assert result["response_bytes"] <= 4096
+    full = server.repo_preview(
+        TypeAdapter(RepoPreviewRequest).validate_python(
+            {
+                "operation": "patch",
+                "repo_name": "repo",
+                "operations": [{"action": "modify", "path": "x"}],
+                "view": "full",
+            }
+        )
+    )
+    assert len(full["diff"]) == 50_000
 
 
 def test_repo_list_files_model_exposes_compact_and_full_views() -> None:
