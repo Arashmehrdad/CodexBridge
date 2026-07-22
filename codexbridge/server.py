@@ -2024,6 +2024,14 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
         )
         if key in result
     }
+    compact.update(
+        {
+            "view": "compact",
+            "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+            "non_authoritative": True,
+            "notice": NON_AUTHORITATIVE_NOTICE,
+        }
+    )
     for key in ("error",):
         if compact.get(key):
             compact[key] = str(compact[key])[:512]

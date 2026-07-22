@@ -2065,6 +2065,10 @@ def test_ssh_query_projection_honors_response_budget(monkeypatch) -> None:
         {"operation": "capabilities", "response_budget_bytes": 4096}
     )
     result = server.ssh_query(request)
+    assert result["view"] == "compact"
+    assert result["projection_version"] == "cf1.v1"
+    assert result["non_authoritative"] is True
+    assert "authoritative" in result["notice"]
     assert result["response_bytes"] <= 4096
     assert result["host_count"] == 5000
     assert result["command_count"] == 5000
