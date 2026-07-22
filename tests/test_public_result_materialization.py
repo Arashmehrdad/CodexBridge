@@ -186,6 +186,13 @@ def test_managed_apply_projection_exposes_bounded_terminal_metadata() -> None:
         "changed_files": [f"src/file_{index}.py" for index in range(100)],
         "preserved_preexisting_changes": ["README.md", "notes.txt"],
         "validation_results": [{"ok": True}, {"ok": False}, {"ok": True}],
+        "wiki_freshness": {
+            "stale": True,
+            "stale_reason": "repo_apply",
+            "generation_id": "wiki_generation_123",
+            "source_generation": 8,
+            "indexed_source_generation": 7,
+        },
         "stdout": "secret output must remain evidence-only",
     }
 
@@ -199,6 +206,15 @@ def test_managed_apply_projection_exposes_bounded_terminal_metadata() -> None:
     assert managed["commit_hash"] == "a" * 40
     assert managed["preserved_work"] == {"count": 2}
     assert managed["validation_summary"] == {"total": 3, "passed": 2, "failed": 1}
+    assert managed["knowledge_freshness"] == {
+        "stale": True,
+        "source_generation": 8,
+        "indexed_source_generation": 7,
+        "generation_id": "wiki_generation_123",
+        "refresh_recommended": True,
+        "stale_reason": "repo_apply",
+        "refresh_action": "knowledge_action(refresh_wiki)",
+    }
     assert "stdout" not in projection["result"]
     assert len(canonical_public_json_bytes(projection)) <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
 

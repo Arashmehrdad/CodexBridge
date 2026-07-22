@@ -76,6 +76,29 @@ def _managed_apply_summary(run: dict[str, Any], result: dict[str, Any]) -> dict[
         remaining = result["remaining_dirty_files"]
         summary["remaining_work"] = {"count": len(remaining)} if isinstance(remaining, list) else _bounded_text(remaining, 256)[0]
 
+    freshness = result.get("wiki_freshness")
+    if isinstance(freshness, dict):
+        stale = bool(freshness.get("stale", False))
+        knowledge_freshness: dict[str, object] = {
+            "stale": stale,
+            "source_generation": int(freshness.get("source_generation", 0) or 0),
+            "indexed_source_generation": int(
+                freshness.get("indexed_source_generation", 0) or 0
+            ),
+            "generation_id": _bounded_text(
+                freshness.get("generation_id", ""), 128
+            )[0],
+            "refresh_recommended": stale,
+        }
+        stale_reason = freshness.get("stale_reason")
+        if stale_reason:
+            knowledge_freshness["stale_reason"] = _bounded_text(
+                stale_reason, 256
+            )[0]
+        if stale:
+            knowledge_freshness["refresh_action"] = "knowledge_action(refresh_wiki)"
+        summary["knowledge_freshness"] = knowledge_freshness
+
     return summary or {"operation": "managed_write"}
 
 

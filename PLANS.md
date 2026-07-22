@@ -839,6 +839,12 @@ Sixty-third independently reviewable slice — explicit public-schema and discov
 - callers can bind connector-loaded public schema, operation inventory, and discovery-cache expectations, with bounded explicit mismatch names and preserved legacy schema checks;
 - focused CodexBridge pytest validation passed with 76 gateway-model tests and 7 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Sixty-fourth independently reviewable slice — managed-write knowledge freshness:
+
+- compact terminal projections for `repo_apply` now retain bounded knowledge freshness state, source and indexed generations, stale reason, and an explicit `knowledge_action(refresh_wiki)` recommendation without embedding wiki content;
+- authoritative apply results and full evidence remain unchanged, while callers can detect stale knowledge directly from the ordinary managed-write projection;
+- focused CodexBridge pytest validation passed with 21 public-result tests and 46 adjacent server tests. Native compilation, pip check, `git diff --check`, and scoped Ruff passed.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
