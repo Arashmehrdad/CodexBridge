@@ -1135,6 +1135,9 @@ def test_phase6_domain_models_reject_cross_domain_fields() -> None:
     assert TypeAdapter(SSHQueryRequest).validate_python(
         {"operation": "profile_status", "change_id": "change_1"}
     ).change_id == "change_1"
+    assert TypeAdapter(SSHQueryRequest).validate_python(
+        {"operation": "capabilities"}
+    ).response_budget_bytes == 12 * 1024
     ssh_inspection = TypeAdapter(SSHInspectRequest).validate_python(
         {"operation": "inspection", "host_id": "dev", "inspection": "uptime"}
     )
@@ -1639,6 +1642,30 @@ def test_system_action_projection_honors_response_budget(monkeypatch) -> None:
     assert result["has_more"] is True
     assert result["response_bytes"] <= 4096
     assert result["reloaded_count"] == 5000
+
+
+def test_ssh_query_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "list_ssh_capabilities",
+        lambda: {
+            "ok": True,
+            "enabled": True,
+            "hosts": [
+                {"host_id": f"host-{index}", "commands": [{"command_id": "run"}]}
+                for index in range(5000)
+            ],
+            "error": "e" * 20_000,
+        },
+    )
+    request = TypeAdapter(SSHQueryRequest).validate_python(
+        {"operation": "capabilities", "response_budget_bytes": 4096}
+    )
+    result = server.ssh_query(request)
+    assert result["response_bytes"] <= 4096
+    assert result["host_count"] == 5000
+    assert result["command_count"] == 5000
+    assert "hosts" not in result
 
 
 

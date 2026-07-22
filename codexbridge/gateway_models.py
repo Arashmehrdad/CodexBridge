@@ -875,6 +875,8 @@ CloudflareActionRequest = Annotated[
 
 class SSHCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SSHExecutionPolicyGatewayRequest(GatewayModel):
@@ -1053,11 +1055,15 @@ class SSHProfilePreviewQuery(GatewayModel):
     host_config: dict[str, Any] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)
     command_profile: dict[str, Any] = Field(default_factory=dict)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class SSHProfileStatusQuery(GatewayModel):
     operation: Literal["profile_status"]
     change_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 SSHQueryRequest = Annotated[

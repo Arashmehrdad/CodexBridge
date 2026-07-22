@@ -362,13 +362,23 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "ssh_query",
-        ("capabilities", "profile_preview", "profile_status"),
+        ("capabilities",),
         "codexbridge.server:ssh_query",
-        "direct SSH capability or profile lifecycle object",
-        notes=(
-            "Profile previews can include configuration diffs; no public response "
-            "byte ceiling is enforced."
-        ),
+        "bounded compact SSH capability projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact capabilities return host/command counts under a UTF-8 budget; view=full remains explicit complete capability access.",
+    ),
+    _entry(
+        "ssh_query",
+        ("profile_preview", "profile_status"),
+        "codexbridge.server:ssh_query",
+        "bounded compact SSH profile lifecycle projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact profile reads retain lifecycle and hash identity while collapsing capability diffs; view=full remains explicit evidence access.",
     ),
     _entry(
         "ssh_action",

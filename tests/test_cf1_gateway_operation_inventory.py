@@ -371,6 +371,15 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert repo_read.maximum_response_bytes == 128 * 1024
     assert "aggregate content is enforced" in repo_read.notes
 
+    ssh_capabilities = _entry_for("ssh_query", "capabilities")
+    assert ssh_capabilities.default_response_bytes == 12 * 1024
+    assert ssh_capabilities.maximum_response_bytes == 12 * 1024
+    assert "view=full" in ssh_capabilities.notes
+    ssh_profiles = _entry_for("ssh_query", "profile_preview")
+    assert ssh_profiles.default_response_bytes == 12 * 1024
+    assert ssh_profiles.maximum_response_bytes == 12 * 1024
+    assert "view=full" in ssh_profiles.notes
+
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024
     assert repo_list.maximum_response_bytes == 12 * 1024

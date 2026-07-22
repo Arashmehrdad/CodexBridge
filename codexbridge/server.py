@@ -1788,6 +1788,41 @@ def get_ssh_profile_change_status(change_id: str) -> dict:
     return _get_ssh_profile_change_status(config_path, _get_runs_dir(), change_id)
 
 
+def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    if budget < 1024 or budget > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
+    compact: dict[str, Any] = {
+        key: result[key]
+        for key in (
+            "ok", "enabled", "status", "change_id", "action", "host_id",
+            "command_id", "created_at", "applied_at", "failed_at",
+            "base_config_sha256", "candidate_config_sha256", "error",
+        )
+        if key in result
+    }
+    for key in ("error",):
+        if compact.get(key):
+            compact[key] = str(compact[key])[:512]
+    hosts = result.get("hosts")
+    if isinstance(hosts, list):
+        compact["host_count"] = len(hosts)
+        compact["command_count"] = sum(
+            len(host.get("commands") or []) for host in hosts if isinstance(host, dict)
+        )
+    diff = result.get("capability_diff")
+    if isinstance(diff, dict):
+        compact["capability_diff_counts"] = {
+            key: len(value or [])
+            for key, value in diff.items()
+            if isinstance(value, list)
+        }
+    compact["truncated"] = False
+    compact["has_more"] = bool(result.get("capability_diff") or result.get("hosts"))
+    compact["response_budget_bytes"] = budget
+    compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    return compact
+
+
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_ssh_profile_change(change_id: str) -> dict:
     """Write tool: atomically apply and activate one hash-verified SSH profile change preview."""
@@ -2203,13 +2238,17 @@ def cloudflare_action(request: CloudflareActionRequest) -> dict:
 def ssh_query(request: SSHQueryRequest) -> dict:
     """Read-only SSH gateway for capabilities and hash-verified profile lifecycle reads."""
     if request.operation == "capabilities":
-        return list_ssh_capabilities()
-    if request.operation == "profile_status":
-        return get_ssh_profile_change_status(request.change_id)
-    return preview_ssh_profile_change(
-        request.action, request.host_id, request.host_config,
-        request.command_id, request.command_profile,
-    )
+        result = list_ssh_capabilities()
+    elif request.operation == "profile_status":
+        result = get_ssh_profile_change_status(request.change_id)
+    else:
+        result = preview_ssh_profile_change(
+            request.action, request.host_id, request.host_config,
+            request.command_id, request.command_profile,
+        )
+    if request.view == "full":
+        return result
+    return _bounded_ssh_query_response(result, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**WRITE_ANNOTATIONS, "openWorldHint": True})

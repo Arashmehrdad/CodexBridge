@@ -749,6 +749,12 @@ Forty-eighth independently reviewable slice — bounded repository batch reads:
 - the existing 20-file limit, streamed per-file content, redaction, hash-bound continuation, and compatibility behavior remain intact;
 - focused CodexBridge pytest validation passed with 72 repository-reader tests and 6 gateway-inventory tests. Native compilation, Ruff, pip check, and `git diff --check` passed.
 
+Forty-ninth independently reviewable slice — bounded SSH query projections:
+
+- `ssh_query(operation="capabilities"|"profile_preview"|"profile_status")` now defaults to compact 12-KB projections retaining host/lifecycle/hash identity and collapsing large capability diffs to counts;
+- `view="full"` preserves explicit complete capability and profile evidence access, while existing internal SSH query functions and security validation remain unchanged;
+- focused CodexBridge pytest validation passed with 63 gateway-model tests and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.
