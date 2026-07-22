@@ -9,6 +9,31 @@ from codexbridge.transactions import (
 )
 
 
+def test_transaction_context_does_not_scan_unrelated_workspace(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    target = repo / "sample.txt"
+    target.write_text("before\n", encoding="utf-8")
+    unrelated = repo / "runs" / "large-artifact.bin"
+    unrelated.parent.mkdir()
+    unrelated.write_bytes(b"artifact")
+    original_stat = Path.stat
+
+    def guarded_stat(path: Path, *args, **kwargs):
+        if path == unrelated:
+            raise AssertionError("transaction scanned an unrelated workspace file")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded_stat)
+
+    context = TransactionContext(repo, ["sample.txt"])
+
+    assert context.file_snapshots["sample.txt"].content == b"before\n"
+
+
 def test_transaction_context_tracks_baseline_and_rollback(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

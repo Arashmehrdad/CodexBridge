@@ -6,7 +6,6 @@ import shutil
 from typing import Any, Callable
 
 from .git_tools import changed_files
-from .run_guards import snapshot_workspace
 
 
 PhaseCallback = Callable[[str, dict[str, Any] | None], None]
@@ -24,7 +23,6 @@ class TransactionContext:
     repo_root: Path
     touched_paths: list[str]
     phase_callback: PhaseCallback | None = None
-    baseline_workspace: dict[str, tuple[int, int]] = field(init=False)
     baseline_dirty_files: list[str] = field(init=False)
     file_snapshots: dict[str, TransactionFileSnapshot] = field(init=False)
     temp_artifacts: list[Path] = field(default_factory=list)
@@ -36,7 +34,6 @@ class TransactionContext:
 
     def __post_init__(self) -> None:
         self.repo_root = self.repo_root.resolve()
-        self.baseline_workspace = snapshot_workspace(self.repo_root)
         self.baseline_dirty_files = changed_files(self.repo_root)
         snapshots: dict[str, TransactionFileSnapshot] = {}
         for relative in self.touched_paths:
