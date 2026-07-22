@@ -2859,6 +2859,10 @@ def _bounded_workflow_response(workflow: dict[str, Any], response_budget_bytes: 
         )
     response = {
         "ok": bool(workflow.get("ok", True)),
+        "view": "compact",
+        "projection_version": PUBLIC_PROJECTION_SCHEMA_VERSION,
+        "non_authoritative": True,
+        "notice": NON_AUTHORITATIVE_NOTICE,
         "workflow_id": workflow.get("workflow_id"),
         "repo_name": workflow.get("repo_name"),
         "status": workflow.get("status"),
