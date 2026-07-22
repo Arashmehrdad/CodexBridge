@@ -233,6 +233,11 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert h4.maximum_response_bytes == 12 * 1024
     assert "UTF-8 byte budget" in h4.notes
 
+    supervisor_events = _entry_for("supervisor_query", "events")
+    assert supervisor_events.default_response_bytes == 12 * 1024
+    assert supervisor_events.maximum_response_bytes == 12 * 1024
+    assert "serialized UTF-8 budget" in supervisor_events.notes
+
     repo_read = _entry_for("repo_query", "read_files")
     assert repo_read.maximum_item_limit == 20
     assert "aggregate returned content" in repo_read.notes

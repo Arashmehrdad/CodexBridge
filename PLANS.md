@@ -600,6 +600,12 @@ Twenty-third independently reviewable slice — bounded historical-tick retrieva
 - the historical-tick inventory now records a bounded-object response contract with a 12-KB default/maximum budget and explicit truncation metadata;
 - focused CodexBridge pytest validation passed with 37 server tests, 46 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
 
+Twenty-fourth independently reviewable slice — bounded supervisor events:
+
+- `supervisor_query(operation="events")` now accepts a caller-selected 1–64-KB serialized UTF-8 budget and trims only the tail of the ordered event list, preserving supervisor identity, event ordering, and the existing item limit;
+- events and notifications are now represented separately in the gateway inventory, with the event operation carrying a bounded-object 12-KB default/maximum budget while notification compatibility remains unchanged;
+- focused CodexBridge pytest validation passed with 38 server tests, 47 gateway-model tests, and 6 gateway-inventory tests. Native compilation, pip check, and `git diff --check` passed; Ruff reports only the pre-existing unused server import.
+
 - Inventory and adapt workflows, supervisors, SSH, remote controllers, Hermes, parallel groups, Docker, Cloudflare, knowledge, Trading Lab, system health, and every other public gateway.
 - Define a small versioned response envelope carrying view, projection version, payload byte count, truncation state, continuation/evidence handles, source identity where relevant, and a clear non-authoritative-summary marker.
 - Apply deterministic per-field and whole-response UTF-8 byte budgets before serialization completes.

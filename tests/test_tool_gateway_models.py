@@ -536,6 +536,13 @@ def test_cloudflare_inspect_model_exposes_response_budget() -> None:
     assert request.response_budget_bytes == 12 * 1024
 
 
+def test_supervisor_events_model_exposes_response_budget() -> None:
+    request = TypeAdapter(SupervisorQueryRequest).validate_python(
+        {"operation": "events", "supervisor_id": "sup_1"}
+    )
+    assert request.response_budget_bytes == 12 * 1024
+
+
 def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None:
     calls: list[dict] = []
 

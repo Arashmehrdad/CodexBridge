@@ -377,6 +377,18 @@ def test_cloudflare_inspect_honors_response_budget(monkeypatch, tmp_path) -> Non
     assert result["response_bytes"] <= 4096
 
 
+def test_supervisor_events_honors_response_budget(monkeypatch) -> None:
+    class Service:
+        def get_events(self, supervisor_id, limit):
+            return [{"id": index, "message": "x" * 180} for index in range(limit)]
+
+    monkeypatch.setattr(server, "get_supervisor_service", lambda: Service())
+    result = server.get_supervisor_events("sup_1", 50, response_budget_bytes=4096)
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_server_extended_ssh_tools_delegate(monkeypatch, tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     config = AppConfig(
