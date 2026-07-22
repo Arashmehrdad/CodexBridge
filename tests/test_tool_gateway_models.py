@@ -431,6 +431,9 @@ def test_workflow_and_supervisor_models_are_operation_specific() -> None:
     assert supervisor_action.validate_python(
         {"action": "pause", "supervisor_id": "sup_1"}
     ).supervisor_id == "sup_1"
+    assert supervisor_action.validate_python(
+        {"action": "cancel", "supervisor_id": "sup_1"}
+    ).response_budget_bytes == 12 * 1024
 
     invalid_payloads = (
         (workflow_query, {"operation": "status", "workflow_id": "wf_1", "limit": 1}),
@@ -474,6 +477,29 @@ def test_workflow_and_supervisor_gateways_dispatch_to_existing_implementations(m
             {"action": "pause", "supervisor_id": "sup_1"}
         )
     )["status"] == "paused"
+
+
+def test_supervisor_lifecycle_projection_honors_response_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server,
+        "pause_supervisor",
+        lambda supervisor_id: {
+            "ok": True,
+            "supervisor_id": supervisor_id,
+            "status": "paused",
+            "summary": "s" * 20_000,
+            "failure_summary": "f" * 20_000,
+            "recommended_next_action": "n" * 20_000,
+            "run_links": [{"run_id": str(index)} for index in range(5000)],
+        },
+    )
+    request = TypeAdapter(SupervisorActionRequest).validate_python(
+        {"action": "pause", "supervisor_id": "sup_1", "response_budget_bytes": 4096}
+    )
+    result = server.supervisor_action(request)
+    assert result["response_bytes"] <= 4096
+    assert result["supervisor_id"] == "sup_1"
+    assert result["run_link_count"] == 5000
 
 
 def test_workflow_query_projection_honors_response_budget(monkeypatch) -> None:

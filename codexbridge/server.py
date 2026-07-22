@@ -3414,10 +3414,14 @@ def supervisor_action(request: SupervisorActionRequest) -> dict:
             request.autonomy_profile,
         )
     if request.action == "resume":
-        return resume_supervisor(request.supervisor_id)
-    if request.action == "pause":
-        return pause_supervisor(request.supervisor_id)
-    return cancel_supervisor(request.supervisor_id)
+        result = resume_supervisor(request.supervisor_id)
+    elif request.action == "pause":
+        result = pause_supervisor(request.supervisor_id)
+    else:
+        result = cancel_supervisor(request.supervisor_id)
+    if request.view == "full":
+        return result
+    return _bounded_supervisor_snapshot(result, request.response_budget_bytes)
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

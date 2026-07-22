@@ -763,8 +763,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "supervisor_action",
         ("resume", "pause", "cancel"),
         "codexbridge.server:supervisor_action",
-        "direct supervisor lifecycle result",
-        notes="Lifecycle mutations return the updated supervisor state.",
+        "bounded compact supervisor lifecycle projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Compact lifecycle mutations retain identity/status/publication metadata and bounded diagnostics; view=full remains explicit complete supervisor evidence.",
     ),
     _entry(
         "trading_query",

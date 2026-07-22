@@ -388,6 +388,10 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert cancel_run.default_response_bytes == 12 * 1024
     assert cancel_run.maximum_response_bytes == 12 * 1024
     assert "view=full" in cancel_run.notes
+    supervisor_lifecycle = _entry_for("supervisor_action", "pause")
+    assert supervisor_lifecycle.default_response_bytes == 12 * 1024
+    assert supervisor_lifecycle.maximum_response_bytes == 12 * 1024
+    assert "view=full" in supervisor_lifecycle.notes
 
     repo_list = _entry_for("repo_query", "list_files")
     assert repo_list.default_response_bytes == 12 * 1024
