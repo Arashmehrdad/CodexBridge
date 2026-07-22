@@ -3079,8 +3079,24 @@ def trading_signal_get(request: TradingSignalGetRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def trading_signal_list(request: TradingSignalListRequest) -> dict:
     """List recent immutable Trading Lab signals."""
+    if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+        raise ValueError("response_budget_bytes must be between 1024 and 65536")
     records = _trading_signal_journal().list(limit=request.limit)
-    return {"ok": True, "signals": [_signal_record_json(record) for record in records]}
+    response = {
+        "ok": True,
+        "signals": [_signal_record_json(record) for record in records],
+        "truncated": False,
+        "has_more": False,
+        "response_budget_bytes": request.response_budget_bytes,
+    }
+    while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+        if not response["signals"]:
+            break
+        response["signals"].pop()
+        response["truncated"] = True
+        response["has_more"] = True
+    response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    return response
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)

@@ -222,7 +222,9 @@ def test_trading_signal_models_are_strict() -> None:
     request = submit.validate_python(_signal_request_payload())
     assert request.confidence == 73
     assert TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"}).signal_id == "sig_1"
-    assert TypeAdapter(TradingSignalListRequest).validate_python({}).limit == 100
+    signal_list = TypeAdapter(TradingSignalListRequest).validate_python({})
+    assert signal_list.limit == 100
+    assert signal_list.response_budget_bytes == 12 * 1024
     assert TypeAdapter(TradingSignalCancelRequest).validate_python({"signal_id": "sig_1", "reason": "wrong premise"}).reason == "wrong premise"
     with pytest.raises(ValidationError):
         submit.validate_python({**_signal_request_payload(), "market_packet_hash": "bad"})

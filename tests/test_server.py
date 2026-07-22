@@ -577,6 +577,20 @@ def test_ssh_inspection_honors_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 4096
 
 
+def test_trading_signal_list_honors_response_budget(monkeypatch) -> None:
+    class Journal:
+        def list(self, limit):
+            return [{"id": index, "reason": "x" * 180} for index in range(limit)]
+
+    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    result = server.trading_signal_list(
+        server.TradingSignalListRequest(limit=50, response_budget_bytes=4096)
+    )
+    assert result["truncated"] is True
+    assert result["has_more"] is True
+    assert result["response_bytes"] <= 4096
+
+
 def test_commit_tool_returns_structured_metadata_rejection(
     monkeypatch,
     tmp_path,

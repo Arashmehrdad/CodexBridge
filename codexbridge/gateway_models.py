@@ -308,6 +308,7 @@ class TradingSignalGetRequest(GatewayModel):
 
 class TradingSignalListRequest(GatewayModel):
     limit: int = Field(default=100, ge=1, le=1000)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TradingSignalCancelRequest(GatewayModel):
