@@ -1811,9 +1811,11 @@ Gate: passed. TL5 is now active.
 
 #### TL5 - Durable supervisor
 
-Track bid/ask and resolve exactly one stop-loss or one take-profit event.
+Status: **complete; accepted on 2026-07-23**.
 
-Gate: restart during an open trade, recover it, and resolve it exactly once; ambiguous candle ordering becomes `AMBIGUOUS_DATA`.
+`soma/trading/trade_supervisor.py` finishes the previously untested `virtual_position_journal` groundwork into a deterministic durable supervisor. Cohorts persist beside the position journal and every threshold portfolio is reconstructed from the append-only journals on demand — balances are baseline plus proven realized returns, busy state is the open-position index, and nothing is cached across restarts. Entry uses honest executable prices (long at ask, short at bid), routes exactly `T50`-`Tconfidence`, skips busy portfolios, enforces the 20 percent combined-allocation cap, replays idempotently, and marks signals entered through the immutable journal. Resolution is exactly-once via the conditional open-state update; recovered downtime replays real bid/ask ticks in order first and falls back to candle ranges where double-boundary windows resolve as `AMBIGUOUS_DATA` with no P&L rather than a silently favourable outcome.
+
+Gate evidence: focused run `tests/test_trade_supervisor.py` (10 passed) covers restart during 24 open positions with a fresh supervisor over the same journals resolving each exactly once (single `position_opened`/`position_resolved` event pair), ambiguous ranges freeing portfolios without P&L, unambiguous ranges resolving the single contained boundary, idempotent re-entry, busy skipping, NO_TRADE no-ops, allocation-cap refusal, cohort transitions preserving history, and the journal's own idempotency/one-open/price-shape contracts. Live validation (`.codex-tmp/tl5-acceptance/live_tl5_evidence.json`): the Alpari demo terminal connected (`Alpari-MT5-Demo`, 998.72 USD, demo), 180 fresh live ticks drove a synthetic long to an honest `stop_loss` resolution at live bid `66054.62` with realized return `-0.00205 USD` and exactly one resolution event, through the production supervisor and journals.
 
 #### TL6 - Reports and calibration
 
