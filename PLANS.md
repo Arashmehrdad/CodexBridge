@@ -1829,9 +1829,11 @@ Gate evidence: `tests/test_threshold_reports.py` proves byte-identical reproduct
 
 #### TL7 - Alpari demo mirror
 
-Mirror one selected reference threshold into the actual demo account while retaining all 50 virtual portfolios.
+Status: **complete; accepted on 2026-07-23**.
 
-Gate: internal and broker fills, spreads, tickets, and outcomes reconcile without duplicate orders.
+`soma/trading/demo_execution.py` is a demo-only order adapter: every operation re-verifies the connected account is a demo account, orders carry the virtual position ID as the broker comment plus a mirror magic number, FOK falls back to IOC on broker filling rejection, and a client key with an existing open broker position is refused as a duplicate. `soma/trading/demo_mirror.py` mirrors exactly one selected reference threshold (default `T50`) into the real demo account while all fifty virtual portfolios stay authoritative: the durable mirror journal keys submissions by virtual position ID with a unique broker ticket, replay short-circuits, a lost journal write adopts the existing broker position by client key instead of re-ordering, and reconciliation compares entry fills, spread difference, tickets, order counts, outcomes, and P&L between broker deals and the virtual journal, flagging mismatches rather than hiding them.
+
+Gate evidence: focused run `tests/test_demo_mirror.py` (7 passed) covers single-submission, journal replay, lost-journal adoption, adapter duplicate refusal, non-demo refusal, reference-threshold restriction, FOK-to-IOC fallback, matching stop-loss reconciliation, and mismatch flagging. Live gate (`.codex-tmp/tl7-acceptance/live_tl7_evidence.json`): one real 0.01-lot demo order (ticket `356732243`) filled at `66098.53` with the `3.0` entry spread difference recorded, closed by the broker's real stop-loss at `65948.01` (`-1.51 USD`) while the virtual position resolved `stop_loss` at `65948.66` from live ticks; outcomes matched, `order_count` was exactly 1, mid-flight replay returned the same ticket, and account equity moved `998.72 -> 997.21 USD` on the demo account only.
 
 #### TL8 - Hourly orchestration
 
