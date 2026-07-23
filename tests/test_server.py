@@ -648,10 +648,15 @@ def test_ssh_inspection_honors_response_budget(monkeypatch) -> None:
 
 def test_trading_signal_list_honors_response_budget(monkeypatch) -> None:
     class Journal:
-        def list(self, limit):
-            return [{"id": index, "reason": "x" * 180} for index in range(limit)]
+        def list(self, *, limit, offset, status=None, experiment_id=None):
+            return [
+                {"id": index, "reason": "x" * 180} for index in range(limit)
+            ]
 
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+        def count(self, *, status=None, experiment_id=None):
+            return 50
+
+    monkeypatch.setattr(server, "_trading_signal_journal_v2", lambda: Journal())
     result = server.trading_signal_list(
         server.TradingSignalListRequest(limit=50, response_budget_bytes=4096)
     )
