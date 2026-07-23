@@ -130,3 +130,97 @@ def build_packet(
     return MarketPacketBuilder(now=lambda: now).build(
         PacketProvider(bid=bid, ask=ask, now=now), SYMBOL, completed_count=100
     )
+
+
+def archived_tick(
+    at: datetime,
+    bid: float,
+    ask: float,
+    *,
+    symbol: str = SYMBOL,
+    source: str = "test",
+):
+    from soma.trading.tick_archive import ArchivedTick
+
+    return ArchivedTick(
+        symbol=symbol,
+        raw_epoch_seconds=int(at.timestamp()) + OFFSET,
+        broker_utc_offset_seconds=OFFSET,
+        normalized_utc=at,
+        bid=bid,
+        ask=ask,
+        last=0.0,
+        volume=1.0,
+        flags=0,
+        source=source,
+    )
+
+
+def signal_record_v2(
+    *,
+    signal_id: str = "sig2_test000000000000000001",
+    decision: str = "LONG",
+    confidence: int | None = 73,
+    bid: float = 64_000.0,
+    ask: float = 64_064.0,
+    stop_loss: float | None = 63_400.0,
+    take_profit: float | None = 65_400.0,
+    submitted_at: datetime = NOW + timedelta(minutes=2),
+    entered_at: datetime | None = None,
+    experiment_id: str = "exp1",
+    policy_id: str = "hourly_fixed_bracket_v1",
+    execution_mode: str = "internal_paper",
+):
+    """A directly constructed v2 signal record for resolver/replay tests."""
+    from soma.trading.signal_journal_v2 import (
+        SignalDecisionV2,
+        SignalRecordV2,
+        SignalStatusV2,
+    )
+    from soma.trading.versions import SIGNAL_SCHEMA_VERSION
+
+    normalized_decision = SignalDecisionV2(decision)
+    entry = None
+    if normalized_decision is SignalDecisionV2.LONG:
+        entry = ask
+    elif normalized_decision is SignalDecisionV2.SHORT:
+        entry = bid
+    return SignalRecordV2(
+        signal_id=signal_id,
+        idempotency_key=f"key-{signal_id}",
+        content_hash="0" * 64,
+        schema_version=SIGNAL_SCHEMA_VERSION,
+        packet_id="mp_test",
+        packet_hash="0" * 64,
+        symbol=SYMBOL,
+        bid=bid,
+        ask=ask,
+        spread=ask - bid,
+        market_data_timestamp=submitted_at - timedelta(seconds=15),
+        tick_raw_epoch_seconds=int(submitted_at.timestamp()) + OFFSET,
+        broker_utc_offset_seconds=OFFSET,
+        parent_h4_raw_open_epoch=DEVELOPING_RAW_OPEN,
+        parent_h4_open_utc=DEVELOPING_OPEN_UTC,
+        packet_age_seconds=15.0,
+        decision=normalized_decision,
+        confidence=confidence,
+        entry_reference_price=entry,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        risk_reward=None,
+        model_version="gpt-test-1",
+        prompt_version="prompt-v1",
+        policy_id=policy_id,
+        execution_mode=execution_mode,
+        experiment_id=experiment_id,
+        reason="test",
+        news_context="",
+        status=(
+            SignalStatusV2.ENTERED
+            if entered_at is not None
+            else SignalStatusV2.SUBMITTED
+        ),
+        submitted_at_utc=submitted_at,
+        inserted_at_utc=submitted_at,
+        entered_at_utc=entered_at,
+    )
