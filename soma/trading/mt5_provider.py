@@ -182,6 +182,21 @@ class MT5Provider:
         normalized = datetime.fromtimestamp(raw - self._offset, tz=UTC)
         return ProviderTimestamp(raw, self._offset, normalized)
 
+    @property
+    def utc_offset_seconds(self) -> int:
+        return self._offset
+
+    def set_utc_offset(self, offset_seconds: int) -> None:
+        """Apply a detected broker UTC offset to future normalization.
+
+        The configured offset is only a bootstrap value; the runtime
+        detects the real offset from several fresh ticks on connect and
+        reconnect. Already-produced records keep the raw epoch and the
+        offset they were normalized with, so applying a new offset never
+        reinterprets historical timestamps.
+        """
+        self._offset = int(offset_seconds)
+
     def _require_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeError("MT5 provider is not initialized")
