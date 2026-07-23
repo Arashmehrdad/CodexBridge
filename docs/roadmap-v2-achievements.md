@@ -983,3 +983,489 @@ For documentation-only batches:
 - ChatGPT can launch multiple independent commands concurrently and receive control immediately with durable group and child IDs;
 - unrestricted PowerShell is explicit, operator-enabled, auditable, and permits any command available to the service account without Soma command allowlists;
 - UI and local-model expansion do not outrun execution correctness.
+
+## Trading Lab TL0-TL9 (superseded by the 2026-07-23 redesign)
+
+The following section is the complete pre-redesign Trading Lab roadmap text preserved verbatim from PLANS.md when the runtime threshold-portfolio design was replaced. Heading levels are unchanged.
+
+## TL - Soma Trading Lab
+
+Status: **complete; TL0 through TL4 accepted on 2026-07-20, TL5 through TL9 accepted on 2026-07-23**. Trading Lab remains an optional capability provider gated behind `trading.enabled` (off by default, demo-only by construction); it owns no core lifecycle. Live-money execution must not exist per the TL9 review.
+
+This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). TL1 through TL4 have completed their deterministic acceptance gates. Trading development remains demo/internal-paper only; live-money execution is unavailable and out of scope.
+
+### Core architecture
+
+Do not build broker connectivity from scratch.
+
+```text
+Alpari
+  <->
+MetaTrader 5 terminal
+  <->
+Official MetaTrader5 Python integration
+  <->
+Soma Trading Lab
+  <->
+ChatGPT
+```
+
+The official MetaTrader 5 Python package is the broker-platform boundary for account details, symbol specifications, live bid/ask ticks, historical candles and ticks, active orders and positions, margin and profit calculations, order validation, order submission with one stop-loss and one take-profit, and completed-order/deal history.
+
+Python communicates locally with a running MT5 terminal rather than a cloud REST API. The terminal is therefore a supervised Windows runtime dependency with explicit health, reconnect, and stale-data handling.
+
+### Relationship with Hermes
+
+Do not force MT5 through Hermes merely because Hermes exposes tools.
+
+```text
+Soma Trading domain
+  |- MT5 adapter
+  |    prices, candles, account, orders, positions
+  |- Trading Lab
+  |    signals, threshold portfolios, simulation, results
+  `- Hermes gateway
+       news, economic events, and optional external research tools
+```
+
+Soma owns durable trading state, account and terminal identity, signals, portfolios, positions, orders, reconciliation, and lifecycle evidence. Hermes may supply external context, but it must not own balances, positions, orders, or trade lifecycle.
+
+### Frozen v1 experiment
+
+```yaml
+broker: Alpari
+platform: MetaTrader 5
+broker_environment: practice/demo
+
+instrument: discovered from the connected Alpari MT5 terminal
+analysis_timeframe: 4H
+analysis_frequency: once per hour
+
+decisions:
+  - LONG
+  - SHORT
+  - NO_TRADE
+
+confidence_range: 50-99
+
+virtual_portfolios:
+  thresholds: T50 through T99
+  baseline_source: actual Alpari MT5 account equity and currency captured at experiment start
+  example_baseline: 1000 USD for the current practice account
+  initialization: each threshold portfolio is an independent clone of the captured baseline
+  allocation_per_trade: 1 USD normalized virtual notional
+  maximum_combined_allocation: 20 percent of each portfolio's own current equity
+  cohort_boundary: deposit, withdrawal, account reset, or intentional baseline change starts a new experiment cohort
+
+trade_structure:
+  entry: one market entry
+  stop_loss: one fixed price
+  take_profit: one fixed price
+
+excluded:
+  - trailing stops
+  - multiple take-profits
+  - partial exits
+  - scaling in or out
+  - fixed holding deadline
+  - confidence-based position sizing
+  - leverage optimisation
+  - real-money execution
+```
+
+For v1, remove entry zones and pending-order logic. When the current executable price is unsuitable, ChatGPT returns `NO_TRADE`. Pending limit and stop entries are a later leaf after the market-entry trunk is stable.
+
+### Exact signal contract
+
+```yaml
+signal_id:
+created_at_utc:
+broker: alpari
+symbol:
+analysis_timeframe: 4H
+
+decision: LONG | SHORT | NO_TRADE
+confidence: 50-99 | null
+
+bid:
+ask:
+spread:
+market_data_timestamp:
+latest_completed_4h_candle:
+developing_4h_candle:
+
+entry_type: MARKET
+entry_reference_price:
+stop_loss:
+take_profit:
+risk_reward:
+
+reason:
+news_context:
+market_snapshot_id:
+```
+
+Validation is deliberately narrow:
+
+- `LONG`: `stop_loss < executable entry < take_profit`;
+- `SHORT`: `take_profit < executable entry < stop_loss`;
+- the bridge calculates risk/reward but does not impose an arbitrary minimum or relocate ChatGPT's stop-loss or take-profit;
+- `NO_TRADE` has no executable entry, stop-loss, take-profit, or confidence-driven allocation.
+
+### Confidence behaviour
+
+One signal receives one score. For a `SHORT` signal with confidence `73`, portfolios `T50` through `T73` are eligible and `T74` through `T99` do not trade.
+
+Each threshold portfolio is independent. A portfolio already holding the symbol skips the signal while another eligible portfolio may still enter.
+
+### Honest execution-price rules
+
+The simulator must not use midpoint prices.
+
+- open long at ask;
+- close long at bid;
+- open short at bid;
+- close short at ask.
+
+This naturally includes broker spread.
+
+A trade ends only when its take-profit or stop-loss is reached. The 4H interval is the analysis candle timeframe, not a four-hour holding deadline.
+
+After connectivity loss, Soma retrieves missed ticks where available. If both stop-loss and take-profit appear inside the same historical candle and reliable tick ordering cannot be recovered, the outcome is `AMBIGUOUS_DATA`; the system must never choose the favourable result silently.
+
+### Main components
+
+#### 1. MT5 provider adapter
+
+Responsibilities:
+
+- connect and authenticate to the local MT5 terminal;
+- discover broker-specific symbols rather than hardcoding names such as `BTCUSD`;
+- read complete symbol specifications;
+- retrieve fresh bid/ask ticks;
+- retrieve completed and developing 4H candles;
+- retrieve historical ticks after downtime;
+- inspect account, connection, and terminal health;
+- later, submit demo orders and inspect positions, orders, deals, and history.
+
+#### 2. Immutable market-packet builder
+
+Every hourly analysis receives one immutable packet:
+
+```yaml
+packet_id:
+provider:
+server:
+account_environment: demo
+symbol:
+created_at_utc:
+
+symbol_specification:
+  digits:
+  tick_size:
+  tick_value:
+  contract_size:
+  minimum_volume:
+  volume_step:
+  margin_information:
+
+latest_tick:
+  bid:
+  ask:
+  timestamp:
+
+completed_4h_candles: 100-200
+developing_4h_candle:
+data_age:
+warnings:
+content_hash:
+```
+
+The packet builder also produces a simple candlestick PNG from exactly the same data. Structured values remain authoritative; the chart is interpretive assistance only.
+
+#### 3. Immutable signal journal
+
+After submission, direction, confidence, entry, stop-loss, take-profit, reason, market snapshot, and timestamp cannot change. A mistaken signal may be marked invalid before execution, but it must never be edited after later market movement becomes visible.
+
+#### 4. Threshold portfolio engine
+
+Maintain 50 independent portfolios, `T50` through `T99`, each storing:
+
+- experiment cohort identity;
+- baseline equity and currency captured from the Alpari MT5 account at experiment start;
+- current equity;
+- available allocation;
+- open position;
+- completed trades;
+- net P&L;
+- maximum drawdown.
+
+Every threshold portfolio begins as an independent clone of the same captured account equity and currency. For the current practice account, the example baseline is 1,000 USD. The portfolios do not share or divide the broker balance. After initialization, each evolves independently from its own trades and must not be continuously resynchronised to the broker account.
+
+A deposit, withdrawal, account reset, or intentional baseline change closes the current baseline definition and starts a new experiment cohort; it must not rewrite the history or current equity of an existing cohort.
+
+The 1 USD experiment allocation means normalized virtual notional at 1x exposure. It is not an MT5 lot and not leveraged broker margin, preventing broker minimum volume and leverage from contaminating confidence-threshold testing. Maximum combined active allocation remains capped at 20 percent of each portfolio's own current equity.
+
+#### 5. Deterministic trade supervisor
+
+This component performs no analysis. It only:
+
+- watches bid/ask;
+- opens eligible virtual positions;
+- detects the first stop-loss or take-profit event;
+- calculates P&L and recorded costs;
+- updates threshold portfolios;
+- recovers open trades after service restart;
+- resolves every position exactly once.
+
+It must reuse Soma durable workers, leases, heartbeats, protected evidence, process ownership, cancellation, and restart reconciliation rather than creating another durability subsystem.
+
+#### 6. Evaluation engine
+
+Report per threshold:
+
+- signal count;
+- entered-trade count;
+- win rate;
+- net P&L;
+- average return;
+- profit factor;
+- maximum drawdown;
+- longest losing streak;
+- average stop-loss distance;
+- average take-profit distance;
+- average risk/reward;
+- monthly results;
+- results by confidence band.
+
+Do not select the single highest-profit threshold. Prefer positive performance with enough trades, acceptable drawdown, stability across neighbouring thresholds, and persistence across genuinely fresh periods.
+
+### Soma tool surface
+
+Read tools:
+
+- `trading_provider_health`;
+- `trading_list_symbols`;
+- `trading_symbol_specification`;
+- `trading_market_packet`;
+- `trading_open_virtual_positions`;
+- `trading_signal_get`;
+- `trading_signal_list`;
+- `trading_threshold_report`;
+- `trading_portfolio_status`.
+
+Write tools:
+
+- `trading_signal_submit`;
+- `trading_signal_cancel_before_entry`;
+- `trading_lab_start`;
+- `trading_lab_stop`;
+- `trading_lab_reset`.
+
+Separately gated demo-execution tools may later include:
+
+- `trading_demo_order_submit`;
+- `trading_demo_order_close`;
+- `trading_demo_order_cancel`;
+- `trading_demo_reconcile`.
+
+There is no live-order tool in v1.
+
+### Safety model
+
+Trading environment and autonomy remain separate axes. The current Soma deployment remains permissive-only; any future restoration of additional autonomy profiles must never change trading execution mode implicitly.
+
+```yaml
+execution_mode:
+  - internal_paper
+  - broker_demo
+  - live
+```
+
+Selecting `permissive` must never promote `internal_paper` or `broker_demo` to `live`.
+
+Hard controls:
+
+- credentials never appear in logs, events, summaries, or public tool output;
+- demo and live accounts use separate configuration and identity;
+- global trading kill switch;
+- idempotency key on every signal and order;
+- one active position per symbol per threshold;
+- 20 percent combined allocation cap;
+- duplicate-order detection;
+- broker-ticket reconciliation;
+- stale-data rejection;
+- disconnected-terminal rejection;
+- explicit environment identity on every packet, signal, position, and order;
+- no automatic promotion to live execution.
+
+### Roadmap
+
+#### TL0 - Alpari/MT5 acceptance spike
+
+Status: **complete**.
+
+Acceptance completed on 2026-07-20. The exact broker symbol is `BITCOIN_i`; the demo account, contract specification, live bid/ask, completed and developing H4 candles, minimum-volume buy and sell checks, minimum demo buy and sell round trips, order/position/deal/history retrieval, and terminal restart/reconnection all passed. The account baseline was read from MT5 as `1000.00 USD` before the acceptance trades and ended at `998.72 USD` after two immediate spread losses; future experiment cohorts must recapture current equity and currency rather than hard-code either value. Full evidence and durable artifact identities are preserved in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md).
+
+Before repository implementation:
+
+- create an Alpari MT5 practice account;
+- install and log into MT5;
+- discover the exact BTC symbol;
+- read its complete contract specification;
+- confirm fresh bid and ask;
+- retrieve completed and developing 4H candles;
+- confirm both buy and sell are supported;
+- run `order_check` for buy and sell with one stop-loss and one take-profit;
+- place the smallest demo buy and sell;
+- confirm account, position, order, deal, and history retrieval;
+- capture the practice account's actual equity and currency as the candidate experiment baseline;
+- restart MT5 and test reconnection.
+
+Gate: a written evidence bundle containing symbol name, minimum volume, contract size, spread, account mode, captured account equity and currency, order-check and demo-order results, reconnection evidence, and screenshots or protected logs. The evidence must show that the baseline is read from MT5 rather than hard-coded; the current practice-account example is 1,000 USD.
+
+No Soma trading source file may be created before TL0 passes.
+
+#### TL1 - Read-only MT5 adapter
+
+Status: **complete; accepted on 2026-07-20**.
+
+The provider, repository-scoped demo-only configuration boundary, and public `trading_query` surface now cover provider health, bounded symbol discovery, configured-symbol specification, fresh bid/ask ticks, completed and developing H4 candles, and timezone-aware historical tick recovery. The exact symbol path distinguishes `BITCOIN_i` from `BITCOIN CASH_i`, retains raw provider epochs, and normalizes the observed `+03:00` broker offset explicitly. Trading remains disabled by default and the configuration cannot express live execution.
+
+The first live public-gateway smoke exposed a real provider defect hidden by dictionary fixtures: the official MetaTrader5 package returns NumPy structured rows, and converting them with `tolist()` discarded field names, producing zero-valued candles. Commit `fdcfedd49aca6d1b150ad6197b45d085ae3553c3` preserves structured row identity and adds a named-record regression.
+
+Acceptance evidence:
+
+- focused provider run `20260720T112042Z_project_command_d49b3c06`: `5 passed`;
+- adjacent gateway run `20260720T112057Z_project_command_ac547436`: `34 passed`;
+- live Alpari demo gateway run `20260720T112127Z_executable_profile_b8cd735d`: exit `0`, empty protected stderr, protected stdout SHA-256 `c75b9a258e42db0294293a8029c1bd79d9b8e9dbffcc0cbf6d6b87c11040acfa`;
+- live health returned connected demo account `Alpari-MT5-Demo`, `998.72 USD` balance/equity;
+- symbol discovery returned exactly `BITCOIN CASH_i` and `BITCOIN_i` for the Bitcoin query;
+- specification returned contract size `1.0`, minimum volume `0.01`, and volume step `0.01` for `BITCOIN_i`;
+- fresh tick returned bid `64237.51`, ask `64301.79`, age below one second, and the raw/normalized timestamp pair;
+- five completed H4 candles plus one developing H4 candle contained real nonzero OHLC and raw timestamps;
+- the preceding 30-minute recovery range returned nonempty historical ticks with raw and normalized timestamps.
+
+Gate: passed. TL2 is now active.
+
+#### TL2 - Market packet and chart
+
+Status: **complete; accepted on 2026-07-20**.
+
+The repository has frozen market-packet payload and envelope models, deterministic canonical JSON and SHA-256 content identity, and a builder that reads health, exact symbol specification, one fresh tick, and 100-200 completed H4 candles plus one developing candle from one connected demo-provider snapshot. The builder rejects disconnected or non-demo providers, stale ticks, symbol drift, incomplete history, non-H4 candles, unordered or duplicate completed candles, and any completed/developing overlap.
+
+A deterministic standard-library PNG renderer now consumes only the immutable packet candle tuple. It never receives or rereads the provider, preserves the structured packet unchanged, distinguishes the developing candle visually, binds chart identity to the packet content hash, and publishes a SHA-256 identity for the exact PNG bytes without adding a plotting dependency.
+
+Acceptance evidence:
+
+- commit `b82860de70319931cb26df8bc7918e80067ec877` added `soma/trading/market_packet.py`;
+- commit `0523968510868983edd2444e11264255bf658d2f` added deterministic packet regressions;
+- commit `f3ca56101736eea4769c582372dd0b3f929910f1` added deterministic candlestick PNG rendering;
+- commits `5a795f841005f7be0ef872bf54b7f1d35e3deae3` and `06b7d0433c6b5bdd45614a69e6c6c06b426fef7a` added and corrected focused chart regressions;
+- packet run `20260720T142613Z_project_command_47e482f0`: `6 passed`;
+- adjacent provider run `20260720T142636Z_project_command_6a1284ac`: `5 passed`;
+- chart run `20260720T152826Z_project_command_23d0d57a`: `4 passed`;
+- adjacent packet run `20260720T152837Z_project_command_6a037c29`: `6 passed`.
+
+Gate: passed. TL3 is now active.
+
+#### TL3 - Signal journal
+
+Status: **complete; accepted on 2026-07-20**.
+
+The durable journal defines frozen `LONG | SHORT | NO_TRADE` payloads, canonical content hashing, exact market-packet ID/hash binding, ask-priced long and bid-priced short validation, bridge-calculated spread and risk/reward, and strict `50-99` integer confidence. `NO_TRADE` rejects confidence and executable prices. SQLite WAL storage provides deterministic signal IDs, unique idempotency keys, immutable payload JSON, append-only lifecycle events, restart persistence, idempotent replay, cancellation only before entry, and entered/cancelled state exclusion without rewriting the signal payload.
+
+Strict public request models and the `trading_signal_submit`, `trading_signal_get`, `trading_signal_list`, and `trading_signal_cancel_before_entry` gateways now share one repository-owned journal at `runs/trading/signals.sqlite3`. The public surface exposes no entry or execution transition. Submission replay is idempotent, conflicting content under one key fails closed, and cancellation preserves the exact immutable packet-bound payload.
+
+The first focused run exposed one real validation defect: fractional confidence `73.5` was truncated to `73`. Commit `54468c2ac6e880a258e4d3793761a111067119e9` requires an actual non-boolean integer and preserves the frozen confidence contract.
+
+Acceptance evidence:
+
+- commits `1904b86fba59c0867ad4196a37273c6afd8be684`, `91129fb4ed04e1a73a82211668a4d6eda92ed276`, `54468c2ac6e880a258e4d3793761a111067119e9`, and `28cec59e5723731da4ca16a536d836011b0aa459` added and exported the immutable durable journal;
+- commit `1932ee0c4b0389a44f5763f58aef1c95195ac5a7` added the strict public signal gateway and focused regressions;
+- repaired journal run `20260720T162831Z_project_command_438f9d0c`: `16 passed`;
+- adjacent packet run `20260720T162847Z_project_command_96c69e54`: `6 passed`;
+- isolated public gateway run `20260720T171444Z_project_command_fced8b2d`: `36 passed`;
+- isolated journal rerun `20260720T171458Z_project_command_11f449d7`: `16 passed`.
+
+Gate: passed. TL4 is now active.
+
+#### TL4 - Threshold simulator
+
+Status: **complete; accepted on 2026-07-20**.
+
+The frozen threshold engine creates exactly 50 independent portfolios, `T50` through `T99`, from one captured demo-account equity and currency baseline. Each portfolio receives its own immutable record and evolves independently. Trade routing uses a normalized `1.00 USD` stake at 1x virtual exposure, skips busy portfolios without blocking eligible free neighbours, treats `NO_TRADE` as a no-op, and is idempotent for repeated signal IDs.
+
+Confidence `73` enters exactly `T50` through `T73` when all are free. Deposit, withdrawal, account reset, and intentional baseline-change transitions create new immutable experiment cohorts linked to the prior cohort while preserving all earlier balances, open-signal state, and cohort identity. Initialization from provider health fails closed unless the provider is connected, initialized, demo-only, and exposes equity.
+
+Acceptance evidence:
+
+- commits `2577d3e`, `cbf6995`, and `159e826` added the threshold simulator and focused regressions;
+- focused threshold run `20260720T183936Z_project_command_a18926aa`: `6 passed`;
+- adjacent immutable signal-journal run `20260720T184007Z_project_command_6ef7444e`: `16 passed`;
+- both runs used repository-owned isolated pytest basetemps and changed no files.
+
+Gate: passed. TL5 is now active.
+
+#### TL5 - Durable supervisor
+
+Status: **complete; accepted on 2026-07-23**.
+
+`soma/trading/trade_supervisor.py` finishes the previously untested `virtual_position_journal` groundwork into a deterministic durable supervisor. Cohorts persist beside the position journal and every threshold portfolio is reconstructed from the append-only journals on demand — balances are baseline plus proven realized returns, busy state is the open-position index, and nothing is cached across restarts. Entry uses honest executable prices (long at ask, short at bid), routes exactly `T50`-`Tconfidence`, skips busy portfolios, enforces the 20 percent combined-allocation cap, replays idempotently, and marks signals entered through the immutable journal. Resolution is exactly-once via the conditional open-state update; recovered downtime replays real bid/ask ticks in order first and falls back to candle ranges where double-boundary windows resolve as `AMBIGUOUS_DATA` with no P&L rather than a silently favourable outcome.
+
+Gate evidence: focused run `tests/test_trade_supervisor.py` (10 passed) covers restart during 24 open positions with a fresh supervisor over the same journals resolving each exactly once (single `position_opened`/`position_resolved` event pair), ambiguous ranges freeing portfolios without P&L, unambiguous ranges resolving the single contained boundary, idempotent re-entry, busy skipping, NO_TRADE no-ops, allocation-cap refusal, cohort transitions preserving history, and the journal's own idempotency/one-open/price-shape contracts. Live validation (`.codex-tmp/tl5-acceptance/live_tl5_evidence.json`): the Alpari demo terminal connected (`Alpari-MT5-Demo`, 998.72 USD, demo), 180 fresh live ticks drove a synthetic long to an honest `stop_loss` resolution at live bid `66054.62` with realized return `-0.00205 USD` and exactly one resolution event, through the production supervisor and journals.
+
+#### TL6 - Reports and calibration
+
+Status: **complete; accepted on 2026-07-23**.
+
+`soma/trading/threshold_reports.py` builds the deterministic evaluation report from the append-only journals alone: per-threshold signal count, entered/resolved/ambiguous trade counts, win rate, net P&L, average return, profit factor, maximum drawdown from the resolution-ordered equity walk, longest losing streak, average stop/take-profit distances, average risk/reward, monthly buckets, confidence bands, and a neighbourhood-net-P&L stability column. Ambiguous outcomes are counted and excluded from every P&L metric. Optional timezone-aware period bounds produce fresh-sample reports. Output is canonical fixed-point JSON with a SHA-256 content hash and no wall-clock or provider input.
+
+Journal-backed public reads joined `trading_query`: `open_virtual_positions`, `portfolio_status`, and `threshold_report` — none connects the provider, all honour the compact byte budget, and all registered in the frozen gateway operation inventory.
+
+Gate evidence: `tests/test_threshold_reports.py` proves byte-identical reproduction (equal content hashes) across repeated builds and across a completely fresh supervisor over reopened journals, hand-computed metric equality for a win/loss/ambiguous fixture, fresh-period exclusion of older trades, and fail-closed behaviour for uninitialized experiments and naive timestamps; gateway/inventory/discovery suites passed (177).
+
+#### TL7 - Alpari demo mirror
+
+Status: **complete; accepted on 2026-07-23**.
+
+`soma/trading/demo_execution.py` is a demo-only order adapter: every operation re-verifies the connected account is a demo account, orders carry the virtual position ID as the broker comment plus a mirror magic number, FOK falls back to IOC on broker filling rejection, and a client key with an existing open broker position is refused as a duplicate. `soma/trading/demo_mirror.py` mirrors exactly one selected reference threshold (default `T50`) into the real demo account while all fifty virtual portfolios stay authoritative: the durable mirror journal keys submissions by virtual position ID with a unique broker ticket, replay short-circuits, a lost journal write adopts the existing broker position by client key instead of re-ordering, and reconciliation compares entry fills, spread difference, tickets, order counts, outcomes, and P&L between broker deals and the virtual journal, flagging mismatches rather than hiding them.
+
+Gate evidence: focused run `tests/test_demo_mirror.py` (7 passed) covers single-submission, journal replay, lost-journal adoption, adapter duplicate refusal, non-demo refusal, reference-threshold restriction, FOK-to-IOC fallback, matching stop-loss reconciliation, and mismatch flagging. Live gate (`.codex-tmp/tl7-acceptance/live_tl7_evidence.json`): one real 0.01-lot demo order (ticket `356732243`) filled at `66098.53` with the `3.0` entry spread difference recorded, closed by the broker's real stop-loss at `65948.01` (`-1.51 USD`) while the virtual position resolved `stop_loss` at `65948.66` from live ticks; outcomes matched, `order_count` was exactly 1, mid-flight replay returned the same ticket, and account equity moved `998.72 -> 997.21 USD` on the demo account only.
+
+#### TL8 - Hourly orchestration
+
+Status: **complete; accepted on 2026-07-23**.
+
+`soma/trading/hourly_orchestrator.py` runs one cycle: build one immutable market packet, enter any submitted packet-bound trade signals through the TL5 supervisor, and run one monitoring pass with downtime recovery. Analysis stays outside Soma — the cycle never invents a signal. No trade is generated when trading is disabled by the kill switch, the terminal is disconnected, the account is not demo, market data is stale, packet validation fails, or the signal is `NO_TRADE`; refused cycles still monitor and recover existing open work so open positions are never stranded.
+
+Gate evidence: `tests/test_hourly_orchestrator.py` (5 passed) covers signal entry plus monitoring, the kill switch blocking entries while still resolving open work, disconnected-terminal refusal, stale-data refusal, and `NO_TRADE` never forcing a trade. Live (`.codex-tmp/tl8-acceptance/live_tl8_evidence.json`): a real cycle built immutable packet `mp_c0bfbfeda8dcd0f079156289` from the live demo terminal with zero forced trades and zero entries with no signal present; the kill-switch cycle refused with no packet; an earlier live run additionally hit the H4 boundary window where the provider briefly reports no developing candle and correctly failed closed with no trade.
+
+#### TL9 - Live-readiness review
+
+Status: **complete; review recorded on 2026-07-23 — a live tool must not exist**.
+
+The written review is [`docs/trading-lab-tl9-live-readiness-review.md`](docs/trading-lab-tl9-live-readiness-review.md). Summary: broker verification/residency, deposit/withdrawal, regulatory, and tax questions are unresolved; the `0.01`-lot minimum position cannot honestly reproduce the `1.00 USD` normalized experiment stakes at this account scale; and no genuinely fresh paper sample exists because every journalled trade so far is acceptance evidence rather than analysed signals. Operational recovery evidence is strong, and precisely because the virtual portfolios plus demo mirror fully serve the experiment, no live tool is justified. Any future reconsideration requires a new explicit roadmap decision, separate live configuration and identity, human approval boundaries, and a fresh-sample performance record through the TL6 reports.
+
+### Build/reuse boundary
+
+Reuse:
+
+- MT5 terminal;
+- official MetaTrader5 Python package;
+- Alpari price feed and demo execution;
+- Soma durability, policy, artifact, cancellation, and reconciliation infrastructure;
+- Hermes external research tools.
+
+Build:
+
+- provider-neutral trading domain;
+- immutable market packets and signal journal;
+- `T50` through `T99` virtual portfolios;
+- deterministic stop-loss/take-profit supervisor;
+- confidence calibration and reporting;
+- demo-order reconciliation.
+
+Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
+
+All Trading Lab gates are complete. Ongoing operation is manual-first: hourly cycles run through `HourlyOrchestrator` with ChatGPT supplying analysis as immutable signals, the TL6 reports accumulate fresh-sample evidence, and the TL7 mirror tracks one reference threshold on the demo account. The TL9 decision stands: no live-execution tool may be built without a new explicit roadmap decision.
