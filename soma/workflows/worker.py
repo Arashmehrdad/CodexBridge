@@ -13,7 +13,6 @@ from soma.process_control import process_identity
 from soma.run_store import TERMINAL_STATUSES, utc_now
 
 from .models import (
-    CodexImplementParameters,
     GitReadonlyParameters,
     LocalSummaryParameters,
     ProjectCommandParameters,
@@ -298,8 +297,10 @@ class WorkflowWorker:
     def _start_child_run(self, step: WorkflowStepRecord, reserved_run_id: str) -> dict[str, Any]:
         workflow = self.store.get_workflow(self.workflow_id)
         if step.type.value == "codex_implement":
-            params = CodexImplementParameters.model_validate(step.parameters)
-            return self.job_manager.start_implementation(workflow.repo_name, params.approved_plan, params.allowed_files, params.tests, reserved_run_id=reserved_run_id)
+            raise ValueError(
+                "codex_implement workflow steps are obsolete: Soma no longer "
+                "executes Codex. Generate an external-coder handoff instead."
+            )
         if step.type.value == "project_command":
             params = ProjectCommandParameters.model_validate(step.parameters)
             return self.job_manager.start_project_command(workflow.repo_name, params.command_id, reserved_run_id=reserved_run_id)

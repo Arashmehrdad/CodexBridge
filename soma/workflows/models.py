@@ -34,6 +34,9 @@ class WorkflowStepStatus(str, Enum):
 
 
 class WorkflowStepType(str, Enum):
+    # Legacy read-only value: historical workflow records with Codex
+    # implementation steps stay parseable, but new workflows containing
+    # this step type are rejected and the worker refuses to launch it.
     CODEX_IMPLEMENT = "codex_implement"
     PROJECT_COMMAND = "project_command"
     PYTEST_PATH = "pytest_path"
@@ -125,6 +128,18 @@ class WorkflowDefinition(BaseModel):
     repo_name: str
     objective: str
     steps: list[WorkflowStepDefinition]
+
+    @model_validator(mode="after")
+    def reject_obsolete_step_types(self) -> "WorkflowDefinition":
+        for step in self.steps:
+            if step.type == WorkflowStepType.CODEX_IMPLEMENT:
+                raise ValueError(
+                    "codex_implement workflow steps are obsolete: Soma no "
+                    "longer executes Codex. Generate an external-coder "
+                    "handoff instead and supply it manually to a coding "
+                    "agent."
+                )
+        return self
 
     @model_validator(mode="after")
     def validate_graph(self) -> "WorkflowDefinition":

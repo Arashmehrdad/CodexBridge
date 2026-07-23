@@ -5,6 +5,8 @@ from typing import Any
 
 from .config import AppConfig, resolve_repo
 from .events import redact_and_truncate
+from .external_coder import ExternalCoderHandoffGenerator
+from .policy import PolicyEngine
 from .run_store import RunStore, validate_run_id
 from .supervisor_engine import JobManagerChildBackend, SupervisorEngine
 from .supervisor_resume_prompt import supervisor_prompt_path
@@ -185,6 +187,18 @@ class SupervisorService:
             self.child_backend(),
             autonomy_profile=profile,
             profile_name=autonomy_profile,
+            handoff_generator=ExternalCoderHandoffGenerator(
+                config=self.config,
+                # The engine's autonomy-profile policy already gated the
+                # transition; skip the generator's duplicate approval pass.
+                handoff_config=self.config.external_coder.model_copy(
+                    update={"external_coder_require_policy_approval": False}
+                ),
+                policy_engine=PolicyEngine(
+                    approvals_dir=self.config.resolve_approval_store_path()
+                ),
+            ),
+            repo_path_resolver=lambda name: resolve_repo(self.config, name),
         )
 
     def _engine_from_supervisor(self, supervisor: dict[str, Any]) -> SupervisorEngine:

@@ -555,3 +555,44 @@ def test_workflow_result_and_events_snapshots_are_written(tmp_path: Path, monkey
     events_lines = (root / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert result_payload["workflow_id"] == started["workflow_id"]
     assert any("Workflow report artifacts written" in line for line in events_lines)
+
+def test_workflow_creation_rejects_obsolete_codex_implement_steps(
+    tmp_path: Path,
+) -> None:
+    config, config_path = make_config(tmp_path)
+    manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: 1)
+
+    with pytest.raises(ValueError, match="obsolete"):
+        manager.start_workflow(
+            "repo",
+            "codex step",
+            [
+                {
+                    "id": "a",
+                    "type": "codex_implement",
+                    "parameters": {
+                        "approved_plan": "plan",
+                        "allowed_files": ["app.py"],
+                        "tests": [],
+                    },
+                }
+            ],
+        )
+
+
+def test_historical_codex_implement_step_records_remain_readable() -> None:
+    from soma.workflows.models import WorkflowStepRecord, WorkflowStepType
+
+    record = WorkflowStepRecord.model_validate(
+        {
+            "id": "legacy",
+            "type": "codex_implement",
+            "order_index": 0,
+            "parameters": {
+                "approved_plan": "plan",
+                "allowed_files": ["app.py"],
+                "tests": [],
+            },
+        }
+    )
+    assert record.type == WorkflowStepType.CODEX_IMPLEMENT

@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+from uuid import uuid4
 
-from .config import AppConfig
-from .job_manager import JobManager, make_run_id
+from .config import AppConfig, ExternalCoderConfig
+from .external_coder import (
+    ExternalCoderHandoffGenerator,
+    ExternalCoderHandoffRequest,
+    ExternalCoderHandoffStatus,
+)
+from .job_manager import JobManager
 from .policy import (
     BalancedAutonomyProfile,
     decide_implementation_task,
@@ -23,24 +29,11 @@ ACTIVE_STATES = {"queued", "running"}
 
 
 class ChildJobBackend(Protocol):
-    def start_plan(
-        self,
-        repo_name: str,
-        task: str,
-        constraints: str,
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]: ...
+    """Read/cancel access to historical child runs.
 
-    def start_implementation(
-        self,
-        repo_name: str,
-        approved_plan: str,
-        allowed_files: list[str],
-        tests: list[str],
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]: ...
+    Launch affordances were removed with the Codex execution path; the
+    backend can only observe or cancel durable runs that already exist.
+    """
 
     def get_status(self, run_id: str) -> dict[str, Any]: ...
 
@@ -52,38 +45,6 @@ class ChildJobBackend(Protocol):
 class JobManagerChildBackend:
     def __init__(self, config: AppConfig, config_path: Path | None):
         self.manager = JobManager(config, config_path)
-
-    def start_plan(
-        self,
-        repo_name: str,
-        task: str,
-        constraints: str,
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]:
-        return self.manager.start_plan(
-            repo_name,
-            task,
-            constraints,
-            reserved_run_id=reserved_run_id,
-        )
-
-    def start_implementation(
-        self,
-        repo_name: str,
-        approved_plan: str,
-        allowed_files: list[str],
-        tests: list[str],
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]:
-        return self.manager.start_implementation(
-            repo_name,
-            approved_plan,
-            allowed_files,
-            tests,
-            reserved_run_id=reserved_run_id,
-        )
 
     def get_status(self, run_id: str) -> dict[str, Any]:
         return self.manager.get_status(run_id)
@@ -111,39 +72,16 @@ class FakeChildJobBackend:
         self._counter = 0
         self.jobs: dict[str, FakeChildJob] = {}
 
-    def start_plan(
-        self,
-        repo_name: str,
-        task: str,
-        constraints: str,
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]:
-        return self._start(
-            "plan",
-            {"repo_name": repo_name, "task": task, "constraints": constraints},
-            reserved_run_id=reserved_run_id,
+    def seed(self, kind: str, *, run_id: str | None = None) -> FakeChildJob:
+        """Register a historical child run for read/cancel tests."""
+        self._counter += 1
+        legacy_tool = "codex_plan_task" if kind == "plan" else "codex_implement_task"
+        resolved = run_id or (
+            f"20260428T1200{self._counter:02d}Z_{legacy_tool}_{self._counter:08x}"
         )
-
-    def start_implementation(
-        self,
-        repo_name: str,
-        approved_plan: str,
-        allowed_files: list[str],
-        tests: list[str],
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]:
-        return self._start(
-            "implementation",
-            {
-                "repo_name": repo_name,
-                "approved_plan": approved_plan,
-                "allowed_files": list(allowed_files),
-                "tests": list(tests),
-            },
-            reserved_run_id=reserved_run_id,
-        )
+        job = FakeChildJob(run_id=resolved, kind=kind)
+        self.jobs[resolved] = job
+        return job
 
     def get_status(self, run_id: str) -> dict[str, Any]:
         job = self.get(run_id)
@@ -195,31 +133,6 @@ class FakeChildJobBackend:
         job.error = error
         return job
 
-    def _start(
-        self,
-        kind: str,
-        payload: dict[str, Any],
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict[str, Any]:
-        self._counter += 1
-        run_id = reserved_run_id or (
-            f"20260428T1200{self._counter:02d}Z_codex_{kind}_task_{self._counter:08x}"
-        )
-        self.jobs[run_id] = FakeChildJob(
-            run_id=run_id, kind=kind, result={"payload": payload}
-        )
-        return {
-            "run_id": run_id,
-            "accepted": True,
-            "status": "queued",
-            "estimated_duration_minutes": 1,
-            "recommended_check_after_minutes": 1,
-            "risk_level": "low",
-            "requires_human": False,
-            "reason": "",
-        }
-
 
 # Backward-compatible test alias from Batch 2.
 FakeJobBackend = FakeChildJobBackend
@@ -232,7 +145,20 @@ class SupervisorEngine:
         jobs: ChildJobBackend,
         autonomy_profile: Any | None = None,
         profile_name: str = "balanced",
+        handoff_generator: ExternalCoderHandoffGenerator | None = None,
+        repo_path_resolver: Callable[[str], Path | None] | None = None,
     ):
+        # The engine gates plan/implementation transitions through its own
+        # autonomy-profile policy before any handoff is generated, so the
+        # generator's separate approval pass is disabled to avoid
+        # double-gating the same decision.
+        self.handoff_generator = handoff_generator or ExternalCoderHandoffGenerator(
+            handoff_config=ExternalCoderConfig(
+                external_coder_require_policy_approval=False
+            ),
+            handoff_dir=store.runs_dir / "external_coder_handoffs",
+        )
+        self.repo_path_resolver = repo_path_resolver
         self.store = store
         self.jobs = jobs
         self.autonomy_profile = autonomy_profile or BalancedAutonomyProfile()
@@ -282,10 +208,13 @@ class SupervisorEngine:
     def tick(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self.store.get_supervisor(supervisor_id)
         status = supervisor["status"]
-        if status in TERMINAL_STATES or status == "needs_input":
+        if (
+            status in TERMINAL_STATES
+            or status in {"needs_input", "needs_external_coder"}
+        ):
             return supervisor
         if status == "queued":
-            return self._start_plan(supervisor)
+            return self._generate_plan_handoff(supervisor)
         if status == "planning":
             return self._advance_plan(supervisor)
         if status == "implementing":
@@ -326,20 +255,24 @@ class SupervisorEngine:
             )
 
         metadata["blocked"] = None
-        run_id = make_run_id("codex_implement_task")
-        attached = self.store.attach_child(
-            supervisor_id,
-            run_id=run_id,
-            link_type="implementation",
-            child_kind="implementation",
-            target_status="implementing",
-            metadata=metadata,
+        return self._handoff_transition(
+            supervisor,
+            metadata,
+            kind="implementation",
+            request=ExternalCoderHandoffRequest(
+                handoff_id=f"handoff_{uuid4().hex}",
+                objective=approved_plan,
+                task_type="supervisor_implementation_handoff",
+                repo_name=supervisor["repo_name"],
+                repo_path=self._repo_path(supervisor["repo_name"]),
+                validation_commands=list(tests),
+                allowed_files=list(allowed_files),
+                constraints=[
+                    "Implement only the approved plan recorded in this handoff.",
+                ],
+            ),
             expected_statuses=("needs_input",),
-            expected_state_version=int(supervisor["state_version"]),
         )
-        if attached is None:
-            return self.store.get_supervisor(supervisor_id)
-        return self._ensure_child_launched(attached, expected_kind="implementation")
 
     def cancel(self, supervisor_id: str) -> dict[str, Any]:
         supervisor = self.store.get_supervisor(supervisor_id)
@@ -417,7 +350,7 @@ class SupervisorEngine:
         )
         return updated
 
-    def _start_plan(self, supervisor: dict[str, Any]) -> dict[str, Any]:
+    def _generate_plan_handoff(self, supervisor: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(supervisor["metadata"])
         plan = metadata["plan"]
         decision = decide_plan_task(plan["task"], plan.get("constraints", ""))
@@ -430,30 +363,120 @@ class SupervisorEngine:
                 supervisor, metadata, stage="plan_policy", policy_result=policy_result
             )
 
-        run_id = make_run_id("codex_plan_task")
-        attached = self.store.attach_child(
-            supervisor["supervisor_id"],
-            run_id=run_id,
-            link_type="plan",
-            child_kind="plan",
-            target_status="planning",
-            metadata=metadata,
+        constraints = plan.get("constraints", "")
+        return self._handoff_transition(
+            supervisor,
+            metadata,
+            kind="plan",
+            request=ExternalCoderHandoffRequest(
+                handoff_id=f"handoff_{uuid4().hex}",
+                objective=plan["task"],
+                task_type="supervisor_plan_handoff",
+                repo_name=supervisor["repo_name"],
+                repo_path=self._repo_path(supervisor["repo_name"]),
+                constraints=[constraints] if constraints else [],
+            ),
             expected_statuses=("queued",),
-            expected_state_version=int(supervisor["state_version"]),
-            started_at=supervisor["started_at"] or utc_now(),
         )
-        if attached is None:
-            return self.store.get_supervisor(supervisor["supervisor_id"])
 
-        return self._ensure_child_launched(attached, expected_kind="plan")
+    def _handoff_transition(
+        self,
+        supervisor: dict[str, Any],
+        metadata: dict[str, Any],
+        *,
+        kind: str,
+        request: ExternalCoderHandoffRequest,
+        expected_statuses: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Record a generated external-coder handoff instead of launching.
+
+        Soma never invokes a coding agent; the supervisor parks in
+        needs_external_coder and the operator supplies the handoff manually
+        to Claude Code, Codex, Gemini CLI, or another tool.
+        """
+        route = self.handoff_generator.generate_handoff(request, force_handoff=True)
+        handoff_metadata: dict[str, Any] = {
+            "kind": kind,
+            "handoff_id": route.handoff_id,
+            "status": route.status.value,
+            "reasons": route.reasons,
+        }
+        if route.artifacts:
+            handoff_metadata["handoff_json_path"] = str(
+                route.artifacts.handoff_json_path
+            )
+            handoff_metadata["prompt_path"] = str(route.artifacts.prompt_path)
+        metadata["external_coder_handoff"] = handoff_metadata
+        metadata["active_child"] = None
+        if route.status == ExternalCoderHandoffStatus.HANDOFF_READY:
+            target_status = "needs_external_coder"
+            summary = (
+                "External-coder handoff is ready; supply it manually to a "
+                "coding agent of your choice."
+            )
+        else:
+            target_status = "needs_input"
+            summary = (
+                "External-coder handoff was not generated: "
+                + ("; ".join(route.reasons) or route.status.value)
+            )
+        updated = self.store.conditional_update_supervisor(
+            supervisor["supervisor_id"],
+            fields={
+                "status": target_status,
+                "summary": summary,
+                "metadata_json": metadata,
+            },
+            expected_statuses=expected_statuses,
+            expected_state_version=int(supervisor["state_version"]),
+        )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
+        self._attach_links_and_write_prompt(updated)
+        self.store.append_event(
+            supervisor["supervisor_id"],
+            level="info",
+            stage=target_status,
+            message=summary,
+            data=handoff_metadata,
+        )
+        self._notify(
+            updated,
+            event_stage=target_status,
+            event_level="info",
+            kind=f"external_coder_handoff_{kind}",
+            title="Soma supervisor needs an external coder"
+            if target_status == "needs_external_coder"
+            else "Soma supervisor needs input",
+            message=summary,
+            payload=handoff_metadata,
+            dedupe_key=f"external_coder_handoff:{kind}:{route.handoff_id}",
+        )
+        return updated
+
+    def _repo_path(self, repo_name: str) -> Path | None:
+        if self.repo_path_resolver is None:
+            return None
+        try:
+            return self.repo_path_resolver(repo_name)
+        except Exception:
+            return None
 
     def _advance_plan(self, supervisor: dict[str, Any]) -> dict[str, Any]:
-        supervisor = self._ensure_child_launched(supervisor, expected_kind="plan")
-        if supervisor["status"] != "planning":
-            return supervisor
+        # Historical read-only path: 'planning' supervisors predate the
+        # Codex-execution removal; their children can be observed but a
+        # missing child can never be (re)launched.
         metadata = dict(supervisor["metadata"])
         run_id = self._active_run_id(metadata, expected_kind="plan")
-        status = self.jobs.get_status(run_id).get("status")
+        try:
+            status = self.jobs.get_status(run_id).get("status")
+        except KeyError:
+            return self._fail(
+                supervisor,
+                "Historical plan child run is missing and Codex execution "
+                "has been removed; generate an external-coder handoff instead.",
+                metadata=metadata,
+            )
         if status in ACTIVE_STATES:
             return supervisor
         if status == "failed":
@@ -494,14 +517,20 @@ class SupervisorEngine:
         return updated
 
     def _advance_implementation(self, supervisor: dict[str, Any]) -> dict[str, Any]:
-        supervisor = self._ensure_child_launched(
-            supervisor, expected_kind="implementation"
-        )
-        if supervisor["status"] != "implementing":
-            return supervisor
+        # Historical read-only path, as in _advance_plan.
         metadata = dict(supervisor["metadata"])
         run_id = self._active_run_id(metadata, expected_kind="implementation")
-        status = self.jobs.get_status(run_id).get("status")
+        try:
+            status = self.jobs.get_status(run_id).get("status")
+        except KeyError:
+            metadata["implementation_lock"] = None
+            return self._fail(
+                supervisor,
+                "Historical implementation child run is missing and Codex "
+                "execution has been removed; generate an external-coder "
+                "handoff instead.",
+                metadata=metadata,
+            )
         if status in ACTIVE_STATES:
             return supervisor
         if status == "failed":
@@ -729,181 +758,6 @@ class SupervisorEngine:
             "run_links", self.store.list_run_links(supervisor["supervisor_id"])
         )
         write_resume_prompt(self.store.runs_dir, enriched)
-
-    def _block_implementation_launch(
-        self,
-        supervisor: dict[str, Any],
-        metadata: dict[str, Any],
-        run_id: str,
-        launch_reason: str,
-    ) -> dict[str, Any]:
-        blocked_metadata = dict(metadata)
-        blocked_metadata["active_child"] = None
-        blocked_metadata["implementation_lock"] = None
-        blocked_metadata["blocked"] = {
-            "reason": "repository_operation_lock_unavailable",
-            "launch_reason": launch_reason,
-            "run_id": run_id,
-            "at": utc_now(),
-        }
-        updated = self.store.conditional_update_supervisor(
-            supervisor["supervisor_id"],
-            fields={
-                "status": "needs_input",
-                "summary": "Implementation blocked by active repository ownership",
-                "metadata_json": blocked_metadata,
-            },
-            expected_statuses=("implementing",),
-            expected_state_version=int(supervisor["state_version"]),
-        )
-        if updated is None:
-            return self.store.get_supervisor(supervisor["supervisor_id"])
-        self.store.append_event(
-            supervisor["supervisor_id"],
-            level="warning",
-            stage="blocked",
-            message="Implementation blocked by shared repository ownership",
-            data={
-                "repo_name": supervisor["repo_name"],
-                "run_id": run_id,
-                "launch_reason": launch_reason,
-            },
-        )
-        self._write_resume_prompt(updated)
-        self._notify(
-            updated,
-            event_stage="blocked",
-            event_level="warning",
-            kind="blocked_by_lock",
-            title="Soma supervisor blocked",
-            message="Implementation is blocked by active repository ownership.",
-            payload={
-                "repo_name": supervisor["repo_name"],
-                "reason": "repository_operation_lock_unavailable",
-                "run_id": run_id,
-            },
-            dedupe_key="blocked_by_lock",
-        )
-        return updated
-
-    def _ensure_child_launched(
-        self,
-        supervisor: dict[str, Any],
-        *,
-        expected_kind: str,
-    ) -> dict[str, Any]:
-        metadata = dict(supervisor["metadata"])
-        active_child = dict(metadata.get("active_child") or {})
-        run_id = self._active_run_id(metadata, expected_kind=expected_kind)
-        if active_child.get("launch_state") == "launched":
-            return supervisor
-
-        child_status: dict[str, Any] | None = None
-        try:
-            child_status = self.jobs.get_status(run_id)
-            child_exists = True
-        except KeyError:
-            child_exists = False
-
-        if not child_exists:
-            if expected_kind == "plan":
-                plan = metadata["plan"]
-                response = self.jobs.start_plan(
-                    supervisor["repo_name"],
-                    plan["task"],
-                    plan.get("constraints", ""),
-                    reserved_run_id=run_id,
-                )
-            elif expected_kind == "implementation":
-                approval = metadata["approval"]
-                response = self.jobs.start_implementation(
-                    supervisor["repo_name"],
-                    approval["approved_plan"],
-                    list(approval["allowed_files"]),
-                    list(approval["tests"]),
-                    reserved_run_id=run_id,
-                )
-            else:
-                raise ValueError(f"Unsupported child kind: {expected_kind}")
-
-            if response.get("accepted"):
-                accepted_run_id = self._accepted_run_id(response)
-                if accepted_run_id != run_id:
-                    self.jobs.cancel(accepted_run_id)
-                    raise RuntimeError(
-                        "Child launcher returned a different reserved run ID"
-                    )
-            else:
-                launch_reason = str(
-                    response.get("reason") or "Child run was not accepted"
-                )
-                try:
-                    child_status = self.jobs.get_status(run_id)
-                except KeyError as exc:
-                    if expected_kind == "implementation" and launch_reason in {
-                        "repository busy",
-                        "duplicate active task",
-                    }:
-                        return self._block_implementation_launch(
-                            supervisor, metadata, run_id, launch_reason
-                        )
-                    raise ValueError(launch_reason) from exc
-            if child_status is None:
-                child_status = self.jobs.get_status(run_id)
-
-        launched_metadata = dict(metadata)
-        launched_metadata["active_child"] = {
-            "run_id": run_id,
-            "kind": expected_kind,
-            "launch_state": "launched",
-        }
-        if expected_kind == "implementation":
-            launched_metadata["implementation_lock"] = {
-                "authority": "operation_locks",
-                "repo_name": supervisor["repo_name"],
-                "run_id": run_id,
-                "lease_generation": int(
-                    (child_status or {}).get("lease_generation") or 1
-                ),
-            }
-        updated = self.store.conditional_update_supervisor(
-            supervisor["supervisor_id"],
-            fields={"metadata_json": launched_metadata},
-            expected_statuses=(supervisor["status"],),
-            expected_state_version=int(supervisor["state_version"]),
-        )
-        if updated is None:
-            current = self.store.get_supervisor(supervisor["supervisor_id"])
-            current_child = current["metadata"].get("active_child") or {}
-            if current_child.get("run_id") != run_id:
-                try:
-                    self.jobs.cancel(run_id)
-                except KeyError:
-                    pass
-            return current
-
-        event_data = {"run_id": run_id}
-        if expected_kind == "implementation":
-            ownership = launched_metadata["implementation_lock"]
-            event_data["lock_authority"] = ownership["authority"]
-            event_data["lease_generation"] = ownership["lease_generation"]
-        self.store.append_event(
-            supervisor["supervisor_id"],
-            level="info",
-            stage="planning" if expected_kind == "plan" else "implementing",
-            message=(
-                "Plan child run started"
-                if expected_kind == "plan"
-                else "Implementation child run started"
-            ),
-            data=event_data,
-        )
-        return updated
-
-    def _accepted_run_id(self, response: dict[str, Any]) -> str:
-        if not response.get("accepted") or not response.get("run_id"):
-            raise ValueError(response.get("reason") or "Child run was not accepted")
-        return str(response["run_id"])
 
     def _active_run_id(self, metadata: dict[str, Any], *, expected_kind: str) -> str:
         active_child = metadata.get("active_child") or {}

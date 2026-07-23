@@ -61,14 +61,6 @@ def active_run_id(supervisor: dict) -> str:
     return supervisor["metadata"]["active_child"]["run_id"]
 
 
-def needs_input(service: StubSupervisorService, jobs: FakeChildJobBackend) -> dict:
-    supervisor = service.start_supervised_recovery_task(
-        "soma", "objective", "task"
-    )
-    jobs.complete(active_run_id(supervisor), summary="plan", result={"plan": "ok"})
-    return service.resume(supervisor["supervisor_id"])
-
-
 def supervisor_metadata() -> dict:
     return {
         "plan": {"task": "task", "constraints": ""},
@@ -83,7 +75,45 @@ def supervisor_metadata() -> dict:
     }
 
 
-def test_start_supervised_recovery_task_starts_and_links_source_run(
+def attach_historical_child(
+    service: SupervisorService,
+    jobs: FakeChildJobBackend,
+    supervisor: dict,
+    *,
+    kind: str = "plan",
+    seed_job: bool = True,
+):
+    """Model a supervisor whose child predates the Codex-execution removal."""
+    if seed_job:
+        job = jobs.seed(kind)
+        run_id = job.run_id
+    else:
+        job = None
+        run_id = f"20260428T120099Z_codex_{kind}_task_deadbeef"
+    attached = service.store.attach_child(
+        supervisor["supervisor_id"],
+        run_id=run_id,
+        link_type=kind,
+        child_kind=kind,
+        target_status="planning" if kind == "plan" else "implementing",
+        metadata=dict(supervisor["metadata"]),
+        expected_statuses=(supervisor["status"],),
+        expected_state_version=int(supervisor["state_version"]),
+    )
+    assert attached is not None
+    return attached, job
+
+
+def needs_input(service: StubSupervisorService, jobs: FakeChildJobBackend) -> dict:
+    created = service.store.create_supervisor(
+        repo_name="soma", objective="objective", metadata=supervisor_metadata()
+    )
+    attached, job = attach_historical_child(service, jobs, created, kind="plan")
+    jobs.complete(job.run_id, summary="plan", result={"plan": "ok"})
+    return service.resume(created["supervisor_id"])
+
+
+def test_start_supervised_recovery_task_generates_handoff_and_links_source_run(
     tmp_path: Path,
 ) -> None:
     service, jobs, config = make_service(tmp_path)
@@ -91,10 +121,14 @@ def test_start_supervised_recovery_task_starts_and_links_source_run(
     supervisor = service.start_supervised_recovery_task(
         "soma", "objective", "task", source_run_id=RUN_ID
     )
-    assert supervisor["status"] == "planning"
+    assert supervisor["status"] == "needs_external_coder"
     assert supervisor["run_links"][0]["link_type"] == "source"
-    assert supervisor["run_links"][1]["link_type"] == "plan"
-    assert len(jobs.jobs) == 1
+    assert len(supervisor["run_links"]) == 1
+    # No child run of any kind is created or launched.
+    assert jobs.jobs == {}
+    handoff = supervisor["metadata"]["external_coder_handoff"]
+    assert handoff["status"] == "handoff_ready"
+    assert Path(handoff["prompt_path"]).is_file()
 
 
 def test_source_run_must_match_repo(tmp_path: Path) -> None:
@@ -126,10 +160,10 @@ def test_get_status_enriches_supervisor(tmp_path: Path) -> None:
         "soma", "objective", "task"
     )
     status = service.get_status(supervisor["supervisor_id"])
-    assert status["run_links"]
+    assert status["status"] == "needs_external_coder"
     assert status["resume_prompt_path"].endswith("resume_prompt.txt")
-    assert status["resume_prompt_exists"] is False
-    assert status["pending_notifications"] == 0
+    assert status["resume_prompt_exists"] is True
+    assert status["pending_notifications"] == 1
 
 
 def test_get_events_returns_limited_ordered_events(tmp_path: Path) -> None:
@@ -139,7 +173,7 @@ def test_get_events_returns_limited_ordered_events(tmp_path: Path) -> None:
     )
     events = service.get_events(supervisor["supervisor_id"], limit=1)
     assert len(events) == 1
-    assert events[0]["stage"] == "planning"
+    assert events[0]["stage"] == "needs_external_coder"
 
 
 def test_get_result_surfaces_plan_and_implementation_results(tmp_path: Path) -> None:
@@ -184,7 +218,7 @@ def test_get_notifications_filters_status_and_limit(tmp_path: Path) -> None:
         )
 
 
-def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
+def test_resume_advances_queued_to_needs_external_coder(tmp_path: Path) -> None:
     service, jobs, _config = make_service(tmp_path)
     created = service.store.create_supervisor(
         repo_name="soma",
@@ -192,11 +226,11 @@ def test_resume_advances_queued_to_planning(tmp_path: Path) -> None:
         metadata=supervisor_metadata(),
     )
     resumed = service.resume(created["supervisor_id"])
-    assert resumed["status"] == "planning"
-    assert len(jobs.jobs) == 1
+    assert resumed["status"] == "needs_external_coder"
+    assert jobs.jobs == {}
 
 
-def test_restart_resumes_queued_supervisor_without_duplicate_child(
+def test_restart_resumes_queued_supervisor_without_launching_anything(
     tmp_path: Path,
 ) -> None:
     service, jobs, config = make_service(tmp_path)
@@ -208,35 +242,38 @@ def test_restart_resumes_queued_supervisor_without_duplicate_child(
 
     recreated = StubSupervisorService(config, service.config_path, jobs)
     resumed = recreated.resume(created["supervisor_id"])
-    child_run_id = active_run_id(resumed)
+    handoff_id = resumed["metadata"]["external_coder_handoff"]["handoff_id"]
     resumed_again = recreated.resume(created["supervisor_id"])
 
-    assert resumed["status"] == "planning"
-    assert resumed_again["status"] == "planning"
-    assert active_run_id(resumed_again) == child_run_id
-    assert len(jobs.jobs) == 1
+    assert resumed["status"] == "needs_external_coder"
+    assert resumed_again["status"] == "needs_external_coder"
+    assert (
+        resumed_again["metadata"]["external_coder_handoff"]["handoff_id"]
+        == handoff_id
+    )
+    assert jobs.jobs == {}
 
 
-def test_resume_planning_and_implementing_advance_after_child_completion(
+def test_resume_historical_planning_and_approval_generate_handoff(
     tmp_path: Path,
 ) -> None:
     service, jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task(
-        "soma", "objective", "task"
-    )
-    jobs.complete(active_run_id(supervisor), summary="plan")
-    current = service.resume(supervisor["supervisor_id"])
+    current = needs_input(service, jobs)
     assert current["status"] == "needs_input"
 
     from soma.supervisor_engine import SupervisorEngine
 
     engine = SupervisorEngine(service.store, jobs)
-    implementing = engine.approve_plan(
+    parked = engine.approve_plan(
         current["supervisor_id"], "approved", ["README.md"], []
     )
-    jobs.complete(active_run_id(implementing), summary="done")
-    completed = service.resume(current["supervisor_id"])
-    assert completed["status"] == "completed"
+    assert parked["status"] == "needs_external_coder"
+    assert (
+        parked["metadata"]["external_coder_handoff"]["kind"] == "implementation"
+    )
+    # Resume keeps the parked state; nothing further is executed.
+    resumed = service.resume(current["supervisor_id"])
+    assert resumed["status"] == "needs_external_coder"
 
 
 def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> None:
@@ -247,7 +284,7 @@ def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> Non
     paused = service.pause(created["supervisor_id"])
     assert paused["status"] == "paused"
     resumed = service.resume(created["supervisor_id"])
-    assert resumed["status"] == "planning"
+    assert resumed["status"] == "needs_external_coder"
 
     with pytest.raises(ValueError, match="queued or needs_input"):
         service.pause(resumed["supervisor_id"])
@@ -255,26 +292,29 @@ def test_pause_supervisor_supported_states_and_rejections(tmp_path: Path) -> Non
 
 def test_cancel_supervisor_delegates_engine_cancel(tmp_path: Path) -> None:
     service, jobs, _config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task(
-        "soma", "objective", "task"
+    created = service.store.create_supervisor(
+        repo_name="soma", objective="objective", metadata=supervisor_metadata()
     )
-    cancelled = service.cancel(supervisor["supervisor_id"])
+    attached, job = attach_historical_child(service, jobs, created, kind="plan")
+    cancelled = service.cancel(created["supervisor_id"])
     assert cancelled["status"] == "cancelled"
-    assert jobs.get(active_run_id(supervisor)).cancel_requested is True
+    assert jobs.get(job.run_id).cancel_requested is True
 
 
 def test_restart_preserves_unverified_child_cancellation_state(
     tmp_path: Path,
 ) -> None:
     service, jobs, config = make_service(tmp_path)
-    supervisor = service.start_supervised_recovery_task(
-        "soma", "objective", "task"
+    created = service.store.create_supervisor(
+        repo_name="soma", objective="objective", metadata=supervisor_metadata()
     )
-    child_run_id = active_run_id(supervisor)
-    jobs.jobs.pop(child_run_id)
+    attached, _job = attach_historical_child(
+        service, jobs, created, kind="plan", seed_job=False
+    )
+    child_run_id = active_run_id(attached)
 
-    blocked = service.cancel(supervisor["supervisor_id"])
-    events_before_restart = service.get_events(supervisor["supervisor_id"])
+    blocked = service.cancel(created["supervisor_id"])
+    events_before_restart = service.get_events(created["supervisor_id"])
 
     assert blocked["status"] == "needs_input"
     assert blocked["metadata"]["active_child"]["run_id"] == child_run_id
@@ -283,9 +323,8 @@ def test_restart_preserves_unverified_child_cancellation_state(
     ) == 1
 
     recreated = StubSupervisorService(config, service.config_path, jobs)
-    recovered = recreated.get_status(supervisor["supervisor_id"])
-    resumed = recreated.resume(supervisor["supervisor_id"])
-    events_after_restart = recreated.get_events(supervisor["supervisor_id"])
+    recovered = recreated.get_status(created["supervisor_id"])
+    events_after_restart = recreated.get_events(created["supervisor_id"])
 
     assert recovered["status"] == "needs_input"
     assert recovered["metadata"]["active_child"]["run_id"] == child_run_id
@@ -293,6 +332,5 @@ def test_restart_preserves_unverified_child_cancellation_state(
         "run_id": child_run_id,
         "status": "unknown",
     }
-    assert resumed["status"] == "needs_input"
     assert jobs.jobs == {}
     assert events_after_restart == events_before_restart

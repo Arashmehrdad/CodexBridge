@@ -133,10 +133,25 @@ class ExternalCoderHandoffGenerator:
         )
 
     def generate_handoff(
-        self, request: ExternalCoderHandoffRequest
+        self,
+        request: ExternalCoderHandoffRequest,
+        *,
+        force_handoff: bool = False,
     ) -> ExternalCoderHandoffResult:
+        """Generate a handoff, or explain why none is needed.
+
+        force_handoff skips the local-only routing shortcut for callers that
+        already decided coding work is required (for example a supervisor
+        acting on an explicit approval); human-only and policy boundaries
+        still apply.
+        """
         audit_id = f"external_coder_{uuid4().hex}"
         route = self._route_status(request.objective)
+        if force_handoff and route in {
+            ExternalCoderHandoffStatus.LOCAL_ONLY,
+            ExternalCoderHandoffStatus.EXTERNAL_CODER_NOT_NEEDED,
+        }:
+            route = ExternalCoderHandoffStatus.NEEDS_EXTERNAL_CODER
         if route in {
             ExternalCoderHandoffStatus.LOCAL_ONLY,
             ExternalCoderHandoffStatus.EXTERNAL_CODER_NOT_NEEDED,
