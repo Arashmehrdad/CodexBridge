@@ -1392,7 +1392,7 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - Soma Trading Lab
 
-Status: **paused at TL5 while CF1 is the sole active roadmap lane; TL0 through TL4 accepted on 2026-07-20**.
+Status: **complete; TL0 through TL4 accepted on 2026-07-20, TL5 through TL9 accepted on 2026-07-23**. Trading Lab remains an optional capability provider gated behind `trading.enabled` (off by default, demo-only by construction); it owns no core lifecycle. Live-money execution must not exist per the TL9 review.
 
 This is a separate product roadmap. OP1 evidence has been reviewed and closed. TL0 passed against the user-established Alpari MT5 demo environment, with the retained acceptance bundle in [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md). TL1 through TL4 have completed their deterministic acceptance gates. Trading development remains demo/internal-paper only; live-money execution is unavailable and out of scope.
 
@@ -1837,35 +1837,17 @@ Gate evidence: focused run `tests/test_demo_mirror.py` (7 passed) covers single-
 
 #### TL8 - Hourly orchestration
 
-Only after manual operation is trustworthy:
+Status: **complete; accepted on 2026-07-23**.
 
-```text
-hourly market packet
-  -> ChatGPT analysis
-  -> immutable signal
-  -> threshold decisions
-  -> deterministic monitoring
-```
+`soma/trading/hourly_orchestrator.py` runs one cycle: build one immutable market packet, enter any submitted packet-bound trade signals through the TL5 supervisor, and run one monitoring pass with downtime recovery. Analysis stays outside Soma — the cycle never invents a signal. No trade is generated when trading is disabled by the kill switch, the terminal is disconnected, the account is not demo, market data is stale, packet validation fails, or the signal is `NO_TRADE`; refused cycles still monitor and recover existing open work so open positions are never stranded.
 
-No forced trade is generated when the signal is `NO_TRADE`, market data is stale, the terminal is disconnected, or validation fails.
+Gate evidence: `tests/test_hourly_orchestrator.py` (5 passed) covers signal entry plus monitoring, the kill switch blocking entries while still resolving open work, disconnected-terminal refusal, stale-data refusal, and `NO_TRADE` never forcing a trade. Live (`.codex-tmp/tl8-acceptance/live_tl8_evidence.json`): a real cycle built immutable packet `mp_c0bfbfeda8dcd0f079156289` from the live demo terminal with zero forced trades and zero entries with no signal present; the kill-switch cycle refused with no packet; an earlier live run additionally hit the H4 boundary window where the provider briefly reports no developing candle and correctly failed closed with no trade.
 
 #### TL9 - Live-readiness review
 
-There is no automatic promotion.
+Status: **complete; review recorded on 2026-07-23 — a live tool must not exist**.
 
-Review:
-
-- broker verification and residency requirements;
-- deposit and withdrawal path;
-- minimum practical position;
-- fees, spread, commission, and swaps;
-- broker reliability;
-- regulatory and tax implications;
-- performance on a genuinely fresh paper sample;
-- operational recovery evidence;
-- whether a live tool should exist at all.
-
-Any live-execution implementation requires a new explicit roadmap decision, separate configuration, human approval boundaries, and independent acceptance evidence.
+The written review is [`docs/trading-lab-tl9-live-readiness-review.md`](docs/trading-lab-tl9-live-readiness-review.md). Summary: broker verification/residency, deposit/withdrawal, regulatory, and tax questions are unresolved; the `0.01`-lot minimum position cannot honestly reproduce the `1.00 USD` normalized experiment stakes at this account scale; and no genuinely fresh paper sample exists because every journalled trade so far is acceptance evidence rather than analysed signals. Operational recovery evidence is strong, and precisely because the virtual portfolios plus demo mirror fully serve the experiment, no live tool is justified. Any future reconsideration requires a new explicit roadmap decision, separate live configuration and identity, human approval boundaries, and a fresh-sample performance record through the TL6 reports.
 
 ### Build/reuse boundary
 
@@ -1888,7 +1870,7 @@ Build:
 
 Do not build a broker, general charting platform, discretionary strategy engine, or another Stream Alpha.
 
-The next preserved Trading Lab gate is TL5: implement the deterministic durable supervisor that opens eligible virtual positions from immutable signals, watches honest bid/ask prices, resolves exactly one stop-loss or take-profit outcome, recovers open work after restart, and records `AMBIGUOUS_DATA` whenever reliable tick ordering cannot determine which boundary was reached first. TL5 is not active and must not resume until CF1 is complete and the user explicitly reactivates Trading Lab.
+All Trading Lab gates are complete. Ongoing operation is manual-first: hourly cycles run through `HourlyOrchestrator` with ChatGPT supplying analysis as immutable signals, the TL6 reports accumulate fresh-sample evidence, and the TL7 mirror tracks one reference threshold on the demo account. The TL9 decision stands: no live-execution tool may be built without a new explicit roadmap decision.
 
 ## Roadmap V3 Promotion Rules
 
