@@ -207,7 +207,7 @@ RELOADABLE_MODULES = {
     "soma.job_manager",
     "soma.managed_artifacts",
     "soma.operation_locks",
-    "soma.prompts",
+    "soma.external_coder.handoff_generator",
     "soma.repo_wiki",
     "soma.repo_writer",
     "soma.run_guards",

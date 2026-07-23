@@ -23,51 +23,6 @@ def write_config(
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def install_fake_codex_process(monkeypatch, run_dir: Path, output: str) -> None:
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._resolve_codex_executable",
-        lambda self: "codex",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_help",
-        lambda self, _executable: "",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_args",
-        lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
-            "codex"
-        ],
-    )
-
-    class FakePipe:
-        def readline(self) -> str:
-            return ""
-
-        def close(self) -> None:
-            return None
-
-    class FakeProcess:
-        pid = 123
-        stdout = FakePipe()
-        stderr = FakePipe()
-
-        def wait(self, timeout=None):
-            return 0
-
-    monkeypatch.setattr(
-        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
-    )
-    (run_dir / "stdout.txt").write_text(output, encoding="utf-8")
-    monkeypatch.setattr(
-        "soma.job_worker._stream_pipe",
-        lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
-            output_path.read_text(encoding="utf-8").splitlines(keepends=True)
-            if output_path.exists()
-            else []
-        ),
-    )
-
-
 def test_blocked_zero_exit_run_is_persisted_as_failed(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -687,374 +642,6 @@ def test_project_command_worker_resolves_profiles_case_insensitively(
     assert result["command_id"] == "custom"
 
 
-def test_implementation_worker_requires_all_manifest_ids_to_finish_completed(
-    monkeypatch, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    runs_dir = tmp_path / "runs"
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "repos:",
-                "  sample:",
-                f'    path: "{repo.as_posix()}"',
-                f'runs_dir: "{runs_dir.as_posix()}"',
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    run_id = "20260701T000003Z_codex_implement_task_deadbeef"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-    store = RunStore(runs_dir)
-    store.create_run(
-        run_id=run_id,
-        repo_name="sample",
-        tool="codex_implement_task",
-        run_dir=run_dir,
-        input_data={
-            "repo_name": "sample",
-            "approved_plan": "REQ-001 one\nREQ-002 two",
-            "allowed_files": ["README.md"],
-            "tests": ["python -m pytest -q"],
-            "requirement_manifest": [
-                {"requirement_id": "REQ-001", "text": "REQ-001 one", "mandatory": True},
-                {"requirement_id": "REQ-002", "text": "REQ-002 two", "mandatory": True},
-            ],
-        },
-    )
-    worker = JobWorker(config_path, run_id)
-    monkeypatch.setattr("soma.job_worker.git_tools.git_status", lambda _: "")
-    monkeypatch.setattr("soma.job_worker.git_tools.diff_stat", lambda _: "")
-    monkeypatch.setattr("soma.job_worker.git_tools.changed_files", lambda _: [])
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.cleanup_new_managed_artifacts",
-        lambda _repo_root, _before: [],
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._resolve_codex_executable",
-        lambda self: "codex",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_help",
-        lambda self, _executable: "",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_args",
-        lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
-            "codex"
-        ],
-    )
-
-    class FakePipe:
-        def readline(self) -> str:
-            return ""
-
-        def close(self) -> None:
-            return None
-
-    class FakeProcess:
-        pid = 123
-        stdout = FakePipe()
-        stderr = FakePipe()
-
-        def wait(self, timeout=None):
-            return 0
-
-    monkeypatch.setattr(
-        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
-    )
-    (run_dir / "stdout.txt").write_text(
-        "\n".join(
-            [
-                "COMPLETED_REQUIREMENT: REQ-001 one",
-                "VALIDATION_STATUS: passed",
-                "FINAL_STATUS: completed",
-                "PLAN_CONFORMANCE: yes",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker._stream_pipe",
-        lambda pipe, output_path, sink, limit=40000, on_output=None: sink.extend(
-            output_path.read_text(encoding="utf-8").splitlines(keepends=True)
-            if output_path.exists()
-            else []
-        ),
-    )
-
-    assert worker.execute() == 0
-    persisted = store.get_run(run_id)
-    assert persisted["status"] == "partial"
-    assert persisted["result"]["missing_requirements"] == ["REQ-002"]
-    assert persisted["result"]["mandatory_incomplete"] == ["REQ-002"]
-
-
-def test_implementation_worker_finalizes_commit_after_success(
-    monkeypatch, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    runs_dir = tmp_path / "runs"
-    config_path = tmp_path / "config.yaml"
-    write_config(config_path, repo, runs_dir)
-    run_id = "20260707T000001Z_codex_implement_task_deadbeef"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-    store = RunStore(runs_dir)
-    store.create_run(
-        run_id=run_id,
-        repo_name="sample",
-        tool="codex_implement_task",
-        run_dir=run_dir,
-        input_data={
-            "repo_name": "sample",
-            "approved_plan": "Update README",
-            "allowed_files": ["README.md"],
-            "tests": ["python -m pytest -q"],
-        },
-    )
-    install_fake_codex_process(
-        monkeypatch,
-        run_dir,
-        "\n".join(
-            [
-                "VALIDATION_STATUS: passed",
-                "FINAL_STATUS: completed",
-                "PLAN_CONFORMANCE: yes",
-                "BLOCKERS: none",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.cleanup_new_managed_artifacts",
-        lambda _repo_root, _before: [],
-    )
-    workspace_sequences = iter([{}, {"README.md": (1, 2)}])
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_workspace",
-        lambda _repo_root, _ignored=(): next(workspace_sequences),
-    )
-    changed_sequences = iter([[], ["README.md"], []])
-    status_sequences = iter(["", " M README.md\n", ""])
-    diff_sequences = iter([" README.md | 1 +\n", ""])
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.changed_files",
-        lambda _repo_root: next(changed_sequences),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.git_status",
-        lambda _repo_root: next(status_sequences),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.diff_stat",
-        lambda _repo_root: next(diff_sequences),
-    )
-    captured: dict[str, object] = {}
-
-    def fake_finalize(
-        self, repo_root: Path, changed_files: list[str], *, tool_name: str
-    ):
-        captured["changed_files"] = list(changed_files)
-        captured["tool_name"] = tool_name
-        return {
-            "commit_required": True,
-            "commit_attempted": True,
-            "commit_hash": "a" * 40,
-            "commit_error": "",
-            "commit_result": {
-                "ok": True,
-                "remaining_dirty_files": [],
-                "git_status": "",
-            },
-        }
-
-    monkeypatch.setattr(JobWorker, "_finalize_commit", fake_finalize)
-
-    worker = JobWorker(config_path, run_id)
-    assert worker.execute() == 0
-    persisted = store.get_run(run_id)
-    result = persisted["result"]
-    assert persisted["status"] == "completed"
-    assert captured["changed_files"] == ["README.md"]
-    assert captured["tool_name"] == "codex_implement_task"
-    assert result["commit_attempted"] is True
-    assert result["commit_hash"] == "a" * 40
-    assert result["git_status"] == ""
-    assert result["diff_stat"] == ""
-
-
-def test_implementation_worker_validation_failure_does_not_commit(
-    monkeypatch, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    runs_dir = tmp_path / "runs"
-    config_path = tmp_path / "config.yaml"
-    write_config(config_path, repo, runs_dir)
-    run_id = "20260707T000002Z_codex_implement_task_deadbeef"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-    store = RunStore(runs_dir)
-    store.create_run(
-        run_id=run_id,
-        repo_name="sample",
-        tool="codex_implement_task",
-        run_dir=run_dir,
-        input_data={
-            "repo_name": "sample",
-            "approved_plan": "Update README",
-            "allowed_files": ["README.md"],
-            "tests": ["python -m pytest -q"],
-        },
-    )
-    install_fake_codex_process(
-        monkeypatch,
-        run_dir,
-        "\n".join(
-            [
-                "VALIDATION_STATUS: failed",
-                "FINAL_STATUS: completed",
-                "PLAN_CONFORMANCE: yes",
-                "BLOCKERS: none",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.cleanup_new_managed_artifacts",
-        lambda _repo_root, _before: [],
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.changed_files",
-        lambda _repo_root: [] if not hasattr(_repo_root, "unused") else [],
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.git_status", lambda _repo_root: ""
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.diff_stat", lambda _repo_root: ""
-    )
-
-    def unexpected_finalize(*args, **kwargs):
-        raise AssertionError("finalize should not be called")
-
-    monkeypatch.setattr(JobWorker, "_finalize_commit", unexpected_finalize)
-
-    worker = JobWorker(config_path, run_id)
-    assert worker.execute() == 1
-    persisted = store.get_run(run_id)
-    assert persisted["status"] == "failed"
-    assert persisted["result"]["commit_attempted"] is False
-    assert "VALIDATION_STATUS: failed" in persisted["result"]["error"]
-
-
-def test_implementation_worker_commit_failure_prevents_completed_status(
-    monkeypatch, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    runs_dir = tmp_path / "runs"
-    config_path = tmp_path / "config.yaml"
-    write_config(config_path, repo, runs_dir)
-    run_id = "20260707T000003Z_codex_implement_task_deadbeef"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-    store = RunStore(runs_dir)
-    store.create_run(
-        run_id=run_id,
-        repo_name="sample",
-        tool="codex_implement_task",
-        run_dir=run_dir,
-        input_data={
-            "repo_name": "sample",
-            "approved_plan": "Update README",
-            "allowed_files": ["README.md"],
-            "tests": ["python -m pytest -q"],
-        },
-    )
-    install_fake_codex_process(
-        monkeypatch,
-        run_dir,
-        "\n".join(
-            [
-                "VALIDATION_STATUS: passed",
-                "FINAL_STATUS: completed",
-                "PLAN_CONFORMANCE: yes",
-                "BLOCKERS: none",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.cleanup_new_managed_artifacts",
-        lambda _repo_root, _before: [],
-    )
-    workspace_sequences = iter([{}, {"README.md": (1, 2)}])
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_workspace",
-        lambda _repo_root, _ignored=(): next(workspace_sequences),
-    )
-    changed_sequences = iter([[], ["README.md"], ["README.md"]])
-    status_sequences = iter(["", " M README.md\n", " M README.md\n"])
-    diff_sequences = iter(["", " README.md | 1 +\n", " README.md | 1 +\n"])
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.changed_files",
-        lambda _repo_root: next(changed_sequences),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.git_status",
-        lambda _repo_root: next(status_sequences),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.diff_stat",
-        lambda _repo_root: next(diff_sequences),
-    )
-    monkeypatch.setattr(
-        JobWorker,
-        "_finalize_commit",
-        lambda self, repo_root, changed_files, *, tool_name: {
-            "commit_required": True,
-            "commit_attempted": True,
-            "commit_hash": "",
-            "commit_error": "simulated commit failure",
-            "commit_result": {"ok": False},
-        },
-    )
-
-    worker = JobWorker(config_path, run_id)
-    assert worker.execute() == 1
-    persisted = store.get_run(run_id)
-    result = persisted["result"]
-    assert persisted["status"] == "failed"
-    assert result["error"] == "simulated commit failure"
-    assert "Automatic commit finalization failed" in result["remaining_risks"][0]
-
-
 def test_project_command_worker_commits_only_for_write_profiles(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -1164,124 +751,6 @@ def test_project_command_worker_commits_only_for_write_profiles(
     assert calls == [("project_command", ["generated.txt"])]
     assert writer_result["commit_attempted"] is True
     assert reader_result["commit_attempted"] is False
-
-
-def test_codex_timeout_terminates_process_tree_and_records_report(
-    monkeypatch, tmp_path: Path
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    runs_dir = tmp_path / "runs"
-    config_path = tmp_path / "config.yaml"
-    write_config(config_path, repo, runs_dir)
-    run_id = "20260707T000006Z_codex_plan_task_deadbeef"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-    store = RunStore(runs_dir)
-    store.create_run(
-        run_id=run_id,
-        repo_name="sample",
-        tool="codex_plan_task",
-        run_dir=run_dir,
-        input_data={
-            "repo_name": "sample",
-            "task": "Inspect documentation",
-            "constraints": "",
-        },
-    )
-
-    class FakePipe:
-        def readline(self) -> str:
-            return ""
-
-        def close(self) -> None:
-            return None
-
-    class TimedOutProcess:
-        pid = 4321
-        stdout = FakePipe()
-        stderr = FakePipe()
-
-        def wait(self, timeout=None):
-            raise subprocess.TimeoutExpired("codex", timeout)
-
-    popen_kwargs: dict[str, object] = {}
-
-    def fake_popen(*args, **kwargs):
-        popen_kwargs.update(kwargs)
-        return TimedOutProcess()
-
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._resolve_codex_executable",
-        lambda self: "codex",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_help",
-        lambda self, _executable: "",
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.CodexRunner._codex_exec_args",
-        lambda self, _executable, _sandbox, _help_text, _prompt, writable_dirs=None: [
-            "codex"
-        ],
-    )
-    monkeypatch.setattr("soma.job_worker.subprocess.Popen", fake_popen)
-    monkeypatch.setattr(
-        "soma.job_worker.process_group_popen_kwargs",
-        lambda: {"creationflags": 512},
-    )
-    terminations: list[int] = []
-    monkeypatch.setattr(
-        "soma.job_worker.terminate_process_tree",
-        lambda pid: (
-            terminations.append(pid)
-            or {
-                "pid": pid,
-                "method": "simulated_tree",
-                "termination_attempted": True,
-                "forced": True,
-                "exit_code": 0,
-                "terminated": True,
-                "error": "",
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_managed_artifacts", lambda _repo_root: set()
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.cleanup_new_managed_artifacts",
-        lambda _repo_root, _before: [],
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.snapshot_workspace", lambda _repo_root, _ignored=(): {}
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.changed_files", lambda _repo_root: []
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.git_status", lambda _repo_root: ""
-    )
-    monkeypatch.setattr(
-        "soma.job_worker.git_tools.diff_stat", lambda _repo_root: ""
-    )
-
-    worker = JobWorker(config_path, run_id)
-
-    assert worker.execute() == 124
-    result = store.get_run(run_id)["result"]
-    events = store.get_events(run_id, 50)
-    assert popen_kwargs["creationflags"] == 512
-    assert terminations == [4321]
-    assert result["status"] == "timed_out"
-    assert result["codex_exit_code"] == 124
-    timeout_event = next(
-        event
-        for event in events
-        if event["stage"] == "codex" and "timed out" in event["message"]
-    )
-    assert timeout_event["data"]["termination"]["terminated"] is True
 
 
 def test_monitored_ssh_worker_persists_structured_result(
@@ -1700,3 +1169,47 @@ def test_stale_worker_cannot_complete_or_release_replacement_lock(
     replacement_lock = locks.find_lock("sample", run_id)
     assert replacement_lock is not None
     assert replacement_lock["lease_generation"] == 2
+
+def test_worker_refuses_legacy_codex_run_without_launching_anything(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A stranded legacy Codex run must fail fast; no process is spawned."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "repos:",
+                "  sample:",
+                f'    path: "{repo.as_posix()}"',
+                f'runs_dir: "{runs_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_id = "20260722T000000Z_codex_plan_task_deadbeef"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="codex_plan_task",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "task": "legacy"},
+    )
+
+    def forbid_popen(*_args, **_kwargs):
+        raise AssertionError("No process may be spawned for a legacy Codex run")
+
+    monkeypatch.setattr("soma.job_worker.subprocess.Popen", forbid_popen)
+    worker = JobWorker(config_path, run_id)
+
+    assert worker.execute() == 1
+    persisted = store.get_run(run_id)
+    assert persisted["status"] == "failed"
+    assert "Unsupported async tool" in persisted["error"]

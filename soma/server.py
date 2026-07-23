@@ -80,7 +80,6 @@ from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_wiki import mark_repo_wiki_stale
 from .command_profiles import build_git_readonly_profile
-from .runner import latest_run_result as latest_artifact_result
 from .service_reload import (
     apply_reloaded_config,
     get_reload_status as _get_reload_status,
@@ -1389,6 +1388,18 @@ def inspect_repo_status_compact(
     return result
 
 
+def _latest_artifact_result(runs_dir: Path) -> dict:
+    """Return the newest saved run result artifact from the runs directory."""
+    candidates = sorted(
+        runs_dir.glob("*/result.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise FileNotFoundError("No run results found")
+    return json.loads(candidates[0].read_text(encoding="utf-8"))
+
+
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
     """Read-only: return the most recent saved Soma run result."""
@@ -1406,7 +1417,7 @@ def get_latest_run_result(repo_name: str = "", tool: str = "") -> dict:
     try:
         return get_job_manager().latest_result()
     except Exception:
-        return latest_artifact_result(config.resolve_runs_dir())
+        return _latest_artifact_result(config.resolve_runs_dir())
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

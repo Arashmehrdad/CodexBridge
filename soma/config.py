@@ -642,15 +642,6 @@ class ExternalFixturesConfig(BaseModel):
         return self
 
 
-class CodexConfig(BaseModel):
-    enabled: bool = True
-    executable: str = "codex"
-    model: str = ""
-    windows_sandbox: str = ""
-    sandbox_private_desktop: bool | None = None
-    default_timeout_seconds: int = 1800
-
-
 class GeminiConfig(BaseModel):
     enabled: bool = False
 
@@ -745,6 +736,16 @@ class ExternalCoderConfig(BaseModel):
 
 
 class LocalSupervisorConfig(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_obsolete_codex_flags(cls, data):
+        if isinstance(data, dict) and "supervisor_codex_invocation_enabled" in data:
+            raise ValueError(
+                "Obsolete configuration key 'supervisor_codex_invocation_enabled': "
+                "Soma no longer invokes Codex from supervisors; remove the key."
+            )
+        return data
+
     supervisor_enabled: bool = True
     supervisor_runs_dir: str | None = None
     supervisor_default_validation_commands: list[str] = Field(
@@ -920,7 +921,6 @@ class AppConfig(BaseModel):
     external_fixtures: ExternalFixturesConfig = Field(
         default_factory=ExternalFixturesConfig
     )
-    codex: CodexConfig = Field(default_factory=CodexConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
     hermes_service: HermesServiceConfig = Field(
@@ -937,6 +937,23 @@ class AppConfig(BaseModel):
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     supervisors: SupervisorsConfig = Field(default_factory=SupervisorsConfig)
     config_dir: Path = Field(default_factory=lambda: Path.cwd(), exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_obsolete_codex_sections(cls, data):
+        if isinstance(data, dict):
+            present = sorted(
+                key for key in ("codex", "codex_router") if key in data
+            )
+            if present:
+                raise ValueError(
+                    "Obsolete configuration section(s) "
+                    + ", ".join(repr(key) for key in present)
+                    + ": Soma no longer integrates or executes Codex. Remove "
+                    "them; external-coder handoff generation is configured "
+                    "under 'external_coder'."
+                )
+        return data
 
     @model_validator(mode="after")
     def validate_executable_profiles(self) -> "AppConfig":

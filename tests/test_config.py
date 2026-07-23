@@ -38,7 +38,6 @@ def init_repo(path: Path) -> None:
 def test_config_example_loads_without_repo_validation() -> None:
     config = load_config("config.example.yaml", validate_repos=False)
     assert "stream_alpha" in config.repos
-    assert config.codex.executable == "codex"
     assert config.repos["stream_alpha"].commit_mode == "explicit_only"
     assert config.repos["stream_alpha"].allow_push is False
     assert config.repos["stream_alpha"].refuse_unrelated_staged_files is True
@@ -713,3 +712,21 @@ def test_repo_commit_policy_fields_accept_overrides() -> None:
     assert repo.allow_push is False
     assert repo.refuse_unrelated_staged_files is False
     assert repo.require_commit_report is False
+
+def test_obsolete_codex_config_sections_are_rejected(tmp_path: Path) -> None:
+    for section in ("codex", "codex_router"):
+        with pytest.raises(ValidationError, match="Obsolete configuration"):
+            AppConfig(
+                repos={"sample": RepoConfig(path=str(tmp_path))},
+                config_dir=tmp_path,
+                **{section: {"enabled": True}},
+            )
+
+
+def test_obsolete_supervisor_codex_flag_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="supervisor_codex_invocation_enabled"):
+        AppConfig(
+            repos={"sample": RepoConfig(path=str(tmp_path))},
+            config_dir=tmp_path,
+            local_supervisor={"supervisor_codex_invocation_enabled": True},
+        )

@@ -11,7 +11,6 @@ import pytest
 from soma.config import (
     AppConfig,
     CloudflareProfileConfig,
-    CodexConfig,
     ExecutableProfileConfig,
     RepoConfig,
     SSHCommandProfileConfig,
@@ -32,9 +31,7 @@ def make_git_repo(path: Path) -> None:
     (path / ".git").mkdir()
 
 
-def make_manager(
-    tmp_path: Path, monkeypatch, *, codex_enabled: bool = True
-) -> JobManager:
+def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
     repo = tmp_path / "repo"
     make_git_repo(repo)
     config_path = tmp_path / "config.yaml"
@@ -42,7 +39,6 @@ def make_manager(
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(repo))},
         runs_dir=str(tmp_path / "runs"),
-        codex=CodexConfig(enabled=codex_enabled),
         ssh=SSHConfig(
             enabled=True,
             hosts={
@@ -227,73 +223,36 @@ def test_cancel_powershell_group_cancels_pending_before_active(
     assert result["result"]["status_counts"] == {"cancelled": 2}
 
 
-def test_codex_disabled_refuses_plan_and_implementation(
+def test_legacy_codex_tools_cannot_create_new_runs(
     tmp_path: Path, monkeypatch
 ) -> None:
-    manager = make_manager(tmp_path, monkeypatch, codex_enabled=False)
+    manager = make_manager(tmp_path, monkeypatch)
+    for tool in ("codex_plan_task", "codex_implement_task"):
+        with pytest.raises(ValueError, match="legacy read-only"):
+            manager._create_and_launch(
+                tool,
+                "sample",
+                {"repo_name": "sample"},
+                None,
+            )
+    assert manager.list_runs() == []
 
-    plan = manager.start_plan("sample", "inspect docs")
-    implementation = manager.start_implementation(
-        "sample", "edit docs", ["README.md"], []
+
+def test_historical_codex_runs_remain_readable(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    run_id = "20260427T120000Z_codex_implement_task_abcdef12"
+    manager.store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="codex_implement_task",
+        run_dir=manager.config.resolve_runs_dir() / run_id,
+        input_data={"repo_name": "sample", "approved_plan": "legacy"},
     )
-
-    for response in (plan, implementation):
-        assert response["accepted"] is False
-        assert response["status"] == "refused"
-        # A refusal carries an empty-string run ID: the public run-result
-        # schema requires a string, and None broke gateway output
-        # validation before the real refusal reason could be seen.
-        assert response["run_id"] == ""
-        assert response["reason"] == "Codex execution is disabled by configuration"
-
-
-def test_start_async_plan_creates_run_and_event(tmp_path: Path, monkeypatch) -> None:
-    manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
-    assert response["accepted"] is True
-    assert response["run_id"]
-    status = manager.get_status(response["run_id"])
-    assert status["status"] == "queued"
-    events = manager.get_events(response["run_id"])
-    assert events[-1]["stage"] == "worker"
-
-
-def test_start_async_implementation_validates_files(
-    tmp_path: Path, monkeypatch
-) -> None:
-    manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_implementation("sample", "edit docs", ["README.md"], [])
-    assert response["accepted"] is True
-    status = manager.get_status(response["run_id"])
+    status = manager.get_status(run_id)
     assert status["tool"] == "codex_implement_task"
-    assert status["input"]["requirement_manifest"] == []
-
-
-def test_start_async_implementation_persists_requirement_manifest(
-    tmp_path: Path, monkeypatch
-) -> None:
-    manager = make_manager(tmp_path, monkeypatch)
-
-    response = manager.start_implementation(
-        "sample",
-        "REQ-001 Independent requirement accounting\nREQ-002 Canonical repository identity",
-        ["README.md"],
-        [],
-    )
-
-    manifest = manager.get_status(response["run_id"])["input"]["requirement_manifest"]
-    assert manifest == [
-        {
-            "requirement_id": "REQ-001",
-            "text": "REQ-001 Independent requirement accounting",
-            "mandatory": True,
-        },
-        {
-            "requirement_id": "REQ-002",
-            "text": "REQ-002 Canonical repository identity",
-            "mandatory": True,
-        },
-    ]
+    assert status["status"] == "queued"
+    listed = manager.list_runs()
+    assert [run["run_id"] for run in listed] == [run_id]
 
 
 def test_start_async_project_command_creates_durable_run(
@@ -1123,7 +1082,7 @@ def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "soma.job_manager.subprocess.run", lambda *args, **kwargs: None
     )
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     cancelled = manager.cancel_run(response["run_id"])
     assert cancelled["cancelled"] is True
     assert manager.get_status(response["run_id"])["status"] == "cancelled"
@@ -1140,7 +1099,7 @@ def test_reconcile_startup_contains_legacy_running_record_without_identity(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(
         response["run_id"],
         status="running",
@@ -1164,7 +1123,7 @@ def test_reconcile_startup_adopts_verified_active_worker(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(
         response["run_id"],
         status="running",
@@ -1195,7 +1154,7 @@ def test_reconcile_startup_adopts_verified_active_hermes_worker_without_publicat
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     companion = {
         "operation": "tool_call",
         "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
@@ -1240,7 +1199,7 @@ def test_reconcile_startup_fails_dead_claimed_worker_and_releases_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(
         response["run_id"],
         status="running",
@@ -1268,7 +1227,7 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(response["run_id"], launcher_pid=None)
     monkeypatch.setattr(
         "soma.job_manager.process_is_running", lambda _pid: False
@@ -1287,7 +1246,7 @@ def test_reconcile_startup_records_failure_and_retains_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     monkeypatch.setattr(
         manager,
         "_reconcile_run",
@@ -1437,7 +1396,7 @@ def test_list_runs_and_latest_result_use_canonical_repo_filters(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("Sample", "inspect docs")
+    response = manager.start_git_readonly("Sample", "status")
     run_id = response["run_id"]
     manager.store.update_run(
         run_id,
@@ -1468,7 +1427,7 @@ def test_worker_launch_uses_independent_process_group_options(
     )
     monkeypatch.setattr("soma.job_manager.subprocess.Popen", fake_popen)
 
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
 
     assert response["accepted"] is True
     assert captured["creationflags"] == 512
@@ -1478,7 +1437,7 @@ def test_cancel_run_is_fail_closed_when_termination_is_unconfirmed(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     monkeypatch.setattr(
         "soma.job_manager.terminate_process_tree",
         lambda pid: {
@@ -1507,7 +1466,7 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(response["run_id"], pid=222, worker_pid=111)
     terminated: list[int] = []
 
@@ -1772,7 +1731,7 @@ def test_restart_reconciles_completed_remote_cancellation_once(
 
 def test_get_output_returns_bounded_live_tails(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     run = manager.store.get_run(response["run_id"])
     run_dir = Path(run["run_dir"])
     (run_dir / "stdout.txt").write_text("0123456789abcdef", encoding="utf-8")
@@ -1798,7 +1757,7 @@ def test_get_output_compact_view_enforces_whole_response_budget(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     run = manager.store.get_run(response["run_id"])
     run_dir = Path(run["run_dir"])
     (run_dir / "stdout.txt").write_text("stdout-" + ("x" * 40_000), encoding="utf-8")
@@ -1870,7 +1829,7 @@ def test_get_control_status_reports_process_and_lock_state(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     monkeypatch.setattr(
         "soma.job_manager.process_is_running", lambda pid: pid == 12345
     )
@@ -1930,7 +1889,7 @@ def test_launch_failure_after_persistence_is_terminal_and_unlocks(
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("launch boom")),
     )
 
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
 
     assert response["accepted"] is False
     assert response["status"] == "failed"
@@ -1948,7 +1907,7 @@ def test_public_run_views_hide_worker_lease_token(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
 
     assert manager.store.get_run(response["run_id"])["worker_lease_token"]
     assert "worker_lease_token" not in manager.get_status(response["run_id"])
@@ -1959,7 +1918,7 @@ def test_list_operation_locks_accepts_canonical_case_filter(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
 
     locks = manager.list_operation_locks("Sample")
 
@@ -1970,7 +1929,7 @@ def test_duplicate_reconcilers_cannot_both_relaunch(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(response["run_id"], launcher_pid=None)
     observed = manager.store.get_run(response["run_id"])
     monkeypatch.setattr(
@@ -1998,7 +1957,7 @@ def test_duplicate_reconcilers_record_one_adoption(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(
         response["run_id"],
         status="running",
@@ -2086,7 +2045,7 @@ def test_cancellation_claim_prevents_late_completion(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(
         response["run_id"],
         status="running",
@@ -2116,7 +2075,7 @@ def test_cancellation_claim_prevents_late_completion(
 
 def test_completion_prevents_late_cancellation(tmp_path: Path, monkeypatch) -> None:
     manager = make_manager(tmp_path, monkeypatch)
-    response = manager.start_plan("sample", "inspect docs")
+    response = manager.start_git_readonly("sample", "status")
     manager.store.update_run(response["run_id"], status="running")
     observed = manager.store.get_run(response["run_id"])
     completed = manager.store.transition_terminal(

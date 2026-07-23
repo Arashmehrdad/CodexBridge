@@ -195,14 +195,14 @@ def assess_plan_output(summary: str) -> ImplementationOutcome:
     statuses = _PLAN_STATUS_RE.findall(text)
     blockers: list[str] = []
     if statuses and statuses[-1].lower() == "blocked":
-        blockers.append("Codex reported PLAN_STATUS: blocked")
+        blockers.append("External coder reported PLAN_STATUS: blocked")
     if not statuses:
         for pattern in _PLAN_PLACEHOLDER_PATTERNS:
             if pattern.search(text):
-                blockers.append("Codex returned a placeholder instead of a plan")
+                blockers.append("External coder returned a placeholder instead of a plan")
                 break
     if not text.strip():
-        blockers.append("Codex returned an empty plan")
+        blockers.append("External coder returned an empty plan")
     return ImplementationOutcome(
         blocked=bool(blockers), blockers=blockers, plan_conformance=None
     )
@@ -249,15 +249,15 @@ def assess_implementation_output_against(
 
     blockers: list[str] = []
     if explicit_statuses and explicit_statuses[-1].lower() in {"blocked", "failed"}:
-        blockers.append(f"Codex reported FINAL_STATUS: {explicit_statuses[-1].lower()}")
+        blockers.append(f"External coder reported FINAL_STATUS: {explicit_statuses[-1].lower()}")
     if validation_status == "failed":
-        blockers.append("Codex reported VALIDATION_STATUS: failed")
+        blockers.append("External coder reported VALIDATION_STATUS: failed")
 
     if not explicit_statuses:
         for pattern in _BLOCKER_PATTERNS:
             if pattern.search(text):
                 blockers.append(
-                    "Codex final response reports an implementation blocker"
+                    "External coder response reports an implementation blocker"
                 )
                 break
 

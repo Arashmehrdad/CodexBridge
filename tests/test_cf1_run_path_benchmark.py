@@ -7,7 +7,7 @@ from soma.cf1_run_path_benchmark import (
     CF1_RUN_PATH_BENCHMARK_VERSION,
     measure_run_path,
 )
-from soma.config import AppConfig, CodexConfig, RepoConfig
+from soma.config import AppConfig, RepoConfig
 from soma.job_manager import JobManager
 
 
@@ -20,7 +20,6 @@ def _make_manager(tmp_path: Path) -> JobManager:
     config = AppConfig(
         repos={"sample": RepoConfig(path=str(repo))},
         runs_dir=str(tmp_path / "runs"),
-        codex=CodexConfig(enabled=False),
         config_dir=tmp_path,
     )
     return JobManager(config, config_path)

@@ -53,14 +53,13 @@ from .parallel_groups import (
     refill_powershell_groups,
     repository_lock_required_for_run,
 )
-from .policy import PolicyDecision, decide_implementation_task, decide_plan_task
+from .policy import PolicyDecision
 from .process_control import (
     process_group_popen_kwargs,
     process_is_running,
     process_matches_identity,
     terminate_process_tree,
 )
-from .run_guards import derive_requirement_manifest
 from .run_query_chunks import (
     chunk_payload,
     decode_list_reference,
@@ -68,6 +67,7 @@ from .run_query_chunks import (
     list_resource_id,
 )
 from .run_store import (
+    LEGACY_READ_ONLY_TOOLS,
     RUN_SUMMARY_MAX_LIMIT,
     TERMINAL_STATUSES,
     RunStore,
@@ -912,6 +912,23 @@ class JobManager:
             return
 
         if status in {"launch_pending", "queued"}:
+            if run["tool"] in LEGACY_READ_ONLY_TOOLS:
+                reason = (
+                    "Legacy Codex run cannot be relaunched: Codex execution "
+                    "has been removed from Soma. The record remains readable."
+                )
+                contained = self.store.mark_recovery_pending(
+                    run_id,
+                    reason,
+                    expected_statuses=(status,),
+                    expected_state_version=state_version,
+                    expected_lease_token=lease_token,
+                    expected_lease_generation=lease_generation,
+                    expected_heartbeat_at=observed_heartbeat,
+                )
+                if contained is not None:
+                    self._append_recovery_event(run, level="warning", message=reason)
+                return
             if launcher_running:
                 self._append_recovery_event(
                     run,
@@ -1016,79 +1033,6 @@ class JobManager:
                 level="warning",
                 message="Conservative recovery state retained pending operator action",
             )
-
-    def start_plan(
-        self,
-        repo_name: str,
-        task: str,
-        constraints: str = "",
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict:
-        if not self.config.codex.enabled:
-            return PolicyDecision(
-                accepted=False,
-                tier=0,
-                risk_level="low",
-                requires_human=False,
-                reason="Codex execution is disabled by configuration",
-                estimated_duration_minutes=0,
-                recommended_check_after_minutes=0,
-            ).to_start_response(status="refused")
-        resolve_repo(self.config, repo_name)
-        decision = decide_plan_task(task, constraints)
-        if not decision.accepted:
-            return decision.to_start_response(status="refused")
-        input_data = {"repo_name": repo_name, "task": task, "constraints": constraints}
-        return self._create_and_launch(
-            "codex_plan_task",
-            repo_name,
-            input_data,
-            decision,
-            reserved_run_id=reserved_run_id,
-        )
-
-    def start_implementation(
-        self,
-        repo_name: str,
-        approved_plan: str,
-        allowed_files: list[str],
-        tests: list[str],
-        *,
-        reserved_run_id: str | None = None,
-    ) -> dict:
-        if not self.config.codex.enabled:
-            return PolicyDecision(
-                accepted=False,
-                tier=0,
-                risk_level="low",
-                requires_human=False,
-                reason="Codex execution is disabled by configuration",
-                estimated_duration_minutes=0,
-                recommended_check_after_minutes=0,
-            ).to_start_response(status="refused")
-        repo_root = resolve_repo(self.config, repo_name)
-        validate_repo_relative_paths(repo_root, allowed_files)
-        for test in tests:
-            reject_destructive_command(test)
-        decision = decide_implementation_task(approved_plan, allowed_files, tests)
-        if not decision.accepted:
-            return decision.to_start_response(status="refused")
-        requirement_manifest = derive_requirement_manifest(approved_plan)
-        input_data = {
-            "repo_name": repo_name,
-            "approved_plan": approved_plan,
-            "allowed_files": allowed_files,
-            "tests": tests,
-            "requirement_manifest": requirement_manifest,
-        }
-        return self._create_and_launch(
-            "codex_implement_task",
-            repo_name,
-            input_data,
-            decision,
-            reserved_run_id=reserved_run_id,
-        )
 
     def start_executable_profile(
         self,
@@ -2089,6 +2033,12 @@ class JobManager:
         *,
         reserved_run_id: str | None = None,
     ) -> dict:
+        if tool in LEGACY_READ_ONLY_TOOLS:
+            raise ValueError(
+                f"Run tool '{tool}' is a legacy read-only type: Soma no "
+                "longer executes Codex and cannot create new instances. "
+                "Generate an external-coder handoff instead."
+            )
         requested_repo_name = repo_name
         input_data = dict(input_data)
         if not repo_name.startswith(("ssh:", "cloudflare:")):

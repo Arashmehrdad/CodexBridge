@@ -215,12 +215,11 @@ ssh:
           writes_remote: true
           watchdog_eligible: false
 runs_dir: "runs"
-codex:
-  executable: "codex"
-  model: ""
-  windows_sandbox: ""
-  sandbox_private_desktop: null
-  default_timeout_seconds: 1800
+# Provider-neutral external-coder handoffs (manual use only; Soma never
+# launches a coding agent).
+external_coder:
+  external_coder_handoff_enabled: true
+  external_coder_require_policy_approval: true
 gemini:
   enabled: false
 # Shared multi-session Hermes service (H2). Disabled by default; when enabled,

@@ -48,41 +48,24 @@ from .gateway_models import (
     validate_reviewed_ssh_script_request,
     validate_root_ssh_shell_request,
 )
-from .managed_artifacts import (
-    apply_managed_artifact_cleanup,
-    cleanup_new_managed_artifacts,
-    snapshot_managed_artifacts,
-)
+from .managed_artifacts import apply_managed_artifact_cleanup
 from .operation_locks import OperationLockStore
 from .parallel_groups import (
     ParallelGroupStore,
     refill_powershell_groups,
     repository_lock_required_for_run,
 )
-from .policy import decide_implementation_task, decide_plan_task
 from .process_control import (
     process_group_popen_kwargs,
     process_identity,
     terminate_process_tree,
 )
-from .prompts import build_implementation_prompt, build_plan_prompt
 from .run_store import TERMINAL_STATUSES, RunStore
 from .transfer_manifests import build_upload_transfer_manifest
 from .run_publication import publish_run_result
 from .run_guards import (
-    allowed_write_directories,
-    assess_implementation_output_against,
-    assess_plan_output,
-    changed_workspace_paths,
     classify_git_attribution,
-    out_of_scope_workspace_changes,
     snapshot_workspace,
-)
-from .runner import (
-    CodexRunner,
-    _codex_child_env,
-    _safe_command_args,
-    open_codex_prompt_stream,
 )
 from .repo_wiki import mark_repo_wiki_stale
 from .repo_reader import analyze_text_file
@@ -769,23 +752,6 @@ class JobWorker:
                     else "completed"
                 )
             )
-            if (
-                self.run["tool"] == "codex_implement_task"
-                and status in {"completed", "partial"}
-                and result.get("changed_files")
-            ):
-                try:
-                    result["wiki_freshness"] = mark_repo_wiki_stale(
-                        resolve_repo(self.config, self.run["repo_name"]),
-                        self.run["repo_name"],
-                        reason="codex_implement_task",
-                    )
-                except Exception as exc:
-                    result["wiki_freshness"] = {
-                        "ok": False,
-                        "stale": None,
-                        "error": str(exc),
-                    }
             ended_at = result["ended_at"]
             current = self.store.get_run(self.run_id)
             if status in TERMINAL_STATUSES:
@@ -1256,314 +1222,7 @@ class JobWorker:
                 started_at, repo_name, input_data
             )
 
-        if tool == "codex_plan_task":
-            decision = decide_plan_task(
-                input_data["task"], input_data.get("constraints")
-            )
-            if not decision.accepted:
-                raise ValueError(decision.reason)
-            prompt = build_plan_prompt(
-                repo_name, input_data["task"], input_data.get("constraints", "")
-            )
-            sandbox = "read-only"
-            tests: list[str] = []
-            allowed_files: list[str] = []
-        elif tool == "codex_implement_task":
-            allowed_files = list(input_data.get("allowed_files") or [])
-            tests = list(input_data.get("tests") or [])
-            requirement_manifest = list(input_data.get("requirement_manifest") or [])
-            validate_repo_relative_paths(repo_root, allowed_files)
-            for test in tests:
-                reject_destructive_command(test)
-            decision = decide_implementation_task(
-                input_data["approved_plan"], allowed_files, tests
-            )
-            if not decision.accepted:
-                raise ValueError(decision.reason)
-            prompt = build_implementation_prompt(
-                repo_name,
-                input_data["approved_plan"],
-                allowed_files,
-                tests,
-                requirement_manifest=requirement_manifest,
-            )
-            sandbox = "workspace-write"
-        else:
-            raise ValueError(f"Unsupported async tool: {tool}")
-
-        writable_dirs = (
-            allowed_write_directories(repo_root, allowed_files)
-            if tool == "codex_implement_task"
-            else []
-        )
-        run_dir = Path(self.run["run_dir"])
-        ignored_run_roots = [self.config.resolve_runs_dir()]
-        managed_artifacts_before = snapshot_managed_artifacts(repo_root)
-        workspace_before = snapshot_workspace(repo_root, ignored_run_roots)
-        dirty_before = git_tools.changed_files(repo_root)
-        git_before = git_tools.git_status(repo_root)
-        self.artifacts.write_text("git_before.txt", git_before)
-        self.artifacts.write_text("prompt.txt", prompt)
-        self.event("info", "codex", "Starting Codex process", {"sandbox": sandbox})
-
-        runner = CodexRunner(self.config)
-        executable = runner._resolve_codex_executable()
-        help_text = runner._codex_exec_help(executable)
-        args = runner._codex_exec_args(
-            executable, sandbox, help_text, prompt, writable_dirs=writable_dirs
-        )
-        temp_root = run_dir / "tmp"
-        temp_root.mkdir(parents=True, exist_ok=True)
-        process_env = _codex_child_env()
-        process_env.update(
-            {"TMP": str(temp_root), "TEMP": str(temp_root), "TMPDIR": str(temp_root)}
-        )
-        prompt_stream = open_codex_prompt_stream(prompt)
-        try:
-            process = subprocess.Popen(
-                args,
-                cwd=repo_root,
-                env=process_env,
-                stdin=prompt_stream,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                **process_group_popen_kwargs(),
-            )
-        finally:
-            prompt_stream.close()
-        if not self.store.attach_child_pid(
-            self.run_id,
-            child_pid=process.pid,
-            lease_token=self.worker_lease_token,
-            lease_generation=self.worker_lease_generation,
-        ):
-            terminate_process_tree(process.pid)
-            raise RuntimeError("Worker lease was lost before child process attachment")
-        self.event(
-            "info",
-            "codex",
-            "Codex process spawned",
-            {"pid": process.pid, "command": _safe_command_args(args)},
-        )
-
-        stdout_parts: list[str] = []
-        stderr_parts: list[str] = []
-        stdout_thread = threading.Thread(
-            target=_stream_pipe,
-            args=(
-                process.stdout,
-                run_dir / "stdout.txt",
-                stdout_parts,
-                40000,
-                self._note_output,
-            ),
-        )
-        stderr_thread = threading.Thread(
-            target=_stream_pipe,
-            args=(
-                process.stderr,
-                run_dir / "stderr.txt",
-                stderr_parts,
-                40000,
-                self._note_output,
-            ),
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-        termination: dict = {"terminated": False}
-        try:
-            exit_code = process.wait(timeout=self.config.codex.default_timeout_seconds)
-        except subprocess.TimeoutExpired:
-            termination = terminate_process_tree(process.pid)
-            exit_code = 124
-            self.event(
-                "error",
-                "codex",
-                "Codex process timed out; process-tree termination requested",
-                {"pid": process.pid, "termination": termination},
-            )
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-
-        stdout = "".join(stdout_parts)
-        stderr = "".join(stderr_parts)
-        summary = (stdout or "").strip() or (stderr or "").strip()
-        outcome = (
-            assess_implementation_output_against(
-                summary,
-                [
-                    str(item.get("requirement_id", ""))
-                    for item in (input_data.get("requirement_manifest") or [])
-                    if isinstance(item, dict)
-                ],
-            )
-            if tool == "codex_implement_task"
-            else assess_plan_output(summary)
-        )
-        managed_artifacts_cleaned = cleanup_new_managed_artifacts(
-            repo_root, managed_artifacts_before
-        )
-        workspace_after = snapshot_workspace(repo_root, ignored_run_roots)
-        workspace_changes = changed_workspace_paths(workspace_before, workspace_after)
-        workspace_violations = (
-            out_of_scope_workspace_changes(
-                workspace_before, workspace_after, allowed_files
-            )
-            if tool == "codex_implement_task"
-            else []
-        )
-        git_after = git_tools.git_status(repo_root)
-        diff_stat = git_tools.diff_stat(repo_root)
-        changed_after = git_tools.changed_files(repo_root)
-        introduced_changes, preserved_preexisting_changes = classify_git_attribution(
-            changed_after, workspace_before, workspace_after, dirty_before
-        )
-        self.artifacts.write_text("git_after.txt", git_after)
-        self.artifacts.write_text("diff_stat.txt", diff_stat)
-
-        risks: list[str] = []
-        safety_failure = False
-        if tool == "codex_plan_task":
-            risks.extend(outcome.blockers)
-            if git_before != git_after:
-                safety_failure = True
-                risks.append("Plan mode changed git status")
-        if tool == "codex_implement_task":
-            assert outcome is not None
-            risks.extend(outcome.blockers)
-            violations = sorted(
-                {path for path in introduced_changes if path not in set(allowed_files)}
-                | set(workspace_violations)
-            )
-            if violations:
-                safety_failure = True
-                risks.append(f"Changed files outside allowed_files: {violations}")
-        if exit_code != 0:
-            risks.append("Codex exited nonzero")
-        combined_output = f"{stdout}\n{stderr}"
-        if "windows sandbox: spawn setup refresh" in combined_output:
-            risks.append("Codex shell spawn failed during Windows sandbox setup")
-
-        blocked = bool(outcome and outcome.blocked)
-        blockers = outcome.blockers if outcome else []
-        plan_conformance = outcome.plan_conformance if outcome else None
-        completed_requirements = outcome.completed_requirements if outcome else []
-        skipped_requirements = outcome.skipped_requirements if outcome else []
-        failed_requirements = outcome.failed_requirements if outcome else []
-        missing_requirements = outcome.missing_requirements if outcome else []
-        mandatory_incomplete = outcome.mandatory_incomplete if outcome else []
-        validation_status = outcome.validation_status if outcome else None
-        validation_confirmed = not tests or validation_status in {
-            "passed",
-            "not_required",
-        }
-        implementation_complete = bool(
-            tool != "codex_implement_task"
-            or (
-                plan_conformance is True
-                and not mandatory_incomplete
-                and validation_confirmed
-            )
-        )
-        if exit_code == 124 and termination.get("terminated"):
-            terminal_status = "timed_out"
-        elif exit_code == 124:
-            terminal_status = "cancellation_pending"
-            safety_failure = True
-            risks.append("Process-tree termination could not be confirmed")
-        elif safety_failure or blocked or exit_code != 0:
-            terminal_status = "failed"
-        elif not implementation_complete:
-            terminal_status = "partial"
-        else:
-            terminal_status = "completed"
-
-        commit_data = {
-            "commit_required": False,
-            "commit_attempted": False,
-            "commit_hash": "",
-            "commit_error": "",
-            "commit_result": {
-                "ok": True,
-                "reason": "not_applicable",
-            },
-        }
-        if terminal_status == "completed" and tool == "codex_implement_task":
-            commit_data = self._finalize_commit(
-                repo_root,
-                introduced_changes,
-                tool_name=tool,
-            )
-            git_after = git_tools.git_status(repo_root)
-            diff_stat = git_tools.diff_stat(repo_root)
-            changed_after = git_tools.changed_files(repo_root)
-            if commit_data["commit_attempted"] and commit_data["commit_error"]:
-                terminal_status = "failed"
-                risks.append(
-                    f"Automatic commit finalization failed: {commit_data['commit_error']}"
-                )
-
-        ended_at = _utc_now()
-        return {
-            "run_id": self.run_id,
-            "repo_name": repo_name,
-            "tool": tool,
-            "status": terminal_status,
-            "exit_code": exit_code,
-            "stdout": stdout,
-            "stderr": stderr,
-            "process_success": exit_code == 0,
-            "classification": (
-                "process_failure"
-                if exit_code != 0
-                else (
-                    "semantic_failure"
-                    if terminal_status in {"failed", "partial"}
-                    else "success"
-                )
-            ),
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_seconds": _duration(started_at, ended_at),
-            "changed_files": introduced_changes,
-            "introduced_changes": introduced_changes,
-            "preserved_preexisting_changes": preserved_preexisting_changes,
-            "workspace_changes": workspace_changes,
-            "out_of_scope_workspace_changes": workspace_violations,
-            "writable_directories": [str(path) for path in writable_dirs],
-            "git_status": git_after,
-            "diff_stat": diff_stat,
-            "tests_run": tests,
-            "test_results": "",
-            "summary": summary,
-            "remaining_risks": risks,
-            "blocked": blocked,
-            "blockers": blockers,
-            "plan_conformance": plan_conformance,
-            "requested_files": allowed_files,
-            "completed_requirements": completed_requirements,
-            "skipped_requirements": skipped_requirements,
-            "failed_requirements": failed_requirements,
-            "missing_requirements": missing_requirements,
-            "mandatory_incomplete": mandatory_incomplete,
-            "validation_status": validation_status,
-            "managed_artifacts_cleaned": managed_artifacts_cleaned,
-            "temporary_directory": str(temp_root),
-            "error": "; ".join(blockers)
-            or commit_data["commit_error"]
-            or (
-                "Approved plan was only partially verified"
-                if terminal_status == "partial"
-                else ""
-            ),
-            "safety_failure": safety_failure,
-            "codex_exit_code": exit_code,
-            "codex_command_args": _safe_command_args(args),
-            **commit_data,
-        }
+        raise ValueError(f"Unsupported async tool: {tool}")
 
     def _execute_ssh_reviewed_script(
         self,
