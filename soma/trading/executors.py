@@ -108,6 +108,20 @@ class PaperExecutor:
     def daily_loss_usd(self) -> float:
         return max(0.0, -self.realized_today_usd)
 
+    def position_snapshot(self, ticket: int) -> dict[str, Any] | None:
+        position = self.positions.get(int(ticket))
+        if position is None:
+            return None
+        return {
+            "ticket": position.ticket,
+            "symbol": position.symbol,
+            "direction": position.direction,
+            "volume_lots": position.volume_lots,
+            "entry_price": position.entry_price,
+            "stop_loss": position.stop_loss,
+            "take_profit": position.take_profit,
+        }
+
     def order_check(self, normalized: NormalizedAction) -> CheckResult:
         request = normalized.request
         margin: float | None = None
@@ -490,6 +504,26 @@ class DemoExecutor:
         deals = _rows(self._mt5.history_deals_get(midnight, now))
         total = sum(float(_field(row, "profit", 0.0) or 0.0) for row in deals)
         return max(0.0, -total)
+
+    def position_snapshot(self, ticket: int) -> dict[str, Any] | None:
+        self._require_demo()
+        rows = _rows(self._mt5.positions_get(ticket=int(ticket)))
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "ticket": int(_field(row, "ticket", 0)),
+            "symbol": str(_field(row, "symbol", "")),
+            "direction": (
+                "LONG"
+                if int(_field(row, "type", 0)) == self._mt5.ORDER_TYPE_BUY
+                else "SHORT"
+            ),
+            "volume_lots": float(_field(row, "volume", 0.0)),
+            "entry_price": float(_field(row, "price_open", 0.0)),
+            "stop_loss": float(_field(row, "sl", 0.0) or 0.0) or None,
+            "take_profit": float(_field(row, "tp", 0.0) or 0.0) or None,
+        }
 
     # -- request building ---------------------------------------------------
 
