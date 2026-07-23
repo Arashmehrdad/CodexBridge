@@ -678,17 +678,10 @@ def test_search_repo_text_no_absolute_path_in_hits(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_repo_files_does_not_call_codex_runner(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """list_repo_files must never instantiate or call CodexRunner."""
-    import soma.runner as runner_mod
-
-    def _fail(*args, **kwargs):
-        raise AssertionError("CodexRunner must not be called from repo_reader")
-
-    monkeypatch.setattr(runner_mod.CodexRunner, "plan_task", _fail)
-    monkeypatch.setattr(runner_mod.CodexRunner, "implement_task", _fail)
+def test_list_repo_files_cannot_call_codex_runner(tmp_path: Path) -> None:
+    """The Codex runner module no longer exists at all; reads still work."""
+    with pytest.raises(ModuleNotFoundError):
+        __import__("soma.runner")
 
     repo = make_repo(tmp_path)
     write(repo / "hello.txt")
