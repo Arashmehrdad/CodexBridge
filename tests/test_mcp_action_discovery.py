@@ -1405,7 +1405,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
 
 def test_repo_apply_previewed_change_schema_is_opaque() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    schema = actions["repo_apply"]["inputSchema"]["properties"]["request"]
+    schema = actions["repo_apply"]["inputSchema"]
     previewed = next(item for item in schema["oneOf"] if item["properties"]["operation"].get("const") == "previewed_change")
     assert set(previewed["properties"]) == {"operation", "repo_name", "patch_id"}
     assert set(previewed.get("required", [])) == {"operation", "repo_name", "patch_id"}
@@ -1670,7 +1670,7 @@ def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
 
 def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    schema = actions["run_start"]["inputSchema"]["properties"]["request"]
+    schema = actions["run_start"]["inputSchema"]
     variants = {item["properties"]["operation"]["const"] for item in schema["oneOf"]}
     assert variants == {
         "pytest_path",
@@ -1697,12 +1697,12 @@ def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> Non
 def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
-    run_schema = actions["run_start"]["inputSchema"]["properties"]["request"]
+    run_schema = actions["run_start"]["inputSchema"]
     variants = {item["properties"]["operation"]["const"]: item for item in run_schema["oneOf"]}
     assert set(variants["pytest_path"]["properties"]) == {"operation", "repo_name", "path"}
     assert set(variants["git_readonly"]["properties"]) == {"operation", "repo_name", "git_operation"}
 
-    repo_query_schema = actions["repo_query"]["inputSchema"]["properties"]["request"]
+    repo_query_schema = actions["repo_query"]["inputSchema"]
     commit_range_schema = next(
         item for item in repo_query_schema["oneOf"]
         if item["properties"]["operation"].get("const") == "commit_range"
@@ -1726,7 +1726,7 @@ def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
 
 def test_cloudflare_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    query = actions["cloudflare_query"]["inputSchema"]["properties"]["request"]
+    query = actions["cloudflare_query"]["inputSchema"]
     variants = {item["properties"]["operation"]["const"]: item for item in query["oneOf"]}
     assert set(variants["capabilities"]["properties"]) == {
         "operation", "repo_name", "view", "response_budget_bytes"
@@ -1735,7 +1735,7 @@ def test_cloudflare_tool_input_schemas_are_exact() -> None:
         "operation", "repo_name", "profile_id", "view", "response_budget_bytes"
     }
     assert "inspection" in variants["inspect"]["properties"]
-    action = actions["cloudflare_action"]["inputSchema"]["properties"]["request"]
+    action = actions["cloudflare_action"]["inputSchema"]
     assert len(action["oneOf"]) == 5
     assert actions["cloudflare_action"]["annotations"]["readOnlyHint"] is False
 
@@ -1853,12 +1853,13 @@ def test_remote_ssh_action_gateway_propagates_policy(monkeypatch) -> None:
 
 def test_remote_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    ssh_query = actions["ssh_query"]["inputSchema"]["properties"]["request"]
-    ssh_action = actions["ssh_action"]["inputSchema"]["properties"]["request"]
+    ssh_query = actions["ssh_query"]["inputSchema"]
+    ssh_action = actions["ssh_action"]["inputSchema"]
     assert len(ssh_query["oneOf"]) == 3
     assert len(ssh_action["oneOf"]) == 7
     ssh_schema = actions["ssh_inspect"]["inputSchema"]
-    assert "request" in ssh_schema["properties"]
+    assert "request" not in ssh_schema["properties"]
+    assert "operation" in ssh_schema["properties"]
 
 
 def test_list_runs_output_matches_schema(monkeypatch) -> None:

@@ -38,10 +38,10 @@ def _resolve_schema(value: dict[str, Any], root: dict[str, Any]) -> dict[str, An
 
 def _schema_operation_names(action: dict[str, Any]) -> frozenset[str]:
     root = action["inputSchema"]
+    # Public gateways advertise the discriminated union at the argument root;
+    # a legacy ``request`` envelope is still resolved if one ever reappears.
     request = root.get("properties", {}).get("request")
-    if not isinstance(request, dict):
-        return frozenset({"invoke"})
-    request = _resolve_schema(request, root)
+    request = _resolve_schema(request, root) if isinstance(request, dict) else root
     variants = request.get("oneOf")
     if not isinstance(variants, list):
         variants = [request]

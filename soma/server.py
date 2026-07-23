@@ -24,6 +24,7 @@ from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
+from .mcp_flat_input import FlatGatewayTool, flatten_request_input_schema
 from .public_projection_contract import (
     NON_AUTHORITATIVE_NOTICE,
     PUBLIC_PROJECTION_SCHEMA_VERSION,
@@ -238,9 +239,33 @@ def _mcp_transport_result(result: Any) -> Any:
     )
 
 
-def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
-    register = _original_mcp_tool(*tool_args, **tool_kwargs)
+def _register_public_tool(function, tool_args: tuple, tool_kwargs: dict) -> None:
+    """Register one public tool, flattening a ``request`` envelope if present.
 
+    FastMCP derives ``inputSchema`` from the function signature, so every
+    gateway declared as ``tool(request: Union)`` advertised a mandatory outer
+    ``request`` object. Registering a :class:`FlatGatewayTool` and replacing its
+    advertised schema hoists the discriminated union to the argument root while
+    the wrapped signature — and therefore FastMCP's own argument validation
+    against the operation models — stays exactly as it was.
+
+    Tools that are already flat (``cancel_run``) yield no flattened schema and
+    fall back to unmodified FastMCP registration.
+    """
+    flat_tool = None
+    if not tool_args:
+        candidate = FlatGatewayTool.from_function(function, **tool_kwargs)
+        flat_schema = flatten_request_input_schema(candidate.parameters)
+        if flat_schema is not None:
+            candidate.parameters = flat_schema
+            flat_tool = candidate
+    if flat_tool is None:
+        _original_mcp_tool(*tool_args, **tool_kwargs)(function)
+        return
+    mcp.add_tool(flat_tool)
+
+
+def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
     def decorate(function):
         if inspect.iscoroutinefunction(function):
 
@@ -256,7 +281,7 @@ def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
                     await direct_async_wrapped(*args, **kwargs)
                 )
 
-            register(mcp_async_wrapped)
+            _register_public_tool(mcp_async_wrapped, tool_args, tool_kwargs)
             return direct_async_wrapped
 
         @wraps(function)
@@ -267,7 +292,7 @@ def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
         def mcp_sync_wrapped(*args, **kwargs):
             return _mcp_transport_result(direct_sync_wrapped(*args, **kwargs))
 
-        register(mcp_sync_wrapped)
+        _register_public_tool(mcp_sync_wrapped, tool_args, tool_kwargs)
         return direct_sync_wrapped
 
     return decorate
@@ -1217,13 +1242,21 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
             root = action.get("inputSchema")
             if not tool_name or not isinstance(root, dict):
                 continue
-            request_schema = (root.get("properties") or {}).get("request")
-            if not isinstance(request_schema, dict):
-                _record(tool_name, "invoke", root)
-                continue
-            variants = request_schema.get("oneOf")
+            # Public gateways now advertise the discriminated union at the
+            # argument root; the legacy ``request`` envelope is still resolved
+            # so a non-flattened tool keeps its per-operation identities.
+            variants = root.get("oneOf")
             if not isinstance(variants, list):
-                variants = [request_schema]
+                request_schema = (root.get("properties") or {}).get("request")
+                if isinstance(request_schema, dict):
+                    variants = request_schema.get("oneOf")
+                    if not isinstance(variants, list):
+                        variants = [request_schema]
+                elif isinstance(root.get("properties"), dict):
+                    variants = [root]
+                else:
+                    _record(tool_name, "invoke", root)
+                    continue
             for variant in variants:
                 current = variant
                 seen: set[str] = set()
