@@ -273,8 +273,16 @@ class SignalJournalV2:
         except ValueError as exc:
             raise self._record_rejection(key, submission, str(exc)) from exc
 
+        # The content hash covers the caller's intent plus packet-derived
+        # market facts. Wall-clock submission fields are excluded so an
+        # identical replay of the same submission stays idempotent.
+        hashed_payload = {
+            key: value
+            for key, value in record_payload.items()
+            if key not in ("submitted_at_utc", "packet_age_seconds")
+        }
         content_hash = sha256(
-            canonical_signal_v2_bytes(record_payload)
+            canonical_signal_v2_bytes(hashed_payload)
         ).hexdigest()
         signal_id = (
             "sig2_"

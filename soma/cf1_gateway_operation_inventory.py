@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v6"
+    "cf1.3.gateway-operations.v7"
 )
 
 
@@ -820,33 +820,86 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("open_virtual_positions",),
+        ("open_virtual_positions", "portfolio_status", "threshold_report"),
         "soma.server:trading_query",
-        "bounded open virtual position list",
-        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        default_response_bytes=12 * 1024,
-        maximum_response_bytes=12 * 1024,
-        notes="Journal-backed read of open Trading Lab virtual positions; no provider connection is made and compact responses honour the UTF-8 byte budget.",
+        "static deprecation notice",
+        json_decode_cost=JsonDecodeCost.NONE,
+        notes=(
+            "Removed runtime virtual-portfolio reads: threshold and occupancy"
+            " analysis moved to deterministic offline replay; the response is"
+            " a fixed deprecation object pointing at replay_report,"
+            " calibration_report, outcome_list, and action_list."
+        ),
     ),
     _entry(
         "trading_query",
-        ("portfolio_status",),
+        ("market_packet_get", "outcome_get", "action_get", "runtime_status"),
         "soma.server:trading_query",
-        "bounded threshold portfolio reconstruction",
+        "bounded durable trading record",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Portfolio balances are reconstructed deterministically from the append-only journals; no provider connection is made.",
+        notes=(
+            "Journal-backed single-record reads over the immutable packet,"
+            " outcome, action, and runtime state stores; no provider"
+            " connection is made and view=full preserves complete evidence"
+            " including the stored packet payload."
+        ),
     ),
     _entry(
         "trading_query",
-        ("threshold_report",),
+        (
+            "market_packet_list",
+            "outcome_list",
+            "rejection_list",
+            "action_list",
+            "reconciliation_report",
+            "demo_performance",
+        ),
         "soma.server:trading_query",
-        "bounded deterministic threshold evaluation report",
+        "bounded paginated durable trading list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=100,
+        maximum_item_limit=500,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Offset-paginated reads over the complete durable journals with"
+            " explicit totals instead of silent truncation; demo performance"
+            " and reconciliation views redact credentials and expose broker"
+            " reconciliation evidence."
+        ),
+    ),
+    _entry(
+        "trading_query",
+        ("data_quality",),
+        "soma.server:trading_query",
+        "bounded tick retention quality report",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="The TL6 report reproduces exactly from the append-only journals with a canonical content hash; period filters support fresh-sample evaluation and view=full preserves the complete report.",
+        notes=(
+            "Retained-tick coverage for an explicit window: tick count,"
+            " deterministic range hash, and detected gaps against the"
+            " configured gap threshold."
+        ),
+    ),
+    _entry(
+        "trading_query",
+        ("calibration_report", "replay_report"),
+        "soma.server:trading_query",
+        "deterministic offline analysis report",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The two Trading Lab reports: confidence calibration and"
+            " threshold/occupancy replay, both deterministic over the"
+            " immutable journals with canonical content hashes, explicit"
+            " experiment selection, and resolution-basis period semantics;"
+            " view=full preserves the complete report."
+        ),
     ),
     _entry(
         "trading_signal_submit",
@@ -857,7 +910,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Compact submission results bound narrative fields and response bytes while preserving idempotent journal behavior; view=full remains explicit complete record access.",
+        notes="Packet-bound v2 submission: market facts derive from the referenced stored packet, rejections persist as durable records, and view=full remains explicit complete record access.",
     ),
     _entry(
         "trading_signal_get",
@@ -877,10 +930,10 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=100,
-        maximum_item_limit=1_000,
+        maximum_item_limit=500,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="The list remains item limited and immutable; compact responses use a serialized UTF-8 budget with truncation metadata, while view=full preserves complete selected records.",
+        notes="Offset pagination with explicit totals over the complete journal replaces silent truncation; compact responses use a serialized UTF-8 budget with truncation metadata, while view=full preserves complete selected records.",
     ),
     _entry(
         "trading_signal_cancel_before_entry",
@@ -892,6 +945,47 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes="Compact cancellation results bound narrative fields and response bytes; view=full remains explicit complete record access.",
+    ),
+    _entry(
+        "trading_action_submit",
+        ("invoke",),
+        "soma.server:trading_action_submit",
+        "bounded durable action record",
+        request_echo=RequestEchoBehavior.FULL_AUTHORITATIVE_ROW,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "One guarded model trading action through the full pipeline"
+            " (schema, mode policy, strategy policy, fresh price,"
+            " normalization, risk, margin, order_check, idempotent"
+            " submission, durable REQUESTED..RECONCILED persistence, broker"
+            " reconciliation); demo-only and raw order_send is unreachable."
+        ),
+    ),
+    _entry(
+        "trading_runtime_control",
+        (
+            "start",
+            "stop",
+            "status",
+            "kill_switch_on",
+            "kill_switch_off",
+            "supervise_now",
+            "analyze_now",
+        ),
+        "soma.server:trading_runtime_control",
+        "bounded runtime state or pass report",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Durable runtime start/stop/status, the global kill switch, and"
+            " manual supervision/analysis passes; supervision keeps running"
+            " for existing positions when analysis fails and stop/kill"
+            " actions require an explicit reason."
+        ),
     ),
     _entry(
         "repo_query",

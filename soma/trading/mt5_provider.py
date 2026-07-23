@@ -186,6 +186,11 @@ class MT5Provider:
     def utc_offset_seconds(self) -> int:
         return self._offset
 
+    @property
+    def binding(self) -> Any:
+        """The underlying MT5 binding, for gateway-owned executors only."""
+        return self._mt5
+
     def set_utc_offset(self, offset_seconds: int) -> None:
         """Apply a detected broker UTC offset to future normalization.
 

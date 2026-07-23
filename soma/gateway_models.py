@@ -294,80 +294,218 @@ class TradingHistoricalTicksQuery(GatewayModel):
         return self
 
 
-class TradingOpenPositionsQuery(GatewayModel):
-    operation: Literal["open_virtual_positions"]
+class TradingDeprecatedPortfolioQuery(GatewayModel):
+    """Removed runtime virtual-portfolio reads kept only for an explicit
+    deprecation response pointing at the offline replay reports."""
+
+    operation: Literal[
+        "open_virtual_positions", "portfolio_status", "threshold_report"
+    ]
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
-class TradingPortfolioStatusQuery(GatewayModel):
-    operation: Literal["portfolio_status"]
+def _validate_period(model: Any) -> Any:
+    for name in ("period_start_utc", "period_end_utc"):
+        value = getattr(model, name, None)
+        if value is not None and value.tzinfo is None:
+            raise ValueError(f"Trading report {name} must be timezone-aware")
+    start = getattr(model, "period_start_utc", None)
+    end = getattr(model, "period_end_utc", None)
+    if start is not None and end is not None and end <= start:
+        raise ValueError(
+            "Trading report period_end_utc must be after period_start_utc"
+        )
+    return model
+
+
+class TradingPacketGetQuery(GatewayModel):
+    operation: Literal["market_packet_get"]
+    packet_id: str = Field(min_length=1, max_length=64)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
-class TradingThresholdReportQuery(GatewayModel):
-    operation: Literal["threshold_report"]
-    period_start_utc: datetime | None = None
-    period_end_utc: datetime | None = None
+class TradingPacketListQuery(GatewayModel):
+    operation: Literal["market_packet_list"]
+    limit: int = Field(default=50, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingOutcomeGetQuery(GatewayModel):
+    operation: Literal["outcome_get"]
+    signal_id: str = Field(min_length=1, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingOutcomeListQuery(GatewayModel):
+    operation: Literal["outcome_list"]
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    status: (
+        Literal[
+            "RESOLVED_TP",
+            "RESOLVED_SL",
+            "UNRESOLVED_DATA_GAP",
+            "AMBIGUOUS_WITHOUT_TICKS",
+        ]
+        | None
+    ) = None
+    experiment_id: str | None = Field(default=None, min_length=1, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingRejectionListQuery(GatewayModel):
+    operation: Literal["rejection_list"]
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingDataQualityQuery(GatewayModel):
+    operation: Literal["data_quality"]
+    start_utc: datetime
+    end_utc: datetime
+    max_gap_seconds: float = Field(default=300.0, gt=0, le=86_400)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
     @model_validator(mode="after")
-    def validate_period(self) -> "TradingThresholdReportQuery":
-        for name, value in (
-            ("period_start_utc", self.period_start_utc),
-            ("period_end_utc", self.period_end_utc),
-        ):
-            if value is not None and value.tzinfo is None:
-                raise ValueError(f"Trading report {name} must be timezone-aware")
-        if (
-            self.period_start_utc is not None
-            and self.period_end_utc is not None
-            and self.period_end_utc <= self.period_start_utc
-        ):
-            raise ValueError("Trading report period_end_utc must be after period_start_utc")
+    def validate_range(self) -> "TradingDataQualityQuery":
+        if self.start_utc.tzinfo is None or self.end_utc.tzinfo is None:
+            raise ValueError("Trading data-quality timestamps must be timezone-aware")
+        if self.end_utc <= self.start_utc:
+            raise ValueError("Trading data-quality end_utc must be after start_utc")
         return self
+
+
+class TradingCalibrationReportQuery(GatewayModel):
+    operation: Literal["calibration_report"]
+    experiment_id: str | None = Field(default=None, min_length=1, max_length=64)
+    period_start_utc: datetime | None = None
+    period_end_utc: datetime | None = None
+    period_basis: Literal["entry", "resolution"] = "resolution"
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "TradingCalibrationReportQuery":
+        return _validate_period(self)
+
+
+class TradingReplayReportQuery(GatewayModel):
+    operation: Literal["replay_report"]
+    experiment_id: str | None = Field(default=None, min_length=1, max_length=64)
+    threshold_start: int = Field(default=50, ge=50, le=99)
+    threshold_end: int = Field(default=99, ge=50, le=99)
+    minimum_sample: int = Field(default=30, ge=1, le=10_000)
+    allow_stacking: bool = False
+    fixed_notional_usd: float = Field(default=1.0, gt=0, le=1_000_000)
+    per_trade_cost_usd: float = Field(default=0.0, ge=0, le=1_000)
+    initial_equity_usd: float = Field(default=1_000.0, gt=0, le=100_000_000)
+    period_start_utc: datetime | None = None
+    period_end_utc: datetime | None = None
+    period_basis: Literal["entry", "resolution"] = "resolution"
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_report(self) -> "TradingReplayReportQuery":
+        if self.threshold_end < self.threshold_start:
+            raise ValueError("threshold_end must be at least threshold_start")
+        return _validate_period(self)
+
+
+class TradingActionGetQuery(GatewayModel):
+    operation: Literal["action_get"]
+    action_id: str = Field(min_length=1, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingActionListQuery(GatewayModel):
+    operation: Literal["action_list"]
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    state: (
+        Literal[
+            "REQUESTED",
+            "VALIDATED",
+            "REJECTED",
+            "SUBMITTING",
+            "SUBMITTED",
+            "BROKER_CONFIRMED",
+            "FAILED",
+            "RECONCILED",
+        ]
+        | None
+    ) = None
+    symbol: str | None = Field(default=None, min_length=1, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingRuntimeStatusQuery(GatewayModel):
+    operation: Literal["runtime_status"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingDemoPerformanceQuery(GatewayModel):
+    operation: Literal["demo_performance"]
+    limit: int = Field(default=50, ge=1, le=500)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingReconciliationQuery(GatewayModel):
+    operation: Literal["reconciliation_report"]
+    limit: int = Field(default=50, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 TradingQueryRequest = Annotated[
     TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
     | TradingTickQuery | TradingH4Query | TradingHistoricalTicksQuery
-    | TradingOpenPositionsQuery | TradingPortfolioStatusQuery
-    | TradingThresholdReportQuery,
+    | TradingDeprecatedPortfolioQuery | TradingPacketGetQuery
+    | TradingPacketListQuery | TradingOutcomeGetQuery
+    | TradingOutcomeListQuery | TradingRejectionListQuery
+    | TradingDataQualityQuery | TradingCalibrationReportQuery
+    | TradingReplayReportQuery | TradingActionGetQuery
+    | TradingActionListQuery | TradingRuntimeStatusQuery
+    | TradingDemoPerformanceQuery | TradingReconciliationQuery,
     Field(discriminator="operation"),
 ]
 
 
 class TradingSignalSubmitRequest(GatewayModel):
+    """Packet-bound v2 signal submission: market facts are derived from
+    the referenced stored packet, never supplied by the caller."""
+
     idempotency_key: str = Field(min_length=1, max_length=128)
-    created_at_utc: datetime
-    broker: Literal["alpari"]
-    symbol: str = Field(min_length=1, max_length=64)
-    analysis_timeframe: Literal["4H"]
+    packet_id: str = Field(min_length=1, max_length=64)
     decision: Literal["LONG", "SHORT", "NO_TRADE"]
     confidence: int | None = Field(default=None, ge=50, le=99)
-    bid: float = Field(gt=0)
-    ask: float = Field(gt=0)
-    market_data_timestamp: datetime
-    latest_completed_4h_candle: str = Field(min_length=1, max_length=256)
-    developing_4h_candle: str = Field(min_length=1, max_length=256)
-    entry_type: Literal["MARKET"]
-    entry_reference_price: float | None = None
-    stop_loss: float | None = None
-    take_profit: float | None = None
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
     reason: str = Field(min_length=1, max_length=4000)
     news_context: str = Field(default="", max_length=8000)
-    market_snapshot_id: str = Field(min_length=1, max_length=64)
-    market_packet_hash: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    model_version: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=128)
+    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
+        "hourly_fixed_bracket_v1"
+    )
+    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
-
-    @model_validator(mode="after")
-    def validate_timestamps(self) -> "TradingSignalSubmitRequest":
-        if self.created_at_utc.tzinfo is None or self.market_data_timestamp.tzinfo is None:
-            raise ValueError("Trading signal timestamps must be timezone-aware")
-        return self
 
 
 class TradingSignalGetRequest(GatewayModel):
@@ -377,7 +515,10 @@ class TradingSignalGetRequest(GatewayModel):
 
 
 class TradingSignalListRequest(GatewayModel):
-    limit: int = Field(default=100, ge=1, le=1000)
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    status: Literal["submitted", "cancelled", "entered"] | None = None
+    experiment_id: str | None = Field(default=None, min_length=1, max_length=64)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -387,6 +528,88 @@ class TradingSignalCancelRequest(GatewayModel):
     reason: str = Field(min_length=1, max_length=1000)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+_TRADING_ACTION_TYPES = Literal[
+    "market_entry",
+    "pending_limit_entry",
+    "pending_stop_entry",
+    "pending_stop_limit_entry",
+    "cancel_pending",
+    "replace_pending",
+    "close_full",
+    "close_partial",
+    "scale_in",
+    "scale_out",
+    "set_sltp",
+    "modify_sltp",
+    "remove_sltp",
+    "break_even",
+    "lock_profit",
+    "set_multiple_targets",
+    "reverse",
+    "hedge_open",
+    "hedge_close",
+    "time_exit",
+    "condition_exit",
+    "news_exit",
+    "trailing_stop_set",
+    "trailing_stop_cancel",
+    "flatten_symbol",
+    "flatten_account",
+    "emergency_close_all",
+]
+
+
+class TradingActionSubmitRequest(GatewayModel):
+    """One guarded model action; origin is always recorded as model."""
+
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    action_type: _TRADING_ACTION_TYPES
+    capability_role: Literal["internal_paper_agent", "broker_demo_agent"] = (
+        "internal_paper_agent"
+    )
+    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
+        "agentic_demo_v1"
+    )
+    experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
+    symbol: str = Field(default="", max_length=64)
+    signal_id: str | None = Field(default=None, min_length=1, max_length=64)
+    direction: Literal["LONG", "SHORT"] | None = None
+    volume_lots: float | None = Field(default=None, gt=0, le=1_000)
+    price: float | None = Field(default=None, gt=0)
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+    position_ticket: int | None = Field(default=None, ge=1)
+    order_ticket: int | None = Field(default=None, ge=1)
+    params: dict[str, Any] = Field(default_factory=dict)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingRuntimeControlRequest(GatewayModel):
+    action: Literal[
+        "start",
+        "stop",
+        "status",
+        "kill_switch_on",
+        "kill_switch_off",
+        "supervise_now",
+        "analyze_now",
+    ]
+    reason: str = Field(default="", max_length=1000)
+    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_reason(self) -> "TradingRuntimeControlRequest":
+        if self.action in {"stop", "kill_switch_on", "kill_switch_off"} and (
+            not self.reason.strip()
+        ):
+            raise ValueError(f"Trading runtime {self.action} requires a reason")
+        return self
 
 
 class SupervisorStatusQuery(GatewayModel):

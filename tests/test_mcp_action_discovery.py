@@ -225,11 +225,13 @@ PUBLIC_TRADING_ACTIONS = {
     "trading_signal_get",
     "trading_signal_list",
     "trading_signal_cancel_before_entry",
+    "trading_action_submit",
+    "trading_runtime_control",
 }
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 27
+assert len(EXPECTED_EXPOSED_ACTIONS) == 29
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -1389,6 +1391,8 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "supervisor_action",
         "trading_signal_submit",
         "trading_signal_cancel_before_entry",
+        "trading_action_submit",
+        "trading_runtime_control",
     }
     for name, action in actions.items():
         annotations = action["annotations"]
@@ -1456,6 +1460,8 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "trading_signal_get",
             "trading_signal_list",
             "trading_signal_cancel_before_entry",
+            "trading_action_submit",
+            "trading_runtime_control",
         }:
             continue
         sample = REALISTIC_ACTION_OUTPUTS[name]

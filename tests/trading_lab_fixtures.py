@@ -82,7 +82,13 @@ def bitcoin_specification(symbol: str = SYMBOL) -> SymbolSpecification:
 
 
 class PacketProvider:
-    """Deterministic connected demo provider snapshot for packet building."""
+    """Deterministic connected demo provider snapshot for packet building.
+
+    The developing H4 candle opens on the broker-time H4 boundary that
+    contains ``now`` (which reproduces ``DEVELOPING_RAW_OPEN`` for the
+    default fixture ``NOW``), so packets can also be built against the
+    real current clock.
+    """
 
     def __init__(
         self,
@@ -91,11 +97,13 @@ class PacketProvider:
         ask: float = 64_064.0,
         now: datetime = NOW,
     ) -> None:
+        broker_epoch = int(now.timestamp()) + OFFSET
+        developing_raw_open = broker_epoch - (broker_epoch % H4)
         self.completed = [
-            candle(DEVELOPING_RAW_OPEN - H4 * (100 - index), 60_000 + index)
+            candle(developing_raw_open - H4 * (100 - index), 60_000 + index)
             for index in range(100)
         ]
-        self.developing = candle(DEVELOPING_RAW_OPEN, 61_000)
+        self.developing = candle(developing_raw_open, 61_000)
         tick_raw = int(now.timestamp()) + OFFSET - 15
         self.tick = Tick(
             symbol=SYMBOL,

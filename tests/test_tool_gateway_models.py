@@ -479,12 +479,31 @@ def test_trading_collection_full_views_preserve_authoritative_payloads(
     assert "truncated" not in ticks
 
 
-def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
-    class Journal:
-        def list(self, limit):
-            return [object() for _ in range(limit)]
+class _FakeSignalJournalV2:
+    def __init__(self, count: int = 10) -> None:
+        self._count = count
 
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    def list(self, *, limit, offset, status=None, experiment_id=None):
+        remaining = max(0, self._count - offset)
+        return [object() for _ in range(min(limit, remaining))]
+
+    def count(self, *, status=None, experiment_id=None):
+        return self._count
+
+    def get(self, signal_id):
+        return object()
+
+    def submit(self, idempotency_key, submission):
+        return object()
+
+    def cancel_before_entry(self, signal_id, reason):
+        return object()
+
+
+def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
+    monkeypatch.setattr(
+        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+    )
     monkeypatch.setattr(
         server,
         "_signal_record_json",
@@ -494,6 +513,7 @@ def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
         TradingSignalListRequest(limit=10, view="full", response_budget_bytes=1024)
     )
     assert len(result["signals"]) == 10
+    assert result["total"] == 10
     assert len(result["signals"][0]["detail"]) == 4000
     assert "truncated" not in result
 
@@ -505,28 +525,20 @@ def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
 
 
 def _signal_request_payload() -> dict:
-    packet_hash = "a" * 64
     return {
         "idempotency_key": "signal-gateway-1",
-        "created_at_utc": "2026-07-20T16:00:00+00:00",
-        "broker": "alpari",
-        "symbol": "BITCOIN_i",
-        "analysis_timeframe": "4H",
+        "packet_id": "mp_" + "a" * 24,
         "decision": "LONG",
         "confidence": 73,
-        "bid": 64000.0,
-        "ask": 64064.0,
-        "market_data_timestamp": "2026-07-20T15:59:50+00:00",
-        "latest_completed_4h_candle": "2026-07-20T08:00:00Z",
-        "developing_4h_candle": "2026-07-20T12:00:00Z",
-        "entry_type": "MARKET",
-        "entry_reference_price": 64064.0,
         "stop_loss": 63500.0,
         "take_profit": 65192.0,
         "reason": "Defined continuation setup.",
         "news_context": "",
-        "market_snapshot_id": f"mp_{packet_hash[:24]}",
-        "market_packet_hash": packet_hash,
+        "model_version": "gpt-test-1",
+        "prompt_version": "prompt-v1",
+        "policy_id": "hourly_fixed_bracket_v1",
+        "execution_mode": "internal_paper",
+        "experiment_id": "exp1",
     }
 
 
@@ -535,56 +547,90 @@ def test_trading_signal_models_are_strict() -> None:
     request = submit.validate_python(_signal_request_payload())
     assert request.confidence == 73
     assert request.response_budget_bytes == 12 * 1024
+    assert request.policy_id == "hourly_fixed_bracket_v1"
     signal_get = TypeAdapter(TradingSignalGetRequest).validate_python({"signal_id": "sig_1"})
     assert signal_get.signal_id == "sig_1"
     assert signal_get.response_budget_bytes == 12 * 1024
     signal_list = TypeAdapter(TradingSignalListRequest).validate_python({})
     assert signal_list.limit == 100
+    assert signal_list.offset == 0
     assert signal_list.response_budget_bytes == 12 * 1024
     cancel = TypeAdapter(TradingSignalCancelRequest).validate_python({"signal_id": "sig_1", "reason": "wrong premise"})
     assert cancel.reason == "wrong premise"
     assert cancel.response_budget_bytes == 12 * 1024
+    # Live execution and caller-supplied market facts cannot be expressed.
     with pytest.raises(ValidationError):
-        submit.validate_python({**_signal_request_payload(), "market_packet_hash": "bad"})
+        submit.validate_python({**_signal_request_payload(), "execution_mode": "live"})
     with pytest.raises(ValidationError):
-        submit.validate_python({**_signal_request_payload(), "created_at_utc": "2026-07-20T16:00:00"})
+        submit.validate_python({**_signal_request_payload(), "bid": 64_000.0})
+    with pytest.raises(ValidationError):
+        submit.validate_python({**_signal_request_payload(), "confidence": 49})
 
 
-def test_trading_signal_gateways_share_repository_owned_journal(tmp_path, monkeypatch) -> None:
-    journal_path = tmp_path / "runs" / "trading" / "signals.sqlite3"
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: server.SignalJournal(journal_path))
-    submit = TypeAdapter(TradingSignalSubmitRequest).validate_python(_signal_request_payload())
+def _enable_trading(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        server,
+        "get_config",
+        lambda: SimpleNamespace(
+            trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")
+        ),
+    )
+    monkeypatch.setattr(server, "_get_runs_dir", lambda: tmp_path / "runs")
+
+
+def test_trading_signal_gateways_share_repository_owned_journal(
+    tmp_path, monkeypatch
+) -> None:
+    from datetime import datetime, timezone
+
+    from tests.trading_lab_fixtures import build_packet
+
+    _enable_trading(monkeypatch, tmp_path)
+    now = datetime.now(timezone.utc)
+    packet = server._trading_packet_store().store(build_packet(now=now))
+
+    payload = {**_signal_request_payload(), "packet_id": packet.packet_id}
+    submit = TypeAdapter(TradingSignalSubmitRequest).validate_python(payload)
     first = server.trading_signal_submit(submit)
     replay = server.trading_signal_submit(submit)
     signal_id = first["signal"]["signal_id"]
     assert first == replay
-    assert first["signal"]["draft"]["market_packet_hash"] == "a" * 64
+    assert first["signal"]["packet_hash"] == packet.content_hash
+    assert first["signal"]["bid"] == packet.bid
     assert server.trading_signal_get(TradingSignalGetRequest(signal_id=signal_id))["signal"] == first["signal"]
     assert server.trading_signal_list(TradingSignalListRequest())["signals"] == [first["signal"]]
     cancelled = server.trading_signal_cancel_before_entry(
         TradingSignalCancelRequest(signal_id=signal_id, reason="wrong premise")
     )
     assert cancelled["signal"]["status"] == "cancelled"
-    assert cancelled["signal"]["draft"] == first["signal"]["draft"]
+    assert cancelled["signal"]["content_hash"] == first["signal"]["content_hash"]
+
+    # An unknown packet is rejected with a durable record, not accepted.
+    rejected = server.trading_signal_submit(
+        TypeAdapter(TradingSignalSubmitRequest).validate_python(
+            {
+                **_signal_request_payload(),
+                "idempotency_key": "signal-gateway-2",
+                "packet_id": "mp_" + "b" * 24,
+            }
+        )
+    )
+    assert rejected["ok"] is False
+    assert rejected["status"] == "rejected"
+    assert "stored market packet" in rejected["rejection"]["rejection_reason"]
 
 
 def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
-    class Journal:
-        def get(self, signal_id):
-            return object()
-
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+    )
     monkeypatch.setattr(
         server,
         "_signal_record_json",
         lambda record: {
             "signal_id": "sig_1",
-            "draft": {
-                "reason": "r" * 4000,
-                "news_context": "n" * 4000,
-                "latest_completed_4h_candle": "c" * 800,
-                "developing_4h_candle": "d" * 800,
-            },
+            "reason": "r" * 4000,
+            "news_context": "n" * 4000,
         },
     )
     result = server.trading_signal_get(
@@ -595,18 +641,18 @@ def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
     assert result["response_bytes"] <= 1024
 
 
-def test_trading_signal_submit_honors_response_budget(monkeypatch) -> None:
-    class Journal:
-        def submit(self, idempotency_key, draft):
-            return object()
-
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+def test_trading_signal_submit_honors_response_budget(monkeypatch, tmp_path) -> None:
+    _enable_trading(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+    )
     monkeypatch.setattr(
         server,
         "_signal_record_json",
         lambda record: {
             "signal_id": "sig_1",
-            "draft": {"reason": "r" * 4000, "news_context": "n" * 4000},
+            "reason": "r" * 4000,
+            "news_context": "n" * 4000,
         },
     )
     payload = _signal_request_payload()
@@ -620,17 +666,16 @@ def test_trading_signal_submit_honors_response_budget(monkeypatch) -> None:
 
 
 def test_trading_signal_cancel_honors_response_budget(monkeypatch) -> None:
-    class Journal:
-        def cancel_before_entry(self, signal_id, reason):
-            return object()
-
-    monkeypatch.setattr(server, "_trading_signal_journal", lambda: Journal())
+    monkeypatch.setattr(
+        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+    )
     monkeypatch.setattr(
         server,
         "_signal_record_json",
         lambda record: {
             "signal_id": "sig_1",
-            "draft": {"reason": "r" * 4000, "news_context": "n" * 4000},
+            "reason": "r" * 4000,
+            "news_context": "n" * 4000,
             "status": "cancelled",
         },
     )
@@ -642,6 +687,19 @@ def test_trading_signal_cancel_honors_response_budget(monkeypatch) -> None:
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert result["response_bytes"] <= 1024
+
+
+def test_trading_deprecated_portfolio_operations_return_pointer(monkeypatch, tmp_path) -> None:
+    _enable_trading(monkeypatch, tmp_path)
+    for operation in ("open_virtual_positions", "portfolio_status", "threshold_report"):
+        result = server.trading_query(
+            TypeAdapter(TradingQueryRequest).validate_python(
+                {"operation": operation}
+            )
+        )
+        assert result["ok"] is False
+        assert result["status"] == "deprecated"
+        assert "replay_report" in result["error"]
 
 
 def test_workflow_and_supervisor_models_are_operation_specific() -> None:

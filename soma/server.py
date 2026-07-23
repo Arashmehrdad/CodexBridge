@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from functools import wraps
 from pathlib import Path
@@ -90,15 +90,42 @@ from .service_reload import (
 )
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
-from .trading import (
-    MT5Provider,
-    SignalDecision,
-    SignalDraft,
-    SignalJournal,
-    TradingLabSupervisor,
-    VirtualPositionJournal,
-    build_threshold_report,
+from .trading import MT5Provider
+from .trading.action_gateway import (
+    ActionGateway,
+    ActionRequest as TradingActionRequest,
+    ActionState,
+    TradingActionJournal,
 )
+from .trading.executors import DemoExecutor, PaperExecutor
+from .trading.lab_reports import (
+    build_calibration_report,
+    build_replay_report,
+)
+from .trading.outcome_resolver import OutcomeStatus, SignalOutcomeJournal
+from .trading.packet_store import MarketPacketStore
+from .trading.replay_engine import (
+    CostModel,
+    NotionalModel,
+    OccupancyPolicy,
+    ReplayConfig,
+)
+from .trading.safety import TradingSafetyController, redact_health
+from .trading.signal_journal_v2 import (
+    SignalDecisionV2,
+    SignalJournalV2,
+    SignalRejectedError,
+    SignalStatusV2,
+    SignalSubmissionV2,
+)
+from .trading.strategy_policy import (
+    ActionType as TradingActionType,
+    CapabilityRole as TradingCapabilityRole,
+    ExecutionMode as TradingExecutionMode,
+)
+from .trading.tick_archive import TickArchive
+from .trading.trading_runtime import TradingRuntime
+from .trading.action_gateway import Quote as TradingQuote
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
 from .ssh_profile_manager import (
@@ -131,7 +158,9 @@ from .gateway_models import (
     SSHInspectRequest,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TradingActionSubmitRequest,
     TradingQueryRequest,
+    TradingRuntimeControlRequest,
     TradingSignalCancelRequest,
     TradingSignalGetRequest,
     TradingSignalListRequest,
@@ -4049,6 +4078,18 @@ def trading_query(request: TradingQueryRequest) -> dict:
         "portfolio_status",
         "threshold_report",
     }:
+        return {
+            "ok": False,
+            "status": "deprecated",
+            "operation": request.operation,
+            "error": (
+                "Runtime virtual portfolios were removed. Threshold and"
+                " occupancy analysis happens only through deterministic"
+                " offline replay: use replay_report, calibration_report,"
+                " outcome_list, and action_list instead."
+            ),
+        }
+    if request.operation in _TRADING_JOURNAL_OPERATIONS:
         return _trading_journal_query(request)
     provider = _configured_mt5_provider()
     try:
@@ -4133,36 +4174,304 @@ def trading_query(request: TradingQueryRequest) -> dict:
         provider.close()
 
 
-def _trading_signal_journal() -> SignalJournal:
-    return SignalJournal((_get_runs_dir() / "trading" / "signals.sqlite3").resolve())
+_TRADING_JOURNAL_OPERATIONS = frozenset(
+    {
+        "market_packet_get",
+        "market_packet_list",
+        "outcome_get",
+        "outcome_list",
+        "rejection_list",
+        "data_quality",
+        "calibration_report",
+        "replay_report",
+        "action_get",
+        "action_list",
+        "runtime_status",
+        "demo_performance",
+        "reconciliation_report",
+    }
+)
 
 
-def _trading_lab_supervisor() -> TradingLabSupervisor:
-    return TradingLabSupervisor(
-        signal_journal=_trading_signal_journal(),
-        position_journal=VirtualPositionJournal(
-            (_get_runs_dir() / "trading" / "positions.sqlite3").resolve()
-        ),
+def _trading_dir() -> Path:
+    return (_get_runs_dir() / "trading").resolve()
+
+
+def _trading_packet_store() -> MarketPacketStore:
+    return MarketPacketStore(_trading_dir() / "packets.sqlite3")
+
+
+def _trading_signal_journal_v2() -> SignalJournalV2:
+    return SignalJournalV2(
+        _trading_dir() / "signals.sqlite3",
+        _trading_packet_store(),
+        expected_symbol=get_config().trading.symbol,
     )
+
+
+def _trading_outcome_journal() -> SignalOutcomeJournal:
+    return SignalOutcomeJournal(_trading_dir() / "outcomes.sqlite3")
+
+
+def _trading_tick_archive() -> TickArchive:
+    return TickArchive(
+        _trading_dir() / "ticks.sqlite3", _trading_dir() / "tick_archives"
+    )
+
+
+def _trading_action_journal() -> TradingActionJournal:
+    return TradingActionJournal(_trading_dir() / "actions.sqlite3")
+
+
+def _trading_safety() -> TradingSafetyController:
+    return TradingSafetyController(_trading_dir() / "safety.sqlite3")
+
+
+def _trading_action_gateway() -> ActionGateway:
+    return ActionGateway(
+        journal=_trading_action_journal(), safety=_trading_safety()
+    )
+
+
+def _trading_runtime() -> TradingRuntime:
+    return TradingRuntime(
+        runtime_db_path=_trading_dir() / "runtime.sqlite3",
+        packet_store=_trading_packet_store(),
+        signal_journal=_trading_signal_journal_v2(),
+        outcome_journal=_trading_outcome_journal(),
+        tick_archive=_trading_tick_archive(),
+        action_journal=_trading_action_journal(),
+        gateway=_trading_action_gateway(),
+        symbol=get_config().trading.symbol,
+    )
+
+
+_PAPER_EXECUTOR: PaperExecutor | None = None
+
+
+def _paper_quote(symbol: str) -> TradingQuote:
+    provider = _configured_mt5_provider()
+    try:
+        provider.connect()
+        tick = provider.latest_tick(symbol)
+        return TradingQuote(
+            bid=tick.bid, ask=tick.ask, age_seconds=tick.age_seconds
+        )
+    finally:
+        provider.close()
+
+
+def _paper_rules(symbol: str):
+    provider = _configured_mt5_provider()
+    try:
+        provider.connect()
+        return provider.symbol_specification(symbol)
+    finally:
+        provider.close()
+
+
+def _trading_paper_executor() -> PaperExecutor:
+    global _PAPER_EXECUTOR
+    if _PAPER_EXECUTOR is None:
+        _PAPER_EXECUTOR = PaperExecutor(
+            quote_source=_paper_quote, rules_source=_paper_rules
+        )
+    return _PAPER_EXECUTOR
+
+
+def _trading_signal_records_json(records: list[Any]) -> list[dict[str, Any]]:
+    return [_trading_json(record) for record in records]
 
 
 def _trading_journal_query(request: Any) -> dict:
     """Journal-backed Trading Lab reads; no provider connection required."""
     try:
-        supervisor = _trading_lab_supervisor()
-        if request.operation == "open_virtual_positions":
-            result: Any = _trading_json(list(supervisor.open_positions()))
-        elif request.operation == "portfolio_status":
-            result = _trading_json(list(supervisor.portfolio_states()))
-        else:
-            result = build_threshold_report(
-                supervisor,
-                period_start=request.period_start_utc,
-                period_end=request.period_end_utc,
+        operation = request.operation
+        if operation == "market_packet_get":
+            packet = _trading_packet_store().get(request.packet_id)
+            result: Any = _trading_json(packet)
+            if request.view != "full":
+                result.pop("payload", None)
+        elif operation == "market_packet_list":
+            store = _trading_packet_store()
+            packets = store.list_packets(
+                limit=request.limit, offset=request.offset
             )
+            listed = []
+            for packet in packets:
+                item = _trading_json(packet)
+                item.pop("payload", None)
+                listed.append(item)
+            result = {
+                "packets": listed,
+                "total": store.count_packets(),
+                "offset": request.offset,
+            }
+        elif operation == "outcome_get":
+            result = _trading_json(
+                _trading_outcome_journal().get(request.signal_id)
+            )
+        elif operation == "outcome_list":
+            journal = _trading_outcome_journal()
+            result = {
+                "outcomes": _trading_signal_records_json(
+                    journal.list(
+                        limit=request.limit,
+                        offset=request.offset,
+                        status=(
+                            OutcomeStatus(request.status)
+                            if request.status
+                            else None
+                        ),
+                        experiment_id=request.experiment_id,
+                    )
+                ),
+                "total": journal.count(
+                    experiment_id=request.experiment_id
+                ),
+                "offset": request.offset,
+            }
+        elif operation == "rejection_list":
+            result = {
+                "rejections": _trading_signal_records_json(
+                    _trading_signal_journal_v2().list_rejections(
+                        limit=request.limit, offset=request.offset
+                    )
+                ),
+                "offset": request.offset,
+            }
+        elif operation == "data_quality":
+            archive = _trading_tick_archive()
+            symbol = get_config().trading.symbol
+            range_hash, count = archive.range_hash(
+                symbol, request.start_utc, request.end_utc
+            )
+            result = {
+                "symbol": symbol,
+                "tick_count": count,
+                "range_hash": range_hash,
+                "gaps": _trading_json(
+                    archive.detect_gaps(
+                        symbol,
+                        request.start_utc,
+                        request.end_utc,
+                        max_gap_seconds=request.max_gap_seconds,
+                    )
+                ),
+            }
+        elif operation == "calibration_report":
+            signals = _all_trading_signals()
+            outcomes = _all_trading_outcomes()
+            result = build_calibration_report(
+                signals,
+                outcomes,
+                experiment_id=request.experiment_id,
+                rejection_count=len(
+                    _trading_signal_journal_v2().list_rejections(limit=500)
+                ),
+                period_start_utc=request.period_start_utc,
+                period_end_utc=request.period_end_utc,
+                period_basis=request.period_basis,
+            )
+        elif operation == "replay_report":
+            signals = _all_trading_signals()
+            outcomes = _all_trading_outcomes()
+            result = build_replay_report(
+                signals,
+                outcomes,
+                experiment_id=request.experiment_id,
+                base_config=ReplayConfig(
+                    threshold=request.threshold_start,
+                    occupancy=OccupancyPolicy(
+                        allow_stacking=request.allow_stacking
+                    ),
+                    notional=NotionalModel(
+                        fixed_notional_usd=request.fixed_notional_usd
+                    ),
+                    cost=CostModel(
+                        per_trade_cost_usd=request.per_trade_cost_usd
+                    ),
+                    initial_equity_usd=request.initial_equity_usd,
+                ),
+                thresholds=tuple(
+                    range(request.threshold_start, request.threshold_end + 1)
+                ),
+                minimum_sample=request.minimum_sample,
+                period_start_utc=request.period_start_utc,
+                period_end_utc=request.period_end_utc,
+                period_basis=request.period_basis,
+            )
+        elif operation == "action_get":
+            result = _trading_json(
+                _trading_action_journal().get(request.action_id)
+            )
+        elif operation == "action_list":
+            journal = _trading_action_journal()
+            result = {
+                "actions": _trading_signal_records_json(
+                    journal.list(
+                        limit=request.limit,
+                        offset=request.offset,
+                        state=(
+                            ActionState(request.state)
+                            if request.state
+                            else None
+                        ),
+                        symbol=request.symbol,
+                    )
+                ),
+                "total": journal.count(),
+                "offset": request.offset,
+            }
+        elif operation == "runtime_status":
+            runtime = _trading_runtime()
+            result = {
+                "status": _trading_json(runtime.status()),
+                "kill_switch": _trading_json(
+                    _trading_safety().kill_switch()
+                ),
+                "recent_events": runtime.events(limit=20),
+            }
+        elif operation == "demo_performance":
+            journal = _trading_action_journal()
+            confirmed = [
+                record
+                for record in journal.list(limit=request.limit)
+                if record.execution_mode is TradingExecutionMode.BROKER_DEMO
+                and record.state
+                in (ActionState.BROKER_CONFIRMED, ActionState.RECONCILED)
+            ]
+            result = {
+                "confirmed_demo_actions": _trading_signal_records_json(
+                    confirmed
+                ),
+                "count": len(confirmed),
+            }
+        else:  # reconciliation_report
+            journal = _trading_action_journal()
+            records = journal.list(
+                limit=request.limit, offset=request.offset
+            )
+            result = {
+                "reconciliations": [
+                    {
+                        "action_id": record.action_id,
+                        "action_type": record.action_type.value,
+                        "state": record.state.value,
+                        "broker_order_ticket": record.broker_order_ticket,
+                        "broker_position_ticket": (
+                            record.broker_position_ticket
+                        ),
+                        "reconciliation": record.reconciliation,
+                        "error": record.error,
+                    }
+                    for record in records
+                ],
+                "offset": request.offset,
+            }
         response = {
             "ok": True,
-            "operation": request.operation,
+            "operation": operation,
             "result": result,
         }
         if request.view == "full":
@@ -4170,8 +4479,35 @@ def _trading_journal_query(request: Any) -> dict:
         return _bounded_trading_scalar_response(
             response, request.response_budget_bytes
         )
+    except KeyError as exc:
+        return {"ok": False, "status": "not_found", "error": str(exc)}
     except Exception as exc:
         return {"ok": False, "status": "journal_error", "error": str(exc)}
+
+
+def _all_trading_signals() -> list[Any]:
+    journal = _trading_signal_journal_v2()
+    records: list[Any] = []
+    offset = 0
+    while True:
+        page = journal.list(limit=500, offset=offset)
+        if not page:
+            return records
+        records.extend(page)
+        offset += len(page)
+
+
+def _all_trading_outcomes() -> dict[str, Any]:
+    journal = _trading_outcome_journal()
+    outcomes: dict[str, Any] = {}
+    offset = 0
+    while True:
+        page = journal.list(limit=500, offset=offset)
+        if not page:
+            return outcomes
+        for outcome in page:
+            outcomes[outcome.signal_id] = outcome
+        offset += len(page)
 
 
 def _signal_record_json(record: Any) -> dict[str, Any]:
@@ -4180,29 +4516,34 @@ def _signal_record_json(record: Any) -> dict[str, Any]:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
-    """Submit one immutable demo Trading Lab signal with idempotency."""
-    draft = SignalDraft(
-        created_at_utc=request.created_at_utc,
-        broker=request.broker,
-        symbol=request.symbol,
-        analysis_timeframe=request.analysis_timeframe,
-        decision=SignalDecision(request.decision),
+    """Submit one immutable packet-bound demo Trading Lab signal."""
+    if not get_config().trading.enabled:
+        return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    submission = SignalSubmissionV2(
+        packet_id=request.packet_id,
+        decision=SignalDecisionV2(request.decision),
         confidence=request.confidence,
-        bid=request.bid,
-        ask=request.ask,
-        market_data_timestamp=request.market_data_timestamp,
-        latest_completed_4h_candle=request.latest_completed_4h_candle,
-        developing_4h_candle=request.developing_4h_candle,
-        entry_type=request.entry_type,
-        entry_reference_price=request.entry_reference_price,
         stop_loss=request.stop_loss,
         take_profit=request.take_profit,
         reason=request.reason,
         news_context=request.news_context,
-        market_snapshot_id=request.market_snapshot_id,
-        market_packet_hash=request.market_packet_hash,
+        model_version=request.model_version,
+        prompt_version=request.prompt_version,
+        policy_id=request.policy_id,
+        execution_mode=request.execution_mode,
+        experiment_id=request.experiment_id,
+        submitted_at_utc=datetime.now(timezone.utc),
     )
-    record = _trading_signal_journal().submit(request.idempotency_key, draft)
+    try:
+        record = _trading_signal_journal_v2().submit(
+            request.idempotency_key, submission
+        )
+    except SignalRejectedError as exc:
+        return {
+            "ok": False,
+            "status": "rejected",
+            "rejection": _trading_json(exc.rejection),
+        }
     signal = _signal_record_json(record)
     if request.view == "full":
         return {"ok": True, "signal": signal}
@@ -4213,11 +4554,9 @@ def _compact_trading_signal_response(signal: dict[str, Any], response_budget_byt
     if response_budget_bytes < 1024 or response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
     signal = dict(signal)
-    draft = dict(signal.get("draft") or {})
-    for field in ("reason", "news_context", "latest_completed_4h_candle", "developing_4h_candle"):
-        if field in draft:
-            draft[field] = str(draft[field])[:512]
-    signal["draft"] = draft
+    for field in ("reason", "news_context"):
+        if field in signal:
+            signal[field] = str(signal[field])[:512]
     response = apply_compact_projection_envelope(
         {
             "ok": True,
@@ -4229,16 +4568,11 @@ def _compact_trading_signal_response(signal: dict[str, Any], response_budget_byt
     )
     while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
         reduced = False
-        for field in (
-            "news_context",
-            "reason",
-            "latest_completed_4h_candle",
-            "developing_4h_candle",
-        ):
-            value = response["signal"].get("draft", {}).get(field, "")
+        for field in ("news_context", "reason"):
+            value = response["signal"].get(field, "")
             if value:
                 next_value = value[: max(0, len(value) - 128)]
-                response["signal"]["draft"][field] = next_value
+                response["signal"][field] = next_value
                 reduced = next_value != value
                 if reduced:
                     break
@@ -4253,7 +4587,9 @@ def _compact_trading_signal_response(signal: dict[str, Any], response_budget_byt
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def trading_signal_get(request: TradingSignalGetRequest) -> dict:
     """Read one immutable Trading Lab signal."""
-    signal = _signal_record_json(_trading_signal_journal().get(request.signal_id))
+    signal = _signal_record_json(
+        _trading_signal_journal_v2().get(request.signal_id)
+    )
     if request.view == "full":
         return {"ok": True, "signal": signal}
     return _compact_trading_signal_response(signal, request.response_budget_bytes)
@@ -4261,19 +4597,34 @@ def trading_signal_get(request: TradingSignalGetRequest) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def trading_signal_list(request: TradingSignalListRequest) -> dict:
-    """List recent immutable Trading Lab signals."""
+    """Paginated read over the complete immutable signal journal."""
     if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
         raise ValueError("response_budget_bytes must be between 1024 and 65536")
-    records = _trading_signal_journal().list(limit=request.limit)
+    journal = _trading_signal_journal_v2()
+    status = SignalStatusV2(request.status) if request.status else None
+    records = journal.list(
+        limit=request.limit,
+        offset=request.offset,
+        status=status,
+        experiment_id=request.experiment_id,
+    )
+    total = journal.count(status=status, experiment_id=request.experiment_id)
     signals = [_signal_record_json(record) for record in records]
     if request.view == "full":
-        return {"ok": True, "signals": signals}
+        return {
+            "ok": True,
+            "signals": signals,
+            "total": total,
+            "offset": request.offset,
+        }
     response = apply_compact_projection_envelope(
         {
             "ok": True,
             "signals": signals,
+            "total": total,
+            "offset": request.offset,
             "truncated": False,
-            "has_more": False,
+            "has_more": request.offset + len(signals) < total,
             "response_budget_bytes": request.response_budget_bytes,
         }
     )
@@ -4290,11 +4641,142 @@ def trading_signal_list(request: TradingSignalListRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def trading_signal_cancel_before_entry(request: TradingSignalCancelRequest) -> dict:
     """Cancel one submitted signal before entry without editing its payload."""
-    record = _trading_signal_journal().cancel_before_entry(request.signal_id, request.reason)
+    record = _trading_signal_journal_v2().cancel_before_entry(
+        request.signal_id, request.reason
+    )
     signal = _signal_record_json(record)
     if request.view == "full":
         return {"ok": True, "signal": signal}
     return _compact_trading_signal_response(signal, request.response_budget_bytes)
+
+
+def _trading_executor_for_mode(mode: str, provider: Any | None):
+    if mode == "broker_demo":
+        if provider is None:
+            raise RuntimeError("broker_demo execution requires a provider")
+        return DemoExecutor(provider=provider, binding=provider.binding)
+    return _trading_paper_executor()
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def trading_action_submit(request: TradingActionSubmitRequest) -> dict:
+    """One guarded model trading action through the full gateway pipeline:
+    validation, policies, fresh price, normalization, risk, margin,
+    order_check, idempotent durable submission, broker reconciliation.
+    Demo-only; raw order_send is unreachable."""
+    if not get_config().trading.enabled:
+        return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    action_request = TradingActionRequest(
+        idempotency_key=request.idempotency_key,
+        action_type=TradingActionType(request.action_type),
+        origin="model",
+        capability_role=TradingCapabilityRole(request.capability_role),
+        execution_mode=TradingExecutionMode(request.execution_mode),
+        policy_id=request.policy_id,
+        experiment_id=request.experiment_id,
+        symbol=request.symbol,
+        signal_id=request.signal_id,
+        direction=request.direction,
+        volume_lots=request.volume_lots,
+        price=request.price,
+        stop_loss=request.stop_loss,
+        take_profit=request.take_profit,
+        position_ticket=request.position_ticket,
+        order_ticket=request.order_ticket,
+        params=dict(request.params),
+    )
+    provider = None
+    try:
+        if request.execution_mode == "broker_demo":
+            provider = _configured_mt5_provider()
+            provider.connect()
+        executor = _trading_executor_for_mode(
+            request.execution_mode, provider
+        )
+        record = _trading_action_gateway().submit(action_request, executor)
+    except Exception as exc:
+        return {"ok": False, "status": "gateway_error", "error": str(exc)}
+    finally:
+        if provider is not None:
+            provider.close()
+    response = {
+        "ok": record.state
+        in (ActionState.RECONCILED, ActionState.BROKER_CONFIRMED),
+        "action": _trading_json(record),
+    }
+    if request.view == "full":
+        return response
+    return _bounded_trading_scalar_response(
+        response, request.response_budget_bytes
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def trading_runtime_control(request: TradingRuntimeControlRequest) -> dict:
+    """Start/stop/status, kill switch, and manual runtime passes."""
+    if not get_config().trading.enabled:
+        return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    runtime = _trading_runtime()
+    safety = _trading_safety()
+    now = datetime.now(timezone.utc)
+    provider = None
+    try:
+        if request.action == "start":
+            result: Any = _trading_json(runtime.start(now=now))
+        elif request.action == "stop":
+            result = _trading_json(runtime.stop(request.reason, now=now))
+        elif request.action == "status":
+            result = {
+                "status": _trading_json(runtime.status()),
+                "kill_switch": _trading_json(safety.kill_switch()),
+            }
+        elif request.action == "kill_switch_on":
+            result = _trading_json(
+                safety.activate_kill_switch(request.reason, at_utc=now)
+            )
+        elif request.action == "kill_switch_off":
+            result = _trading_json(
+                safety.release_kill_switch(request.reason, at_utc=now)
+            )
+        else:
+            provider = _configured_mt5_provider()
+            health = provider.connect()
+            if not health.connected:
+                return {
+                    "ok": False,
+                    "status": "disconnected",
+                    "error": "MT5 terminal is disconnected",
+                    "health": redact_health(health),
+                }
+            if health.account_environment != "demo":
+                return {
+                    "ok": False,
+                    "status": "wrong_environment",
+                    "error": "MT5 account is not a demo account",
+                    "health": redact_health(health),
+                }
+            executor = _trading_executor_for_mode(
+                request.execution_mode, provider
+            )
+            if request.action == "supervise_now":
+                result = _trading_json(
+                    runtime.supervision_pass(provider, executor, now=now)
+                )
+            else:
+                result = _trading_json(
+                    runtime.analysis_pass(provider, executor, now=now)
+                )
+    except Exception as exc:
+        return {"ok": False, "status": "runtime_error", "error": str(exc)}
+    finally:
+        if provider is not None:
+            provider.close()
+    response = {"ok": True, "action": request.action, "result": result}
+    if request.view == "full":
+        return response
+    return _bounded_trading_scalar_response(
+        response, request.response_budget_bytes
+    )
 
 
 @_internal_tool(output_schema=LIST_REPO_FILES_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
