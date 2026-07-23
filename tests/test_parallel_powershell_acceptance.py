@@ -203,7 +203,20 @@ def test_restart_reconciliation_adopts_active_child_without_duplicate_launch(
     manager = _manager(tmp_path, max_concurrent=1)
     marker_dir = tmp_path / "markers"
     marker_dir.mkdir()
-    started = manager.start_powershell_group("sample", _children(marker_dir, 2))
+    release_path = marker_dir / "release.txt"
+    children = _children(marker_dir, 2)
+    for child in children:
+        # Hold each child open until the test releases it so the active child
+        # deterministically outlives the restart/reconciliation window; a fixed
+        # sleep races with CPU starvation during loaded full-suite runs and lets
+        # the worker refill the pending sibling before the assertions below.
+        child["argv"][4] = child["argv"][4].replace(
+            "Start-Sleep -Milliseconds 700",
+            "while (-not (Test-Path -LiteralPath $env:CB_RELEASE)) "
+            "{ Start-Sleep -Milliseconds 50 }",
+        )
+        child["environment"]["CB_RELEASE"] = str(release_path)
+    started = manager.start_powershell_group("sample", children)
     active_id = started["launched_run_ids"][0]
     pending_id = started["pending_run_ids"][0]
     store = ParallelGroupStore(manager.config.resolve_runs_dir())
@@ -222,10 +235,12 @@ def test_restart_reconciliation_adopts_active_child_without_duplicate_launch(
     restarted.reconcile_startup()
 
     active_after = store.store.get_run(active_id)
+    assert active_after["status"] == "running"
     assert active_after["worker_pid"] == worker_pid
     assert active_after["launch_attempts"] == launch_attempts
     assert store.store.get_run(pending_id)["status"] == "pending"
 
+    release_path.write_text("go", encoding="utf-8")
     completed = _wait_for_group(restarted, started["group_id"])
     assert completed["status"] == "completed"
     assert completed["result"]["status_counts"] == {"completed": 2}
