@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
+from decimal import Decimal
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -90,7 +91,15 @@ from .service_reload import (
 )
 from .self_check import run_self_check
 from .supervisor_service import SupervisorService
-from .trading import MT5Provider, SignalDecision, SignalDraft, SignalJournal
+from .trading import (
+    MT5Provider,
+    SignalDecision,
+    SignalDraft,
+    SignalJournal,
+    TradingLabSupervisor,
+    VirtualPositionJournal,
+    build_threshold_report,
+)
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
 from .ssh_profile_manager import (
@@ -981,6 +990,8 @@ def _trading_json(value: Any) -> Any:
         return _trading_json(asdict(value))
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
     if isinstance(value, dict):
         return {str(key): _trading_json(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -4116,6 +4127,12 @@ def trading_query(request: TradingQueryRequest) -> dict:
     trading = get_config().trading
     if not trading.enabled:
         return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    if request.operation in {
+        "open_virtual_positions",
+        "portfolio_status",
+        "threshold_report",
+    }:
+        return _trading_journal_query(request)
     provider = _configured_mt5_provider()
     try:
         health = provider.connect()
@@ -4201,6 +4218,43 @@ def trading_query(request: TradingQueryRequest) -> dict:
 
 def _trading_signal_journal() -> SignalJournal:
     return SignalJournal((_get_runs_dir() / "trading" / "signals.sqlite3").resolve())
+
+
+def _trading_lab_supervisor() -> TradingLabSupervisor:
+    return TradingLabSupervisor(
+        signal_journal=_trading_signal_journal(),
+        position_journal=VirtualPositionJournal(
+            (_get_runs_dir() / "trading" / "positions.sqlite3").resolve()
+        ),
+    )
+
+
+def _trading_journal_query(request: Any) -> dict:
+    """Journal-backed Trading Lab reads; no provider connection required."""
+    try:
+        supervisor = _trading_lab_supervisor()
+        if request.operation == "open_virtual_positions":
+            result: Any = _trading_json(list(supervisor.open_positions()))
+        elif request.operation == "portfolio_status":
+            result = _trading_json(list(supervisor.portfolio_states()))
+        else:
+            result = build_threshold_report(
+                supervisor,
+                period_start=request.period_start_utc,
+                period_end=request.period_end_utc,
+            )
+        response = {
+            "ok": True,
+            "operation": request.operation,
+            "result": result,
+        }
+        if request.view == "full":
+            return response
+        return _bounded_trading_scalar_response(
+            response, request.response_budget_bytes
+        )
+    except Exception as exc:
+        return {"ok": False, "status": "journal_error", "error": str(exc)}
 
 
 def _signal_record_json(record: Any) -> dict[str, Any]:

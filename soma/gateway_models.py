@@ -294,9 +294,47 @@ class TradingHistoricalTicksQuery(GatewayModel):
         return self
 
 
+class TradingOpenPositionsQuery(GatewayModel):
+    operation: Literal["open_virtual_positions"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingPortfolioStatusQuery(GatewayModel):
+    operation: Literal["portfolio_status"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingThresholdReportQuery(GatewayModel):
+    operation: Literal["threshold_report"]
+    period_start_utc: datetime | None = None
+    period_end_utc: datetime | None = None
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "TradingThresholdReportQuery":
+        for name, value in (
+            ("period_start_utc", self.period_start_utc),
+            ("period_end_utc", self.period_end_utc),
+        ):
+            if value is not None and value.tzinfo is None:
+                raise ValueError(f"Trading report {name} must be timezone-aware")
+        if (
+            self.period_start_utc is not None
+            and self.period_end_utc is not None
+            and self.period_end_utc <= self.period_start_utc
+        ):
+            raise ValueError("Trading report period_end_utc must be after period_start_utc")
+        return self
+
+
 TradingQueryRequest = Annotated[
     TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
-    | TradingTickQuery | TradingH4Query | TradingHistoricalTicksQuery,
+    | TradingTickQuery | TradingH4Query | TradingHistoricalTicksQuery
+    | TradingOpenPositionsQuery | TradingPortfolioStatusQuery
+    | TradingThresholdReportQuery,
     Field(discriminator="operation"),
 ]
 

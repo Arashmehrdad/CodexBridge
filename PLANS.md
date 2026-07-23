@@ -1819,9 +1819,13 @@ Gate evidence: focused run `tests/test_trade_supervisor.py` (10 passed) covers r
 
 #### TL6 - Reports and calibration
 
-Add threshold, confidence, drawdown, stability, and fresh-period reports.
+Status: **complete; accepted on 2026-07-23**.
 
-Gate: reports reproduce exactly from the append-only event journal.
+`soma/trading/threshold_reports.py` builds the deterministic evaluation report from the append-only journals alone: per-threshold signal count, entered/resolved/ambiguous trade counts, win rate, net P&L, average return, profit factor, maximum drawdown from the resolution-ordered equity walk, longest losing streak, average stop/take-profit distances, average risk/reward, monthly buckets, confidence bands, and a neighbourhood-net-P&L stability column. Ambiguous outcomes are counted and excluded from every P&L metric. Optional timezone-aware period bounds produce fresh-sample reports. Output is canonical fixed-point JSON with a SHA-256 content hash and no wall-clock or provider input.
+
+Journal-backed public reads joined `trading_query`: `open_virtual_positions`, `portfolio_status`, and `threshold_report` — none connects the provider, all honour the compact byte budget, and all registered in the frozen gateway operation inventory.
+
+Gate evidence: `tests/test_threshold_reports.py` proves byte-identical reproduction (equal content hashes) across repeated builds and across a completely fresh supervisor over reopened journals, hand-computed metric equality for a win/loss/ambiguous fixture, fresh-period exclusion of older trades, and fail-closed behaviour for uninitialized experiments and naive timestamps; gateway/inventory/discovery suites passed (177).
 
 #### TL7 - Alpari demo mirror
 

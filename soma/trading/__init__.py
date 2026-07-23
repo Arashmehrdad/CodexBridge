@@ -20,8 +20,20 @@ from .signal_journal import (
     signal_content_hash,
     validate_signal_draft,
 )
+from .threshold_reports import build_threshold_report
+from .trade_supervisor import TradingLabSupervisor
+from .virtual_position_journal import (
+    PositionStatus,
+    VirtualPosition,
+    VirtualPositionJournal,
+)
 
 __all__ = [
+    "PositionStatus",
+    "TradingLabSupervisor",
+    "VirtualPosition",
+    "VirtualPositionJournal",
+    "build_threshold_report",
     "Candle",
     "HistoricalTick",
     "MT5Provider",
