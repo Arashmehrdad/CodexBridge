@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 
 from soma.trading.hourly_orchestrator import HourlyOrchestrator
