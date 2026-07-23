@@ -48,7 +48,7 @@ def test_orchestrator_routes_run_pytest_to_injected_runner(tmp_path: Path) -> No
     assert result.command_result is not None
     assert result.command_result.command_id == "pytest"
     assert runner.calls[0]["repo_path"] == tmp_path
-    assert result.audit_event.metadata["codex_called"] is False
+    assert result.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_orchestrator_routes_git_status_to_injected_runner(tmp_path: Path) -> None:
@@ -73,7 +73,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_runner() -> None:
     assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.command_result is None
     assert runner.calls == []
-    assert result.audit_event.metadata["codex_called"] is False
+    assert result.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_orchestrator_requires_explicit_execution_context_for_project_commands(

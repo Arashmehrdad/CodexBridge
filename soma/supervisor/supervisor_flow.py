@@ -2,9 +2,12 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from soma.codex_router import CodexEscalationRequest, CodexEscalationRouter
-from soma.codex_router.models import CodexEscalationStatus
 from soma.config import AppConfig, LocalSupervisorConfig
+from soma.external_coder import (
+    ExternalCoderHandoffGenerator,
+    ExternalCoderHandoffRequest,
+    ExternalCoderHandoffStatus,
+)
 from soma.job_manager import JobManager
 from soma.local_agent.durable_command_runner import (
     DurableProjectCommandRunner,
@@ -33,7 +36,7 @@ class SupervisorFlow:
         app_config: AppConfig | None = None,
         config_path: Path | None = None,
         job_manager: JobManager | None = None,
-        codex_router: CodexEscalationRouter | None = None,
+        handoff_generator: ExternalCoderHandoffGenerator | None = None,
         memory_repository=None,
         local_model=None,
     ):
@@ -51,8 +54,9 @@ class SupervisorFlow:
                 "SupervisorFlow requires durable application context or an "
                 "explicitly injected compatibility runner."
             )
-        self.codex_router = codex_router or CodexEscalationRouter(
-            packet_dir=store.supervisors_dir.parent / "codex_escalations"
+        self.handoff_generator = handoff_generator or ExternalCoderHandoffGenerator(
+            config=app_config,
+            handoff_dir=store.supervisors_dir.parent / "external_coder_handoffs",
         )
         self.memory_repository = memory_repository
         self.local_model = local_model
@@ -98,32 +102,34 @@ class SupervisorFlow:
                 message="Supervisor blocked a sensitive or human-only action",
             )
             return self._report(run)
-        run = self._validate(run, post_codex=False)
-        if not plan.codex_required and _validation_success(run.validation_results):
+        run = self._validate(run)
+        if not plan.external_coder_required and _validation_success(
+            run.validation_results
+        ):
             run.status = SupervisorStatus.COMPLETED
             run.ended_at = utc_now()
             run.next_recommended_action = "Review supervisor report."
             run.question_for_chatgpt = ""
             self.store.write(run)
             return self._report(run)
-        if not plan.codex_required:
+        if not plan.external_coder_required:
             run.status = SupervisorStatus.NEEDS_INPUT
             run.ended_at = utc_now()
             run.failure_summary = (
                 "Local validation did not pass and no code edit was requested."
             )
             run.next_recommended_action = (
-                "Decide whether this should become a Codex coding task."
+                "Decide whether Soma should generate an external-coder handoff."
             )
             run.question_for_chatgpt = (
-                "Should Soma prepare a Codex escalation packet?"
+                "Should Soma prepare an external-coder handoff for manual use?"
             )
             self.store.write(run)
             return self._report(run)
-        route = self.codex_router.route_escalation(
-            CodexEscalationRequest(
+        route = self.handoff_generator.generate_handoff(
+            ExternalCoderHandoffRequest(
                 objective=request.objective,
-                task_type="supervisor_codex_escalation",
+                task_type="supervisor_external_coder_handoff",
                 repo_name=request.repo_name,
                 repo_path=request.repo_path,
                 current_error=_validation_summary(run.validation_results),
@@ -131,53 +137,42 @@ class SupervisorFlow:
                     item.get("command_id", "") for item in run.validation_results
                 ],
                 validation_commands=run.validation_commands,
-                invoke_codex=self.config.supervisor_codex_invocation_enabled,
             )
         )
-        run.codex_escalation_id = route.escalation_id
+        run.external_coder_handoff_id = route.handoff_id
         if route.artifacts:
-            run.codex_packet_path = route.artifacts.packet_json_path
+            run.external_coder_handoff_path = route.artifacts.handoff_json_path
+            run.external_coder_prompt_path = route.artifacts.prompt_path
             self._write_json(
-                run, "codex_packet_ref.json", route.artifacts.model_dump(mode="json")
+                run,
+                "external_coder_handoff_ref.json",
+                route.artifacts.model_dump(mode="json"),
             )
         if route.status in {
-            CodexEscalationStatus.BLOCKED,
-            CodexEscalationStatus.HUMAN_REQUIRED,
+            ExternalCoderHandoffStatus.BLOCKED,
+            ExternalCoderHandoffStatus.HUMAN_REQUIRED,
         }:
             run.status = SupervisorStatus.BLOCKED
             run.failure_summary = "; ".join(route.reasons)
             run.next_recommended_action = "Resolve policy blocker before continuing."
-        elif route.status == CodexEscalationStatus.APPROVAL_REQUIRED:
+        elif route.status == ExternalCoderHandoffStatus.APPROVAL_REQUIRED:
             run.status = SupervisorStatus.APPROVAL_REQUIRED
             run.next_recommended_action = (
-                "Approve or deny the Codex escalation request."
+                "Approve or deny the external-coder handoff request."
             )
-            run.question_for_chatgpt = "Should this Codex escalation be approved?"
-        elif route.status in {
-            CodexEscalationStatus.PACKET_READY,
-            CodexEscalationStatus.UNAVAILABLE,
-        }:
-            run.status = SupervisorStatus.CODEX_PACKET_READY
-            run.next_recommended_action = "Review the Codex escalation packet."
-            run.question_for_chatgpt = "Codex invocation is disabled; should the packet be approved for a later step?"
-        elif route.invocation_result and route.invocation_result.invoked:
-            run.codex_invoked = True
-            if route.artifacts and route.artifacts.codex_result_path:
-                run.codex_result_path = route.artifacts.codex_result_path
-                self._write_json(
-                    run,
-                    "codex_result_ref.json",
-                    {"codex_result_path": str(route.artifacts.codex_result_path)},
-                )
-            run.status = SupervisorStatus.VALIDATING_AFTER_CODEX
-            self.store.write(run)
-            run = self._validate(run, post_codex=True)
-            run.status = (
-                SupervisorStatus.COMPLETED
-                if _validation_success(run.post_validation_results)
-                else SupervisorStatus.NEEDS_INPUT
+            run.question_for_chatgpt = (
+                "Should this external-coder handoff be approved?"
             )
-            run.next_recommended_action = "Review post-Codex validation."
+        elif route.status == ExternalCoderHandoffStatus.HANDOFF_READY:
+            run.status = SupervisorStatus.NEEDS_EXTERNAL_CODER
+            run.next_recommended_action = (
+                "Supply the generated handoff manually to an external coding "
+                "agent (Claude Code, Codex, Gemini CLI, or another tool)."
+            )
+            run.question_for_chatgpt = (
+                "An external-coder handoff is ready; Soma does not execute "
+                "coding agents. Which agent should receive it manually?"
+            )
         else:
             run.status = SupervisorStatus.NEEDS_INPUT
             run.next_recommended_action = "Review supervisor state."
@@ -215,7 +210,7 @@ class SupervisorFlow:
 
     def _plan(self, run: SupervisorRun) -> SupervisorPlan:
         text = run.objective.lower()
-        codex_required = any(
+        external_coder_required = any(
             marker in text
             for marker in ("edit", "fix", "refactor", "create module", "failing test")
         )
@@ -229,27 +224,28 @@ class SupervisorFlow:
                 summary = ""
         return SupervisorPlan(
             objective=run.objective,
-            likely_task_type="codex_required" if codex_required else "local_only",
-            codex_required=codex_required,
+            likely_task_type="external_coder_required"
+            if external_coder_required
+            else "local_only",
+            external_coder_required=external_coder_required,
             validation_steps=run.validation_commands,
-            policy_considerations=["Use Codex router and policy engine before edits"]
-            if codex_required
+            policy_considerations=[
+                "Generate an external-coder handoff for manual use; "
+                "Soma never invokes a coding agent."
+            ]
+            if external_coder_required
             else [],
             risks=[],
             recommended_next_action=summary
             or (
-                "Prepare Codex packet"
-                if codex_required
+                "Prepare external-coder handoff"
+                if external_coder_required
                 else "Complete locally if validation passes"
             ),
         )
 
-    def _validate(self, run: SupervisorRun, *, post_codex: bool) -> SupervisorRun:
-        run.status = (
-            SupervisorStatus.VALIDATING_AFTER_CODEX
-            if post_codex
-            else SupervisorStatus.VALIDATING_LOCALLY
-        )
+    def _validate(self, run: SupervisorRun) -> SupervisorRun:
+        run.status = SupervisorStatus.VALIDATING_LOCALLY
         results = []
         for command_id in run.validation_commands:
             if command_id not in {"git_status", "pytest", "pip_check"}:
@@ -265,18 +261,13 @@ class SupervisorFlow:
                 command_id=command_id, repo_name=run.repo_name, repo_path=run.repo_path
             )
             results.append(result.to_dict())
-        if post_codex:
-            run.post_validation_results = results
-            self._write_json(run, "post_validation_results.json", {"results": results})
-        else:
-            run.validation_results = results
-            self._write_json(run, "validation_results.json", {"results": results})
+        run.validation_results = results
+        self._write_json(run, "validation_results.json", {"results": results})
         self.store.write(run)
         self.store.append_event(
             run.supervisor_id,
             stage="validation_completed",
             message="Validation completed",
-            data={"post_codex": post_codex},
         )
         return run
 

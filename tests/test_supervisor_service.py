@@ -166,7 +166,7 @@ def test_get_resume_prompt_existing_and_missing(tmp_path: Path) -> None:
     write_resume_prompt(config.resolve_runs_dir(), current)
     existing = service.get_resume_prompt(current["supervisor_id"])
     assert existing["exists"] is True
-    assert "You are Codex resuming" in existing["content"]
+    assert "You are an external coding agent resuming" in existing["content"]
 
 
 def test_get_notifications_filters_status_and_limit(tmp_path: Path) -> None:

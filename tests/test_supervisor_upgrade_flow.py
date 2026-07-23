@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from soma.config import LocalSupervisorConfig
-from soma.codex_router.models import CodexEscalationStatus, CodexRouterResult
-from soma.codex_router.models import CodexInvocationResult
+from soma.external_coder.models import (
+    ExternalCoderHandoffArtifact,
+    ExternalCoderHandoffResult,
+    ExternalCoderHandoffStatus,
+)
 from soma.local_agent.models import (
     CommandRunResult,
     CommandRunStatus,
@@ -56,49 +58,48 @@ class FakeCommandRunner:
         )
 
 
-class FakeCodexRouter:
+class FakeHandoffGenerator:
     def __init__(
         self,
-        status: CodexEscalationStatus = CodexEscalationStatus.PACKET_READY,
+        status: ExternalCoderHandoffStatus = ExternalCoderHandoffStatus.HANDOFF_READY,
         *,
-        invoked: bool = False,
+        base_dir: Path | None = None,
     ):
         self.status = status
-        self.invoked = invoked
+        self.base_dir = base_dir or Path.cwd() / "runs"
         self.calls = []
 
-    def route_escalation(self, request):
+    def generate_handoff(self, request):
         self.calls.append(request)
-        packet_dir = Path.cwd() / "runs" / "codex_escalations" / request.escalation_id
-        packet_dir.mkdir(parents=True, exist_ok=True)
-        packet_path = packet_dir / "packet.json"
-        packet_path.write_text("{}", encoding="utf-8")
-        return CodexRouterResult(
-            escalation_id=request.escalation_id,
+        handoff_dir = (
+            self.base_dir / "external_coder_handoffs" / request.handoff_id
+        )
+        handoff_dir.mkdir(parents=True, exist_ok=True)
+        handoff_path = handoff_dir / "handoff.json"
+        handoff_path.write_text("{}", encoding="utf-8")
+        return ExternalCoderHandoffResult(
+            handoff_id=request.handoff_id,
             status=self.status,
-            artifacts={
-                "escalation_id": request.escalation_id,
-                "packet_dir": packet_dir,
-                "packet_json_path": packet_path,
-                "prompt_path": packet_dir / "prompt.txt",
-                "context_manifest_path": packet_dir / "context_manifest.json",
-                "policy_result_path": packet_dir / "policy_result.json",
-            },
-            invocation_result=CodexInvocationResult(
-                status=self.status, invoked=self.invoked
-            )
-            if self.invoked
-            else None,
-            reasons=["fake_router"],
-            audit_event_id="audit_codex_router",
+            artifacts=ExternalCoderHandoffArtifact(
+                handoff_id=request.handoff_id,
+                handoff_dir=handoff_dir,
+                handoff_json_path=handoff_path,
+                prompt_path=handoff_dir / "prompt.txt",
+                context_manifest_path=handoff_dir / "context_manifest.json",
+                policy_result_path=handoff_dir / "policy_result.json",
+            ),
+            reasons=["fake_generator"],
+            audit_event_id="audit_external_coder",
         )
 
 
-def make_manager(tmp_path: Path, *, runner=None, router=None) -> LocalSupervisorManager:
+def make_manager(
+    tmp_path: Path, *, runner=None, generator=None
+) -> LocalSupervisorManager:
     return LocalSupervisorManager(
         supervisors_dir=tmp_path / "runs" / "supervisors",
         command_runner=runner or FakeCommandRunner(),
-        codex_router=router or FakeCodexRouter(),
+        handoff_generator=generator or FakeHandoffGenerator(base_dir=tmp_path / "runs"),
     )
 
 
@@ -106,13 +107,13 @@ def test_supervisor_requires_explicit_execution_context(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="requires durable application context"):
         LocalSupervisorManager(
             supervisors_dir=tmp_path / "runs" / "supervisors",
-            codex_router=FakeCodexRouter(),
+            handoff_generator=FakeHandoffGenerator(base_dir=tmp_path / "runs"),
         )
 
 
-def test_local_only_supervisor_completes_without_codex_packet(tmp_path: Path) -> None:
-    router = FakeCodexRouter()
-    manager = make_manager(tmp_path, router=router)
+def test_local_only_supervisor_completes_without_handoff(tmp_path: Path) -> None:
+    generator = FakeHandoffGenerator(base_dir=tmp_path / "runs")
+    manager = make_manager(tmp_path, generator=generator)
 
     result = manager.start_supervised_task(
         SupervisorTaskRequest(
@@ -124,7 +125,7 @@ def test_local_only_supervisor_completes_without_codex_packet(tmp_path: Path) ->
 
     run_dir = tmp_path / "runs" / "supervisors" / "supervisor_local"
     assert result.run.status == SupervisorStatus.COMPLETED
-    assert router.calls == []
+    assert generator.calls == []
     assert (run_dir / "result.json").exists()
     assert (run_dir / "events.jsonl").exists()
     assert (run_dir / "local_inspection.json").exists()
@@ -140,14 +141,12 @@ def test_local_only_supervisor_completes_without_codex_packet(tmp_path: Path) ->
     assert manifest.source_kind == "supervisor"
     resume = (run_dir / "resume_prompt.txt").read_text(encoding="utf-8")
     assert "Soma supervisor completed." in resume
-    assert "codex_invoked: False" in resume
+    assert "external_coder_invoked: False" in resume
 
 
-def test_edit_task_creates_codex_packet_without_invocation_by_default(
-    tmp_path: Path,
-) -> None:
-    router = FakeCodexRouter(CodexEscalationStatus.PACKET_READY)
-    manager = make_manager(tmp_path, router=router)
+def test_edit_task_reaches_needs_external_coder_with_handoff(tmp_path: Path) -> None:
+    generator = FakeHandoffGenerator(base_dir=tmp_path / "runs")
+    manager = make_manager(tmp_path, generator=generator)
 
     result = manager.start_supervised_task(
         SupervisorTaskRequest(
@@ -157,52 +156,67 @@ def test_edit_task_creates_codex_packet_without_invocation_by_default(
         )
     )
 
-    assert result.run.status == SupervisorStatus.CODEX_PACKET_READY
-    assert result.run.codex_invoked is False
-    assert result.run.codex_escalation_id is not None
-    assert result.run.codex_packet_path is not None
-    assert len(router.calls) == 1
-    assert router.calls[0].invoke_codex is False
+    assert result.run.status == SupervisorStatus.NEEDS_EXTERNAL_CODER
+    assert result.run.external_coder_handoff_id is not None
+    assert result.run.external_coder_handoff_path is not None
+    assert len(generator.calls) == 1
+    # The handoff request model has no invocation affordance at all.
+    assert not hasattr(generator.calls[0], "invoke_codex")
     assert (
-        tmp_path / "runs" / "supervisors" / "supervisor_edit" / "codex_packet_ref.json"
+        tmp_path
+        / "runs"
+        / "supervisors"
+        / "supervisor_edit"
+        / "external_coder_handoff_ref.json"
     ).exists()
+    resume = (
+        tmp_path / "runs" / "supervisors" / "supervisor_edit" / "resume_prompt.txt"
+    ).read_text(encoding="utf-8")
+    assert "external_coder_invoked: False" in resume
+    assert "manually" in result.run.next_recommended_action
 
 
-def test_codex_invocation_flag_is_only_passed_when_enabled(tmp_path: Path) -> None:
-    router = FakeCodexRouter(CodexEscalationStatus.INVOKED, invoked=True)
-    manager = LocalSupervisorManager(
-        supervisors_dir=tmp_path / "runs" / "supervisors",
-        config=LocalSupervisorConfig(supervisor_codex_invocation_enabled=True),
-        command_runner=FakeCommandRunner(),
-        codex_router=router,
+def test_approval_required_handoff_maps_to_approval_status(tmp_path: Path) -> None:
+    generator = FakeHandoffGenerator(
+        ExternalCoderHandoffStatus.APPROVAL_REQUIRED, base_dir=tmp_path / "runs"
     )
+    manager = make_manager(tmp_path, generator=generator)
 
     result = manager.start_supervised_task(
         SupervisorTaskRequest(
-            supervisor_id="supervisor_invoke",
+            supervisor_id="supervisor_approval",
             objective="fix failing test",
             validation_commands=["git_status"],
         )
     )
 
-    assert router.calls[0].invoke_codex is True
-    assert result.run.codex_invoked is True
-    assert result.run.status == SupervisorStatus.COMPLETED
-    assert (
-        tmp_path
-        / "runs"
-        / "supervisors"
-        / "supervisor_invoke"
-        / "post_validation_results.json"
-    ).exists()
+    assert result.run.status == SupervisorStatus.APPROVAL_REQUIRED
+    assert "handoff" in result.run.next_recommended_action.lower()
 
 
-def test_policy_blocked_sensitive_task_stops_before_validation_and_codex(
+def test_blocked_handoff_maps_to_blocked_status(tmp_path: Path) -> None:
+    generator = FakeHandoffGenerator(
+        ExternalCoderHandoffStatus.BLOCKED, base_dir=tmp_path / "runs"
+    )
+    manager = make_manager(tmp_path, generator=generator)
+
+    result = manager.start_supervised_task(
+        SupervisorTaskRequest(
+            supervisor_id="supervisor_handoff_blocked",
+            objective="fix failing test",
+            validation_commands=["git_status"],
+        )
+    )
+
+    assert result.run.status == SupervisorStatus.BLOCKED
+
+
+def test_policy_blocked_sensitive_task_stops_before_validation_and_handoff(
     tmp_path: Path,
 ) -> None:
     runner = FakeCommandRunner()
-    router = FakeCodexRouter()
-    manager = make_manager(tmp_path, runner=runner, router=router)
+    generator = FakeHandoffGenerator(base_dir=tmp_path / "runs")
+    manager = make_manager(tmp_path, runner=runner, generator=generator)
 
     result = manager.start_supervised_task(
         SupervisorTaskRequest(
@@ -215,7 +229,7 @@ def test_policy_blocked_sensitive_task_stops_before_validation_and_codex(
     run_dir = tmp_path / "runs" / "supervisors" / "supervisor_blocked"
     assert result.run.status == SupervisorStatus.BLOCKED
     assert runner.calls == []
-    assert router.calls == []
+    assert generator.calls == []
     assert "REDACTED" in (run_dir / "result.json").read_text(encoding="utf-8")
     assert (
         "password"
@@ -261,6 +275,16 @@ def test_cancel_and_resume_are_status_oriented(tmp_path: Path) -> None:
     assert (
         tmp_path / "runs" / "supervisors" / "supervisor_cancel" / "pulse_manifest.json"
     ).exists()
+
+
+def test_legacy_codex_supervisor_statuses_remain_parseable() -> None:
+    for legacy in (
+        "codex_not_needed",
+        "codex_packet_ready",
+        "invoking_codex",
+        "validating_after_codex",
+    ):
+        assert SupervisorStatus(legacy).value == legacy
 
 
 def test_supervisor_package_introduces_no_pulsesender_browser_or_subprocess_imports() -> (

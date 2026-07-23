@@ -27,7 +27,7 @@ def generate_job_report(result: JobResult) -> JobReport:
             f"- Failure summary: {result.failure_summary}",
             f"- Recommended next action: {result.next_recommended_action}",
             f"- Question for ChatGPT: {question}",
-            "- Codex called: false",
+            "- External coder called: false",
             "- PulseSender sent: false/unknown",
             "",
         ]
@@ -53,7 +53,7 @@ def generate_job_report(result: JobResult) -> JobReport:
             f"failure_summary: {result.failure_summary}",
             f"recommended_next_action: {result.next_recommended_action}",
             f"question_for_chatgpt: {question}",
-            "codex_called: false",
+            "external_coder_called: false",
             "pulsesender_sent: false/unknown",
             "",
         ]

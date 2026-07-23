@@ -77,19 +77,19 @@ def test_explain_test_failure_uses_adapter() -> None:
     assert result.task_type == "explain_test_failure"
 
 
-def test_draft_codex_prompt_does_not_call_codex() -> None:
+def test_draft_external_coder_prompt_does_not_call_any_agent() -> None:
     adapter = FakeAdapter()
-    result = enabled_client(adapter).draft_codex_prompt("failure report")
+    result = enabled_client(adapter).draft_external_coder_prompt("failure report")
 
-    assert result.task_type == "draft_codex_prompt"
+    assert result.task_type == "draft_external_coder_prompt"
     assert result.content == "local answer"
 
 
-def test_decide_whether_codex_needed_returns_local_output_only() -> None:
+def test_decide_whether_external_coder_needed_returns_local_output_only() -> None:
     adapter = FakeAdapter()
-    result = enabled_client(adapter).decide_whether_codex_needed("needs edits?")
+    result = enabled_client(adapter).decide_whether_external_coder_needed("needs edits?")
 
-    assert result.task_type == "decide_whether_codex_needed"
+    assert result.task_type == "decide_whether_external_coder_needed"
     assert result.audit_event_id
 
 
@@ -119,7 +119,7 @@ def test_orchestrator_routes_summarize_pytest_output_when_enabled() -> None:
     assert result.routing_decision == RoutingDecision.LOCAL_ONLY
     assert result.local_model_result is not None
     assert result.local_model_result.task_type == "summarize_log"
-    assert result.audit_event.metadata["codex_called"] is False
+    assert result.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_orchestrator_does_not_route_edit_tasks_to_local_model() -> None:
@@ -133,7 +133,7 @@ def test_orchestrator_does_not_route_edit_tasks_to_local_model() -> None:
     assert adapter.calls == []
 
 
-def test_local_model_modules_do_not_execute_commands_or_call_codex() -> None:
+def test_local_model_modules_do_not_execute_commands_or_call_agents() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in [

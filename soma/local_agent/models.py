@@ -19,7 +19,7 @@ class LocalAgentTaskType(str, Enum):
     LONG_RUN_JOB = "long_run_job"
     MEMORY = "memory"
     POLICY = "policy"
-    CODEX_ROUTER = "codex_router"
+    EXTERNAL_CODER = "external_coder"
     SUPERVISOR = "supervisor"
     LOCAL_CODING = "local_coding"
     DASHBOARD = "dashboard"
@@ -29,7 +29,7 @@ class LocalAgentTaskType(str, Enum):
 
 class RoutingDecision(str, Enum):
     LOCAL_ONLY = "local_only"
-    CODEX_REQUIRED = "codex_required"
+    EXTERNAL_CODER_REQUIRED = "external_coder_required"
     BLOCKED = "blocked"
     NEEDS_HUMAN_APPROVAL = "needs_human_approval"
 
@@ -123,7 +123,7 @@ class LocalAgentResult(BaseModel):
     job_result: Any | None = None
     memory_result: Any | None = None
     policy_result: Any | None = None
-    codex_router_result: Any | None = None
+    external_coder_result: Any | None = None
     supervisor_result: Any | None = None
     local_coding_result: Any | None = None
     dashboard_result: Any | None = None

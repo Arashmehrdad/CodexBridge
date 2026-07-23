@@ -4,8 +4,8 @@ from .app import create_dashboard_app
 from .data_sources import get_dashboard_summary
 from .models import (
     DashboardApprovalSummary,
-    DashboardCodexEscalationSummary,
     DashboardCommandSummary,
+    DashboardExternalCoderHandoffSummary,
     DashboardHealthResult,
     DashboardJobSummary,
     DashboardLocalCodingSummary,
@@ -19,8 +19,8 @@ from .models import (
 
 __all__ = [
     "DashboardApprovalSummary",
-    "DashboardCodexEscalationSummary",
     "DashboardCommandSummary",
+    "DashboardExternalCoderHandoffSummary",
     "DashboardHealthResult",
     "DashboardJobSummary",
     "DashboardLocalCodingSummary",

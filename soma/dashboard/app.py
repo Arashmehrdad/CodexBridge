@@ -71,9 +71,9 @@ def create_dashboard_app(config: AppConfig | None = None):
     def api_approvals():
         return [item.to_dict() for item in summary().approvals]
 
-    @app.get("/api/codex-escalations")
-    def api_codex_escalations():
-        return [item.to_dict() for item in summary().codex_escalations]
+    @app.get("/api/external-coder-handoffs")
+    def api_external_coder_handoffs():
+        return [item.to_dict() for item in summary().external_coder_handoffs]
 
     @app.get("/api/return-loop")
     def api_return_loop():

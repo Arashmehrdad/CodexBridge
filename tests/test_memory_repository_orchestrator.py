@@ -70,7 +70,7 @@ def test_orchestrator_routes_explicit_memory_tasks(tmp_path: Path) -> None:
     assert remembered.routing_decision == RoutingDecision.LOCAL_ONLY
     assert remembered.memory_result["memory_type"] == "static_memory"
     assert search.memory_result["total"] == 1
-    assert remembered.audit_event.metadata["codex_called"] is False
+    assert remembered.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_orchestrator_continue_last_task_uses_memory_only(tmp_path: Path) -> None:

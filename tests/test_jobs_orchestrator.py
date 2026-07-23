@@ -53,7 +53,7 @@ def test_orchestrator_routes_explicit_long_job_start_status_and_cancel(
     assert start.job_result.job.status == JobStatus.RUNNING
     assert status.job_result.job.job_id == job_id
     assert cancel.job_result.status == JobStatus.CANCELLED
-    assert start.audit_event.metadata["codex_called"] is False
+    assert start.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_orchestrator_routes_generate_job_report(tmp_path: Path) -> None:

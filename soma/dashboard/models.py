@@ -51,8 +51,7 @@ class DashboardWorkflowSummary(DashboardItem):
 
 class DashboardSupervisorSummary(DashboardItem):
     source_kind: str = "supervisor"
-    codex_invoked: bool = False
-    codex_packet_path: Path | None = None
+    external_coder_handoff_path: Path | None = None
 
 
 class DashboardApprovalSummary(DashboardItem):
@@ -61,10 +60,11 @@ class DashboardApprovalSummary(DashboardItem):
     action_type: str = ""
 
 
-class DashboardCodexEscalationSummary(DashboardItem):
-    source_kind: str = "codex_escalation"
-    packet_path: Path | None = None
-    codex_invoked: bool = False
+class DashboardExternalCoderHandoffSummary(DashboardItem):
+    source_kind: str = "external_coder_handoff"
+    handoff_path: Path | None = None
+    prompt_path: Path | None = None
+    legacy_codex_escalation: bool = False
 
 
 class DashboardReturnLoopSummary(DashboardItem):
@@ -109,7 +109,7 @@ class DashboardSummary(BaseModel):
     workflows: list[DashboardWorkflowSummary] = Field(default_factory=list)
     supervisors: list[DashboardSupervisorSummary] = Field(default_factory=list)
     approvals: list[DashboardApprovalSummary] = Field(default_factory=list)
-    codex_escalations: list[DashboardCodexEscalationSummary] = Field(
+    external_coder_handoffs: list[DashboardExternalCoderHandoffSummary] = Field(
         default_factory=list
     )
     return_loop: list[DashboardReturnLoopSummary] = Field(default_factory=list)

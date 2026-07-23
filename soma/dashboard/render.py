@@ -23,7 +23,7 @@ def render_dashboard_html(summary: DashboardSummary) -> str:
             "Pending approvals",
             _lines([item for item in summary.approvals if item.status == "pending"]),
         ),
-        ("Codex escalations", _lines(summary.codex_escalations)),
+        ("External-coder handoffs", _lines(summary.external_coder_handoffs)),
         ("Return-loop / PulseSender readiness", _lines(summary.return_loop)),
         ("Local-coding previews/applications", _lines(summary.local_coding)),
         (

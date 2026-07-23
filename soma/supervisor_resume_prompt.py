@@ -60,7 +60,7 @@ def build_resume_prompt(supervisor: dict[str, Any], child_run_base_dir: Path) ->
     metadata = safe.get("metadata") or {}
     child_links = list(safe.get("run_links") or [])
     lines: list[str] = [
-        "You are Codex resuming a Soma supervisor context.",
+        "You are an external coding agent resuming a Soma supervisor context.",
         "",
         PULSESENDER_DELIVERY_NOTE,
         "",

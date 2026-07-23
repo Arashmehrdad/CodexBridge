@@ -78,7 +78,7 @@ def test_dashboard_api_routes_are_read_only(tmp_path: Path) -> None:
         "/api/workflows",
         "/api/supervisors",
         "/api/approvals",
-        "/api/codex-escalations",
+        "/api/external-coder-handoffs",
         "/api/return-loop",
         "/api/local-coding",
         "/api/memory",

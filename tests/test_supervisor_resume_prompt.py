@@ -36,7 +36,10 @@ def test_needs_input_prompt_includes_plan_result_and_artifact_references(
         supervisor("needs_input", {"plan_result": {"summary": "plan ready"}}),
         tmp_path / "runs",
     )
-    assert "You are Codex resuming a Soma supervisor context." in prompt
+    assert (
+        "You are an external coding agent resuming a Soma supervisor context."
+        in prompt
+    )
     assert "status: needs_input" in prompt
     assert f"plan: {RUN_ID}" in prompt
     assert str(tmp_path / "runs" / RUN_ID / "result.json") in prompt

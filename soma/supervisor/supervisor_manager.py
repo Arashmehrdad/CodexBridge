@@ -26,7 +26,7 @@ class LocalSupervisorManager:
         app_config: AppConfig | None = None,
         config_path: Path | None = None,
         job_manager: JobManager | None = None,
-        codex_router=None,
+        handoff_generator=None,
         memory_repository=None,
         local_model=None,
     ):
@@ -39,7 +39,7 @@ class LocalSupervisorManager:
             app_config=app_config,
             config_path=config_path,
             job_manager=job_manager,
-            codex_router=codex_router,
+            handoff_generator=handoff_generator,
             memory_repository=memory_repository,
             local_model=local_model,
         )

@@ -23,10 +23,10 @@ def test_repo_inspection_is_local_only_read_only() -> None:
     assert result.risk_level == RiskLevel.LOW
     assert result.status == TaskStatus.CLASSIFIED
     assert result.audit_event.metadata["commands_executed"] is False
-    assert result.audit_event.metadata["codex_called"] is False
+    assert result.audit_event.metadata["external_coder_invoked"] is False
 
 
-def test_inspect_project_tests_returns_structured_local_only_result_without_codex(
+def test_inspect_project_tests_returns_structured_local_only_result_without_external_coder(
     tmp_path: Path,
 ) -> None:
     result = LocalAgentOrchestrator().handle_task(
@@ -43,7 +43,7 @@ def test_inspect_project_tests_returns_structured_local_only_result_without_code
     assert payload["task_type"] == LocalAgentTaskType.LIST_TESTS.value
     assert payload["routing_decision"] == RoutingDecision.LOCAL_ONLY.value
     assert payload["permission_tier"] == PermissionTier.READ_ONLY.value
-    assert payload["audit_metadata"]["codex_called"] is False
+    assert payload["audit_metadata"]["external_coder_invoked"] is False
 
 
 def test_edit_refactor_fix_task_is_local_first() -> None:

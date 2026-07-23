@@ -719,22 +719,6 @@ class AutonomyConfig(BaseModel):
     autonomy_require_human_for_external_access: bool = True
 
 
-class CodexRouterConfig(BaseModel):
-    codex_router_enabled: bool = True
-    codex_router_invoke_enabled: bool = False
-    codex_router_max_context_bytes: int = Field(default=60000, ge=1000, le=1000000)
-    codex_router_max_file_bytes: int = Field(default=20000, ge=1, le=500000)
-    codex_router_max_log_bytes: int = Field(default=12000, ge=1, le=500000)
-    codex_router_default_validation_commands: list[str] = Field(
-        default_factory=lambda: ["pytest", "pip_check"]
-    )
-    codex_router_packet_dir: str | None = None
-    codex_router_use_local_model_summary: bool = True
-    codex_router_redact_sensitive: bool = True
-    codex_router_block_sensitive: bool = True
-    codex_router_require_policy_approval: bool = True
-
-
 class ExternalCoderConfig(BaseModel):
     """Bounded, provider-neutral external-coder handoff generation.
 
@@ -769,7 +753,6 @@ class LocalSupervisorConfig(BaseModel):
     supervisor_max_retries: int = 0
     supervisor_use_local_model_plan: bool = True
     supervisor_use_memory_context: bool = True
-    supervisor_codex_invocation_enabled: bool = False
     supervisor_generate_pulse_manifest: bool = True
     supervisor_max_report_bytes: int = Field(default=100000, ge=1, le=5000000)
     supervisor_max_resume_prompt_bytes: int = Field(default=20000, ge=1, le=1000000)
@@ -946,7 +929,6 @@ class AppConfig(BaseModel):
     return_loop: ReturnLoopConfig = Field(default_factory=ReturnLoopConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
-    codex_router: CodexRouterConfig = Field(default_factory=CodexRouterConfig)
     external_coder: ExternalCoderConfig = Field(default_factory=ExternalCoderConfig)
     local_supervisor: LocalSupervisorConfig = Field(
         default_factory=LocalSupervisorConfig
@@ -995,14 +977,6 @@ class AppConfig(BaseModel):
                 path = self.config_dir / path
             return path.resolve()
         return self.resolve_runs_dir() / "approvals"
-
-    def resolve_codex_router_packet_dir(self) -> Path:
-        if self.codex_router.codex_router_packet_dir:
-            path = Path(self.codex_router.codex_router_packet_dir)
-            if not path.is_absolute():
-                path = self.config_dir / path
-            return path.resolve()
-        return self.resolve_runs_dir() / "codex_escalations"
 
     def resolve_external_coder_handoff_dir(self) -> Path:
         if self.external_coder.external_coder_handoff_dir:

@@ -53,7 +53,7 @@ def test_local_agent_can_show_approve_and_deny_without_execution(
     assert shown.policy_result["approval_request_id"] == result.approval_request_id
     assert approved.policy_result["status"] == "approved"
     assert approved.command_result is None
-    assert approved.audit_event.metadata["codex_called"] is False
+    assert approved.audit_event.metadata["external_coder_invoked"] is False
 
 
 def test_local_agent_does_not_route_edit_tasks_through_policy_execution(

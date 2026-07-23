@@ -64,7 +64,7 @@ def test_job_reporter_writes_pulse_manifest_for_completed_job(tmp_path: Path) ->
         "question_for_chatgpt:",
     ):
         assert field in resume
-    assert "codex_called: false" in resume
+    assert "external_coder_called: false" in resume
     assert "pulsesender_sent: false/unknown" in resume
 
 

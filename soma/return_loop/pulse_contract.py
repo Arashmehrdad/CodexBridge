@@ -26,6 +26,8 @@ READY_SOURCE_STATUSES = {
     "reported",
     "blocked",
     "approval_required",
+    "needs_external_coder",
+    # Legacy status kept readable for historical supervisor manifests.
     "codex_packet_ready",
 }
 

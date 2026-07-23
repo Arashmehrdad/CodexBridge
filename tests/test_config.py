@@ -129,13 +129,12 @@ def test_config_defaults_to_permissive_supervisor_profile(tmp_path: Path) -> Non
     )
     assert config.autonomy.autonomy_enabled is True
     assert config.autonomy.autonomy_default_profile == "balanced"
-    assert config.codex.enabled is True
     assert config.resolve_approval_store_path() == tmp_path / "runs" / "approvals"
-    assert config.codex_router.codex_router_enabled is True
-    assert config.codex_router.codex_router_invoke_enabled is False
+    assert config.external_coder.external_coder_handoff_enabled is True
+    assert config.external_coder.external_coder_require_policy_approval is True
     assert (
-        config.resolve_codex_router_packet_dir()
-        == tmp_path / "runs" / "codex_escalations"
+        config.resolve_external_coder_handoff_dir()
+        == tmp_path / "runs" / "external_coder_handoffs"
     )
 
 

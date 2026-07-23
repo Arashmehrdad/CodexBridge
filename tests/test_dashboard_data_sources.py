@@ -90,12 +90,21 @@ def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
             "created_at": "2026-01-04T00:00:00Z",
         },
     )
+    # Legacy Codex escalation packet: must stay readable, never re-created.
     write_json(
         runs / "codex_escalations" / "codex1" / "packet.json",
         {
             "escalation_id": "codex1",
             "objective": "fix failing test",
             "created_at": "2026-01-05T00:00:00Z",
+        },
+    )
+    write_json(
+        runs / "external_coder_handoffs" / "handoff1" / "handoff.json",
+        {
+            "handoff_id": "handoff1",
+            "objective": "fix failing test",
+            "created_at": "2026-01-05T01:00:00Z",
         },
     )
     write_json(
@@ -129,7 +138,14 @@ def test_dashboard_collects_known_artifacts(tmp_path: Path) -> None:
     assert summary.workflows[0].step_states == ["one:passed", "two:failed"]
     assert summary.supervisors[0].id == "sup1"
     assert summary.approvals[0].id == "approval1"
-    assert summary.codex_escalations[0].id == "codex1"
+    assert {item.id for item in summary.external_coder_handoffs} == {
+        "codex1",
+        "handoff1",
+    }
+    legacy = next(
+        item for item in summary.external_coder_handoffs if item.id == "codex1"
+    )
+    assert legacy.legacy_codex_escalation is True
     assert summary.return_loop[0].readiness == "acknowledged"
     assert summary.local_coding[0].id == "edit1"
     assert summary.repo_status.latest_git_status_artifact is not None

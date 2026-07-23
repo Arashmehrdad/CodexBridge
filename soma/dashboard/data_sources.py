@@ -9,8 +9,8 @@ from soma.memory.redaction import detect_sensitivity, redact_sensitive_text
 
 from .models import (
     DashboardApprovalSummary,
-    DashboardCodexEscalationSummary,
     DashboardCommandSummary,
+    DashboardExternalCoderHandoffSummary,
     DashboardHealthResult,
     DashboardItem,
     DashboardJobSummary,
@@ -56,8 +56,11 @@ def get_dashboard_summary(
         approvals=_bounded(
             _collect_approvals(runs_dir, limit, max_file_bytes, errors), limit
         ),
-        codex_escalations=_bounded(
-            _collect_codex_escalations(runs_dir, limit, max_file_bytes, errors), limit
+        external_coder_handoffs=_bounded(
+            _collect_external_coder_handoffs(
+                runs_dir, limit, max_file_bytes, errors
+            ),
+            limit,
         ),
         return_loop=_bounded(
             _collect_return_loop(runs_dir, limit, max_file_bytes, errors), limit
@@ -91,6 +94,7 @@ def _collect_root_runs(
                 "local_agent",
                 "local_coding",
                 "codex_escalations",
+                "external_coder_handoffs",
             }
             for part in path.relative_to(runs_dir).parts
         ):
@@ -124,6 +128,7 @@ def _collect_root_runs(
                 "local_agent",
                 "local_coding",
                 "codex_escalations",
+                "external_coder_handoffs",
             }
             for part in path.relative_to(runs_dir).parts
         ):
@@ -301,8 +306,11 @@ def _collect_supervisors(
                 next_recommended_action=_safe_text(
                     str(data.get("next_recommended_action") or "")
                 ),
-                codex_invoked=bool(data.get("codex_invoked")),
-                codex_packet_path=_path_or_none(data.get("codex_packet_path")),
+                external_coder_handoff_path=_path_or_none(
+                    data.get("external_coder_handoff_path")
+                    # Legacy field from historical Codex-era supervisor records.
+                    or data.get("codex_packet_path")
+                ),
             )
         )
     return _sort_items(items)
@@ -335,31 +343,55 @@ def _collect_approvals(
     return _sort_items(items)
 
 
-def _collect_codex_escalations(
+def _collect_external_coder_handoffs(
     runs_dir: Path, limit: int, max_file_bytes: int, errors: list[str]
-) -> list[DashboardCodexEscalationSummary]:
+) -> list[DashboardExternalCoderHandoffSummary]:
     items = []
+    for path in _safe_glob(
+        runs_dir / "external_coder_handoffs",
+        "*/handoff.json",
+        limit,
+        max_file_bytes,
+        errors,
+    ):
+        data = _read_json(path, runs_dir, max_file_bytes, errors)
+        if data is None:
+            continue
+        prompt_path = path.parent / "prompt.txt"
+        items.append(
+            DashboardExternalCoderHandoffSummary(
+                id=str(data.get("handoff_id") or path.parent.name),
+                status="handoff_ready",
+                created_at=str(data.get("created_at") or ""),
+                repo_name=data.get("repo_name"),
+                repo_path=_path_or_none(data.get("repo_path")),
+                artifact_path=path,
+                summary=_safe_text(str(data.get("objective") or "")),
+                handoff_path=path,
+                prompt_path=prompt_path if prompt_path.exists() else None,
+            )
+        )
+    # Historical Codex escalation packets stay readable as legacy handoffs;
+    # no new packets are ever produced under this directory.
     for path in _safe_glob(
         runs_dir / "codex_escalations", "*/packet.json", limit, max_file_bytes, errors
     ):
         data = _read_json(path, runs_dir, max_file_bytes, errors)
         if data is None:
             continue
-        result_path = path.parent / "codex_result.json"
-        invocation_path = path.parent / "codex_invocation.json"
+        prompt_path = path.parent / "prompt.txt"
         items.append(
-            DashboardCodexEscalationSummary(
+            DashboardExternalCoderHandoffSummary(
                 id=str(data.get("escalation_id") or path.parent.name),
-                status="invoked"
-                if result_path.exists() or invocation_path.exists()
-                else "packet_ready",
+                status="legacy_codex_escalation",
                 created_at=str(data.get("created_at") or ""),
                 repo_name=data.get("repo_name"),
                 repo_path=_path_or_none(data.get("repo_path")),
                 artifact_path=path,
                 summary=_safe_text(str(data.get("objective") or "")),
-                packet_path=path,
-                codex_invoked=result_path.exists() or invocation_path.exists(),
+                handoff_path=path,
+                prompt_path=prompt_path if prompt_path.exists() else None,
+                legacy_codex_escalation=True,
             )
         )
     return _sort_items(items)

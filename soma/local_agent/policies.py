@@ -32,7 +32,7 @@ def apply_policy(task_type: LocalAgentTaskType, objective: str) -> PolicyDecisio
         LocalAgentTaskType.LONG_RUN_JOB,
         LocalAgentTaskType.MEMORY,
         LocalAgentTaskType.POLICY,
-        LocalAgentTaskType.CODEX_ROUTER,
+        LocalAgentTaskType.EXTERNAL_CODER,
         LocalAgentTaskType.SUPERVISOR,
         LocalAgentTaskType.LOCAL_CODING,
         LocalAgentTaskType.DASHBOARD,
@@ -64,7 +64,7 @@ def apply_policy(task_type: LocalAgentTaskType, objective: str) -> PolicyDecisio
             risk_level=RiskLevel.MEDIUM,
             status=TaskStatus.CLASSIFIED,
             accepted=True,
-            reason="Source-changing work is handled locally first; Codex is used only after local options are insufficient.",
+            reason="Source-changing work is handled locally first; an external-coder handoff is generated only after local options are insufficient.",
         )
 
     if _looks_blocked(text):

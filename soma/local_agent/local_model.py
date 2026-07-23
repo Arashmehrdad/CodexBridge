@@ -71,20 +71,22 @@ class LocalModelClient:
             **overrides,
         )
 
-    def draft_codex_prompt(self, context: str, **overrides: Any) -> LocalModelResult:
+    def draft_external_coder_prompt(
+        self, context: str, **overrides: Any
+    ) -> LocalModelResult:
         return self._call(
-            "draft_codex_prompt",
-            "Draft a compact prompt packet for a future Codex coding task. Do not claim to run Codex or edit files.",
+            "draft_external_coder_prompt",
+            "Draft a compact handoff prompt for a future external-coder task. Do not claim to run any coding agent or edit files.",
             context,
             **overrides,
         )
 
-    def decide_whether_codex_needed(
+    def decide_whether_external_coder_needed(
         self, context: str, **overrides: Any
     ) -> LocalModelResult:
         return self._call(
-            "decide_whether_codex_needed",
-            "Decide whether this task likely needs Codex later. Return reasoning only; do not route or execute anything.",
+            "decide_whether_external_coder_needed",
+            "Decide whether this task likely needs an external coding agent later. Return reasoning only; do not route or execute anything.",
             context,
             **overrides,
         )

@@ -6,7 +6,10 @@ from soma.jobs.long_run_manager import LongRunJobManager
 from soma.jobs.models import JobStatus
 from soma.config import AppConfig
 from soma.job_manager import JobManager
-from soma.codex_router import CodexEscalationRequest, CodexEscalationRouter
+from soma.external_coder import (
+    ExternalCoderHandoffGenerator,
+    ExternalCoderHandoffRequest,
+)
 from soma.memory.importers import import_runs
 from soma.memory.repository import ProjectMemoryRepository
 from soma.policy import PolicyEngine, PolicyEvaluationRequest
@@ -61,8 +64,8 @@ def classify_task(objective: str) -> LocalAgentTaskType:
         return LocalAgentTaskType.RISKY_ACTION
     if _policy_action_for_objective(objective)[0] is not None:
         return LocalAgentTaskType.POLICY
-    if _codex_router_action_for_objective(objective)[0] is not None:
-        return LocalAgentTaskType.CODEX_ROUTER
+    if _external_coder_action_for_objective(objective)[0] is not None:
+        return LocalAgentTaskType.EXTERNAL_CODER
     if _supervisor_action_for_objective(objective)[0] is not None:
         return LocalAgentTaskType.SUPERVISOR
     if _local_coding_action_for_objective(objective)[0] is not None:
@@ -126,7 +129,7 @@ class LocalAgentOrchestrator:
         job_manager: LongRunJobManager | None = None,
         memory_repository: ProjectMemoryRepository | None = None,
         policy_engine: PolicyEngine | None = None,
-        codex_router: CodexEscalationRouter | None = None,
+        handoff_generator: ExternalCoderHandoffGenerator | None = None,
         supervisor_manager: LocalSupervisorManager | None = None,
         local_coding_manager: LocalCodingManager | None = None,
         dashboard_runs_dir: Path | None = None,
@@ -145,7 +148,7 @@ class LocalAgentOrchestrator:
         self.job_manager = job_manager or LongRunJobManager()
         self.memory_repository = memory_repository
         self.policy_engine = policy_engine
-        self.codex_router = codex_router
+        self.handoff_generator = handoff_generator
         self.supervisor_manager = supervisor_manager
         self.local_coding_manager = local_coding_manager
         self.dashboard_runs_dir = dashboard_runs_dir
@@ -173,7 +176,7 @@ class LocalAgentOrchestrator:
         job_result = None
         memory_result = None
         policy_result = None
-        codex_router_result = None
+        external_coder_result = None
         supervisor_result = None
         local_coding_result = None
         dashboard_result = None
@@ -234,14 +237,16 @@ class LocalAgentOrchestrator:
             policy_result = self._handle_policy_action(
                 policy_action, policy_value, task
             )
-        codex_action, codex_value = _codex_router_action_for_objective(task.objective)
+        external_coder_action, external_coder_value = (
+            _external_coder_action_for_objective(task.objective)
+        )
         if (
-            codex_action is not None
+            external_coder_action is not None
             and decision.accepted
-            and task.task_type == LocalAgentTaskType.CODEX_ROUTER
+            and task.task_type == LocalAgentTaskType.EXTERNAL_CODER
         ):
-            codex_router_result = self._handle_codex_router_action(
-                codex_action, codex_value, task
+            external_coder_result = self._handle_external_coder_action(
+                external_coder_action, external_coder_value, task
             )
         supervisor_action, supervisor_value = _supervisor_action_for_objective(
             task.objective
@@ -293,7 +298,7 @@ class LocalAgentOrchestrator:
                     CommandRunStatus.PERMISSION_DENIED,
                     CommandRunStatus.REPO_MISSING,
                 },
-                "codex_called": False,
+                "external_coder_invoked": False,
                 "command_id": command_id,
                 "command_run_id": command_result.run_id if command_result else None,
                 "local_model_called": local_model_result is not None
@@ -308,8 +313,8 @@ class LocalAgentOrchestrator:
                 "memory_called": memory_result is not None,
                 "policy_action": policy_action,
                 "policy_called": policy_result is not None,
-                "codex_router_action": codex_action,
-                "codex_router_called": codex_router_result is not None,
+                "external_coder_action": external_coder_action,
+                "external_coder_called": external_coder_result is not None,
                 "supervisor_action": supervisor_action,
                 "supervisor_called": supervisor_result is not None,
                 "local_coding_action": local_coding_action,
@@ -370,7 +375,7 @@ class LocalAgentOrchestrator:
             job_result=job_result,
             memory_result=memory_result,
             policy_result=policy_result,
-            codex_router_result=codex_router_result,
+            external_coder_result=external_coder_result,
             supervisor_result=supervisor_result,
             local_coding_result=local_coding_result,
             dashboard_result=dashboard_result,
@@ -444,18 +449,17 @@ class LocalAgentOrchestrator:
             ).model_dump(mode="json")
         return None
 
-    def _handle_codex_router_action(
+    def _handle_external_coder_action(
         self, action: str, value: str, task: LocalAgentTask
     ):
-        router = self.codex_router or CodexEscalationRouter()
-        if action in {"prepare", "escalate", "route", "explain"}:
-            return router.route_escalation(
-                CodexEscalationRequest(
+        generator = self.handoff_generator or ExternalCoderHandoffGenerator()
+        if action in {"prepare", "route", "explain"}:
+            return generator.generate_handoff(
+                ExternalCoderHandoffRequest(
                     objective=value,
-                    task_type="codex_escalation",
+                    task_type="external_coder_handoff",
                     repo_name=task.repo_name,
                     repo_path=task.repo_path,
-                    invoke_codex=action == "escalate",
                 )
             ).to_dict()
         return None
@@ -583,17 +587,19 @@ def _local_model_task_for_objective(objective: str) -> str | None:
         ("explain this failure", "explain this test failure", "explain test failure"),
     ):
         return "explain_test_failure"
-    if _contains_any(text, ("draft a codex prompt", "draft codex prompt")):
-        return "draft_codex_prompt"
+    if _contains_any(
+        text, ("draft an external coder prompt", "draft external coder prompt")
+    ):
+        return "draft_external_coder_prompt"
     if _contains_any(
         text,
         (
-            "decide whether this needs codex",
-            "decide if this needs codex",
-            "whether codex needed",
+            "decide whether this needs an external coder",
+            "decide if this needs an external coder",
+            "whether an external coder is needed",
         ),
     ):
-        return "decide_whether_codex_needed"
+        return "decide_whether_external_coder_needed"
     return None
 
 
@@ -659,14 +665,14 @@ def _policy_action_for_objective(objective: str) -> tuple[str | None, str]:
     return None, ""
 
 
-def _codex_router_action_for_objective(objective: str) -> tuple[str | None, str]:
+def _external_coder_action_for_objective(objective: str) -> tuple[str | None, str]:
     text = objective.strip()
     lowered = text.lower()
     prefixes = {
-        "prepare codex packet:": "prepare",
-        "escalate to codex:": "escalate",
-        "route task for codex:": "route",
-        "explain why codex was/was not needed:": "explain",
+        "prepare external coder handoff:": "prepare",
+        "generate external coder handoff:": "prepare",
+        "route task for external coder:": "route",
+        "explain why an external coder was/was not needed:": "explain",
     }
     for prefix, action in prefixes.items():
         if lowered.startswith(prefix):

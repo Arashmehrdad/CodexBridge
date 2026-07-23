@@ -13,17 +13,21 @@ class SupervisorStatus(str, Enum):
     INSPECTING = "inspecting"
     PLANNING = "planning"
     VALIDATING_LOCALLY = "validating_locally"
-    CODEX_NOT_NEEDED = "codex_not_needed"
-    CODEX_PACKET_READY = "codex_packet_ready"
+    NEEDS_EXTERNAL_CODER = "needs_external_coder"
     APPROVAL_REQUIRED = "approval_required"
-    INVOKING_CODEX = "invoking_codex"
-    VALIDATING_AFTER_CODEX = "validating_after_codex"
     COMPLETED = "completed"
     FAILED = "failed"
     BLOCKED = "blocked"
     NEEDS_INPUT = "needs_input"
     CANCELLED = "cancelled"
     REPORTED = "reported"
+    # Legacy read-only values retained so historical supervisor records
+    # remain parseable. New runs never produce them; Soma no longer
+    # integrates or invokes Codex.
+    CODEX_NOT_NEEDED = "codex_not_needed"
+    CODEX_PACKET_READY = "codex_packet_ready"
+    INVOKING_CODEX = "invoking_codex"
+    VALIDATING_AFTER_CODEX = "validating_after_codex"
 
 
 class SupervisorTaskRequest(BaseModel):
@@ -45,7 +49,7 @@ class SupervisorStep(BaseModel):
 class SupervisorPlan(BaseModel):
     objective: str
     likely_task_type: str
-    codex_required: bool
+    external_coder_required: bool
     validation_steps: list[str] = Field(default_factory=list)
     expected_files: list[str] = Field(default_factory=list)
     policy_considerations: list[str] = Field(default_factory=list)
@@ -54,7 +58,7 @@ class SupervisorPlan(BaseModel):
 
 
 class SupervisorDecision(BaseModel):
-    codex_needed: bool
+    external_coder_needed: bool
     status: SupervisorStatus
     reasons: list[str] = Field(default_factory=list)
 
@@ -89,6 +93,11 @@ class SupervisorRun(BaseModel):
     validation_results: list[dict[str, Any]] = Field(default_factory=list)
     memory_context_ids: list[str] = Field(default_factory=list)
     policy_summary: dict[str, Any] = Field(default_factory=dict)
+    external_coder_handoff_id: str | None = None
+    external_coder_handoff_path: Path | None = None
+    external_coder_prompt_path: Path | None = None
+    # Legacy read-only fields retained so historical supervisor records
+    # remain parseable; new runs never populate them.
     codex_escalation_id: str | None = None
     codex_packet_path: Path | None = None
     codex_invoked: bool = False
