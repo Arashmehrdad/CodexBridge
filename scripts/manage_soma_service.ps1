@@ -509,25 +509,6 @@ function Test-SomaConfig {
     Write-Success "Configuration validated: $ConfigPath"
 }
 
-function Get-CodexConfiguration {
-    $result = [ordered]@{ Executable = ""; Model = "" }
-    $insideCodex = $false
-    foreach ($line in Get-Content -LiteralPath $ConfigPath) {
-        if ($line -match '^codex:\s*$') {
-            $insideCodex = $true
-            continue
-        }
-        if ($insideCodex -and $line -match '^\S') { break }
-        if ($insideCodex -and $line -match '^\s+executable:\s*["'']?(?<value>.*?)["'']?\s*$') {
-            $result.Executable = $Matches.value
-        }
-        if ($insideCodex -and $line -match '^\s+model:\s*["'']?(?<value>.*?)["'']?\s*$') {
-            $result.Model = $Matches.value
-        }
-    }
-    return [pscustomobject]$result
-}
-
 function Get-SupervisorProfileConfiguration {
     if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
         throw "Config file not found: $ConfigPath"
@@ -721,16 +702,6 @@ function Show-Diagnostics {
     Write-Host "  Log directory:      $LogDirectory"
     Write-Host "  Server PID file:    $ServerPidFile"
     Write-Host "  Tunnel PID file:    $TunnelPidFile"
-
-    $codex = Get-CodexConfiguration
-    Write-Host "  Codex executable:   $($codex.Executable)"
-    Write-Host "  Codex model:        $($codex.Model)"
-    if ($codex.Executable -and (Test-Path -LiteralPath $codex.Executable -PathType Leaf)) {
-        $version = (& $codex.Executable --version 2>&1 | Out-String).Trim()
-        Write-Host "  Codex version:      $version"
-    } else {
-        Write-WarningMessage "Configured Codex executable is missing or unresolved."
-    }
 
     $listener = Get-ListenerOwner
     if ($listener) {
