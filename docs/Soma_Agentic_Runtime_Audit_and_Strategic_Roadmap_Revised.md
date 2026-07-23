@@ -1,350 +1,428 @@
-# Soma — ChatGPT Agentic Runtime Audit and Strategic Roadmap
+# Soma — Agentic Runtime Audit and Strategic Roadmap (Revised)
 
-## Status of this document
+## Status, authority, and current baseline
 
-This document is a **strategic architecture and implementation roadmap**, not a claim that the described end state already exists.
+This document is a **strategic architecture and implementation roadmap**. It describes the intended direction of Soma and the ordered migration path; it is not proof that every described capability already exists.
 
-It refines the prior Codex-generated audit by:
+This revision consolidates:
 
-- preserving the correct “ChatGPT as the reasoning interface, Soma as the agent runtime” architecture;
-- separating unrestricted execution from network exposure;
-- making the private tunnel or loopback boundary explicit;
-- keeping Windows as the first implementation target while preserving a portable core;
-- removing coding-agent execution entirely: Soma generates provider-neutral external-coder handoffs for manual use instead of invoking any coding agent;
-- removing unused or duplicate systems only after their useful behavior has migrated;
-- requiring focused tests and acceptance evidence for implementation even though the original audit could not run them;
-- retaining CF1 as the sole active engineering lane until its exit gate passes.
+- the live repository audit;
+- the completed CF1 evidence and cross-client MCP transport fix;
+- the independent Claude architecture audit;
+- the ecosystem and third-party integration research;
+- the Apache-2.0 compatibility review;
+- the live repository-wiki investigation;
+- owner corrections and accepted product decisions.
 
-All repository-specific claims, counts, live-service observations, and implementation details must be refreshed against the current branch, HEAD, active durable runs, worktree, service build, and connector schema before this roadmap is merged into the canonical repository plan.
+Arash is the owner and final decision-maker for scope, risk acceptance, security posture, integrations, and roadmap priority. Audits and research reports are evidence and recommendations, not authority. Where this roadmap conflicts with a later explicit owner instruction or `AGENTS.md`, the later owner instruction and `AGENTS.md` take precedence.
+
+### Current verified baseline at this revision
+
+- Branch: `feature/domain-tool-gateway-migration`
+- Verified HEAD during the revision: `33623c404477165c07e9cc914cac46b365ee4d7a`
+- CF1 implementation and acceptance: **complete**
+- Cross-client MCP compatibility: **fixed**
+- CF1 remaining work: documentation reconciliation only
+- Active implementation lane: whichever bounded post-CF1 batch Arash explicitly selects
+- Recommended next implementation lane: **Phase 1 — Canonical task plane**, but this document does not activate it automatically
+
+The repository and service continue to evolve. Before implementing any phase, re-run preflight, inspect the live branch and worktree, verify the running service build and schemas, and re-check any external project whose licence or architecture could have changed.
 
 ---
 
 ## 1. Product definition
 
-Soma is not merely a remote command runner and not a clone of the Codex or Hermes user interfaces.
+Soma is a local, durable, model-independent agent runtime and engineering control plane.
 
-The intended product is:
+Its purpose is:
 
-> **A headless, owner-trusted, model-independent agent runtime and control plane whose primary reasoning client and user interface is ChatGPT.**
+> **To let the owner use the best available conversational controller, coding specialist, operational agent, or model while Soma preserves durable execution, tools, evidence, repository knowledge, memory, and continuity underneath them.**
 
-ChatGPT remains responsible for:
+ChatGPT is currently the preferred conversational interface for Arash because it carries the long-running personal and project context. That preference is a user-experience choice, not an architectural privilege.
 
-- conversation;
-- general reasoning;
-- planning;
-- judgment;
-- supervision;
-- deciding when more evidence is needed;
-- deciding when work should continue, pause, retry, branch, or stop;
-- synthesizing results from tools and delegated workers.
+A connected controller may be:
 
-Soma provides the infrastructure beneath ChatGPT:
+- ChatGPT;
+- Claude;
+- Hermes;
+- another MCP-capable assistant;
+- a future local or remote controller.
 
-- unrestricted host execution;
-- full computer and filesystem control;
-- native capabilities;
-- Hermes and external MCP capabilities;
-- skills and context retrieval;
-- durable long-running tasks;
-- workflows and schedules;
-- child-task delegation and parallel execution;
-- restart recovery;
-- exact cancellation;
-- memory and evidence;
-- browser and desktop control;
-- observability and compact result delivery.
+A specialised worker may be:
 
-Phone, browser, desktop, and future ChatGPT clients are interchangeable access surfaces. Remote continuity is important, but it is one capability among many and not the organizing architecture.
+- a native Soma executor;
+- Hermes;
+- an external MCP server;
+- a browser worker;
+- a repository-intelligence sidecar;
+- a future coding-agent runtime;
+- another replaceable provider.
+
+Soma supplies:
+
+- canonical task and run identity;
+- durable execution, leases, recovery, cancellation, and reconciliation;
+- repository inspection and managed mutation;
+- local and remote host execution;
+- provider discovery and invocation;
+- skills and deterministic context;
+- memory and repository knowledge;
+- evidence, artifacts, hashes, and result publication;
+- workflows, delegation, scheduling, and return delivery;
+- browser, desktop, and multimodal capability providers;
+- compact progressive disclosure for connected clients.
 
 ### Target relationship
 
 ```text
-ChatGPT
-  reasoning + planning + supervision + user interaction
-        |
-        v
-Compact Soma control protocol
-        |
-        v
-Soma agent runtime
-  tasks + capabilities + skills + memory + workflows
-  delegation + scheduling + computer control + evidence
-        |
-        v
-Local and remote execution environments
+Connected controllers
+ChatGPT / Claude / Hermes / future clients
+                    |
+                    v
+          Compact MCP control surface
+                    |
+                    v
++--------------------------------------------------+
+| Soma application container                      |
+|                                                  |
+| Canonical task plane                             |
+| Capability broker                               |
+| Execution backends                              |
+| Context and memory service                       |
+| Evidence and artifact service                    |
+| Repository knowledge service                     |
+| Scheduler and delivery outbox                    |
++--------------------------------------------------+
+             |                         |
+             v                         v
+   Native capability providers      Worker runtimes
+   repo / shell / SSH / Docker      local / remote
+   Cloudflare / Trading / browser   Hermes / browser
+   future domain providers          future agents
 ```
 
-Soma must not introduce a competing general-purpose reasoning model or a second primary user interface.
+Soma must not become tied to one model vendor, one conversation history, one coding tool, or one external agent framework.
+
+### Controller versus worker distinction
+
+A coding agent may connect to Soma as the active MCP client and use Soma’s tools directly. That is different from Soma launching and supervising a coding-agent process.
+
+Soma does not currently launch Codex, Claude Code, Gemini CLI, or another coding agent as a worker. Provider-neutral manual handoff remains the current fallback. A future coding-worker adapter may be added only as an explicitly selected roadmap batch and must obey the same canonical task, evidence, lease, cancellation, and provider contracts as every other worker.
 
 ---
 
 ## 2. Trust and security model
 
-### 2.1 Owner-trusted execution
+### 2.1 Owner-trusted unrestricted execution
 
-Soma is intentionally unrestricted after a trusted connection reaches it.
+Soma is intentionally an unrestricted owner-controlled execution service after a trusted connection reaches it.
 
-It should not contain:
+It does not require:
 
 - per-command approval prompts;
-- artificial autonomy tiers;
-- executable allowlists;
-- sandbox requirements;
-- separate approval records for ordinary execution;
-- confirmation phrases used as pseudo-permission barriers;
-- automatic denials based on program name or command category.
+- permission tiers as execution gates;
+- autonomy profiles as execution gates;
+- executable allowlists as user-permission barriers;
+- confirmation phrases used as pseudo-permissions;
+- model-specific approval records for ordinary execution;
+- automatic denial based only on program name or command category.
 
-Correctness controls remain mandatory:
+Do not reintroduce those mechanisms through a framework integration, workflow engine, gateway, or audit recommendation unless Arash explicitly changes the decision.
 
-- content hashes;
+### 2.2 Correctness and durability controls remain mandatory
+
+Removing permission machinery does not remove engineering controls. Soma must preserve:
+
+- exact request and executable identity;
+- content hashes and immutable evidence references;
 - idempotency;
 - resource leases;
 - stale-version detection;
-- exact process identity;
+- compare-and-set transitions;
+- exact process and process-start identity;
 - cancellation scoping;
+- repository and worktree isolation;
+- atomic result publication;
 - mutation reconciliation;
-- repository/worktree isolation;
 - artifact provenance;
-- deterministic rollback or uncertainty reporting.
+- rollback evidence;
+- uncertainty reporting;
+- secret redaction from public projections.
 
-These are correctness and durability mechanisms, not user-permission gates.
+These mechanisms protect correctness and recoverability. They are not user-permission gates.
 
-### 2.2 Network trust boundary
+### 2.3 Network boundary
 
-Unrestricted execution does **not** mean unrestricted network exposure.
+The unrestricted runtime must remain behind an owner-controlled network boundary.
 
-The deployment invariant is:
-
-> Soma is reachable only through loopback, an authenticated private tunnel, or an equivalent owner-controlled network boundary.
-
-Soma may remain application-layer unauthenticated inside that trusted boundary, but documentation and deployment checks must clearly state:
-
-- never expose the MCP/control endpoint directly to the public internet;
-- bind to loopback by default;
-- remote access must pass through the owner’s private tunnel or equivalent protected channel;
-- connector identity and transport metadata are correlation data, not an internal permission system.
-
-The private tunnel is the security perimeter. Soma is the unrestricted owner-controlled execution service behind it.
+- Bind to loopback by default.
+- Never expose the unrestricted MCP or execution endpoint directly to the public internet.
+- Remote access must use an authenticated private tunnel or equivalent owner-controlled transport.
+- Connector and client identity may support correlation, continuity, and ownership, but must not recreate the removed approval system.
+- External sidecars and providers must follow the same private-boundary rule unless their own exposure is explicitly designed and reviewed.
 
 ---
 
 ## 3. Governing architectural principles
 
-1. **ChatGPT is the sole general reasoning and supervision layer.**
-2. **Soma is headless infrastructure, not a second assistant application.**
-3. **The durable execution kernel is an asset to evolve, not replace.**
-4. **Every public response is compact by default and exact evidence remains retrievable.**
-5. **Every side effect has durable identity, evidence, cancellation semantics, and reconciliation behavior.**
-6. **No general capability requires a configured Git repository.**
-7. **Native tools, Hermes, MCP servers, and future runtimes appear through one capability model.**
-8. **No coding agent is ever executed by Soma: coding work leaves through a provider-neutral external-coder handoff that the owner supplies manually to Claude Code, Codex, Gemini CLI, or another tool.**
-9. **Legacy systems are removed only after their useful semantics have migrated and passed acceptance.**
-10. **Windows is the first production target; the core is designed for later Linux and macOS adapters.**
-11. **No implementation phase is complete without focused tests and observable acceptance evidence.**
-12. **The roadmap is migrated incrementally; no all-at-once rewrite of durable state.**
+1. **Controller neutrality.** ChatGPT, Claude, Hermes, and future clients use the same durable contracts.
+2. **Integrate before rebuilding.** Prefer proven libraries, services, MCP servers, and provider adapters when they save meaningful implementation and maintenance effort.
+3. **Soma keeps canonical authority.** External tools must not silently become the public source of truth for tasks, evidence, memory policy, repository identity, or lifecycle state.
+4. **The existing durable kernel is an asset.** Consolidate and abstract it before considering replacement.
+5. **One canonical task plane.** Every executor maps into one public task identity and command model.
+6. **One authoritative resource-lock and lease model.** Do not add independent lock systems.
+7. **One process-level application container.** Stores, managers, providers, routers, platform adapters, and telemetry are created once and injected.
+8. **Typed provider and worker boundaries.** Kernel-to-worker communication uses versioned schemas rather than implementation-object coupling.
+9. **Progressive disclosure by default.** Preserve authoritative detail once; return only the compact useful projection until exact evidence is requested.
+10. **Inline reads, durable writes.** Fast bounded reads may return immediately; long-running or mutating work returns a canonical task identity.
+11. **Windows first, portable core.** Windows is the first production target; task, evidence, capability, and scheduler schemas remain platform-neutral.
+12. **No big-bang migration.** Add replacement contracts, adapt old systems, prove acceptance, then remove obsolete paths.
+13. **Small external pilots.** External components enter through reversible, measured pilots before promotion.
+14. **Licensing is an architecture constraint.** Soma targets Apache-2.0 and must preserve compatible distribution boundaries.
+15. **Audits do not overrule the owner.** A recommendation becomes direction only after owner acceptance.
+16. **Documentation preserves achievements.** Completed milestones and historical evidence are retained instead of being erased from an active plan.
 
 ---
 
 ## 4. Audit verdict
 
-Soma has already outgrown its original “bridge” framing. Its strongest foundation is durable execution:
+### 4.1 Confirmed strengths
 
-- persist-before-launch semantics;
-- launcher, worker, and child process identity;
-- leases and heartbeats;
-- exact cancellation work;
-- restart reconciliation;
-- repository locks;
+Soma already has substantial proven infrastructure:
+
+- persist-before-launch durable runs;
+- launcher, worker, and child-process identity;
+- leases, heartbeats, cancellation, and restart reconciliation;
 - durable outputs and artifacts;
-- terminal result publication;
-- repository inspection and managed mutation;
-- workflow, supervisor, SSH, Docker, Cloudflare, trading, and Hermes foundations.
+- protected result publication;
+- repository inspection and hash-verified managed mutation;
+- repository locks;
+- workflows, supervisors, SSH, Docker, Cloudflare, Trading Lab, and Hermes foundations;
+- compact public projections and exact evidence retrieval;
+- cross-client MCP transport compatibility;
+- repository wiki and SQLite memory foundations.
 
-The primary architectural problem is not lack of raw capability. It is fragmentation:
+This is not an agent demo or a thin model wrapper. It is already a durable runtime with real operational history.
 
-- multiple lifecycle authorities;
-- multiple overlapping supervisor/coding/job paths;
-- inconsistent public response sizes;
-- no canonical parent/child task model;
-- no unified capability broker;
-- no native skill plane;
-- memory that is not yet a deterministic task-context system;
-- Hermes H2 foundations that are not yet the production capability service;
-- no general browser/desktop provider contract;
-- no durable scheduler;
-- Windows-specific assumptions embedded through the execution layer;
-- unused or duplicate historical systems that increase maintenance and connector weight.
+### 4.2 Confirmed structural problems
 
-The correct strategy is:
+The main weakness is fragmentation rather than lack of capability:
 
-> Consolidate around the accepted durable kernel, build a canonical task and capability plane, progressively migrate existing domains into it, then remove obsolete paths.
+- multiple lifecycle authorities and overlapping stores;
+- legacy job, supervisor, workflow, and local-coding paths;
+- policy and approval machinery that no longer matches the accepted owner model;
+- controller-specific persisted terminology;
+- no canonical parent/child task plane;
+- provider discovery and invocation spread across domain gateways;
+- a large server composition surface;
+- no single process-level application container;
+- no unified execution-backend or workspace-provider abstraction;
+- no durable scheduler contract;
+- repository wiki refresh is not automatically orchestrated;
+- memory, wiki, evidence, and context packets risk becoming overlapping truth systems;
+- browser and desktop control are not yet general providers;
+- Windows assumptions remain embedded in execution paths;
+- external integrations have not yet been governed by a consistent boundary and licence policy.
 
----
+### 4.3 Important corrections to external audits
 
-## 5. Current systems to preserve, migrate, or retire
+The following owner corrections are binding:
 
-### Preserve and strengthen
-
-- root durable run store and worker lease model;
-- exact process identity and cancellation;
-- repository locks and mutation evidence;
-- terminal publication and protected artifacts;
-- workflows where they provide deterministic task graphs;
-- SSH transport and remote durability features that local process execution cannot replace;
-- repository, Docker, Cloudflare, knowledge, trading, and other domain capabilities as provider implementations;
-- Hermes H1 as a bounded compatibility/fallback path;
-- Hermes H2 process and identity foundations;
-- provider-neutral external-coder handoff generation (manual use only);
-- repository wiki and SQLite memory as storage foundations.
-
-### Migrate before removal
-
-- legacy job lifecycle behavior;
-- supervisor recovery and continuation behavior;
-- local-coding state;
-- synchronous coding-agent result paths;
-- approval-oriented `needs_input` or `needs_approval` transitions;
-- dashboard/TUI operational information that is still useful;
-- keyword local-agent behavior that contains reusable routing or context logic.
-
-### Retire after successful migration
-
-- unused Ollama/local general-reasoning path;
-- automatic or implicit coding-agent routing (removed);
-- synchronous coding-agent bypass paths (removed);
-- duplicate supervisor stacks;
-- duplicate local-coding state;
-- legacy job manager;
-- dashboard and service TUI;
-- obsolete approval, policy-tier, autonomy-profile, and confirmation artifacts;
-- server monkey patches and duplicate schema/catalog registration paths.
-
-Removal must reduce weight without discarding recovery, continuation, cancellation, evidence, or operator-diagnostic behavior.
+- CF1 is complete; stale documentation does not make it an active blockade.
+- Soma is model-independent; ChatGPT is not the sole architecturally privileged controller.
+- Owner-trusted unrestricted execution is accepted; do not revive permission tiers or approval gates.
+- Hermes remains a strategic controller/worker/provider integration, not a rejected platform.
+- OpenClaw, OpenHands, goose, Letta, LangGraph, AutoGen/AG2, browser-use, and similar projects may be architecture mines or isolated providers even when wholesale adoption is rejected.
+- Temporal is not an immediate replacement for Soma’s durable engine. It is a possible later optional execution backend.
+- Docker or Microsoft MCP gateways are not automatically required; use them only when a demonstrated routing, profile, or deployment problem justifies a second gateway.
+- Watchman must not be selected on reputation alone; Windows-first watcher behavior and packaging must be measured.
+- Graphify may augment repository intelligence, but it must not replace Soma’s wiki and evidence authority.
+- External recommendations mentioning approvals or policy layers must be translated into Soma’s accepted dispatch, validation, routing, evaluation, and durability model.
 
 ---
 
-## 6. Target public architecture
+## 5. External-component integration policy
 
-### 6.1 Compact control surface
+### 5.1 Integration classifications
 
-The long-term public surface should converge toward a small number of stable gateways.
+Every serious candidate receives one primary classification:
 
-#### Task query
+- **A — Use directly as an external service or MCP server**
+- **B — Wrap as a Soma capability or worker provider**
+- **C — Embed as a library**
+- **D — Port selected licence-compatible modules**
+- **E — Reimplement only the architectural idea**
+- **F — Reject or defer**
 
-```text
-status
-list
-wait
-events
-children
-result
-deliveries
-```
+“Reject wholesale adoption” does not mean ignoring useful isolated capabilities. Soma may use one subsystem from a broader agent product through a clean boundary.
 
-#### Task action
+### 5.2 Candidate evaluation record
 
-```text
-start
-steer
-submit_input
-pause
-resume
-cancel
-retry
-```
+Before promotion, record:
 
-#### Capability query
+- project and source revision;
+- exact capability supplied;
+- maturity and maintenance activity;
+- platform support, especially Windows;
+- language and runtime;
+- extension and deployment model;
+- integration classification;
+- exact boundary with Soma;
+- persistence and authority model;
+- dependency weight;
+- licence expression and transitive licence closure;
+- expected implementation time saved;
+- integration and long-term maintenance cost;
+- security and network assumptions;
+- tests and documentation quality;
+- rollback method;
+- pilot acceptance metrics.
 
-```text
-search
-describe
-catalog_delta
-provider_health
-resource
-prompt
-```
+Do not select a project because of stars, marketing claims, or feature count.
 
-#### Capability action
+### 5.3 Canonical-authority rule
 
-```text
-invoke
-reload_provider
-```
+External components may own their internal implementation state, but Soma remains authoritative for the public contract.
 
-#### Context query
+| Concern | Canonical owner |
+|---|---|
+| Public task identity and parent/child relationships | Soma |
+| Controller-visible task state and commands | Soma |
+| Resource leases and repository isolation | Soma |
+| Evidence IDs, hashes, artifacts, and result publication | Soma |
+| Repository identity and final grounded repository answers | Soma |
+| Memory policy, provenance, and context-packet selection | Soma |
+| Provider-local cache, browser session internals, parser cache, or workflow-engine internals | External component behind an adapter |
+| External component health and revision | Provider record in Soma |
 
-```text
-skill_search
-skill_describe
-skill_resource
-memory_search
-context_packet
-```
+For any task assigned to an external execution backend, Soma stores the backend identity and mapping. One task must not have two competing active lifecycle owners.
 
-#### Context action
+### 5.4 Licence and distribution policy
 
-```text
-remember
-archive
-import
-refresh_repository_knowledge
-```
+Soma’s target project licence is **Apache-2.0**. The repository is not considered distribution-ready merely because this roadmap states that target; the release phase must add and validate the actual `LICENSE`, `NOTICE`, third-party notices, and SBOM.
 
-#### Schedule query/action
+Default policy:
 
-```text
-list
-status
-history
-create
-update
-pause
-resume
-trigger
-remove
-```
+- Apache-2.0, MIT, BSD, ISC, and similarly permissive components may be embedded or selectively ported after notice review.
+- MPL/EPL components require preserved file boundaries and explicit review.
+- LGPL components require a deliberate library boundary and compliance plan.
+- GPL/AGPL components must not be copied or loaded into the Soma process when the goal is an Apache-2.0 distributable. Use a genuinely separate process, MCP server, or service when appropriate.
+- Proprietary components require contract review.
+- Every candidate must be evaluated on the final distributed dependency closure, not only the root repository licence.
+- Preserve upstream licence text, copyright, applicable `NOTICE` content, modified-file notices, source revision, and imported-file inventory.
+- Generate and retain SPDX or CycloneDX evidence for release artifacts.
+- Do not copy Git source for the repository watcher; implement independently or use a compatible dependency.
 
-#### Evidence query
+The detailed third-party licensing report may be maintained as a companion policy document, but the roadmap remains self-contained on the binding architectural rules.
 
-```text
-index
-metadata
-tail
-range
-search
-content
-```
+---
 
-Existing domain gateways remain compatibility adapters while their implementations become capability providers.
+## 6. Current ecosystem decisions
 
-### 6.2 Core types
+### 6.1 Prepare or integrate when the owning phase opens
 
-#### Task
+These are high-confidence components or directions, not permission to skip phase order.
+
+| Candidate | Classification | Intended use | Boundary |
+|---|---:|---|---|
+| Hermes H2 | B | Persistent controller/worker and capability aggregation | Provider/worker under Soma task and evidence contracts |
+| OpenTelemetry | C | Cross-process tracing, metrics, and correlation | Embedded SDK plus optional collector |
+| Tree-sitter | C | Incremental structural parsing | Embedded repository-intelligence primitive |
+| Playwright | B or A | Deterministic browser automation and evidence capture | Isolated browser provider or MCP worker |
+| FastMCP | C | MCP protocol plumbing where it reduces boilerplate | Library below Soma’s public domain contracts |
+| APScheduler | C | Lightweight trigger calculation and recurring jobs | Behind Soma’s canonical schedule/task store |
+
+### 6.2 Pilot later, behind explicit boundaries
+
+| Candidate | Classification | Pilot purpose | Promotion constraint |
+|---|---:|---|---|
+| `lastmile-ai/mcp-agent` | D or narrow C | Application-container, connection-manager, and workflow-pattern comparison | Must not create a shadow task plane |
+| Graphify | A | Read-only repository graph sidecar | Every answer must re-ground to Soma file/evidence references |
+| Stagehand | C | Semantic action discovery above Playwright | Raw DOM/screenshot fallback and deterministic evidence remain available |
+| Temporal | A | Optional execution backend for one isolated long-running workflow | Soma task identity and result publication remain canonical |
+| Mem0 | B | Derived preference/retrieval memory | Must be rebuildable from Soma-owned sources |
+| Graphiti | B | Temporal graph-memory experiment | Permissive backing store and full provenance/export required |
+| Native watcher / `watchfiles` / Watchman | C or A | Windows-first repository-change benchmark | Choose by measured correctness, overflow recovery, packaging, and cost |
+| Docker MCP Gateway | A | Third-party MCP profile packaging if a real need exists | No duplicate canonical capability registry |
+| Microsoft MCP Gateway | A | Hosted multi-session routing if scale justifies it | No unnecessary second control plane |
+| Supergateway | A | Transport conversion for an otherwise blocked MCP server | Edge shim only |
+
+### 6.3 Study and borrow ideas; do not adopt wholesale
+
+| Project family | Useful ideas |
+|---|---|
+| OpenHands | Workspace/provider abstraction; action/observation structure; local, Docker, and remote workspaces |
+| AutoGen Core / AG2 | Typed worker messages, capability advertisement, host/worker separation |
+| Letta | Explicit context hierarchy and server-owned persistent state concepts |
+| goose | Portable recipes, skills, extension packaging, provider-neutral UX |
+| LangGraph | State-machine and resumable workflow ideas |
+| OpenClaw | Isolated capabilities and packaging patterns; never arbitrary in-process plugin authority |
+| browser-use | Browser-agent techniques only when Playwright and Stagehand are insufficient |
+| Zep | Comparator for managed context infrastructure, not a canonical Soma dependency |
+
+### 6.4 Explicitly avoid
+
+Avoid:
+
+- wholesale replacement of Soma with another agent framework or “agent OS”;
+- a second canonical task, memory, evidence, repository, or scheduler authority;
+- arbitrary third-party plugins loaded into the Soma kernel process;
+- strong-copyleft code copied into the Apache-target Soma codebase;
+- a gateway added only because it is fashionable;
+- a hosted memory or browser service that makes local continuity dependent on one vendor;
+- any integration that cannot be removed without losing canonical Soma records.
+
+---
+
+## 7. Target architecture
+
+### 7.1 Soma application container
+
+Create one process-level `SomaApplication` or equivalent container that owns and injects:
+
+- configuration;
+- schema and migration service;
+- task store and task manager;
+- run/workflow compatibility adapters;
+- resource lease and lock service;
+- execution-backend registry;
+- provider registry and connection manager;
+- context, memory, and repository-knowledge services;
+- evidence and artifact service;
+- scheduler and delivery outbox;
+- event router;
+- telemetry;
+- readiness and reconciliation state.
+
+Do not continue discovering these services through scattered globals and server-level monkey patches.
+
+### 7.2 Canonical task plane
 
 A canonical task contains:
 
 - `task_id`;
-- optional parent task;
-- client request ID and normalized request hash;
-- objective reference;
+- optional parent task and typed links;
+- controller request ID and normalized request hash;
+- objective and constraints references;
 - task kind;
-- executor/provider identity;
-- workspace/resource leases;
+- controller identity where relevant;
+- selected executor, provider, or backend;
+- workspace and resource leases;
 - state and phase;
-- decision `state_version`;
+- `state_version`;
+- checkpoint references;
 - child task references;
-- result reference;
-- evidence references;
-- timestamps;
-- recovery and reconciliation state.
+- result and evidence references;
+- recovery and reconciliation state;
+- timestamps.
 
-Suggested states:
+Controller-neutral states should include:
 
 ```text
 accepted
 queued
 running
-awaiting_chatgpt
+awaiting_controller
 paused
 cancellation_pending
 recovery_pending
@@ -356,209 +434,70 @@ uncertain
 
 There is no approval state.
 
-#### Task checkpoint
-
 A checkpoint contains:
 
-- question or judgment requirement;
+- question, missing input, or judgment requirement;
 - expected input schema;
-- context/evidence references;
-- the task state version against which ChatGPT must respond.
+- source context and evidence references;
+- the task state version against which the controller must respond.
 
-#### Capability identity
+### 7.3 Execution-backend contract
 
-A capability identity contains:
+Hide current and future engines behind one contract:
 
-- capability ID;
-- provider ID and provider kind;
-- provider revision;
-- catalog generation;
-- schema hash;
-- platform requirements;
-- availability;
-- informational side-effect metadata;
-- cancellation and reconciliation support.
+```python
+class ExecutionBackend:
+    async def start(self, task_spec): ...
+    async def query(self, backend_ref): ...
+    async def signal(self, backend_ref, command): ...
+    async def cancel(self, backend_ref): ...
+    async def reconcile(self, backend_ref): ...
+    async def result(self, backend_ref): ...
+```
 
-Side-effect metadata informs ChatGPT. It never acts as an internal permission gate.
+The existing Soma durable engine is the first and default backend.
 
-#### Context packet
+Temporal, another workflow service, or a future remote worker runtime may be added only as optional backends. Backend selection is persisted at task creation and must not change silently while a task is active.
 
-A context packet contains:
+### 7.4 Workspace-provider contract
 
-- objective;
-- constraints;
-- selected skills;
-- relevant memories and decisions;
-- workspace snapshot;
-- child summaries;
-- exact evidence references;
-- deterministic byte budget.
+Use one platform-neutral workspace contract inspired by the strongest parts of OpenHands without adopting its product shell:
 
-#### Resource lease
+```text
+execute
+read_file
+write_file
+patch_file
+list_files
+search
+upload
+download
+start_process
+query_process
+cancel_process
+inspect_process
+stream_events
+snapshot
+close
+```
 
-Resource leases cover:
+Expected implementations:
 
-- repositories;
-- files;
-- worktrees;
-- services;
-- ports;
-- browser profiles;
-- displays;
-- devices;
-- external mutation targets.
+```text
+WindowsLocalWorkspace
+SSHWorkspace
+DockerWorkspace
+HermesWorkspace
+BrowserWorkspace
+FutureLinuxWorkspace
+FutureMacOSWorkspace
+```
 
----
+Each implementation maps to the same task, lease, cancellation, evidence, and artifact model.
 
-## 7. Corrected implementation roadmap
+### 7.5 Capability provider contract
 
-## Priority 0 — Complete CF1
-
-CF1 remains the sole active engineering lane until its exit gate passes.
-
-### Objectives
-
-- scalar SQL-backed summaries;
-- compact status/control projections;
-- state-version polling;
-- stable cursors;
-- bounded terminal projections;
-- exact evidence retrieval;
-- repository progressive disclosure;
-- connector-visible footprint reduction;
-- compact conformance across every public gateway.
-
-### Required invariants
-
-- full authoritative records remain unchanged;
-- current durable worker, lock, cancellation, recovery, and publication semantics remain unchanged;
-- existing frozen full-response cursor reconstruction remains available explicitly;
-- errors, partial outcomes, ambiguous mutations, cleanup failures, and reconciliation requirements remain visible;
-- no request body, environment, stdin, script, raw argv, credential, or local path appears in an ordinary compact response;
-- every omitted detail has an exact evidence path.
-
-### Exit gate
-
-- at least 90% representative connector-visible session reduction;
-- 20-run compact summary at or below the accepted size target;
-- unchanged polling below 1 KB;
-- every public operation has a bounded default;
-- exact authoritative reconstruction and hash equality;
-- no worker-path performance or durability regression.
-
-No post-CF1 implementation phase becomes active until CF1 is accepted and the canonical roadmap explicitly selects the next lane.
-
----
-
-## Phase 1 — Canonical task plane before destructive cleanup
-
-Build the replacement control model before deleting old lifecycle systems.
-
-### Deliverables
-
-- canonical `tasks`, `task_links`, `task_commands`, `task_checkpoints`, and task events;
-- link tasks initially to existing run, workflow, supervisor, Hermes, SSH, and command-group identities;
-- top-level idempotency using client request ID plus normalized request hash;
-- one public task identity independent of executor;
-- state-version-guarded steer, input, pause, resume, retry, and cancel commands;
-- `awaiting_chatgpt` as the universal judgment/input transition;
-- separate storage of ChatGPT’s decision and the resolved executable input;
-- compact parent/child task queries;
-- compatibility adapters for existing run/workflow/supervisor operations.
-
-### Migration rule
-
-Do not rewrite all historical durable state at once. New tasks use the canonical plane; old rows remain readable through adapters and migrate only when necessary.
-
-### Exit gate
-
-ChatGPT can supervise every existing execution type through one compact task protocol without losing existing recovery or evidence behavior.
-
----
-
-## Phase 2 — Kernel consolidation and permission-system removal
-
-Once the canonical task plane can replace useful behavior, consolidate lifecycle authority.
-
-### Deliverables
-
-- one process-owned application container for stores, managers, providers, platform adapters, and routers;
-- one schema-version table with ordered transactional migrations;
-- workers refuse incompatible schema versions;
-- one authoritative path for launch, worker lease, state transition, cancellation, result publication, and recovery;
-- startup reconciliation failures become durable evidence and unhealthy readiness;
-- all progress updates use lease-generation compare-and-set;
-- crash-safe journaling for multi-file rollback/revert;
-- migration of useful supervisor and legacy-job behavior into tasks/workflows;
-- removal of approval tiers, autonomy profiles, confirmation phrases, and runtime `allow_*` gates after compatibility migration;
-- legacy approval rows become historical or conservative `awaiting_chatgpt` checkpoints; they are never auto-executed;
-- old `allowed_files` becomes optional scope/evidence metadata, not authorization.
-
-### External-coder policy
-
-Soma does not execute any coding agent. When coding work is required, Soma
-generates a bounded, provider-neutral external-coder handoff (objective,
-repository state, evidence, approved scope, constraints, validation
-commands, expected completion report) and parks the work in
-`needs_external_coder`. The owner supplies the handoff manually to Claude
-Code, Codex, Gemini CLI, or another coding agent, then returns the results
-to Soma for validation and evidence capture. Historical
-`codex_plan_task` / `codex_implement_task` records remain readable as
-legacy read-only run types.
-
-### Exit gate
-
-One kernel owns every active lifecycle decision, and the obsolete permission system is removed without losing correctness or migration safety.
-
----
-
-## Phase 3 — Windows-first unrestricted host execution
-
-### Architecture
-
-Introduce portable interfaces for:
-
-- process spawning;
-- process/start identity;
-- process-tree termination;
-- shell/interpreter discovery;
-- path semantics;
-- filesystem operations;
-- environment handling;
-- background execution;
-- service lifecycle.
-
-### Windows implementation first
-
-Complete and accept:
-
-- direct executable plus argv execution;
-- PowerShell, pwsh, and cmd interpreter adapters;
-- unrestricted whole-machine filesystem read/write/append/patch/copy/move/delete/search;
-- arbitrary absolute working directories;
-- durable background execution;
-- Windows Job Objects or equivalent owned-tree cancellation;
-- process creation-time and identity evidence;
-- Windows Service installation and lifecycle;
-- resource leases for files, services, ports, repositories, and other mutation targets.
-
-General command and filesystem work must not require a configured repository.
-
-### Portability rule
-
-Interfaces must not hard-code Windows assumptions into task, capability, evidence, or scheduler schemas. Linux and macOS adapters come later and must not block the usable Windows runtime.
-
-### Exit gate
-
-The Windows implementation provides truthful unrestricted host execution, exact cancellation, restart reconciliation, and evidence through the canonical task plane.
-
----
-
-## Phase 4 — Unified capability broker and Hermes H2
-
-### Deliverables
-
-Implement a provider contract with:
+A provider exposes:
 
 ```text
 snapshot
@@ -572,128 +511,481 @@ resource
 prompt
 ```
 
-Providers include:
+Provider identity includes:
 
-- native Soma capabilities;
-- persistent Hermes H2;
-- Hermes H1 fallback;
-- external MCP tools/resources/prompts;
-- external-coder handoff generation (manual use only);
-- future browser, desktop, and media providers.
+- provider ID and kind;
+- implementation revision;
+- schema and operation hashes;
+- catalog generation;
+- platform requirements;
+- supported operations;
+- health;
+- load/capacity where relevant;
+- cancellation and reconciliation support;
+- persistence and external-authority metadata.
+
+Persistent providers may keep warm connections. Transient providers may connect for one invocation. The kernel should not import detailed knowledge of every provider.
+
+### 7.6 Typed worker messages
+
+Use versioned serializable messages between the kernel and process/host boundaries:
+
+```text
+CapabilityAdvertised
+TaskAssigned
+TaskAccepted
+ProgressReported
+CheckpointRequested
+InputSupplied
+CancellationRequested
+TaskCompleted
+TaskFailed
+WorkerHealthReported
+ProviderCatalogChanged
+```
+
+This enables local-to-remote migration without coupling the kernel to one worker implementation.
+
+### 7.7 Context hierarchy
+
+Keep context sources explicit:
+
+1. current task objective, constraints, and checkpoint;
+2. repository-scoped decisions and critical facts;
+3. live repository source and current Git/worktree state;
+4. current repository wiki and structural index;
+5. current run/task evidence and child summaries;
+6. archival project memory;
+7. external MCP, graph, or retrieval providers.
+
+The hierarchy prevents memory, wiki, evidence, and chat history from becoming competing truth systems.
+
+---
+
+## 8. Systems to preserve, migrate, or retire
+
+### Preserve and strengthen
+
+- root durable run store and worker lease model;
+- exact process identity and owned-tree cancellation;
+- repository locks and mutation evidence;
+- result publication and protected artifacts;
+- repository inspection and managed mutation;
+- deterministic workflows where useful;
+- SSH and remote durability;
+- Docker, Cloudflare, Trading Lab, and other domain providers;
+- Hermes H1 compatibility path while H2 becomes production-ready;
+- Hermes H2 process, identity, concurrency, and catalog foundations;
+- external-coder handoff generation;
+- repository wiki and SQLite memory storage foundations;
+- CF1 progressive-disclosure and evidence-reconstruction contracts.
+
+### Migrate before removal
+
+- legacy job lifecycle behavior;
+- supervisor recovery and continuation behavior;
+- local-coding state;
+- synchronous coding-result paths;
+- controller-specific `awaiting_chatgpt` values;
+- approval-oriented `needs_input` or `needs_approval` values;
+- useful dashboard/TUI diagnostics;
+- duplicated schema and catalog registration;
+- policy-tier, approval-store, confirmation, and `allow_*` fields needed only for historical readability;
+- keyword local-agent behavior containing reusable routing or context logic.
+
+### Retire after successful migration
+
+- legacy permission and approval gates;
+- duplicate supervisor stacks;
+- duplicate local-coding state;
+- legacy job manager;
+- synchronous coding-agent bypasses;
+- automatic vendor-specific coding-agent routing;
+- unused general-purpose local reasoning paths;
+- dashboard and service TUI after useful diagnostics move to compact queries;
+- server monkey patches;
+- duplicate capability catalogs and schema paths;
+- any external pilot that fails its acceptance or creates a competing authority.
+
+### Historical preservation
+
+Before removing a substantial legacy subsystem:
+
+- record what it achieved;
+- record the commits or evidence that proved it;
+- identify the behavior migrated elsewhere;
+- preserve schema-read compatibility where required;
+- record the deletion boundary and rollback path.
+
+Use an achievement or migration record rather than erasing project history from the active roadmap.
+
+---
+
+## 9. External-pilot protocol
+
+Every external integration begins as a small, independently reviewable pilot.
+
+A pilot specification must contain:
+
+- objective;
+- candidate project and pinned revision;
+- classification A–F;
+- exact Soma-owned boundary;
+- files/modules likely affected;
+- external state created;
+- licence and notice work;
+- acceptance tests;
+- failure and rollback method;
+- observability requirements;
+- time-box;
+- promotion or rejection metrics.
+
+Default pilot rules:
+
+- start read-only where possible;
+- use one repository, tenant, browser profile, or workflow;
+- do not migrate canonical state into the pilot;
+- do not delete the previous implementation;
+- preserve raw evidence for comparison;
+- remove the pilot cleanly if it fails;
+- capture actual implementation time saved, not estimates alone.
+
+A component is promoted only when it improves one or more of:
+
+- correctness;
+- durability;
+- implementation speed;
+- maintenance burden;
+- provenance;
+- context compactness;
+- operator visibility;
+- platform support.
+
+Feature count alone is not a promotion criterion.
+
+---
+
+## 10. Corrected implementation roadmap
+
+## Closed milestone — CF1 Chat Footprint and Progressive Disclosure
+
+CF1 is complete and accepted.
+
+Completed outcomes include:
+
+- scalar SQL-backed run summaries;
+- compact control polling and events;
+- bounded terminal projections;
+- exact evidence reconstruction;
+- repository read/search/diff progressive disclosure;
+- response budgets across public gateways;
+- representative connector-visible footprint reduction above target;
+- authoritative result and hash preservation;
+- MCP cross-client compatibility through both structured content and populated `content[].text`.
+
+Any remaining CF1 wording in older documentation is a documentation defect, not an implementation blockade.
+
+Preserve detailed CF1 evidence in the achievement record. Do not keep CF1 labelled as the sole active engineering lane.
+
+---
+
+## Phase 1 — Canonical task plane before destructive cleanup
+
+Build the replacement control model before removing old lifecycle systems.
+
+### Deliverables
+
+- canonical `tasks`, `task_links`, `task_commands`, `task_checkpoints`, and task events;
+- one public task identity independent of executor;
+- links from new tasks to existing run, workflow, supervisor, Hermes, SSH, and command-group identities;
+- top-level idempotency using controller request ID plus normalized request hash;
+- controller-neutral states, especially `awaiting_controller`;
+- state-version-guarded steer, input, pause, resume, retry, and cancel;
+- explicit storage of controller input and resolved executable input;
+- compact task, parent, child, checkpoint, result, and evidence queries;
+- compatibility adapters for existing public run/workflow/supervisor operations;
+- backend identity field for future optional execution engines;
+- no deletion of legacy stores in this phase.
+
+### Recommended first bounded batch
+
+1. add canonical task tables and models;
+2. map one existing durable run type into a task;
+3. implement compact task status/result queries;
+4. implement one version-guarded command;
+5. add migration and adapter tests;
+6. prove old run queries remain unchanged.
+
+### Exit gate
+
+Every current execution type can be represented and supervised through one compact task protocol without losing recovery, cancellation, or evidence behavior.
+
+---
+
+## Phase 2 — Application container, lifecycle consolidation, and legacy permission removal
+
+### Deliverables
+
+- one process-owned application container;
+- one schema-version table with ordered transactional migrations;
+- incompatible workers fail readiness honestly;
+- one authoritative path for launch, worker lease, state transition, cancellation, publication, and recovery;
+- all ownership-sensitive progress updates use lease-generation compare-and-set;
+- startup reconciliation failures become durable evidence and unhealthy readiness;
+- crash-safe journaling for multi-file rollback/revert;
+- migration of useful supervisor and legacy-job behavior into tasks/workflows;
+- migration of controller-specific persisted values through explicit compatibility mappings;
+- removal of permission tiers, approval gates, autonomy gates, confirmation phrases, and runtime `allow_*` barriers after historical compatibility is preserved;
+- `allowed_files` becomes optional scope/evidence metadata rather than authorization;
+- baseline OpenTelemetry trace IDs propagated through task, run, provider, and evidence operations;
+- evaluation of FastMCP only where it removes protocol boilerplate without changing Soma contracts.
+
+### Application-container pilot input
+
+Study `mcp-agent` for:
+
+- one application context per process;
+- provider/server registry;
+- connection manager;
+- execution-backend abstraction;
+- async task handles.
+
+Borrow or port only the parts that fit Soma. Do not import a second task authority.
+
+### Exit gate
+
+One Soma kernel owns every active lifecycle decision, obsolete permission machinery is no longer an execution gate, and service composition no longer depends on scattered global initialization.
+
+---
+
+## Phase 3 — Windows-first unrestricted host execution and workspace abstraction
+
+### Deliverables
+
+- platform-neutral process, filesystem, service, and workspace interfaces;
+- direct executable plus argv execution;
+- PowerShell, pwsh, and cmd adapters;
+- unrestricted whole-machine filesystem operations;
+- arbitrary absolute working directories;
+- durable background execution;
+- Windows Job Objects or equivalent owned-tree cancellation;
+- process creation-time and canonical identity evidence;
+- Windows Service installation and lifecycle;
+- resource leases for files, services, ports, repositories, browser profiles, and mutation targets;
+- `WindowsLocalWorkspace` behind the common workspace contract;
+- SSH and Docker workspace adapters mapped into the same contract.
+
+General host work must not require a configured Git repository.
+
+### Exit gate
+
+Windows execution is truthful, unrestricted, durable, recoverable, and controllable through the canonical task and workspace contracts.
+
+---
+
+## Phase 4 — Unified capability broker and Hermes H2
+
+### Deliverables
+
+- provider registry and provider manifests;
+- capability search, describe, invoke, cancel, health, reload, resource, and prompt operations;
+- atomic catalog generations;
+- per-operation schema hashes;
+- stale-schema rejection;
+- provider capacity and health reporting;
+- large-result spill to artifacts;
+- compatibility adapters for existing domain gateways;
+- provider-neutral client discovery.
 
 ### Hermes H2 completion
 
 - service supervision;
-- worker replacement;
-- restart adoption;
+- worker replacement and restart adoption;
 - health and readiness;
-- atomic catalog-generation reload;
 - concurrent session isolation;
-- public routing;
+- controller and worker modes;
+- public routing through the capability broker;
+- persisted provider, catalog, schema, argument, and result identities;
 - provider-level cancellation;
-- persisted provider identity, catalog generation, schema hash, accepted argument hash, and result identity;
-- large-result spill to artifacts;
-- stale-schema rejection;
 - last-known-healthy catalog retention.
 
-Hermes is the primary aggregator for Hermes built-ins, plugins, and connected MCP servers. Hermes is not the controlling general agent.
+Hermes is an accepted strategic integration. It may act as a connected controller, a specialised worker, and an aggregator for Hermes built-ins, plugins, and external MCP servers. It does not replace Soma’s canonical task, evidence, or memory authority.
+
+### Gateway rule
+
+Do not add Docker MCP Gateway, Microsoft MCP Gateway, or another gateway by default. Pilot one only when there is a concrete packaging, profile, remote-routing, multi-session, or deployment problem that Soma’s broker should not solve itself.
 
 ### Exit gate
 
-ChatGPT can search, describe, and durably invoke native, Hermes, plugin, and MCP capabilities without loading the entire catalog.
+Any supported controller can progressively discover and durably invoke native, Hermes, plugin, and external MCP capabilities without loading a full catalog or creating a second authority.
 
 ---
 
-## Phase 5 — Skills, memory, and deterministic context
+## Phase 5 — Live repository knowledge, skills, memory, and deterministic context
 
-### Skills
+### 5.1 Live repository wiki
 
-Support `SKILL.md`-style packages from:
+The existing `RepoWikiService` remains the publication engine because it already provides:
+
+- immutable generations;
+- atomic `CURRENT.json`;
+- refresh locking;
+- incremental scan/reuse;
+- source-generation and stale tracking;
+- hash verification;
+- previous-generation readability;
+- detection of source changes during refresh.
+
+Add missing orchestration:
+
+- Soma-owned recursive repository watcher;
+- debounced and coalesced changed paths;
+- one refresh queue and worker per repository;
+- desired generation persisted durably;
+- incremental refresh through the existing service;
+- loop until indexed generation catches desired generation;
+- startup reconciliation;
+- periodic reconciliation for missed events and overflow;
+- stale-aware reads that serve the last complete generation and queue refresh;
+- failure events and readiness visibility.
+
+Exclude:
+
+```text
+.git/
+.soma/wiki/
+.claude/worktrees/
+.codex-tmp/
+virtual environments
+caches
+artifacts
+generated media
+credentials
+secrets
+```
+
+Do not modify Git, Git configuration, or Git fsmonitor.
+
+### Windows watcher decision
+
+Benchmark:
+
+- native `ReadDirectoryChangesW` implementation;
+- a compatible Python watcher such as `watchfiles`;
+- Watchman only if current native Windows behavior and packaging are acceptable.
+
+Acceptance must cover:
+
+- create, modify, rename, and delete;
+- burst coalescing;
+- overflow or missed-event reconciliation;
+- restart with pending refresh;
+- source changes during generation;
+- refresh failure before publication;
+- no indexing of excluded paths;
+- bounded idle and refresh cost.
+
+### 5.2 Structural repository intelligence
+
+Adopt Tree-sitter as the first low-level candidate for:
+
+- definitions and symbols;
+- imports;
+- calls;
+- inheritance;
+- block boundaries;
+- cross-file relationships;
+- incremental changed-file parsing.
+
+Every graph fact carries provenance:
+
+```text
+EXTRACTED
+INFERRED
+AMBIGUOUS
+```
+
+Add graph queries:
+
+```text
+neighbours
+path
+explain
+subsystem
+rationale
+```
+
+Promote Graphify only as a read-only sidecar pilot. Soma must re-ground every useful answer to file, line, symbol, and evidence references. Graphify must remain replaceable and must not become the canonical repository model.
+
+### 5.3 Skills and recipes
+
+Support `SKILL.md`-style packages and portable recipes from:
 
 - project roots;
 - user roots;
-- bundled Soma skills;
-- Hermes skill roots.
+- bundled Soma roots;
+- Hermes roots;
+- future compatible provider roots.
 
-Index only metadata first:
+Index metadata before full content:
 
 - name;
 - description;
 - version;
-- source;
 - digest;
+- source;
 - platform requirements;
+- required capabilities;
+- inputs and outputs;
 - resources;
-- required capabilities.
+- deterministic steps.
 
-Progressive loading order:
+Use goose and similar projects as format references. Skill prose is instruction input; it is never executed directly without a capability invocation.
 
-1. metadata search;
-2. full skill instructions;
-3. individual resources.
+### 5.4 Memory hierarchy
 
-Skills provide instructions and resources to ChatGPT. Skill prose is never executed directly.
+Extend the current SQLite memory and repository wiki before adding another memory authority.
 
-### Memory
-
-Extend the existing SQLite memory and repository wiki rather than creating another disconnected store.
-
-Add:
+Store:
 
 - task summaries;
-- decisions;
+- decisions and rationale;
 - reusable recipes;
 - artifact lineage;
 - child summaries;
 - repository/workspace snapshots;
-- supersession;
-- expiry;
+- supersession and expiry;
 - confidence;
 - source references.
 
-Automatically store structured terminal facts and artifact metadata. ChatGPT remains responsible for semantic decisions and conclusions.
+A Mem0 or Graphiti pilot may be added later as a **derived retrieval provider**. The pilot must be rebuildable from Soma-owned evidence, support export, preserve provenance, and use a licence-compatible backing store. Do not adopt Letta, Zep, or another platform as the primary task or memory authority.
 
-### Future repository structural intelligence
+### 5.5 Context packets
 
-Extend the existing repository wiki rather than adopting Graphify or another product as a second knowledge system. Evaluate and selectively port useful open-source features behind Soma's repository-isolation and evidence contracts:
-
-- Tree-sitter AST indexing for definitions, imports, calls, inheritance, and cross-file relationships;
-- provenance on every relationship: `EXTRACTED`, `INFERRED`, or `AMBIGUOUS`;
-- graph reads such as neighbour, path, and explain queries alongside ordinary lexical search;
-- automatic subsystem/community detection to seed hierarchical architecture summaries;
-- first-class rationale nodes for `WHY`, `NOTE`, `HACK`, ADR, and RFC references;
-- incremental refresh that reparses changed files, removes stale graph facts, and reconnects affected relationships.
-
-Keep Soma authoritative for repository scoping, decisions, roadmap history, evidence, architecture summaries, memory, and compact context-packet generation. Do not copy Graphify's viewer, assistant hooks, complete CLI, document/media ingestion, or dependency graph unless a later measured need justifies them.
-
-Begin with a read-only pilot against Soma and SeedMind and compare the enhanced wiki with the current implementation on a fixed set of real repository questions. Promote features only when they improve answer correctness, provenance, refresh cost, or context compactness without creating a competing source of truth.
-
-Before copying upstream code, re-check its current licence, preserve required copyright and notice text, mark adaptations, and record imported files and source revisions in `THIRD_PARTY_NOTICES.md`. Similar independently implemented architectural ideas do not require code attribution.
-
-### Context packets
-
-Build deterministic context packets under CF1 budgets using:
+Build deterministic, byte-budgeted context packets containing:
 
 - objective and constraints;
-- selected skills;
+- current checkpoint;
+- selected skills and recipes;
 - relevant decisions and memories;
-- current workspace identity;
+- repository/workspace identity;
 - child summaries;
-- exact evidence references.
+- exact evidence references;
+- source freshness metadata.
 
-Do not persist complete ChatGPT conversation history as a substitute for task context.
+Do not persist an entire controller conversation as a substitute for durable task context.
 
 ### Exit gate
 
-ChatGPT can resume complex work from a compact, source-linked context packet and progressively retrieve skills or evidence.
+A controller can resume complex work from a compact, source-linked packet; repository knowledge refreshes automatically; structural answers are provenance-grounded; and external memory or graph providers remain replaceable.
 
 ---
 
-## Phase 6 — Delegation, parallel workers, workflows, and worktrees
+## Phase 6 — Delegation, parallel workers, workflows, worktrees, and optional execution backends
 
 ### Child tasks
 
-ChatGPT may explicitly create child tasks with:
+A controller may explicitly create child tasks with:
 
 - objective;
 - context packet;
@@ -703,26 +995,28 @@ ChatGPT may explicitly create child tasks with:
 - expected output schema;
 - resource limits.
 
-Soma schedules, observes, recovers, and reports children. It does not invent their objectives.
+Soma schedules, observes, recovers, and reports children. It does not invent their objectives without controller instruction.
 
 ### Worker adapters
 
-- native command execution;
+- native execution;
 - capability invocation;
-- external-coder handoff generation;
-- deterministic workflows;
-- configured external agent runtimes.
+- Hermes worker;
+- deterministic workflow worker;
+- external-coder handoff;
+- future explicitly selected coding-agent worker;
+- optional external execution backend.
 
 ### Parallel execution
 
-Generalize parallel PowerShell groups into platform-neutral parent/child execution with:
+Generalize current parallel groups into platform-neutral parent/child execution with:
 
-- configurable capacity;
-- fair queuing;
+- capacity and fair queuing;
 - independent leases;
 - independent evidence;
 - independent cancellation;
-- restart adoption.
+- restart adoption;
+- typed worker health and load reports.
 
 Capacity is resource management, not authorization.
 
@@ -732,74 +1026,98 @@ Capacity is resource management, not authorization.
 - create;
 - bind to child task;
 - record base commit;
+- exclude temporary worktrees from wiki/search;
 - preserve on failure;
 - inspect diff;
-- integrate only when ChatGPT explicitly requests;
-- clean up after acknowledgement.
+- integrate only on explicit instruction;
+- clean up only after acknowledgement.
 
 ### Workflows
 
-Extend to:
+Support:
 
 - typed DAG steps;
 - parallel ready nodes;
-- retries;
-- timeouts;
+- retries and timeouts;
 - compensation;
 - explicit uncertainty;
-- `awaiting_chatgpt`;
+- `awaiting_controller`;
 - submit input;
-- continue;
-- revise;
-- retry step.
+- continue, revise, and retry-step commands;
+- stable evidence IDs across recovery.
 
-Retire duplicate supervisor systems only after their useful behavior exists through tasks and workflows.
+Study mcp-agent and LangGraph for patterns, but keep workflow definitions and task identity Soma-owned.
+
+### Temporal pilot
+
+Only after the execution-backend contract and canonical task plane are stable:
+
+- run one isolated long-running workflow on Temporal;
+- persist the Soma task-to-workflow mapping;
+- prove safe process-kill recovery;
+- prove no duplicate evidence publication;
+- prove cancellation and checkpoint/input propagation;
+- prove clean rollback to the native backend.
+
+Temporal is promoted only if measured savings and durability benefits exceed the operational cost of running a second execution service.
 
 ### Exit gate
 
-ChatGPT can delegate isolated work, run children in parallel, steer them, recover them after restart, and receive bounded summaries with exact evidence on demand.
+Controllers can delegate isolated work, run children in parallel, steer and recover them, and receive compact summaries with exact evidence regardless of worker implementation.
 
 ---
 
-## Phase 7 — Browser, desktop, and multimodal capability providers
+## Phase 7 — Browser, desktop, and multimodal providers
 
-Browser and desktop control are capability providers, not another user interface.
+### Deterministic browser baseline
 
-### Browser provider
+Use Playwright as the first candidate through an isolated provider or MCP worker.
 
 Required contract:
 
-- create/recover session;
+- create and recover session;
 - list pages;
 - navigate;
-- inspect DOM/accessibility state;
+- inspect DOM and accessibility state;
 - interact;
 - bounded script execution;
 - screenshot;
-- download/upload;
+- download and upload;
 - wait;
+- cancel owned activity;
 - close;
-- cancel owned activity.
+- publish evidence artifacts.
 
-Prefer a Hermes-backed provider if it satisfies identity, durability, cancellation, artifact, and recovery requirements. Otherwise use a direct Playwright/CDP provider.
+Soma owns browser-profile leases, task identity, evidence descriptors, and final result publication.
+
+### Higher-level browser pilots
+
+Stagehand may be layered above Playwright for volatile sites where semantic action discovery and extraction outperform deterministic selectors.
+
+Every Stagehand result must retain:
+
+- schema-validated output;
+- raw DOM or accessibility evidence where available;
+- screenshot fallback;
+- controller-visible uncertainty.
+
+Use browser-use only as a tightly isolated experiment if Playwright plus Stagehand cannot satisfy a measured need. Do not adopt a hosted browser/memory control plane by default.
 
 ### Desktop provider
 
-Platform-specific adapters provide:
+Windows-first adapters expose:
 
 - displays and windows;
-- screenshot;
-- accessibility snapshot;
+- screenshots;
+- accessibility snapshots;
 - pointer;
 - keyboard;
 - focus;
 - wait;
 - cancellation;
-- close/recover session.
+- session recovery and close.
 
-Windows implementation comes first. macOS and Linux adapters arrive in the later portability phase.
-
-### Artifacts
+### Multimodal artifacts
 
 Generalize evidence descriptors for:
 
@@ -811,117 +1129,120 @@ Generalize evidence descriptors for:
 - downloads;
 - arbitrary binary files.
 
-Return compact descriptors by default and content only on explicit request.
-
-PulseSender-specific browser assumptions should eventually be replaced by the general browser provider. Return delivery remains a separate concern.
+Compact descriptors are returned by default. Content is retrieved explicitly.
 
 ### Exit gate
 
-ChatGPT can inspect and operate browser and Windows desktop applications with durable session ownership, exact cancellation, and compact artifact retrieval.
+A connected controller can operate browser and Windows desktop applications with durable ownership, exact cancellation, source-linked evidence, and compact artifact retrieval.
 
 ---
 
 ## Phase 8 — Durable scheduling, continuity, and return delivery
 
-### Scheduler
+### Canonical scheduler model
 
 Support:
 
 - one-shot schedules;
 - recurring schedules;
-- timezone;
-- pause/resume;
-- update/remove;
-- trigger-now;
+- timezone and DST correctness;
+- pause, resume, update, remove, and trigger-now;
 - history;
 - deterministic missed-run policy;
 - atomic attempt claiming;
-- restart deduplication.
+- restart deduplication;
+- condition-watch evaluation;
+- task or workflow templates.
 
-Schedules launch deterministic task or workflow templates. They do not start a hidden general reasoning loop.
+Schedules launch canonical tasks. They do not start a hidden general reasoning loop.
 
-When new judgment is required, the task transitions to `awaiting_chatgpt`.
+When new judgment is required, the task transitions to `awaiting_controller`.
+
+### APScheduler boundary
+
+APScheduler may supply trigger calculation, recurrence handling, and lightweight wake-up mechanics. Soma remains authoritative for:
+
+- schedule identity;
+- schedule state;
+- attempt history;
+- claim ownership;
+- launched task identity;
+- missed-run and deduplication policy.
+
+Do not let an APScheduler job store become a second public schedule authority.
 
 ### Delivery outbox
 
-Persist terminal and waiting-input notifications separately from task outcome.
+Persist notification and return-delivery attempts separately from task outcome.
 
-Polling and task discovery remain authoritative because an MCP server cannot always initiate a new ChatGPT turn.
+Polling and task discovery remain authoritative because an MCP server cannot always initiate a new controller turn.
 
-Optional delivery adapters may include:
+Adapters may include:
 
 - PulseSender/browser delivery;
 - file;
 - webhook;
-- future platform-supported notification channels.
+- future supported notification channels.
 
 Delivery failure never changes task outcome.
 
-Compact return messages contain only:
-
-- task ID;
-- state;
-- state version;
-- instruction to query the task.
-
 ### Exit gate
 
-Deterministic work continues unattended, survives restart, requests ChatGPT judgment when necessary, and remains discoverable even if notification delivery fails.
+Deterministic work continues unattended, survives restart, requests controller input when needed, and remains discoverable even when notification delivery fails.
 
 ---
 
-## Phase 9 — Linux and macOS execution adapters
+## Phase 9 — Linux and macOS adapters
 
-This is a planned portability phase, not an early Windows release blocker.
+This phase follows a usable Windows implementation.
 
 ### Linux
 
 - direct execution;
 - process identity and process-group cancellation;
 - unrestricted filesystem;
-- systemd;
+- systemd service lifecycle;
+- workspace provider;
 - browser provider;
 - accessibility/input provider where supported;
-- restart reconciliation and acceptance.
+- restart reconciliation.
 
 ### macOS
 
 - direct execution;
-- process identity;
-- process-group cancellation;
+- process identity and process-group cancellation;
 - unrestricted filesystem;
-- launchd;
-- Accessibility/CGEvent desktop adapter;
+- launchd service lifecycle;
+- workspace provider;
+- Accessibility/CGEvent desktop provider;
 - browser provider;
-- restart reconciliation and acceptance.
-
-### Cross-platform acceptance
-
-Each platform must truthfully support the same advertised core contracts. Platform-specific optional capabilities remain explicitly marked rather than simulated.
+- restart reconciliation.
 
 ### Exit gate
 
-Windows, Linux, and macOS expose the same canonical task, capability, evidence, scheduler, and unrestricted host-execution contracts for supported features.
+Windows, Linux, and macOS expose the same canonical task, capability, evidence, scheduler, and workspace contracts for the features they truthfully support.
 
 ---
 
-## Phase 10 — Observability, packaging, and legacy removal
+## Phase 10 — Observability, packaging, licensing, and final legacy removal
+
+OpenTelemetry instrumentation begins earlier as an enabling capability. This phase completes the operator and distribution story.
 
 ### Observability
 
 Expose compact structured:
 
-- liveness;
-- readiness;
-- provider health;
-- task health;
-- resource leases;
-- reconciliation state;
-- storage usage;
+- liveness and readiness;
+- provider and worker health;
+- task and workflow health;
+- leases and reconciliation state;
+- storage use;
 - diagnostic bundles;
-- trace/request IDs.
+- trace and request IDs;
+- retry, latency, and failure metrics;
+- external-backend mappings.
 
-Do not build another dashboard.
+Use an OpenTelemetry collector or compatible export path. Do not make another dashboard mandatory.
 
 ### Distribution
 
@@ -936,9 +1257,24 @@ Add reproducible:
 - `migrate`;
 - `backup`;
 - `restore`;
-- `upgrade`.
+- `upgrade`;
+- rollback;
+- configuration migration.
 
-Support SQLite-consistent backup, migration, retention, and artifact cleanup.
+### Apache-2.0 release work
+
+Before public distribution:
+
+- add the actual Apache-2.0 `LICENSE`;
+- add `NOTICE` where required;
+- add or generate `THIRD_PARTY_NOTICES.md`;
+- preserve upstream notices and changed-file markers;
+- scan direct and transitive dependencies;
+- generate SPDX or CycloneDX SBOM;
+- inspect final wheels, installers, archives, containers, and bundled binaries;
+- archive licence-scan and release evidence.
+
+Candidate tooling includes Licensee for root sanity checks, ScanCode for file-level scanning, ORT for dependency and report workflows, FOSSology for ambiguous reviews, and License-Eye or an equivalent CI gate. Tool adoption must remain proportionate to the release workflow.
 
 ### Final cleanup
 
@@ -946,120 +1282,183 @@ After migration and acceptance, remove:
 
 - legacy job manager;
 - duplicate supervisors;
-- unused Ollama/local reasoning;
-- automatic coding-agent routing (removed);
-- synchronous coding-agent bypasses (removed);
 - duplicate local-coding state;
-- dashboard and service TUI;
-- obsolete approval and autonomy artifacts;
+- obsolete permission and approval machinery;
+- unused local general-reasoning paths;
+- synchronous coding-agent bypasses;
+- duplicate schema/catalog paths;
+- dashboard and service TUI after diagnostic migration;
 - server monkey patches;
-- duplicate schema/catalog paths.
+- failed external pilots and abandoned adapters.
 
-Domain-specific systems such as Trading Lab remain optional providers rather than core-lifecycle owners.
+Domain systems such as Trading Lab remain optional providers rather than core lifecycle owners.
 
 ### Exit gate
 
-A fresh installation exposes a reproducible, compact, headless agent runtime without duplicate reasoning systems, lifecycle stores, or abandoned interfaces.
+A fresh installation exposes a reproducible, compact, model-independent runtime without duplicate lifecycle authorities, hidden policy gates, abandoned interfaces, or unresolved third-party licensing obligations.
 
 ---
 
-## 8. Testing and acceptance policy
+## 11. Testing and acceptance policy
 
-The original audit did not run tests because its sandbox could not access the required real execution environment and Soma was concurrently occupied.
+Every implementation batch includes validation proportionate to the changed behavior.
 
-That limitation applies only to the audit.
+### Core requirements
 
-Every implementation batch must include:
+- focused unit and regression tests;
+- adjacent integration tests;
+- real Windows process/filesystem tests where platform semantics matter;
+- durable live validation for restart, cancellation, browser, scheduler, or provider work;
+- `git diff --check`;
+- selected-file local commit;
+- no push unless explicitly requested.
 
-1. focused unit/regression tests;
-2. adjacent integration tests;
-3. durable live validation where the feature requires process, restart, cancellation, browser, desktop, scheduler, or provider evidence;
-4. `git diff --check`;
-5. local selected-file commit;
-6. no push unless explicitly requested.
+### Permanent crash-window coverage
 
-Milestone evidence must cover:
+Test relevant boundaries including:
 
-- idempotent duplicate starts;
-- restart during launch;
-- restart during execution;
-- cancellation and cancellation uncertainty;
-- workflow continuation;
-- provider reload;
-- Hermes concurrency;
-- artifact reconstruction;
-- worktree isolation;
-- scheduled deduplication;
-- delivery failure independence;
-- connector-visible compactness;
-- authoritative hash equality.
+- server restart while a detached worker remains active;
+- worker death while a child process remains active;
+- process-launch failure after durable record creation;
+- crash after claim before launch;
+- crash after launch before child attachment;
+- concurrent reconcilers;
+- cancellation racing completion;
+- PID reuse;
+- duplicate idempotency request;
+- task command against a stale state version;
+- external backend recovery;
+- result publication after backend retry;
+- source changes during wiki refresh;
+- watcher overflow or missed events;
+- refresh failure before atomic publication;
+- browser worker death with a leased profile;
+- scheduler restart before and after attempt claim;
+- delivery failure after terminal task completion.
 
-No phase may claim completion from documentation, commit titles, or mocked results alone.
+### Integration-specific acceptance
+
+An external provider must prove:
+
+- exact version and schema identity;
+- health and readiness;
+- bounded timeouts;
+- cancellation behavior;
+- restart or failure behavior;
+- artifact and evidence publication;
+- no secret leakage;
+- no hidden canonical authority;
+- clean disable/remove path;
+- licence and notice compliance.
+
+### Documentation-only work
+
+For prose-only roadmap changes:
+
+- inspect the scoped diff;
+- run `git diff --check`;
+- verify only intended documentation files changed;
+- commit only selected documentation files;
+- preserve unrelated dirty and tool-owned evidence;
+- do not run the full test suite unless explicitly requested.
+
+Never claim validation that was not run.
 
 ---
 
-## 9. Adoption and reconciliation procedure
+## 12. Documentation and achievement discipline
 
-Before this roadmap is merged into repository documentation:
+Use documents for distinct purposes:
 
-1. inspect current branch and full HEAD;
-2. inspect tracked and untracked worktree state;
-3. inspect active durable runs, workflows, supervisors, and repository locks;
-4. inspect the current running service build hash and capability schema;
-5. revalidate every repository-specific audit finding against current source;
-6. classify findings as confirmed, superseded, or already implemented;
-7. preserve current CF1 work and completed evidence;
-8. add this document as the strategic post-CF1 roadmap;
-9. update `PLANS.md` with only:
-   - the product contract;
-   - trust-boundary invariant;
-   - link to this document;
-   - CF1 as sole active lane;
-   - ranked post-CF1 phase order;
-10. do not activate Phase 1 until CF1 passes its exit gate.
+- `AGENTS.md`: permanent owner decisions and working rules;
+- `PLANS.md`: concise current active lane and immediate decisions;
+- this roadmap: strategic architecture, order, and exit gates;
+- achievement records: completed milestones, measurements, commits, and legacy preservation;
+- audit reports: evidence and recommendations;
+- pilot evidence: bounded observations and promotion decisions;
+- licensing policy: third-party compatibility and release obligations.
+
+When a milestone completes:
+
+1. preserve its outcome and permanent invariants;
+2. move detailed chronological evidence to an achievement record;
+3. remove stale “sole active priority” wording;
+4. record the next owner-selected lane;
+5. do not delete historical evidence merely to shorten the plan.
+
+Before retiring old systems, create or update a legacy-achievement and migration record describing what they enabled and where their useful behavior moved.
 
 ---
 
-## 10. Non-goals
+## 13. Recommended next bounded batch
+
+The next recommended implementation batch is a **non-destructive Phase 1 slice**:
+
+- canonical task schema and migration;
+- controller-neutral task states;
+- mapping for one existing durable run type;
+- compact task status and result projection;
+- one version-guarded command;
+- adapter and migration tests;
+- no legacy deletion;
+- no Temporal, browser, memory sidecar, or gateway integration in the same batch.
+
+This recommendation is not an activation. Arash selects the batch.
+
+A small cross-cutting observability trace may be included only when it directly helps validate the task path and does not expand scope into a full telemetry project.
+
+---
+
+## 14. Non-goals
 
 Soma will not become:
 
-- a separate ChatGPT clone;
-- a second general-purpose reasoning model;
-- a mandatory desktop companion;
-- a dashboard-first product;
-- a fork of Hermes;
-- an executor of any coding agent (Codex, Claude Code, Gemini CLI, or otherwise);
-- a public unauthenticated internet service;
+- a clone or fork of ChatGPT, Claude, Hermes, OpenClaw, OpenHands, or another agent product;
+- dependent on one controller vendor;
+- a second mandatory user interface;
+- a public unauthenticated execution service;
 - a system that executes skill prose directly;
-- an architecture that retries externally ambiguous mutations automatically;
-- a monolithic rewrite that discards accepted durable evidence.
+- an architecture with competing canonical task, memory, evidence, repository, or schedule stores;
+- a wholesale Temporal, LangGraph, Letta, Mem0, Graphiti, or Graphify migration;
+- a platform that loads arbitrary unreviewed third-party plugins into the kernel;
+- a system that modifies Git or Git configuration to maintain the repository wiki;
+- an Apache-target codebase containing copied GPL/AGPL implementation code;
+- a monolithic rewrite that discards proven durability or historical evidence;
+- a project that rejects useful external components merely because they originated in a broader agent product.
 
 ---
 
-## 11. Final strategic sequence
+## 15. Final strategic sequence
 
 ```text
-Priority 0  Complete CF1
-Phase 1     Canonical task plane
-Phase 2     Kernel consolidation and permission removal
-Phase 3     Windows-first unrestricted host execution
-Phase 4     Unified capability broker and Hermes H2
-Phase 5     Skills, memory, and deterministic context
-Phase 6     Delegation, parallel workers, workflows, and worktrees
-Phase 7     Browser, desktop, and multimodal providers
-Phase 8     Scheduling, continuity, and return delivery
-Phase 9     Linux and macOS adapters
-Phase 10    Observability, packaging, and final legacy removal
+Closed       CF1 Chat Footprint and Progressive Disclosure
+Phase 1      Canonical task plane
+Phase 2      Application container, lifecycle consolidation, and legacy permission removal
+Phase 3      Windows-first unrestricted host execution and workspace abstraction
+Phase 4      Unified capability broker and Hermes H2
+Phase 5      Live repository knowledge, skills, memory, and deterministic context
+Phase 6      Delegation, parallel workers, workflows, worktrees, and optional backends
+Phase 7      Browser, desktop, and multimodal providers
+Phase 8      Durable scheduling, continuity, and return delivery
+Phase 9      Linux and macOS adapters
+Phase 10     Observability, packaging, licensing, and final legacy removal
 ```
 
-This order ensures that:
+The sequence is intentionally conservative:
 
-- the current conversation-footprint problem is solved first;
-- replacement task semantics exist before legacy controls are removed;
-- the useful Windows agent becomes real before cross-platform completion;
-- Hermes and external MCP capabilities join one broker;
-- skills and context exist before broad delegation;
-- delegation exists before unattended scheduling becomes powerful;
-- browser and desktop control use the same durable task/evidence model;
-- cleanup occurs only after migration is proven.
+- replacement task semantics exist before destructive cleanup;
+- the existing durable engine remains primary until a measured optional-backend pilot proves value;
+- Windows host execution becomes coherent before cross-platform expansion;
+- Hermes and external tools enter through one provider model;
+- repository knowledge becomes live before graph and memory sidecars are trusted;
+- skills and deterministic context exist before broad delegation;
+- delegation and workflow semantics exist before unattended scheduling expands;
+- Playwright supplies deterministic browser primitives before higher-level browser agents;
+- observability begins early but distribution hardening and final cleanup happen after migrations are proven;
+- external components save implementation time without taking ownership of Soma’s identity or history.
+
+The architectural destination is not “Soma implements everything itself.”
+
+It is:
+
+> **Soma owns continuity, identity, durability, evidence, and orchestration while proven external components provide specialised capabilities through replaceable, measured, licence-compatible boundaries.**
