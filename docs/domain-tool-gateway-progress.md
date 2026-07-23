@@ -75,3 +75,12 @@
 - Deterministic benchmark/final focused gate: 74 passed, including 24-action count, schema generation/validation, valid/invalid discriminated calls, annotation parity, retired-name absence, and knowledge integration.
 - Phase 8 full suite: 819 passed, 1 skipped. `pip check` and `git diff --check` passed.
 - Connector requirement: restart the Soma server and refresh the connector/action catalog after this MCP surface migration; existing chats using retired names need gateway-operation updates.
+
+## Post-migration update (2026-07-23): Codex gateways removed
+
+- The `codex_plan` and `codex_implement` public gateways described in
+  Phase 8 were later removed together with the entire Codex execution
+  path. Soma now generates provider-neutral external-coder handoffs for
+  manual use; no gateway launches a coding agent. Historical
+  `codex_plan_task` / `codex_implement_task` run records remain readable
+  as legacy read-only run types.

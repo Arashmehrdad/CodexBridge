@@ -43,7 +43,7 @@ All memory records remain in one SQLite database, but retrieval can be scoped by
 
 Repository-scoped searches do not return records from another repository. Shared global memories are included only when `include_global_memory=true` is requested explicitly.
 
-Codex escalation context now searches memory using the target repository name, preventing unrelated project decisions from entering a Codex packet.
+External-coder handoff context searches memory using the target repository name, preventing unrelated project decisions from entering a handoff packet. (This machinery previously fed Codex escalation packets; Codex execution has been removed.)
 
 ## MCP tools
 

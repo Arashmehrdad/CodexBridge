@@ -1884,8 +1884,13 @@ Attribute connector 502s before repair. Treat external fixture loss as infrastru
 - broad environment and secret-reference expansion beyond H1 needs;
 - a large provider-neutral synthetic acceptance matrix;
 - project-memory and local-model expansion;
-- supervisor, workflow, optional coding, and dashboard expansion;
-- Codex re-enablement.
+- supervisor, workflow, optional coding, and dashboard expansion.
+
+Codex execution has been removed permanently (2026-07-23): Soma generates
+provider-neutral external-coder handoffs for manual use with Claude Code,
+Codex, Gemini CLI, or another coding agent, and never launches one.
+Historical `codex_plan_task` / `codex_implement_task` run records remain
+readable as legacy read-only types.
 
 Historical R6, R7, P2, gate, commit, and validation specifications remain in the V2 achievement record.
 

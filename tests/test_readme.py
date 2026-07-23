@@ -20,7 +20,9 @@ def test_readme_tunnel_urls_end_in_mcp() -> None:
 def test_readme_sets_human_involvement_policy() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "The human is not expected to run setup" in readme
-    assert "Codex runs these checks and reports the results" in readme
+    assert (
+        "The coding agent working on this repository runs these checks" in readme
+    )
 
 
 def test_readme_documents_bounded_docker_workflow() -> None:

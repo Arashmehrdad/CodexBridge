@@ -10,7 +10,7 @@ It refines the prior Codex-generated audit by:
 - separating unrestricted execution from network exposure;
 - making the private tunnel or loopback boundary explicit;
 - keeping Windows as the first implementation target while preserving a portable core;
-- making Codex an explicitly invoked specialist rather than an automatic worker;
+- removing coding-agent execution entirely: Soma generates provider-neutral external-coder handoffs for manual use instead of invoking any coding agent;
 - removing unused or duplicate systems only after their useful behavior has migrated;
 - requiring focused tests and acceptance evidence for implementation even though the original audit could not run them;
 - retaining CF1 as the sole active engineering lane until its exit gate passes.
@@ -136,8 +136,8 @@ The private tunnel is the security perimeter. Soma is the unrestricted owner-con
 4. **Every public response is compact by default and exact evidence remains retrievable.**
 5. **Every side effect has durable identity, evidence, cancellation semantics, and reconciliation behavior.**
 6. **No general capability requires a configured Git repository.**
-7. **Native tools, Hermes, MCP servers, Codex workers, and future runtimes appear through one capability model.**
-8. **Codex is an explicitly requested specialist worker, never an automatic default.**
+7. **Native tools, Hermes, MCP servers, and future runtimes appear through one capability model.**
+8. **No coding agent is ever executed by Soma: coding work leaves through a provider-neutral external-coder handoff that the owner supplies manually to Claude Code, Codex, Gemini CLI, or another tool.**
 9. **Legacy systems are removed only after their useful semantics have migrated and passed acceptance.**
 10. **Windows is the first production target; the core is designed for later Linux and macOS adapters.**
 11. **No implementation phase is complete without focused tests and observable acceptance evidence.**
@@ -194,7 +194,7 @@ The correct strategy is:
 - repository, Docker, Cloudflare, knowledge, trading, and other domain capabilities as provider implementations;
 - Hermes H1 as a bounded compatibility/fallback path;
 - Hermes H2 process and identity foundations;
-- explicit Codex CLI invocation as a specialist coding worker;
+- provider-neutral external-coder handoff generation (manual use only);
 - repository wiki and SQLite memory as storage foundations.
 
 ### Migrate before removal
@@ -202,7 +202,7 @@ The correct strategy is:
 - legacy job lifecycle behavior;
 - supervisor recovery and continuation behavior;
 - local-coding state;
-- synchronous Codex result paths;
+- synchronous coding-agent result paths;
 - approval-oriented `needs_input` or `needs_approval` transitions;
 - dashboard/TUI operational information that is still useful;
 - keyword local-agent behavior that contains reusable routing or context logic.
@@ -210,8 +210,8 @@ The correct strategy is:
 ### Retire after successful migration
 
 - unused Ollama/local general-reasoning path;
-- automatic or implicit Codex routing;
-- synchronous Codex bypass paths;
+- automatic or implicit coding-agent routing (removed);
+- synchronous coding-agent bypass paths (removed);
 - duplicate supervisor stacks;
 - duplicate local-coding state;
 - legacy job manager;
@@ -494,17 +494,17 @@ Once the canonical task plane can replace useful behavior, consolidate lifecycle
 - legacy approval rows become historical or conservative `awaiting_chatgpt` checkpoints; they are never auto-executed;
 - old `allowed_files` becomes optional scope/evidence metadata, not authorization.
 
-### Codex policy
+### External-coder policy
 
-Codex CLI remains available only through an explicit specialist capability.
-
-It is never invoked automatically because:
-
-- Codex usage is separately limited;
-- casual background routing can consume paid/weekly capacity;
-- ChatGPT should decide when a coding specialist is worth invoking.
-
-The specialist launch may use the configured full-access Codex mode when explicitly requested and supported. Failure to support the configured mode must be reported clearly.
+Soma does not execute any coding agent. When coding work is required, Soma
+generates a bounded, provider-neutral external-coder handoff (objective,
+repository state, evidence, approved scope, constraints, validation
+commands, expected completion report) and parks the work in
+`needs_external_coder`. The owner supplies the handoff manually to Claude
+Code, Codex, Gemini CLI, or another coding agent, then returns the results
+to Soma for validation and evidence capture. Historical
+`codex_plan_task` / `codex_implement_task` records remain readable as
+legacy read-only run types.
 
 ### Exit gate
 
@@ -578,7 +578,7 @@ Providers include:
 - persistent Hermes H2;
 - Hermes H1 fallback;
 - external MCP tools/resources/prompts;
-- explicit Codex specialist worker;
+- external-coder handoff generation (manual use only);
 - future browser, desktop, and media providers.
 
 ### Hermes H2 completion
@@ -600,7 +600,7 @@ Hermes is the primary aggregator for Hermes built-ins, plugins, and connected MC
 
 ### Exit gate
 
-ChatGPT can search, describe, and durably invoke native, Hermes, plugin, MCP, and explicit Codex capabilities without loading the entire catalog.
+ChatGPT can search, describe, and durably invoke native, Hermes, plugin, and MCP capabilities without loading the entire catalog.
 
 ---
 
@@ -613,7 +613,6 @@ Support `SKILL.md`-style packages from:
 - project roots;
 - user roots;
 - bundled Soma skills;
-- Codex skill roots;
 - Hermes skill roots.
 
 Index only metadata first:
@@ -693,7 +692,7 @@ Soma schedules, observes, recovers, and reports children. It does not invent the
 
 - native command execution;
 - capability invocation;
-- explicit Codex specialist workers;
+- external-coder handoff generation;
 - deterministic workflows;
 - configured external agent runtimes.
 
@@ -931,8 +930,8 @@ After migration and acceptance, remove:
 - legacy job manager;
 - duplicate supervisors;
 - unused Ollama/local reasoning;
-- automatic Codex routing;
-- synchronous Codex bypasses;
+- automatic coding-agent routing (removed);
+- synchronous coding-agent bypasses (removed);
 - duplicate local-coding state;
 - dashboard and service TUI;
 - obsolete approval and autonomy artifacts;
@@ -1013,7 +1012,7 @@ Soma will not become:
 - a mandatory desktop companion;
 - a dashboard-first product;
 - a fork of Hermes;
-- an automatic Codex-consumption engine;
+- an executor of any coding agent (Codex, Claude Code, Gemini CLI, or otherwise);
 - a public unauthenticated internet service;
 - a system that executes skill prose directly;
 - an architecture that retries externally ambiguous mutations automatically;

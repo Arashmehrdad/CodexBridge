@@ -466,3 +466,15 @@ During a single end-to-end run, keep a concise internal checkpoint after every c
 - assumptions and known limitations
 - exact `git status --short`
 - confirmation that no commit or push occurred
+
+---
+
+## Post-migration update (2026-07-23): Codex gateways removed
+
+This migration specification is preserved as executed history. Its Phase 8
+outcome (`codex_plan` / `codex_implement` public gateways) was later
+superseded: the entire Codex execution path was removed from Soma. Coding
+work now leaves Soma only as a provider-neutral external-coder handoff for
+manual use with Claude Code, Codex, Gemini CLI, or another coding agent.
+Historical `codex_plan_task` / `codex_implement_task` run records remain
+readable as legacy read-only run types.

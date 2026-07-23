@@ -2,17 +2,17 @@
 
 ## Project Purpose
 
-Soma is evolving from a ChatGPT-to-Codex bridge into a local engineering control plane.
+Soma is a local engineering control plane. It no longer launches, supervises, routes to, or exposes Codex or any other coding agent.
 
 Target operating model:
 - ChatGPT decides strategy and normal engineering actions.
 - Soma MCP receives requests and owns durable execution state.
 - The local agent handles cheap, repetitive, operational, and long-running work.
-- Codex CLI is reserved for real coding/editing tasks.
+- Real coding/editing tasks are handed off manually: Soma generates a provider-neutral external-coder handoff and the user supplies it to Claude Code, Codex, Gemini CLI, or another coding agent.
 - PulseSender remains separate and returns prepared reports to the ChatGPT conversation.
 - The human only approves genuinely risky boundaries.
 
-Future Codex sessions must inspect the repository before assuming any roadmap feature exists.
+Future coding-agent sessions must inspect the repository before assuming any roadmap feature exists.
 
 ## Current Development Discipline
 
@@ -132,7 +132,7 @@ The local agent should handle:
 - audit events
 - structured run artifacts
 - local model summaries
-- Codex escalation packets
+- external-coder handoff generation (manual use only; nothing is invoked)
 - project memory
 - durable local long-running jobs through `JobManager`/`RunStore`
 - supervisor/workflow recovery through the shared durable lifecycle
@@ -141,9 +141,9 @@ The local agent should handle:
 
 The local agent must not perform risky writes, commits, pushes, deployments, or secret handling without the policy layer and proper approval.
 
-## Codex Routing Rules
+## External-Coder Handoff Rules
 
-Codex should usually not be used for:
+Soma never executes a coding agent. An external-coder handoff should usually not be generated for:
 - inspecting files
 - listing tests
 - running tests
@@ -155,7 +155,7 @@ Codex should usually not be used for:
 - monitoring long-running jobs
 - orchestrating already-defined workflow state transitions
 
-Codex should be used for:
+An external-coder handoff should be generated for:
 - source code edits
 - bug fixes
 - creating modules
@@ -166,14 +166,17 @@ Codex should be used for:
 
 When a full multi-step sequence is already known, use one durable workflow only after its launch/lease/recovery invariants are satisfied. Never start duplicate child runs for the same durable state, and do not emit repetitive monitoring turns when the worker can safely advance internally.
 
-Before a Codex escalation, the local agent should prepare a compact packet containing:
+The generated handoff is a bounded packet containing:
 - objective
+- current branch, HEAD, and worktree state
 - relevant files
-- current error or task context
-- tests already run
-- constraints
-- allowed files
-- expected output
+- exact evidence and failures
+- approved scope (allowed/forbidden files)
+- constraints and repository safety rules
+- tests and validation commands
+- the expected completion report
+
+The user supplies it manually to the coding agent of their choice; Soma records the artifact and parks in `needs_external_coder`.
 
 ## Safety and Autonomy Policy
 
@@ -231,8 +234,6 @@ Command execution must:
 - enforce timeouts
 - avoid write-capable behavior by default
 - record canonical worker/child identity and lease ownership for durable runs
-- pass Codex prompts through a UTF-8 file-backed stdin stream; never launch `codex exec -` without attaching that stream
-- use the connector-isolated Codex child environment for both synchronous and durable workers
 - keep full prompts out of command-line arguments and preserve multiline content exactly
 
 Current expected command profiles:
@@ -289,7 +290,7 @@ Only item 0 is active. Do not implement or validate later roadmap items until CF
 
 ## Reporting Format
 
-At the end of each Codex task, report:
+At the end of each coding-agent task, report:
 - files changed
 - behavior added
 - tests added
@@ -309,4 +310,4 @@ For prose-only changes such as `PLANS.md`, `AGENTS.md`, README files, roadmap/st
 
 ## Maintenance Rule
 
-When the user corrects a recurring project rule, update `AGENTS.md` so future Codex sessions inherit the correction.
+When the user corrects a recurring project rule, update `AGENTS.md` so future coding-agent sessions inherit the correction.

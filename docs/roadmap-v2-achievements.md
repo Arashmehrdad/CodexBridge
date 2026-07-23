@@ -26,10 +26,10 @@ ChatGPT
       -> local model and project memory
       -> SSH and remote controllers
       -> return-loop reports
-      -> Codex only when explicitly enabled
+      -> external-coder handoffs (manual use only)
 ```
 
-Codex is currently disabled by operator choice and is not a dependency for this roadmap. Repository changes continue through managed preview/apply tools and explicit local commits.
+Codex execution has been removed from Soma entirely (2026-07-23); coding work is handed off manually through provider-neutral external-coder handoffs. Repository changes continue through managed preview/apply tools and explicit local commits.
 
 The immediate program is no longer feature expansion through increasingly narrow wrappers. It is:
 
@@ -114,7 +114,7 @@ These components should be extended rather than replaced.
 
 ### Codex status
 
-Codex prompt transport was historically repaired and validated in T1. Codex execution is now intentionally disabled in configuration and hard-blocked before process launch. The roadmap must remain executable without Codex.
+Codex prompt transport was historically repaired and validated in T1, later disabled by configuration, and finally removed entirely (2026-07-23) together with the Codex CLI runner, gateways, and router. Soma now generates provider-neutral external-coder handoffs for manual use with any coding agent; historical `codex_plan_task` / `codex_implement_task` records remain readable as legacy read-only run types. The roadmap remains executable without any coding-agent integration.
 
 ### Remote execution status
 
@@ -908,9 +908,9 @@ Begin after R7 unless a smaller supporting change is required by an earlier batc
 - show protected-artifact references without exposing their contents;
 - add write controls only after execution gates are complete.
 
-### Codex re-enable path
+### Codex re-enable path (closed)
 
-Codex may be re-enabled later as an optional coding escalation only after an explicit operator decision. Re-enabling requires config validation, process-launch tests, and confirmation that local orchestration remains the default. No current batch depends on it.
+This path is closed: the Codex execution stack was removed on 2026-07-23 and replaced with provider-neutral external-coder handoff generation. Any future coding-agent integration would be a new design, not a re-enablement.
 
 ## Validation Policy
 

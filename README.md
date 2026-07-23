@@ -1,6 +1,6 @@
 # Soma
 
-Soma is a Windows-first local FastMCP bridge between ChatGPT, whitelisted Git repositories, Codex CLI, allowlisted host commands, Git, repository knowledge, and durable run artifacts. It keeps repository inspection separate from write operations, validates every repo by name from `config.yaml`, and records durable run state under `runs/`.
+Soma is a Windows-first local FastMCP bridge between ChatGPT, whitelisted Git repositories, allowlisted host commands, Git, repository knowledge, and durable run artifacts. It keeps repository inspection separate from write operations, validates every repo by name from `config.yaml`, and records durable run state under `runs/`.
 
 ## Architecture
 
@@ -11,14 +11,14 @@ ChatGPT
      -> repo whitelist + repo-relative path validation
      -> repository read tools
      -> repository write/preview tools
-     -> Codex plan/implement runner
+     -> external-coder handoff generation (manual use; never executed)
      -> allowlisted command profiles
      -> allowlisted remote-server aliases and command profiles
      -> repository wiki + decision memory
      -> durable async run store + artifacts
      -> supervisors
   -> whitelisted Git repositories
-  -> Codex CLI / Git / local Python environments
+  -> Git / local Python environments
   -> structured results back to ChatGPT
 ```
 
@@ -54,12 +54,9 @@ repos:
         writes_files: false
         async_only: true
 runs_dir: "runs"
-codex:
-  executable: "codex"
-  model: ""
-  windows_sandbox: ""
-  sandbox_private_desktop: null
-  default_timeout_seconds: 1800
+external_coder:
+  external_coder_handoff_enabled: true
+  external_coder_require_policy_approval: true
 gemini:
   enabled: false
 supervisors:
@@ -134,11 +131,10 @@ After server code changes, `config.yaml` changes, or MCP tool-surface changes, r
 Use the bridge in this order:
 
 1. Inspect first with repository read/search tools.
-2. Plan with `codex_plan_task` or `start_codex_plan_task_async`.
-3. Approve the plan outside the bridge.
-4. Implement with `codex_implement_task` or `start_codex_implement_task_async` only after approval and only with an exclusive `allowed_files` list.
-5. Inspect the resulting diff with `repo_git_diff`, `git_diff_summary`, or `repo_git_status`.
-6. Use `commit_selected_files` only after explicit approval.
+2. Execute, validate, and gather evidence with Soma's durable run tools.
+3. When coding work is required, generate an external-coder handoff (a bounded packet with objective, repository state, evidence, scope, constraints, and validation commands). Soma never launches a coding agent; supply the handoff manually to Claude Code, Codex, Gemini CLI, or another tool of your choice.
+4. After the external agent finishes, inspect the resulting diff with `repo_git_diff`, `git_diff_summary`, or `repo_git_status` and re-run validation through Soma.
+5. Use `commit_selected_files` only after explicit approval.
 
 ## OpenAI Platform Limitations
 
@@ -461,8 +457,6 @@ The older direct write tools remain available for compatibility and direct opera
 
 Durable async runs cover:
 
-- `start_codex_plan_task_async`
-- `start_codex_implement_task_async`
 - `start_workflow`
 - `start_pytest_path_async`
 - `start_external_fixture_validation_async`
@@ -502,7 +496,7 @@ Scoped pytest example:
 
 If OpenAI safety blocks a tool call before Soma returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 
-Async state is durable across process restarts because run metadata is stored in `runs/soma.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands and Codex jobs persist their inputs, events, results, and output files there. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
+Async state is durable across process restarts because run metadata is stored in `runs/soma.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands persist their inputs, events, results, and output files there. Historical `codex_plan_task` / `codex_implement_task` records remain readable as legacy read-only run types; new instances can never be created. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
 
 ### Durable Workflows
 
@@ -510,7 +504,6 @@ When you already know the full multi-step engineering sequence, submit one struc
 
 Supported workflow step types in this batch:
 
-- `codex_implement`
 - `project_command`
 - `pytest_path`
 - `git_readonly`
@@ -528,27 +521,23 @@ Example:
 ```powershell
 start_workflow `
   -repo_name "soma" `
-  -objective "Implement batch and validate it" `
+  -objective "Validate the batch and summarize the results" `
   -steps @(
-    @{
-      id = "implement"
-      type = "codex_implement"
-      parameters = @{
-        approved_plan = "Implement the approved batch"
-        allowed_files = @("soma/workflows/models.py", "tests/test_workflows.py")
-        tests = @("python -m pytest -q tests/test_workflows.py")
-      }
-    },
     @{
       id = "targeted_pytest"
       type = "pytest_path"
-      depends_on = @("implement")
       parameters = @{ path = "tests/test_workflows.py" }
+    },
+    @{
+      id = "checks"
+      type = "project_command"
+      depends_on = @("targeted_pytest")
+      parameters = @{ command_id = "pip_check" }
     },
     @{
       id = "summary"
       type = "local_summary"
-      depends_on = @("implement", "targeted_pytest")
+      depends_on = @("targeted_pytest", "checks")
       parameters = @{}
     }
   )
@@ -635,4 +624,4 @@ For a documentation-only update, the required check is:
 git diff --check
 ```
 
-Codex runs these checks and reports the results.
+The coding agent working on this repository runs these checks and reports the results.
