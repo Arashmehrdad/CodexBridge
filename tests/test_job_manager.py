@@ -240,7 +240,10 @@ def test_codex_disabled_refuses_plan_and_implementation(
     for response in (plan, implementation):
         assert response["accepted"] is False
         assert response["status"] == "refused"
-        assert response["run_id"] is None
+        # A refusal carries an empty-string run ID: the public run-result
+        # schema requires a string, and None broke gateway output
+        # validation before the real refusal reason could be seen.
+        assert response["run_id"] == ""
         assert response["reason"] == "Codex execution is disabled by configuration"
 
 

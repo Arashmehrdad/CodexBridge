@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from typing import Protocol
@@ -39,8 +40,10 @@ class PolicyDecision:
     def to_start_response(
         self, run_id: str | None = None, status: str = "queued"
     ) -> dict:
+        # Refusals have no run; the public run-result schema requires a
+        # string, so an absent run ID is the empty string rather than None.
         return {
-            "run_id": run_id,
+            "run_id": run_id or "",
             "accepted": self.accepted,
             "status": status,
             "estimated_duration_minutes": self.estimated_duration_minutes,
@@ -163,19 +166,35 @@ def _profile_result(
     )
 
 
+def _matches_human_only_language(text: str) -> bool:
+    """Match credential-handling language on word boundaries.
+
+    Bare substring checks misclassified ordinary engineering vocabulary:
+    a plan describing document chunks with "token counts" is not an
+    access-token operation, and "tokenizer" is not a token at all. Auth
+    tokens are matched through their qualifying compounds so genuine
+    credential work still requires a human while LLM-token bookkeeping
+    does not.
+    """
+    return any(pattern.search(text) for pattern in _HUMAN_ONLY_PATTERNS)
+
+
+_HUMAN_ONLY_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"\bcredentials?\b",
+        r"\bsecrets?\b",
+        r"\blog[_-]?ins?\b",
+        r"\b(?:api|auth|access|bearer|oauth|session|refresh)[\s_-]?tokens?\b",
+        r"\bforce[\s_-]?push(?:es|ed|ing)?\b",
+        r"\bdelete[\s_-]?volumes?\b",
+    )
+)
+
+
 def decide_plan_task(task: str, constraints: str | None = None) -> PolicyDecision:
     text = f"{task}\n{constraints or ''}".lower()
-    if any(
-        word in text
-        for word in (
-            "credential",
-            "login",
-            "secret",
-            "token",
-            "force push",
-            "delete volume",
-        )
-    ):
+    if _matches_human_only_language(text):
         return PolicyDecision(
             False, 3, "high", True, "Plan request appears to require human-only action"
         )
@@ -186,16 +205,7 @@ def decide_implementation_task(
     approved_plan: str, allowed_files: list[str], tests: list[str]
 ) -> PolicyDecision:
     text = f"{approved_plan}\n{' '.join(tests)}".lower()
-    if any(
-        word in text
-        for word in (
-            "force push",
-            "credential",
-            "browser login",
-            "secret",
-            "delete volume",
-        )
-    ):
+    if _matches_human_only_language(text):
         return PolicyDecision(
             False, 3, "high", True, "Request appears to require human-only action"
         )
