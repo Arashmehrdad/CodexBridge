@@ -735,6 +735,31 @@ class CodexRouterConfig(BaseModel):
     codex_router_require_policy_approval: bool = True
 
 
+class ExternalCoderConfig(BaseModel):
+    """Bounded, provider-neutral external-coder handoff generation.
+
+    Handoffs are generated artifacts only; Soma never invokes an external
+    coding agent. The user supplies a handoff manually to Claude Code,
+    Codex, Gemini CLI, or another coding agent.
+    """
+
+    external_coder_handoff_enabled: bool = True
+    external_coder_max_context_bytes: int = Field(default=60000, ge=1000, le=1000000)
+    external_coder_max_file_bytes: int = Field(default=20000, ge=1, le=500000)
+    external_coder_max_log_bytes: int = Field(default=12000, ge=1, le=500000)
+    external_coder_max_worktree_status_bytes: int = Field(
+        default=8000, ge=1, le=500000
+    )
+    external_coder_default_validation_commands: list[str] = Field(
+        default_factory=lambda: ["pytest", "pip_check"]
+    )
+    external_coder_handoff_dir: str | None = None
+    external_coder_use_local_model_summary: bool = True
+    external_coder_redact_sensitive: bool = True
+    external_coder_block_sensitive: bool = True
+    external_coder_require_policy_approval: bool = True
+
+
 class LocalSupervisorConfig(BaseModel):
     supervisor_enabled: bool = True
     supervisor_runs_dir: str | None = None
@@ -922,6 +947,7 @@ class AppConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
     codex_router: CodexRouterConfig = Field(default_factory=CodexRouterConfig)
+    external_coder: ExternalCoderConfig = Field(default_factory=ExternalCoderConfig)
     local_supervisor: LocalSupervisorConfig = Field(
         default_factory=LocalSupervisorConfig
     )
@@ -977,6 +1003,14 @@ class AppConfig(BaseModel):
                 path = self.config_dir / path
             return path.resolve()
         return self.resolve_runs_dir() / "codex_escalations"
+
+    def resolve_external_coder_handoff_dir(self) -> Path:
+        if self.external_coder.external_coder_handoff_dir:
+            path = Path(self.external_coder.external_coder_handoff_dir)
+            if not path.is_absolute():
+                path = self.config_dir / path
+            return path.resolve()
+        return self.resolve_runs_dir() / "external_coder_handoffs"
 
     def resolve_local_supervisor_runs_dir(self) -> Path:
         if self.local_supervisor.supervisor_runs_dir:
