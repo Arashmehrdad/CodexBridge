@@ -65,7 +65,7 @@ def test_deterministic_gateway_surface_benchmark() -> None:
         assert actions[name]["annotations"]["readOnlyHint"] is False
 
 
-def test_mcp_transport_uses_small_text_summary_without_structured_duplication(
+def test_mcp_transport_serializes_projection_into_content_text(
     monkeypatch,
 ) -> None:
     payload = {
@@ -102,15 +102,13 @@ def test_mcp_transport_uses_small_text_summary_without_structured_duplication(
     text = "".join(
         block.text for block in result.content if getattr(block, "type", "") == "text"
     )
-    structured_json = json.dumps(
-        result.structured_content,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    assert 0 < len(text.encode("utf-8")) <= 512
-    assert "structured result" in text
-    assert structured_json not in text
-    assert len(text.encode("utf-8")) < len(structured_json.encode("utf-8")) // 10
+    # MCP spec 2025-06-18: the same structured payload must be serialized into a
+    # text content block. Clients that read content[].text (Claude, LangChain,
+    # Agent Zero) must receive the payload, not a scalar envelope summary.
+    assert text, "content[].text must carry the serialized payload"
+    reconstructed = json.loads(text)
+    assert reconstructed == result.structured_content
+    assert reconstructed["runs"] == payload["runs"]
 
     direct = server.run_query(
         TypeAdapter(RunQueryRequest).validate_python(

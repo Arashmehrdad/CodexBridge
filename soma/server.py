@@ -172,7 +172,6 @@ from .gateway_models import (
 
 mcp = FastMCP("Soma")
 _PROCESS_CAPABILITY_METADATA = capability_metadata(PATCH_OPERATION_SCHEMA)
-_MCP_TEXT_SUMMARY_MAX_BYTES = 512
 _original_mcp_tool = mcp.tool
 
 
@@ -185,30 +184,57 @@ def _with_process_capability_metadata(result: Any) -> Any:
     return enriched
 
 
-def _mcp_text_summary(result: dict[str, Any]) -> str:
-    parts = ["Soma structured result"]
-    for key in ("operation", "status", "run_id", "group_id", "repo_name"):
-        value = str(result.get(key, "")).strip()
-        if value:
-            parts.append(f"{key}={value}")
-    if "ok" in result:
-        parts.append(f"ok={bool(result['ok'])}")
-    error = str(result.get("error", "")).strip()
-    if error:
-        parts.append(f"error={error}")
-    summary = " | ".join(parts)
-    encoded = summary.encode("utf-8")
-    if len(encoded) <= _MCP_TEXT_SUMMARY_MAX_BYTES:
-        return summary
-    return encoded[:_MCP_TEXT_SUMMARY_MAX_BYTES].decode("utf-8", errors="ignore")
+def _mcp_content_payload(result: dict[str, Any]) -> str:
+    """Serialize the compact public projection into a text content block.
+
+    MCP spec 2025-06-18 (Server/Tools, Structured Content) requires a tool that
+    returns structured content to *also* serialize that same JSON into a text
+    content block for backwards compatibility. ChatGPT reads
+    ``structuredContent``; Claude, LangChain's MCP adapters, Agent Zero, and
+    most other clients read ``content[].text``. Both channels therefore carry
+    the same information.
+
+    The payload here is the identical dict that populates ``structuredContent``
+    (already the view-specific compact/full/legacy projection produced upstream,
+    including its byte-budget trimming), so no projection logic is duplicated or
+    re-expanded here. It is rendered with the canonical compact separators used
+    by the CF1 byte-budget accounting so the serialized text the model actually
+    consumes never exceeds what ``response_budget_bytes`` bounded.
+    """
+    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+
+def _account_text_block_bytes(result: dict[str, Any]) -> dict[str, Any]:
+    """Refresh ``response_bytes`` to the size of the serialized text block.
+
+    Upstream projections estimate ``response_bytes`` from the pre-transport
+    projection alone. Now that ``content[].text`` is the channel the model
+    consumes, the accounting must reflect that serialized block, including the
+    fixed capability-metadata envelope the transport layer merges in. Only
+    results that already report ``response_bytes`` are touched; the value is
+    resolved to a fixed point because the recorded integer's own width feeds
+    back into the serialized length.
+    """
+    if not isinstance(result.get("response_bytes"), int) or isinstance(
+        result.get("response_bytes"), bool
+    ):
+        return result
+    updated = dict(result)
+    for _ in range(4):
+        size = len(_mcp_content_payload(updated).encode("utf-8"))
+        if size == updated["response_bytes"]:
+            break
+        updated["response_bytes"] = size
+    return updated
 
 
 def _mcp_transport_result(result: Any) -> Any:
     if not isinstance(result, dict):
         return result
+    accounted = _account_text_block_bytes(result)
     return ToolResult(
-        content=_mcp_text_summary(result),
-        structured_content=result,
+        content=_mcp_content_payload(accounted),
+        structured_content=accounted,
     )
 
 

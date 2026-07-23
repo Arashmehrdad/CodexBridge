@@ -616,7 +616,12 @@ def test_conversation_footprint_reduction_is_at_least_90_percent(
     manager = _manager(matrix_session.store)
     monkeypatch.setattr(server, "get_job_manager", lambda: manager)
 
-    baseline_total = 0
+    # CF1 exit gate is re-measured against the TEXT block — the channel the
+    # model actually consumes (content[].text) — rather than structuredContent.
+    # Pre-CF1 the model consumed the full authoritative record serialized into
+    # the text block; the corrected transport serializes only the compact
+    # projection into that same channel.
+    baseline_text_total = 0
     for fixture in CF1_FIXTURE_MATRIX:
         payload = build_representative_fixture_payload(
             fixture, detail_bytes=DETAIL_BYTES
@@ -629,23 +634,17 @@ def test_conversation_footprint_reduction_is_at_least_90_percent(
             connector_envelope=payload.connector_envelope,
             authoritative_record=payload.authoritative_record,
         )
-        # Pre-CF1 behavior: the complete payload appeared twice (structured
-        # content plus a full JSON text copy) inside the connector envelope.
-        assert measurement.duplicated_representation_bytes == (
-            measurement.server_projection_bytes * 2
-        )
-        baseline_total += measurement.conversation_visible_bytes
+        # Baseline text block carried the complete authoritative projection.
+        assert measurement.mcp_text_content_bytes == measurement.server_projection_bytes
+        baseline_text_total += measurement.mcp_text_content_bytes
 
     run_ids = {
         name: record["run_id"] for name, record in matrix_session.runs.items()
     }
     responses = asyncio.run(_mcp_terminal_responses(run_ids))
 
-    compact_total = 0
+    current_text_total = 0
     structured_total = 0
-    text_total = 0
-    wrapper_total = 0
-    duplicated_total = 0
     for name, response in responses.items():
         structured = response.structured_content
         assert structured is not None
@@ -654,6 +653,11 @@ def test_conversation_footprint_reduction_is_at_least_90_percent(
             for block in response.content
             if getattr(block, "type", "") == "text"
         )
+        # The corrected transport MUST populate content[].text with the same
+        # compact projection carried by structuredContent — non-empty, JSON
+        # parseable, and semantically equivalent.
+        assert text, f"{name} produced an empty text block"
+        assert json.loads(text) == structured
         envelope = {
             "structuredContent": structured,
             "content": [{"type": "text", "text": text}],
@@ -667,38 +671,22 @@ def test_conversation_footprint_reduction_is_at_least_90_percent(
             connector_envelope=envelope,
             authoritative_record=stored,
         )
-        # The single structured copy is the payload itself; any duplicated
-        # bytes beyond it would mean a second complete-payload copy (the
-        # pre-CF1 full-JSON text). The current transport must carry zero.
-        duplicate_beyond_structured = (
-            measurement.duplicated_representation_bytes
-            - measurement.mcp_structured_content_bytes
-        )
-        assert duplicate_beyond_structured == 0
-        assert measurement.mcp_text_content_bytes <= 512
-        assert "structured result" in text
-        compact_total += measurement.conversation_visible_bytes
+        assert measurement.mcp_text_content_bytes > 0
+        current_text_total += measurement.mcp_text_content_bytes
         structured_total += measurement.mcp_structured_content_bytes
-        text_total += measurement.mcp_text_content_bytes
-        wrapper_total += measurement.connector_wrapper_bytes
-        duplicated_total += duplicate_beyond_structured
 
-    reduction_bytes = baseline_total - compact_total
-    reduction_percent = reduction_bytes / baseline_total * 100
+    reduction_bytes = baseline_text_total - current_text_total
+    reduction_percent = reduction_bytes / baseline_text_total * 100
     assert reduction_percent >= 90.0
-    assert duplicated_total == 0
     print(
         "CF1-ACCEPTANCE-REDUCTION "
         + json.dumps(
             {
-                "baseline_bytes": baseline_total,
-                "compact_bytes": compact_total,
+                "baseline_text_bytes": baseline_text_total,
+                "current_text_bytes": current_text_total,
                 "reduction_bytes": reduction_bytes,
                 "reduction_percent": round(reduction_percent, 2),
                 "structured_content_bytes": structured_total,
-                "text_content_bytes": text_total,
-                "connector_wrapper_bytes": wrapper_total,
-                "duplicated_representation_bytes": duplicated_total,
             }
         )
     )
@@ -772,7 +760,7 @@ def test_projection_overhead_and_full_retrieval_performance(
     )
 
 
-def test_compact_summary_sql_never_decodes_blobs_and_text_is_serialization_free(
+def test_compact_summary_sql_never_decodes_blobs_and_transport_serializes_payload(
     matrix_session: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -788,35 +776,23 @@ def test_compact_summary_sql_never_decodes_blobs_and_text_is_serialization_free(
     assert store.list_run_summaries()["runs"]
     monkeypatch.undo()
 
-    calls = {"dumps": 0, "loads": 0}
-
-    class CountingJson:
-        @staticmethod
-        def dumps(*args, **kwargs):
-            calls["dumps"] += 1
-            return json.dumps(*args, **kwargs)
-
-        @staticmethod
-        def loads(*args, **kwargs):
-            calls["loads"] += 1
-            return json.loads(*args, **kwargs)
-
-        def __getattr__(self, name):
-            return getattr(json, name)
-
     payload = {
         "ok": True,
         "operation": "summary_list",
         "runs": [{"run_id": f"run-{index}", "summary": "x" * 2000} for index in range(20)],
         "error": "",
     }
-    monkeypatch.setattr(server, "json", CountingJson())
-    text = server._mcp_text_summary(payload)
     transported = server._mcp_transport_result(payload)
-    monkeypatch.undo()
-    assert calls == {"dumps": 0, "loads": 0}
-    assert 0 < len(text.encode("utf-8")) <= 512
     assert transported.structured_content == payload
+    text = "".join(
+        block.text
+        for block in transported.content
+        if getattr(block, "type", "") == "text"
+    )
+    # The transport serializes the same projection into content[].text so
+    # non-ChatGPT clients receive the payload; both channels stay equivalent.
+    assert text
+    assert json.loads(text) == payload
 
 
 def test_direct_dict_mcp_wrapper_and_durable_projection_reuse(
@@ -841,9 +817,12 @@ def test_direct_dict_mcp_wrapper_and_durable_projection_reuse(
         for block in response.content
         if getattr(block, "type", "") == "text"
     )
-    assert 0 < len(text.encode("utf-8")) <= 512
+    # content[].text carries the same projection as structuredContent, rendered
+    # with the canonical compact separators.
+    assert text
+    assert json.loads(text) == structured
     assert (
-        json.dumps(structured, ensure_ascii=False, separators=(",", ":")) not in text
+        json.dumps(structured, ensure_ascii=False, separators=(",", ":")) == text
     )
 
     # Legacy durable rows materialize their projection once and reuse it.
