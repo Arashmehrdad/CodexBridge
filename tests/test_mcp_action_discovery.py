@@ -21,10 +21,6 @@ EXPECTED_EXPOSED_ACTIONS = {
     "list_capabilities",
     "inspect_repo_status",
     "inspect_repo_status_compact",
-    "codex_plan_task",
-    "start_codex_plan_task_async",
-    "start_codex_implement_task_async",
-    "codex_implement_task",
     "get_latest_run_result",
     "git_diff_summary",
     "commit_selected_files",
@@ -50,8 +46,6 @@ EXPECTED_EXPOSED_ACTIONS = {
     "start_ssh_transfer_async",
     "start_ssh_deployment_async",
     "start_external_fixture_validation_async",
-    "start_codex_plan_task_async",
-    "start_codex_implement_task_async",
     "start_project_command_async",
     "start_pytest_path_async",
     "start_py_compile_path_async",
@@ -113,10 +107,6 @@ EXPECTED_EXPOSED_ACTIONS = {
 }
 RETIRED_DIRECT_ACTIONS = {
     "apply_repo_patch",
-    "codex_implement_task",
-    "codex_plan_task",
-    "start_codex_plan_task_async",
-    "start_codex_implement_task_async",
     "commit_all_changes",
     "create_repo_file",
     "delete_repo_file",
@@ -228,8 +218,6 @@ WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
     "system_action",
     "knowledge_query",
     "knowledge_action",
-    "codex_plan",
-    "codex_implement",
 }
 PUBLIC_TRADING_ACTIONS = {
     "trading_query",
@@ -241,7 +229,7 @@ PUBLIC_TRADING_ACTIONS = {
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 29
+assert len(EXPECTED_EXPOSED_ACTIONS) == 27
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -301,22 +289,6 @@ REALISTIC_ACTION_OUTPUTS = {
             "truncated": False,
         },
         "fallback_tool": "inspect_repo_status",
-        "error": "",
-    },
-    "codex_plan_task": {
-        "ok": True,
-        "run_id": "run_plan_alias",
-        "status": "queued",
-        "repo_name": "repo",
-        "result": {},
-        "error": "",
-    },
-    "codex_implement_task": {
-        "ok": True,
-        "run_id": "run_implement_alias",
-        "status": "queued",
-        "repo_name": "repo",
-        "result": {},
         "error": "",
     },
     "get_latest_run_result": {
@@ -700,22 +672,6 @@ REALISTIC_ACTION_OUTPUTS = {
         "status": "queued",
         "host_id": "my_vps",
         "deployment_id": "app",
-        "result": {},
-        "error": "",
-    },
-    "start_codex_plan_task_async": {
-        "ok": True,
-        "run_id": "run_2",
-        "status": "queued",
-        "repo_name": "repo",
-        "result": {},
-        "error": "",
-    },
-    "start_codex_implement_task_async": {
-        "ok": True,
-        "run_id": "run_3",
-        "status": "queued",
-        "repo_name": "repo",
         "result": {},
         "error": "",
     },
@@ -1384,8 +1340,6 @@ def test_mcp_actions_have_descriptions_annotations_and_valid_input_schemas() -> 
 def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     write_actions = {
-        "codex_implement_task",
-        "codex_implement",
         "repo_apply",
         "repo_commit",
         "run_start",
@@ -1394,7 +1348,6 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "ssh_action",
         "system_action",
         "knowledge_action",
-        "start_codex_implement_task_async",
         "start_docker_action_async",
         "start_cloudflare_action_async",
         "start_project_command_async",
@@ -1498,8 +1451,6 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "system_action",
             "knowledge_query",
             "knowledge_action",
-            "codex_plan",
-            "codex_implement",
             "trading_query",
             "trading_signal_submit",
             "trading_signal_get",

@@ -56,7 +56,6 @@ def test_inventory_covers_every_required_cf1_gateway_family() -> None:
     families = {entry.family for entry in PUBLIC_GATEWAY_INVENTORY}
     assert families == {
         "cloudflare",
-        "codex",
         "docker",
         "knowledge",
         "repository",

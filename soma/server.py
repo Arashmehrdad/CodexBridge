@@ -127,8 +127,6 @@ from .gateway_models import (
     CloudflareQueryRequest,
     SSHActionRequest,
     SSHQueryRequest,
-    CodexImplementRequest,
-    CodexPlanRequest,
     SystemActionRequest,
     SystemQueryRequest,
     SSHInspectRequest,
@@ -267,12 +265,6 @@ WRITE_ANNOTATIONS = {
     "destructiveHint": False,
     "idempotentHint": False,
     "openWorldHint": False,
-}
-CODEX_WRITE_ANNOTATIONS = {
-    "readOnlyHint": False,
-    "destructiveHint": False,
-    "idempotentHint": False,
-    "openWorldHint": True,
 }
 GENERIC_OBJECT_OUTPUT = {
     "type": "object",
@@ -431,32 +423,6 @@ REPO_STATUS_COMPACT_OUTPUT = {
             },
         },
         "fallback_tool": {"type": "string"},
-        "error": {"type": "string"},
-    },
-}
-CODEX_PLAN_OUTPUT = {
-    "type": "object",
-    "additionalProperties": True,
-    "properties": {
-        "ok": {"type": "boolean"},
-        "repo_name": {"type": "string"},
-        "plan": {"type": "string"},
-        "result": {"type": "object", "additionalProperties": True},
-        "error": {"type": "string"},
-    },
-}
-CODEX_IMPLEMENT_OUTPUT = {
-    "type": "object",
-    "additionalProperties": True,
-    "properties": {
-        "ok": {"type": "boolean"},
-        "repo_name": {"type": "string"},
-        "changed_files": {"type": "array", "items": {"type": "string"}},
-        "tests": {
-            "type": "array",
-            "items": {"type": "object", "additionalProperties": True},
-        },
-        "result": {"type": "object", "additionalProperties": True},
         "error": {"type": "string"},
     },
 }
@@ -1420,31 +1386,6 @@ def inspect_repo_status_compact(
         result["truncated"] = True
         result["has_more"] = True
     result["response_bytes"] = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
-    return result
-
-
-@_internal_tool(
-    output_schema=RUN_RESULT_OUTPUT,
-    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
-)
-def codex_plan_task(repo_name: str, task: str, constraints: str = "") -> dict:
-    """Compatibility alias: queue a durable plan-only Codex run and return its run ID."""
-    result = get_job_manager().start_plan(repo_name, task, constraints)
-    result["deprecated_sync_alias"] = True
-    result["replacement_tool"] = "start_codex_plan_task_async"
-    return result
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
-def codex_implement_task(
-    repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
-) -> dict:
-    """Compatibility alias: queue durable Codex implementation and return its run ID."""
-    result = get_job_manager().start_implementation(
-        repo_name, approved_plan, allowed_files, tests
-    )
-    result["deprecated_sync_alias"] = True
-    result["replacement_tool"] = "start_codex_implement_task_async"
     return result
 
 
@@ -2607,20 +2548,6 @@ def start_ssh_deployment_async(
     )
 
 
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True})
-def codex_plan(request: CodexPlanRequest) -> dict:
-    """Read-only Codex gateway for a durable plan-only run."""
-    return start_codex_plan_task_async(request.repo_name, request.task, request.constraints)
-
-
-@mcp.tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
-def codex_implement(request: CodexImplementRequest) -> dict:
-    """Write Codex gateway for an approved plan with an explicit file/test scope."""
-    return start_codex_implement_task_async(
-        request.repo_name, request.approved_plan, request.allowed_files, request.tests
-    )
-
-
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def docker_query(request: DockerQueryRequest) -> dict:
     """Read-only Docker gateway for capabilities, health, and bounded inspection."""
@@ -2771,27 +2698,6 @@ def ssh_action(request: SSHActionRequest) -> dict:
         request.host_id, request.deployment_id, request.confirmation,
         autonomy_profile=request.autonomy_profile,
         execution_mode=request.execution_mode,
-    )
-
-
-@_internal_tool(
-    output_schema=RUN_RESULT_OUTPUT,
-    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
-)
-def start_codex_plan_task_async(
-    repo_name: str, task: str, constraints: str = ""
-) -> dict:
-    """Read-only async tool: queue a plan-only Codex job and return a durable run_id immediately."""
-    return get_job_manager().start_plan(repo_name, task, constraints)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=CODEX_WRITE_ANNOTATIONS)
-def start_codex_implement_task_async(
-    repo_name: str, approved_plan: str, allowed_files: list[str], tests: list[str]
-) -> dict:
-    """Write async tool: queue an approved implementation Codex job and return a durable run_id immediately."""
-    return get_job_manager().start_implementation(
-        repo_name, approved_plan, allowed_files, tests
     )
 
 

@@ -503,8 +503,6 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
 
 def test_durable_action_paths_record_request_echo_explicitly() -> None:
     for gateway, operation in {
-        ("codex_plan", "invoke"),
-        ("codex_implement", "invoke"),
         ("run_start", "powershell"),
         ("docker_action", "compose_up"),
         ("cloudflare_action", "dns_create"),

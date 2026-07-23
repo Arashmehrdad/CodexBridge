@@ -251,28 +251,6 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         ),
     ),
     _entry(
-        "codex_plan",
-        ("invoke",),
-        "soma.server:codex_plan",
-        "durable run launch acknowledgement",
-        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes=(
-            "The immediate acknowledgement is small; task and constraints are "
-            "preserved in the durable run input record."
-        ),
-    ),
-    _entry(
-        "codex_implement",
-        ("invoke",),
-        "soma.server:codex_implement",
-        "durable run launch acknowledgement",
-        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes=(
-            "The immediate acknowledgement is small; approved plan, file scope, "
-            "and tests are preserved in the durable run input record."
-        ),
-    ),
-    _entry(
         "docker_query",
         ("capabilities",),
         "soma.server:docker_query",

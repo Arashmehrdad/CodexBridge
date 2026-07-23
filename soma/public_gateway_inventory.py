@@ -22,8 +22,6 @@ def _entry(name: str, family: str, source: str, response_path: str, cf1_risk: st
 
 PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("ssh_inspect", "ssh", "soma.server", "direct bounded object", "provider payload and diagnostic growth"),
-    _entry("codex_plan", "codex", "soma.server", "durable run launch", "request echo through run records"),
-    _entry("codex_implement", "codex", "soma.server", "durable run launch", "request echo through run records"),
     _entry("docker_query", "docker", "soma.server", "direct object", "inspection and log growth"),
     _entry("docker_action", "docker", "soma.server", "durable run launch", "terminal provider payload growth"),
     _entry("cloudflare_query", "cloudflare", "soma.server", "direct object", "provider response and pagination growth"),

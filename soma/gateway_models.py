@@ -1339,16 +1339,3 @@ KnowledgeActionRequest = Annotated[
     KnowledgeRefreshWikiAction | KnowledgeRememberDecisionAction,
     Field(discriminator="action"),
 ]
-
-
-class CodexPlanRequest(GatewayModel):
-    repo_name: str = Field(min_length=1, max_length=128)
-    task: str = Field(min_length=1, max_length=20_000)
-    constraints: str = Field(default="", max_length=20_000)
-
-
-class CodexImplementRequest(GatewayModel):
-    repo_name: str = Field(min_length=1, max_length=128)
-    approved_plan: str = Field(min_length=1, max_length=100_000)
-    allowed_files: list[str] = Field(min_length=1, max_length=500)
-    tests: list[str] = Field(default_factory=list, max_length=100)

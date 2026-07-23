@@ -31,7 +31,8 @@ def test_deterministic_gateway_surface_benchmark() -> None:
     retired = {
         "inspect_repo_status", "apply_previewed_repo_change", "start_project_command_async",
         "list_docker_capabilities", "start_cloudflare_action_async", "list_ssh_capabilities",
-        "reload_service", "read_repo_wiki", "start_codex_plan_task_async", "start_codex_implement_task_async",
+        "reload_service", "read_repo_wiki", "codex_plan", "codex_implement",
+        "start_codex_plan_task_async", "start_codex_implement_task_async",
     }
     assert retired.isdisjoint(actions)
     for action in actions.values():
@@ -44,7 +45,6 @@ def test_deterministic_gateway_surface_benchmark() -> None:
         "ssh_query",
         "system_query",
         "knowledge_query",
-        "codex_plan",
         "trading_query",
         "trading_signal_get",
         "trading_signal_list",
@@ -59,7 +59,6 @@ def test_deterministic_gateway_surface_benchmark() -> None:
         "ssh_action",
         "system_action",
         "knowledge_action",
-        "codex_implement",
         "trading_signal_submit",
         "trading_signal_cancel_before_entry",
     }:
