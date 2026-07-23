@@ -653,6 +653,23 @@ Add:
 
 Automatically store structured terminal facts and artifact metadata. ChatGPT remains responsible for semantic decisions and conclusions.
 
+### Future repository structural intelligence
+
+Extend the existing repository wiki rather than adopting Graphify or another product as a second knowledge system. Evaluate and selectively port useful open-source features behind Soma's repository-isolation and evidence contracts:
+
+- Tree-sitter AST indexing for definitions, imports, calls, inheritance, and cross-file relationships;
+- provenance on every relationship: `EXTRACTED`, `INFERRED`, or `AMBIGUOUS`;
+- graph reads such as neighbour, path, and explain queries alongside ordinary lexical search;
+- automatic subsystem/community detection to seed hierarchical architecture summaries;
+- first-class rationale nodes for `WHY`, `NOTE`, `HACK`, ADR, and RFC references;
+- incremental refresh that reparses changed files, removes stale graph facts, and reconnects affected relationships.
+
+Keep Soma authoritative for repository scoping, decisions, roadmap history, evidence, architecture summaries, memory, and compact context-packet generation. Do not copy Graphify's viewer, assistant hooks, complete CLI, document/media ingestion, or dependency graph unless a later measured need justifies them.
+
+Begin with a read-only pilot against Soma and SeedMind and compare the enhanced wiki with the current implementation on a fixed set of real repository questions. Promote features only when they improve answer correctness, provenance, refresh cost, or context compactness without creating a competing source of truth.
+
+Before copying upstream code, re-check its current licence, preserve required copyright and notice text, mark adaptations, and record imported files and source revisions in `THIRD_PARTY_NOTICES.md`. Similar independently implemented architectural ideas do not require code attribution.
+
 ### Context packets
 
 Build deterministic context packets under CF1 budgets using:
