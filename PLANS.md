@@ -74,23 +74,23 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-Only CF1 is active. Every other implementation lane is intentionally paused.
+No implementation lane is currently active. CF1, H2, OP1, the Trading Lab redesign, and the ChatGPT companion integration are complete. This reconciliation closes stale roadmap wording only; it does not authorize a new architecture phase.
 
-1. CF1.0: freeze the public-representation contract and collect end-to-end measurements.
-2. CF1.1: add scalar SQL-backed run summary queries and stable pagination.
-3. CF1.2: add compact control polling and delta-event semantics.
-4. CF1.3: materialize bounded terminal public projections tied to authoritative result hashes.
-5. CF1.4: add manifest-secured exact evidence retrieval.
-6. CF1.5: add repository read, search, and diff progressive disclosure.
-7. CF1.6: bring every remaining public gateway under the unsolicited-response contract.
-8. CF1.7: complete connector-visible and cross-project rollout acceptance.
-9. Review CF1 evidence and explicitly decide whether H2, TL5, or another lane resumes next.
+Completed sequence:
 
-Do not resume TL5, SSH work, reliability/autonomy work, or any other roadmap batch until CF1 is complete and this document explicitly reactivates it. H2 was explicitly reactivated by user selection on 2026-07-22 after CF1 local acceptance completed, and its implementation is recorded in the H2 section below.
+1. CF1 completed the compact public-representation, evidence-retrieval, repository progressive-disclosure, gateway-envelope, and connector rollout work.
+2. H2 completed the shared multi-session Hermes service and its live acceptance.
+3. OP1 completed the evidence-driven real-project pilot without crossing the Roadmap V3 promotion threshold.
+4. The original TL0-TL9 program completed and was superseded by the authoritative Trading Lab redesign.
+5. Trading Lab's scheduled ChatGPT companion cycle was implemented in the standalone package, wired through Soma, and live-accepted for no-order and internal-paper execution.
+
+The next implementation unit must be explicitly selected and bounded by the user. Do not infer or resurrect TL0-TL9, SSH, reliability/autonomy, Roadmap V3, broker-demo scheduling, or any other lane from a generic `continue`.
+
+The first minimum-size broker-demo order and unattended scheduling remain separate operational acceptance decisions. They are not active by default and do not reactivate the superseded TL0-TL9 roadmap.
 
 ## Priority 0 - CF1 Chat Footprint and Progressive Disclosure
 
-Status: **active; highest priority**.
+Status: **complete; CF1.0-CF1.7 implementation, live rollout, compatibility, and footprint acceptance closed on 2026-07-24**.
 
 ### Objective
 
@@ -994,7 +994,17 @@ Eighty-seventh consolidated slice — CF1 identity, durability, evidence, and tr
 
 ### CF1.7 - Compatibility rollout and cross-project acceptance
 
-Status: **local chat-footprint acceptance complete; connector-live rollout (steps 3-10 and cross-project live acceptance) remains open**.
+Status: **complete; local acceptance, live connector rollout, schema-identity convergence, and cross-project compatibility acceptance closed on 2026-07-24**.
+
+Completion decision:
+
+- the live public operation inventory and effective input schemas converged across runtime discovery, connector-visible discovery, and compatibility checks;
+- every public tool accepted its minimum valid schema through the live MCP boundary, legacy wrappers remained readable without being advertised, and mixed flat/wrapped requests failed explicitly;
+- exact large-input recovery reconstructed 1,468,221 bytes through 90 cursor-bound chunks, while compact status measured 1,728 bytes versus 26,029 bytes for the legacy/full representation;
+- the lightweight live self-check passed all nine checks, and the final comprehensive CF1 audit reported 1,776 passed and 34 skipped with clean dependencies, diff hygiene, package identity, and isolated MCP startup;
+- authoritative evidence remains preserved while compact projections are the ordinary ChatGPT path.
+
+The detailed rollout narrative below is retained as the historical implementation and acceptance record; its steps are complete rather than pending work.
 
 `tests/test_chat_footprint_acceptance.py` (31 tests, all passing) now proves the CF1 acceptance gates against production code:
 
@@ -1009,7 +1019,7 @@ Status: **local chat-footprint acceptance complete; connector-live rollout (step
 
 Full-suite validation ran three times through durable Soma pytest execution. The first run was invalidated by a concurrent documentation edit (the read-only guard correctly flagged the changed worktree) and exposed three real failures fixed in `14c6502` (the strict `knowledge_action` output schema rejected its own compact refresh acknowledgement) and `2bef4c1` (discovery exactness inventories missing the intentionally restored `view`/`response_budget_bytes` fields). The final run reports 1,505 passed, 5 skipped, and exactly one failure: the documented, unrelated `tests/test_hermes_service_process.py::test_one_verified_process_serves_multiple_bound_requests` full-suite-only PID instability, which passes alone and remains outside CF1 scope. A one-off pid-file read race in `test_powershell_acceptance.py` was observed once under full-suite load, passes alone, and is tracked separately.
 
-Compatibility rollout:
+Compatibility rollout (completed):
 
 1. add compact operations and versioned views without changing existing explicit-full behavior;
 2. preserve the current frozen full run cursor and exact chunk reconstruction contract;
@@ -1099,7 +1109,7 @@ The governing design principle is:
 
 > Preserve everything once; transmit only what is useful now.
 
-CF1 completes only after every exit gate passes and the user explicitly accepts the roadmap review. Until then all later roadmap lanes remain paused.
+CF1 is complete: every exit gate passed and later work proceeded only through explicit bounded user selections. No future roadmap lane is activated by this historical section.
 
 ## R5 - Absolute Resource Enforcement
 
@@ -1376,7 +1386,7 @@ Serialize only the resource that can actually conflict:
 
 Status: **complete; observation review closed on 2026-07-20**.
 
-The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution was disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. A second entry records a successful durable Hermes-backed connected-MCP call under registry generation `89`, with exact tool/schema identity, no model runtime, empty protected stderr, and no lost or duplicated work after correcting one caller-side PowerShell invocation mistake. A third entry records a second pre-acceptance parallel rejection under the same live build during a genuinely independent two-test workload. A fourth entry records a clean durable serial regression of the reversible-side-effect and lifecycle fixture with five passing tests, one worker claim, one terminal publication, and no repository mutation. A fifth entry proves the repeated parallel rejection was live configuration drift rather than a code defect: `parallel_execution.enabled` remained `false` despite the completed X2A contract. The ignored config was changed to `true`, validated, and hot-reloaded without restarting Soma or Cloudflare; public group `20260720T010132Z_powershell_group_3da40097` then completed two overlapping child runs successfully. A sixth entry exercises the repaired capability on a real two-test workload: the first group exposed the known shared Windows pytest-temp permission problem, while an immediate retry with isolated repository-owned basetemps completed both children concurrently with `5 passed` and `6 passed`. A seventh entry records a successful schema-bound Hermes `read_file` call against the live OP1 section of `PLANS.md` under registry generation `79`, with the exact tool schema, accepted arguments, no model runtime, empty protected stderr, and no repository mutation after correcting one caller-side request-construction mistake. An eighth entry exercises a Hermes-connected reversible action under registry generation `89`: an intentionally ambiguous post-commit response was authoritatively reconciled at exactly one application, replay returned `applied: false`, reversal succeeded, and final reconciliation proved absence. Several caller-harness and transport mistakes caused bounded failed attempts but no lost or duplicated work. A ninth entry reruns the complete seven-test Windows parallel lifecycle acceptance suite through the durable validation gateway, covering fan-out, restart adoption, exact cancellation, and pending-child refill with no lost or duplicated work. A tenth entry exercises the complete live service self-check, promotes the known stale `run_start` schema assertion from observation to a bounded repair, and restores the full gate to `1194 passed, 5 skipped` with healthy imports, configuration, dependencies, stores, and HTTP transport. An eleventh entry exercises bounded real-service capability and health paths: Cloudflare correctly reports no configured repository profiles, while Docker reports an installed Windows client and Compose runtime but an unavailable Docker Desktop Linux engine. Neither condition caused mutation, lost work, duplicate work, or a Soma defect, and no service was started solely for evidence. A twelfth entry repairs two real-workflow contract defects: `repo_query diff` no longer crashes if a Git capture stream is absent, and the advertised `stdin_text` field now UTF-8 encodes safely for byte-capable PowerShell profiles. Focused and adjacent suites passed, a server-only durable restart adopted its worker and published once, the Cloudflare PID remained unchanged, and both public paths were verified under the new build. Parallel execution is available and usable for representative validation. The formal review found no unresolved security, destructive-targeting, corruption, lost-work, duplicate-work, or continuation-blocking defect. Bounded contract defects discovered during real use were repaired and regression-locked; configuration and infrastructure availability observations remain operational evidence rather than architectural programs. OP1 is complete, no Roadmap V3 promotion threshold was crossed, and the next roadmap unit is TL0.
+The repository-owned evidence log is [`docs/pilot-evidence.md`](docs/pilot-evidence.md). Its first entry records ordinary durable validation, one pre-acceptance rejection because parallel PowerShell execution was disabled in the live capability configuration, and successful serial recovery with no lost or duplicated work. A second entry records a successful durable Hermes-backed connected-MCP call under registry generation `89`, with exact tool/schema identity, no model runtime, empty protected stderr, and no lost or duplicated work after correcting one caller-side PowerShell invocation mistake. A third entry records a second pre-acceptance parallel rejection under the same live build during a genuinely independent two-test workload. A fourth entry records a clean durable serial regression of the reversible-side-effect and lifecycle fixture with five passing tests, one worker claim, one terminal publication, and no repository mutation. A fifth entry proves the repeated parallel rejection was live configuration drift rather than a code defect: `parallel_execution.enabled` remained `false` despite the completed X2A contract. The ignored config was changed to `true`, validated, and hot-reloaded without restarting Soma or Cloudflare; public group `20260720T010132Z_powershell_group_3da40097` then completed two overlapping child runs successfully. A sixth entry exercises the repaired capability on a real two-test workload: the first group exposed the known shared Windows pytest-temp permission problem, while an immediate retry with isolated repository-owned basetemps completed both children concurrently with `5 passed` and `6 passed`. A seventh entry records a successful schema-bound Hermes `read_file` call against the live OP1 section of `PLANS.md` under registry generation `79`, with the exact tool schema, accepted arguments, no model runtime, empty protected stderr, and no repository mutation after correcting one caller-side request-construction mistake. An eighth entry exercises a Hermes-connected reversible action under registry generation `89`: an intentionally ambiguous post-commit response was authoritatively reconciled at exactly one application, replay returned `applied: false`, reversal succeeded, and final reconciliation proved absence. Several caller-harness and transport mistakes caused bounded failed attempts but no lost or duplicated work. A ninth entry reruns the complete seven-test Windows parallel lifecycle acceptance suite through the durable validation gateway, covering fan-out, restart adoption, exact cancellation, and pending-child refill with no lost or duplicated work. A tenth entry exercises the complete live service self-check, promotes the known stale `run_start` schema assertion from observation to a bounded repair, and restores the full gate to `1194 passed, 5 skipped` with healthy imports, configuration, dependencies, stores, and HTTP transport. An eleventh entry exercises bounded real-service capability and health paths: Cloudflare correctly reports no configured repository profiles, while Docker reports an installed Windows client and Compose runtime but an unavailable Docker Desktop Linux engine. Neither condition caused mutation, lost work, duplicate work, or a Soma defect, and no service was started solely for evidence. A twelfth entry repairs two real-workflow contract defects: `repo_query diff` no longer crashes if a Git capture stream is absent, and the advertised `stdin_text` field now UTF-8 encodes safely for byte-capable PowerShell profiles. Focused and adjacent suites passed, a server-only durable restart adopted its worker and published once, the Cloudflare PID remained unchanged, and both public paths were verified under the new build. Parallel execution is available and usable for representative validation. The formal review found no unresolved security, destructive-targeting, corruption, lost-work, duplicate-work, or continuation-blocking defect. Bounded contract defects discovered during real use were repaired and regression-locked; configuration and infrastructure availability observations remain operational evidence rather than architectural programs. OP1 is complete and no Roadmap V3 promotion threshold was crossed. No roadmap unit is auto-selected: the original TL0-TL9 sequence was later completed and superseded by the authoritative Trading Lab redesign.
 
 After H1, freeze architectural expansion and exercise:
 
@@ -1392,7 +1402,7 @@ Record normal friction before redesign. Repair immediately only for security vio
 
 ## TL - Soma Trading Lab
 
-Status: **redesigned on 2026-07-23; the runtime threshold-portfolio experiment is removed and superseded**. Trading Lab remains an optional capability provider gated behind `trading.enabled` (off by default, demo-only by construction); it owns no core lifecycle. Live-money execution must not exist per the TL9 review, and the redesign keeps it structurally impossible: no execution mode, configuration field, gateway model, policy, or tool can express `live`.
+Status: **redesigned on 2026-07-23; scheduled ChatGPT companion cycle implemented, wired through Soma, and live-accepted on 2026-07-24**. The runtime threshold-portfolio experiment is removed and superseded. Trading Lab remains an optional capability provider gated behind `trading.enabled` (off by default, demo-only by construction); it owns no core lifecycle. Live-money execution must not exist per the TL9 review, and the redesign keeps it structurally impossible: no execution mode, configuration field, gateway model, policy, or tool can express `live`.
 
 The original TL0–TL9 roadmap (threshold portfolios T50–T99, cloned baselines, the 1 USD normalized allocation, 20 percent caps, the TL5 runtime supervisor, the TL7 demo mirror, and the TL8 orchestrator) completed its gates and was then replaced by this redesign. The detailed TL0–TL9 narratives and their acceptance evidence are preserved verbatim in [`docs/roadmap-v2-achievements.md`](docs/roadmap-v2-achievements.md); the TL0 broker-acceptance bundle remains [`docs/trading-lab-tl0-evidence.md`](docs/trading-lab-tl0-evidence.md) and the TL9 live-readiness review remains [`docs/trading-lab-tl9-live-readiness-review.md`](docs/trading-lab-tl9-live-readiness-review.md).
 
@@ -1435,14 +1445,15 @@ Demo-only execution; durable global pause/kill switch (emergency close-all stays
 
 ### Public surface
 
-`trading_query` operations: `health`, `symbols`, `specification`, `tick`, `h4_candles`, `historical_ticks`, `market_packet_get/list`, `outcome_get/list`, `rejection_list`, `data_quality`, `calibration_report`, `replay_report`, `action_get/list`, `runtime_status`, `demo_performance`, `reconciliation_report`. The removed runtime virtual-portfolio operations (`open_virtual_positions`, `portfolio_status`, `threshold_report`) return an explicit deprecation pointing at the replay surface. Write tools: packet-bound `trading_signal_submit`, `trading_signal_cancel_before_entry`, the guarded `trading_action_submit`, and `trading_runtime_control` (start/stop/status, kill switch, manual supervision/analysis passes). Journal reads paginate with explicit totals; nothing silently truncates at 1,000 records.
+`trading_query` operations: `health`, `symbols`, `specification`, `tick`, `h4_candles`, `historical_ticks`, `market_packet_get/list`, `outcome_get/list`, `rejection_list`, `data_quality`, `calibration_report`, `replay_report`, `action_get/list`, `companion_get/list`, `runtime_status`, `demo_performance`, `reconciliation_report`. The removed runtime virtual-portfolio operations (`open_virtual_positions`, `portfolio_status`, `threshold_report`) return an explicit deprecation pointing at the replay surface. Write tools: packet-bound `trading_signal_submit`, `trading_signal_cancel_before_entry`, the guarded `trading_action_submit`, `trading_runtime_control` (start/stop/status, kill switch, manual supervision/analysis passes), and the strict `trading_companion_action` cycle (`start`, `decide`, model-owned `review`, `execute`). Companion execution derives symbol, direction, mode, policy, experiment, and bracket from the approved immutable signal; callers provide only cycle identity, idempotency identity, and volume. Journal reads paginate with explicit totals; nothing silently truncates at 1,000 records.
 
 ### Redesign acceptance status (honest)
 
 Complete with runtime wiring and evidence — see [`docs/trading-lab-redesign-evidence.md`](docs/trading-lab-redesign-evidence.md) for the full bundle:
 
 - deterministic regressions for every audit defect (packet binding, pre-entry exclusion, decoupled supervision, duplicate exposure, report semantics, runtime wiring) and the full suite green (1,567 tests) after legacy removal;
-- live demo acceptance on 2026-07-23 (read-only + internal paper): detected broker offset `+10800 s`, live immutable packet with broker-time parent H4 identity, packet-bound accept/reject against live data, runtime analysis entry through the guarded gateway, all seven supervision steps green, 3,471 retained live ticks with range hash and zero gaps, honest unresolved outcome, and zero broker orders sent.
+- live demo acceptance on 2026-07-23 (read-only + internal paper): detected broker offset `+10800 s`, live immutable packet with broker-time parent H4 identity, packet-bound accept/reject against live data, runtime analysis entry through the guarded gateway, all seven supervision steps green, 3,471 retained live ticks with range hash and zero gaps, honest unresolved outcome, and zero broker orders sent;
+- companion acceptance on 2026-07-24: one forced no-order cycle ended `NO_TRADE` with no action, and one directional internal-paper cycle blocked execution before model review, bound approval to the immutable signal hash, then reconciled successfully with zero broker-demo orders. The standalone package and Soma boundary were regression-tested, and the currently loaded pinned package is Trading Lab 0.2.4 from commit `c1a4218fa938fed1d415f21ab3c7ca3640c4df7c`.
 
 Not yet done, requiring explicit future steps:
 
