@@ -128,13 +128,15 @@ After server code changes, `config.yaml` changes, or MCP tool-surface changes, r
 
 ## Recommended Workflow
 
-Use the bridge in this order:
+Use Soma in this order:
 
 1. Inspect first with repository read/search tools.
 2. Execute, validate, and gather evidence with Soma's durable run tools.
-3. When coding work is required, generate an external-coder handoff (a bounded packet with objective, repository state, evidence, scope, constraints, and validation commands). Soma never launches a coding agent; supply the handoff manually to Claude Code, Codex, Gemini CLI, or another tool of your choice.
-4. After the external agent finishes, inspect the resulting diff with `repo_git_diff`, `git_diff_summary`, or `repo_git_status` and re-run validation through Soma.
-5. Use `commit_selected_files` only after explicit approval.
+3. Make source changes through ChatGPT's managed repository lifecycle: `repo_preview`, `repo_apply`, and `repo_commit`.
+4. Use PowerShell for deterministic execution, validation, diagnostics, and temporary artifacts. It must never launch a coding-agent CLI or model-agent process, directly or indirectly.
+5. Treat any generated handoff packet as an inert export artifact for human use outside Soma, never as a run, worker adapter, or controller fallback.
+6. Inspect the resulting diff and re-run validation through Soma.
+7. Commit selected files only after explicit approval.
 
 ## OpenAI Platform Limitations
 
@@ -496,7 +498,7 @@ Scoped pytest example:
 
 If OpenAI safety blocks a tool call before Soma returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 
-Async state is durable across process restarts because run metadata is stored in `runs/soma.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running allowlisted commands persist their inputs, events, results, and output files there. Historical `codex_plan_task` / `codex_implement_task` records remain readable as legacy read-only run types; new instances can never be created. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
+Async state is durable across process restarts because run metadata is stored in `runs/soma.sqlite3` with SQLite WAL enabled, while per-run artifacts are written under `runs/<run_id>/`. Long-running commands persist their inputs, events, results, and output files there. Removed legacy run records remain readable for compatibility, but their identifiers do not advertise or authorize an executable capability. Recover by polling or re-reading the saved run, not by reissuing a timed-out synchronous long command.
 
 ### Durable Workflows
 

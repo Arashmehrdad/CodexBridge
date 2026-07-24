@@ -3,7 +3,7 @@ repo_writer.py — safe, controlled write operations for Soma.
 
 Rules:
 - All paths are resolved through resolve_and_validate_write (extending repo_reader checks).
-- No Codex CLI, Gemini, Ollama, or any agent component is invoked.
+- No AI model, coding-agent CLI, or agent component is invoked.
 - Patches are previewed before apply; apply requires a valid patch_id.
 - All writes are preceded by stale-hash checks against the current file.
 - Original content is saved for rollback before any file is touched.

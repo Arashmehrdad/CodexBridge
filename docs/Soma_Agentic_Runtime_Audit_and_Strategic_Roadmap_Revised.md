@@ -98,16 +98,16 @@ ChatGPT / Claude / Hermes / future clients
    Native capability providers      Worker runtimes
    repo / shell / SSH / Docker      local / remote
    Cloudflare / Trading / browser   Hermes / browser
-   future domain providers          future agents
+   future domain providers          deterministic workers
 ```
 
 Soma must not become tied to one model vendor, one conversation history, one coding tool, or one external agent framework.
 
 ### Controller versus worker distinction
 
-A coding agent may connect to Soma as the active MCP client and use Soma’s tools directly. That is different from Soma launching and supervising a coding-agent process.
+ChatGPT is the active reasoning and implementation controller and uses Soma's MCP tools directly. Soma workers execute deterministic local or remote operations; they are not model-agent processes.
 
-Soma does not currently launch Codex, Claude Code, Gemini CLI, or another coding agent as a worker. Provider-neutral manual handoff remains the current fallback. A future coding-worker adapter may be added only as an explicitly selected roadmap batch and must obey the same canonical task, evidence, lease, cancellation, and provider contracts as every other worker.
+No current or deferred roadmap item authorizes Soma, Hermes, a supervisor, a workflow, or unrestricted PowerShell to launch a coding-agent CLI or model-agent process. Any generated handoff packet is an inert export artifact for a human outside Soma, not a worker adapter or fallback execution route.
 
 ---
 

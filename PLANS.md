@@ -1469,11 +1469,13 @@ Attribute connector 502s before repair. Treat external fixture loss as infrastru
 - project-memory and local-model expansion;
 - supervisor, workflow, optional coding, and dashboard expansion.
 
-Codex execution has been removed permanently (2026-07-23): Soma generates
-provider-neutral external-coder handoffs for manual use with Claude Code,
-Codex, Gemini CLI, or another coding agent, and never launches one.
-Historical `codex_plan_task` / `codex_implement_task` run records remain
-readable as legacy read-only types.
+ChatGPT is Soma's reasoning and implementation controller. Source changes use
+`repo_preview`, `repo_apply`, and `repo_commit`; deterministic execution and
+validation use durable PowerShell. Neither Soma nor its controller may launch a
+coding-agent CLI or model-agent process, including indirectly through PowerShell.
+Any handoff packet is an inert export artifact for human use outside Soma.
+Removed legacy run records remain readable only for compatibility and do not
+represent an executable capability.
 
 Historical R6, R7, P2, gate, commit, and validation specifications remain in the V2 achievement record.
 

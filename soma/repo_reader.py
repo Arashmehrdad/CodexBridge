@@ -3,7 +3,7 @@ repo_reader.py — safe, read-only repository access for Soma.
 
 All public functions accept a resolved repo_root (Path) and repo-relative
 POSIX strings.  They never accept or return absolute paths from the caller
-and never invoke Codex CLI, any AI model, or any agent component.
+and never invoke an AI model, coding-agent CLI, or agent component.
 """
 
 from __future__ import annotations

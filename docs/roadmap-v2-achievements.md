@@ -26,10 +26,10 @@ ChatGPT
       -> local model and project memory
       -> SSH and remote controllers
       -> return-loop reports
-      -> external-coder handoffs (manual use only)
+      -> managed repository mutation and evidence
 ```
 
-Codex execution has been removed from Soma entirely (2026-07-23); coding work is handed off manually through provider-neutral external-coder handoffs. Repository changes continue through managed preview/apply tools and explicit local commits.
+ChatGPT is the reasoning and implementation controller. Repository changes use managed preview/apply tools and explicit local commits; Soma workers perform deterministic operations and never launch model-agent processes.
 
 The immediate program is no longer feature expansion through increasingly narrow wrappers. It is:
 
@@ -112,9 +112,9 @@ The repository already contains foundations for:
 
 These components should be extended rather than replaced.
 
-### Codex status
+### Controller boundary
 
-Codex prompt transport was historically repaired and validated in T1, later disabled by configuration, and finally removed entirely (2026-07-23) together with the Codex CLI runner, gateways, and router. Soma now generates provider-neutral external-coder handoffs for manual use with any coding agent; historical `codex_plan_task` / `codex_implement_task` records remain readable as legacy read-only run types. The roadmap remains executable without any coding-agent integration.
+ChatGPT owns reasoning, implementation decisions, and managed source changes. Soma has no coding-agent worker, gateway, router, CLI runner, or PowerShell fallback. Removed legacy run records remain readable only for compatibility; they do not imply a current capability.
 
 ### Remote execution status
 
@@ -379,7 +379,7 @@ Checkpoint (2026-07-16):
 - X2A acceptance is complete. Optional X3 specialist executable profiles remain deferred and are not prerequisites.
 - Next roadmap unit: C1 permissive-only migration and tool cleanup.
 
-Goal: provide a Codex-like parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
+Goal: provide a parallel execution primitive by opening a configurable number of independent unrestricted PowerShell processes at the same time and returning control immediately instead of waiting for any process to finish.
 
 Public contract:
 
@@ -892,7 +892,7 @@ Begin after R7 unless a smaller supporting change is required by an earlier batc
 - reusable unrestricted PowerShell, direct executable, OpenSSL, and parallel fan-out steps;
 - durable pause/resume and needs-input packets;
 - improved recovery reports;
-- no Codex dependency while Codex remains disabled.
+- no coding-agent runtime dependency.
 
 ### Optional local coding
 
@@ -908,9 +908,9 @@ Begin after R7 unless a smaller supporting change is required by an earlier batc
 - show protected-artifact references without exposing their contents;
 - add write controls only after execution gates are complete.
 
-### Codex re-enable path (closed)
+### Coding-agent worker path (closed)
 
-This path is closed: the Codex execution stack was removed on 2026-07-23 and replaced with provider-neutral external-coder handoff generation. Any future coding-agent integration would be a new design, not a re-enablement.
+This path is outside Soma's architecture. No roadmap item may reintroduce a coding-agent gateway, runner, router, worker adapter, or indirect PowerShell launch path.
 
 ## Validation Policy
 
@@ -977,7 +977,7 @@ For documentation-only batches:
 
 ### Final control-plane gate
 
-- local operations, long jobs, remote jobs, and unrestricted PowerShell do not depend on Codex;
+- local operations, long jobs, remote jobs, and unrestricted PowerShell do not depend on a coding-agent runtime;
 - only the permissive execution profile remains active;
 - ChatGPT can inspect, launch, monitor, cancel, and continue work through durable reports;
 - ChatGPT can launch multiple independent commands concurrently and receive control immediately with durable group and child IDs;

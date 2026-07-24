@@ -1,6 +1,6 @@
 # Domain Tool Gateway Migration Plan
 
-Status: approved end-to-end implementation plan; implementation has not started.
+Status: historical migration record; not a current execution or architecture specification.
 
 Baseline:
 
@@ -13,7 +13,7 @@ Baseline:
 
 ## Mandatory execution rule
 
-This document may be implemented in one end-to-end Codex run. The run must execute Phases 0 through 8 sequentially, treat each phase as an internal transaction, run that phase's focused validation before advancing, and stop immediately if any phase gate fails. It must not skip or reorder phases, conceal failures, or continue after a failed gate.
+This historical document described one continuous implementation run through Phases 0 to 8. It is retained only as migration evidence and must not be used to infer a currently available execution path or public tool.
 
 For every phase:
 
@@ -65,7 +65,6 @@ Public tools should remain grouped by domain, for example:
 - `cloudflare_query` / `cloudflare_action`
 - `system_query` / `system_action`
 - `knowledge_query` / `knowledge_action`
-- `codex_plan` / `codex_implement`
 
 Names may differ only when existing names already provide the correct gateway semantics and retaining them avoids a needless breaking change.
 
@@ -397,12 +396,9 @@ Exit gate:
 - Service lifecycle rollback tests pass.
 - Full suite passes.
 
-## Phase 8 - Codex endpoints and final surface review
+## Phase 8 - Final surface review
 
-Codex planning and implementation remain separate public tools because they have materially different permissions and risk:
-
-- `codex_plan`
-- `codex_implement`
+The final phase reviewed the remaining public tools for unique responsibilities and closed obsolete compatibility aliases.
 
 Work:
 
@@ -427,7 +423,7 @@ Final acceptance criteria:
 
 ## Interruption and recovery procedure
 
-If Codex is interrupted or reaches a usage limit:
+If an implementation run is interrupted:
 
 1. Do not start another implementation run immediately.
 2. Inspect `git status --short` and `git diff --check`.
@@ -469,12 +465,11 @@ During a single end-to-end run, keep a concise internal checkpoint after every c
 
 ---
 
-## Post-migration update (2026-07-23): Codex gateways removed
+## Current architecture note
 
-This migration specification is preserved as executed history. Its Phase 8
-outcome (`codex_plan` / `codex_implement` public gateways) was later
-superseded: the entire Codex execution path was removed from Soma. Coding
-work now leaves Soma only as a provider-neutral external-coder handoff for
-manual use with Claude Code, Codex, Gemini CLI, or another coding agent.
-Historical `codex_plan_task` / `codex_implement_task` run records remain
-readable as legacy read-only run types.
+This migration specification is preserved only as executed history. ChatGPT
+is the reasoning and implementation controller; source changes use the
+managed repository lifecycle. Soma exposes no coding-agent execution route,
+and unrestricted PowerShell must not be used to create one. Removed legacy
+run records remain readable only for compatibility and do not represent a
+public or internal executable capability.

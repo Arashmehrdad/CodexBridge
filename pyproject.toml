@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "soma"
 version = "0.1.0"
-description = "Local Windows MCP bridge between ChatGPT and Codex CLI"
+description = "Local Windows MCP engineering control plane for ChatGPT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

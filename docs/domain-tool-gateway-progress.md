@@ -66,21 +66,19 @@
 - Files changed so far: Phase 0–6 files plus strict system/knowledge contracts, gateway dispatch, dynamic knowledge registration refactor, focused discovery/model tests, and this journal.
 - Public actions: 24. Added: `system_query`, `system_action`, `knowledge_query`, and `knowledge_action`. Retired: the prior system and knowledge wrappers; repository-scoped memory defaults and service reload/rollback internals remain unchanged.
 - Focused tests: 68 passed. `pip check` and `git diff --check` passed.
-- Next phase: Phase 8 — Codex endpoints and final surface review.
+- Next phase: Phase 8 — final surface review.
 
-## Phase 8 — Codex endpoints and final surface review (`complete`)
+## Phase 8 — final surface review (`complete`)
 
-- Files changed so far: Phase 0–7 files plus strict `codex_plan`/`codex_implement` gateway registration, deterministic benchmark coverage, knowledge documentation, updated integration tests, and this journal.
-- Final public actions: 24. Added/retained separate `codex_plan` and `codex_implement`; retired `start_codex_plan_task_async` and `start_codex_implement_task_async` public names.
+- Files changed so far: Phase 0–7 files plus deterministic benchmark coverage, knowledge documentation, updated integration tests, and this journal.
+- Final public actions: 24. Obsolete compatibility aliases were retired and the remaining gateways were reviewed for unique responsibilities.
 - Deterministic benchmark/final focused gate: 74 passed, including 24-action count, schema generation/validation, valid/invalid discriminated calls, annotation parity, retired-name absence, and knowledge integration.
 - Phase 8 full suite: 819 passed, 1 skipped. `pip check` and `git diff --check` passed.
 - Connector requirement: restart the Soma server and refresh the connector/action catalog after this MCP surface migration; existing chats using retired names need gateway-operation updates.
 
-## Post-migration update (2026-07-23): Codex gateways removed
+## Current architecture note
 
-- The `codex_plan` and `codex_implement` public gateways described in
-  Phase 8 were later removed together with the entire Codex execution
-  path. Soma now generates provider-neutral external-coder handoffs for
-  manual use; no gateway launches a coding agent. Historical
-  `codex_plan_task` / `codex_implement_task` run records remain readable
-  as legacy read-only run types.
+- ChatGPT is the reasoning and implementation controller. Soma exposes no
+  coding-agent execution route, and unrestricted PowerShell must not be used
+  to create one. Removed legacy records remain readable only for
+  compatibility; their identifiers are not runnable operations.
