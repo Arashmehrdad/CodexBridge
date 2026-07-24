@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v8"
+    "cf1.3.gateway-operations.v9"
 )
 
 
@@ -817,7 +817,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("h4_candles",),
+        ("h1_candles", "h4_candles"),
         "soma.server:trading_query",
         "bounded completed-candle series",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,

@@ -27,6 +27,7 @@ from soma.config import AppConfig, RepoConfig
 UTC = timezone.utc
 SYMBOL = "BITCOIN_i"
 OFFSET = 3 * 60 * 60
+H1 = 60 * 60
 H4 = 4 * 60 * 60
 DEVELOPING_RAW_OPEN = 1_784_534_400
 DEVELOPING_OPEN_UTC = datetime.fromtimestamp(DEVELOPING_RAW_OPEN - OFFSET, tz=UTC)
@@ -65,10 +66,12 @@ def provider_timestamp(raw_epoch: int) -> ProviderTimestamp:
     )
 
 
-def candle(raw_open: int, value: float) -> Candle:
+def candle(
+    raw_open: int, value: float, *, timeframe: str = "4H"
+) -> Candle:
     return Candle(
         symbol=SYMBOL,
-        timeframe="4H",
+        timeframe=timeframe,
         open_time=provider_timestamp(raw_open),
         open=value,
         high=value + 2,
@@ -117,12 +120,24 @@ class FakeProvider:
         self._now = now or NOW
         self.closed = False
         broker_epoch = int(self._now.timestamp()) + OFFSET
-        open_epoch = broker_epoch - (broker_epoch % H4)
-        self._completed = [
-            candle(open_epoch - H4 * (100 - index), 60_000 + index)
+        h1_open_epoch = broker_epoch - (broker_epoch % H1)
+        self._completed_h1 = [
+            candle(
+                h1_open_epoch - H1 * (100 - index),
+                60_000 + index,
+                timeframe="1H",
+            )
             for index in range(100)
         ]
-        self._developing = candle(open_epoch, 61_000)
+        self._developing_h1 = candle(
+            h1_open_epoch, 61_000, timeframe="1H"
+        )
+        h4_open_epoch = broker_epoch - (broker_epoch % H4)
+        self._completed_h4 = [
+            candle(h4_open_epoch - H4 * (100 - index), 60_000 + index)
+            for index in range(100)
+        ]
+        self._developing_h4 = candle(h4_open_epoch, 61_000)
         self._symbols = [
             SymbolSummary(
                 name=f"SYM{index:03d}" if index else SYMBOL,
@@ -185,10 +200,15 @@ class FakeProvider:
             fresh=True,
         )
 
+    def h1_candles(
+        self, _symbol: str, *, completed_count: int = 200
+    ) -> tuple[list[Candle], Candle | None]:
+        return self._completed_h1[-completed_count:], self._developing_h1
+
     def h4_candles(
         self, _symbol: str, *, completed_count: int = 200
     ) -> tuple[list[Candle], Candle | None]:
-        return self._completed[-completed_count:], self._developing
+        return self._completed_h4[-completed_count:], self._developing_h4
 
     def historical_ticks(
         self, _symbol: str, start_utc: datetime, end_utc: datetime
@@ -450,6 +470,21 @@ class TestMarketDataReads:
             result["result"]["timestamp"]["provider_utc_offset_seconds"]
             == OFFSET
         )
+
+    def test_h1_candles(self, trading_env) -> None:
+        result = query(operation="h1_candles", completed_count=5, view="full")
+        assert len(result["result"]["completed"]) == 5
+        assert result["result"]["completed"][-1]["timeframe"] == "1H"
+        assert result["result"]["developing"]["timeframe"] == "1H"
+
+    def test_h1_candles_respects_the_budget(self, trading_env) -> None:
+        result = query(
+            operation="h1_candles",
+            completed_count=100,
+            response_budget_bytes=2048,
+        )
+        assert result["response_bytes"] <= 2048
+        assert result["truncated"] is True
 
     def test_h4_candles(self, trading_env) -> None:
         result = query(operation="h4_candles", completed_count=5, view="full")

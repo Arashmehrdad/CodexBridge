@@ -4124,10 +4124,17 @@ def trading_query(request: TradingQueryRequest) -> dict:
             result = provider.symbol_specification(trading.symbol)
         elif request.operation == "tick":
             result = provider.latest_tick(trading.symbol)
-        elif request.operation == "h4_candles":
+        elif request.operation in {"h1_candles", "h4_candles"}:
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
-            completed, developing = provider.h4_candles(trading.symbol, completed_count=request.completed_count)
+            candle_reader = (
+                provider.h1_candles
+                if request.operation == "h1_candles"
+                else provider.h4_candles
+            )
+            completed, developing = candle_reader(
+                trading.symbol, completed_count=request.completed_count
+            )
             result = {"completed": completed, "developing": developing}
         else:
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
@@ -4167,7 +4174,7 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 response["truncated"] = True
                 response["has_more"] = True
             response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
-        if request.operation == "h4_candles":
+        if request.operation in {"h1_candles", "h4_candles"}:
             response["truncated"] = False
             response["has_more"] = False
             response["response_budget_bytes"] = request.response_budget_bytes

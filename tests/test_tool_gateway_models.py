@@ -219,6 +219,10 @@ def test_ssh_profile_apply_projection_honors_response_budget(monkeypatch) -> Non
 
 def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
     adapter = TypeAdapter(TradingQueryRequest)
+    h1 = adapter.validate_python({"operation": "h1_candles"})
+    assert h1.completed_count == 200
+    assert h1.view == "compact"
+    assert h1.response_budget_bytes == 12 * 1024
     h4 = adapter.validate_python({"operation": "h4_candles"})
     assert h4.completed_count == 200
     assert h4.view == "compact"
