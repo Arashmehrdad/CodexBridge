@@ -1658,9 +1658,9 @@ def commit_all_changes(repo_name: str, title: str, description: str = "") -> dic
 
 @_internal_tool(output_schema=SELF_CHECK_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_local_self_check() -> dict:
-    """Read-only: run local setup, test, git, and MCP transport readiness checks."""
+    """Read-only: run lightweight in-process Soma readiness checks."""
     config = get_config()
-    return run_self_check(config=config, config_path=get_config_path(), live_port=8765)
+    return run_self_check(config=config, config_path=get_config_path())
 
 
 def _bounded_self_check_response(result: dict[str, Any], response_budget_bytes: int) -> dict:
