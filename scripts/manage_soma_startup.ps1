@@ -45,8 +45,16 @@ function Invoke-HiddenStartup {
     Assert-InstallationInputs
     Write-StartupLog "Startup task invoked for $CurrentUser."
     try {
-        & $ControllerPath -Action start-all -ProjectRoot $ProjectRoot `
-            -StartupTimeoutSeconds $StartupTimeoutSeconds *>> $StartupLog
+        $controllerOutput = @(
+            & $ControllerPath -Action start-all -ProjectRoot $ProjectRoot `
+                -StartupTimeoutSeconds $StartupTimeoutSeconds *>&1
+        )
+        foreach ($entry in $controllerOutput) {
+            $text = [string]$entry
+            if (-not [string]::IsNullOrWhiteSpace($text)) {
+                Write-StartupLog "controller: $text"
+            }
+        }
         Write-StartupLog "Soma server and Cloudflare tunnel are ready."
     }
     catch {
