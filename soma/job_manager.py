@@ -2467,21 +2467,25 @@ class JobManager:
 
     def get_lifecycle_status(self, run_id: str) -> dict:
         """Return only the bounded lifecycle projection used for routine polling."""
-        return _build_run_control_response(
-            self._lifecycle_observation(run_id), operation="status"
-        )
+        try:
+            observation = self._lifecycle_observation(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
+        return _build_run_control_response(observation, operation="status")
 
     def get_control_status(
         self, run_id: str, if_state_version: int | None = None
     ) -> dict:
-        if if_state_version is not None:
-            snapshot = self.store.get_run_control_snapshot(run_id)
-            state_version = int(snapshot.get("state_version") or 0)
-            if int(if_state_version) == state_version:
-                return _build_unchanged_control_response(run_id, state_version)
-        return _build_run_control_response(
-            self._lifecycle_observation(run_id), operation="control"
-        )
+        try:
+            if if_state_version is not None:
+                snapshot = self.store.get_run_control_snapshot(run_id)
+                state_version = int(snapshot.get("state_version") or 0)
+                if int(if_state_version) == state_version:
+                    return _build_unchanged_control_response(run_id, state_version)
+            observation = self._lifecycle_observation(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
+        return _build_run_control_response(observation, operation="control")
 
     @staticmethod
     def _input_field_metadata(value: Any) -> dict[str, Any]:

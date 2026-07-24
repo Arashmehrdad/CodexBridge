@@ -28,6 +28,7 @@ from typing import Any, Final
 
 from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.tools.function_tool import FunctionTool
+from pydantic import ValidationError as PydanticValidationError
 
 __all__ = [
     "REQUEST_ENVELOPE_PROPERTY",
@@ -327,8 +328,8 @@ class FlatGatewayTool(FunctionTool):
         normalized = normalize_gateway_arguments(arguments, tool_name=self.name)
         try:
             return await super().run({REQUEST_ENVELOPE_PROPERTY: normalized})
-        except ValidationError as exc:
-            raise ValidationError(_reroot_validation_message(str(exc))) from exc
+        except (ValidationError, PydanticValidationError) as exc:
+            raise ValidationError(_reroot_validation_message(str(exc))) from None
 
 
 def _reroot_validation_message(message: str) -> str:

@@ -299,7 +299,7 @@ def test_flat_repo_query_search_text(live_tools) -> None:
     result = _call(
         live_tools,
         "repo_query",
-        {"operation": "search_text", "repo_name": "soma", "query": "structuredContent"},
+        {"operation": "search_text", "repo_name": "soma", "query": "run_query"},
     )
     structured = _assert_transport_equivalence(result)
     assert structured["ok"] is True

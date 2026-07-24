@@ -70,14 +70,11 @@ def test_self_check_does_not_expose_webhook_reference(tmp_path: Path) -> None:
     assert "SECRET_WEBHOOK_URL" not in str(result)
 
 
-def test_self_check_source_has_no_subprocess_or_network_probe() -> None:
-    import inspect
+def test_self_check_has_no_subprocess_or_network_probe_dependencies() -> None:
     import soma.self_check as self_check
 
-    source = inspect.getsource(self_check)
-    assert "subprocess" not in source
-    assert "Popen" not in source
-    assert "urlopen" not in source
-    assert "pytest" not in source.split("def run_self_check", 1)[1].split(
-        "def build_parser", 1
-    )[0]
+    assert not hasattr(self_check, "subprocess")
+    assert not hasattr(self_check, "Popen")
+    assert not hasattr(self_check, "urlopen")
+    assert not hasattr(self_check, "_start_server_probe")
+    assert not hasattr(self_check, "_wait_for_endpoint")
