@@ -97,10 +97,17 @@ if ($dirty -and -not $AllowDirty) {
     throw "TradingLab has uncommitted changes; pass -AllowDirty to build anyway.`n$dirty"
 }
 
+$commitEpoch = (& git -C $TradingLabPath show -s --format=%ct $commit).Trim()
+$parsedCommitEpoch = 0L
+if ($LASTEXITCODE -ne 0 -or -not [long]::TryParse($commitEpoch, [ref]$parsedCommitEpoch)) {
+    throw "Unable to derive SOURCE_DATE_EPOCH from TradingLab commit $commit."
+}
+
 Write-Host "Trading Lab : $TradingLabPath"
 Write-Host "Commit      : $commit"
 Write-Host "Build with  : $BuildPython"
 Write-Host "Install into: $Python"
+Write-Host "Source epoch: $parsedCommitEpoch"
 Write-Host ''
 
 # ---------------------------------------------------------------------- build
@@ -109,12 +116,24 @@ if (Test-Path $distDir) {
     Get-ChildItem $distDir -Filter '*.whl' | Remove-Item -Force
 }
 
+$previousSourceDateEpoch = $env:SOURCE_DATE_EPOCH
 Push-Location $TradingLabPath
 try {
+    # Wheel ZIP timestamps otherwise reflect wall-clock build time, so the same
+    # clean commit can produce a different hash on every run. PEP 517 build
+    # backends honour SOURCE_DATE_EPOCH; binding it to the commit timestamp
+    # makes ExpectedSha256 a meaningful reproducibility gate.
+    $env:SOURCE_DATE_EPOCH = [string]$parsedCommitEpoch
     & $BuildPython -m build --wheel
     if ($LASTEXITCODE -ne 0) { throw "Wheel build failed with exit code $LASTEXITCODE." }
 }
 finally {
+    if ($null -eq $previousSourceDateEpoch) {
+        Remove-Item Env:SOURCE_DATE_EPOCH -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SOURCE_DATE_EPOCH = $previousSourceDateEpoch
+    }
     Pop-Location
 }
 
