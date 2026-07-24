@@ -35,6 +35,7 @@ from soma.gateway_models import (
     MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TradingCompanionActionRequest,
     TradingQueryRequest,
     TradingSignalCancelRequest,
     TradingSignalGetRequest,
@@ -236,6 +237,104 @@ def test_trading_query_models_are_strict_and_require_aware_ranges() -> None:
         adapter.validate_python({"operation": "tick", "completed_count": 1})
     with pytest.raises(ValidationError):
         adapter.validate_python({"operation": "historical_ticks", "start_utc": "2026-07-20T08:00:00", "end_utc": "2026-07-20T07:00:00"})
+    assert adapter.validate_python({"operation": "companion_list"}).limit == 100
+    assert adapter.validate_python(
+        {"operation": "companion_get", "companion_run_id": "cycle_1"}
+    ).sync is True
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"operation": "companion_list", "companion_run_id": "wrong"})
+
+
+def test_trading_companion_models_are_strict_and_model_owned() -> None:
+    adapter = TypeAdapter(TradingCompanionActionRequest)
+    start = adapter.validate_python(
+        {
+            "action": "start",
+            "idempotency_key": "schedule-1",
+            "task_invocation_id": "task-1",
+            "research_summary": "No material event.",
+            "research_sources": [
+                {
+                    "title": "Source",
+                    "reference": "https://example.test/source",
+                    "published_at_utc": "2026-07-24T10:00:00+00:00",
+                }
+            ],
+            "scheduled_for_utc": "2026-07-24T11:00:00+00:00",
+        }
+    )
+    assert start.completed_count == 200
+    directional = adapter.validate_python(
+        {
+            "action": "decide",
+            "companion_run_id": "cycle-1",
+            "signal_idempotency_key": "signal-1",
+            "decision": "LONG",
+            "confidence": 73,
+            "stop_loss": 63_000,
+            "take_profit": 65_000,
+            "reason": "Bound decision",
+            "model_version": "gpt",
+            "prompt_version": "v1",
+        }
+    )
+    assert directional.execution_mode == "internal_paper"
+    assert adapter.validate_python(
+        {
+            "action": "review",
+            "companion_run_id": "cycle-1",
+            "approval_idempotency_key": "review-1",
+            "decision": "APPROVED",
+            "reason": "Second pass agrees",
+            "model_version": "gpt",
+            "prompt_version": "v2",
+        }
+    ).decision == "APPROVED"
+    assert adapter.validate_python(
+        {
+            "action": "execute",
+            "companion_run_id": "cycle-1",
+            "idempotency_key": "action-1",
+            "volume_lots": 0.01,
+        }
+    ).volume_lots == 0.01
+    for invalid in (
+        {
+            "action": "decide",
+            "companion_run_id": "cycle-1",
+            "signal_idempotency_key": "signal-1",
+            "decision": "LONG",
+            "reason": "missing bracket",
+            "model_version": "gpt",
+            "prompt_version": "v1",
+        },
+        {
+            "action": "decide",
+            "companion_run_id": "cycle-1",
+            "signal_idempotency_key": "signal-1",
+            "decision": "NO_TRADE",
+            "confidence": 73,
+            "reason": "must be empty",
+            "model_version": "gpt",
+            "prompt_version": "v1",
+        },
+        {
+            "action": "execute",
+            "companion_run_id": "cycle-1",
+            "idempotency_key": "action-1",
+            "volume_lots": 0.01,
+            "symbol": "caller-must-not-supply-this",
+        },
+        {
+            "action": "start",
+            "idempotency_key": "schedule-1",
+            "task_invocation_id": "task-1",
+            "research_summary": "x",
+            "scheduled_for_utc": "2026-07-24T11:00:00",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(invalid)
 
 
 def test_trading_query_dispatches_configured_demo_adapter(monkeypatch) -> None:

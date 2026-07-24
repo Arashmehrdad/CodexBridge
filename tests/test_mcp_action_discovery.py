@@ -225,13 +225,14 @@ PUBLIC_TRADING_ACTIONS = {
     "trading_signal_get",
     "trading_signal_list",
     "trading_signal_cancel_before_entry",
+    "trading_companion_action",
     "trading_action_submit",
     "trading_runtime_control",
 }
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 29
+assert len(EXPECTED_EXPOSED_ACTIONS) == 30
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {

@@ -42,6 +42,7 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("trading_signal_get", "trading", "soma.server", "direct journal object", "signal payload growth"),
     _entry("trading_signal_list", "trading", "soma.server", "direct journal list", "list growth and repeated payloads"),
     _entry("trading_signal_cancel_before_entry", "trading", "soma.server", "direct journal object", "signal payload repetition"),
+    _entry("trading_companion_action", "trading", "soma.server", "direct companion journal transition", "research, review, signal, and action evidence growth"),
     _entry("trading_action_submit", "trading", "soma.server", "durable action record", "action evidence and reconciliation growth"),
     _entry("trading_runtime_control", "trading", "soma.server", "direct runtime state", "pass report and event growth"),
     _entry("repo_query", "repository", "soma.server", "direct repository object", "file, search, and diff payload growth"),

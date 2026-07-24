@@ -43,6 +43,7 @@ from trading_lab.mt5_provider import (  # noqa: E402
 )
 from trading_lab.service import (  # noqa: E402
     ACTION_OPERATIONS,
+    COMPANION_OPERATIONS,
     DEPRECATED_QUERY_OPERATIONS,
     JOURNAL_QUERY_OPERATIONS,
     READ_OPERATIONS,
@@ -583,6 +584,20 @@ class TestDisabledTrading:
         )
         assert result["status"] == "disabled"
 
+    def test_companion_action_is_refused(self, disabled_env) -> None:
+        from soma.gateway_models import TradingCompanionActionRequest
+        from pydantic import TypeAdapter
+
+        request = TypeAdapter(TradingCompanionActionRequest).validate_python(
+            {
+                "action": "start",
+                "idempotency_key": "cycle",
+                "task_invocation_id": "task",
+                "research_summary": "disabled",
+            }
+        )
+        assert server.trading_companion_action(request)["status"] == "disabled"
+
     def test_signal_submit_is_refused(self, disabled_env) -> None:
         from soma.gateway_models import TradingSignalSubmitRequest
 
@@ -746,6 +761,147 @@ class TestJournalReads:
             "reconciliations": [],
             "offset": 0,
         }
+
+
+def companion_action(**payload: Any) -> dict:
+    from pydantic import TypeAdapter
+    from soma.gateway_models import TradingCompanionActionRequest
+
+    request = TypeAdapter(TradingCompanionActionRequest).validate_python(payload)
+    return server.trading_companion_action(request)
+
+
+class TestCompanionCycle:
+    def fresh_provider(self, monkeypatch) -> FakeProvider:
+        provider = FakeProvider(now=datetime.now(UTC))
+        monkeypatch.setattr(server, "_configured_mt5_provider", lambda: provider)
+        monkeypatch.setattr(
+            trading_lab_adapter,
+            "configured_mt5_provider",
+            lambda _config: provider,
+        )
+        return provider
+
+    def start(self, monkeypatch, key: str) -> dict:
+        self.fresh_provider(monkeypatch)
+        return companion_action(
+            action="start",
+            idempotency_key=key,
+            task_invocation_id=f"task-{key}",
+            research_summary="Public research found no integrity blocker.",
+            research_sources=[
+                {
+                    "title": "Research source",
+                    "reference": "https://example.test/research",
+                    "published_at_utc": datetime.now(UTC).isoformat(),
+                }
+            ],
+            scheduled_for_utc=datetime.now(UTC).isoformat(),
+            completed_count=100,
+            view="full",
+        )
+
+    def test_no_order_dry_cycle(self, monkeypatch, trading_env) -> None:
+        started = self.start(monkeypatch, "dry-cycle")
+        assert started["ok"] is True
+        cycle_id = started["run"]["companion_run_id"]
+
+        decided = companion_action(
+            action="decide",
+            companion_run_id=cycle_id,
+            signal_idempotency_key="dry-signal",
+            decision="NO_TRADE",
+            reason="No setup survived the model review threshold.",
+            model_version="gpt-test",
+            prompt_version="decision-v1",
+            view="full",
+        )
+        assert decided["ok"] is True
+        assert decided["run"]["status"] == "NO_TRADE"
+        assert decided["signal"]["decision"] == "NO_TRADE"
+
+        fetched = query(
+            operation="companion_get",
+            companion_run_id=cycle_id,
+            view="full",
+        )
+        assert fetched["result"]["status"] == "NO_TRADE"
+        assert fetched["result"]["action_id"] is None
+        listed = query(operation="companion_list", view="full")
+        assert listed["result"]["total"] == 1
+        assert listed["result"]["runs"][0]["companion_run_id"] == cycle_id
+
+    def test_model_review_gates_internal_paper_execution(
+        self, monkeypatch, trading_env
+    ) -> None:
+        started = self.start(monkeypatch, "paper-cycle")
+        cycle_id = started["run"]["companion_run_id"]
+        decided = companion_action(
+            action="decide",
+            companion_run_id=cycle_id,
+            signal_idempotency_key="paper-signal",
+            decision="LONG",
+            confidence=73,
+            stop_loss=63_000.0,
+            take_profit=65_000.0,
+            reason="Deterministic gateway integration setup.",
+            news_context="No contradictory fixture event.",
+            model_version="gpt-test",
+            prompt_version="decision-v1",
+            policy_id="hourly_fixed_bracket_v1",
+            execution_mode="internal_paper",
+            experiment_id="companion-gateway",
+            view="full",
+        )
+        assert decided["run"]["status"] == "MODEL_REVIEW_PENDING"
+
+        blocked = companion_action(
+            action="execute",
+            companion_run_id=cycle_id,
+            idempotency_key="paper-action",
+            volume_lots=0.01,
+            view="full",
+        )
+        assert blocked["ok"] is False
+        assert blocked["status"] == "companion_error"
+        assert "model approval is required" in blocked["error"]
+
+        reviewed = companion_action(
+            action="review",
+            companion_run_id=cycle_id,
+            approval_idempotency_key="paper-review",
+            decision="APPROVED",
+            reason="Second pass confirms packet, bracket, and policy binding.",
+            model_version="gpt-test",
+            prompt_version="review-v1",
+            view="full",
+        )
+        assert reviewed["run"]["status"] == "MODEL_APPROVED"
+        assert reviewed["run"]["approval_signal_hash"] == reviewed["signal"]["content_hash"]
+
+        executed = companion_action(
+            action="execute",
+            companion_run_id=cycle_id,
+            idempotency_key="paper-action",
+            volume_lots=0.01,
+            view="full",
+        )
+        assert executed["ok"] is True
+        assert executed["run"]["status"] == "ACTION_RECONCILED"
+        assert executed["trading_action"]["execution_mode"] == "internal_paper"
+        assert executed["trading_action"]["symbol"] == SYMBOL
+        assert executed["trading_action"]["signal_id"] == decided["signal"]["signal_id"]
+        assert executed["trading_action"]["stop_loss"] == 63_000.0
+        assert executed["trading_action"]["take_profit"] == 65_000.0
+
+    def test_companion_operation_inventory_is_complete(self) -> None:
+        assert set(COMPANION_OPERATIONS) == {
+            "companion_start",
+            "companion_decide",
+            "companion_approve",
+            "companion_execute",
+        }
+        assert callable(server.trading_companion_action)
 
 
 # --------------------------------------------------------------------------
@@ -1155,6 +1311,7 @@ class TestPublicContractUnchanged:
             "trading_signal_get",
             "trading_signal_list",
             "trading_signal_cancel_before_entry",
+            "trading_companion_action",
             "trading_action_submit",
             "trading_runtime_control",
         ):

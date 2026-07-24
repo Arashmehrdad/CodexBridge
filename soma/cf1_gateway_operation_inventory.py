@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v7"
+    "cf1.3.gateway-operations.v8"
 )
 
 
@@ -857,7 +857,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("market_packet_get", "outcome_get", "action_get", "runtime_status"),
+        ("market_packet_get", "outcome_get", "action_get", "runtime_status", "companion_get"),
         "soma.server:trading_query",
         "bounded durable trading record",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
@@ -879,6 +879,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
             "action_list",
             "reconciliation_report",
             "demo_performance",
+            "companion_list",
         ),
         "soma.server:trading_query",
         "bounded paginated durable trading list",
@@ -969,6 +970,24 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes="Compact cancellation results bound narrative fields and response bytes; view=full remains explicit complete record access.",
+    ),
+    _entry(
+        "trading_companion_action",
+        ("start", "decide", "review", "execute"),
+        "soma.server:trading_companion_action",
+        "bounded durable companion-cycle transition",
+        request_echo=RequestEchoBehavior.FULL_AUTHORITATIVE_ROW,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The scheduled ChatGPT cycle binds research to an immutable market"
+            " packet, stores one packet-bound decision, requires a model-owned"
+            " second review before directional execution, and derives symbol,"
+            " direction, policy, mode, experiment, and bracket from the approved"
+            " signal. Compact responses are UTF-8 bounded; view=full preserves"
+            " complete companion, signal, packet, and action evidence."
+        ),
     ),
     _entry(
         "trading_action_submit",

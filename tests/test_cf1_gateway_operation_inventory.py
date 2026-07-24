@@ -90,7 +90,7 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     grouped = operation_inventory_by_gateway()
 
     assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == (
-        "cf1.3.gateway-operations.v7"
+        "cf1.3.gateway-operations.v8"
     )
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
@@ -507,6 +507,7 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
         ("trading_query", "h4_candles"),
         ("trading_query", "historical_ticks"),
         ("trading_signal_list", "invoke"),
+        ("trading_companion_action", "start"),
         ("knowledge_query", "search"),
     }
     for gateway, operation in full_view_routes:
