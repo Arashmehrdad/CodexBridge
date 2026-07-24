@@ -70,6 +70,16 @@ def test_self_check_does_not_expose_webhook_reference(tmp_path: Path) -> None:
     assert "SECRET_WEBHOOK_URL" not in str(result)
 
 
+def test_comprehensive_self_check_handles_http_errors_under_strict_mode() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "comprehensive_self_check.ps1"
+    ).read_text(encoding="utf-8")
+    assert 'PSObject.Properties["Response"]' in source
+    assert "$_.Exception.Response" not in source
+
+
 def test_self_check_has_no_subprocess_or_network_probe_dependencies() -> None:
     import soma.self_check as self_check
 

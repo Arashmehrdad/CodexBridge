@@ -80,8 +80,12 @@ try {
                 -UseBasicParsing -ErrorAction Stop | Out-Null
         } catch {
             $StatusCode = 0
-            if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-                $StatusCode = [int]$_.Exception.Response.StatusCode
+            $ResponseProperty = $_.Exception.PSObject.Properties["Response"]
+            if ($null -ne $ResponseProperty -and $null -ne $ResponseProperty.Value) {
+                $StatusCodeProperty = $ResponseProperty.Value.PSObject.Properties["StatusCode"]
+                if ($null -ne $StatusCodeProperty -and $null -ne $StatusCodeProperty.Value) {
+                    $StatusCode = [int]$StatusCodeProperty.Value
+                }
             }
             if ($StatusCode -eq 406) {
                 $Ready = $true
