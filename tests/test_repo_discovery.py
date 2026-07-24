@@ -122,6 +122,41 @@ def test_folder_name_is_accepted_as_alias(tmp_path: Path) -> None:
     assert resolve_repo(config, "AI-Voice-Lead-Agent") == repo.resolve()
 
 
+def test_separator_alias_resolves_camelcase_sibling(tmp_path: Path) -> None:
+    root = tmp_path / "Github"
+    config = config_with_known_repo(root, tmp_path)
+    repo = make_git_repo(root / "TradingLab")
+
+    for alias in ("tradinglab", "trading-lab", "trading_lab", "trading lab"):
+        assert resolve_repo(config, alias) == repo.resolve()
+
+    assert config.repos["tradinglab"].path == str(repo.resolve())
+
+
+def test_exact_canonical_match_wins_over_separator_insensitive_fallback(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "Github"
+    exact_canonical = make_git_repo(root / "Trading-Lab")
+    make_git_repo(root / "TradingLab")
+
+    match = discover_repository(
+        roots=[root], requested_name="trading_lab", require_git=True
+    )
+
+    assert match is not None
+    assert match.path == exact_canonical.resolve()
+
+
+def test_separator_alias_reports_matching_non_git_folder(tmp_path: Path) -> None:
+    root = tmp_path / "Github"
+    config = config_with_known_repo(root, tmp_path)
+    (root / "TradingLab").mkdir()
+
+    with pytest.raises(ValueError, match=r"TradingLab.*\.git is missing"):
+        resolve_repo(config, "trading-lab")
+
+
 def test_explicit_repo_keeps_priority(tmp_path: Path) -> None:
     root = tmp_path / "Github"
     explicit = make_git_repo(root / "ExplicitSeedMind")

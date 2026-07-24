@@ -22,6 +22,11 @@ def canonical_repo_name(value: str) -> str:
     return _REPO_NAME_SEPARATOR_RE.sub("_", value.strip().lower()).strip("_")
 
 
+def _separator_insensitive_repo_name(value: str) -> str:
+    """Normalize aliases while preserving the established canonical identity."""
+    return _REPO_NAME_SEPARATOR_RE.sub("", value.strip().lower())
+
+
 def iter_discovered_repositories(
     *,
     roots: Iterable[Path],
@@ -97,7 +102,9 @@ def discover_repository(
     """Resolve an exact folder name first, then its canonical repository name."""
     requested_folder = requested_name.strip().casefold()
     requested_canonical = canonical_repo_name(requested_name)
+    requested_separator_insensitive = _separator_insensitive_repo_name(requested_name)
     canonical_match: DiscoveredRepo | None = None
+    separator_insensitive_match: DiscoveredRepo | None = None
 
     for repository in iter_discovered_repositories(
         roots=roots,
@@ -109,8 +116,14 @@ def discover_repository(
             return repository
         if canonical_match is None and repository.repo_name == requested_canonical:
             canonical_match = repository
+        if (
+            separator_insensitive_match is None
+            and _separator_insensitive_repo_name(repository.folder_name)
+            == requested_separator_insensitive
+        ):
+            separator_insensitive_match = repository
 
-    return canonical_match
+    return canonical_match or separator_insensitive_match
 
 
 def discover_repositories(
@@ -148,6 +161,7 @@ def diagnose_repository_miss(
     """Explain why a matching trusted-root path was not eligible for discovery."""
     requested_folder = requested_name.strip().casefold()
     requested_canonical = canonical_repo_name(requested_name)
+    requested_separator_insensitive = _separator_insensitive_repo_name(requested_name)
     excluded = {name.casefold() for name in exclude_names}
 
     for configured_root in roots:
@@ -175,6 +189,8 @@ def diagnose_repository_miss(
                 name_matches = (
                     child.name.casefold() == requested_folder
                     or canonical_repo_name(child.name) == requested_canonical
+                    or _separator_insensitive_repo_name(child.name)
+                    == requested_separator_insensitive
                 )
                 if child.name.casefold() in excluded:
                     if name_matches:
