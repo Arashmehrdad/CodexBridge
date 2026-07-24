@@ -528,16 +528,46 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "run_query",
-        ("status", "result"),
+        ("status",),
+        "soma.server:run_query -> soma.job_manager:JobManager.get_lifecycle_status",
+        "bounded lifecycle-only run status projection",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.NONE,
+        default_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_control,
+        maximum_response_bytes=DEFAULT_PUBLIC_BYTE_BUDGETS.run_control,
+        notes=(
+            "Routine polling contains only lifecycle, process, cancellation, lock, "
+            "publication, and bounded terminal-summary fields. Input, output, result, "
+            "terminal, and event details are explicit operations."
+        ),
+    ),
+    _entry(
+        "run_query",
+        ("input",),
+        "soma.server:run_query -> soma.job_manager:JobManager.get_input",
+        "bounded submitted-input metadata with explicit chunked full retrieval",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CHUNK_CURSOR,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Compact input reports authoritative and redacted hashes, byte counts, "
+            "field metadata, and truncation. view=full returns a cursor-paged, "
+            "secret-redacted representation while exact input_json remains durable."
+        ),
+    ),
+    _entry(
+        "run_query",
+        ("result",),
         "soma.server:run_query -> soma.job_manager:JobManager",
         "bounded terminal projection by default; explicit full result view",
         request_echo=RequestEchoBehavior.NONE,
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         pagination=PaginationBehavior.CHUNK_CURSOR,
         notes=(
-            "Status remains scalar control metadata. Result defaults to the bounded "
-            "source-hash-bound terminal projection; view=full or a legacy cursor "
-            "retains the authoritative chunked archive."
+            "Result defaults to the bounded source-hash-bound terminal projection; "
+            "view=full or a cursor retains the authoritative chunked archive."
         ),
     ),
     _entry(

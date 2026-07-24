@@ -20,6 +20,19 @@ class FakeRunStore:
             raise KeyError(run_id)
         return dict(self.run)
 
+    def get_run_input_snapshot(self, run_id: str) -> dict[str, Any]:
+        run = self.get_run(run_id)
+        raw = json.dumps(run["input"], sort_keys=True)
+        return {
+            "run_id": run_id,
+            "repo_name": run["repo_name"],
+            "tool": run["tool"],
+            "status": run["status"],
+            "state_version": 7,
+            "input_json": raw,
+            "input": dict(run["input"]),
+        }
+
     def list_runs(
         self,
         repo_name: str | None = None,
@@ -130,6 +143,35 @@ def test_small_public_status_stays_inline_and_redacted() -> None:
     assert response["input"]["api_token"] == "[REDACTED]"
     assert response["_transport"]["mode"] == "inline"
     assert response["_transport"]["complete"] is True
+
+
+def test_explicit_input_round_trips_large_payload_and_redacts_secrets() -> None:
+    detail = "i" * (RUN_QUERY_CHUNK_CHARACTERS * 2 + 99)
+    manager = make_manager(make_run(detail))
+    cursor = ""
+    chunks: list[str] = []
+    while True:
+        response = manager.get_input(RUN_ID, view="full", cursor=cursor)
+        chunks.append(response["chunk"])
+        if response["complete"]:
+            break
+        cursor = response["next_cursor"]
+    payload = json.loads("".join(chunks))
+    assert payload["input"]["detail"] == detail
+    assert payload["input"]["api_token"] == "[REDACTED]"
+    assert payload["complete_authoritative_input_preserved"] is True
+
+
+def test_compact_input_returns_hashes_not_values() -> None:
+    manager = make_manager(make_run("submitted-secret-marker"))
+    response = manager.get_input(RUN_ID)
+    serialized = json.dumps(response)
+    assert response["operation"] == "input"
+    assert response["authoritative_input_bytes"] > 0
+    assert len(response["authoritative_input_sha256"]) == 64
+    assert "submitted-secret-marker" not in serialized
+    assert "secret-token-value" not in serialized
+    assert response["has_more"] is True
 
 
 def test_large_result_uses_same_cursor_contract() -> None:

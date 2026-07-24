@@ -120,13 +120,18 @@ RUN_CONTROL_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
     "status",
     "risk_level",
     "requires_human",
+    "created_at",
     "started_at",
     "ended_at",
+    "duration_seconds",
     "pid",
     "launcher_pid",
     "worker_pid",
     "worker_identity",
+    "lease_generation",
     "state_version",
+    "worker_claimed_at",
+    "launch_attempts",
     "current_phase",
     "elapsed_seconds",
     "heartbeat_at",
@@ -136,6 +141,7 @@ RUN_CONTROL_PROJECTION_COLUMNS: Final[tuple[str, ...]] = (
     "result_published_hash",
     "result_published_at",
     "result_publication_error",
+    "exit_code",
     "summary",
     "error",
     "safety_failure",
@@ -396,6 +402,25 @@ class RunStore:
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
         return self._row_to_run(row)
+
+    def get_run_input_snapshot(self, run_id: str) -> dict[str, Any]:
+        """Return the exact durable input JSON and scalar run identity."""
+        validate_run_id(run_id)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, repo_name, tool, status, state_version, input_json
+                FROM runs WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        snapshot = dict(row)
+        raw_input = str(snapshot.pop("input_json") or "{}")
+        snapshot["input_json"] = raw_input
+        snapshot["input"] = loads(raw_input)
+        return snapshot
 
     def get_result_source_snapshot(self, run_id: str) -> dict[str, Any]:
         """Return projection inputs including the exact authoritative JSON text."""

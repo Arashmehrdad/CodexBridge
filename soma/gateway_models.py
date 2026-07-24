@@ -69,11 +69,19 @@ SSHInspectRequest = Annotated[
 class RunStatusQuery(GatewayModel):
     operation: Literal["status"]
     run_id: str = Field(min_length=1, max_length=128)
+
+
+class RunInputQuery(GatewayModel):
+    operation: Literal["input"]
+    run_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
     cursor: str = Field(default="", max_length=2048)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=12 * 1024)
 
     @model_validator(mode="after")
-    def encode_chunk_reference(self) -> "RunStatusQuery":
-        self.run_id = encode_run_reference(self.run_id, self.cursor)
+    def promote_cursor_to_full(self) -> "RunInputQuery":
+        if self.cursor:
+            self.view = "full"
         return self
 
 
@@ -183,6 +191,7 @@ class RunPreflightQuery(GatewayModel):
 
 RunQueryRequest = Annotated[
     RunStatusQuery
+    | RunInputQuery
     | RunControlQuery
     | RunOutputQuery
     | RunEventsQuery

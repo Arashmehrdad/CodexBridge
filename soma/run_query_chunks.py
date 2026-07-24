@@ -127,6 +127,11 @@ def _redact_value(value: Any, key: str = "") -> Any:
     return value
 
 
+def redact_payload(value: Any) -> Any:
+    """Return the canonical recursively redacted public representation."""
+    return _redact_value(value)
+
+
 def _snapshot_path(snapshot_id: str) -> Path:
     if not _SNAPSHOT_ID_RE.fullmatch(snapshot_id):
         raise ValueError("Invalid run-query snapshot identifier")

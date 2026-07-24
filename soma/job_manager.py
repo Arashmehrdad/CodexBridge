@@ -65,6 +65,7 @@ from .run_query_chunks import (
     decode_list_reference,
     decode_run_reference,
     list_resource_id,
+    redact_payload,
 )
 from .run_store import (
     LEGACY_READ_ONLY_TOOLS,
@@ -191,8 +192,13 @@ RUN_PUBLIC_CONTROL_FIELDS = (
     "risk_level",
     "requires_human",
     "state_version",
+    "created_at",
     "started_at",
     "ended_at",
+    "duration_seconds",
+    "lease_generation",
+    "worker_claimed_at",
+    "launch_attempts",
     "current_phase",
     "elapsed_seconds",
     "heartbeat_at",
@@ -212,6 +218,8 @@ RUN_PUBLIC_CONTROL_FIELDS = (
     "result_published_hash",
     "result_published_at",
     "result_publication_error",
+    "exit_code",
+    "details_available",
     "summary",
     "error",
     "safety_failure",
@@ -371,12 +379,14 @@ def _project_run_control(control: dict, *, divisor: int = 1) -> dict:
     return projected
 
 
-def _build_run_control_response(control: dict) -> dict:
+def _build_run_control_response(control: dict, *, operation: str = "control") -> dict:
+    if operation not in {"status", "control"}:
+        raise ValueError("run lifecycle operation must be status or control")
     byte_budget = DEFAULT_PUBLIC_BYTE_BUDGETS.run_control
     for divisor in (1, 2, 4, 8, 16, 32, 64, 128, 256, 1024, 4096):
         payload = {
             "ok": True,
-            "operation": "control",
+            "operation": operation,
             "unchanged": False,
             **_project_run_control(control, divisor=divisor),
             "authoritative_operation": "status",
@@ -386,7 +396,7 @@ def _build_run_control_response(control: dict) -> dict:
             return _finalize_compact_projection(payload, byte_budget)
         except ValueError:
             continue
-    raise ValueError("Run control response cannot fit its public byte budget")
+    raise ValueError(f"Run {operation} response cannot fit its public byte budget")
 
 
 def _build_unchanged_control_response(run_id: str, state_version: int) -> dict:
@@ -2428,14 +2438,8 @@ class JobManager:
                 continue
         raise ValueError("Run event page cannot fit its public byte budget")
 
-    def get_control_status(
-        self, run_id: str, if_state_version: int | None = None
-    ) -> dict:
+    def _lifecycle_observation(self, run_id: str) -> dict:
         run, worker_identity = self.store.get_run_control_observation(run_id)
-        state_version = int(run.get("state_version") or 0)
-        if if_state_version is not None and int(if_state_version) == state_version:
-            return _build_unchanged_control_response(run_id, state_version)
-
         launcher_pid = int(run.get("launcher_pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
         child_pid = int(run.get("pid") or 0)
@@ -2446,15 +2450,120 @@ class JobManager:
                 "launcher_running": process_is_running(launcher_pid),
                 "worker_pid": worker_pid,
                 "worker_identity_present": bool(worker_identity),
-                "worker_running": process_matches_identity(
-                    worker_pid, worker_identity
-                ),
+                "worker_running": process_matches_identity(worker_pid, worker_identity),
                 "child_pid": child_pid,
                 "child_running": process_is_running(child_pid),
                 "lock": self.locks.find_lock(run["repo_name"], run_id) or {},
+                "details_available": {
+                    "input": True,
+                    "output": True,
+                    "result": True,
+                    "terminal": True,
+                    "events": True,
+                },
             }
         )
-        return _build_run_control_response(control)
+        return control
+
+    def get_lifecycle_status(self, run_id: str) -> dict:
+        """Return only the bounded lifecycle projection used for routine polling."""
+        return _build_run_control_response(
+            self._lifecycle_observation(run_id), operation="status"
+        )
+
+    def get_control_status(
+        self, run_id: str, if_state_version: int | None = None
+    ) -> dict:
+        if if_state_version is not None:
+            snapshot = self.store.get_run_control_snapshot(run_id)
+            state_version = int(snapshot.get("state_version") or 0)
+            if int(if_state_version) == state_version:
+                return _build_unchanged_control_response(run_id, state_version)
+        return _build_run_control_response(
+            self._lifecycle_observation(run_id), operation="control"
+        )
+
+    @staticmethod
+    def _input_field_metadata(value: Any) -> dict[str, Any]:
+        encoded = json.dumps(
+            value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("ascii")
+        return {
+            "type": type(value).__name__,
+            "bytes": len(encoded),
+            "sha256": sha256(encoded).hexdigest(),
+        }
+
+    def get_input(
+        self,
+        run_id: str,
+        *,
+        view: str = "compact",
+        cursor: str = "",
+        response_budget_bytes: int = 12 * 1024,
+    ) -> dict:
+        """Return bounded metadata or a cursor-paged redacted input representation."""
+        if view not in {"compact", "full"}:
+            raise ValueError("input view must be compact or full")
+        if response_budget_bytes < 1024 or response_budget_bytes > 12 * 1024:
+            raise ValueError("input response_budget_bytes must be between 1024 and 12288")
+        try:
+            snapshot = self.store.get_run_input_snapshot(run_id)
+        except (ValueError, KeyError) as exc:
+            return self._run_lookup_error(run_id, exc)
+        authoritative_bytes = snapshot["input_json"].encode("utf-8")
+        public_input = redact_payload(snapshot["input"])
+        public_bytes = json.dumps(
+            public_input,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("ascii")
+        metadata = {
+            "ok": True,
+            "operation": "input",
+            "run_id": snapshot["run_id"],
+            "repo_name": snapshot["repo_name"],
+            "tool": snapshot["tool"],
+            "status": snapshot["status"],
+            "state_version": snapshot["state_version"],
+            "authoritative_input_bytes": len(authoritative_bytes),
+            "authoritative_input_sha256": sha256(authoritative_bytes).hexdigest(),
+            "public_input_bytes": len(public_bytes),
+            "public_input_sha256": sha256(public_bytes).hexdigest(),
+            "secrets_redacted": public_input != snapshot["input"],
+            "fields": {
+                str(key): self._input_field_metadata(value)
+                for key, value in sorted(snapshot["input"].items())
+            },
+            "authoritative_storage": "runs/soma.sqlite3:input_json",
+            "complete_authoritative_input_preserved": True,
+            "error": "",
+        }
+        if view == "full" or cursor:
+            return chunk_payload(
+                "input",
+                run_id,
+                {**metadata, "input": public_input},
+                cursor,
+            )
+        compact = {
+            **metadata,
+            "view": "compact",
+            "truncated": False,
+            "has_more": bool(public_input),
+            "full_retrieval": {
+                "tool": "run_query",
+                "request": {"operation": "input", "run_id": run_id, "view": "full"},
+            },
+            "response_budget_bytes": response_budget_bytes,
+        }
+        while len(_canonical_public_json_bytes(compact)) > response_budget_bytes and compact["fields"]:
+            compact["fields"].pop(next(reversed(compact["fields"])))
+            compact["truncated"] = True
+        compact["response_bytes"] = len(_canonical_public_json_bytes(compact))
+        return compact
 
     def get_output(
         self,

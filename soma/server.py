@@ -3137,8 +3137,24 @@ def workflow_action(request: WorkflowActionRequest) -> dict:
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_run_status(run_id: str) -> dict:
-    """Read-only: return durable status metadata for a queued/running/completed async run."""
-    return get_job_manager().get_status(run_id)
+    """Read-only: return the compact lifecycle projection for routine polling."""
+    return get_job_manager().get_lifecycle_status(run_id)
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def get_run_input(
+    run_id: str,
+    view: str = "compact",
+    cursor: str = "",
+    response_budget_bytes: int = 12 * 1024,
+) -> dict:
+    """Read-only: explicitly retrieve bounded submitted-input evidence."""
+    return get_job_manager().get_input(
+        run_id,
+        view=view,
+        cursor=cursor,
+        response_budget_bytes=response_budget_bytes,
+    )
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -3508,6 +3524,13 @@ def run_query(request: RunQueryRequest) -> dict:
         )
     if request.operation == "status":
         return get_run_status(request.run_id)
+    if request.operation == "input":
+        return get_run_input(
+            request.run_id,
+            request.view,
+            request.cursor,
+            request.response_budget_bytes,
+        )
     if request.operation == "control":
         return get_run_control_status(request.run_id, request.if_state_version)
     if request.operation == "output":
