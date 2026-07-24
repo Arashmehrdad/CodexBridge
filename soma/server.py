@@ -1051,28 +1051,34 @@ def _mark_wiki_stale_safely(
         return {"ok": False, "stale": None, "error": str(exc)}
 
 
-def _operation_identity_metadata() -> dict[str, Any]:
-    """Build stable identities for the public operation contract."""
+def _operation_identity_metadata(
+    *,
+    actions: list[dict[str, Any]] | None = None,
+    live_input_schema_hash: str = "",
+) -> dict[str, Any]:
+    """Build identities from the actual effective public input schemas."""
     operation_inventory = {
         gateway: sorted(names) for gateway, names in operation_names_by_gateway().items()
     }
     operation_inventory_hash = schema_hash(operation_inventory)
-    public_schema_hash = schema_hash(
+    public_schema_hash = live_input_schema_hash or _input_schema_hash_from_actions(
+        actions or []
+    )
+    discovery_cache_generation = schema_hash(
         {
             "inventory_version": CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
             "operation_inventory_hash": operation_inventory_hash,
+            "public_schema_hash": public_schema_hash,
+            "server_build_hash": _PROCESS_CAPABILITY_METADATA["server_build_hash"],
+            "capability_epoch": _PROCESS_CAPABILITY_METADATA["capability_epoch"],
         }
     )
     return {
         "operation_inventory_hash": operation_inventory_hash,
         "operation_inventory_gateway_count": len(operation_inventory),
         "public_schema_hash": public_schema_hash,
-        "discovery_cache_generation": schema_hash(
-            {
-                "public_schema_hash": public_schema_hash,
-                "operation_inventory_hash": operation_inventory_hash,
-            }
-        ),
+        "runtime_input_schema_hash": public_schema_hash,
+        "discovery_cache_generation": discovery_cache_generation,
         "operation_inventory": operation_inventory,
     }
 
@@ -1142,11 +1148,11 @@ async def list_capabilities() -> dict:
     result.update(
         {
             key: value
-            for key, value in _operation_identity_metadata().items()
+            for key, value in _operation_identity_metadata(actions=actions).items()
             if key != "operation_inventory"
         }
     )
-    result["live_input_schema_hash"] = _input_schema_hash_from_actions(actions)
+    result["live_input_schema_hash"] = result["public_schema_hash"]
     return _with_capability_metadata(result)
 
 
@@ -1173,11 +1179,11 @@ def _list_capabilities_sync() -> dict[str, Any]:
     result.update(
         {
             key: value
-            for key, value in _operation_identity_metadata().items()
+            for key, value in _operation_identity_metadata(actions=actions).items()
             if key != "operation_inventory"
         }
     )
-    result["live_input_schema_hash"] = _input_schema_hash_from_actions(actions)
+    result["live_input_schema_hash"] = result["public_schema_hash"]
     return _with_capability_metadata(result)
 
 
@@ -3653,17 +3659,19 @@ def _bounded_system_action_response(result: dict[str, Any], response_budget_byte
 def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
     source_build = server_build_hash()
     source_schema = schema_hash(PATCH_OPERATION_SCHEMA)
-    identity = _operation_identity_metadata()
-    operation_inventory = identity["operation_inventory"]
-    operation_inventory_hash = identity["operation_inventory_hash"]
-    public_schema_hash = identity["public_schema_hash"]
-    discovery_cache_generation = identity["discovery_cache_generation"]
     (
         live_operation_schema_hashes,
         live_schema_error,
         discovery_passes_converged,
         live_input_schema_hash,
     ) = _live_operation_schema_hashes_sync()
+    identity = _operation_identity_metadata(
+        live_input_schema_hash=live_input_schema_hash
+    )
+    operation_inventory = identity["operation_inventory"]
+    operation_inventory_hash = identity["operation_inventory_hash"]
+    public_schema_hash = identity["public_schema_hash"]
+    discovery_cache_generation = identity["discovery_cache_generation"]
     inventory_operation_names = {
         f"{gateway}.{operation}"
         for gateway, names in operation_inventory.items()
@@ -3742,6 +3750,7 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "operation_schema_count": len(live_operation_schema_hashes),
         "operation_schema_error": live_schema_error,
         "live_input_schema_hash": live_input_schema_hash,
+        "runtime_input_schema_hash": identity["runtime_input_schema_hash"],
         "discovery_pass_count": 2,
         "discovery_passes_converged": discovery_passes_converged,
         "operation_inventory_hash": operation_inventory_hash,

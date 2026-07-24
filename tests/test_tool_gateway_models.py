@@ -2451,6 +2451,8 @@ def test_system_capabilities_resolves_live_async_discovery(monkeypatch) -> None:
     assert len(full["public_schema_hash"]) == 64
     assert len(full["discovery_cache_generation"]) == 64
     assert len(full["live_input_schema_hash"]) == 64
+    assert full["public_schema_hash"] == full["live_input_schema_hash"]
+    assert full["runtime_input_schema_hash"] == full["public_schema_hash"]
 
 
 def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
@@ -2497,6 +2499,8 @@ def test_capability_identity_binds_public_schema_and_discovery_cache() -> None:
     result = server.system_query(request)
     assert result["converged"] is True
     assert result["connector_schema_hash"] == baseline["public_schema_hash"]
+    assert baseline["public_schema_hash"] == baseline["live_input_schema_hash"]
+    assert baseline["runtime_input_schema_hash"] == baseline["public_schema_hash"]
     stale = TypeAdapter(SystemQueryRequest).validate_python(
         {
             "operation": "capability_identity",

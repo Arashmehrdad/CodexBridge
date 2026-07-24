@@ -540,3 +540,14 @@ def test_flat_gateway_tool_is_used_for_every_flattened_gateway() -> None:
     for name in FLATTENED_GATEWAYS:
         assert isinstance(tools[name], FlatGatewayTool), name
     assert not isinstance(tools["cancel_run"], FlatGatewayTool)
+
+
+def test_discovered_schema_is_the_loaded_tool_schema_object() -> None:
+    async def _tools() -> dict[str, Any]:
+        register_knowledge_tools(server.mcp)
+        return {tool.name: tool for tool in await server.mcp.list_tools()}
+
+    tools = asyncio.run(_tools())
+    actions = _discovered_actions()
+    for name in PUBLIC_GATEWAY_NAMES:
+        assert actions[name]["inputSchema"] == tools[name].parameters, name
