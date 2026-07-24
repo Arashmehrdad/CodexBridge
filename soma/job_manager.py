@@ -2372,7 +2372,7 @@ class JobManager:
             if "script" in input_data:
                 input_data["script"] = "[REDACTED]"
             public["input"] = input_data
-        return public
+        return redact_payload(public)
 
     def get_status_payload(self, run_id: str) -> dict:
         try:

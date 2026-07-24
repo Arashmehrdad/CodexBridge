@@ -1646,28 +1646,6 @@ def test_local_model_health_malformed_models_response_returns_failed(
     assert result["completion_succeeded"] is False
 
 
-def test_start_pytest_path_async_delegates_to_job_manager(monkeypatch) -> None:
-    class FakeJobManager:
-        def start_pytest_path(self, repo_name, path):
-            return {
-                "run_id": "run_5",
-                "accepted": True,
-                "status": "queued",
-                "repo_name": repo_name,
-                "command_id": "pytest_path",
-                "path": path,
-            }
-
-    monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobManager())
-
-    result = server.start_pytest_path_async("repo", "tests/test_api.py::test_ok")
-
-    assert result["accepted"] is True
-    assert result["run_id"] == "run_5"
-    assert result["command_id"] == "pytest_path"
-    assert result["path"] == "tests/test_api.py::test_ok"
-
-
 def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     schema = actions["run_start"]["inputSchema"]

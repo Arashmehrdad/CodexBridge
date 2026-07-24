@@ -33,6 +33,12 @@ class FakeRunStore:
             "input": dict(run["input"]),
         }
 
+    def get_run_control_observation(self, run_id: str):
+        return self.get_run(run_id), None
+
+    def get_run_control_snapshot(self, run_id: str):
+        return self.get_run(run_id)
+
     def list_runs(
         self,
         repo_name: str | None = None,
@@ -49,6 +55,9 @@ def make_run(detail: str) -> dict[str, Any]:
         "repo_name": "soma",
         "tool": "project_command",
         "status": "completed",
+        "state_version": 7,
+        "risk_level": "high",
+        "requires_human": False,
         "current_phase": "result",
         "created_at": "2026-07-14T00:00:00+00:00",
         "started_at": "2026-07-14T00:00:01+00:00",
@@ -73,76 +82,44 @@ def make_run(detail: str) -> dict[str, Any]:
     }
 
 
+class FakeLocks:
+    def find_lock(self, repo_name: str, run_id: str) -> dict[str, Any]:
+        del repo_name, run_id
+        return {}
+
+
 def make_manager(run: dict[str, Any]) -> JobManager:
     manager = object.__new__(JobManager)
     manager.store = FakeRunStore(run)
+    manager.locks = FakeLocks()
     return manager
 
 
-def collect_status(manager: JobManager) -> dict[str, Any]:
-    cursor = ""
-    chunks: list[str] = []
-    while True:
-        request = RunStatusQuery(
-            operation="status",
-            run_id=RUN_ID,
-            cursor=cursor,
-        )
-        response = manager.get_status(request.run_id)
-        assert response["transport"] == "chunked_json"
-        chunks.append(response["chunk"])
-        if response["complete"]:
-            break
-        cursor = response["next_cursor"]
-        assert cursor
-    return json.loads("".join(chunks))
-
-
-def test_large_status_round_trips_without_total_data_loss() -> None:
+def test_compact_lifecycle_status_omits_submitted_and_result_payloads() -> None:
     detail = "x" * (RUN_QUERY_CHUNK_CHARACTERS * 2 + 73)
-    payload = collect_status(make_manager(make_run(detail)))
-
-    assert payload["input"]["detail"] == detail
-    assert payload["input"]["api_token"] == "[REDACTED]"
-    assert payload["input"]["message"] == "token=[REDACTED]"
-    assert "worker_lease_token" not in payload
-
-
-def test_status_cursor_uses_frozen_snapshot_when_run_changes() -> None:
-    original_detail = "x" * (RUN_QUERY_CHUNK_CHARACTERS + 50)
-    run = make_run(original_detail)
-    manager = make_manager(run)
-    first_request = RunStatusQuery(operation="status", run_id=RUN_ID)
-    first = manager.get_status(first_request.run_id)
-    assert first["complete"] is False
-
-    run["input"]["detail"] = "y" * (RUN_QUERY_CHUNK_CHARACTERS + 50)
-    chunks = [first["chunk"]]
-    cursor = first["next_cursor"]
-    while cursor:
-        next_request = RunStatusQuery(
-            operation="status",
-            run_id=RUN_ID,
-            cursor=cursor,
-        )
-        response = manager.get_status(next_request.run_id)
-        chunks.append(response["chunk"])
-        cursor = response["next_cursor"]
-
-    reconstructed = json.loads("".join(chunks))
-    assert reconstructed["input"]["detail"] == original_detail
-
-
-def test_small_public_status_stays_inline_and_redacted() -> None:
-    manager = make_manager(make_run("small"))
+    manager = make_manager(make_run(detail))
     request = RunStatusQuery(operation="status", run_id=RUN_ID)
 
-    response = manager.get_status(request.run_id)
+    response = manager.get_lifecycle_status(request.run_id)
+    serialized = json.dumps(response)
 
+    assert response["operation"] == "status"
+    assert response["run_id"] == RUN_ID
+    assert response["state_version"] == 7
+    assert response["details_available"]["input"] is True
+    assert response["payload_bytes"] <= 8192
+    assert "input" not in response
+    assert "result" not in response
+    assert detail[:100] not in serialized
+    assert "secret-token-value" not in serialized
+
+
+def test_internal_full_status_reader_remains_redacted_for_compatibility() -> None:
+    manager = make_manager(make_run("small"))
+    response = manager.get_status(RUN_ID)
     assert response["run_id"] == RUN_ID
     assert response["input"]["api_token"] == "[REDACTED]"
-    assert response["_transport"]["mode"] == "inline"
-    assert response["_transport"]["complete"] is True
+    assert "worker_lease_token" not in response
 
 
 def test_explicit_input_round_trips_large_payload_and_redacts_secrets() -> None:
