@@ -29,6 +29,11 @@
     commit is then not a complete description of the artifact, so this is off
     by default.
 
+.PARAMETER BuildPython
+    The interpreter used to build the wheel. Defaults to TradingLab's own
+    venv, which is where its build tooling lives; the wheel is pure Python,
+    so the building and installing interpreters need not be the same.
+
 .EXAMPLE
     pwsh -File scripts/install_trading_lab_pinned.ps1
 
@@ -42,6 +47,7 @@ param(
     [string]$Python,
     [string]$ExpectedCommit,
     [string]$ExpectedSha256,
+    [string]$BuildPython,
     [switch]$AllowDirty
 )
 
@@ -63,6 +69,21 @@ $TradingLabPath = (Resolve-Path $TradingLabPath).Path
 if (-not $Python) { $Python = Join-Path $somaRoot '.venv\Scripts\python.exe' }
 if (-not (Test-Path $Python)) { throw "Python interpreter not found at '$Python'." }
 
+# The wheel is pure Python, so it can be built by whichever interpreter has
+# the build tooling -- normally TradingLab's own venv -- and installed into
+# a different one.
+if (-not $BuildPython) {
+    $candidate = Join-Path $TradingLabPath '.venv\Scripts\python.exe'
+    $BuildPython = if (Test-Path $candidate) { $candidate } else { $Python }
+}
+if (-not (Test-Path $BuildPython)) {
+    throw "Build interpreter not found at '$BuildPython'."
+}
+& $BuildPython -c "import build" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "'$BuildPython' has no 'build' module. Install it there (python -m pip install build) or pass -BuildPython."
+}
+
 # ---------------------------------------------------------------- verify source
 $commit = (& git -C $TradingLabPath rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw "'$TradingLabPath' is not a git repository." }
@@ -78,7 +99,8 @@ if ($dirty -and -not $AllowDirty) {
 
 Write-Host "Trading Lab : $TradingLabPath"
 Write-Host "Commit      : $commit"
-Write-Host "Interpreter : $Python"
+Write-Host "Build with  : $BuildPython"
+Write-Host "Install into: $Python"
 Write-Host ''
 
 # ---------------------------------------------------------------------- build
@@ -89,7 +111,7 @@ if (Test-Path $distDir) {
 
 Push-Location $TradingLabPath
 try {
-    & $Python -m build --wheel
+    & $BuildPython -m build --wheel
     if ($LASTEXITCODE -ne 0) { throw "Wheel build failed with exit code $LASTEXITCODE." }
 }
 finally {

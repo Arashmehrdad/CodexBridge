@@ -218,6 +218,83 @@ records version/commit/wheel SHA-256, installs the exact wheel with
 Neither script contains an absolute path: both default to a TradingLab
 checkout sitting next to the Soma checkout.
 
+## Live verification
+
+Performed against the running service after restart, with no active runs and
+no repository locks. Build identity moved `26b9669c` → `7dca2da1`, and the
+public contract hashes did not move at all:
+
+| Hash | Before | After |
+| --- | --- | --- |
+| `public_schema_hash` | `51ef7e47414c…` | `51ef7e47414c…` |
+| `live_input_schema_hash` | `e41306ade572…` | `e41306ade572…` |
+| `operation_inventory_hash` | `695c6780f854…` | `695c6780f854…` |
+| `operation_schema_count` | 194 | 194 |
+| `operation_inventory_gateway_count` | 29 | 29 |
+
+That is the direct evidence that the migration changed no public schema.
+
+`trading-lab` resolves as a managed repository independently of Soma:
+`run_query{"operation":"preflight","repo_name":"trading-lab"}` and
+`repo_query{"operation":"status","repo_name":"trading-lab"}` both return
+`available`, on branch `main`, with its own commit history.
+
+Trading is disabled in owner-local configuration. It was enabled temporarily
+for this verification and then restored exactly, along with removing the empty
+first-use databases it created. With it enabled, against the real Alpari MT5
+demo account:
+
+| Operation | Live result |
+| --- | --- |
+| `health` | connected, `account_environment: demo` |
+| `symbols` | `BITCOIN_i`, "1 LOT = 1 BITCOIN" |
+| `specification` | digits 2, volume step 0.01, min 0.01, max 300 |
+| `tick` | live bid/ask with normalized UTC and `fresh: true` |
+| `h4_candles` | three completed broker-time H4 candles |
+| `historical_ticks` | real ticks, budget enforced (`truncated: true` at 2048 bytes) |
+| `runtime_status`, `action_list`, `market_packet_list`, `outcome_list`, `rejection_list`, `calibration_report`, `replay_report`, `demo_performance`, `reconciliation_report` | all served from the package |
+| `trading_signal_list`, `trading_runtime_control{status}` | served |
+| `portfolio_status` | deprecation notice preserved verbatim |
+
+Transport equivalence was checked live across all seven trading tools and
+eighteen calls:
+
+- every tool advertises a flat public input schema — `trading_query` with 20
+  discriminated branches — and **no branch exposes a `request` property**;
+- `content[0].text` is non-empty JSON on every call;
+- `json.loads(content[0].text) == structuredContent` on every call;
+- **no `soma.trading` module was loaded at runtime**; 18 `trading_lab`
+  modules were;
+- `soma/trading` does not exist on disk.
+
+No financial trade was executed. Every live call was a read or a
+journal query.
+
+One transient result is worth recording: two journal reads issued
+concurrently against a brand-new trading directory returned
+`{"status": "journal_error", "error": "database is locked"}` while several
+SQLite schemas were being created at once, and succeeded immediately on
+retry. This is a property of the per-call store construction, which the
+migration preserved unchanged; it is not a regression.
+
+### Installation, verified
+
+```
+pwsh -File scripts/install_trading_lab_dev.ps1
+```
+→ `editable: true`, module resolved to `D:\Github\TradingLab\src\trading_lab`.
+
+```
+pwsh -File scripts/install_trading_lab_pinned.ps1
+```
+→ built from commit `46f89bba88cf1e286ef29f804dd12d1f741869b9`, wheel
+`trading_lab-0.2.0-py3-none-any.whl`, SHA-256
+`fab4796380b3d67dbaec82dafbdeea9fd3732d9fcd1fa1530302bbe194672d8b`,
+installed with `--no-deps`, diagnostics reporting `editable: false` and the
+source commit. The full gateway suite passed against that non-editable
+install (117 passed, 3 skipped). Passing a wrong `-ExpectedSha256` is
+refused before installation.
+
 ## Known pre-existing failures
 
 Two Soma test failures predate this work and are unrelated to it. Both were
