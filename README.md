@@ -96,6 +96,16 @@ Helper script:
 
 A plain `GET` returning HTTP `406 Not Acceptable` is only route readiness for the MCP endpoint. It means the route is mounted, not that a full MCP client handshake has completed.
 
+`system_query` with `operation: "self_check"` is intentionally lightweight and in-process: imports, configuration, package identity, SQLite/WAL readiness, supervisor tables, and service identity only. It never runs pytest or pip, calls Git, waits on a network endpoint, or starts another server.
+
+Run comprehensive validation durably through PowerShell:
+
+```powershell
+.\scripts\comprehensive_self_check.ps1
+```
+
+The script covers `pip check`, the full pytest suite, `git diff --check`, package identity, and an MCP startup probe on a free local port.
+
 Windows service controller:
 
 ```powershell

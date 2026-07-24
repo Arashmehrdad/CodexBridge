@@ -2,172 +2,74 @@ from __future__ import annotations
 
 import argparse
 import json
-import socket
-import subprocess
 import sys
 import time
+from importlib import metadata
 from pathlib import Path
 from typing import Sequence
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import AppConfig, load_config
 from .run_store import RunStore
 from .supervisor_store import SupervisorStore
 
 
-SELF_CHECK_PYTEST_TIMEOUT_SECONDS = 600
-SELF_CHECK_TRANSPORT_TIMEOUT_SECONDS = 60.0
-
-
-def _run(command: list[str], cwd: Path, timeout: int = 120) -> dict:
-    started = time.time()
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=cwd,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
-        return {
-            "command": command,
-            "exit_code": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "duration_seconds": round(time.time() - started, 3),
-            "ok": completed.returncode == 0,
-        }
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "command": command,
-            "exit_code": 124,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or "Command timed out",
-            "duration_seconds": round(time.time() - started, 3),
-            "ok": False,
-        }
-
-
-def _free_port(host: str) -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        return int(sock.getsockname()[1])
-
-
-def _endpoint_reachable(url: str, timeout: float = 2.0) -> dict:
-    request = Request(url, method="GET")
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            return {"url": url, "status": response.status, "ok": response.status < 500}
-    except HTTPError as exc:
-        return {"url": url, "status": exc.code, "ok": exc.code < 500, "error": str(exc)}
-    except URLError as exc:
-        return {"url": url, "status": None, "ok": False, "error": str(exc.reason)}
-    except OSError as exc:
-        return {"url": url, "status": None, "ok": False, "error": str(exc)}
-
-
-def _wait_for_endpoint(url: str, timeout_seconds: float = 10.0) -> dict:
-    deadline = time.time() + timeout_seconds
-    last = {"url": url, "ok": False, "error": "not checked"}
-    while time.time() < deadline:
-        last = _endpoint_reachable(url)
-        if last["ok"]:
-            return last
-        time.sleep(0.25)
-    return last
-
-
-def _start_server_probe(
-    config_path: Path, host: str, port: int, path: str, cwd: Path
-) -> dict:
-    command = [
-        sys.executable,
-        "-m",
-        "soma.server",
-        "--config",
-        str(config_path),
-        "--transport",
-        "http",
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--path",
-        path,
-    ]
-    process = subprocess.Popen(
-        command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    url = f"http://{host}:{port}{path}"
-    try:
-        readiness = _wait_for_endpoint(
-            url, timeout_seconds=SELF_CHECK_TRANSPORT_TIMEOUT_SECONDS
-        )
-        poll = process.poll()
-        process_started = poll is None
-        return {
-            "command": command,
-            "process_started": process_started,
-            "endpoint": readiness,
-            "transport_ready": process_started and readiness["ok"],
-            "ok": process_started and readiness["ok"],
-        }
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-
-
 def _trading_lab_check() -> dict:
-    """Which Trading Lab package this process resolved.
-
-    The trading domain lives in the standalone ``trading-lab`` package.
-    Diagnostics report its identity here rather than on every ordinary
-    trading response, which stays compact.
-    """
     try:
         from .trading_lab_adapter import package_identity
-    except Exception as exc:
-        return {
-            "ok": False,
-            "error": f"the trading_lab package is unavailable: {exc}",
-        }
-    try:
+
         identity = package_identity()
-    except Exception as exc:  # pragma: no cover - defensive
-        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": f"trading_lab unavailable: {exc}"}
     return {"ok": bool(identity.get("version")), **identity}
+
+
+def _distribution_version(name: str) -> str:
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return ""
 
 
 def run_self_check(
     *,
     config: AppConfig | None = None,
     config_path: str | Path | None = "config.yaml",
-    live_host: str = "127.0.0.1",
-    live_port: int | None = None,
-    live_path: str = "/mcp",
-    run_live_server: bool = True,
-    run_tests: bool = True,
 ) -> dict:
+    """Run only cheap in-process readiness checks.
+
+    This synchronous path never starts subprocesses, runs pytest or pip, calls
+    Git, waits for a port, or launches another MCP server. Comprehensive
+    validation is the durable PowerShell script reported in the result.
+    """
+    started = time.perf_counter()
     root = Path.cwd().resolve()
     checks: dict[str, dict] = {}
 
-    checks["imports"] = {
-        "ok": True,
-        "modules": ["fastmcp", "pydantic", "yaml", "trading_lab"],
-    }
-    for module in checks["imports"]["modules"]:
+    modules = ("fastmcp", "pydantic", "yaml", "trading_lab")
+    import_error = ""
+    for module in modules:
         try:
             __import__(module)
         except Exception as exc:
-            checks["imports"] = {"ok": False, "module": module, "error": str(exc)}
+            import_error = f"{module}: {exc}"
             break
-
+    checks["imports"] = {
+        "ok": not import_error,
+        "modules": list(modules),
+        "error": import_error,
+    }
+    checks["packages"] = {
+        "ok": bool(_distribution_version("fastmcp") and _distribution_version("pydantic")),
+        "python": sys.version.split()[0],
+        "executable": sys.executable,
+        "versions": {
+            "soma": _distribution_version("soma"),
+            "fastmcp": _distribution_version("fastmcp"),
+            "pydantic": _distribution_version("pydantic"),
+            "trading-lab": _distribution_version("trading-lab"),
+        },
+    }
     checks["trading_lab"] = _trading_lab_check()
 
     if config is None:
@@ -175,81 +77,45 @@ def run_self_check(
             config = load_config(config_path or "config.yaml")
             checks["config"] = {"ok": True, "path": str(config_path)}
         except Exception as exc:
-            checks["config"] = {
-                "ok": False,
-                "path": str(config_path),
-                "error": str(exc),
-            }
+            checks["config"] = {"ok": False, "path": str(config_path), "error": str(exc)}
     else:
-        checks["config"] = {
-            "ok": True,
-            "path": str(config_path) if config_path else None,
-        }
+        checks["config"] = {"ok": True, "path": str(config_path) if config_path else None}
 
-    checks["pip_check"] = _run([sys.executable, "-m", "pip", "check"], root)
-    checks["git_status"] = _run(["git", "status", "--short", "--branch"], root)
-    if not (root / ".git").exists() and not checks["git_status"]["ok"]:
-        checks["git_status"]["ok"] = True
-        checks["git_status"]["warning"] = (
-            "Soma workspace is not a git repo; target repos are validated from config."
-        )
-    if run_tests:
-        pytest_basetemp = (
-            (config.resolve_runs_dir() if config else root / "runs")
-            / "self-check"
-            / f"pytest-{time.time_ns()}"
-        )
-        pytest_basetemp.parent.mkdir(parents=True, exist_ok=True)
-        checks["pytest"] = _run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "--basetemp",
-                str(pytest_basetemp),
-            ],
-            root,
-            timeout=SELF_CHECK_PYTEST_TIMEOUT_SECONDS,
-        )
-        checks["pytest"]["basetemp"] = str(pytest_basetemp)
-
+    runs_dir = config.resolve_runs_dir() if config else root / "runs"
     try:
-        store = RunStore(config.resolve_runs_dir() if config else root / "runs")
+        store = RunStore(runs_dir)
+        with store.connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+        mode = store.journal_mode()
         checks["run_store"] = {
-            "ok": store.journal_mode() == "wal",
+            "ok": mode == "wal",
             "db_path": str(store.db_path),
-            "journal_mode": store.journal_mode(),
+            "journal_mode": mode,
         }
     except Exception as exc:
         checks["run_store"] = {"ok": False, "error": str(exc)}
 
     try:
-        supervisor_store = SupervisorStore(
-            config.resolve_runs_dir() if config else root / "runs"
-        )
+        supervisor_store = SupervisorStore(runs_dir)
         required_tables = {
-            "supervisors",
-            "supervisor_events",
-            "supervisor_run_links",
-            "operation_locks",
-            "supervisor_notifications",
+            "supervisors", "supervisor_events", "supervisor_run_links",
+            "operation_locks", "supervisor_notifications",
         }
         with supervisor_store.connect() as conn:
-            existing_tables = {
+            existing = {
                 row[0]
                 for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 ).fetchall()
             }
-        missing_tables = sorted(required_tables - existing_tables)
-        journal_mode = supervisor_store.journal_mode()
+        missing = sorted(required_tables - existing)
+        mode = supervisor_store.journal_mode()
         checks["supervisor_store"] = {
-            "ok": journal_mode == "wal" and not missing_tables,
+            "ok": mode == "wal" and not missing,
             "db_path": str(supervisor_store.db_path),
-            "journal_mode": journal_mode,
+            "journal_mode": mode,
             "required_tables": sorted(required_tables),
-            "missing_tables": missing_tables,
+            "missing_tables": missing,
         }
     except Exception as exc:
         checks["supervisor_store"] = {"ok": False, "error": str(exc)}
@@ -269,67 +135,42 @@ def run_self_check(
                 "windows_toast_enabled": notifications.windows_toast.enabled,
             },
         }
-        supervisor_prompt_root = config.resolve_runs_dir() / "supervisors"
-        checks["supervisor_resume_prompts"] = {
-            "ok": config.resolve_runs_dir().exists(),
-            "root": str(supervisor_prompt_root),
-            "pattern": str(
-                supervisor_prompt_root / "<supervisor_id>" / "resume_prompt.txt"
-            ),
-        }
     else:
         checks["supervisor_config"] = {"ok": False, "error": "config unavailable"}
-        checks["supervisor_resume_prompts"] = {
-            "ok": False,
-            "error": "config unavailable",
-        }
 
-    if run_live_server:
-        if config_path is None:
-            checks["transport"] = {
-                "ok": False,
-                "transport_ready": False,
-                "error": "config_path is required for live server startup probe",
-            }
-        elif not checks["config"]["ok"] or not checks["imports"]["ok"]:
-            checks["transport"] = {
-                "ok": False,
-                "transport_ready": False,
-                "error": "Skipping server probe because config or imports failed",
-            }
-        else:
-            port = live_port or _free_port(live_host)
-            checks["transport"] = _start_server_probe(
-                Path(config_path).resolve(), live_host, port, live_path, root
-            )
-    else:
-        checks["transport"] = {"ok": True, "transport_ready": None, "skipped": True}
+    checks["service_identity"] = {
+        "ok": True,
+        **capability_metadata(PATCH_OPERATION_SCHEMA),
+    }
+    checks["comprehensive_validation"] = {
+        "ok": True,
+        "available": True,
+        "execution": "run_start powershell",
+        "script": "scripts/comprehensive_self_check.ps1",
+        "includes": [
+            "pip check", "full pytest", "git diff --check",
+            "package identity", "MCP startup on a free port",
+        ],
+    }
 
     ok = all(check.get("ok", False) for check in checks.values())
-    return {"ok": ok, "checks": checks}
+    return {
+        "ok": ok,
+        "mode": "lightweight",
+        "checks": checks,
+        "duration_seconds": round(time.perf_counter() - started, 6),
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run Soma local self-checks.")
+    parser = argparse.ArgumentParser(description="Run lightweight Soma self-checks.")
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0, help="0 chooses a free port")
-    parser.add_argument("--path", default="/mcp")
-    parser.add_argument("--skip-tests", action="store_true")
-    parser.add_argument("--skip-live-server", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    result = run_self_check(
-        config_path=args.config,
-        live_host=args.host,
-        live_port=args.port or None,
-        live_path=args.path,
-        run_tests=not args.skip_tests,
-        run_live_server=not args.skip_live_server,
-    )
+    result = run_self_check(config_path=args.config)
     print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["ok"] else 1)
 
