@@ -290,12 +290,6 @@ def stored_packet(config: AppConfig, provider: FakeProvider) -> str:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    trading_lab_adapter.selected_backend() != "package",
-    reason="identity assertions describe the package backend only;"
-    " every other test in this file passes under both backends,"
-    " which is the gateway-level equivalence evidence",
-)
 class TestBackendIdentity:
     def test_soma_resolves_the_external_package(self) -> None:
         identity = trading_lab_adapter.package_identity()
@@ -320,13 +314,42 @@ class TestBackendIdentity:
             assert symbol.__module__.startswith("trading_lab"), name
 
     def test_the_adapter_is_the_only_seam(self) -> None:
-        source = Path(server.__file__).read_text("utf-8")
-        assert "from .trading import" not in source
-        assert "from .trading." not in source
+        """No Soma module may import the trading domain directly.
 
-    def test_default_backend_is_the_package(self) -> None:
-        assert trading_lab_adapter.selected_backend() == "package"
-        assert trading_lab_adapter.DEFAULT_BACKEND == "package"
+        Checked with the AST rather than substrings, so importing the
+        adapter itself is not mistaken for importing the package.
+        """
+        import ast
+
+        soma_root = Path(server.__file__).parent
+        adapter = soma_root / "trading_lab_adapter.py"
+        offenders: list[str] = []
+        for path in sorted(soma_root.rglob("*.py")):
+            if path == adapter:
+                continue
+            tree = ast.parse(path.read_text("utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    roots = [
+                        alias.name.split(".")[0] for alias in node.names
+                    ]
+                elif isinstance(node, ast.ImportFrom):
+                    roots = [(node.module or "").split(".")[0]]
+                    if node.level:
+                        roots = [
+                            f".{root}" if root else "." for root in roots
+                        ]
+                else:
+                    continue
+                if "trading_lab" in roots or ".trading" in roots:
+                    offenders.append(f"{path.name}:{node.lineno}")
+        assert offenders == []
+
+    def test_the_in_tree_implementation_is_gone(self) -> None:
+        from importlib.util import find_spec
+
+        assert not (Path(server.__file__).parent / "trading").exists()
+        assert find_spec("soma.trading") is None
 
 
 class TestStateCompatibility:

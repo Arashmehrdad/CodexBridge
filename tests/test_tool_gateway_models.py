@@ -607,13 +607,16 @@ def test_trading_signal_gateways_share_repository_owned_journal(
 ) -> None:
     from datetime import datetime, timezone
 
-    from tests.trading_lab_fixtures import build_packet
+    from trading_lab.market_packet import MarketPacketBuilder
+
+    from tests.test_trading_lab_gateway import SYMBOL, FakeProvider
 
     _enable_trading(monkeypatch, tmp_path)
     now = datetime.now(timezone.utc)
-    packet = (
-        server._trading_services().packet_store().store(build_packet(now=now))
+    built = MarketPacketBuilder(now=lambda: now).build(
+        FakeProvider(now=now), SYMBOL, completed_count=100
     )
+    packet = server._trading_services().packet_store().store(built)
 
     payload = {**_signal_request_payload(), "packet_id": packet.packet_id}
     submit = TypeAdapter(TradingSignalSubmitRequest).validate_python(payload)

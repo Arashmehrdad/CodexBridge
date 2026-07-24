@@ -986,6 +986,15 @@ For documentation-only batches:
 
 ## Trading Lab TL0-TL9 (superseded by the 2026-07-23 redesign)
 
+> **Where this code lives now.** The Trading Lab was extracted from Soma into
+> its own repository and Python package (`trading-lab`, namespace
+> `trading_lab`). `soma/trading/` no longer exists; Soma reaches the domain
+> through `soma/trading_lab_adapter.py`. The sections below describe modules by
+> their historical `soma/trading/...` paths and are preserved unchanged as a
+> record of what was achieved and when. For the current architecture, what
+> moved where, and the equivalence evidence that justified the extraction, see
+> [`trading-lab-separation.md`](trading-lab-separation.md).
+
 The following section is the complete pre-redesign Trading Lab roadmap text preserved verbatim from PLANS.md when the runtime threshold-portfolio design was replaced. Heading levels are unchanged.
 
 ## TL - Soma Trading Lab
