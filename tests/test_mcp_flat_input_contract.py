@@ -299,13 +299,20 @@ def test_flat_repo_query_search_text(live_tools) -> None:
     result = _call(
         live_tools,
         "repo_query",
-        {"operation": "search_text", "repo_name": "soma", "query": "run_query"},
+        {
+            "operation": "search_text",
+            "repo_name": "soma",
+            "query": "run_query",
+            "directory": "soma",
+            "max_results": 5,
+            "budget_ms": 30000,
+        },
     )
     structured = _assert_transport_equivalence(result)
     assert structured["ok"] is True
     # Defaults omitted by the caller are still applied by the request model.
     assert structured["case_sensitive"] is False
-    assert structured["directory"] == ""
+    assert structured["directory"] == "soma"
     assert structured["response_budget_bytes"] == 16384
 
 
