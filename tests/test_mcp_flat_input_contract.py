@@ -39,8 +39,8 @@ UNION_GATEWAYS = frozenset(
         "knowledge_action", "knowledge_query", "repo_apply", "repo_commit",
         "repo_preview", "repo_query", "run_query", "run_start", "ssh_action",
         "ssh_inspect", "ssh_query", "supervisor_action", "supervisor_query",
-        "system_action", "system_query", "trading_query", "workflow_action",
-        "workflow_query",
+        "system_action", "system_query", "trading_companion_action",
+        "trading_query", "workflow_action", "workflow_query",
     }
 )
 

@@ -72,6 +72,13 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
     },
     "knowledge_action": {"ok": True, "operation": "record_decision", "decision_id": "d1", "error": ""},
     "trading_query": {"ok": True, "operation": "runtime_status", "enabled": False, "error": ""},
+    "trading_companion_action": {
+        "ok": True,
+        "action": "review",
+        "run": {"companion_run_id": "cycle1", "status": "MODEL_APPROVED"},
+        "response_budget_bytes": _BUDGET,
+        "response_bytes": 1,
+    },
     "trading_signal_submit": {"ok": True, "signal_id": "sig1", "status": "journaled", "error": ""},
     "trading_signal_get": {"ok": True, "signal_id": "sig1", "status": "journaled", "error": ""},
     "trading_signal_list": {"ok": True, "operation": "list", "signals": [], "error": ""},
