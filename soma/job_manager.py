@@ -1088,6 +1088,52 @@ class JobManager:
         response["profile_id"] = profile_id
         return response
 
+    def wait_for_terminal_or_timeout(
+        self, start_response: dict, wait_seconds: float
+    ) -> dict:
+        """Wait at most 20 seconds for terminal publication without cancelling."""
+        bounded_wait = float(wait_seconds)
+        if bounded_wait < 0.0 or bounded_wait > 20.0:
+            raise ValueError("wait_seconds must be between 0 and 20")
+        response = dict(start_response)
+        run_id = str(response.get("run_id") or "")
+        response["return_when"] = "terminal_or_timeout"
+        response["wait_seconds"] = bounded_wait
+        response.setdefault(
+            "polling",
+            {"tool": "run_query", "request": {"operation": "status", "run_id": run_id}},
+        )
+        response.setdefault(
+            "evidence",
+            {"tool": "run_query", "request": {"operation": "terminal", "run_id": run_id}},
+        )
+        if not response.get("accepted") or not run_id:
+            response["inline_completion"] = False
+            return response
+
+        deadline = time.monotonic() + bounded_wait
+        while True:
+            snapshot = self.store.get_run_summary(run_id)
+            if str(snapshot.get("status") or "") in TERMINAL_STATUSES:
+                terminal = dict(self.get_terminal_result(run_id))
+                terminal.update(
+                    {
+                        "accepted": True,
+                        "inline_completion": True,
+                        "return_when": "terminal_or_timeout",
+                        "wait_seconds": bounded_wait,
+                    }
+                )
+                return terminal
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                response["inline_completion"] = False
+                response["wait_timed_out"] = True
+                response["status"] = str(snapshot.get("status") or response.get("status") or "queued")
+                response["state_version"] = int(snapshot.get("state_version") or 0)
+                return response
+            time.sleep(min(0.05, remaining))
+
     def start_powershell_group(
         self,
         repo_name: str,

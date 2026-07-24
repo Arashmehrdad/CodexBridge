@@ -80,7 +80,6 @@ from .operation_locks import repository_operation_lock
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_wiki import mark_repo_wiki_stale
-from .command_profiles import build_git_readonly_profile
 from .service_reload import (
     apply_reloaded_config,
     get_reload_status as _get_reload_status,
@@ -2427,25 +2426,6 @@ def ssh_inspect(request: SSHInspectRequest) -> dict:
     output_schema=RUN_RESULT_OUTPUT,
     annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
 )
-def start_external_fixture_validation_async(
-    repo_name: str,
-    url: str,
-    expected_sha256: str,
-    validation: str = "none",
-) -> dict:
-    """Queue hash-pinned validation of one allowlisted HTTPS fixture in run storage."""
-    return get_job_manager().start_external_fixture_validation(
-        repo_name,
-        url,
-        expected_sha256,
-        validation,
-    )
-
-
-@_internal_tool(
-    output_schema=RUN_RESULT_OUTPUT,
-    annotations={**WRITE_ANNOTATIONS, "openWorldHint": True},
-)
 def start_ssh_command_async(
     host_id: str,
     command_id: str,
@@ -2814,43 +2794,6 @@ def start_docker_action_async(
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_pytest_path_async(repo_name: str, path: str) -> dict:
-    """Write async tool: queue scoped pytest for one validated repo-relative target and return a durable run_id immediately."""
-    return get_job_manager().start_pytest_path(repo_name, path)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_py_compile_path_async(
-    repo_name: str, path: str, timeout_seconds: int | None = None
-) -> dict:
-    """Write async tool: queue py_compile validation for one validated repo-relative Python target."""
-    return get_job_manager().start_py_compile_path(repo_name, path, timeout_seconds=timeout_seconds)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_bash_n_path_async(
-    repo_name: str, path: str, timeout_seconds: int | None = None
-) -> dict:
-    """Write async tool: queue bash -n validation for one validated repo-relative shell target."""
-    return get_job_manager().start_bash_n_path(repo_name, path, timeout_seconds=timeout_seconds)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_json_validation_path_async(
-    repo_name: str, path: str, timeout_seconds: int | None = None
-) -> dict:
-    """Write async tool: queue JSON syntax validation for one validated repo-relative target."""
-    return get_job_manager().start_json_validation_path(repo_name, path, timeout_seconds=timeout_seconds)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
-def start_git_readonly_async(repo_name: str, operation: str) -> dict:
-    """Write async tool: queue one allowlisted read-only git inspection operation and return a durable run_id."""
-    build_git_readonly_profile(operation)
-    return get_job_manager().start_git_readonly(repo_name, operation)
-
-
-@_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def start_local_powershell_async(
     repo_name: str,
     profile_id: str,
@@ -2861,15 +2804,18 @@ def start_local_powershell_async(
     stdin_text: str | None = None,
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
+    return_when: str = "accepted",
+    wait_seconds: float = 0.0,
 ) -> dict:
-    """Write async tool: launch unrestricted local PowerShell through an enabled permissive executable profile."""
+    """Durably launch PowerShell and optionally wait briefly for a terminal projection."""
     stdin_bytes = None
     if stdin_base64 is not None:
         try:
             stdin_bytes = base64.b64decode(stdin_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("stdin_base64 must contain valid base64") from exc
-    return get_job_manager().start_executable_profile(
+    manager = get_job_manager()
+    response = manager.start_executable_profile(
         repo_name,
         profile_id,
         argv,
@@ -2879,6 +2825,20 @@ def start_local_powershell_async(
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
     )
+    response.setdefault(
+        "polling",
+        {"tool": "run_query", "request": {"operation": "status", "run_id": response.get("run_id", "")}},
+    )
+    response.setdefault(
+        "evidence",
+        {"tool": "run_query", "request": {"operation": "terminal", "run_id": response.get("run_id", "")}},
+    )
+    if return_when == "accepted":
+        response["return_when"] = "accepted"
+        return response
+    if return_when != "terminal_or_timeout":
+        raise ValueError("return_when must be accepted or terminal_or_timeout")
+    return manager.wait_for_terminal_or_timeout(response, wait_seconds)
 
 
 @_internal_tool(output_schema=RUN_RESULT_OUTPUT, annotations=WRITE_ANNOTATIONS)
@@ -2993,20 +2953,10 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_text=request.stdin_text,
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
+            return_when=request.return_when,
+            wait_seconds=request.wait_seconds,
         )
-    if request.operation == "pytest_path":
-        return start_pytest_path_async(request.repo_name, request.path)
-    if request.operation == "py_compile_path":
-        return start_py_compile_path_async(request.repo_name, request.path, request.timeout_seconds)
-    if request.operation == "bash_syntax_path":
-        return start_bash_n_path_async(request.repo_name, request.path, request.timeout_seconds)
-    if request.operation == "json_validation_path":
-        return start_json_validation_path_async(request.repo_name, request.path, request.timeout_seconds)
-    if request.operation == "git_readonly":
-        return start_git_readonly_async(request.repo_name, request.git_operation)
-    return start_external_fixture_validation_async(
-        request.repo_name, request.url, request.expected_sha256, request.validation
-    )
+    raise ValueError(f"Unsupported run_start operation: {request.operation}")
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

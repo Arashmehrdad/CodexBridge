@@ -457,28 +457,18 @@ The older direct write tools remain available for compatibility and direct opera
 
 ## Async Run Workflow
 
-Durable async runs cover:
+Durable async runs cover `run_start` PowerShell operations, workflows, and the typed Docker, Cloudflare, SSH, repository, Hermes, and trading gateways.
 
-- `start_workflow`
-- `start_pytest_path_async`
-- `start_external_fixture_validation_async`
-- `start_cloudflare_action_async`
-- `start_ssh_command_async`
-- `start_ssh_action_async`
-- `start_ssh_transfer_async`
-- `start_ssh_deployment_async`
+The six former `run_start` validation variants are removed. Use `operation: "powershell"` with explicit argv instead:
 
-Read and control them with:
+- pytest: `python -m pytest -q <path>`
+- Python compile: `python -m py_compile <path>`
+- Bash syntax: `bash -n <path>`
+- JSON validation: `python -m json.tool <path>`
+- read-only Git: `git status --short`, `git diff --check`, `git diff --name-only`, or `git ls-files`
+- fixture validation: download and hash-check in an explicit reviewed PowerShell command
 
-- `get_run_status`
-- `get_run_events`
-- `get_run_result`
-- `list_runs`
-- `cancel_run`
-- `get_workflow_status`
-- `get_workflow_events`
-- `get_workflow_result`
-- `cancel_workflow`
+Read and control them through `run_query`, `workflow_query`, and `cancel_run`. `run_query status` is the normal lifecycle poll; retrieve input, output, terminal evidence, or full results only through their explicit operations.
 
 Workflow:
 
@@ -489,12 +479,7 @@ Workflow:
 5. If the original caller loses the ID, recover it with `list_runs(...)`.
 6. If a run must stop, use `cancel_run(run_id)`.
 
-Scoped pytest example:
-
-1. Call `start_pytest_path_async("soma", "tests/test_job_worker.py::test_project_command_worker_rebuilds_scoped_pytest_profile")`.
-2. Save the returned `run_id`.
-3. Poll `get_run_status(run_id)` until the status is terminal.
-4. Read `get_run_result(run_id)` for the final `path`, argv, exit code, and saved output summary.
+For short commands, `run_start powershell` may set `return_when: "terminal_or_timeout"` and `wait_seconds` from 0 to 20. Soma always persists and launches the durable run first. If it is still active when the wait expires, the response remains an ordinary accepted run with polling guidance; expiry never cancels it.
 
 If OpenAI safety blocks a tool call before Soma returns a response or `run_id`, the call never reached the bridge. One identical retry may be appropriate in that case. Once a `run_id` exists, do not reissue the start call; poll the existing run instead.
 

@@ -1673,13 +1673,7 @@ def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> Non
     schema = actions["run_start"]["inputSchema"]
     variants = {item["properties"]["operation"]["const"] for item in schema["oneOf"]}
     assert variants == {
-        "pytest_path",
-        "py_compile_path",
-        "bash_syntax_path",
-        "json_validation_path",
         "remote_powershell",
-        "git_readonly",
-        "external_fixture_validation",
         "powershell",
         "powershell_group",
         "hermes_companion",
@@ -1694,13 +1688,18 @@ def test_run_start_schema_is_discriminated_and_old_starters_are_retired() -> Non
         assert name not in actions
 
 
-def test_new_async_path_and_git_tool_schemas_are_exact() -> None:
+def test_run_start_powershell_schema_is_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 
     run_schema = actions["run_start"]["inputSchema"]
     variants = {item["properties"]["operation"]["const"]: item for item in run_schema["oneOf"]}
-    assert set(variants["pytest_path"]["properties"]) == {"operation", "repo_name", "path"}
-    assert set(variants["git_readonly"]["properties"]) == {"operation", "repo_name", "git_operation"}
+    powershell_properties = set(variants["powershell"]["properties"])
+    assert {"return_when", "wait_seconds"} <= powershell_properties
+    for removed in {
+        "pytest_path", "py_compile_path", "bash_syntax_path",
+        "json_validation_path", "git_readonly", "external_fixture_validation",
+    }:
+        assert removed not in variants
 
     repo_query_schema = actions["repo_query"]["inputSchema"]
     commit_range_schema = next(

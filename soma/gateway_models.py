@@ -911,47 +911,6 @@ RepoCommitRequest = Annotated[
 ]
 
 
-class PytestPathStart(GatewayModel):
-    operation: Literal["pytest_path"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    path: str = Field(min_length=1, max_length=1024)
-
-
-class PyCompilePathStart(GatewayModel):
-    operation: Literal["py_compile_path"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    path: str = Field(min_length=1, max_length=1024)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
-
-
-class BashSyntaxPathStart(GatewayModel):
-    operation: Literal["bash_syntax_path"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    path: str = Field(min_length=1, max_length=1024)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
-
-
-class JsonValidationPathStart(GatewayModel):
-    operation: Literal["json_validation_path"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    path: str = Field(min_length=1, max_length=1024)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
-
-
-class GitReadonlyStart(GatewayModel):
-    operation: Literal["git_readonly"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    git_operation: Literal["status", "diff_check", "diff_name_only", "ls_files"]
-
-
-class ExternalFixtureValidationStart(GatewayModel):
-    operation: Literal["external_fixture_validation"]
-    repo_name: str = Field(min_length=1, max_length=128)
-    url: str = Field(min_length=8, max_length=2_048, pattern=r"^https://")
-    expected_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    validation: Literal["none", "json", "text"] = "none"
-
-
 class ParallelPowerShellChild(GatewayModel):
     idempotency_key: str = Field(default="", max_length=128)
     profile_id: str = Field(default="powershell", min_length=1, max_length=128)
@@ -988,6 +947,8 @@ class LocalPowerShellStart(GatewayModel):
     stdin_text: str | None = Field(default=None, max_length=2_000_000)
     stdin_base64: str | None = Field(default=None, max_length=2_700_000)
     timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+    return_when: Literal["accepted", "terminal_or_timeout"] = "accepted"
+    wait_seconds: float = Field(default=0.0, ge=0.0, le=20.0)
 
     @model_validator(mode="after")
     def validate_stdin_mode(self) -> "LocalPowerShellStart":
@@ -1031,9 +992,7 @@ class RemotePowerShellStart(GatewayModel):
 
 
 RunStartRequest = Annotated[
-    PytestPathStart | PyCompilePathStart | BashSyntaxPathStart
-    | JsonValidationPathStart | GitReadonlyStart | ExternalFixtureValidationStart
-    | LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart
+    LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart
     | HermesCompanionStart | HermesServiceStart,
     Field(discriminator="operation"),
 ]

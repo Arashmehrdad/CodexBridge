@@ -209,12 +209,6 @@ _CLOUDFLARE_ACTIONS: Final[tuple[str, ...]] = (
 )
 
 _RUN_START_OPERATIONS: Final[tuple[str, ...]] = (
-    "pytest_path",
-    "py_compile_path",
-    "bash_syntax_path",
-    "json_validation_path",
-    "git_readonly",
-    "external_fixture_validation",
     "powershell",
     "remote_powershell",
     "powershell_group",
