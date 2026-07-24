@@ -76,21 +76,14 @@ try {
     do {
         if ($Server.HasExited) { break }
         try {
-            Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 2 `
-                -UseBasicParsing -ErrorAction Stop | Out-Null
-        } catch {
-            $StatusCode = 0
-            $ResponseProperty = $_.Exception.PSObject.Properties["Response"]
-            if ($null -ne $ResponseProperty -and $null -ne $ResponseProperty.Value) {
-                $StatusCodeProperty = $ResponseProperty.Value.PSObject.Properties["StatusCode"]
-                if ($null -ne $StatusCodeProperty -and $null -ne $StatusCodeProperty.Value) {
-                    $StatusCode = [int]$StatusCodeProperty.Value
-                }
-            }
-            if ($StatusCode -eq 406) {
+            $Response = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec 2 `
+                -UseBasicParsing -SkipHttpErrorCheck -ErrorAction Stop
+            if ([int]$Response.StatusCode -eq 406) {
                 $Ready = $true
                 break
             }
+        } catch {
+            # Connection failures are expected until the temporary listener is ready.
         }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $Deadline)

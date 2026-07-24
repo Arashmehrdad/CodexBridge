@@ -76,8 +76,10 @@ def test_comprehensive_self_check_handles_http_errors_under_strict_mode() -> Non
         / "scripts"
         / "comprehensive_self_check.ps1"
     ).read_text(encoding="utf-8")
-    assert 'PSObject.Properties["Response"]' in source
+    assert "-SkipHttpErrorCheck" in source
+    assert "$Response.StatusCode" in source
     assert "$_.Exception.Response" not in source
+    assert 'PSObject.Properties["Response"]' not in source
 
 
 def test_self_check_has_no_subprocess_or_network_probe_dependencies() -> None:
