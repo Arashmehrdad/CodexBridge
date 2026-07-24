@@ -562,7 +562,7 @@ def test_workflow_creation_rejects_removed_legacy_implementation_steps(
     config, config_path = make_config(tmp_path)
     manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: 1)
 
-    with pytest.raises(ValueError, match="obsolete"):
+    with pytest.raises(ValueError, match="removed compatibility"):
         manager.start_workflow(
             "repo",
             "removed legacy step",
