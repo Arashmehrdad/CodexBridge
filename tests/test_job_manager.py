@@ -26,6 +26,80 @@ class FakeProcess:
     pid = 12345
 
 
+class InlineSummaryStore:
+    def __init__(self, summary: dict) -> None:
+        self.summary = dict(summary)
+        self.calls = 0
+
+    def get_run_summary(self, run_id: str) -> dict:
+        self.calls += 1
+        return {"run_id": run_id, **self.summary}
+
+
+def test_inline_wait_returns_terminal_projection(monkeypatch) -> None:
+    manager = object.__new__(JobManager)
+    manager.store = InlineSummaryStore(
+        {"status": "completed", "state_version": 10}
+    )
+    monkeypatch.setattr(
+        manager,
+        "get_terminal_result",
+        lambda run_id: {
+            "ok": True,
+            "operation": "terminal",
+            "run_id": run_id,
+            "status": "completed",
+            "result": {"exit_code": 0},
+        },
+    )
+
+    result = manager.wait_for_terminal_or_timeout(
+        {"accepted": True, "run_id": "20260724T000000Z_executable_profile_deadbeef", "status": "queued"},
+        5,
+    )
+
+    assert result["accepted"] is True
+    assert result["inline_completion"] is True
+    assert result["return_when"] == "terminal_or_timeout"
+    assert result["status"] == "completed"
+    assert result["result"]["exit_code"] == 0
+    assert manager.store.calls == 1
+
+
+def test_inline_wait_timeout_keeps_durable_run_active() -> None:
+    manager = object.__new__(JobManager)
+    manager.store = InlineSummaryStore(
+        {"status": "running", "state_version": 7}
+    )
+    run_id = "20260724T000000Z_executable_profile_deadbeef"
+
+    result = manager.wait_for_terminal_or_timeout(
+        {"accepted": True, "run_id": run_id, "status": "queued"},
+        0,
+    )
+
+    assert result["accepted"] is True
+    assert result["inline_completion"] is False
+    assert result["wait_timed_out"] is True
+    assert result["status"] == "running"
+    assert result["state_version"] == 7
+    assert result["polling"]["request"] == {"operation": "status", "run_id": run_id}
+    assert result["evidence"]["request"] == {"operation": "terminal", "run_id": run_id}
+    assert "cancellation_requested_at" not in result
+    assert manager.store.calls == 1
+
+
+@pytest.mark.parametrize("wait_seconds", [-0.01, 20.01])
+def test_inline_wait_rejects_out_of_bounds(wait_seconds: float) -> None:
+    manager = object.__new__(JobManager)
+    manager.store = InlineSummaryStore({"status": "queued", "state_version": 1})
+    with pytest.raises(ValueError, match="between 0 and 20"):
+        manager.wait_for_terminal_or_timeout(
+            {"accepted": True, "run_id": "20260724T000000Z_executable_profile_deadbeef"},
+            wait_seconds,
+        )
+
+
 def make_git_repo(path: Path) -> None:
     path.mkdir()
     (path / ".git").mkdir()
