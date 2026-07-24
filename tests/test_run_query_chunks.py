@@ -139,6 +139,26 @@ def test_explicit_input_round_trips_large_payload_and_redacts_secrets() -> None:
     assert payload["complete_authoritative_input_preserved"] is True
 
 
+def test_input_cursor_uses_frozen_snapshot_when_run_changes() -> None:
+    original = "f" * (RUN_QUERY_CHUNK_CHARACTERS * 2 + 111)
+    manager = make_manager(make_run(original))
+
+    first = manager.get_input(RUN_ID, view="full")
+    assert first["complete"] is False
+    manager.store.run["input"]["detail"] = "changed-after-first-page"
+
+    chunks = [first["chunk"]]
+    cursor = first["next_cursor"]
+    while cursor:
+        response = manager.get_input(RUN_ID, view="full", cursor=cursor)
+        chunks.append(response["chunk"])
+        cursor = response["next_cursor"]
+
+    payload = json.loads("".join(chunks))
+    assert payload["input"]["detail"] == original
+    assert "changed-after-first-page" not in json.dumps(payload)
+
+
 def test_compact_input_returns_hashes_not_values() -> None:
     manager = make_manager(make_run("submitted-secret-marker"))
     response = manager.get_input(RUN_ID)

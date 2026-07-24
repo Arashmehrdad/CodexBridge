@@ -313,7 +313,7 @@ CF1_COMPATIBILITY_INVARIANTS: Final[
         ("soma.run_query_chunks:chunk_payload",),
         (
             "tests/test_run_query_chunks.py::test_explicit_input_round_trips_large_payload_and_redacts_secrets",
-            "tests/test_run_query_chunks.py::test_status_cursor_uses_frozen_snapshot_when_run_changes",
+            "tests/test_run_query_chunks.py::test_input_cursor_uses_frozen_snapshot_when_run_changes",
             "tests/test_run_query_chunks.py::test_large_result_uses_same_cursor_contract",
             "tests/test_run_query_chunks.py::test_large_list_returns_one_bounded_transport_item_per_call",
         ),
