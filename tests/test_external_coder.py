@@ -125,7 +125,7 @@ def test_handoff_artifacts_include_required_fields(tmp_path: Path) -> None:
     assert "repository_state" in handoff
 
 
-def test_handoff_prompt_is_provider_neutral_and_complete(tmp_path: Path) -> None:
+def test_handoff_prompt_is_inert_and_complete(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     config = ExternalCoderConfig(external_coder_require_policy_approval=False)
     result = generator(tmp_path, handoff_config=config).generate_handoff(
@@ -156,10 +156,12 @@ def test_handoff_prompt_is_provider_neutral_and_complete(tmp_path: Path) -> None
         "# Expected completion report",
     ):
         assert section in prompt
-    # Provider-neutral: names multiple agents, prescribes none.
-    assert "Claude Code" in prompt
-    assert "Gemini CLI" in prompt
-    assert "supplied to you manually" in prompt
+    # The artifact is human-only and never advertises a runnable agent path.
+    assert "human-selected" in prompt
+    assert "outside Soma" in prompt
+    assert "not a runnable request" in prompt
+    for provider_name in ("Claude Code", "Codex", "Gemini CLI"):
+        assert provider_name not in prompt
     # Repository state captured from a real repo.
     state = result.handoff.repository_state
     assert state.captured is True

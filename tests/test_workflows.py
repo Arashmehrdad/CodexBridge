@@ -556,7 +556,7 @@ def test_workflow_result_and_events_snapshots_are_written(tmp_path: Path, monkey
     assert result_payload["workflow_id"] == started["workflow_id"]
     assert any("Workflow report artifacts written" in line for line in events_lines)
 
-def test_workflow_creation_rejects_obsolete_codex_implement_steps(
+def test_workflow_creation_rejects_removed_legacy_implementation_steps(
     tmp_path: Path,
 ) -> None:
     config, config_path = make_config(tmp_path)
@@ -565,7 +565,7 @@ def test_workflow_creation_rejects_obsolete_codex_implement_steps(
     with pytest.raises(ValueError, match="obsolete"):
         manager.start_workflow(
             "repo",
-            "codex step",
+            "removed legacy step",
             [
                 {
                     "id": "a",
