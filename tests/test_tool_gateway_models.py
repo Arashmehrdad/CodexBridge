@@ -479,30 +479,39 @@ def test_trading_collection_full_views_preserve_authoritative_payloads(
     assert "truncated" not in ticks
 
 
-class _FakeSignalJournalV2:
+class _FakeTradingLab:
+    """A stand-in for the trading_lab services container.
+
+    Only the signal surface the gateway calls is implemented; the point of
+    these tests is Soma's response shaping, not domain behavior.
+    """
+
     def __init__(self, count: int = 10) -> None:
         self._count = count
 
-    def list(self, *, limit, offset, status=None, experiment_id=None):
+    def signal_list(self, *, limit, offset, status=None, experiment_id=None):
+        from trading_lab.service import SignalPage
+
         remaining = max(0, self._count - offset)
-        return [object() for _ in range(min(limit, remaining))]
+        return SignalPage(
+            signals=tuple(object() for _ in range(min(limit, remaining))),
+            total=self._count,
+            offset=offset,
+        )
 
-    def count(self, *, status=None, experiment_id=None):
-        return self._count
-
-    def get(self, signal_id):
+    def signal_get(self, signal_id):
         return object()
 
-    def submit(self, idempotency_key, submission):
+    def signal_submit(self, idempotency_key, submission):
         return object()
 
-    def cancel_before_entry(self, signal_id, reason):
+    def signal_cancel_before_entry(self, signal_id, reason):
         return object()
 
 
 def test_trading_signal_list_full_view_preserves_records(monkeypatch) -> None:
     monkeypatch.setattr(
-        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+        server, "_trading_services", lambda: _FakeTradingLab()
     )
     monkeypatch.setattr(
         server,
@@ -568,14 +577,29 @@ def test_trading_signal_models_are_strict() -> None:
 
 
 def _enable_trading(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(
-        server,
-        "get_config",
-        lambda: SimpleNamespace(
-            trading=SimpleNamespace(enabled=True, symbol="BITCOIN_i")
-        ),
+    """Enable trading against isolated state.
+
+    A real ``AppConfig`` is used rather than a namespace double: the
+    Trading Lab adapter maps configuration onto the package's settings, so
+    it needs the genuine ``resolve_runs_dir`` and ``TradingConfig``.
+    """
+    from soma import trading_lab_adapter
+    from soma.config import AppConfig, RepoConfig
+
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / ".git").mkdir(exist_ok=True)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        trading={"enabled": True, "symbol": "BITCOIN_i"},
+        config_dir=tmp_path,
     )
-    monkeypatch.setattr(server, "_get_runs_dir", lambda: tmp_path / "runs")
+    monkeypatch.setattr(server, "get_config", lambda: config)
+    # The services cache is keyed by settings, so a fresh temp root already
+    # yields a fresh container; clearing keeps the cache from growing across
+    # the suite and guarantees isolation if a root is ever reused.
+    trading_lab_adapter.reset_services_cache()
 
 
 def test_trading_signal_gateways_share_repository_owned_journal(
@@ -587,7 +611,9 @@ def test_trading_signal_gateways_share_repository_owned_journal(
 
     _enable_trading(monkeypatch, tmp_path)
     now = datetime.now(timezone.utc)
-    packet = server._trading_packet_store().store(build_packet(now=now))
+    packet = (
+        server._trading_services().packet_store().store(build_packet(now=now))
+    )
 
     payload = {**_signal_request_payload(), "packet_id": packet.packet_id}
     submit = TypeAdapter(TradingSignalSubmitRequest).validate_python(payload)
@@ -622,7 +648,7 @@ def test_trading_signal_gateways_share_repository_owned_journal(
 
 def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
-        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+        server, "_trading_services", lambda: _FakeTradingLab()
     )
     monkeypatch.setattr(
         server,
@@ -644,7 +670,7 @@ def test_trading_signal_get_honors_response_budget(monkeypatch) -> None:
 def test_trading_signal_submit_honors_response_budget(monkeypatch, tmp_path) -> None:
     _enable_trading(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+        server, "_trading_services", lambda: _FakeTradingLab()
     )
     monkeypatch.setattr(
         server,
@@ -667,7 +693,7 @@ def test_trading_signal_submit_honors_response_budget(monkeypatch, tmp_path) -> 
 
 def test_trading_signal_cancel_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
-        server, "_trading_signal_journal_v2", lambda: _FakeSignalJournalV2()
+        server, "_trading_services", lambda: _FakeTradingLab()
     )
     monkeypatch.setattr(
         server,

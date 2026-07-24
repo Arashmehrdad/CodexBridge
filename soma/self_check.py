@@ -123,6 +123,27 @@ def _start_server_probe(
                 process.kill()
 
 
+def _trading_lab_check() -> dict:
+    """Which Trading Lab package this process resolved.
+
+    The trading domain lives in the standalone ``trading-lab`` package.
+    Diagnostics report its identity here rather than on every ordinary
+    trading response, which stays compact.
+    """
+    try:
+        from .trading_lab_adapter import package_identity
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"the trading_lab package is unavailable: {exc}",
+        }
+    try:
+        identity = package_identity()
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"ok": False, "error": str(exc)}
+    return {"ok": bool(identity.get("version")), **identity}
+
+
 def run_self_check(
     *,
     config: AppConfig | None = None,
@@ -136,13 +157,18 @@ def run_self_check(
     root = Path.cwd().resolve()
     checks: dict[str, dict] = {}
 
-    checks["imports"] = {"ok": True, "modules": ["fastmcp", "pydantic", "yaml"]}
+    checks["imports"] = {
+        "ok": True,
+        "modules": ["fastmcp", "pydantic", "yaml", "trading_lab"],
+    }
     for module in checks["imports"]["modules"]:
         try:
             __import__(module)
         except Exception as exc:
             checks["imports"] = {"ok": False, "module": module, "error": str(exc)}
             break
+
+    checks["trading_lab"] = _trading_lab_check()
 
     if config is None:
         try:

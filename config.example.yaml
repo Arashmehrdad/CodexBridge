@@ -1,4 +1,13 @@
 repos:
+  # The trading domain lives in its own repository. Register it like any
+  # other managed repository so repo_query, run_start, and the rest of the
+  # gateways can reach it. Point `path` at your own checkout: keep it a
+  # sibling of the Soma checkout and the install scripts find it without
+  # any absolute path in source control.
+  trading-lab:
+    path: "../TradingLab"
+    default_tests:
+      - "python -m pytest"
   stream_alpha:
     path: "D:/Github/Stream_Alpha"
     commit_mode: "explicit_only"
