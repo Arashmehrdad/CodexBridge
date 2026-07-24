@@ -711,11 +711,11 @@ class AutonomyConfig(BaseModel):
 
 
 class ExternalCoderConfig(BaseModel):
-    """Bounded, provider-neutral external-coder handoff generation.
+    """Bounded, provider-neutral handoff artifact generation.
 
-    Handoffs are generated artifacts only; Soma never invokes an external
-    coding agent. The user supplies a handoff manually to Claude Code,
-    Codex, Gemini CLI, or another coding agent.
+    Handoffs are inert export artifacts only. Neither Soma nor its controller
+    invokes an external coding agent; a human may use the artifact outside
+    Soma without creating a run, worker, fallback, or PowerShell launch path.
     """
 
     external_coder_handoff_enabled: bool = True
@@ -738,11 +738,11 @@ class ExternalCoderConfig(BaseModel):
 class LocalSupervisorConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
-    def reject_obsolete_codex_flags(cls, data):
+    def reject_removed_supervisor_runner_flag(cls, data):
         if isinstance(data, dict) and "supervisor_codex_invocation_enabled" in data:
             raise ValueError(
-                "Obsolete configuration key 'supervisor_codex_invocation_enabled': "
-                "Soma no longer invokes Codex from supervisors; remove the key."
+                "Removed configuration key 'supervisor_codex_invocation_enabled': "
+                "no supervisor model-agent invocation exists; remove the key."
             )
         return data
 
@@ -940,7 +940,7 @@ class AppConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_obsolete_codex_sections(cls, data):
+    def reject_removed_runner_sections(cls, data):
         if isinstance(data, dict):
             present = sorted(
                 key for key in ("codex", "codex_router") if key in data
@@ -949,8 +949,8 @@ class AppConfig(BaseModel):
                 raise ValueError(
                     "Obsolete configuration section(s) "
                     + ", ".join(repr(key) for key in present)
-                    + ": Soma no longer integrates or executes Codex. Remove "
-                    "them; external-coder handoff generation is configured "
+                    + ": no model-agent integration or execution route exists. "
+                    "Remove them; inert handoff artifact generation is configured "
                     "under 'external_coder'."
                 )
         return data

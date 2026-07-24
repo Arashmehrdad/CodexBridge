@@ -31,8 +31,8 @@ TERMINAL_STATUSES = {
     "needs_input",
 }
 # Historical durable run types whose records stay readable but for which no
-# new instances can ever be created or relaunched. Soma no longer executes
-# Codex; coding work is handed off manually via external-coder handoffs.
+# new instances can ever be created or relaunched. These identifiers are inert
+# compatibility data and do not advertise a model-agent execution capability.
 LEGACY_READ_ONLY_TOOLS = frozenset({"codex_plan_task", "codex_implement_task"})
 _UNSET = object()
 _CONDITIONAL_UPDATE_FIELDS = frozenset(

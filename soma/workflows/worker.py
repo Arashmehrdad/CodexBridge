@@ -298,8 +298,8 @@ class WorkflowWorker:
         workflow = self.store.get_workflow(self.workflow_id)
         if step.type.value == "codex_implement":
             raise ValueError(
-                "codex_implement workflow steps are obsolete: Soma no longer "
-                "executes Codex. Generate an external-coder handoff instead."
+                "codex_implement workflow steps are removed compatibility "
+                "values and have no worker or launch implementation."
             )
         if step.type.value == "project_command":
             params = ProjectCommandParameters.model_validate(step.parameters)

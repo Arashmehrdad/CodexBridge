@@ -9,11 +9,11 @@ from pydantic import BaseModel, Field
 
 
 class ExternalCoderHandoffStatus(str, Enum):
-    """Provider-neutral states for the manual external-coder handoff flow.
+    """Provider-neutral states for inert handoff artifact generation.
 
-    Soma never launches, supervises, or routes to an external coding agent.
-    A generated handoff is supplied manually by the user to Claude Code,
-    Codex, Gemini CLI, or another coding agent of their choice.
+    Soma never launches, supervises, selects, or routes to an external coding
+    agent. A generated artifact exists only for human use outside Soma and is
+    never an executable run, worker request, fallback, or PowerShell target.
     """
 
     LOCAL_ONLY = "local_only"

@@ -166,12 +166,12 @@ class SupervisorFlow:
         elif route.status == ExternalCoderHandoffStatus.HANDOFF_READY:
             run.status = SupervisorStatus.NEEDS_EXTERNAL_CODER
             run.next_recommended_action = (
-                "Supply the generated handoff manually to an external coding "
-                "agent (Claude Code, Codex, Gemini CLI, or another tool)."
+                "Archive or export the inert handoff artifact for human use "
+                "outside Soma. Do not launch any agent through Soma or PowerShell."
             )
             run.question_for_chatgpt = (
-                "An external-coder handoff is ready; Soma does not execute "
-                "coding agents. Which agent should receive it manually?"
+                "An inert handoff artifact is ready for human handling; no "
+                "execution action or agent-selection step is available in Soma."
             )
         else:
             run.status = SupervisorStatus.NEEDS_INPUT

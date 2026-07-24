@@ -34,9 +34,9 @@ class WorkflowStepStatus(str, Enum):
 
 
 class WorkflowStepType(str, Enum):
-    # Legacy read-only value: historical workflow records with Codex
-    # implementation steps stay parseable, but new workflows containing
-    # this step type are rejected and the worker refuses to launch it.
+    # Legacy read-only value: historical workflow records stay parseable, but
+    # new workflows containing this step type are rejected and the worker has
+    # no launch implementation for it.
     CODEX_IMPLEMENT = "codex_implement"
     PROJECT_COMMAND = "project_command"
     PYTEST_PATH = "pytest_path"
@@ -134,10 +134,9 @@ class WorkflowDefinition(BaseModel):
         for step in self.steps:
             if step.type == WorkflowStepType.CODEX_IMPLEMENT:
                 raise ValueError(
-                    "codex_implement workflow steps are obsolete: Soma no "
-                    "longer executes Codex. Generate an external-coder "
-                    "handoff instead and supply it manually to a coding "
-                    "agent."
+                    "codex_implement workflow steps are removed compatibility "
+                    "values and cannot be submitted or launched. ChatGPT must "
+                    "use the managed repository lifecycle for source changes."
                 )
         return self
 

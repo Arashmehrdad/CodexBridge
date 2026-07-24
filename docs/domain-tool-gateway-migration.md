@@ -344,7 +344,7 @@ Rules:
 - Continue to use allowlisted profiles and validated paths.
 - Do not accept raw argv or shell text.
 - Keep durable async behavior and result storage.
-- Do not merge Codex plan/implementation into this gateway.
+- Do not merge model planning or implementation into this gateway.
 
 Exit gate:
 

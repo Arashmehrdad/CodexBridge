@@ -31,8 +31,8 @@ ACTIVE_STATES = {"queued", "running"}
 class ChildJobBackend(Protocol):
     """Read/cancel access to historical child runs.
 
-    Launch affordances were removed with the Codex execution path; the
-    backend can only observe or cancel durable runs that already exist.
+    The backend has no launch affordance and can only observe or cancel
+    durable child runs that already exist.
     """
 
     def get_status(self, run_id: str) -> dict[str, Any]: ...
@@ -388,11 +388,11 @@ class SupervisorEngine:
         request: ExternalCoderHandoffRequest,
         expected_statuses: tuple[str, ...],
     ) -> dict[str, Any]:
-        """Record a generated external-coder handoff instead of launching.
+        """Record an inert handoff artifact without launching anything.
 
-        Soma never invokes a coding agent; the supervisor parks in
-        needs_external_coder and the operator supplies the handoff manually
-        to Claude Code, Codex, Gemini CLI, or another tool.
+        The supervisor parks in needs_external_coder so a human may archive or
+        export the artifact outside Soma. No agent is selected or invoked, and
+        unrestricted PowerShell is not an execution fallback.
         """
         route = self.handoff_generator.generate_handoff(request, force_handoff=True)
         handoff_metadata: dict[str, Any] = {

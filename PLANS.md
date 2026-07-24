@@ -14,7 +14,7 @@ ChatGPT conversation
           -> built-in tools, plugins, skills, and connected MCP tools
 ```
 
-ChatGPT remains the reasoning agent. Hermes supplies tools; its Codex, Claude, or other model-agent loop is not part of this request path.
+ChatGPT remains the reasoning and implementation controller. Hermes supplies tools only; no model-agent loop is part of this request path or may be launched through unrestricted PowerShell.
 
 This file is an active decision document, not an engineering journal. The complete V2 implementation and validation history through commit `d1c43340af48c03ca31505ef64f4c6a60248f61c` is preserved in [`docs/roadmap-v2-achievements.md`](docs/roadmap-v2-achievements.md).
 

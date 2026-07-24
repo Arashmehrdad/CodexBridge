@@ -63,7 +63,7 @@ runtime with decoupled supervision.
   trading runtime (7) — all passing.
 - Full suite after legacy removal: **1,567 tests, 0 failures** (3 initial
   failures were one stale legacy-journal fake and a pre-existing editable
-  install still pointing at the renamed `D:\Github\CodexBridge` path; both
+  install still pointing at the pre-rename repository path; both
   repaired in `9e1f888`).
 - `git diff --check`: clean.
 
