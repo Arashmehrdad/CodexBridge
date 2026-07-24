@@ -100,7 +100,9 @@ from .trading_lab_adapter import (
     DEPRECATED_QUERY_OPERATIONS,
     ExecutionMode as TradingExecutionMode,
     JOURNAL_QUERY_OPERATIONS,
+    ModelApprovalDecision,
     MT5Provider,
+    ResearchSource,
     SignalDecisionV2,
     SignalRejectedError,
     SignalSubmissionV2,
@@ -139,6 +141,7 @@ from .gateway_models import (
     SupervisorActionRequest,
     SupervisorQueryRequest,
     TradingActionSubmitRequest,
+    TradingCompanionActionRequest,
     TradingQueryRequest,
     TradingRuntimeControlRequest,
     TradingSignalCancelRequest,
@@ -4295,6 +4298,17 @@ def _trading_journal_query(request: Any) -> dict:
                 "total": page.total,
                 "offset": page.offset,
             }
+        elif operation == "companion_get":
+            result = _trading_json(
+                lab.companion_get(request.companion_run_id, sync=request.sync)
+            )
+        elif operation == "companion_list":
+            page = lab.companion_list(limit=request.limit, offset=request.offset)
+            result = {
+                "runs": _trading_signal_records_json(page.runs),
+                "total": page.total,
+                "offset": page.offset,
+            }
         elif operation == "runtime_status":
             report = lab.runtime_status_report(event_limit=20)
             result = {
@@ -4478,6 +4492,156 @@ def _trading_executor_for_mode(mode: str, provider: Any | None):
     return trading_lab_adapter.executor_for_mode(
         get_config(), mode, provider
     )
+
+
+def _require_demo_provider(provider: Any) -> Any:
+    health = provider.connect()
+    if not health.connected:
+        raise RuntimeError("MT5 terminal is disconnected")
+    if health.account_environment != "demo":
+        raise RuntimeError("MT5 account is not a demo account")
+    return health
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def trading_companion_action(request: TradingCompanionActionRequest) -> dict:
+    """Run one strict step of the scheduled ChatGPT Trading Lab cycle.
+
+    Start binds external research to a fresh immutable packet. Decide records
+    one packet-bound signal. Review records ChatGPT's own second-pass model
+    approval or rejection. Execute derives every market and policy fact from
+    that approved signal and accepts only the requested paper/demo volume.
+    """
+    if not get_config().trading.enabled:
+        return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+
+    lab = _trading_services()
+    provider = None
+    try:
+        if request.action == "start":
+            provider = _configured_mt5_provider()
+            _require_demo_provider(provider)
+            started = lab.companion_start(
+                provider,
+                idempotency_key=request.idempotency_key,
+                task_invocation_id=request.task_invocation_id,
+                research_summary=request.research_summary,
+                research_sources=tuple(
+                    ResearchSource(
+                        title=source.title,
+                        reference=source.reference,
+                        published_at_utc=source.published_at_utc,
+                    )
+                    for source in request.research_sources
+                ),
+                scheduled_for_utc=request.scheduled_for_utc,
+                now=datetime.now(timezone.utc),
+                completed_count=request.completed_count,
+            )
+            response = {
+                "ok": True,
+                "action": request.action,
+                "run": _trading_json(started.run),
+                "packet": _trading_json(started.packet),
+            }
+        elif request.action == "decide":
+            decided = lab.companion_decide(
+                request.companion_run_id,
+                request.signal_idempotency_key,
+                decision=SignalDecisionV2(request.decision),
+                confidence=request.confidence,
+                stop_loss=request.stop_loss,
+                take_profit=request.take_profit,
+                reason=request.reason,
+                news_context=request.news_context,
+                model_version=request.model_version,
+                prompt_version=request.prompt_version,
+                policy_id=request.policy_id,
+                execution_mode=request.execution_mode,
+                experiment_id=request.experiment_id,
+                submitted_at_utc=request.submitted_at_utc,
+            )
+            response = {
+                "ok": True,
+                "action": request.action,
+                "run": _trading_json(decided.run),
+                "signal": _trading_json(decided.signal),
+            }
+        elif request.action == "review":
+            reviewed = lab.companion_approve(
+                request.companion_run_id,
+                request.approval_idempotency_key,
+                decision=ModelApprovalDecision(request.decision),
+                reason=request.reason,
+                model_version=request.model_version,
+                prompt_version=request.prompt_version,
+                approved_at_utc=request.approved_at_utc,
+            )
+            response = {
+                "ok": True,
+                "action": request.action,
+                "run": _trading_json(reviewed.run),
+                "signal": _trading_json(reviewed.signal),
+            }
+        else:
+            run = lab.companion_get(request.companion_run_id)
+            if run.signal_id is None:
+                raise RuntimeError("companion cycle has no directional signal")
+            signal = lab.signal_get(run.signal_id)
+            mode = TradingExecutionMode(signal.execution_mode)
+            role = TradingCapabilityRole(
+                "broker_demo_agent"
+                if mode is TradingExecutionMode.BROKER_DEMO
+                else "internal_paper_agent"
+            )
+            if mode is TradingExecutionMode.BROKER_DEMO:
+                provider = _configured_mt5_provider()
+                _require_demo_provider(provider)
+            executor = _trading_executor_for_mode(mode.value, provider)
+            executed = lab.companion_execute(
+                request.companion_run_id,
+                TradingActionRequest(
+                    idempotency_key=request.idempotency_key,
+                    action_type=TradingActionType.MARKET_ENTRY,
+                    origin="model",
+                    capability_role=role,
+                    execution_mode=mode,
+                    policy_id=signal.policy_id,
+                    experiment_id=signal.experiment_id,
+                    symbol=signal.symbol,
+                    signal_id=signal.signal_id,
+                    direction=signal.decision.value,
+                    volume_lots=request.volume_lots,
+                    stop_loss=signal.stop_loss,
+                    take_profit=signal.take_profit,
+                ),
+                executor,
+            )
+            response = {
+                "ok": executed.action.state
+                in (ActionState.RECONCILED, ActionState.BROKER_CONFIRMED),
+                "action": request.action,
+                "run": _trading_json(executed.run),
+                "trading_action": _trading_json(executed.action),
+            }
+        if request.view == "full":
+            return response
+        return _bounded_trading_scalar_response(
+            response, request.response_budget_bytes
+        )
+    except SignalRejectedError as exc:
+        return {
+            "ok": False,
+            "status": "rejected",
+            "rejection": _trading_json(exc.rejection),
+        }
+    except KeyError as exc:
+        return {"ok": False, "status": "not_found", "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "status": "companion_error", "error": str(exc)}
+    finally:
+        if provider is not None:
+            provider.close()
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)

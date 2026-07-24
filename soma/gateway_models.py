@@ -480,6 +480,22 @@ class TradingReconciliationQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TradingCompanionGetQuery(GatewayModel):
+    operation: Literal["companion_get"]
+    companion_run_id: str = Field(min_length=1, max_length=64)
+    sync: bool = True
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingCompanionListQuery(GatewayModel):
+    operation: Literal["companion_list"]
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 TradingQueryRequest = Annotated[
     TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
     | TradingTickQuery | TradingH4Query | TradingHistoricalTicksQuery
@@ -489,7 +505,8 @@ TradingQueryRequest = Annotated[
     | TradingDataQualityQuery | TradingCalibrationReportQuery
     | TradingReplayReportQuery | TradingActionGetQuery
     | TradingActionListQuery | TradingRuntimeStatusQuery
-    | TradingDemoPerformanceQuery | TradingReconciliationQuery,
+    | TradingDemoPerformanceQuery | TradingReconciliationQuery
+    | TradingCompanionGetQuery | TradingCompanionListQuery,
     Field(discriminator="operation"),
 ]
 
@@ -537,6 +554,108 @@ class TradingSignalCancelRequest(GatewayModel):
     reason: str = Field(min_length=1, max_length=1000)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingResearchSourceInput(GatewayModel):
+    title: str = Field(min_length=1, max_length=500)
+    reference: str = Field(min_length=1, max_length=2048)
+    published_at_utc: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_published_at(self) -> "TradingResearchSourceInput":
+        if self.published_at_utc is not None and self.published_at_utc.tzinfo is None:
+            raise ValueError("published_at_utc must be timezone-aware")
+        return self
+
+
+class TradingCompanionStartRequest(GatewayModel):
+    action: Literal["start"]
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    task_invocation_id: str = Field(min_length=1, max_length=256)
+    research_summary: str = Field(min_length=1, max_length=20_000)
+    research_sources: list[TradingResearchSourceInput] = Field(
+        default_factory=list, max_length=50
+    )
+    scheduled_for_utc: datetime | None = None
+    completed_count: int = Field(default=200, ge=1, le=2_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "TradingCompanionStartRequest":
+        if self.scheduled_for_utc is not None and self.scheduled_for_utc.tzinfo is None:
+            raise ValueError("scheduled_for_utc must be timezone-aware")
+        return self
+
+
+class TradingCompanionDecideRequest(GatewayModel):
+    action: Literal["decide"]
+    companion_run_id: str = Field(min_length=1, max_length=64)
+    signal_idempotency_key: str = Field(min_length=1, max_length=128)
+    decision: Literal["LONG", "SHORT", "NO_TRADE"]
+    confidence: int | None = Field(default=None, ge=50, le=99)
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+    reason: str = Field(min_length=1, max_length=4000)
+    news_context: str = Field(default="", max_length=8000)
+    model_version: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=128)
+    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
+        "hourly_fixed_bracket_v1"
+    )
+    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
+    submitted_at_utc: datetime | None = None
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "TradingCompanionDecideRequest":
+        values = (self.confidence, self.stop_loss, self.take_profit)
+        if self.decision == "NO_TRADE" and any(value is not None for value in values):
+            raise ValueError("NO_TRADE must not include confidence or bracket prices")
+        if self.decision != "NO_TRADE" and any(value is None for value in values):
+            raise ValueError("Directional decisions require confidence, stop_loss, and take_profit")
+        if self.submitted_at_utc is not None and self.submitted_at_utc.tzinfo is None:
+            raise ValueError("submitted_at_utc must be timezone-aware")
+        return self
+
+
+class TradingCompanionReviewRequest(GatewayModel):
+    action: Literal["review"]
+    companion_run_id: str = Field(min_length=1, max_length=64)
+    approval_idempotency_key: str = Field(min_length=1, max_length=128)
+    decision: Literal["APPROVED", "REJECTED"]
+    reason: str = Field(min_length=1, max_length=4000)
+    model_version: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(min_length=1, max_length=128)
+    approved_at_utc: datetime | None = None
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_approved_at(self) -> "TradingCompanionReviewRequest":
+        if self.approved_at_utc is not None and self.approved_at_utc.tzinfo is None:
+            raise ValueError("approved_at_utc must be timezone-aware")
+        return self
+
+
+class TradingCompanionExecuteRequest(GatewayModel):
+    action: Literal["execute"]
+    companion_run_id: str = Field(min_length=1, max_length=64)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    volume_lots: float = Field(gt=0, le=1_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+TradingCompanionActionRequest = Annotated[
+    TradingCompanionStartRequest
+    | TradingCompanionDecideRequest
+    | TradingCompanionReviewRequest
+    | TradingCompanionExecuteRequest,
+    Field(discriminator="action"),
+]
 
 
 _TRADING_ACTION_TYPES = Literal[
