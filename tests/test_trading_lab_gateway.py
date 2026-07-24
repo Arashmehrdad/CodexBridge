@@ -655,10 +655,13 @@ class TestJournalReads:
     ) -> None:
         """The completeness gate for journal reads."""
         extra: dict[str, Any] = {"view": "full"}
-        if operation in {"market_packet_get", "outcome_get"}:
-            pytest.skip("single-record reads are covered by not_found tests")
-        if operation == "action_get":
-            pytest.skip("single-record reads are covered by not_found tests")
+        if operation in {
+            "market_packet_get",
+            "outcome_get",
+            "action_get",
+            "companion_get",
+        }:
+            pytest.skip("single-record reads are covered by focused tests")
         if operation == "data_quality":
             extra |= {
                 "start_utc": NOW.isoformat(),

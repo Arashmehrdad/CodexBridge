@@ -4505,12 +4505,11 @@ def _require_demo_provider(provider: Any) -> Any:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def trading_companion_action(request: TradingCompanionActionRequest) -> dict:
-    """Run one strict step of the scheduled ChatGPT Trading Lab cycle.
+    """Run one strict scheduled Trading Lab companion step.
 
-    Start binds external research to a fresh immutable packet. Decide records
-    one packet-bound signal. Review records ChatGPT's own second-pass model
-    approval or rejection. Execute derives every market and policy fact from
-    that approved signal and accepts only the requested paper/demo volume.
+    Start binds research to a fresh packet; decide stores a packet-bound signal;
+    review stores ChatGPT's second-pass decision; execute derives every trade
+    fact from the approved immutable signal and accepts only volume.
     """
     if not get_config().trading.enabled:
         return {"ok": False, "status": "disabled", "error": "Trading is disabled"}

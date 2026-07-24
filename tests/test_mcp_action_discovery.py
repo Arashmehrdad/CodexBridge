@@ -1392,6 +1392,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "supervisor_action",
         "trading_signal_submit",
         "trading_signal_cancel_before_entry",
+        "trading_companion_action",
         "trading_action_submit",
         "trading_runtime_control",
     }
@@ -1461,6 +1462,7 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "trading_signal_get",
             "trading_signal_list",
             "trading_signal_cancel_before_entry",
+            "trading_companion_action",
             "trading_action_submit",
             "trading_runtime_control",
         }:
