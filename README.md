@@ -301,7 +301,7 @@ The public API is deliberately consolidated into 30 gateways. Use `system_query`
 | Cloudflare | `cloudflare_query`, `cloudflare_action` |
 | Trading Lab | `trading_query`, `trading_signal_submit`, `trading_signal_get`, `trading_signal_list`, `trading_signal_cancel_before_entry`, `trading_companion_action`, `trading_action_submit`, `trading_runtime_control` |
 
-Every dictionary response carries live identity fields such as `server_build_hash`, `schema_hash`, and `capability_epoch`. Clients can use them to detect stale service processes or cached schemas.
+Public gateway projections normally include live identity fields such as `server_build_hash`, `schema_hash`, and `capability_epoch`. Capability-identity checks provide the exact comparison path when a client must prove that its cached schemas match the running service.
 
 ### System gateway
 
