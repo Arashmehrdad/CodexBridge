@@ -312,7 +312,7 @@ CF1_COMPATIBILITY_INVARIANTS: Final[
         CompatibilityInvariant.FULL_RUN_TRANSPORT,
         ("soma.run_query_chunks:chunk_payload",),
         (
-            "tests/test_run_query_chunks.py::test_large_status_round_trips_without_total_data_loss",
+            "tests/test_run_query_chunks.py::test_explicit_input_round_trips_large_payload_and_redacts_secrets",
             "tests/test_run_query_chunks.py::test_status_cursor_uses_frozen_snapshot_when_run_changes",
             "tests/test_run_query_chunks.py::test_large_result_uses_same_cursor_contract",
             "tests/test_run_query_chunks.py::test_large_list_returns_one_bounded_transport_item_per_call",
@@ -326,7 +326,7 @@ CF1_COMPATIBILITY_INVARIANTS: Final[
             "soma.safety:redact_secret_values",
         ),
         (
-            "tests/test_run_query_chunks.py::test_large_status_round_trips_without_total_data_loss",
+            "tests/test_run_query_chunks.py::test_explicit_input_round_trips_large_payload_and_redacts_secrets",
             "tests/test_events.py::test_redaction_and_truncation_nested_values",
         ),
         "Nested secret-like keys and values remain recursively redacted.",

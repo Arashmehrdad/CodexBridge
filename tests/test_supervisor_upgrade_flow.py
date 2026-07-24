@@ -173,7 +173,9 @@ def test_edit_task_reaches_needs_external_coder_with_handoff(tmp_path: Path) -> 
         tmp_path / "runs" / "supervisors" / "supervisor_edit" / "resume_prompt.txt"
     ).read_text(encoding="utf-8")
     assert "external_coder_invoked: False" in resume
-    assert "manually" in result.run.next_recommended_action
+    assert "outside Soma" in result.run.next_recommended_action
+    assert "Do not launch any agent" in result.run.next_recommended_action
+    assert "PowerShell" in result.run.next_recommended_action
 
 
 def test_approval_required_handoff_maps_to_approval_status(tmp_path: Path) -> None:

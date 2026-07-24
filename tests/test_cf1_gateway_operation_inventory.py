@@ -153,6 +153,8 @@ def test_every_operation_records_required_cf1_measurement_dimensions() -> None:
 def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     summary = _entry_for("run_query", "summary")
     summary_list = _entry_for("run_query", "summary_list")
+    status = _entry_for("run_query", "status")
+    input_entry = _entry_for("run_query", "input")
     control = _entry_for("run_query", "control")
     events = _entry_for("run_query", "events")
     terminal = _entry_for("run_query", "terminal")
@@ -163,6 +165,14 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     assert summary_list.pagination is PaginationBehavior.CURSOR
     assert summary_list.default_item_limit == 10
     assert summary_list.maximum_item_limit == 100
+    assert status.default_response_bytes == 8 * 1024
+    assert status.maximum_response_bytes == 8 * 1024
+    assert status.json_decode_cost is JsonDecodeCost.NONE
+    assert "lifecycle" in status.notes
+    assert input_entry.default_response_bytes == 12 * 1024
+    assert input_entry.maximum_response_bytes == 12 * 1024
+    assert input_entry.pagination is PaginationBehavior.CHUNK_CURSOR
+    assert "hash" in input_entry.notes
     assert control.default_response_bytes == 8 * 1024
     assert control.maximum_response_bytes == 8 * 1024
     assert control.json_decode_cost is JsonDecodeCost.NONE
@@ -184,6 +194,8 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     compact_operations = {
         "summary",
         "summary_list",
+        "status",
+        "input",
         "control",
         "events",
         "terminal",
