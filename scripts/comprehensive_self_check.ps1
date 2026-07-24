@@ -72,7 +72,7 @@ try {
       -PassThru
 
     $Ready = $false
-    $Deadline = (Get-Date).AddSeconds(30)
+    $Deadline = (Get-Date).AddSeconds(90)
     do {
         if ($Server.HasExited) { break }
         try {

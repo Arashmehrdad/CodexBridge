@@ -78,6 +78,7 @@ def test_comprehensive_self_check_handles_http_errors_under_strict_mode() -> Non
     ).read_text(encoding="utf-8")
     assert "-SkipHttpErrorCheck" in source
     assert "$Response.StatusCode" in source
+    assert ".AddSeconds(90)" in source
     assert "$_.Exception.Response" not in source
     assert 'PSObject.Properties["Response"]' not in source
 
