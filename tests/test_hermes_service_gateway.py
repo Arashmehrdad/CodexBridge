@@ -38,8 +38,10 @@ def identity() -> HermesRegistryIdentity:
 
 
 class DispatchProbe:
-    def __init__(self) -> None:
+    def __init__(self, *, expected_active: int = 0) -> None:
         self._lock = Lock()
+        self._expected_active = expected_active
+        self._expected_reached = Event()
         self.active = 0
         self.max_active = 0
 
@@ -47,6 +49,13 @@ class DispatchProbe:
         with self._lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
+            if self._expected_active and self.active >= self._expected_active:
+                self._expected_reached.set()
+
+    def wait_for_expected(self, timeout: float) -> bool:
+        if not self._expected_active:
+            return True
+        return self._expected_reached.wait(timeout)
 
     def leave(self) -> None:
         with self._lock:
@@ -100,6 +109,8 @@ class GateWorker:
         if self._probe is not None:
             self._probe.enter()
         try:
+            if self._probe is not None and not self._probe.wait_for_expected(5):
+                raise TimeoutError("expected concurrent dispatch capacity was not reached")
             if self._dispatch_delay:
                 time.sleep(self._dispatch_delay)
             if self._block:
@@ -453,7 +464,7 @@ def test_registry_reload_holds_named_administration_lock(
 def test_five_sessions_execute_concurrently_with_isolated_durable_results(
     tmp_path: Path,
 ) -> None:
-    probe = DispatchProbe()
+    probe = DispatchProbe(expected_active=5)
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     store = RunStore(runs_dir)
