@@ -50,11 +50,7 @@ from .gateway_models import (
 )
 from .managed_artifacts import apply_managed_artifact_cleanup
 from .operation_locks import OperationLockStore
-from .parallel_groups import (
-    ParallelGroupStore,
-    refill_powershell_groups,
-    repository_lock_required_for_run,
-)
+from .parallel_groups import refill_powershell_groups, repository_lock_required_for_run
 from .process_control import (
     process_group_popen_kwargs,
     process_identity,
@@ -77,11 +73,7 @@ from .remote_powershell import (
     decode_remote_powershell_stdin,
     validate_remote_powershell_durable_input,
 )
-from .safety import (
-    reject_destructive_command,
-    validate_repo_relative_path,
-    validate_repo_relative_paths,
-)
+from .safety import validate_repo_relative_path
 from .ssh_commands import (
     resolve_ssh_command_profile,
     resolve_ssh_connection,

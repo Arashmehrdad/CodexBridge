@@ -6,8 +6,6 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-import pytest
-
 from soma.config import AppConfig, SSHHostConfig, load_config
 from soma.ssh_activation import (
     SSH_ACTIVATION_STATES,

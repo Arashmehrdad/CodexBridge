@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from .cloudflare_tools import authorize_cloudflare_profile, build_cloudflare_action
@@ -94,12 +95,7 @@ from .remote_powershell import (
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
 from .ssh_profile_manager import get_ssh_profile_change_status
 from .transfer_manifests import build_upload_transfer_manifest
-from .safety import (
-    redact_secret_values,
-    reject_destructive_command,
-    validate_repo_relative_path,
-    validate_repo_relative_paths,
-)
+from .safety import redact_secret_values, validate_repo_relative_path
 from .ssh_commands import (
     resolve_ssh_command_profile,
     resolve_ssh_connection,
@@ -114,7 +110,6 @@ from .ssh_policy import (
 from .ssh_watchdog import (
     cancel_remote_controller,
     probe_remote_controller_state,
-    terminate_remote_process_group,
     validate_monitored_command_start,
 )
 from .ssh_tools import build_ssh_action, validate_remote_path
