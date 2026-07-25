@@ -20,6 +20,11 @@ from .config import (
     SSHHostConfig,
 )
 from .safety import redact_secret_values, validate_repo_relative_path
+from .ssh_capabilities import (
+    build_capability_snapshot_payload,
+    capability_probe_specs,
+    persist_capability_snapshot,
+)
 from .transfer_manifests import build_download_cleanup_manifest, cleanup_transfer_staging
 from .ssh_commands import (
     _run_ssh_argv,
@@ -616,6 +621,39 @@ def run_ssh_environment_probe(config: AppConfig, host_id: str) -> dict[str, Any]
         "high_risk": False,
         "error": "" if required_ok else "One or more required environment probes failed",
     }
+
+
+def run_ssh_capability_snapshot(
+    config: AppConfig,
+    host_id: str,
+    *,
+    host_key_fingerprint: str = "",
+    endpoint_route: str = "active_profile",
+    required_capabilities: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run fixed read-only probes and persist one versioned host snapshot."""
+
+    resolve_ssh_host(config, host_id)
+    capability_raw = _run_probe_specs(
+        config, host_id, capability_probe_specs()
+    )
+    environment = run_ssh_environment_probe(config, host_id)
+    payload = build_capability_snapshot_payload(
+        host_id=validate_ssh_host_id(host_id),
+        host_key_fingerprint=host_key_fingerprint,
+        endpoint_route=endpoint_route,
+        environment_probe=environment,
+        capability_probe_results=capability_raw,
+        required_capabilities=list(required_capabilities or []),
+    )
+    result = persist_capability_snapshot(config.resolve_runs_dir(), payload)
+    result.update(
+        {
+            "writes_remote": False,
+            "high_risk": False,
+        }
+    )
+    return result
 
 
 def build_ssh_action(
