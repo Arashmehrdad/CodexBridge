@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, CloudflareProfileConfig, resolve_repo_config
+from .dotenv import read_dotenv_file
 from .safety import redact_secret_values
 
 
@@ -167,7 +168,6 @@ _REDACT_RESPONSE_KEYS = {
 _MAX_PAYLOAD_BYTES = 100_000
 _MAX_LIST_ITEMS = 100
 _MAX_ENV_FILE_BYTES = 65_536
-_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _ANALYTICS_QUERY = """
 query SomaHTTPAnalytics(
@@ -401,35 +401,11 @@ def _dotenv_values(config: AppConfig) -> dict[str, str]:
         raise ValueError("Cloudflare env_file escapes the config directory") from None
     if not path.exists():
         return {}
-    if not path.is_file():
-        raise ValueError("Cloudflare env_file is not a regular file")
-    if path.stat().st_size > _MAX_ENV_FILE_BYTES:
-        raise ValueError("Cloudflare env_file exceeds 65536 bytes")
-    try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
-        raise ValueError("Cloudflare env_file could not be read as UTF-8") from exc
-
-    values: dict[str, str] = {}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            raise ValueError("Cloudflare env_file contains an invalid assignment")
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if not _ENV_NAME_RE.fullmatch(key):
-            raise ValueError("Cloudflare env_file contains an invalid variable name")
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        if "\x00" in value or "\r" in value or "\n" in value:
-            raise ValueError("Cloudflare env_file contains an invalid value")
-        values[key] = value
-    return values
+    return read_dotenv_file(
+        path,
+        label="Cloudflare env_file",
+        max_bytes=_MAX_ENV_FILE_BYTES,
+    )
 
 
 def _env_value(config: AppConfig, env_name: str) -> str:
