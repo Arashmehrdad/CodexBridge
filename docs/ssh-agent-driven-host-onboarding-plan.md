@@ -1,6 +1,6 @@
 # SSH-A1 — Agent-Driven Credential Binding and Transactional Host Activation
 
-Status: **active implementation plan selected by the owner on 2026-07-25**.
+Status: **complete; implemented, validated, restarted, and live-discovered on 2026-07-25**.
 
 ## Objective
 
@@ -478,9 +478,21 @@ The controller must not ask the owner to paste credentials or manually duplicate
 - Rollback includes config, host-key state, capability pointer, project binding, and runtime identity.
 - Existing repository, run, and resource-lock systems are reused; no parallel lock authority is introduced.
 
+## Completion evidence
+
+SSH-A1 completed with the following evidence:
+
+- focused implementation gates passed throughout the lane, including 223 tests for probing/contracts, 195 for reference-bound configuration, 218 for host identity, 229 for capability snapshots, 234 for project bindings, 18 isolated transaction-protocol tests, and 215 final onboarding gateway/integration tests;
+- the free fake-host source-to-activation harness exercised a real credential reference, atomic `configure_host` preview, config/trust/capability-pointer activation, project binding, transaction state, and rollback boundaries without contacting a real server;
+- the complete Soma functional suite passed with 1,864 tests and 35 skips; the affected post-cleanup suite passed 68 tests; full Ruff, `pip check`, and `git diff --check` passed;
+- an isolated source server started on a free port and returned `/health = OK`;
+- the supported controlled restart completed and live source/running identity converged at build `fffcfdeb47678b26a8b681c4984bcacdc5a0ae7305b3b47337a76898a2b60318` with no schema mismatch;
+- live MCP discovery exposes the seven strict SSH query operations and the durable profile-apply path;
+- no real credential was exposed, no real host was scanned during implementation acceptance, and no existing host or project binding was automatically migrated.
+
 ## Exit gates
 
-SSH-A1 completes only when all of the following are true:
+All SSH-A1 implementation exit gates are satisfied:
 
 1. The owner can point the controller at one supported local credential source without editing configuration manually.
 2. The controller can discover and bind fields without receiving secret values.
@@ -493,4 +505,4 @@ SSH-A1 completes only when all of the following are true:
 9. The live MCP connector advertises the new strict operations and schemas.
 10. One complete agent-driven acceptance requires only a credential location plus host/project intent from the owner.
 
-Until these gates pass, the current SSH profile manager remains the active production path and no existing host is automatically migrated.
+These gates passed on 2026-07-25. The completed transactional path is live, while existing hosts remain unchanged until the owner supplies a credential location or alias and an explicit host/project intent. Real-host onboarding is operational use of the completed capability and still fails closed on fingerprint, authentication, capability, project-validation, or rollback uncertainty.

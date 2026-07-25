@@ -74,7 +74,7 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-Only **SSH-A1 — Agent-Driven Credential Binding and Transactional Host Activation** is active. The owner explicitly selected this global SSH lane on 2026-07-25 and requested a zero-manual-config operating model.
+No implementation lane is currently active. SSH-A1 completed on 2026-07-25 and this roadmap now requires an explicit, bounded user selection before another implementation lane begins.
 
 Completed sequence:
 
@@ -83,29 +83,31 @@ Completed sequence:
 3. OP1 completed the evidence-driven real-project pilot without crossing the Roadmap V3 promotion threshold.
 4. The original TL0-TL9 program completed and was superseded by the authoritative Trading Lab redesign.
 5. Trading Lab's scheduled ChatGPT companion cycle was implemented in the standalone package, wired through Soma, and live-accepted for no-order and internal-paper execution.
-6. SSH-A1 is now the sole bounded implementation lane.
+6. SSH-A1 completed credential-source probing, reference-bound profiles, managed host identity, capability snapshots, canonical project bindings, durable transactional activation/rollback, public gateway exposure, documentation, and live connector rollout.
 
-Active order:
+The owner-facing SSH contract is now available: provide a local credential location or existing SSH alias plus host/project intent. The controller handles source discovery, field mapping, preview, authentication, capability discovery, project validation, activation, and rollback without asking the owner to edit configuration or paste secret values.
 
-1. SSH-A1.0: freeze credential-source, host-binding, fingerprint, capability-snapshot, project-binding, and activation-state contracts.
-2. SSH-A1.1: implement secret-safe local credential-source probing and reusable bounded dotenv parsing.
-3. SSH-A1.2: add reference-based SSH configuration while preserving literal, alias, and connection-file compatibility.
-4. SSH-A1.3: add Soma-managed host-key identity with pinned, first-use, and explicit-rotation policies.
-5. SSH-A1.4: persist versioned capability snapshots and evaluate required host capabilities.
-6. SSH-A1.5: separate canonical project-to-host bindings from host connection identity.
-7. SSH-A1.6: move profile activation into a durable, restart-recoverable, all-resource rollback transaction.
-8. SSH-A1.7: expose the complete agent-driven workflow through the existing SSH gateways and update operator documentation.
-9. SSH-A1.8: complete focused, full-suite, fake-host, opportunistic read-only real-host, and live connector acceptance.
+A generic `continue` must not reactivate TL0-TL9, broad reliability/autonomy work, Roadmap V3, broker-demo scheduling, SSH-A1, or another lane. The next implementation unit must be explicitly selected and bounded by the user.
 
-The owner-facing contract is: provide a local credential location or existing SSH alias plus host/project intent. The controller must handle source discovery, field mapping, preview, authentication, capability discovery, project validation, activation, and rollback without asking the owner to edit configuration or paste secret values.
-
-Do not reactivate TL0-TL9, broad reliability/autonomy work, Roadmap V3, broker-demo scheduling, or another lane while SSH-A1 is active. The detailed contract and exit gates are in [`docs/ssh-agent-driven-host-onboarding-plan.md`](docs/ssh-agent-driven-host-onboarding-plan.md).
-
-The first minimum-size broker-demo order and unattended trading scheduling remain separate operational decisions and are not part of SSH-A1.
+The first owner-supplied real-host onboarding is operational use of the completed SSH-A1 capability, not an automatically active implementation lane. The first minimum-size broker-demo order and unattended trading scheduling remain separate operational decisions.
 
 ## Priority 0 - SSH-A1 Agent-Driven Credential Binding and Transactional Host Activation
 
-Status: **active; global implementation plan selected by the owner on 2026-07-25**.
+Status: **complete; implementation, deterministic acceptance, full-suite validation, isolated startup, restart, and live connector convergence closed on 2026-07-25**.
+
+### Completion evidence
+
+- secret-safe credential probing supports dotenv files, process environment, OpenSSH config, connection files, and direct key references without returning resolved values;
+- reference-bound profiles resolve only at execution time and preserve legacy literal, alias, and connection-file compatibility;
+- Soma-managed host identity supports pinned, first-use, and explicit-rotation policies with staged trust and rollback;
+- versioned capability snapshots and canonical project-to-host bindings are durable, hash-bound, independently replaceable, and read-only validated;
+- `profile_apply` is a durable, restart-recoverable transaction covering candidate authentication, capability discovery, project validation, atomic config/trust/pointer activation, post-checks, verified rollback, and honest `RECOVERY_REQUIRED` handling;
+- the free fake-host source-to-activation acceptance passed without exposing credential values or touching a real host;
+- the complete functional suite passed with **1,864 passed and 35 skipped**; the affected post-cleanup suite passed 68 tests; Ruff, dependency checks, and whitespace hygiene passed;
+- isolated source startup returned `/health = OK`, the controlled live restart completed, and source/running build identity converged at `fffcfdeb47678b26a8b681c4984bcacdc5a0ae7305b3b47337a76898a2b60318`;
+- live discovery exposes all seven SSH query operations: `capabilities`, `credential_probe`, `profile_preview`, `profile_status`, `capability_snapshot`, `project_bindings`, and `project_binding_validation`.
+
+No existing host was automatically migrated and no real credential was used during implementation acceptance. A future owner-supplied real-host onboarding uses this completed capability and remains subject to the normal fingerprint, authentication, validation, and rollback transaction.
 
 ### Objective
 
