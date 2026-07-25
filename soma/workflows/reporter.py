@@ -110,7 +110,7 @@ def generate_workflow_report(runs_dir: Path, workflow: WorkflowRecord) -> Workfl
     )
     atomic_write_text(report_path, redact_and_truncate(report))
     atomic_write_text(resume_prompt_path, redact_and_truncate(resume))
-    manifest = build_report_manifest(
+    build_report_manifest(
         artifact_type="combined",
         artifact_id=workflow.workflow_id,
         source_kind="workflow",

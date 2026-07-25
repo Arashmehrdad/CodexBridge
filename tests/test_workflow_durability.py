@@ -69,7 +69,7 @@ def test_verified_launcher_prevents_replacement_generation(durable_tmp_path: Pat
     config, config_path = _config(durable_tmp_path)
     launches: list[int] = []
     manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: launches.append(10) or 10, identity_reader=lambda _pid: "launcher-10", identity_checker=lambda _pid, identity: identity == "launcher-10")
-    started = manager.start_workflow("repo", "x", [{"id": "one", "type": "project_command", "parameters": {"command_id": "ok"}}])
+    manager.start_workflow("repo", "x", [{"id": "one", "type": "project_command", "parameters": {"command_id": "ok"}}])
     assert manager.reconcile_startup() == 0
     assert launches == [10]
     assert manager.reconcile_startup() == 0
@@ -79,7 +79,7 @@ def test_live_legacy_pid_enters_recovery_without_relaunch_or_termination(durable
     config, config_path = _config(durable_tmp_path)
     launches: list[int] = []
     manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: launches.append(20) or 20, process_checker=lambda pid: pid == 99)
-    workflow = _create(manager.store)
+    _create(manager.store)
     manager.store.update_workflow("workflow", status=WorkflowStatus.RUNNING, worker_pid=99)
     assert manager.reconcile_startup() == 0
     current = manager.store.get_workflow("workflow")
@@ -129,7 +129,7 @@ def test_cancellation_stays_pending_when_child_does_not_become_terminal(durable_
             return {"status": "running"}
 
     manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: 11, process_checker=lambda _pid: False, job_manager_factory=ChildManager)
-    workflow = _create(manager.store)
+    _create(manager.store)
     manager.store.update_workflow("workflow", status=WorkflowStatus.RUNNING, active_child_run_id="child")
     manager.store.update_step("workflow", "one", status=WorkflowStepStatus.RUNNING, child_run_id="child")
     result = manager.cancel_workflow("workflow")
@@ -161,7 +161,7 @@ def test_cancellation_publishes_only_after_owned_processes_are_confirmed(durable
         return {"pid": pid, "terminated": True}
 
     manager = WorkflowManager(config, config_path, worker_launcher=lambda *_args: 11, identity_checker=identity_checker, identity_reader=lambda _pid: "worker", process_checker=lambda _pid: True, termination_fn=terminate)
-    workflow = _create(manager.store)
+    _create(manager.store)
     manager.store.update_workflow("workflow", status=WorkflowStatus.RUNNING, worker_pid=11, worker_identity="worker")
     result = manager.cancel_workflow("workflow")
     assert result["cancelled"] is True

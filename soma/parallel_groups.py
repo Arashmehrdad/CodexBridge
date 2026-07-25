@@ -689,7 +689,7 @@ def launch_powershell_group(
         )
 
     selected_group_id = group_id or _make_group_run_id("powershell_group")
-    group = store.reserve_group(
+    store.reserve_group(
         group_id=selected_group_id,
         repo_name=canonical_repo_name,
         children=reserved_children,

@@ -7,7 +7,6 @@ import pytest
 from soma.job_worker import JobWorker
 from soma.remote_powershell import (
     bind_remote_powershell_controller_request,
-    build_remote_powershell_artifact_manifest,
     complete_remote_powershell_artifact_manifest,
     complete_remote_powershell_executable_evidence,
     build_remote_powershell_durable_input,

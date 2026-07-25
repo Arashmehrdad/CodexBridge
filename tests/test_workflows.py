@@ -11,7 +11,7 @@ from soma.return_loop.pulse_contract import discover_ready_reports
 from soma.workflows.manager import WorkflowManager
 from soma.workflows.store import WorkflowStore
 from soma.workflows.worker import WorkflowWorker
-from soma.workflows.models import WorkflowEvent, WorkflowRecord, WorkflowStatus
+from soma.workflows.models import WorkflowEvent, WorkflowRecord
 
 
 class FakeWorkflowStore:
