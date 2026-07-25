@@ -277,6 +277,7 @@ def test_configure_host_acceptance_completes_without_secret_value_persistence(
 ) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
+    (app_dir / ".git").mkdir()
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "repos:\n"
