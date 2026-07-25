@@ -285,6 +285,97 @@ class SSHWatchdogConfig(BaseModel):
     min_disk_free_percent: float = Field(default=5.0, ge=0, lt=100)
 
 
+class SSHCredentialSourceConfig(BaseModel):
+    type: Literal[
+        "env_file",
+        "process_environment",
+        "openssh_config",
+        "connection_file",
+        "key_file",
+    ]
+    path: str = ""
+    alias: str = ""
+    hostname: str = ""
+    user: str = ""
+    port: int = Field(default=22, ge=1, le=65535)
+    expected_host_key: str = ""
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "SSHCredentialSourceConfig":
+        self.path = self.path.strip()
+        self.alias = self.alias.strip()
+        self.hostname = self.hostname.strip()
+        self.user = self.user.strip()
+        self.expected_host_key = self.expected_host_key.strip()
+        if self.type == "process_environment":
+            if self.path or self.alias or self.hostname or self.user or self.port != 22:
+                raise ValueError(
+                    "process_environment SSH credential sources cannot store endpoint values"
+                )
+            return self
+        if not self.path:
+            raise ValueError(f"{self.type} SSH credential source requires path")
+        if not (
+            Path(self.path).is_absolute()
+            or PureWindowsPath(self.path).is_absolute()
+        ):
+            raise ValueError("SSH credential source path must be absolute")
+        if any(ord(char) < 32 or ord(char) == 127 for char in self.path):
+            raise ValueError("SSH credential source path contains control characters")
+        if self.type == "openssh_config":
+            if not self.alias:
+                raise ValueError("openssh_config SSH credential source requires alias")
+        elif self.alias:
+            raise ValueError("SSH credential source alias is valid only for openssh_config")
+        if self.type == "key_file":
+            if not self.hostname or not self.user:
+                raise ValueError(
+                    "key_file SSH credential source requires non-secret hostname and user"
+                )
+        elif self.hostname or self.user or self.port != 22:
+            raise ValueError(
+                "SSH credential source endpoint values are valid only for key_file"
+            )
+        return self
+
+
+class SSHCredentialBindingConfig(BaseModel):
+    source_id: str
+    hostname: str = ""
+    user: str = ""
+    port: str = ""
+    identity_file: str = ""
+    expected_host_key: str = ""
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> "SSHCredentialBindingConfig":
+        allowed = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
+        self.source_id = self.source_id.strip()
+        if not self.source_id or any(char not in allowed for char in self.source_id):
+            raise ValueError(
+                "SSH credential source_id must use letters, numbers, _ or -"
+            )
+        for field_name in (
+            "hostname",
+            "user",
+            "port",
+            "identity_file",
+            "expected_host_key",
+        ):
+            value = str(getattr(self, field_name) or "").strip()
+            if value and (
+                not (value[0].isalpha() or value[0] == "_")
+                or any(not (char.isalnum() or char == "_") for char in value)
+            ):
+                raise ValueError(
+                    f"SSH credential binding {field_name} must name one environment variable"
+                )
+            setattr(self, field_name, value)
+        return self
+
+
 class SSHHostConfig(BaseModel):
     ssh_alias: str = ""
     connection_file: str = ""
@@ -292,6 +383,7 @@ class SSHHostConfig(BaseModel):
     user: str = ""
     port: int = Field(default=22, ge=1, le=65535)
     identity_file: str = ""
+    credential_binding: SSHCredentialBindingConfig | None = None
     connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
     force_pty: bool = False
     use_sudo: bool = False
@@ -316,11 +408,12 @@ class SSHHostConfig(BaseModel):
                 bool(self.ssh_alias),
                 bool(self.connection_file),
                 any(direct_values) or self.port != 22,
+                self.credential_binding is not None,
             )
         )
         if configured_modes != 1:
             raise ValueError(
-                "SSH host must use exactly one of ssh_alias, connection_file, or explicit hostname/user/identity_file"
+                "SSH host must use exactly one of ssh_alias, connection_file, explicit hostname/user/identity_file, or credential_binding"
             )
         if self.connection_file:
             if any(ord(char) < 32 or ord(char) == 127 for char in self.connection_file):
@@ -332,7 +425,7 @@ class SSHHostConfig(BaseModel):
                 or PureWindowsPath(self.connection_file).is_absolute()
             ):
                 raise ValueError("SSH connection_file must be an absolute path")
-        elif self.ssh_alias:
+        elif self.ssh_alias or self.credential_binding is not None:
             pass
         else:
             if not all(direct_values):
@@ -400,7 +493,50 @@ class SSHConfig(BaseModel):
     confirmation_token: str = Field(
         default="CONFIRM_SSH_HIGH_RISK", min_length=8, max_length=128
     )
+    credential_sources: Dict[str, SSHCredentialSourceConfig] = Field(
+        default_factory=dict
+    )
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_credential_bindings(self) -> "SSHConfig":
+        allowed = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
+        for source_id in self.credential_sources:
+            if not source_id or any(char not in allowed for char in source_id):
+                raise ValueError(
+                    "SSH credential source mapping keys must use letters, numbers, _ or -"
+                )
+        for host_id, host in self.hosts.items():
+            binding = host.credential_binding
+            if binding is None:
+                continue
+            source = self.credential_sources.get(binding.source_id)
+            if source is None:
+                raise ValueError(
+                    f"SSH host {host_id!r} references unknown credential source {binding.source_id!r}"
+                )
+            references = {
+                "hostname": binding.hostname,
+                "user": binding.user,
+                "port": binding.port,
+                "identity_file": binding.identity_file,
+                "expected_host_key": binding.expected_host_key,
+            }
+            populated = {name for name, value in references.items() if value}
+            if source.type in {"env_file", "process_environment"}:
+                required = {"hostname", "user", "identity_file"}
+                missing = sorted(required - populated)
+                if missing:
+                    raise ValueError(
+                        f"SSH host {host_id!r} credential binding is missing references: {missing}"
+                    )
+            elif populated:
+                raise ValueError(
+                    f"SSH host {host_id!r} uses field references with non-environment source {source.type!r}"
+                )
+        return self
 
     def autonomy_profile_migration_report(self) -> dict[str, object]:
         configured = list(self.active_autonomy_profiles)
