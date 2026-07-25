@@ -74,7 +74,7 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-No implementation lane is currently active. CF1, H2, OP1, the Trading Lab redesign, and the ChatGPT companion integration are complete. This reconciliation closes stale roadmap wording only; it does not authorize a new architecture phase.
+Only **SSH-A1 — Agent-Driven Credential Binding and Transactional Host Activation** is active. The owner explicitly selected this global SSH lane on 2026-07-25 and requested a zero-manual-config operating model.
 
 Completed sequence:
 
@@ -83,10 +83,48 @@ Completed sequence:
 3. OP1 completed the evidence-driven real-project pilot without crossing the Roadmap V3 promotion threshold.
 4. The original TL0-TL9 program completed and was superseded by the authoritative Trading Lab redesign.
 5. Trading Lab's scheduled ChatGPT companion cycle was implemented in the standalone package, wired through Soma, and live-accepted for no-order and internal-paper execution.
+6. SSH-A1 is now the sole bounded implementation lane.
 
-The next implementation unit must be explicitly selected and bounded by the user. Do not infer or resurrect TL0-TL9, SSH, reliability/autonomy, Roadmap V3, broker-demo scheduling, or any other lane from a generic `continue`.
+Active order:
 
-The first minimum-size broker-demo order and unattended scheduling remain separate operational acceptance decisions. They are not active by default and do not reactivate the superseded TL0-TL9 roadmap.
+1. SSH-A1.0: freeze credential-source, host-binding, fingerprint, capability-snapshot, project-binding, and activation-state contracts.
+2. SSH-A1.1: implement secret-safe local credential-source probing and reusable bounded dotenv parsing.
+3. SSH-A1.2: add reference-based SSH configuration while preserving literal, alias, and connection-file compatibility.
+4. SSH-A1.3: add Soma-managed host-key identity with pinned, first-use, and explicit-rotation policies.
+5. SSH-A1.4: persist versioned capability snapshots and evaluate required host capabilities.
+6. SSH-A1.5: separate canonical project-to-host bindings from host connection identity.
+7. SSH-A1.6: move profile activation into a durable, restart-recoverable, all-resource rollback transaction.
+8. SSH-A1.7: expose the complete agent-driven workflow through the existing SSH gateways and update operator documentation.
+9. SSH-A1.8: complete focused, full-suite, fake-host, opportunistic read-only real-host, and live connector acceptance.
+
+The owner-facing contract is: provide a local credential location or existing SSH alias plus host/project intent. The controller must handle source discovery, field mapping, preview, authentication, capability discovery, project validation, activation, and rollback without asking the owner to edit configuration or paste secret values.
+
+Do not reactivate TL0-TL9, broad reliability/autonomy work, Roadmap V3, broker-demo scheduling, or another lane while SSH-A1 is active. The detailed contract and exit gates are in [`docs/ssh-agent-driven-host-onboarding-plan.md`](docs/ssh-agent-driven-host-onboarding-plan.md).
+
+The first minimum-size broker-demo order and unattended trading scheduling remain separate operational decisions and are not part of SSH-A1.
+
+## Priority 0 - SSH-A1 Agent-Driven Credential Binding and Transactional Host Activation
+
+Status: **active; global implementation plan selected by the owner on 2026-07-25**.
+
+### Objective
+
+Allow the owner to place key-based SSH credential references at any supported local file location and point the controller at that location. Soma must inspect the source locally without returning values, bind the fields, verify local key hygiene and remote host identity, authenticate, discover capabilities, validate optional project bindings, and activate the candidate transactionally.
+
+### Permanent boundaries
+
+- no raw private-key material through MCP, chat, YAML, logs, manifests, or durable run inputs;
+- no SSH password or keyboard-interactive authentication;
+- no project-specific host-migration code;
+- no active config, managed host-key, capability pointer, or project-binding mutation before candidate checks pass;
+- automatic rollback covers every local resource changed by activation;
+- existing run, lease, cancellation, repository-lock, and service-reload authorities are reused;
+- the controller performs the deterministic multi-call workflow; no second model-agent loop is introduced.
+
+### Detailed plan
+
+See [`docs/ssh-agent-driven-host-onboarding-plan.md`](docs/ssh-agent-driven-host-onboarding-plan.md) for the data model, public operations, state machine, security invariants, implementation sequence, required tests, and exit gates.
+
 
 ## Priority 0 - CF1 Chat Footprint and Progressive Disclosure
 
