@@ -39,6 +39,7 @@ from .ssh_commands import (
     validate_ssh_command_profile,
     validate_ssh_host_id,
 )
+from .ssh_project_bindings import resolve_ssh_project_binding
 from .ssh_policy import (
     CANONICAL_AUTONOMY_PROFILES,
     IMPLEMENTED_SSH_EXECUTION_MODES,
@@ -289,17 +290,19 @@ def validate_remote_path(
 
 
 def _resolve_deployment(
-    host: SSHHostConfig, deployment_id: str
+    config: AppConfig,
+    host_id: str,
+    deployment_id: str,
 ) -> SSHDeploymentProfileConfig:
-    deployment_id = _safe_name(deployment_id, "deployment_id")
-    profile = host.deployment_profiles.get(deployment_id)
-    if profile is None:
-        raise ValueError(
-            f"Unknown deployment_id: {deployment_id!r}. "
-            f"Allowed: {sorted(host.deployment_profiles)}"
-        )
-    validate_remote_path(host, profile.remote_root, sensitive=True)
-    return profile
+    resolved = resolve_ssh_project_binding(
+        config,
+        _safe_name(deployment_id, "deployment_id"),
+        host_id=host_id,
+    )
+    validate_remote_path(
+        resolved.host, resolved.profile.remote_root, sensitive=True
+    )
+    return resolved.profile
 
 
 def _require_confirmation(config: AppConfig, action: str, confirmation: str) -> None:
@@ -410,7 +413,7 @@ def build_ssh_inspection(
     else:
         resolved_path = path
         if deployment_id:
-            profile = _resolve_deployment(host, deployment_id)
+            profile = _resolve_deployment(config, host_id, deployment_id)
             resolved_path = profile.remote_root
         resolved_path = validate_remote_path(host, resolved_path)
         if operation == "file_stat":
@@ -715,7 +718,7 @@ def build_ssh_action(
             ["systemctl", service_actions[action], _safe_name(target, "target")],
         )
     elif action in compose_actions:
-        profile = _resolve_deployment(host, deployment_id)
+        profile = _resolve_deployment(config, host_id, deployment_id)
         compose_file = profile.compose_file or "docker-compose.yml"
         compose_path = validate_remote_path(
             host, posixpath.join(profile.remote_root, compose_file)
@@ -734,10 +737,10 @@ def build_ssh_action(
         )
         timeout = 1800
     elif action == "git_fetch":
-        profile = _resolve_deployment(host, deployment_id)
+        profile = _resolve_deployment(config, host_id, deployment_id)
         remote_argv = ["git", "-C", profile.remote_root, "fetch", "--all", "--prune"]
     elif action == "git_pull_ff":
-        profile = _resolve_deployment(host, deployment_id)
+        profile = _resolve_deployment(config, host_id, deployment_id)
         remote_argv = ["git", "-C", profile.remote_root, "pull", "--ff-only"]
     elif action == "create_directory":
         remote_argv = [
@@ -1065,7 +1068,7 @@ def run_ssh_deployment(
             f"SSH deployment requires confirmation token {config.ssh.confirmation_token!r}"
         )
     host = resolve_ssh_host(config, host_id)
-    profile = _resolve_deployment(host, deployment_id)
+    profile = _resolve_deployment(config, host_id, deployment_id)
     source_root = validate_repo_relative_path(repo_root, profile.local_subdir)
     if not source_root.is_dir():
         raise ValueError("Deployment local_subdir must resolve to a directory")

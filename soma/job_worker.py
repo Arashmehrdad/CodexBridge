@@ -458,7 +458,7 @@ def _validate_ssh_deployment_worker_input(
     deployment_id = str(input_data["deployment_id"])
     host = resolve_ssh_host(config, host_id)
     resolve_ssh_connection(host, config.ssh)
-    deployment = _resolve_deployment(host, deployment_id)
+    deployment = _resolve_deployment(config, host_id, deployment_id)
     repo_root = resolve_repo(config, deployment.repo_name)
     source_root = validate_repo_relative_path(repo_root, deployment.local_subdir)
     if not source_root.is_dir():
