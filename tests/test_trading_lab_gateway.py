@@ -33,8 +33,15 @@ DEVELOPING_RAW_OPEN = 1_784_534_400
 DEVELOPING_OPEN_UTC = datetime.fromtimestamp(DEVELOPING_RAW_OPEN - OFFSET, tz=UTC)
 NOW = DEVELOPING_OPEN_UTC + timedelta(hours=1)
 
+from trading_lab.candle_boundary import (  # noqa: E402
+    CandleBoundary,
+    detect_candle_gaps,
+    resolve_candle_boundary,
+)
+from trading_lab.market_sessions import CRYPTO_WEEKEND_MAINTENANCE  # noqa: E402
 from trading_lab.mt5_provider import (  # noqa: E402
     Candle,
+    HistoricalCandles,
     HistoricalTick,
     ProviderHealth,
     ProviderTimestamp,
@@ -45,12 +52,14 @@ from trading_lab.mt5_provider import (  # noqa: E402
 from trading_lab.service import (  # noqa: E402
     ACTION_OPERATIONS,
     COMPANION_OPERATIONS,
+    COMPATIBILITY_READ_OPERATIONS,
     DEPRECATED_QUERY_OPERATIONS,
     JOURNAL_QUERY_OPERATIONS,
     READ_OPERATIONS,
     RUNTIME_CONTROL_OPERATIONS,
     SIGNAL_OPERATIONS,
 )
+from trading_lab.timeframes import resolve_timeframe  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -198,6 +207,61 @@ class FakeProvider:
             ),
             age_seconds=15.0,
             fresh=True,
+        )
+
+    def _series(self, timeframe: Any) -> tuple[list[Candle], Candle]:
+        period = resolve_timeframe(timeframe)
+        if period.name == "H4":
+            return self._completed_h4, self._developing_h4
+        if period.name == "H1":
+            return self._completed_h1, self._developing_h1
+        raise LookupError(f"the fake provider has no {period.name} series")
+
+    def candles(
+        self,
+        _symbol: str,
+        timeframe: Any = None,
+        *,
+        completed_count: int = 200,
+    ) -> tuple[list[Candle], Candle | None]:
+        completed, developing = self._series(timeframe)
+        return completed[-completed_count:], developing
+
+    def candle_boundary(
+        self,
+        symbol: str,
+        timeframe: Any = None,
+        *,
+        probe_bars: int = 3,
+        probe_attempts: int = 2,
+    ) -> CandleBoundary:
+        """A live probe over the newest few bars, exactly like the adapter."""
+        completed, developing = self._series(timeframe)
+        return resolve_candle_boundary(
+            symbol=symbol,
+            timeframe=timeframe,
+            tick=self.latest_tick(symbol),
+            bars=[*completed[-(probe_bars - 1) :], developing],
+            now=self._now,
+            calendar=CRYPTO_WEEKEND_MAINTENANCE,
+        )
+
+    def historical_candles(
+        self, symbol: str, timeframe: Any = None, *, count: int = 200
+    ) -> HistoricalCandles:
+        period = resolve_timeframe(timeframe)
+        completed, _ = self._series(timeframe)
+        window = completed[-count:]
+        return HistoricalCandles(
+            symbol=symbol,
+            timeframe=period.name,
+            timeframe_seconds=period.seconds,
+            requested_count=count,
+            candles=tuple(window),
+            gaps=detect_candle_gaps(
+                window, period, calendar=CRYPTO_WEEKEND_MAINTENANCE
+            ),
+            warnings=(),
         )
 
     def h1_candles(
@@ -407,6 +471,58 @@ class TestStateCompatibility:
             == config.trading.maximum_tick_age_seconds
         )
         assert settings.terminal_path == (config.trading.terminal_path or None)
+        assert settings.timeframe == config.trading.timeframe
+        assert settings.candle_count == config.trading.candle_count
+        assert settings.session_calendar == config.trading.session_calendar
+        assert (
+            settings.boundary_probe_bars == config.trading.boundary_probe_bars
+        )
+
+    def test_the_timeframe_defaults_match_the_domain(self, trading_env) -> None:
+        """H1 is the current experiment, named once and mapped straight through."""
+        config, _provider, _tmp = trading_env
+        assert config.trading.timeframe == "H1"
+        assert config.trading.candle_count == 200
+        assert config.trading.session_calendar == "crypto_weekend_maintenance"
+
+    def test_the_domain_resolves_timeframes_soma_only_carries(
+        self, trading_env
+    ) -> None:
+        """Soma holds no copy of the period registry; it forwards a string."""
+        config, _provider, _tmp = trading_env
+        config.trading.timeframe = "15m"
+        settings = trading_lab_adapter.settings_from_config(config)
+        assert settings.timeframe == "M15"
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [("timeframe", "H5"), ("session_calendar", "invented")],
+    )
+    def test_an_unknown_period_or_calendar_is_refused_by_the_domain(
+        self, trading_env, field: str, value: str
+    ) -> None:
+        config, _provider, _tmp = trading_env
+        setattr(config.trading, field, value)
+        with pytest.raises(ValueError):
+            trading_lab_adapter.settings_from_config(config)
+
+    def test_the_provider_carries_the_configured_session_calendar(
+        self, tmp_path: Path
+    ) -> None:
+        """Otherwise the Saturday maintenance pause reads as missing data.
+
+        Built from a plain config rather than the ``trading_env`` fixture,
+        which substitutes the fake provider for the real constructor.
+        """
+        (tmp_path / ".git").mkdir()
+        config = AppConfig(
+            repos={"repo": RepoConfig(path=str(tmp_path))},
+            runs_dir=str(tmp_path / "runs"),
+            trading={"enabled": True, "symbol": SYMBOL},
+            config_dir=tmp_path,
+        )
+        provider = trading_lab_adapter.configured_mt5_provider(config)
+        assert provider.session_calendar.name == "crypto_weekend_maintenance"
 
     def test_services_are_stable_within_one_configuration(
         self, trading_env
@@ -469,6 +585,93 @@ class TestMarketDataReads:
         assert (
             result["result"]["timestamp"]["provider_utc_offset_seconds"]
             == OFFSET
+        )
+
+    def test_candles_default_to_the_configured_period(self, trading_env) -> None:
+        result = query(operation="candles", completed_count=5, view="full")
+        assert len(result["result"]["completed"]) == 5
+        assert result["result"]["developing"]["timeframe"] == "1H"
+
+    def test_candles_accept_an_explicit_period(self, trading_env) -> None:
+        result = query(
+            operation="candles",
+            timeframe="H4",
+            completed_count=5,
+            view="full",
+        )
+        assert result["result"]["developing"]["timeframe"] == "4H"
+
+    def test_candles_respect_the_budget(self, trading_env) -> None:
+        result = query(
+            operation="candles",
+            completed_count=100,
+            response_budget_bytes=2048,
+        )
+        assert result["response_bytes"] <= 2048
+        assert result["truncated"] is True
+
+    def test_an_unknown_period_is_refused_with_the_domain_message(
+        self, trading_env
+    ) -> None:
+        """Soma forwards the string; the domain names what it accepts."""
+        result = query(operation="candles", timeframe="H5")
+        assert result["ok"] is False
+        assert result["status"] == "provider_error"
+        assert "unknown timeframe" in result["error"]
+
+    def test_candle_boundary_is_a_separate_bounded_read(
+        self, trading_env
+    ) -> None:
+        result = query(operation="candle_boundary", view="full")
+        boundary = result["result"]
+
+        assert boundary["timeframe"] == "H1"
+        assert boundary["boundary_source"] == "live_probe"
+        assert boundary["decision_candle"]["timeframe"] == "1H"
+        assert boundary["developing"]["timeframe"] == "1H"
+        # The just-closed candle, not the developing one, is the decision.
+        assert (
+            boundary["decision_open_utc"]
+            < boundary["developing"]["open_time"]["normalized_utc"]
+        )
+        assert boundary["synchronised"] is True
+        assert boundary["latest_tick"]["fresh"] is True
+
+    def test_candle_boundary_compact_stays_within_the_budget(
+        self, trading_env
+    ) -> None:
+        result = query(operation="candle_boundary", response_budget_bytes=1024)
+        assert result["response_bytes"] <= 1024
+        assert result["truncated"] is True
+
+    def test_historical_candles_is_its_own_window_read(
+        self, trading_env
+    ) -> None:
+        result = query(operation="historical_candles", count=10, view="full")
+        window = result["result"]
+
+        assert window["timeframe"] == "H1"
+        assert window["requested_count"] == 10
+        assert len(window["candles"]) == 10
+        assert window["gaps"] == []
+
+    def test_historical_candles_trims_the_oldest_bars_first(
+        self, trading_env
+    ) -> None:
+        full = query(operation="historical_candles", count=100, view="full")
+        trimmed = query(
+            operation="historical_candles",
+            count=100,
+            response_budget_bytes=2048,
+        )
+
+        assert trimmed["response_bytes"] <= 2048
+        assert trimmed["truncated"] is True
+        # What survives is the end of the window: the bars nearest the
+        # decision boundary.
+        assert (
+            trimmed["result"]["candles"][-1]
+            == full["result"]["candles"][-1]
         )
 
     def test_h1_candles(self, trading_env) -> None:
@@ -537,6 +740,17 @@ class TestMarketDataReads:
         result = query(operation=operation, **extra)
         assert result["ok"] is True, result
         assert result["operation"] == operation
+
+    @pytest.mark.parametrize(
+        "operation", sorted(COMPATIBILITY_READ_OPERATIONS)
+    )
+    def test_the_hourly_aliases_remain_served(
+        self, trading_env, operation: str
+    ) -> None:
+        """Callers written against the H1-only surface keep working."""
+        result = query(operation=operation, completed_count=5, view="full")
+        assert result["ok"] is True, result
+        assert len(result["result"]["completed"]) == 5
 
 
 class TestProviderErrorClassification:

@@ -270,6 +270,48 @@ eighteen calls:
 No financial trade was executed. Every live call was a read or a
 journal query.
 
+The table and counts above are the record as of the cutover. The connector
+has moved since; what follows is what changed and why it stayed thin.
+
+## Connector update: timeframe-agnostic reads (trading-lab 0.3.0)
+
+`trading-lab` 0.3.0 removed H1 from the domain's structure and split live
+boundary probing from bulk historical loading. Three read operations appeared
+in `READ_OPERATIONS`, and Soma serves them because its gateway is gated on that
+inventory — not because it decided to.
+
+| Operation | What it answers |
+| --- | --- |
+| `candles` | Completed candles plus the developing one, on any MT5 period |
+| `candle_boundary` | Where the current candle starts and which one just closed, from the newest tick and the newest few bars |
+| `historical_candles` | The bulk analysis window, with expected session closures already classified |
+
+`h1_candles` and `h4_candles` remain, served as compatibility aliases from
+`COMPATIBILITY_READ_OPERATIONS`. `trading_query` now advertises 23 discriminated
+branches rather than 20, and the CF1 operation inventory moved to
+`cf1.3.gateway-operations.v12`.
+
+`TradingConfig` gained `timeframe`, `candle_count`, `session_calendar`, and
+`boundary_probe_bars`. Every one is a plain bounded value that
+`settings_from_config` forwards untouched:
+
+- Soma holds **no copy** of the MT5 period registry or the session-calendar
+  list. `TradingLabSettings` resolves `"1H"` to `"H1"`, refuses `"H5"` with a
+  message naming every period it accepts, and Soma reports that message.
+- The gateway's `timeframe` field is a bounded string rather than an
+  enumeration, for the same reason: an enum here would be a second place to
+  keep the domain's period list correct.
+- The configured session calendar travels with `configured_mt5_provider`, so
+  the Alpari crypto feed's Saturday 06:00-11:00 UTC maintenance pause is
+  reported as an expected closure instead of missing data.
+
+Defaults preserve current behavior exactly — `H1`, 200 candles,
+`crypto_weekend_maintenance` — so an existing `config.yaml` needs no edit.
+
+The boundary between the two repositories is unchanged. Soma added request
+models, dispatch, response budgets, and configuration mapping. No trading logic
+moved out of the package.
+
 One transient result is worth recording: two journal reads issued
 concurrently against a brand-new trading directory returned
 `{"status": "journal_error", "error": "database is locked"}` while several

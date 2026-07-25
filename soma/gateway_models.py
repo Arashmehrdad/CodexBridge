@@ -280,7 +280,52 @@ class TradingTickQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+# The chart period is a bounded string rather than an enumeration: the
+# set of MetaTrader 5 periods belongs to the trading domain, and copying
+# it into this schema would be a second place to keep it correct. An
+# unknown value is refused by the domain with a message naming every
+# period it does accept. ``None`` means the configured timeframe.
+_TIMEFRAME_FIELD = Field(default=None, min_length=1, max_length=16)
+
+
+class TradingCandlesQuery(GatewayModel):
+    """Completed candles plus the developing one, for any MT5 period."""
+
+    operation: Literal["candles"]
+    timeframe: str | None = _TIMEFRAME_FIELD
+    completed_count: int = Field(default=200, ge=1, le=2_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingCandleBoundaryQuery(GatewayModel):
+    """The live decision boundary: newest tick plus the newest few bars.
+
+    Deliberately not a window read. It answers where the current candle
+    starts and which one just closed, cheaply enough to repeat, and
+    reports a series that is behind the tick feed instead of failing.
+    """
+
+    operation: Literal["candle_boundary"]
+    timeframe: str | None = _TIMEFRAME_FIELD
+    probe_bars: int = Field(default=3, ge=2, le=50)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TradingHistoricalCandlesQuery(GatewayModel):
+    """The bulk analysis window, with expected session closures named."""
+
+    operation: Literal["historical_candles"]
+    timeframe: str | None = _TIMEFRAME_FIELD
+    count: int = Field(default=200, ge=1, le=2_000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class TradingH1Query(GatewayModel):
+    """Compatibility alias for ``candles`` on the H1 period."""
+
     operation: Literal["h1_candles"]
     completed_count: int = Field(default=200, ge=1, le=2_000)
     view: Literal["compact", "full"] = "compact"
@@ -288,6 +333,8 @@ class TradingH1Query(GatewayModel):
 
 
 class TradingH4Query(GatewayModel):
+    """Compatibility alias for ``candles`` on the H4 period."""
+
     operation: Literal["h4_candles"]
     completed_count: int = Field(default=200, ge=1, le=2_000)
     view: Literal["compact", "full"] = "compact"
@@ -505,7 +552,8 @@ class TradingCompanionListQuery(GatewayModel):
 
 TradingQueryRequest = Annotated[
     TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
-    | TradingTickQuery | TradingH1Query | TradingH4Query
+    | TradingTickQuery | TradingCandlesQuery | TradingCandleBoundaryQuery
+    | TradingHistoricalCandlesQuery | TradingH1Query | TradingH4Query
     | TradingHistoricalTicksQuery
     | TradingDeprecatedPortfolioQuery | TradingPacketGetQuery
     | TradingPacketListQuery | TradingOutcomeGetQuery
@@ -585,7 +633,8 @@ class TradingCompanionStartRequest(GatewayModel):
         default_factory=list, max_length=50
     )
     scheduled_for_utc: datetime | None = None
-    completed_count: int = Field(default=200, ge=1, le=2_000)
+    completed_count: int = Field(default=200, ge=10, le=5_000)
+    timeframe: str | None = _TIMEFRAME_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 

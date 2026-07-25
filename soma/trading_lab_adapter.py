@@ -72,12 +72,15 @@ from trading_lab.action_gateway import Quote
 from trading_lab.service import (
     ACTION_OPERATIONS,
     COMPANION_OPERATIONS,
+    COMPATIBILITY_READ_OPERATIONS,
     DEPRECATED_QUERY_NOTICE,
     DEPRECATED_QUERY_OPERATIONS,
     JOURNAL_QUERY_OPERATIONS,
     READ_OPERATIONS,
     RUNTIME_CONTROL_OPERATIONS,
     SIGNAL_OPERATIONS,
+    SUPPORTED_SESSION_CALENDARS,
+    SUPPORTED_TIMEFRAMES,
     TradingLabPaths,
     TradingLabSettings,
     TradingLabServices,
@@ -99,8 +102,12 @@ def trading_dir(config: AppConfig) -> Path:
 def settings_from_config(config: AppConfig) -> TradingLabSettings:
     """Map Soma's ``TradingConfig`` onto the package's settings.
 
-    Field-for-field, with no defaulting of its own: every value below is
-    already validated by ``TradingConfig``.
+    Field-for-field, with no defaulting of its own. Ranges and shapes are
+    already validated by ``TradingConfig``; the chart period and the
+    session calendar are resolved and validated by ``TradingLabSettings``
+    itself, which is why an alias like ``1H`` arrives here untouched and
+    leaves normalized to ``H1``. Soma deliberately holds no copy of the
+    timeframe registry or the calendar list.
     """
     trading: TradingConfig = config.trading
     return TradingLabSettings(
@@ -109,6 +116,10 @@ def settings_from_config(config: AppConfig) -> TradingLabSettings:
         terminal_path=trading.terminal_path or None,
         provider_utc_offset_seconds=trading.provider_utc_offset_seconds,
         maximum_tick_age_seconds=trading.maximum_tick_age_seconds,
+        timeframe=trading.timeframe,
+        candle_count=trading.candle_count,
+        session_calendar=trading.session_calendar,
+        boundary_probe_bars=trading.boundary_probe_bars,
     )
 
 
@@ -137,12 +148,19 @@ def reset_services_cache() -> None:
 
 
 def configured_mt5_provider(config: AppConfig) -> MT5Provider:
-    """A provider built from Soma's configuration, not yet connected."""
+    """A provider built from Soma's configuration, not yet connected.
+
+    The session calendar travels with the provider so that a scheduled
+    broker closure — the Alpari crypto feed pauses every Saturday from
+    06:00 to 11:00 UTC — is reported as an expected closure rather than
+    as missing or stale data.
+    """
     trading = config.trading
     return MT5Provider(
         terminal_path=trading.terminal_path or None,
         provider_utc_offset_seconds=trading.provider_utc_offset_seconds,
         maximum_tick_age_seconds=trading.maximum_tick_age_seconds,
+        session_calendar=trading.session_calendar,
     )
 
 
@@ -258,6 +276,7 @@ __all__ = [
     "ActionType",
     "CapabilityRole",
     "COMPANION_OPERATIONS",
+    "COMPATIBILITY_READ_OPERATIONS",
     "CostModel",
     "DEPRECATED_QUERY_NOTICE",
     "DEPRECATED_QUERY_OPERATIONS",
@@ -277,6 +296,8 @@ __all__ = [
     "ReplayConfig",
     "ResearchSource",
     "SIGNAL_OPERATIONS",
+    "SUPPORTED_SESSION_CALENDARS",
+    "SUPPORTED_TIMEFRAMES",
     "SafetyLimits",
     "SignalDecisionV2",
     "SignalJournalV2",

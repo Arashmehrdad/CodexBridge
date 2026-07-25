@@ -96,6 +96,7 @@ from .trading_lab_adapter import (
     ActionState,
     ActionType as TradingActionType,
     CapabilityRole as TradingCapabilityRole,
+    COMPATIBILITY_READ_OPERATIONS,
     DEPRECATED_QUERY_NOTICE,
     DEPRECATED_QUERY_OPERATIONS,
     ExecutionMode as TradingExecutionMode,
@@ -4419,24 +4420,53 @@ def trading_query(request: TradingQueryRequest) -> dict:
             result = provider.symbol_specification(trading.symbol)
         elif request.operation == "tick":
             result = provider.latest_tick(trading.symbol)
-        elif request.operation in {"h1_candles", "h4_candles"}:
+        elif request.operation in _TRADING_CANDLE_SERIES_OPERATIONS:
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
-            candle_reader = (
-                provider.h1_candles
-                if request.operation == "h1_candles"
-                else provider.h4_candles
-            )
-            completed, developing = candle_reader(
-                trading.symbol, completed_count=request.completed_count
-            )
+            if request.operation == "candles":
+                completed, developing = provider.candles(
+                    trading.symbol,
+                    request.timeframe or trading.timeframe,
+                    completed_count=request.completed_count,
+                )
+            else:
+                # The H1/H4 aliases name their own period regardless of
+                # what the configured timeframe happens to be.
+                candle_reader = (
+                    provider.h1_candles
+                    if request.operation == "h1_candles"
+                    else provider.h4_candles
+                )
+                completed, developing = candle_reader(
+                    trading.symbol, completed_count=request.completed_count
+                )
             result = {"completed": completed, "developing": developing}
+        elif request.operation == "candle_boundary":
+            # The live probe: newest tick plus the newest few bars. It is
+            # never answered from the analysis window, so a rate series
+            # still catching up after a terminal restart is reported as
+            # unsynchronised rather than mistaken for a dead feed.
+            result = provider.candle_boundary(
+                trading.symbol,
+                request.timeframe or trading.timeframe,
+                probe_bars=request.probe_bars,
+            )
+        elif request.operation == "historical_candles":
+            if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+                raise ValueError("response_budget_bytes must be between 1024 and 65536")
+            result = provider.historical_candles(
+                trading.symbol,
+                request.timeframe or trading.timeframe,
+                count=request.count,
+            )
         else:
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
             result = provider.historical_ticks(trading.symbol, request.start_utc, request.end_utc)
         response = {"ok": True, "operation": request.operation, "symbol": trading.symbol, "result": _trading_json(result)}
-        if request.operation in {"specification", "tick"}:
+        if request.operation in {"specification", "tick", "candle_boundary"}:
+            # Bounded objects: one specification, one tick, or one boundary
+            # carrying at most a developing and a just-closed candle.
             if request.view == "full":
                 return response
             return _bounded_trading_scalar_response(response, request.response_budget_bytes)
@@ -4469,7 +4499,7 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 response["truncated"] = True
                 response["has_more"] = True
             response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
-        if request.operation in {"h1_candles", "h4_candles"}:
+        if request.operation in _TRADING_CANDLE_SERIES_OPERATIONS:
             response["truncated"] = False
             response["has_more"] = False
             response["response_budget_bytes"] = request.response_budget_bytes
@@ -4484,6 +4514,22 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 response["truncated"] = True
                 response["has_more"] = True
             response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+        if request.operation == "historical_candles":
+            response["truncated"] = False
+            response["has_more"] = False
+            response["response_budget_bytes"] = request.response_budget_bytes
+            while len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > request.response_budget_bytes:
+                # The series is oldest-first, so dropping the front keeps
+                # the bars nearest the decision boundary. The classified
+                # gaps stay put: a trimmed window never looks gap-free.
+                candles = response["result"].get("candles")
+                if isinstance(candles, list) and candles:
+                    candles.pop(0)
+                else:
+                    break
+                response["truncated"] = True
+                response["has_more"] = True
+            response["response_bytes"] = len(json.dumps(response, ensure_ascii=False).encode("utf-8"))
         return response
     except Exception as exc:
         return {"ok": False, "status": "provider_error", "error": str(exc)}
@@ -4492,6 +4538,14 @@ def trading_query(request: TradingQueryRequest) -> dict:
 
 
 _TRADING_JOURNAL_OPERATIONS = frozenset(JOURNAL_QUERY_OPERATIONS)
+
+#: Reads that return a completed/developing candle pair and share one
+#: budget-trimming rule. ``candles`` is the timeframe-agnostic operation;
+#: the other two are the H1/H4 compatibility aliases the trading domain
+#: still exposes, named here from its own inventory rather than by hand.
+_TRADING_CANDLE_SERIES_OPERATIONS = frozenset(
+    {"candles", *COMPATIBILITY_READ_OPERATIONS}
+)
 
 
 def _trading_dir() -> Path:
@@ -4838,6 +4892,7 @@ def trading_companion_action(request: TradingCompanionActionRequest) -> dict:
                 scheduled_for_utc=request.scheduled_for_utc,
                 now=datetime.now(timezone.utc),
                 completed_count=request.completed_count,
+                timeframe=request.timeframe,
             )
             response = {
                 "ok": True,

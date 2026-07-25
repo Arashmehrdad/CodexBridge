@@ -1111,6 +1111,17 @@ class TradingConfig(BaseModel):
     symbol: str = "BITCOIN_i"
     provider_utc_offset_seconds: int = Field(default=0, ge=-86_400, le=86_400)
     maximum_tick_age_seconds: int = Field(default=120, ge=1, le=3_600)
+    # The chart period, analysis depth, and expected-closure calendar are
+    # named here but defined by the trading domain. They stay plain bounded
+    # strings so Soma never carries its own copy of the timeframe registry
+    # or the session calendars: TradingLabSettings resolves and validates
+    # them when trading_lab_adapter maps this config onto it.
+    timeframe: str = Field(default="H1", min_length=1, max_length=16)
+    candle_count: int = Field(default=200, ge=10, le=5_000)
+    session_calendar: str = Field(
+        default="crypto_weekend_maintenance", min_length=1, max_length=64
+    )
+    boundary_probe_bars: int = Field(default=3, ge=2, le=50)
 
     @model_validator(mode="after")
     def validate_terminal_path(self) -> "TradingConfig":
@@ -1124,6 +1135,14 @@ class TradingConfig(BaseModel):
         if not self.symbol.strip():
             raise ValueError("Trading symbol must not be empty")
         self.symbol = self.symbol.strip()
+        # Trimmed, not interpreted. Whether "1H" or "crypto_weekend_maintenance"
+        # names anything real is the trading domain's question to answer.
+        self.timeframe = self.timeframe.strip()
+        self.session_calendar = self.session_calendar.strip()
+        if not self.timeframe or not self.session_calendar:
+            raise ValueError(
+                "Trading timeframe and session_calendar must not be empty"
+            )
         return self
 
 

@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v11"
+    "cf1.3.gateway-operations.v12"
 )
 
 
@@ -924,7 +924,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("h1_candles", "h4_candles"),
+        ("candles", "h1_candles", "h4_candles"),
         "soma.server:trading_query",
         "bounded completed-candle series",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
@@ -933,7 +933,30 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=200,
         maximum_item_limit=2_000,
-        notes="Candle count remains request bounded; compact responses use a UTF-8 byte budget with truncation metadata, while view=full preserves the complete selected series.",
+        notes="Candle count remains request bounded on any requested timeframe; compact responses use a UTF-8 byte budget with truncation metadata, while view=full preserves the complete selected series. h1_candles and h4_candles are compatibility aliases over candles.",
+    ),
+    _entry(
+        "trading_query",
+        ("candle_boundary",),
+        "soma.server:trading_query",
+        "bounded compact decision-boundary projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="The live probe reads the newest tick and a request-bounded handful of bars, so the response is one object carrying at most a developing and a just-closed candle; compact retains provider-safe scalar fields under a UTF-8 budget, while view=full remains explicit complete boundary evidence including synchronisation warnings.",
+    ),
+    _entry(
+        "trading_query",
+        ("historical_candles",),
+        "soma.server:trading_query",
+        "bounded historical candle window",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=200,
+        maximum_item_limit=2_000,
+        notes="The analysis window is request bounded and read independently of the boundary probe; compact trims the oldest bars under a UTF-8 byte budget with truncation metadata while retaining every classified session gap, and view=full preserves the complete window.",
     ),
     _entry(
         "trading_query",
