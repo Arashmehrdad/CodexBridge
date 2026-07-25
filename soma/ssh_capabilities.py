@@ -407,6 +407,13 @@ def capability_snapshot_projection(record: Mapping[str, Any]) -> dict[str, Any]:
     resources = dict(record.get("resources") or {})
     operating_system = dict(record.get("operating_system") or {})
     identity = dict(record.get("identity") or {})
+    available_capabilities = set(available_tools)
+    if bool(identity.get("root")):
+        available_capabilities.add("root")
+    if bool(identity.get("passwordless_sudo")):
+        available_capabilities.add("passwordless_sudo")
+    if bool(record.get("process_group_controls")):
+        available_capabilities.add("process_group_controls")
     return {
         "ok": bool(record.get("required_capabilities_ok"))
         and str(record.get("status")) != "unavailable",
@@ -429,6 +436,7 @@ def capability_snapshot_projection(record: Mapping[str, Any]) -> dict[str, Any]:
         },
         "package_manager": str(record.get("package_manager") or ""),
         "available_tools": available_tools,
+        "available_capabilities": sorted(available_capabilities),
         "memory_total_bytes": int(
             dict(resources.get("system_memory") or {}).get("total_bytes") or 0
         ),

@@ -23,7 +23,9 @@ from .safety import redact_secret_values, validate_repo_relative_path
 from .ssh_capabilities import (
     build_capability_snapshot_payload,
     capability_probe_specs,
+    capability_snapshot_projection,
     persist_capability_snapshot,
+    read_capability_snapshot,
 )
 from .transfer_manifests import build_download_cleanup_manifest, cleanup_transfer_staging
 from .ssh_commands import (
@@ -39,7 +41,11 @@ from .ssh_commands import (
     validate_ssh_command_profile,
     validate_ssh_host_id,
 )
-from .ssh_project_bindings import resolve_ssh_project_binding
+from .ssh_project_bindings import (
+    build_project_binding_validation_plan,
+    evaluate_project_binding_validation,
+    resolve_ssh_project_binding,
+)
 from .ssh_policy import (
     CANONICAL_AUTONOMY_PROFILES,
     IMPLEMENTED_SSH_EXECUTION_MODES,
@@ -48,6 +54,7 @@ from .ssh_policy import (
     SSH_EXECUTION_POLICY_MATRIX,
 )
 from .ssh_probes import (
+    SSHProbeSpec,
     environment_probe_specs,
     evaluate_watchdog,
     gpu_probe_specs,
@@ -657,6 +664,61 @@ def run_ssh_capability_snapshot(
         }
     )
     return result
+
+
+def run_ssh_project_binding_validation(
+    config: AppConfig,
+    binding_id: str,
+    *,
+    host_id: str = "",
+    capability_snapshot_id: str = "",
+) -> dict[str, Any]:
+    """Validate one project binding using fixed read-only SSH probes."""
+
+    resolved, checks = build_project_binding_validation_plan(
+        config,
+        binding_id,
+        host_id=host_id,
+    )
+    if capability_snapshot_id:
+        capability = capability_snapshot_projection(
+            read_capability_snapshot(
+                config.resolve_runs_dir(),
+                host_id=resolved.host_id,
+                snapshot_id=capability_snapshot_id,
+            )
+        )
+    else:
+        capability = run_ssh_capability_snapshot(
+            config,
+            resolved.host_id,
+            endpoint_route="project_binding_validation",
+            required_capabilities=list(resolved.required_capabilities),
+        )
+    specs = tuple(
+        SSHProbeSpec(
+            check.name,
+            check.argv,
+            timeout_seconds=30,
+            required=check.required,
+        )
+        for check in checks
+    )
+    raw = _run_probe_specs(config, resolved.host_id, specs)
+    validation = evaluate_project_binding_validation(
+        resolved,
+        checks,
+        raw,
+        capability_snapshot=capability,
+    )
+    validation.update(
+        {
+            "capability_snapshot": capability,
+            "writes_remote": False,
+            "high_risk": False,
+        }
+    )
+    return validation
 
 
 def build_ssh_action(

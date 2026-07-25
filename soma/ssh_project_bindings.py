@@ -257,6 +257,9 @@ def evaluate_project_binding_validation(
 ) -> dict[str, Any]:
     capability_snapshot = dict(capability_snapshot or {})
     available_tools = set(capability_snapshot.get("available_tools") or [])
+    available_capabilities = set(
+        capability_snapshot.get("available_capabilities") or available_tools
+    )
     explicit_missing = set(
         capability_snapshot.get("missing_required_capabilities") or []
     )
@@ -267,7 +270,7 @@ def evaluate_project_binding_validation(
         {
             name
             for name in resolved.required_capabilities
-            if name not in available_tools
+            if name not in available_capabilities
         }
         | explicit_missing
     )
