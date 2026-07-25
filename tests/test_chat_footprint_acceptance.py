@@ -735,7 +735,6 @@ def test_projection_overhead_and_full_retrieval_performance(
 
     baseline_batches: list[float] = []
     current_batches: list[float] = []
-    paired_excess_ms: list[float] = []
     for index in range(7):
         # Alternate ordering so transient CPU/load drift cannot consistently
         # penalize the current path merely because it always runs second.
@@ -747,14 +746,12 @@ def test_projection_overhead_and_full_retrieval_performance(
             current_ms = timed_batch(full_retrieval_current)
         baseline_batches.append(baseline_ms)
         current_batches.append(current_ms)
-        paired_excess_ms.append(current_ms - baseline_ms * 1.05)
     baseline_median = statistics.median(baseline_batches)
     current_median = statistics.median(current_batches)
-    paired_excess_median = statistics.median(paired_excess_ms)
-    # Each pair evaluates the same 5% relative bound. The median removes
-    # one-off scheduler noise, while the 0.5 ms batch epsilon (~10 microseconds
-    # per call) still cannot mask a sustained regression.
-    assert paired_excess_median <= 0.5
+    # Preserve the original aggregate-median contract while alternating order
+    # to prevent systematic second-run scheduler bias. The 0.5 ms batch epsilon
+    # remains approximately 10 microseconds per call.
+    assert current_median <= baseline_median * 1.05 + 0.5
     print(
         "CF1-ACCEPTANCE-PERFORMANCE "
         + json.dumps(
@@ -763,9 +760,6 @@ def test_projection_overhead_and_full_retrieval_performance(
                 "projection_p95_ms": round(projection_p95, 4),
                 "full_retrieval_baseline_batch_ms_p50": round(baseline_median, 3),
                 "full_retrieval_current_batch_ms_p50": round(current_median, 3),
-                "full_retrieval_paired_excess_ms_p50": round(
-                    paired_excess_median, 3
-                ),
                 "full_retrieval_batch_calls": 50,
             }
         )
