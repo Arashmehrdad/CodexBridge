@@ -2031,10 +2031,16 @@ class JobWorker:
         if not change_id:
             raise ValueError("SSH profile activation input is missing change_id")
         self.event(
-            "ssh_profile_activation_started",
-            change_id=change_id,
-            host_id=str(input_data.get("host_id") or ""),
-            activation_intent=str(input_data.get("activation_intent") or ""),
+            "info",
+            "ssh_profile_activation",
+            "Starting durable SSH profile activation",
+            {
+                "change_id": change_id,
+                "host_id": str(input_data.get("host_id") or ""),
+                "activation_intent": str(
+                    input_data.get("activation_intent") or ""
+                ),
+            },
         )
         activation_result = run_ssh_profile_activation(
             self.config_path,
@@ -2058,10 +2064,14 @@ class JobWorker:
                 "Candidate activation failed and local state was rolled back"
             )
         self.event(
-            "ssh_profile_activation_completed",
-            change_id=change_id,
-            activation_state=state,
-            ok=ok,
+            "info" if ok else "warning",
+            "ssh_profile_activation",
+            "Durable SSH profile activation finished",
+            {
+                "change_id": change_id,
+                "activation_state": state,
+                "ok": ok,
+            },
         )
         return {
             "run_id": self.run_id,
