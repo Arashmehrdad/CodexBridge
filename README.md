@@ -523,13 +523,24 @@ See:
 
 SSH is disabled by default. The public surface is split intentionally:
 
-- `ssh_query` — capabilities and hash-bound profile-change lifecycle;
+- `ssh_query` — capability inventory, secret-safe `credential_probe`, hash-bound `profile_preview` / `profile_status`, durable capability snapshots, project-binding inventory, and read-only project-binding validation;
 - `ssh_inspect` — host health, environment, GPU telemetry, and bounded inspection;
-- `ssh_action` — profile apply, configured command, monitored command, reviewed script, permissive root shell, administration, transfer, and deployment.
+- `ssh_action` — durable profile activation, configured command, monitored command, reviewed script, permissive root shell, administration, transfer, and deployment.
 
-Remote identity, process groups, cancellation, watchdog samples, transfer manifests, and deployment evidence are durable. Readable paths are limited to configured POSIX roots. Secret-like files and unsafe path escapes are blocked.
+Agent-driven host onboarding follows one deterministic sequence:
 
-`root_shell` is a hash-pinned, high-risk permissive operation. It is not a substitute for ordinary structured commands.
+1. Probe the owner-selected credential location with `ssh_query.credential_probe`. The response contains names, mappings, hygiene findings, file identities, and public fingerprints—not credential values or private-key bytes.
+2. Create one `ssh_query.profile_preview` with `action=configure_host`. That immutable preview may register the credential source, bind a host by reference, select pinned / TOFU / rotation trust intent, and upsert canonical project bindings atomically.
+3. Inspect the preview hash, capability diff, and `profile_status`. No active config, trust file, capability pointer, or project binding has changed yet.
+4. Start `ssh_action.profile_apply`. It returns a durable `run_id`, polling request, and terminal-evidence request under the shared `__soma_config__` lock.
+5. Poll `run_query.control` and `ssh_query.profile_status`. Candidate source hygiene, host identity, authentication, capability discovery, and project checks must pass before the live server atomically activates config, managed `known_hosts`, and the capability pointer.
+6. Read `ssh_query.capability_snapshot`, `project_bindings`, or `project_binding_validation` when bounded operational evidence is needed. Full protected snapshots remain an explicit `view=full` read.
+
+Activation failures restore every local resource together. A failed restoration is reported as `RECOVERY_REQUIRED`; it is never presented as success. Existing alias, literal endpoint, connection-file, command, transfer, and deployment profiles remain compatible.
+
+Remote identity, process groups, cancellation, watchdog samples, transfer manifests, deployment evidence, capability snapshots, and activation history are durable. Readable paths are limited to configured POSIX roots. Secret-like files and unsafe path escapes are blocked.
+
+`root_shell` is a hash-pinned, high-risk permissive operation. It is not a substitute for ordinary structured commands. Raw credentials must never be pasted into chat or supplied as MCP arguments.
 
 ### Docker
 
