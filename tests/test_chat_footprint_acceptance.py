@@ -727,9 +727,11 @@ def test_projection_overhead_and_full_retrieval_performance(
         full_retrieval_baseline()
         full_retrieval_current()
 
+    batch_calls = 200
+
     def timed_batch(callable_) -> float:
         started = perf_counter_ns()
-        for _ in range(50):
+        for _ in range(batch_calls):
             callable_()
         return (perf_counter_ns() - started) / 1_000_000
 
@@ -740,11 +742,10 @@ def test_projection_overhead_and_full_retrieval_performance(
         current_batches.append(timed_batch(full_retrieval_current))
     baseline_median = statistics.median(baseline_batches)
     current_median = statistics.median(current_batches)
-    # The 5% relative bound is evaluated on interleaved medians of 50-call
-    # batches (>=10 ms each on this store) so the relative term dominates. The
-    # 0.5 ms absolute epsilon (~10 microseconds per call) only absorbs Windows
-    # timer quantization below measurement resolution; it cannot mask a real
-    # 5% regression at the measured batch magnitudes.
+    # The 5% relative bound is evaluated on interleaved medians of 200-call
+    # batches so scheduler jitter is amortized and the relative term dominates.
+    # The 0.5 ms absolute batch epsilon is only 2.5 microseconds per call; it
+    # cannot mask a sustained 5% regression at the measured magnitudes.
     assert current_median <= baseline_median * 1.05 + 0.5
     print(
         "CF1-ACCEPTANCE-PERFORMANCE "
@@ -754,7 +755,7 @@ def test_projection_overhead_and_full_retrieval_performance(
                 "projection_p95_ms": round(projection_p95, 4),
                 "full_retrieval_baseline_batch_ms_p50": round(baseline_median, 3),
                 "full_retrieval_current_batch_ms_p50": round(current_median, 3),
-                "full_retrieval_batch_calls": 50,
+                "full_retrieval_batch_calls": batch_calls,
             }
         )
     )
