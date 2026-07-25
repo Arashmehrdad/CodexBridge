@@ -74,7 +74,11 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-No implementation lane is currently active. SSH-A1 completed on 2026-07-25 and this roadmap now requires an explicit, bounded user selection before another implementation lane begins.
+The single active implementation lane is **TASK-1 - Canonical Task Plane Foundation**, selected by the owner on 2026-07-25. No other architecture lane is active.
+
+TASK-1 is the bounded first batch of roadmap Phase 1. It adds one controller-neutral canonical task identity above the existing durable execution engine as an additive compatibility layer. It does not replace, weaken, or delete the existing run, workflow, supervisor, SSH, Hermes, command-group, or domain lifecycles.
+
+A generic `continue` must not reactivate CF1, TL0-TL9, H1/H2, OP1, SSH-A1, broad reliability/autonomy work, or Roadmap V3. When TASK-1 closes, this roadmap returns to no active implementation lane until the owner explicitly selects the next bounded batch.
 
 Completed sequence:
 
@@ -90,6 +94,76 @@ The owner-facing SSH contract is now available: provide a local credential locat
 A generic `continue` must not reactivate TL0-TL9, broad reliability/autonomy work, Roadmap V3, broker-demo scheduling, SSH-A1, or another lane. The next implementation unit must be explicitly selected and bounded by the user.
 
 The first owner-supplied real-host onboarding is operational use of the completed SSH-A1 capability, not an automatically active implementation lane. The first minimum-size broker-demo order and unattended trading scheduling remain separate operational decisions.
+
+## Priority 0 - TASK-1 Canonical Task Plane Foundation
+
+Status: **active implementation lane, opened 2026-07-25**.
+
+### Objective
+
+Introduce one controller-neutral canonical task identity above Soma's existing durable execution engine, so that a future controller can supervise every execution type through one compact task protocol without losing recovery, cancellation, or evidence behaviour.
+
+The initial relationship is:
+
+```text
+canonical task
+  -> references one selected execution backend
+  -> maps to an existing durable run
+  -> reuses the existing worker, lease, cancellation, evidence, result, and recovery systems
+```
+
+This is an additive compatibility layer, not a second execution engine.
+
+### Permanent boundaries
+
+- the existing durable engine remains the first and default backend;
+- no second worker, lease, lock, evidence, result, scheduler, or repository authority;
+- no deletion or broad refactor of legacy run, workflow, supervisor, or domain systems;
+- no approval states, permission tiers, autonomy gates, confirmation phrases, or command allowlists as user-permission barriers;
+- controller-neutral terminology only; no `awaiting_chatgpt`, `needs_approval`, or approval state in the canonical task model;
+- exact authoritative evidence is stored once, and public task responses are compact projections referencing that existing evidence;
+- all existing public run APIs and their behaviour are preserved.
+
+### Bounded first implementation
+
+1. canonical task schema and ordered transactional migration;
+2. typed task models and controller-neutral state machine;
+3. mapping for one existing durable execution type;
+4. compact task status and result queries;
+5. one state-version-guarded task command;
+6. idempotent task creation;
+7. compatibility and migration tests;
+8. live discovery and restart acceptance.
+
+Explicitly out of scope for this batch: the application container, scheduler, browser, desktop, Temporal, memory sidecars, capability-broker migration, worktrees, and legacy deletion.
+
+### Selected initial backend
+
+The durable local PowerShell/executable-profile path (`run_start.operation = "powershell"` -> `JobManager.start_executable_profile` -> `executable_profile` runs) is the smallest current public durable execution path that exercises the real engine and can be tested safely.
+
+Its execution logic is not forked. A task-backed start reserves the durable run identity, records it, then delegates to the existing manager. Legacy direct `run_start` remains available and unchanged.
+
+### Canonical states
+
+```text
+accepted
+queued
+running
+awaiting_controller
+paused
+cancellation_pending
+recovery_pending
+completed
+failed
+cancelled
+uncertain
+```
+
+The first slice does not exercise every state, but the schema vocabulary is complete and contains no controller-specific or approval-specific value.
+
+### Exit gate
+
+One canonical task can represent, supervise, cancel, and recover a real durable local execution through `task_query` and `task_action`, with the task result referencing the authoritative run result rather than competing with it, and with every existing run API unchanged.
 
 ## Priority 0 - SSH-A1 Agent-Driven Credential Binding and Transactional Host Activation
 
