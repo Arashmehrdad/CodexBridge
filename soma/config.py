@@ -272,6 +272,61 @@ class SSHDeploymentProfileConfig(BaseModel):
         return self
 
 
+class SSHProjectBindingConfig(SSHDeploymentProfileConfig):
+    host_id: str
+    required_capabilities: List[str] = Field(default_factory=list)
+    allow_first_deployment: bool = False
+    expected_writable_paths: List[str] = Field(default_factory=list)
+    expected_read_only_paths: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_project_binding(self) -> "SSHProjectBindingConfig":
+        allowed_id = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        )
+        self.host_id = self.host_id.strip()
+        if not self.host_id or any(char not in allowed_id for char in self.host_id):
+            raise ValueError(
+                "SSH project binding host_id must use letters, numbers, _ or -"
+            )
+        capabilities: list[str] = []
+        for raw_name in self.required_capabilities:
+            name = str(raw_name or "").strip().lower()
+            if (
+                not name
+                or len(name) > 64
+                or not name[0].isalpha()
+                or any(not (char.isalnum() or char == "_") for char in name)
+            ):
+                raise ValueError(
+                    "SSH project binding required capabilities must use lowercase names"
+                )
+            capabilities.append(name)
+        if len(capabilities) != len(set(capabilities)):
+            raise ValueError(
+                "SSH project binding required capabilities must be unique"
+            )
+        self.required_capabilities = capabilities
+        for field_name in (
+            "expected_writable_paths",
+            "expected_read_only_paths",
+        ):
+            normalized: list[str] = []
+            for raw_path in getattr(self, field_name):
+                path = str(raw_path or "").strip().rstrip("/") or "/"
+                if not path.startswith("/") or "\\" in path:
+                    raise ValueError(
+                        f"SSH project binding {field_name} must contain absolute POSIX paths"
+                    )
+                normalized.append(path)
+            if len(normalized) != len(set(normalized)):
+                raise ValueError(
+                    f"SSH project binding {field_name} must contain unique paths"
+                )
+            setattr(self, field_name, normalized)
+        return self
+
+
 class SSHWatchdogConfig(BaseModel):
     enabled: bool = False
     enforcement_mode: Literal["observe_only", "terminate"] = "observe_only"
@@ -498,6 +553,9 @@ class SSHConfig(BaseModel):
         default_factory=dict
     )
     hosts: Dict[str, SSHHostConfig] = Field(default_factory=dict)
+    project_bindings: Dict[str, SSHProjectBindingConfig] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_credential_bindings(self) -> "SSHConfig":
@@ -537,6 +595,33 @@ class SSHConfig(BaseModel):
                 raise ValueError(
                     f"SSH host {host_id!r} uses field references with non-environment source {source.type!r}"
                 )
+        for binding_id, project_binding in self.project_bindings.items():
+            if not binding_id or any(char not in allowed for char in binding_id):
+                raise ValueError(
+                    "SSH project binding IDs must use letters, numbers, _ or -"
+                )
+            host = self.hosts.get(project_binding.host_id)
+            if host is None:
+                raise ValueError(
+                    f"SSH project binding {binding_id!r} references unknown host {project_binding.host_id!r}"
+                )
+            normalized_root = project_binding.remote_root.rstrip("/") or "/"
+            if not any(
+                normalized_root == root
+                or normalized_root.startswith(root.rstrip("/") + "/")
+                for root in host.allowed_remote_roots
+            ):
+                raise ValueError(
+                    f"SSH project binding {binding_id!r} remote_root is outside host allowed_remote_roots"
+                )
+            if project_binding.health_command_id:
+                command_ids = {
+                    profile.command_id for profile in host.command_profiles
+                }
+                if project_binding.health_command_id not in command_ids:
+                    raise ValueError(
+                        f"SSH project binding {binding_id!r} references unknown health_command_id"
+                    )
         return self
 
     def autonomy_profile_migration_report(self) -> dict[str, object]:
@@ -1099,6 +1184,15 @@ class AppConfig(BaseModel):
                 raise ValueError(
                     "Executable profile mapping key must match profile_id: "
                     f"{profile_id!r} != {profile.profile_id!r}"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_ssh_project_binding_repositories(self) -> "AppConfig":
+        for binding_id, binding in self.ssh.project_bindings.items():
+            if binding.repo_name not in self.repos:
+                raise ValueError(
+                    f"SSH project binding {binding_id!r} references unknown repository {binding.repo_name!r}"
                 )
         return self
 
