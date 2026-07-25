@@ -391,7 +391,11 @@ def test_server_internal_probe_uses_runs_directory(monkeypatch: pytest.MonkeyPat
         {"hostname": "SSH_HOST"},
     )
 
-    assert result == {"ok": True, "probe_id": "probe"}
+    assert result["ok"] is True
+    assert result["probe_id"] == "probe"
+    assert result["server_build_hash"]
+    assert result["schema_hash"]
+    assert result["capability_epoch"]
     assert captured["runs_dir"] == tmp_path / "runs"
     assert captured["field_overrides"] == {"hostname": "SSH_HOST"}
 

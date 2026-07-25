@@ -370,21 +370,20 @@ def _inspect_key_path(path_value: str) -> dict[str, Any]:
 
 def _candidate_score(variable: str, field: str, hint: str) -> int:
     upper = variable.upper()
-    stripped = upper
-    score = 0
-    if hint and upper.startswith(hint + "_"):
-        stripped = upper[len(hint) + 1 :]
-        score += 1000
+    hint_matched = bool(hint and upper.startswith(hint + "_"))
+    stripped = upper[len(hint) + 1 :] if hint_matched else upper
     aliases = _FIELD_ALIASES[field]
+
     if stripped in aliases:
-        score += 500 - aliases.index(stripped)
+        base_score = 500 - aliases.index(stripped)
     elif upper in aliases:
-        score += 250 - aliases.index(upper)
+        base_score = 250 - aliases.index(upper)
     else:
         suffixes = tuple("_" + alias for alias in aliases)
-        if any(upper.endswith(suffix) for suffix in suffixes):
-            score += 100
-    return score
+        base_score = 100 if any(upper.endswith(suffix) for suffix in suffixes) else 0
+    if not base_score:
+        return 0
+    return base_score + (1000 if hint_matched else 0)
 
 
 def _map_environment_fields(
