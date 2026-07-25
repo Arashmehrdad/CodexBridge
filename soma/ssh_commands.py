@@ -11,7 +11,8 @@ import subprocess
 import time
 from pathlib import Path, PureWindowsPath
 
-from .config import AppConfig, SSHCommandProfileConfig, SSHHostConfig
+from .config import AppConfig, SSHCommandProfileConfig, SSHConfig, SSHHostConfig
+from .ssh_credentials import resolve_ssh_credential_binding
 
 MAX_SSH_OUTPUT_BYTES = 100_000
 MAX_REMOTE_ARGV_ITEMS = 64
@@ -68,6 +69,8 @@ class SSHConnection:
     mode: str
     identity_file: str = ""
     port: int = 22
+    expected_host_key: str = ""
+    source_id: str = ""
 
 
 def validate_ssh_host_id(host_id: str) -> str:
@@ -177,7 +180,27 @@ def _resolve_connection_file(configured: str) -> SSHConnection:
     )
 
 
-def resolve_ssh_connection(host: SSHHostConfig) -> SSHConnection:
+def resolve_ssh_connection(
+    host: SSHHostConfig,
+    ssh_config: SSHConfig | None = None,
+) -> SSHConnection:
+    if host.credential_binding is not None:
+        if ssh_config is None:
+            raise ValueError(
+                "SSH credential_binding resolution requires the global SSH configuration"
+            )
+        resolved = resolve_ssh_credential_binding(
+            ssh_config.credential_sources,
+            host.credential_binding,
+        )
+        return SSHConnection(
+            destination=resolved.destination,
+            mode="credential_binding",
+            identity_file=resolved.identity_file,
+            port=resolved.port,
+            expected_host_key=resolved.expected_host_key,
+            source_id=resolved.source_id,
+        )
     if host.ssh_alias:
         return SSHConnection(
             destination=validate_ssh_alias(host.ssh_alias),
@@ -195,8 +218,11 @@ def resolve_ssh_connection(host: SSHHostConfig) -> SSHConnection:
     )
 
 
-def build_ssh_destination(host: SSHHostConfig) -> str:
-    return resolve_ssh_connection(host).destination
+def build_ssh_destination(
+    host: SSHHostConfig,
+    ssh_config: SSHConfig | None = None,
+) -> str:
+    return resolve_ssh_connection(host, ssh_config).destination
 
 
 def build_ssh_connection_options(
@@ -204,8 +230,9 @@ def build_ssh_connection_options(
     *,
     scp: bool = False,
     connection: SSHConnection | None = None,
+    ssh_config: SSHConfig | None = None,
 ) -> list[str]:
-    resolved = connection or resolve_ssh_connection(host)
+    resolved = connection or resolve_ssh_connection(host, ssh_config)
     if resolved.mode == "alias":
         return []
     options = ["-i", resolved.identity_file]
@@ -270,7 +297,7 @@ def resolve_ssh_host(config: AppConfig, host_id: str) -> SSHHostConfig:
     host = config.ssh.hosts.get(normalized_host_id)
     if host is None:
         raise ValueError(f"Unknown SSH host_id: {normalized_host_id}")
-    resolve_ssh_connection(host)
+    resolve_ssh_connection(host, config.ssh)
     seen: set[str] = set()
     for profile in host.command_profiles:
         validate_ssh_command_profile(profile)
@@ -321,7 +348,7 @@ def build_ssh_argv(
     profile: SSHCommandProfileConfig | None = None,
 ) -> list[str]:
     host = resolve_ssh_host(config, host_id)
-    connection = resolve_ssh_connection(host)
+    connection = resolve_ssh_connection(host, config.ssh)
     destination = connection.destination
     if profile is None:
         remote_command = "true"
@@ -524,7 +551,7 @@ def build_ssh_payload_argv(
     if not _is_fixed_payload_remote_command(remote_command):
         raise ValueError("SSH payload remote command is not a fixed launch envelope")
     host = resolve_ssh_host(config, host_id)
-    connection = resolve_ssh_connection(host)
+    connection = resolve_ssh_connection(host, config.ssh)
     executable = resolve_ssh_executable(config)
     strict_host_key_checking = (
         "accept-new" if connection.mode == "connection_file" else "yes"
@@ -803,8 +830,16 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
     for host_id in sorted(config.ssh.hosts):
         host = config.ssh.hosts[host_id]
         validate_ssh_host_id(host_id)
-        connection = resolve_ssh_connection(host)
-        destination = connection.destination
+        binding = host.credential_binding
+        if binding is None:
+            connection = resolve_ssh_connection(host, config.ssh)
+            destination = connection.destination
+            connection_mode = connection.mode
+            credential_source_id = ""
+        else:
+            destination = f"<credential_binding:{binding.source_id}>"
+            connection_mode = "credential_binding"
+            credential_source_id = binding.source_id
         commands = []
         seen: set[str] = set()
         for profile in host.command_profiles:
@@ -828,7 +863,8 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
             {
                 "host_id": host_id,
                 "ssh_alias": destination,
-                "connection_mode": connection.mode,
+                "connection_mode": connection_mode,
+                "credential_source_id": credential_source_id,
                 "force_pty": bool(getattr(host, "force_pty", False))
                 or destination.endswith("@ssh.runpod.io"),
                 "connect_timeout_seconds": host.connect_timeout_seconds,

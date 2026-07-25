@@ -808,7 +808,7 @@ def _scp_base(
     config: AppConfig, host_id: str, *, recursive: bool
 ) -> tuple[list[str], SSHHostConfig, str]:
     host = resolve_ssh_host(config, host_id)
-    connection = resolve_ssh_connection(host)
+    connection = resolve_ssh_connection(host, config.ssh)
     strict_host_key_checking = (
         "accept-new" if connection.mode == "connection_file" else "yes"
     )
