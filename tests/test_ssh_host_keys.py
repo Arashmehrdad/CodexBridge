@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from soma import ssh_commands, ssh_credentials, ssh_tools
+from soma import ssh_commands, ssh_tools
 from soma.config import (
     AppConfig,
     RepoConfig,
@@ -150,7 +150,8 @@ def test_pinned_verification_stages_only_matching_identity(tmp_path: Path) -> No
 def test_pinned_mismatch_and_missing_fingerprint_fail_without_staging(
     tmp_path: Path,
 ) -> None:
-    scanner = lambda _host, _port, _timeout: _scan_text()
+    def scanner(_host: str, _port: int, _timeout: int) -> str:
+        return _scan_text()
     with pytest.raises(ValueError, match="requires an expected fingerprint"):
         stage_host_key_verification(
             tmp_path / "runs",
@@ -176,7 +177,8 @@ def test_pinned_mismatch_and_missing_fingerprint_fail_without_staging(
 
 
 def test_tofu_requires_explicit_new_host_intent(tmp_path: Path) -> None:
-    scanner = lambda _host, _port, _timeout: _scan_text()
+    def scanner(_host: str, _port: int, _timeout: int) -> str:
+        return _scan_text()
     with pytest.raises(ValueError, match="new-host onboarding"):
         stage_host_key_verification(
             tmp_path / "runs",
@@ -203,7 +205,8 @@ def test_tofu_requires_explicit_new_host_intent(tmp_path: Path) -> None:
 def test_rotation_requires_explicit_intent_and_previous_identity(
     tmp_path: Path,
 ) -> None:
-    scanner = lambda _host, _port, _timeout: _scan_text(KEY_B)
+    def scanner(_host: str, _port: int, _timeout: int) -> str:
+        return _scan_text(KEY_B)
     with pytest.raises(ValueError, match="rotation intent"):
         stage_host_key_verification(
             tmp_path / "runs",

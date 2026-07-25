@@ -31,7 +31,6 @@ from .ssh_commands import (
     resolve_ssh_connection,
     resolve_ssh_command_profile,
     resolve_ssh_host,
-    validate_ssh_alias,
     validate_ssh_command_profile,
     validate_ssh_host_id,
 )
