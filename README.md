@@ -693,6 +693,7 @@ tests/                         unit, contract and Windows integration tests
 ## Documentation map
 
 - [`PLANS.md`](PLANS.md) — current owner decisions and active roadmap state.
+- [`docs/ssh-agent-driven-host-onboarding-plan.md`](docs/ssh-agent-driven-host-onboarding-plan.md) — active SSH-A1 plan for secret-safe credential discovery, host validation, capability snapshots, project bindings, and transactional activation.
 - [`AGENTS.md`](AGENTS.md) — controller and engineering rules.
 - [`docs/roadmap-v2-achievements.md`](docs/roadmap-v2-achievements.md) — completed implementation history and evidence.
 - [`docs/Soma_Agentic_Runtime_Audit_and_Strategic_Roadmap_Revised.md`](docs/Soma_Agentic_Runtime_Audit_and_Strategic_Roadmap_Revised.md) — revised audit and strategic direction.
