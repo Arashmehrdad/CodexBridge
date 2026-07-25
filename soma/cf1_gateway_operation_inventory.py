@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v9"
+    "cf1.3.gateway-operations.v10"
 )
 
 
@@ -351,13 +351,17 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "ssh_query",
-        ("credential_probe", "profile_preview", "profile_status"),
+        (
+            "credential_probe", "profile_preview", "profile_status",
+            "capability_snapshot", "project_bindings",
+            "project_binding_validation",
+        ),
         "soma.server:ssh_query",
         "bounded compact SSH credential and profile lifecycle projection",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Credential probes expose source names, deterministic mappings, hygiene status, and public fingerprints without resolved values; compact profile reads retain lifecycle and hash identity while view=full remains explicit sanitized evidence access.",
+        notes="Credential probes expose source names, deterministic mappings, hygiene status, and public fingerprints without resolved values; profile reads retain lifecycle and hash identity; capability snapshots and project-binding operations use fixed read-only probes with bounded projections and explicit full evidence access.",
     ),
     _entry(
         "ssh_action",

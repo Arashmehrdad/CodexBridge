@@ -115,14 +115,25 @@ from .ssh_activation import (
     activation_status as _ssh_activation_status,
     reconcile_pending_ssh_activations as _reconcile_pending_ssh_activations,
 )
+from .ssh_capabilities import (
+    capability_snapshot_projection as _capability_snapshot_projection,
+    read_capability_snapshot as _read_ssh_capability_snapshot,
+)
+from .ssh_project_bindings import (
+    list_ssh_project_bindings as _list_ssh_project_bindings,
+)
 from .ssh_profile_manager import (
     get_ssh_profile_change_status as _get_ssh_profile_change_status,
     preview_ssh_profile_change as _preview_ssh_profile_change,
 )
 from .ssh_tools import enrich_ssh_capabilities as _enrich_ssh_capabilities
+from .ssh_tools import run_ssh_capability_snapshot as _run_ssh_capability_snapshot
 from .ssh_tools import run_ssh_environment_probe as _run_ssh_environment_probe
 from .ssh_tools import run_ssh_gpu_telemetry as _run_ssh_gpu_telemetry
 from .ssh_tools import run_ssh_inspection as _run_ssh_inspection
+from .ssh_tools import (
+    run_ssh_project_binding_validation as _run_ssh_project_binding_validation,
+)
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 from .workflows import WorkflowManager
@@ -2246,6 +2257,10 @@ def preview_ssh_profile_change(
     host_config: dict[str, Any] = {},
     command_id: str = "",
     command_profile: dict[str, Any] = {},
+    credential_source_id: str = "",
+    credential_source: dict[str, Any] = {},
+    project_bindings: dict[str, Any] = {},
+    activation_intent: str = "existing_host",
 ) -> dict:
     """Read-only: validate and preview one structured SSH host or command-profile config change."""
     config_path = get_config_path()
@@ -2259,6 +2274,10 @@ def preview_ssh_profile_change(
         host_config=host_config or None,
         command_id=command_id,
         command_profile=command_profile or None,
+        credential_source_id=credential_source_id,
+        credential_source=credential_source or None,
+        project_bindings=project_bindings or None,
+        activation_intent=activation_intent,
     )
 
 
@@ -2289,7 +2308,12 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
             "host_id", "command_id", "created_at", "applied_at", "failed_at",
             "base_config_sha256", "candidate_config_sha256", "ready_for_binding",
             "source_type", "source_basename", "source_path_identity_sha256",
-            "source_version_sha256", "error",
+            "source_version_sha256", "snapshot_id", "snapshot_sha256",
+            "schema_version", "collected_at", "binding_id", "repo_name",
+            "activation_state", "run_id", "accepted", "activation_intent",
+            "required_capabilities_ok", "memory_total_bytes",
+            "root_disk_free_bytes", "gpu_available", "gpu_device_count",
+            "writes_remote", "high_risk", "error",
         )
         if key in result
     }
@@ -2336,6 +2360,49 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
                 )
                 if key in key_file
             }
+    for key in (
+        "available_tools", "available_capabilities", "required_capabilities",
+        "missing_required_capabilities", "unknown_required_capabilities",
+        "failed_checks", "preparation_required_checks",
+    ):
+        value = result.get(key)
+        if isinstance(value, list):
+            compact[key] = list(value)
+    for key in ("operating_system", "identity"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            compact[key] = dict(value)
+    bindings = result.get("bindings")
+    if isinstance(bindings, list):
+        compact["bindings"] = [
+            {
+                key: item[key]
+                for key in (
+                    "binding_id", "host_id", "repo_name", "source", "remote_root",
+                    "required_capabilities", "allow_first_deployment",
+                    "health_command_id",
+                )
+                if isinstance(item, dict) and key in item
+            }
+            for item in bindings
+            if isinstance(item, dict)
+        ]
+        compact["binding_count"] = len(bindings)
+    checks = result.get("checks")
+    if isinstance(checks, list):
+        compact["checks"] = [dict(item) for item in checks if isinstance(item, dict)]
+        compact["check_count"] = len(checks)
+    capability = result.get("capability_snapshot")
+    if isinstance(capability, dict):
+        compact["capability_snapshot"] = {
+            key: capability[key]
+            for key in (
+                "ok", "snapshot_id", "snapshot_sha256", "host_id", "status",
+                "required_capabilities_ok", "missing_required_capabilities",
+                "unknown_required_capabilities",
+            )
+            if key in capability
+        }
     compact["truncated"] = False
     compact["has_more"] = bool(result.get("capability_diff") or result.get("hosts"))
     compact["response_budget_bytes"] = budget
@@ -2356,6 +2423,18 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
                 if candidate_key:
                     candidates[candidate_key].pop()
                     reduced = True
+            if not reduced:
+                for list_key in (
+                    "checks", "bindings", "available_tools", "available_capabilities",
+                    "required_capabilities", "missing_required_capabilities",
+                    "unknown_required_capabilities", "failed_checks",
+                    "preparation_required_checks",
+                ):
+                    values = compact.get(list_key)
+                    if isinstance(values, list) and values:
+                        values.pop()
+                        reduced = True
+                        break
         if not reduced:
             break
         compact["truncated"] = True
@@ -2737,9 +2816,12 @@ def cloudflare_action(request: CloudflareActionRequest) -> dict:
     )
 
 
-@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={**READ_ONLY_ANNOTATIONS, "openWorldHint": True},
+)
 def ssh_query(request: SSHQueryRequest) -> dict:
-    """Read-only SSH gateway for capabilities, credential probing, and profile lifecycle reads."""
+    """Read-only SSH gateway for capability, credential, profile, and binding operations."""
     if request.operation == "capabilities":
         result = list_ssh_capabilities()
     elif request.operation == "credential_probe":
@@ -2751,10 +2833,66 @@ def ssh_query(request: SSHQueryRequest) -> dict:
         )
     elif request.operation == "profile_status":
         result = get_ssh_profile_change_status(request.change_id)
+    elif request.operation == "capability_snapshot":
+        if request.snapshot_id:
+            full_snapshot = _read_ssh_capability_snapshot(
+                _get_runs_dir(),
+                host_id=request.host_id,
+                snapshot_id=request.snapshot_id,
+            )
+            result = (
+                full_snapshot
+                if request.view == "full"
+                else _capability_snapshot_projection(full_snapshot)
+            )
+        else:
+            projection = _run_ssh_capability_snapshot(
+                get_config(),
+                request.host_id,
+                endpoint_route="public_query",
+                required_capabilities=request.required_capabilities,
+            )
+            result = (
+                _read_ssh_capability_snapshot(
+                    _get_runs_dir(),
+                    host_id=request.host_id,
+                    snapshot_id=str(projection["snapshot_id"]),
+                )
+                if request.view == "full"
+                else projection
+            )
+    elif request.operation == "project_bindings":
+        bindings = _list_ssh_project_bindings(get_config())
+        if request.host_id:
+            bindings = [
+                item for item in bindings
+                if str(item.get("host_id") or "") == request.host_id
+            ]
+        result = {
+            "ok": True,
+            "status": "available",
+            "host_id": request.host_id,
+            "bindings": bindings,
+            "error": "",
+        }
+    elif request.operation == "project_binding_validation":
+        result = _run_ssh_project_binding_validation(
+            get_config(),
+            request.binding_id,
+            host_id=request.host_id,
+            capability_snapshot_id=request.capability_snapshot_id,
+        )
     else:
         result = preview_ssh_profile_change(
-            request.action, request.host_id, request.host_config,
-            request.command_id, request.command_profile,
+            request.action,
+            request.host_id,
+            request.host_config,
+            request.command_id,
+            request.command_profile,
+            request.credential_source_id,
+            request.credential_source,
+            request.project_bindings,
+            request.activation_intent,
         )
     if request.view == "full":
         return result
@@ -2768,7 +2906,35 @@ def ssh_action(request: SSHActionRequest) -> dict:
         result = apply_ssh_profile_change(request.change_id)
         if request.view == "full":
             return result
-        return _bounded_system_query_response(result, request.response_budget_bytes)
+        run_id = str(result.get("run_id") or "")
+        compact = apply_compact_projection_envelope(
+            {
+                key: result[key]
+                for key in (
+                    "accepted", "status", "run_id", "repo_name", "change_id",
+                    "host_id", "activation_intent", "risk_level",
+                    "requires_human", "reason", "duplicate", "error",
+                )
+                if key in result
+            }
+        )
+        compact["ok"] = bool(result.get("accepted"))
+        if run_id:
+            compact["polling"] = {
+                "tool": "run_query",
+                "request": {"operation": "control", "run_id": run_id},
+            }
+            compact["evidence"] = {
+                "tool": "run_query",
+                "request": {"operation": "terminal", "run_id": run_id},
+            }
+        compact["truncated"] = False
+        compact["has_more"] = False
+        compact["response_budget_bytes"] = request.response_budget_bytes
+        compact["response_bytes"] = len(
+            json.dumps(compact, ensure_ascii=False).encode("utf-8")
+        )
+        return compact
     if request.action == "command":
         return start_ssh_command_async(
             request.host_id,
