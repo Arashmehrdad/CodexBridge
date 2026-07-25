@@ -110,6 +110,7 @@ from .trading_lab_adapter import (
 )
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
+from .ssh_credentials import probe_ssh_credential_source as _probe_ssh_credential_source
 from .ssh_profile_manager import (
     apply_ssh_profile_change as _apply_ssh_profile_change,
     get_ssh_profile_change_status as _get_ssh_profile_change_status,
@@ -2219,6 +2220,23 @@ def list_ssh_capabilities() -> dict:
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def probe_ssh_credential_source(
+    source_path: str = "",
+    source_type: str = "auto",
+    host_hint: str = "",
+    field_overrides: dict[str, str] = {},
+) -> dict:
+    """Read-only: inspect one local SSH credential source without returning values."""
+    return _probe_ssh_credential_source(
+        _get_runs_dir(),
+        source_path=source_path,
+        source_type=source_type,
+        host_hint=host_hint,
+        field_overrides=field_overrides,
+    )
+
+
+@_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def preview_ssh_profile_change(
     action: str,
     host_id: str,
@@ -2256,9 +2274,11 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
     compact: dict[str, Any] = {
         key: result[key]
         for key in (
-            "ok", "enabled", "status", "change_id", "action", "host_id",
-            "command_id", "created_at", "applied_at", "failed_at",
-            "base_config_sha256", "candidate_config_sha256", "error",
+            "ok", "enabled", "status", "change_id", "probe_id", "action",
+            "host_id", "command_id", "created_at", "applied_at", "failed_at",
+            "base_config_sha256", "candidate_config_sha256", "ready_for_binding",
+            "source_type", "source_basename", "source_path_identity_sha256",
+            "source_version_sha256", "error",
         )
         if key in result
     }
@@ -2286,10 +2306,52 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
             for key, value in diff.items()
             if isinstance(value, list)
         }
+    if result.get("probe_id"):
+        for key in (
+            "discovered_names", "field_mapping", "field_candidates", "missing_fields",
+            "ambiguous_fields", "endpoint_validation", "refusals", "warnings",
+        ):
+            value = result.get(key)
+            if value not in (None, {}, []):
+                compact[key] = value
+        key_file = result.get("key_file")
+        if isinstance(key_file, dict):
+            compact["key_file"] = {
+                key: key_file[key]
+                for key in (
+                    "ok", "basename", "size_bytes", "path_identity_sha256",
+                    "file_version_sha256", "public_key_fingerprint", "refusals",
+                    "warnings",
+                )
+                if key in key_file
+            }
     compact["truncated"] = False
     compact["has_more"] = bool(result.get("capability_diff") or result.get("hosts"))
     compact["response_budget_bytes"] = budget
     compact["response_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))
+    while compact["response_bytes"] > budget:
+        reduced = False
+        names = compact.get("discovered_names")
+        if isinstance(names, list) and names:
+            names.pop()
+            reduced = True
+        else:
+            candidates = compact.get("field_candidates")
+            if isinstance(candidates, dict):
+                candidate_key = next(
+                    (key for key, value in reversed(list(candidates.items())) if value),
+                    "",
+                )
+                if candidate_key:
+                    candidates[candidate_key].pop()
+                    reduced = True
+        if not reduced:
+            break
+        compact["truncated"] = True
+        compact["has_more"] = True
+        compact["response_bytes"] = len(
+            json.dumps(compact, ensure_ascii=False).encode("utf-8")
+        )
     return compact
 
 
@@ -2685,9 +2747,16 @@ def cloudflare_action(request: CloudflareActionRequest) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def ssh_query(request: SSHQueryRequest) -> dict:
-    """Read-only SSH gateway for capabilities and hash-verified profile lifecycle reads."""
+    """Read-only SSH gateway for capabilities, credential probing, and profile lifecycle reads."""
     if request.operation == "capabilities":
         result = list_ssh_capabilities()
+    elif request.operation == "credential_probe":
+        result = probe_ssh_credential_source(
+            request.source_path,
+            request.source_type,
+            request.host_hint,
+            request.field_overrides,
+        )
     elif request.operation == "profile_status":
         result = get_ssh_profile_change_status(request.change_id)
     else:

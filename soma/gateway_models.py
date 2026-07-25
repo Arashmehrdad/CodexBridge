@@ -1458,6 +1458,42 @@ def validate_root_ssh_shell_request(payload: dict[str, Any]) -> SSHRootShellActi
         raise ValueError(f"Invalid SSH root shell request: {messages}") from None
 
 
+class SSHCredentialProbeQuery(GatewayModel):
+    operation: Literal["credential_probe"]
+    source_path: str = Field(default="", max_length=2048)
+    source_type: Literal[
+        "auto",
+        "env_file",
+        "process_environment",
+        "openssh_config",
+        "connection_file",
+        "key_file",
+    ] = "auto"
+    host_hint: str = Field(default="", max_length=128)
+    field_overrides: dict[str, str] = Field(default_factory=dict, max_length=5)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_credential_probe(self) -> "SSHCredentialProbeQuery":
+        if self.source_type == "process_environment":
+            if self.source_path:
+                raise ValueError("process_environment does not accept source_path")
+        elif not self.source_path:
+            raise ValueError("source_path is required for file-based credential probes")
+        allowed_fields = {
+            "hostname",
+            "user",
+            "port",
+            "identity_file",
+            "expected_host_key",
+        }
+        extras = sorted(set(self.field_overrides) - allowed_fields)
+        if extras:
+            raise ValueError(f"Unsupported SSH credential field overrides: {extras}")
+        return self
+
+
 class SSHProfilePreviewQuery(GatewayModel):
     operation: Literal["profile_preview"]
     action: str = Field(min_length=1, max_length=128)
@@ -1477,7 +1513,8 @@ class SSHProfileStatusQuery(GatewayModel):
 
 
 SSHQueryRequest = Annotated[
-    SSHCapabilitiesQuery | SSHProfilePreviewQuery | SSHProfileStatusQuery,
+    SSHCapabilitiesQuery | SSHCredentialProbeQuery | SSHProfilePreviewQuery
+    | SSHProfileStatusQuery,
     Field(discriminator="operation"),
 ]
 

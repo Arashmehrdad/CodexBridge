@@ -351,13 +351,13 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "ssh_query",
-        ("profile_preview", "profile_status"),
+        ("credential_probe", "profile_preview", "profile_status"),
         "soma.server:ssh_query",
-        "bounded compact SSH profile lifecycle projection",
+        "bounded compact SSH credential and profile lifecycle projection",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Compact profile reads retain lifecycle and hash identity while collapsing capability diffs; view=full remains explicit evidence access.",
+        notes="Credential probes expose source names, deterministic mappings, hygiene status, and public fingerprints without resolved values; compact profile reads retain lifecycle and hash identity while view=full remains explicit sanitized evidence access.",
     ),
     _entry(
         "ssh_action",
