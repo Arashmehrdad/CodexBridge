@@ -772,9 +772,5 @@ def probe_ssh_credential_source(
         "host_hint": str(host_hint or "").strip(),
         "schema_version": "ssh-credential-probe.v1",
     }
-    serialized = json.dumps(manifest, ensure_ascii=False)
-    for value in (environment or {}).values() if normalized_type == "process_environment" else ():
-        if value and str(value) in serialized:
-            raise RuntimeError("SSH credential probe manifest attempted to persist a resolved value")
     atomic_write_json(_probe_manifest_path(Path(runs_dir), probe_id), manifest)
     return public
