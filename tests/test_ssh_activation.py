@@ -319,11 +319,19 @@ def test_server_reload_failure_restores_config_trust_and_pointer(
         holder,
     )
     _wait_for(activation_dir(runs_dir, change_id) / "activation_request.json")
+    reload_calls: list[str] = []
+
+    def fail_activation_then_restore(path: Path) -> dict[str, Any]:
+        reload_calls.append(load_config(path).model_dump_json())
+        if len(reload_calls) == 1:
+            return {"ok": False, "error": "injected activation reload failure"}
+        return {"ok": True, "status": "restored"}
+
     acknowledgement = reconcile_ssh_activation_request(
         config_path,
         runs_dir,
         change_id,
-        reload_callback=_reload_recorder([], fail=True),
+        reload_callback=fail_activation_then_restore,
     )
     thread.join(timeout=10)
 
@@ -333,6 +341,7 @@ def test_server_reload_failure_restores_config_trust_and_pointer(
     assert config_path.read_bytes() == original_config
     assert known_hosts.read_bytes() == original_known_hosts
     assert pointer.read_bytes() == original_pointer
+    assert len(reload_calls) == 2
 
 
 def test_post_activation_failure_requests_and_verifies_rollback(

@@ -598,9 +598,6 @@ def run_ssh_profile_activation(
 
     config_path = config_path.resolve()
     runs_dir = runs_dir.resolve()
-    manifest_path, manifest, original, candidate_text, candidate_config = (
-        _candidate_material(config_path, runs_dir, change_id)
-    )
     transaction = _load_transaction(runs_dir, change_id)
     if transaction:
         existing_run = str(transaction.get("run_id") or "")
@@ -608,15 +605,15 @@ def run_ssh_profile_activation(
             raise ValueError(
                 f"SSH activation {change_id} already belongs to run {existing_run}"
             )
-        if transaction.get("state") == "COMPLETED":
+        if transaction.get("state") in {"COMPLETED", "ROLLED_BACK"}:
             result = copy.deepcopy(transaction.get("result") or {})
             result["idempotent_replay"] = True
             return result
-        if transaction.get("state") == "ROLLED_BACK":
-            result = copy.deepcopy(transaction.get("result") or {})
-            result["idempotent_replay"] = True
-            return result
-    else:
+
+    manifest_path, manifest, original, candidate_text, candidate_config = (
+        _candidate_material(config_path, runs_dir, change_id)
+    )
+    if not transaction:
         transaction = _initial_transaction(
             change_id=change_id, run_id=run_id, manifest=manifest
         )
