@@ -7,15 +7,19 @@ import re
 import shutil
 import stat
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping
 from uuid import uuid4
 
-from .config import SSHHostConfig
+from .config import (
+    SSHCredentialBindingConfig,
+    SSHCredentialSourceConfig,
+    SSHHostConfig,
+)
 from .dotenv import ENV_NAME_RE, read_dotenv_file
 from .return_loop.atomic_writer import atomic_write_json
-from .ssh_commands import resolve_ssh_connection
 
 SSH_CREDENTIAL_SOURCE_TYPES = frozenset(
     {
@@ -48,6 +52,17 @@ _PRIVATE_KEY_HEADER_RE = re.compile(
     rb"-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----"
 )
 _OPENSSH_HOST_RE = re.compile(r"^\s*Host\s+(?P<aliases>.+?)\s*$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class ResolvedSSHCredentialBinding:
+    destination: str
+    identity_file: str
+    port: int
+    expected_host_key: str
+    source_id: str
+    source_type: str
+
 
 _FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "hostname": ("SSH_HOST", "SSH_HOSTNAME", "HOST", "HOSTNAME"),
@@ -581,6 +596,165 @@ def _probe_env_values(
     }
 
 
+def _resolved_identity_path(value: str) -> str:
+    path, _data = _read_regular_file(
+        value,
+        label="SSH credential identity_file",
+        max_bytes=MAX_SSH_PRIVATE_KEY_BYTES,
+    )
+    return str(path)
+
+
+def _resolved_expected_host_key(value: str) -> str:
+    fingerprint = str(value or "").strip()
+    if fingerprint and not _FINGERPRINT_RE.fullmatch(fingerprint):
+        raise ValueError("SSH credential expected_host_key is invalid")
+    return fingerprint
+
+
+def _environment_binding_value(
+    values: Mapping[str, str],
+    variable_name: str,
+    field_name: str,
+    *,
+    required: bool,
+) -> str:
+    if not variable_name:
+        if required:
+            raise ValueError(f"SSH credential binding is missing {field_name} reference")
+        return ""
+    if variable_name not in values:
+        raise ValueError(
+            f"SSH credential source is missing the variable referenced for {field_name}"
+        )
+    value = str(values[variable_name]).strip()
+    if required and not value:
+        raise ValueError(f"SSH credential source has an empty {field_name} value")
+    return value
+
+
+def resolve_ssh_credential_binding(
+    credential_sources: Mapping[str, SSHCredentialSourceConfig],
+    binding: SSHCredentialBindingConfig,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> ResolvedSSHCredentialBinding:
+    """Resolve one credential binding in memory without serializing resolved values."""
+
+    source = credential_sources.get(binding.source_id)
+    if source is None:
+        raise ValueError(
+            f"Unknown SSH credential source_id: {binding.source_id!r}"
+        )
+
+    if source.type in {"env_file", "process_environment"}:
+        if source.type == "env_file":
+            source_path, _data = _read_regular_file(
+                source.path,
+                label="SSH credential env_file",
+                max_bytes=MAX_SSH_CREDENTIAL_SOURCE_BYTES,
+            )
+            security = _file_security(source_path)
+            if not security["ok"]:
+                raise ValueError("SSH credential env_file failed local security checks")
+            values: Mapping[str, str] = read_dotenv_file(
+                source_path,
+                label="SSH credential env_file",
+                max_bytes=MAX_SSH_CREDENTIAL_SOURCE_BYTES,
+            )
+        else:
+            values = os.environ if environment is None else environment
+
+        hostname = _environment_binding_value(
+            values, binding.hostname, "hostname", required=True
+        )
+        user = _environment_binding_value(values, binding.user, "user", required=True)
+        identity_file = _environment_binding_value(
+            values, binding.identity_file, "identity_file", required=True
+        )
+        port_value = _environment_binding_value(
+            values, binding.port, "port", required=False
+        )
+        expected_host_key = _environment_binding_value(
+            values,
+            binding.expected_host_key,
+            "expected_host_key",
+            required=False,
+        )
+        port = 22
+        if port_value:
+            if not port_value.isdigit() or not 1 <= int(port_value) <= 65535:
+                raise ValueError("SSH credential port value is invalid")
+            port = int(port_value)
+        hostname = validate_credential_hostname(hostname)
+        user = validate_credential_user(user)
+        identity_file = _resolved_identity_path(identity_file)
+        expected_host_key = _resolved_expected_host_key(expected_host_key)
+    elif source.type == "connection_file":
+        from .ssh_commands import resolve_ssh_connection
+
+        connection = resolve_ssh_connection(
+            SSHHostConfig(connection_file=source.path)
+        )
+        user, hostname = connection.destination.split("@", 1)
+        identity_file = connection.identity_file
+        port = connection.port
+        expected_host_key = _resolved_expected_host_key(source.expected_host_key)
+    elif source.type == "openssh_config":
+        source_path, data = _read_regular_file(
+            source.path,
+            label="OpenSSH credential source",
+            max_bytes=MAX_SSH_CREDENTIAL_SOURCE_BYTES,
+        )
+        security = _file_security(source_path)
+        if not security["ok"]:
+            raise ValueError("OpenSSH credential source failed local security checks")
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("OpenSSH credential source must be UTF-8 text") from exc
+        parsed = _parse_openssh_config(text, source.alias)
+        hostname = validate_credential_hostname(parsed["hostname"])
+        user = validate_credential_user(parsed["user"])
+        port_value = parsed["port"]
+        if not port_value.isdigit() or not 1 <= int(port_value) <= 65535:
+            raise ValueError("OpenSSH credential source port is invalid")
+        port = int(port_value)
+        identity_file = _resolved_identity_path(parsed["identity_file"])
+        expected_host_key = _resolved_expected_host_key(source.expected_host_key)
+    elif source.type == "key_file":
+        hostname = validate_credential_hostname(source.hostname)
+        user = validate_credential_user(source.user)
+        port = source.port
+        identity_file = _resolved_identity_path(source.path)
+        expected_host_key = _resolved_expected_host_key(source.expected_host_key)
+    else:  # pragma: no cover - Pydantic constrains stored source types
+        raise ValueError(f"Unsupported SSH credential source type: {source.type!r}")
+
+    return ResolvedSSHCredentialBinding(
+        destination=f"{user}@{hostname}",
+        identity_file=identity_file,
+        port=port,
+        expected_host_key=expected_host_key,
+        source_id=binding.source_id,
+        source_type=source.type,
+    )
+
+
+def validate_credential_hostname(value: str) -> str:
+    hostname = str(value or "").strip()
+    if not _HOSTNAME_RE.fullmatch(hostname):
+        raise ValueError("SSH credential hostname value is invalid")
+    return hostname
+
+
+def validate_credential_user(value: str) -> str:
+    user = str(value or "").strip()
+    if not _USER_RE.fullmatch(user):
+        raise ValueError("SSH credential user value is invalid")
+    return user
+
+
 def probe_ssh_credential_source(
     runs_dir: Path,
     *,
@@ -655,6 +829,8 @@ def probe_ssh_credential_source(
                 overrides=overrides,
             )
         elif normalized_type == "connection_file":
+            from .ssh_commands import resolve_ssh_connection
+
             connection = resolve_ssh_connection(SSHHostConfig(connection_file=str(path)))
             user, hostname = connection.destination.split("@", 1)
             key_result = _inspect_key_path(connection.identity_file)
