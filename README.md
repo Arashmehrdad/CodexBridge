@@ -701,6 +701,88 @@ docs/                          architecture, roadmap and evidence records
 tests/                         unit, contract and Windows integration tests
 ```
 
+## Operator compatibility reference
+
+This section preserves exact operator commands and source-level helper names that remain part of Soma's tested documentation contract. The consolidated MCP gateways described above are the preferred public surface; the function-style names below identify the bounded implementation seams behind them.
+
+### Server, tunnels, and human involvement
+
+The equivalent one-line direct start is:
+
+```text
+python -m soma.server --config config.yaml --transport http --host 127.0.0.1 --port 8000 --path /mcp
+```
+
+Authenticated tunnel examples must retain the `/mcp` suffix:
+
+```text
+https://example-tunnel.trycloudflare.com/mcp
+https://example.ngrok-free.app/mcp
+```
+
+The human is not expected to run setup, validation, or ordinary recovery commands manually. The coding agent working on this repository runs these checks and returns durable evidence; the human remains responsible for genuinely dangerous boundaries such as secrets, destructive system changes, public releases, and production authorization.
+
+### Windows service controller
+
+Run the interactive controller with `.\soma-service.cmd`. Its common non-interactive actions are:
+
+```text
+soma-service.cmd start
+soma-service.cmd stop
+soma-service.cmd restart
+soma-service.cmd status
+soma-service.cmd logs
+soma-service.cmd diagnostics
+soma-service.cmd profile-status
+soma-service.cmd profile-set
+```
+
+The menu includes `Select supervisor profile`. Service logs are stored under `runs\service_logs`; operations that alter Scheduled Tasks or machine-level state may trigger UAC.
+
+### Docker compatibility seam
+
+The bounded implementation names are `list_docker_capabilities(repo_name)` and `start_docker_action_async(repo_name, action, ...)`. High-risk configured actions use `CONFIRM_DOCKER_HIGH_RISK`.
+
+The Docker gateway does not accept free-form command text, arbitrary argv, or caller-selected executables. Subprocesses are launched with `shell=False`.
+
+### Cloudflare DNS, Edge, Rulesets, and Tunnels
+
+Cloudflare remains disabled by default. It is one global Soma service with repository-scoped access through each repository's `cloudflare_profiles` allowlist. The bounded implementation names are:
+
+```text
+list_cloudflare_capabilities(repo_name)
+cloudflare_health(repo_name, profile_id)
+cloudflare_inspect(repo_name, profile_id, operation, ...)
+start_cloudflare_action_async(repo_name, profile_id, action, ...)
+```
+
+Credential configuration may reference `CLOUDFLARE_API_TOKEN` and an ignored file such as `env_file: ".env"`. Operating-system variables take priority over file values. High-risk actions use `CONFIRM_CLOUDFLARE_HIGH_RISK`. The gateway does not expose arbitrary URLs, and read-only validation must make no live Cloudflare account changes.
+
+Tunnel secrets are generated locally. Turnstile writes are controlled by `allow_turnstile_write`, `allow_turnstile_secret_rotation`, `allow_turnstile_delete`, and `allowed_turnstile_sitekeys`. Secret delivery uses `turnstile.secret_destination`, commonly with the variable name `TURNSTILE_SECRET_KEY`; both the source environment file and destination must both be Git-ignored.
+
+Configured `turnstile_widgets` entries identify each `turnstile_widget`. The bounded action names are `turnstile_create`, `turnstile_update`, `turnstile_rotate_secret`, and `turnstile_delete`. A rotation payload may include `{"invalidate_immediately": false}` to retain the documented two-hour grace period. Until local secret delivery is complete, the result remains `secret_delivery_pending`. Tunnel-token inspection uses `get_tunnel_token` and never publishes the token.
+
+### SSH Deployment and Remote Debugging
+
+The legacy implementation names behind the consolidated SSH gateways are:
+
+```text
+ssh_inspect(host_id, operation, ...)
+start_ssh_action_async(host_id, action, ...)
+start_ssh_transfer_async(...)
+start_ssh_deployment_async(host_id, deployment_id, confirmation)
+```
+
+High-risk operations use `CONFIRM_SSH_HIGH_RISK`. Each host restricts readable and writable remote locations through `allowed_remote_roots`; deployment profiles may declare `shared_files`. Release activation updates the `current` symlink only after health succeeds.
+
+Interactive shells, arbitrary command strings, password authentication, keyboard-interactive authentication, and caller-controlled OpenSSH options are outside the structured SSH path. The hash-pinned permissive root-shell operation is separate and explicit.
+
+### Supervisor compatibility seam
+
+A recovery supervisor is created through `start_supervised_recovery_task`. Use `resume_supervisor(supervisor_id)` to advance exactly one safe step, and `pause_supervisor(supervisor_id)` only when the supervisor is `queued` or `needs_input`.
+
+Prepared return context is stored at `runs/supervisors/<supervisor_id>/resume_prompt.txt`. There is no background scheduler yet, and there is no approve-plan MCP tool yet. Notification sinks are disabled by default.
+
 ## Documentation map
 
 - [`PLANS.md`](PLANS.md) — current owner decisions and active roadmap state.
