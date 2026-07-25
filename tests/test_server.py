@@ -1276,7 +1276,7 @@ def test_server_ssh_profile_preview_and_status_delegate(monkeypatch, tmp_path) -
     assert status["change_id"] == "change_1"
 
 
-def test_server_apply_ssh_profile_change_uses_global_lock_and_activates(
+def test_server_apply_ssh_profile_change_starts_durable_activation(
     monkeypatch, tmp_path
 ) -> None:
     repo = tmp_path / "repo"
@@ -1290,45 +1290,30 @@ def test_server_apply_ssh_profile_change_uses_global_lock_and_activates(
         runs_dir=str(tmp_path / "runs"),
     )
     server.set_config(config, config_path)
-    locks: list[dict[str, object]] = []
-    activated: list[tuple[object, object]] = []
+    calls: list[str] = []
 
-    def fake_lock(*args, **kwargs):
-        locks.append({"args": args, **kwargs})
-        return nullcontext()
+    class Manager:
+        def start_ssh_profile_activation(self, change_id: str) -> dict[str, object]:
+            calls.append(change_id)
+            return {
+                "accepted": True,
+                "status": "queued",
+                "run_id": "run_activation_1",
+                "change_id": change_id,
+                "host_id": "candidate",
+                "activation_intent": "new_host",
+                "reason": "durable activation accepted",
+            }
 
-    def fake_apply(path, runs_dir, change_id, *, activate):
-        activation = activate(path)
-        return {
-            "ok": True,
-            "change_id": change_id,
-            "status": "applied",
-            "activation": activation,
-            "runs_dir": str(runs_dir),
-        }
-
-    monkeypatch.setattr(server, "repository_operation_lock", fake_lock)
-    monkeypatch.setattr(server, "_apply_ssh_profile_change", fake_apply)
-    monkeypatch.setattr(
-        server,
-        "_reload_service",
-        lambda path, modules: {"ok": True, "status": "active", "modules": modules},
-    )
-    monkeypatch.setattr(server, "apply_reloaded_config", lambda path: config)
-    monkeypatch.setattr(
-        server,
-        "set_config",
-        lambda active, path=None: activated.append((active, path)),
-    )
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
 
     result = server.apply_ssh_profile_change("change_1")
 
-    assert result["ok"] is True
-    assert result["activation"]["modules"] == ["config"]
-    assert locks[0]["repo_name"] == "__soma_config__"
-    assert locks[0]["tool"] == "apply_ssh_profile_change"
-    assert locks[0]["normalized_input"] == {"change_id": "change_1"}
-    assert activated == [(config, config_path)]
+    assert calls == ["change_1"]
+    assert result["accepted"] is True
+    assert result["status"] == "queued"
+    assert result["run_id"] == "run_activation_1"
+    assert result["change_id"] == "change_1"
 
 
 def test_server_run_control_output_and_lock_tools_delegate(monkeypatch) -> None:
