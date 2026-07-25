@@ -96,6 +96,7 @@ from .ssh_policy import (
     authorize_ssh_root_shell_launch,
 )
 from .ssh_staging import validate_ssh_staging_manifest
+from .ssh_activation import run_ssh_profile_activation
 from .ssh_watchdog import (
     probe_remote_controller_state,
     start_monitored_ssh_command,
@@ -1203,6 +1204,8 @@ class JobWorker:
             return self._execute_ssh_transfer(started_at, input_data)
         if tool == "ssh_deployment":
             return self._execute_ssh_deployment(started_at, input_data)
+        if tool == "ssh_profile_activation":
+            return self._execute_ssh_profile_activation(started_at, input_data)
 
         repo_name = input_data["repo_name"]
         repo_root = resolve_repo(self.config, repo_name)
@@ -2019,6 +2022,77 @@ class JobWorker:
             "timed_out": bool(transfer_result.get("timed_out")),
             "output_truncated": bool(transfer_result.get("output_truncated")),
             "transfer_result": transfer_result,
+        }
+
+    def _execute_ssh_profile_activation(
+        self, started_at: str, input_data: dict
+    ) -> dict:
+        change_id = str(input_data.get("change_id") or "").strip()
+        if not change_id:
+            raise ValueError("SSH profile activation input is missing change_id")
+        self.event(
+            "ssh_profile_activation_started",
+            change_id=change_id,
+            host_id=str(input_data.get("host_id") or ""),
+            activation_intent=str(input_data.get("activation_intent") or ""),
+        )
+        activation_result = run_ssh_profile_activation(
+            self.config_path,
+            self.config.resolve_runs_dir(),
+            change_id,
+            self.run_id,
+        )
+        self.artifacts.write_json(
+            "ssh_profile_activation_result.json", activation_result
+        )
+        ended_at = _utc_now()
+        ok = bool(activation_result.get("ok"))
+        state = str(activation_result.get("activation_state") or "")
+        remaining_risks: list[str] = []
+        if state == "RECOVERY_REQUIRED":
+            remaining_risks.append(
+                "SSH profile activation could not prove rollback; inspect transaction evidence before retrying"
+            )
+        elif state == "ROLLED_BACK":
+            remaining_risks.append(
+                "Candidate activation failed and local state was rolled back"
+            )
+        self.event(
+            "ssh_profile_activation_completed",
+            change_id=change_id,
+            activation_state=state,
+            ok=ok,
+        )
+        return {
+            "run_id": self.run_id,
+            "repo_name": "__soma_config__",
+            "tool": "ssh_profile_activation",
+            "change_id": change_id,
+            "host_id": str(input_data.get("host_id") or ""),
+            "activation_intent": str(
+                input_data.get("activation_intent") or ""
+            ),
+            "status": "completed" if ok else "failed",
+            "exit_code": 0 if ok else 1,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": _duration(started_at, ended_at),
+            "changed_files": [],
+            "git_status": "",
+            "diff_stat": "",
+            "tests_run": [],
+            "test_results": activation_result,
+            "summary": (
+                "SSH profile activation completed transactionally"
+                if ok
+                else f"SSH profile activation ended {state or 'failed'}"
+            ),
+            "remaining_risks": remaining_risks,
+            "error": str(activation_result.get("error") or ""),
+            "safety_failure": state == "RECOVERY_REQUIRED",
+            "timed_out": False,
+            "output_truncated": False,
+            "activation_result": activation_result,
         }
 
     def _execute_ssh_deployment(self, started_at: str, input_data: dict) -> dict:
