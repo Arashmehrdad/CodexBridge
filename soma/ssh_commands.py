@@ -13,6 +13,7 @@ from pathlib import Path, PureWindowsPath
 
 from .config import AppConfig, SSHCommandProfileConfig, SSHConfig, SSHHostConfig
 from .ssh_credentials import resolve_ssh_credential_binding
+from .ssh_host_keys import managed_known_hosts_path
 
 MAX_SSH_OUTPUT_BYTES = 100_000
 MAX_REMOTE_ARGV_ITEMS = 64
@@ -344,6 +345,24 @@ def resolve_ssh_executable(config: AppConfig) -> str:
     return resolved
 
 
+def build_ssh_host_key_options(
+    config: AppConfig,
+    connection: SSHConnection,
+) -> list[str]:
+    if connection.mode == "credential_binding":
+        known_hosts = managed_known_hosts_path(config.resolve_runs_dir())
+        return [
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            f"GlobalKnownHostsFile={os.devnull}",
+        ]
+    strict = "accept-new" if connection.mode == "connection_file" else "yes"
+    return ["-o", f"StrictHostKeyChecking={strict}"]
+
+
 def build_ssh_argv(
     config: AppConfig,
     host_id: str,
@@ -358,9 +377,6 @@ def build_ssh_argv(
         validate_ssh_command_profile(profile)
         remote_command = shlex.join([str(item) for item in profile.argv])
     executable = resolve_ssh_executable(config)
-    strict_host_key_checking = (
-        "accept-new" if connection.mode == "connection_file" else "yes"
-    )
     force_pty = requires_forced_pty(host, connection.destination)
     return [
         executable,
@@ -370,8 +386,7 @@ def build_ssh_argv(
         "BatchMode=yes",
         "-o",
         "IdentitiesOnly=yes",
-        "-o",
-        f"StrictHostKeyChecking={strict_host_key_checking}",
+        *build_ssh_host_key_options(config, connection),
         "-o",
         "PasswordAuthentication=no",
         "-o",
@@ -555,9 +570,6 @@ def build_ssh_payload_argv(
     host = resolve_ssh_host(config, host_id)
     connection = resolve_ssh_connection(host, config.ssh)
     executable = resolve_ssh_executable(config)
-    strict_host_key_checking = (
-        "accept-new" if connection.mode == "connection_file" else "yes"
-    )
     force_pty = requires_forced_pty(host, connection.destination)
     return [
         executable,
@@ -566,8 +578,7 @@ def build_ssh_payload_argv(
         "BatchMode=yes",
         "-o",
         "IdentitiesOnly=yes",
-        "-o",
-        f"StrictHostKeyChecking={strict_host_key_checking}",
+        *build_ssh_host_key_options(config, connection),
         "-o",
         "PasswordAuthentication=no",
         "-o",

@@ -26,6 +26,7 @@ from .ssh_commands import (
     build_ssh_argv,
     build_ssh_connection_options,
     build_ssh_destination,
+    build_ssh_host_key_options,
     prepare_ssh_execution,
     resolve_ssh_connection,
     resolve_ssh_command_profile,
@@ -809,9 +810,6 @@ def _scp_base(
 ) -> tuple[list[str], SSHHostConfig, str]:
     host = resolve_ssh_host(config, host_id)
     connection = resolve_ssh_connection(host, config.ssh)
-    strict_host_key_checking = (
-        "accept-new" if connection.mode == "connection_file" else "yes"
-    )
     argv = [
         resolve_scp_executable(config),
         "-B",
@@ -820,8 +818,7 @@ def _scp_base(
         "BatchMode=yes",
         "-o",
         "IdentitiesOnly=yes",
-        "-o",
-        f"StrictHostKeyChecking={strict_host_key_checking}",
+        *build_ssh_host_key_options(config, connection),
         "-o",
         "PasswordAuthentication=no",
         "-o",
