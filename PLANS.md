@@ -74,11 +74,9 @@ Collect operational evidence before prescribing broad fixes for these observatio
 
 ## Active Sequence
 
-The single active implementation lane is **TASK-1 - Canonical Task Plane Foundation**, selected by the owner on 2026-07-25. No other architecture lane is active.
+No implementation lane is currently active. TASK-1 completed on 2026-07-25 and this roadmap now requires an explicit, bounded owner selection before another implementation lane begins.
 
-TASK-1 is the bounded first batch of roadmap Phase 1. It adds one controller-neutral canonical task identity above the existing durable execution engine as an additive compatibility layer. It does not replace, weaken, or delete the existing run, workflow, supervisor, SSH, Hermes, command-group, or domain lifecycles.
-
-A generic `continue` must not reactivate CF1, TL0-TL9, H1/H2, OP1, SSH-A1, broad reliability/autonomy work, or Roadmap V3. When TASK-1 closes, this roadmap returns to no active implementation lane until the owner explicitly selects the next bounded batch.
+A generic `continue` must not reactivate CF1, TL0-TL9, H1/H2, OP1, SSH-A1, TASK-1, broad reliability/autonomy work, or Roadmap V3. The next implementation unit must be explicitly selected and bounded by the owner. Roadmap Phase 2 is the natural successor but is not automatically active.
 
 Completed sequence:
 
@@ -88,6 +86,7 @@ Completed sequence:
 4. The original TL0-TL9 program completed and was superseded by the authoritative Trading Lab redesign.
 5. Trading Lab's scheduled ChatGPT companion cycle was implemented in the standalone package, wired through Soma, and live-accepted for no-order and internal-paper execution.
 6. SSH-A1 completed credential-source probing, reference-bound profiles, managed host identity, capability snapshots, canonical project bindings, durable transactional activation/rollback, public gateway exposure, documentation, and live connector rollout.
+7. TASK-1 completed the first bounded batch of roadmap Phase 1: a canonical task schema and transactional migration, typed controller-neutral task models, one mapped durable execution backend, compact task status and result queries, one state-version-guarded command, idempotent task creation, restart-safe reconciliation, and live acceptance.
 
 The owner-facing SSH contract is now available: provide a local credential location or existing SSH alias plus host/project intent. The controller handles source discovery, field mapping, preview, authentication, capability discovery, project validation, activation, and rollback without asking the owner to edit configuration or paste secret values.
 
@@ -97,7 +96,25 @@ The first owner-supplied real-host onboarding is operational use of the complete
 
 ## Priority 0 - TASK-1 Canonical Task Plane Foundation
 
-Status: **active implementation lane, opened 2026-07-25**.
+Status: **complete; implementation, focused and full-suite validation, static gates, isolated source startup, controlled live restart, and live task-backed acceptance closed on 2026-07-25**.
+
+Complete contracts, compatibility guarantees, migration and rollback boundaries, test coverage, and live evidence are recorded in [`docs/task1-canonical-task-plane-evidence.md`](docs/task1-canonical-task-plane-evidence.md).
+
+### Completion evidence
+
+- canonical `tasks`, `task_links`, `task_commands`, `task_checkpoints`, and `task_events` were added by ordered transactional migrations recorded in `soma_schema_migrations` at component `canonical_task_plane` version 1, with no change to any existing table;
+- typed task models carry the complete controller-neutral state vocabulary and contain no approval, permission-tier, autonomy, or controller-specific value;
+- the durable local command path (`executable_profile`) is mapped as the first and default backend by delegation, not by forking its execution logic;
+- `task_query` (`capabilities`, `status`, `result`, `events`, `links`) and `task_action` (`start`, `cancel`) took the public gateway count from 30 to 32 with operation inventory `cf1.3.gateway-operations.v11`;
+- task creation is idempotent on `controller_request_id` plus a normalized request hash: a matching replay returns the existing task, a differing request is rejected explicitly, and concurrent duplicates plus post-restart retries provably create only one backend run;
+- `task_action.cancel` is state-version guarded, delegates to the run engine, rejects stale versions with the current version, reports `cancellation_pending` until termination is proven, and is a no-op once terminal;
+- restart-safe reconciliation covers active workers, incomplete launches, stale projections, pending cancellation, unpublished result linkage, duplicate reconcilers, and inconsistent backend identity, and never invents success;
+- 41 focused tests plus the complete suite passed at **1917 passed and 35 skipped**; Ruff, Python compilation, `pip check`, and whitespace hygiene passed;
+- isolated source startup returned `/health = OK` with both task gateways discoverable; the controlled live restart converged source and running build identity at `3ca1a1abd9384901691c921e956c230a12fe007d091ff4945c198030d27e8a69`;
+- live acceptance ran canonical task `task_20260725T114648Z_19cd9d57aaee` over durable run `20260725T114648Z_executable_profile_e5186cdc` to `completed`, with the task result referencing the authoritative run result hash, and live version-guarded cancellation of `task_20260725T114748Z_06a2add4ca6e` confirmed real process termination with no leaked locks;
+- existing `run_start`, `run_query`, and `cancel_run` behaviour is unchanged, and legacy runs remain readable without a canonical task.
+
+No historical run was backfilled into a canonical task, and no legacy store was deleted.
 
 ### Objective
 
@@ -164,6 +181,16 @@ The first slice does not exercise every state, but the schema vocabulary is comp
 ### Exit gate
 
 One canonical task can represent, supervise, cancel, and recover a real durable local execution through `task_query` and `task_action`, with the task result referencing the authoritative run result rather than competing with it, and with every existing run API unchanged.
+
+Met on 2026-07-25.
+
+### Remaining for a later Phase 1/Phase 2 batch
+
+- only the durable local command backend is mapped; workflow, supervisor, SSH, Hermes, remote PowerShell, command-group, and domain executions are not yet canonical tasks;
+- only `cancel` is implemented as a version-guarded command; `steer`, `input`, `pause`, `resume`, and `retry` remain future work;
+- `task_checkpoints` exists but no checkpoint is created yet, so controller checkpoint round-trips are not exercised;
+- `recovery_pending` and `uncertain` are reported honestly with no automated repair command;
+- no historical run is represented as a canonical task.
 
 ## Priority 0 - SSH-A1 Agent-Driven Credential Binding and Transactional Host Activation
 

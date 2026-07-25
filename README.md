@@ -286,12 +286,13 @@ After a tool-surface change, refresh or reconnect the MCP client so its cached s
 
 ## Public MCP surface
 
-The public API is deliberately consolidated into 30 gateways. Use `system_query` with `operation: "capabilities"` as the source of truth for live schemas.
+The public API is deliberately consolidated into 32 gateways. Use `system_query` with `operation: "capabilities"` as the source of truth for live schemas.
 
 | Area | Public gateways |
 | --- | --- |
 | System | `system_query`, `system_action` |
 | Durable runs | `run_start`, `run_query`, `cancel_run` |
+| Canonical tasks | `task_query`, `task_action` |
 | Repositories | `repo_query`, `repo_preview`, `repo_apply`, `repo_commit` |
 | Workflows | `workflow_query`, `workflow_action` |
 | Supervisors | `supervisor_query`, `supervisor_action` |
@@ -338,6 +339,65 @@ The lightweight self-check verifies imports, package identity, configuration, SQ
 A short PowerShell command may request `return_when: "terminal_or_timeout"` with `wait_seconds` from 0 to 20. The run is still persisted before launch. Wait expiry never cancels the run.
 
 Once a start call returns a `run_id`, do not repeat it after a client timeout. Poll the existing run.
+
+### Canonical task plane
+
+`task_query` and `task_action` add one controller-neutral task identity above the durable run engine. The task plane is an additive compatibility layer: it does not replace the run engine, and every existing `run_start`, `run_query`, and `cancel_run` behaviour is unchanged.
+
+```text
+canonical task
+  -> references one selected execution backend
+  -> maps to an existing durable run
+  -> reuses the existing worker, lease, cancellation, evidence, result, and recovery systems
+```
+
+`task_action` operations:
+
+- `start` — create one canonical task backed by a durable local command run;
+- `cancel` — state-version-guarded cancellation delegated to the run engine.
+
+`task_query` operations:
+
+- `capabilities` — task kinds, states, link types, commands, backends, idempotency rules, and task schema version;
+- `status` — compact lifecycle projection;
+- `result` — the authoritative durable run result *reference* and its publication hashes;
+- `events` — bounded task lifecycle events;
+- `links` — typed `parent`, `child`, `backend_run`, `related`, and `supersedes` links.
+
+Controller-neutral task states are `accepted`, `queued`, `running`, `awaiting_controller`, `paused`, `cancellation_pending`, `recovery_pending`, `completed`, `failed`, `cancelled`, and `uncertain`. There is no approval state and no controller-specific state.
+
+Authority boundaries:
+
+| Concern | Authority |
+| --- | --- |
+| Canonical public task identity, typed links, task commands | canonical task store |
+| Worker, process, lease, lock lifecycle | durable run store |
+| Result and evidence | durable run store |
+
+`task_action.start` is idempotent on `controller_request_id` plus a normalized request hash:
+
+- the same request ID with the same normalized request returns the existing task and launches nothing;
+- the same request ID with a different normalized request fails with `controller_request_hash_conflict`;
+- concurrent duplicate requests and post-restart retries cannot create a second backend run, because the durable run identity is reserved and owned by exactly one task.
+
+`task_action.cancel` requires `if_state_version`. A stale version is rejected with `error_code: "stale_state_version"` and the current state version. The task never reports `cancelled` before the run engine proves termination; while the worker still owns termination the task reports `cancellation_pending`.
+
+Example canonical task start and poll:
+
+```powershell
+# task_action
+#   {"operation":"start","controller_request_id":"my-request-1","repo_name":"soma",
+#    "profile_id":"powershell","working_directory":"D:/Github/Soma",
+#    "argv":["-NoProfile","-Command","Write-Output ok"],"timeout_seconds":120}
+#
+# task_query {"operation":"status","task_id":"task_..."}
+# task_query {"operation":"result","task_id":"task_..."}
+# run_query  {"operation":"terminal","run_id":"<backend_reference>"}
+```
+
+The task row never stores `argv`, `environment`, or stdin. It stores a normalized request hash plus references into the existing durable run input and terminal evidence, so a task response can never leak a secret the run record already protects.
+
+Legacy runs created before the task plane, or created through `run_start` directly, remain fully readable and simply have no canonical task. No historical run database backfill is performed.
 
 ### Repository gateway
 
@@ -675,6 +735,7 @@ soma/
                                bounded reads and managed changes
   run_public_result.py         compact terminal projections
   run_artifacts.py             protected evidence handling
+  tasks/                       canonical task plane above the durable engine
   workflows/                   durable dependency-ordered workflows
   supervisor/                  supervisor models and flow
   hermes_*.py                  companion and shared Hermes service
@@ -788,6 +849,7 @@ Prepared return context is stored at `runs/supervisors/<supervisor_id>/resume_pr
 - [`PLANS.md`](PLANS.md) — current owner decisions and active roadmap state.
 - [`docs/ssh-agent-driven-host-onboarding-plan.md`](docs/ssh-agent-driven-host-onboarding-plan.md) — active SSH-A1 plan for secret-safe credential discovery, host validation, capability snapshots, project bindings, and transactional activation.
 - [`AGENTS.md`](AGENTS.md) — controller and engineering rules.
+- [`docs/task1-canonical-task-plane-evidence.md`](docs/task1-canonical-task-plane-evidence.md) — TASK-1 canonical task plane contracts, compatibility guarantees, and acceptance evidence.
 - [`docs/roadmap-v2-achievements.md`](docs/roadmap-v2-achievements.md) — completed implementation history and evidence.
 - [`docs/Soma_Agentic_Runtime_Audit_and_Strategic_Roadmap_Revised.md`](docs/Soma_Agentic_Runtime_Audit_and_Strategic_Roadmap_Revised.md) — revised audit and strategic direction.
 - [`docs/domain-tool-gateway-migration.md`](docs/domain-tool-gateway-migration.md) — consolidated gateway design.
@@ -808,5 +870,6 @@ Prepared return context is stored at `runs/supervisors/<supervisor_id>/resume_pr
 - Trading is demo-only; unattended scheduling is not enabled by default.
 - Generated wiki content is a cache and can be stale.
 - Legacy durable records may remain readable, but retired operation names are not executable capabilities.
+- The canonical task plane currently maps one execution backend, the durable local command engine. Workflow, supervisor, SSH, Hermes, and command-group executions are not yet represented as canonical tasks, and no historical run is backfilled into a task.
 
 Soma’s operating rule is simple: **preserve the complete truth durably, expose only the useful slice now, and never confuse a compact projection with the authoritative record.**

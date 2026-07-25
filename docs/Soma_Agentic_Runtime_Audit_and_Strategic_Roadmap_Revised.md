@@ -24,7 +24,8 @@ Arash is the owner and final decision-maker for scope, risk acceptance, security
 - Cross-client MCP compatibility: **fixed**
 - CF1 remaining work: documentation reconciliation only
 - Active implementation lane: whichever bounded post-CF1 batch Arash explicitly selects
-- Recommended next implementation lane: **Phase 1 — Canonical task plane**, but this document does not activate it automatically
+- Phase 1 first bounded batch (TASK-1 — Canonical Task Plane Foundation): **implemented and accepted on 2026-07-25**; see `docs/task1-canonical-task-plane-evidence.md`. Phase 1 as a whole is not complete: only the durable local command backend is mapped, only `cancel` is version-guarded, and no checkpoint round-trip exists yet.
+- Recommended next implementation lane: the remainder of **Phase 1** (additional backend mappings, the remaining version-guarded commands, and controller checkpoints), then **Phase 2**. This document does not activate either automatically.
 
 The repository and service continue to evolve. Before implementing any phase, re-run preflight, inspect the live branch and worktree, verify the running service build and schemas, and re-check any external project whose licence or architecture could have changed.
 
@@ -1392,16 +1393,23 @@ Before retiring old systems, create or update a legacy-achievement and migration
 
 ## 13. Recommended next bounded batch
 
-The next recommended implementation batch is a **non-destructive Phase 1 slice**:
+The originally recommended non-destructive Phase 1 slice was implemented and accepted as **TASK-1 — Canonical Task Plane Foundation** on 2026-07-25:
 
-- canonical task schema and migration;
-- controller-neutral task states;
-- mapping for one existing durable run type;
-- compact task status and result projection;
-- one version-guarded command;
-- adapter and migration tests;
-- no legacy deletion;
-- no Temporal, browser, memory sidecar, or gateway integration in the same batch.
+- canonical task schema and ordered transactional migration — done;
+- controller-neutral task states — done, complete vocabulary, no approval state;
+- mapping for one existing durable run type — done, the durable local command (`executable_profile`) path;
+- compact task status and result projection — done, referencing the authoritative run result and hashes;
+- one version-guarded command — done, `task_action.cancel`;
+- adapter and migration tests — done, plus crash-window and compatibility coverage;
+- no legacy deletion — honoured;
+- no Temporal, browser, memory sidecar, or gateway integration in the same batch — honoured.
+
+The next recommended batch is therefore the **remainder of Phase 1**:
+
+- map a second existing execution type (workflow, supervisor, SSH, or command group) onto the same task contract;
+- add the remaining version-guarded commands (`steer`, `input`, `pause`, `resume`, `retry`);
+- exercise controller checkpoints and `awaiting_controller` end to end;
+- add an explicit repair path for `recovery_pending` and `uncertain` tasks.
 
 This recommendation is not an activation. Arash selects the batch.
 
