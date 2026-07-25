@@ -111,8 +111,11 @@ from .trading_lab_adapter import (
 from .ssh_commands import list_ssh_capabilities as _list_ssh_capabilities
 from .ssh_commands import ssh_host_health as _ssh_host_health
 from .ssh_credentials import probe_ssh_credential_source as _probe_ssh_credential_source
+from .ssh_activation import (
+    activation_status as _ssh_activation_status,
+    reconcile_pending_ssh_activations as _reconcile_pending_ssh_activations,
+)
 from .ssh_profile_manager import (
-    apply_ssh_profile_change as _apply_ssh_profile_change,
     get_ssh_profile_change_status as _get_ssh_profile_change_status,
     preview_ssh_profile_change as _preview_ssh_profile_change,
 )
@@ -2261,11 +2264,19 @@ def preview_ssh_profile_change(
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_ssh_profile_change_status(change_id: str) -> dict:
-    """Read-only: return sanitized lifecycle metadata for one SSH profile change preview."""
+    """Read-only: return profile preview plus durable activation lifecycle metadata."""
     config_path = get_config_path()
     if config_path is None:
         raise ValueError("SSH profile management requires a config file path")
-    return _get_ssh_profile_change_status(config_path, _get_runs_dir(), change_id)
+    result = _get_ssh_profile_change_status(
+        config_path, _get_runs_dir(), change_id
+    )
+    activation = _ssh_activation_status(_get_runs_dir(), change_id)
+    if activation.get("state") != "not_started":
+        result["activation"] = activation
+        result["run_id"] = str(activation.get("run_id") or "")
+        result["activation_state"] = str(activation.get("state") or "")
+    return result
 
 
 def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str, Any]:
@@ -2357,29 +2368,10 @@ def _bounded_ssh_query_response(result: dict[str, Any], budget: int) -> dict[str
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def apply_ssh_profile_change(change_id: str) -> dict:
-    """Write tool: atomically apply and activate one hash-verified SSH profile change preview."""
-    config_path = get_config_path()
-    if config_path is None:
+    """Write tool: start durable candidate validation and transactional activation."""
+    if get_config_path() is None:
         raise ValueError("SSH profile management requires a config file path")
-
-    def activate(candidate_path: Path) -> dict[str, Any]:
-        result = _reload_service(candidate_path, modules=["config"])
-        if result.get("ok"):
-            set_config(apply_reloaded_config(candidate_path), candidate_path)
-        return result
-
-    with repository_operation_lock(
-        _get_runs_dir(),
-        repo_name="__soma_config__",
-        tool="apply_ssh_profile_change",
-        normalized_input={"change_id": change_id},
-    ):
-        return _apply_ssh_profile_change(
-            config_path,
-            _get_runs_dir(),
-            change_id,
-            activate=activate,
-        )
+    return get_job_manager().start_ssh_profile_activation(change_id)
 
 
 @_internal_tool(
@@ -5714,21 +5706,68 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return build_parser().parse_args(argv)
 
 
+def _reload_ssh_activation_config(config_path: Path) -> dict[str, Any]:
+    result = _reload_service(config_path, modules=["config"])
+    if result.get("ok"):
+        set_config(apply_reloaded_config(config_path), config_path)
+    return {
+        "ok": bool(result.get("ok")),
+        "status": str(result.get("status") or ""),
+        "error": str(result.get("error") or ""),
+    }
+
+
+def _reconcile_ssh_activation_once(config_path: Path) -> list[dict[str, Any]]:
+    return _reconcile_pending_ssh_activations(
+        config_path,
+        get_config().resolve_runs_dir(),
+        reload_callback=_reload_ssh_activation_config,
+    )
+
+
+def _ssh_activation_coordinator_loop(
+    config_path: Path,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.is_set():
+        try:
+            _reconcile_ssh_activation_once(config_path)
+        except Exception:
+            pass
+        stop_event.wait(0.25)
+
+
 def run_server(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     set_config(load_config(config_path), config_path)
     try:
-        get_job_manager().reconcile_startup()
+        _reconcile_ssh_activation_once(config_path)
     except Exception:
         pass
+    coordinator_stop = threading.Event()
+    coordinator = threading.Thread(
+        target=_ssh_activation_coordinator_loop,
+        args=(config_path, coordinator_stop),
+        name="soma-ssh-activation-coordinator",
+        daemon=True,
+    )
+    coordinator.start()
     try:
-        get_workflow_manager().reconcile_startup()
-    except Exception:
-        pass
-    if args.transport == "stdio":
-        mcp.run(transport="stdio")
-        return
-    mcp.run(transport=args.transport, host=args.host, port=args.port, path=args.path)
+        try:
+            get_job_manager().reconcile_startup()
+        except Exception:
+            pass
+        try:
+            get_workflow_manager().reconcile_startup()
+        except Exception:
+            pass
+        if args.transport == "stdio":
+            mcp.run(transport="stdio")
+            return
+        mcp.run(transport=args.transport, host=args.host, port=args.port, path=args.path)
+    finally:
+        coordinator_stop.set()
+        coordinator.join(timeout=2.0)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
