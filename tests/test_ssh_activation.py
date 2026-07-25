@@ -271,6 +271,134 @@ def test_successful_activation_is_worker_server_coordinated_and_idempotent(
     assert adapter.prepare_calls == 1
 
 
+def test_configure_host_acceptance_completes_without_secret_value_persistence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "repos:\n"
+        "  app:\n"
+        f"    path: {json.dumps(str(app_dir.resolve()))}\n"
+        "runs_dir: runs\n"
+        "ssh:\n"
+        "  enabled: true\n"
+        "  hosts: {}\n",
+        encoding="utf-8",
+    )
+    runs_dir = tmp_path / "runs"
+    identity_file = tmp_path / "acceptance_ed25519"
+    identity_file.write_text(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "acceptance-fixture-only\n"
+        "-----END OPENSSH PRIVATE KEY-----\n",
+        encoding="utf-8",
+    )
+    secret_hostname = "fake-acceptance.invalid"
+    secret_user = "acceptance_operator"
+    monkeypatch.setenv("ACCEPTANCE_SSH_HOST", secret_hostname)
+    monkeypatch.setenv("ACCEPTANCE_SSH_USER", secret_user)
+    monkeypatch.setenv("ACCEPTANCE_SSH_PORT", "22")
+    monkeypatch.setenv("ACCEPTANCE_SSH_KEY", str(identity_file.resolve()))
+
+    preview = preview_ssh_profile_change(
+        config_path,
+        runs_dir,
+        action="configure_host",
+        host_id="acceptance",
+        host_config={
+            "credential_binding": {
+                "source_id": "acceptance_source",
+                "host_key_policy": "tofu",
+                "hostname": "ACCEPTANCE_SSH_HOST",
+                "user": "ACCEPTANCE_SSH_USER",
+                "port": "ACCEPTANCE_SSH_PORT",
+                "identity_file": "ACCEPTANCE_SSH_KEY",
+            },
+            "allowed_remote_roots": ["/srv"],
+        },
+        credential_source_id="acceptance_source",
+        credential_source={"type": "process_environment"},
+        project_bindings={
+            "app_acceptance": {
+                "repo_name": "app",
+                "remote_root": "/srv/app",
+                "required_capabilities": ["docker"],
+                "allow_first_deployment": True,
+            }
+        },
+        activation_intent="new_host",
+    )
+    preview_text = json.dumps(preview, sort_keys=True)
+    assert secret_hostname not in preview_text
+    assert secret_user not in preview_text
+    assert str(identity_file.resolve()) not in preview_text
+
+    class FakeSSHNetworkAdapter(FakeActivationAdapter):
+        def prepare(
+            self,
+            *,
+            candidate_config: AppConfig,
+            manifest: Mapping[str, Any],
+            transaction_dir: Path,
+        ) -> dict[str, Any]:
+            result = super().prepare(
+                candidate_config=candidate_config,
+                manifest=manifest,
+                transaction_dir=transaction_dir,
+            )
+            result["project_validations"] = [
+                {
+                    "ok": True,
+                    "status": "preparation_required",
+                    "binding_id": "app_acceptance",
+                    "preparation_required_checks": ["remote_root_exists"],
+                }
+            ]
+            return result
+
+    change_id = str(preview["change_id"])
+    adapter = FakeSSHNetworkAdapter()
+    holder: dict[str, Any] = {}
+    thread = _run_worker_thread(
+        config_path, runs_dir, change_id, adapter, holder
+    )
+    _wait_for(activation_dir(runs_dir, change_id) / "activation_request.json")
+    acknowledgement = reconcile_ssh_activation_request(
+        config_path,
+        runs_dir,
+        change_id,
+        reload_callback=_reload_recorder([]),
+    )
+    thread.join(timeout=10)
+
+    assert acknowledgement["ok"] is True
+    assert thread.is_alive() is False
+    assert holder["result"]["activation_state"] == "COMPLETED"
+    active = load_config(config_path)
+    assert active.ssh.credential_sources["acceptance_source"].type == (
+        "process_environment"
+    )
+    assert active.ssh.hosts["acceptance"].credential_binding is not None
+    assert active.ssh.hosts["acceptance"].credential_binding.source_id == (
+        "acceptance_source"
+    )
+    assert active.ssh.project_bindings["app_acceptance"].host_id == "acceptance"
+    config_text = config_path.read_text(encoding="utf-8")
+    assert secret_hostname not in config_text
+    assert secret_user not in config_text
+    assert str(identity_file.resolve()) not in config_text
+    assert (runs_dir / "ssh_known_hosts" / "known_hosts").is_file()
+    assert (
+        runs_dir / "ssh_capabilities" / "acceptance" / "CURRENT.json"
+    ).is_file()
+    status = activation_status(runs_dir, change_id)
+    assert status["state"] == "COMPLETED"
+    assert status["project_validations"][0]["binding_id"] == "app_acceptance"
+
+
 def test_prepare_failure_never_creates_activation_request_or_mutates_config(
     tmp_path: Path,
 ) -> None:
