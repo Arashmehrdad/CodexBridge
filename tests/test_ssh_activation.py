@@ -144,6 +144,13 @@ def _base_config(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _preview_add_host(config_path: Path, runs_dir: Path) -> str:
+    identity_file = config_path.parent / "candidate_ed25519"
+    identity_file.write_text(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "activation-fixture-only\n"
+        "-----END OPENSSH PRIVATE KEY-----\n",
+        encoding="utf-8",
+    )
     preview = preview_ssh_profile_change(
         config_path,
         runs_dir,
@@ -152,7 +159,7 @@ def _preview_add_host(config_path: Path, runs_dir: Path) -> str:
         host_config=SSHHostConfig(
             hostname="candidate.example",
             user="root",
-            identity_file="C:/keys/candidate_ed25519",
+            identity_file=str(identity_file.resolve()),
         ).model_dump(mode="python"),
     )
     return str(preview["change_id"])
