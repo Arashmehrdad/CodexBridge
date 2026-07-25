@@ -176,7 +176,9 @@ def test_env_file_binding_resolves_only_at_execution_time(
     source_path.write_text(
         f"PROD_SSH_HOST=changed.example\n"
         f"PROD_SSH_USER={USER_VALUE}\n"
-        f"PROD_SSH_KEY_PATH={key}\n",
+        "PROD_SSH_PORT=22\n"
+        f"PROD_SSH_KEY_PATH={key}\n"
+        f"PROD_SSH_HOST_KEY={FINGERPRINT_VALUE}\n",
         encoding="utf-8",
     )
     changed = resolve_ssh_connection(
