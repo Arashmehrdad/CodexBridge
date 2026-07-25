@@ -781,7 +781,7 @@ Interactive shells, arbitrary command strings, password authentication, keyboard
 
 A recovery supervisor is created through `start_supervised_recovery_task`. Use `resume_supervisor(supervisor_id)` to advance exactly one safe step, and `pause_supervisor(supervisor_id)` only when the supervisor is `queued` or `needs_input`.
 
-Prepared return context is stored at `runs/supervisors/<supervisor_id>/resume_prompt.txt`. There is no background scheduler yet, and there is no approve-plan MCP tool yet. Notification sinks are disabled by default.
+Prepared return context is stored at `runs/supervisors/<supervisor_id>/resume_prompt.txt`. There is no background scheduler yet. There is no approve-plan MCP tool yet. Notification sinks are disabled by default.
 
 ## Documentation map
 
