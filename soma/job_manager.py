@@ -1970,7 +1970,9 @@ class JobManager:
 
     def start_ssh_profile_activation(self, change_id: str) -> dict:
         status = get_ssh_profile_change_status(
-            self.config.resolve_runs_dir(), change_id
+            self.config_path,
+            self.config.resolve_runs_dir(),
+            change_id,
         )
         if status.get("status") != "previewed":
             raise ValueError(
