@@ -370,10 +370,18 @@ def _apply_mutation(data: dict[str, Any], mutation: dict[str, Any]) -> dict[str,
         if not isinstance(bindings, dict):
             raise ValueError("ssh.project_bindings must be a mapping")
         source_id = str(mutation["credential_source_id"])
-        sources[source_id] = dict(mutation["credential_source"])
+        _normalized_source_id, normalized_source = _normalized_source(
+            source_id,
+            dict(mutation["credential_source"]),
+        )
+        sources[source_id] = normalized_source
         hosts[host_id] = _normalized_host(dict(mutation["host_config"]))
-        for binding_id, binding in dict(mutation["project_bindings"]).items():
-            bindings[str(binding_id)] = dict(binding)
+        normalized_bindings = _normalized_project_bindings(
+            dict(mutation["project_bindings"]),
+            host_id=host_id,
+        )
+        for binding_id, binding in normalized_bindings.items():
+            bindings[binding_id] = binding
     elif action == "add_host":
         if exists:
             raise ValueError(f"SSH host already exists: {host_id}")
