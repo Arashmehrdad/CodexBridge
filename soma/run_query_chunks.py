@@ -19,8 +19,8 @@ from .safety import redact_secret_values
 
 
 RUN_QUERY_CHUNK_CHARACTERS = 16 * 1024
+RUN_REFERENCE_PREFIX = "__soma_run_query_run__:"
 _CURSOR_VERSION = 2
-_RUN_REFERENCE_PREFIX = "__soma_run_query_run__:"
 _LIST_REFERENCE_PREFIX = "__soma_run_query_list__:"
 _SNAPSHOT_ROOT = Path(tempfile.gettempdir()) / "soma-run-query-snapshots"
 _SNAPSHOT_MAX_AGE_SECONDS = 60 * 60
@@ -67,15 +67,15 @@ def _urlsafe_decode(value: str) -> dict[str, Any]:
 
 
 def encode_run_reference(run_id: str, cursor: str = "") -> str:
-    return _RUN_REFERENCE_PREFIX + _urlsafe_encode(
+    return RUN_REFERENCE_PREFIX + _urlsafe_encode(
         {"run_id": run_id, "cursor": cursor}
     )
 
 
 def decode_run_reference(value: str) -> ChunkReference | None:
-    if not value.startswith(_RUN_REFERENCE_PREFIX):
+    if not value.startswith(RUN_REFERENCE_PREFIX):
         return None
-    payload = _urlsafe_decode(value[len(_RUN_REFERENCE_PREFIX) :])
+    payload = _urlsafe_decode(value[len(RUN_REFERENCE_PREFIX) :])
     run_id = str(payload.get("run_id") or "")
     cursor = str(payload.get("cursor") or "")
     if not run_id:

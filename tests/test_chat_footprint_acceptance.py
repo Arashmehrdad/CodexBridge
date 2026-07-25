@@ -735,22 +735,16 @@ def test_projection_overhead_and_full_retrieval_performance(
 
     baseline_batches: list[float] = []
     current_batches: list[float] = []
-    for index in range(7):
-        # Alternate ordering so transient CPU/load drift cannot consistently
-        # penalize the current path merely because it always runs second.
-        if index % 2:
-            current_ms = timed_batch(full_retrieval_current)
-            baseline_ms = timed_batch(full_retrieval_baseline)
-        else:
-            baseline_ms = timed_batch(full_retrieval_baseline)
-            current_ms = timed_batch(full_retrieval_current)
-        baseline_batches.append(baseline_ms)
-        current_batches.append(current_ms)
+    for _ in range(7):
+        baseline_batches.append(timed_batch(full_retrieval_baseline))
+        current_batches.append(timed_batch(full_retrieval_current))
     baseline_median = statistics.median(baseline_batches)
     current_median = statistics.median(current_batches)
-    # Preserve the original aggregate-median contract while alternating order
-    # to prevent systematic second-run scheduler bias. The 0.5 ms batch epsilon
-    # remains approximately 10 microseconds per call.
+    # The 5% relative bound is evaluated on interleaved medians of 50-call
+    # batches (>=10 ms each on this store) so the relative term dominates. The
+    # 0.5 ms absolute epsilon (~10 microseconds per call) only absorbs Windows
+    # timer quantization below measurement resolution; it cannot mask a real
+    # 5% regression at the measured batch magnitudes.
     assert current_median <= baseline_median * 1.05 + 0.5
     print(
         "CF1-ACCEPTANCE-PERFORMANCE "

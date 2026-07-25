@@ -62,6 +62,7 @@ from .process_control import (
     terminate_process_tree,
 )
 from .run_query_chunks import (
+    RUN_REFERENCE_PREFIX,
     chunk_payload,
     decode_list_reference,
     decode_run_reference,
@@ -2731,16 +2732,28 @@ class JobManager:
         }
 
     def get_result(self, run_id: str) -> dict:
+        # Ordinary run IDs are overwhelmingly the hot path. Avoid reference
+        # decoding and the extra payload-routing layer unless the opaque prefix
+        # is actually present; this retains identical lookup/redaction behavior.
+        if not run_id.startswith(RUN_REFERENCE_PREFIX):
+            try:
+                run = self.store.get_run(run_id)
+            except (ValueError, KeyError) as exc:
+                return self._run_lookup_error(run_id, exc)
+            result = run.get("result") or {}
+            if result:
+                return redact_and_truncate(result)
+            return redact_and_truncate(self.get_result_payload(run_id))
+
         reference = decode_run_reference(run_id)
-        actual_run_id = reference.resource_id if reference else run_id
-        if reference:
-            return chunk_payload(
-                "result",
-                actual_run_id,
-                lambda: self.get_result_payload(actual_run_id),
-                reference.cursor,
-            )
-        return redact_and_truncate(self.get_result_payload(actual_run_id))
+        if reference is None:  # Defensive: prefix and decoder must agree.
+            raise RuntimeError("Run-query reference prefix was not decoded")
+        return chunk_payload(
+            "result",
+            reference.resource_id,
+            lambda: self.get_result_payload(reference.resource_id),
+            reference.cursor,
+        )
 
     @staticmethod
     def _run_lookup_error(run_id: str, exc: Exception) -> dict:
