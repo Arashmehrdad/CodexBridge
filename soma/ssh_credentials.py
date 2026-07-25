@@ -62,6 +62,7 @@ class ResolvedSSHCredentialBinding:
     expected_host_key: str
     source_id: str
     source_type: str
+    host_key_policy: str
 
 
 _FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -738,6 +739,7 @@ def resolve_ssh_credential_binding(
         expected_host_key=expected_host_key,
         source_id=binding.source_id,
         source_type=source.type,
+        host_key_policy=binding.host_key_policy,
     )
 
 

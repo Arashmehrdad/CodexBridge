@@ -71,6 +71,7 @@ class SSHConnection:
     port: int = 22
     expected_host_key: str = ""
     source_id: str = ""
+    host_key_policy: str = ""
 
 
 def validate_ssh_host_id(host_id: str) -> str:
@@ -200,6 +201,7 @@ def resolve_ssh_connection(
             port=resolved.port,
             expected_host_key=resolved.expected_host_key,
             source_id=resolved.source_id,
+            host_key_policy=resolved.host_key_policy,
         )
     if host.ssh_alias:
         return SSHConnection(
@@ -865,6 +867,9 @@ def list_ssh_capabilities(config: AppConfig) -> dict:
                 "ssh_alias": destination,
                 "connection_mode": connection_mode,
                 "credential_source_id": credential_source_id,
+                "host_key_policy": (
+                    binding.host_key_policy if binding is not None else "legacy"
+                ),
                 "force_pty": bool(getattr(host, "force_pty", False))
                 or destination.endswith("@ssh.runpod.io"),
                 "connect_timeout_seconds": host.connect_timeout_seconds,

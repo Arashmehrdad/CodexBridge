@@ -341,6 +341,7 @@ class SSHCredentialSourceConfig(BaseModel):
 
 class SSHCredentialBindingConfig(BaseModel):
     source_id: str
+    host_key_policy: Literal["pinned", "tofu", "rotation"] = "pinned"
     hostname: str = ""
     user: str = ""
     port: str = ""
