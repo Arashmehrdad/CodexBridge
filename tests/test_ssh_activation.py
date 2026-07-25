@@ -132,6 +132,7 @@ class FakeActivationAdapter:
 def _base_config(tmp_path: Path) -> tuple[Path, Path]:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
+        "repos: {}\n"
         "runs_dir: runs\n"
         "ssh:\n"
         "  enabled: true\n"
