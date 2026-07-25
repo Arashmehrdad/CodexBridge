@@ -33,6 +33,8 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("workflow_action", "workflows", "soma.server", "durable workflow mutation", "objective and step echo growth"),
     _entry("cancel_run", "runs", "soma.server", "direct mutation result", "process-tree diagnostic growth"),
     _entry("run_query", "runs", "soma.server", "full row or bounded output", "JSON decoding, request echo, and oversized lists"),
+    _entry("task_query", "tasks", "soma.server", "compact canonical task projection", "link, event, and checkpoint growth"),
+    _entry("task_action", "tasks", "soma.server", "compact canonical task mutation", "launch acknowledgement and cancellation diagnostic growth"),
     _entry("system_query", "system", "soma.server", "direct object", "capability and self-check growth"),
     _entry("system_action", "system", "soma.server", "direct mutation result", "reload diagnostic growth"),
     _entry("supervisor_query", "supervisors", "soma.server", "direct durable snapshot", "linked run and notification growth"),

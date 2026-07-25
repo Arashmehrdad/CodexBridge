@@ -63,6 +63,7 @@ def test_inventory_covers_every_required_cf1_gateway_family() -> None:
         "ssh",
         "supervisors",
         "system",
+        "tasks",
         "trading",
         "workflows",
     }

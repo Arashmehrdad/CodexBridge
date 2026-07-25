@@ -136,6 +136,7 @@ from .ssh_tools import (
 )
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
+from .tasks import TaskManager
 from .workflows import WorkflowManager
 from .gateway_models import (
     RepoApplyRequest,
@@ -155,6 +156,8 @@ from .gateway_models import (
     SSHInspectRequest,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TaskActionRequest,
+    TaskQueryRequest,
     TradingActionSubmitRequest,
     TradingCompanionActionRequest,
     TradingQueryRequest,
@@ -958,6 +961,10 @@ def get_job_manager() -> JobManager:
 
 def get_workflow_manager() -> WorkflowManager:
     return WorkflowManager(get_config(), get_config_path())
+
+
+def get_task_manager() -> TaskManager:
+    return TaskManager(get_config(), get_config_path())
 
 
 _hermes_service_gateway: HermesServiceGateway | None = None
@@ -3199,6 +3206,61 @@ def run_start(request: RunStartRequest) -> dict:
             wait_seconds=request.wait_seconds,
         )
     raise ValueError(f"Unsupported run_start operation: {request.operation}")
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def task_query(request: TaskQueryRequest) -> dict:
+    """Read-only gateway for canonical task capabilities, status, result, events, and links."""
+    manager = get_task_manager()
+    if request.operation == "capabilities":
+        return manager.capabilities(budget=request.response_budget_bytes)
+    if request.operation == "status":
+        return manager.get_status(
+            request.task_id, budget=request.response_budget_bytes
+        )
+    if request.operation == "result":
+        return manager.get_result(
+            request.task_id, budget=request.response_budget_bytes
+        )
+    if request.operation == "events":
+        return manager.get_events(
+            request.task_id,
+            limit=request.limit,
+            after_id=request.after_id,
+            budget=request.response_budget_bytes,
+        )
+    return manager.get_links(
+        request.task_id,
+        limit=request.limit,
+        budget=request.response_budget_bytes,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def task_action(request: TaskActionRequest) -> dict:
+    """Write gateway for idempotent canonical task starts and version-guarded cancellation."""
+    manager = get_task_manager()
+    if request.operation == "start":
+        return manager.start_durable_command(
+            controller_request_id=request.controller_request_id,
+            repo_name=request.repo_name,
+            profile_id=request.profile_id,
+            argv=list(request.argv),
+            working_directory=request.working_directory,
+            environment=dict(request.environment),
+            stdin_text=request.stdin_text,
+            stdin_base64=request.stdin_base64,
+            timeout_seconds=request.timeout_seconds,
+            parent_task_id=request.parent_task_id,
+            budget=request.response_budget_bytes,
+        )
+    return manager.cancel_task(
+        request.task_id,
+        if_state_version=request.if_state_version,
+        reason=request.reason,
+        controller_request_id=request.controller_request_id,
+        budget=request.response_budget_bytes,
+    )
 
 
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
@@ -5931,6 +5993,10 @@ def run_server(args: argparse.Namespace) -> None:
             pass
         try:
             get_workflow_manager().reconcile_startup()
+        except Exception:
+            pass
+        try:
+            get_task_manager().reconcile_startup()
         except Exception:
             pass
         if args.transport == "stdio":

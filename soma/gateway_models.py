@@ -1134,6 +1134,94 @@ RunStartRequest = Annotated[
 ]
 
 
+class TaskCapabilitiesQuery(GatewayModel):
+    operation: Literal["capabilities"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TaskStatusQuery(GatewayModel):
+    operation: Literal["status"]
+    task_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TaskResultQuery(GatewayModel):
+    operation: Literal["result"]
+    task_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TaskEventsQuery(GatewayModel):
+    operation: Literal["events"]
+    task_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=20, ge=1, le=500)
+    after_id: int | None = Field(default=None, ge=0)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TaskLinksQuery(GatewayModel):
+    operation: Literal["links"]
+    task_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=50, ge=1, le=200)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+TaskQueryRequest = Annotated[
+    TaskCapabilitiesQuery | TaskStatusQuery | TaskResultQuery | TaskEventsQuery
+    | TaskLinksQuery,
+    Field(discriminator="operation"),
+]
+
+
+class TaskDurableCommandStart(GatewayModel):
+    """Start one canonical task backed by the existing durable run engine."""
+
+    operation: Literal["start"]
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    task_kind: Literal["durable_command"] = "durable_command"
+    backend_kind: Literal["soma_durable_run"] = "soma_durable_run"
+    repo_name: str = Field(min_length=1, max_length=128)
+    profile_id: str = Field(default="powershell", min_length=1, max_length=128)
+    argv: list[str] = Field(default_factory=list, max_length=10_000)
+    working_directory: str = Field(default="", max_length=32_768)
+    environment: dict[str, str] = Field(default_factory=dict, max_length=10_000)
+    stdin_text: str | None = Field(default=None, max_length=2_000_000)
+    stdin_base64: str | None = Field(default=None, max_length=2_700_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+    parent_task_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_stdin_mode(self) -> "TaskDurableCommandStart":
+        if self.stdin_text is not None and self.stdin_base64 is not None:
+            raise ValueError("Specify either stdin_text or stdin_base64, not both")
+        return self
+
+
+class TaskCancelCommand(GatewayModel):
+    """State-version-guarded cancellation delegated to the backend authority."""
+
+    operation: Literal["cancel"]
+    task_id: str = Field(min_length=1, max_length=128)
+    if_state_version: int = Field(ge=0)
+    reason: str = Field(default="", max_length=512)
+    controller_request_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+TaskActionRequest = Annotated[
+    TaskDurableCommandStart | TaskCancelCommand,
+    Field(discriminator="operation"),
+]
+
+
 class DockerCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
     repo_name: str = Field(default="", max_length=128)

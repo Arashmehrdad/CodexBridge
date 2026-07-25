@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v10"
+    "cf1.3.gateway-operations.v11"
 )
 
 
@@ -401,6 +401,109 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Every operation records its validated request in input_json before "
             "the worker is launched."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("capabilities",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded canonical task capability projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Static state, link, command, backend, and schema vocabulary under a "
+            "serialized UTF-8 budget; no task payload is decoded."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("status",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded canonical task status projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Compact lifecycle projection carries task identity, state, phase, "
+            "state_version, and backend reference only; run output, durable "
+            "input, and result bodies stay behind run_query evidence retrieval."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("result",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded canonical task result reference projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The task result references the authoritative durable run result "
+            "and its publication hashes; the run result body is never copied "
+            "into a task response."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("events",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded canonical task event list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=20,
+        maximum_item_limit=500,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Forward-pollable task lifecycle events bounded by limit and a "
+            "serialized UTF-8 budget with truncation metadata."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("links",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded typed task link list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=50,
+        maximum_item_limit=200,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Typed parent, child, backend_run, related, and supersedes links "
+            "under a serialized UTF-8 budget."
+        ),
+    ),
+    _entry(
+        "task_action",
+        ("start",),
+        "soma.server:task_action -> soma.tasks.manager:TaskManager",
+        "compact canonical task launch acknowledgement",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "The canonical task row stores only a normalized request hash and "
+            "durable-input references; argv, environment, and stdin remain in "
+            "the existing durable run input record."
+        ),
+    ),
+    _entry(
+        "task_action",
+        ("cancel",),
+        "soma.server:task_action -> soma.tasks.manager:TaskManager",
+        "compact canonical task cancellation projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "State-version-guarded cancellation delegates to the durable run "
+            "authority; a stale version is rejected with the current state "
+            "version and no cancellation is claimed before the backend proves "
+            "it."
         ),
     ),
     _entry(

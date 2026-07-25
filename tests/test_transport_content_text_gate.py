@@ -66,6 +66,16 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
     "supervisor_action": {"ok": True, "supervisor_id": "s1", "operation": "start", "status": "running"},
     "workflow_query": {"ok": True, "operation": "status", "workflow_id": "w1", "state": "idle"},
     "workflow_action": {"ok": True, "workflow_id": "w1", "operation": "advance", "status": "running"},
+    "task_query": {
+        "ok": True, "operation": "status", "task_id": "task_1", "state": "running",
+        "phase": "backend_running", "state_version": 3, "backend_reference": "r1",
+        "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
+    "task_action": {
+        "ok": True, "operation": "start", "task_id": "task_1", "state": "queued",
+        "state_version": 1, "backend_reference": "r1", "created": True,
+        "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
     "knowledge_query": {
         "ok": True, "operation": "read_wiki", "repo_name": "soma", "sections": ["overview"],
         "response_budget_bytes": _BUDGET, "response_bytes": 1,

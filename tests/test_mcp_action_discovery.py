@@ -208,6 +208,8 @@ WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
     "repo_apply",
     "repo_commit",
     "run_start",
+    "task_query",
+    "task_action",
     "docker_query",
     "docker_action",
     "cloudflare_query",
@@ -232,7 +234,7 @@ PUBLIC_TRADING_ACTIONS = {
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 30
+assert len(EXPECTED_EXPOSED_ACTIONS) == 32
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -1384,6 +1386,7 @@ def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
         "apply_ssh_profile_change",
         "start_external_fixture_validation_async",
         "cancel_run",
+        "task_action",
         "workflow_action",
         "refresh_repo_wiki",
         "remember_repo_decision",
@@ -1447,6 +1450,8 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "repo_apply",
             "repo_commit",
             "run_start",
+            "task_query",
+            "task_action",
             "docker_query",
             "docker_action",
             "cloudflare_query",
