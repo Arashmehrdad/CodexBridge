@@ -2907,18 +2907,24 @@ def ssh_action(request: SSHActionRequest) -> dict:
         if request.view == "full":
             return result
         run_id = str(result.get("run_id") or "")
+        projection_keys = {
+            "accepted", "status", "run_id", "repo_name", "change_id",
+            "host_id", "activation_intent", "risk_level", "requires_human",
+            "reason", "duplicate", "error", "ok",
+        }
         compact = apply_compact_projection_envelope(
             {
                 key: result[key]
-                for key in (
-                    "accepted", "status", "run_id", "repo_name", "change_id",
-                    "host_id", "activation_intent", "risk_level",
-                    "requires_human", "reason", "duplicate", "error",
-                )
+                for key in projection_keys
                 if key in result
             }
         )
-        compact["ok"] = bool(result.get("accepted"))
+        compact["ok"] = bool(result.get("accepted", result.get("ok", False)))
+        truncated = any(key not in projection_keys for key in result)
+        for key in ("reason", "error"):
+            if isinstance(compact.get(key), str) and len(compact[key]) > 512:
+                compact[key] = compact[key][:512]
+                truncated = True
         if run_id:
             compact["polling"] = {
                 "tool": "run_query",
@@ -2928,8 +2934,8 @@ def ssh_action(request: SSHActionRequest) -> dict:
                 "tool": "run_query",
                 "request": {"operation": "terminal", "run_id": run_id},
             }
-        compact["truncated"] = False
-        compact["has_more"] = False
+        compact["truncated"] = truncated
+        compact["has_more"] = truncated
         compact["response_budget_bytes"] = request.response_budget_bytes
         compact["response_bytes"] = len(
             json.dumps(compact, ensure_ascii=False).encode("utf-8")

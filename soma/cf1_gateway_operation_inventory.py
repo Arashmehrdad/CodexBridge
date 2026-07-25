@@ -361,7 +361,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
-        notes="Credential probes expose source names, deterministic mappings, hygiene status, and public fingerprints without resolved values; profile reads retain lifecycle and hash identity; capability snapshots and project-binding operations use fixed read-only probes with bounded projections and explicit full evidence access.",
+        notes="Credential probes expose source names, deterministic mappings, hygiene status, and public fingerprints without resolved values; profile reads retain lifecycle and hash identity; capability snapshots and project-binding operations use fixed read-only probes with bounded projections, while view=full provides explicit complete evidence access.",
     ),
     _entry(
         "ssh_action",

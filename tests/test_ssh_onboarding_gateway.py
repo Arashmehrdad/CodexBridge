@@ -342,7 +342,12 @@ def test_snapshot_projection_and_binding_validator_include_non_tool_capabilities
         runs_dir="runs",
         ssh=SSHConfig(
             enabled=True,
-            hosts={"production": SSHHostConfig(ssh_alias="production")},
+            hosts={
+                "production": SSHHostConfig(
+                    ssh_alias="production",
+                    allowed_remote_roots=["/srv"],
+                )
+            },
             project_bindings={
                 "app_prod": SSHProjectBindingConfig(
                     host_id="production",

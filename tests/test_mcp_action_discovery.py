@@ -1835,7 +1835,19 @@ def test_remote_tool_input_schemas_are_exact() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     ssh_query = actions["ssh_query"]["inputSchema"]
     ssh_action = actions["ssh_action"]["inputSchema"]
-    assert len(ssh_query["oneOf"]) == 4
+    assert len(ssh_query["oneOf"]) == 7
+    assert {
+        variant["properties"]["operation"]["const"]
+        for variant in ssh_query["oneOf"]
+    } == {
+        "capabilities",
+        "credential_probe",
+        "profile_preview",
+        "profile_status",
+        "capability_snapshot",
+        "project_bindings",
+        "project_binding_validation",
+    }
     assert len(ssh_action["oneOf"]) == 7
     ssh_schema = actions["ssh_inspect"]["inputSchema"]
     assert "request" not in ssh_schema["properties"]
