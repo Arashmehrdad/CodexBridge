@@ -92,6 +92,7 @@ from .remote_powershell import (
     build_remote_powershell_request,
 )
 from .ssh_staging import build_ssh_staging_manifest, stage_ssh_inputs
+from .ssh_profile_manager import get_ssh_profile_change_status
 from .transfer_manifests import build_upload_transfer_manifest
 from .safety import (
     redact_secret_values,
@@ -1967,6 +1968,50 @@ class JobManager:
         response.update(policy_metadata)
         return response
 
+    def start_ssh_profile_activation(self, change_id: str) -> dict:
+        status = get_ssh_profile_change_status(
+            self.config.resolve_runs_dir(), change_id
+        )
+        if status.get("status") != "previewed":
+            raise ValueError(
+                "SSH profile activation requires a previewed profile change"
+            )
+        decision = PolicyDecision(
+            accepted=True,
+            tier=4,
+            risk_level="high",
+            requires_human=False,
+            reason=(
+                "Owner-selected SSH profile activation is approved for durable "
+                "candidate validation and transactional local configuration apply"
+            ),
+            estimated_duration_minutes=10,
+            recommended_check_after_minutes=2,
+        )
+        input_data = {
+            "change_id": change_id,
+            "action": str(status.get("action") or ""),
+            "host_id": str(status.get("host_id") or ""),
+            "activation_intent": str(status.get("activation_intent") or ""),
+            "candidate_config_sha256": str(
+                status.get("candidate_config_sha256") or ""
+            ),
+        }
+        response = self._create_and_launch(
+            "ssh_profile_activation",
+            "__soma_config__",
+            input_data,
+            decision,
+        )
+        response.update(
+            {
+                "change_id": change_id,
+                "host_id": input_data["host_id"],
+                "activation_intent": input_data["activation_intent"],
+            }
+        )
+        return response
+
     def start_ssh_deployment(
         self,
         host_id: str,
@@ -2099,7 +2144,10 @@ class JobManager:
             )
         requested_repo_name = repo_name
         input_data = dict(input_data)
-        if not repo_name.startswith(("ssh:", "cloudflare:")):
+        if not (
+            repo_name == "__soma_config__"
+            or repo_name.startswith(("ssh:", "cloudflare:"))
+        ):
             resolve_repo(self.config, repo_name)
             canonical_repo_name, _ = resolve_repo_config(self.config, repo_name)
             repo_name = canonical_repo_name
