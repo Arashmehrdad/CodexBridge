@@ -1501,8 +1501,29 @@ class SSHProfilePreviewQuery(GatewayModel):
     host_config: dict[str, Any] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)
     command_profile: dict[str, Any] = Field(default_factory=dict)
+    credential_source_id: str = Field(default="", max_length=128)
+    credential_source: dict[str, Any] = Field(default_factory=dict)
+    project_bindings: dict[str, Any] = Field(default_factory=dict, max_length=100)
+    activation_intent: Literal["new_host", "existing_host", "rotation"] = (
+        "existing_host"
+    )
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_profile_preview(self) -> "SSHProfilePreviewQuery":
+        if self.action == "configure_host":
+            if not self.host_config:
+                raise ValueError("configure_host requires host_config")
+            if not self.credential_source_id or not self.credential_source:
+                raise ValueError(
+                    "configure_host requires credential_source_id and credential_source"
+                )
+        elif self.credential_source_id or self.credential_source or self.project_bindings:
+            raise ValueError(
+                "Credential-source and project-binding fields require action=configure_host"
+            )
+        return self
 
 
 class SSHProfileStatusQuery(GatewayModel):
@@ -1512,9 +1533,43 @@ class SSHProfileStatusQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class SSHCapabilitySnapshotQuery(GatewayModel):
+    operation: Literal["capability_snapshot"]
+    host_id: str = Field(min_length=1, max_length=128)
+    snapshot_id: str = Field(default="", max_length=128)
+    required_capabilities: list[str] = Field(default_factory=list, max_length=64)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_capability_snapshot(self) -> "SSHCapabilitySnapshotQuery":
+        if self.snapshot_id and self.required_capabilities:
+            raise ValueError(
+                "required_capabilities are valid only when collecting a new snapshot"
+            )
+        return self
+
+
+class SSHProjectBindingsQuery(GatewayModel):
+    operation: Literal["project_bindings"]
+    host_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class SSHProjectBindingValidationQuery(GatewayModel):
+    operation: Literal["project_binding_validation"]
+    binding_id: str = Field(min_length=1, max_length=128)
+    host_id: str = Field(default="", max_length=128)
+    capability_snapshot_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 SSHQueryRequest = Annotated[
     SSHCapabilitiesQuery | SSHCredentialProbeQuery | SSHProfilePreviewQuery
-    | SSHProfileStatusQuery,
+    | SSHProfileStatusQuery | SSHCapabilitySnapshotQuery
+    | SSHProjectBindingsQuery | SSHProjectBindingValidationQuery,
     Field(discriminator="operation"),
 ]
 
