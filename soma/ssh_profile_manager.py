@@ -12,7 +12,13 @@ from uuid import uuid4
 
 import yaml
 
-from .config import AppConfig, SSHCommandProfileConfig, SSHHostConfig
+from .config import (
+    AppConfig,
+    SSHCommandProfileConfig,
+    SSHCredentialSourceConfig,
+    SSHHostConfig,
+    SSHProjectBindingConfig,
+)
 from .return_loop.atomic_writer import atomic_write_json, atomic_write_text
 from .ssh_commands import (
     list_ssh_capabilities,
@@ -28,7 +34,11 @@ SSH_PROFILE_CHANGE_ACTIONS = frozenset(
         "remove_host",
         "upsert_command",
         "remove_command",
+        "configure_host",
     }
+)
+SSH_PROFILE_ACTIVATION_INTENTS = frozenset(
+    {"new_host", "existing_host", "rotation"}
 )
 SSH_PROFILE_CHANGES_DIR = "ssh_profile_changes"
 _CHANGE_ID_RE = re.compile(r"^\d{8}T\d{6}Z_sshcfg_[0-9a-f]{8}$")
@@ -185,12 +195,66 @@ def _normalized_command(
     return effective_id, profile.model_dump(mode="python")
 
 
+def _normalized_source(
+    source_id: str,
+    payload: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    normalized_id = validate_ssh_host_id(source_id)
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError("credential_source is required for configure_host")
+    _reject_extra_fields(
+        payload,
+        set(SSHCredentialSourceConfig.model_fields),
+        "credential_source",
+    )
+    source = SSHCredentialSourceConfig.model_validate(payload)
+    return normalized_id, source.model_dump(mode="python")
+
+
+def _normalized_project_bindings(
+    payload: dict[str, Any] | None,
+    *,
+    host_id: str,
+) -> dict[str, dict[str, Any]]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise ValueError("project_bindings must be a mapping")
+    normalized: dict[str, dict[str, Any]] = {}
+    for binding_id, raw_binding in payload.items():
+        normalized_id = validate_ssh_host_id(str(binding_id))
+        if not isinstance(raw_binding, dict) or not raw_binding:
+            raise ValueError(
+                f"project binding {normalized_id!r} must be a non-empty mapping"
+            )
+        _reject_extra_fields(
+            raw_binding,
+            set(SSHProjectBindingConfig.model_fields),
+            f"project binding {normalized_id!r}",
+        )
+        candidate = dict(raw_binding)
+        configured_host = str(candidate.get("host_id") or "").strip()
+        if configured_host and configured_host != host_id:
+            raise ValueError(
+                f"project binding {normalized_id!r} host_id does not match configure_host host_id"
+            )
+        candidate["host_id"] = host_id
+        binding = SSHProjectBindingConfig.model_validate(candidate)
+        normalized[normalized_id] = binding.model_dump(mode="python")
+    return normalized
+
+
 def _normalize_mutation(
     action: str,
     host_id: str,
     host_config: dict[str, Any] | None,
     command_id: str,
     command_profile: dict[str, Any] | None,
+    *,
+    credential_source_id: str = "",
+    credential_source: dict[str, Any] | None = None,
+    project_bindings: dict[str, Any] | None = None,
+    activation_intent: str = "existing_host",
 ) -> dict[str, Any]:
     normalized_action = str(action or "").strip()
     if normalized_action not in SSH_PROFILE_CHANGE_ACTIONS:
@@ -205,8 +269,54 @@ def _normalize_mutation(
         "host_config": {},
         "command_id": "",
         "command_profile": {},
+        "credential_source_id": "",
+        "credential_source": {},
+        "project_bindings": {},
+        "activation_intent": "",
     }
-    if normalized_action in {"add_host", "replace_host"}:
+    if normalized_action == "configure_host":
+        normalized_intent = str(activation_intent or "").strip().lower()
+        if normalized_intent not in SSH_PROFILE_ACTIVATION_INTENTS:
+            raise ValueError(
+                "activation_intent must be new_host, existing_host, or rotation"
+            )
+        normalized_source_id, normalized_source = _normalized_source(
+            credential_source_id,
+            credential_source or {},
+        )
+        normalized_host = _normalized_host(host_config or {})
+        binding = dict(normalized_host.get("credential_binding") or {})
+        if not binding:
+            raise ValueError(
+                "configure_host host_config must contain credential_binding"
+            )
+        if str(binding.get("source_id") or "") != normalized_source_id:
+            raise ValueError(
+                "credential_source_id must match host_config.credential_binding.source_id"
+            )
+        policy = str(binding.get("host_key_policy") or "pinned")
+        if normalized_intent == "rotation" and policy != "rotation":
+            raise ValueError(
+                "rotation activation_intent requires host_key_policy=rotation"
+            )
+        if normalized_intent != "rotation" and policy == "rotation":
+            raise ValueError(
+                "host_key_policy=rotation requires rotation activation_intent"
+            )
+        mutation.update(
+            {
+                "host_config": normalized_host,
+                "credential_source_id": normalized_source_id,
+                "credential_source": normalized_source,
+                "project_bindings": _normalized_project_bindings(
+                    project_bindings, host_id=normalized_host_id
+                ),
+                "activation_intent": normalized_intent,
+            }
+        )
+        if command_id or command_profile:
+            raise ValueError("configure_host does not accept command fields")
+    elif normalized_action in {"add_host", "replace_host"}:
         mutation["host_config"] = _normalized_host(host_config or {})
         if command_id or command_profile:
             raise ValueError("Host actions do not accept command fields")
@@ -231,6 +341,12 @@ def _normalize_mutation(
     else:
         if host_config or command_id or command_profile:
             raise ValueError("remove_host accepts only host_id")
+    if normalized_action != "configure_host" and (
+        credential_source_id or credential_source or project_bindings
+    ):
+        raise ValueError(
+            "Credential-source and project-binding fields are valid only for configure_host"
+        )
     return mutation
 
 
@@ -246,7 +362,19 @@ def _apply_mutation(data: dict[str, Any], mutation: dict[str, Any]) -> dict[str,
     action = mutation["action"]
     host_id = mutation["host_id"]
     exists = host_id in hosts
-    if action == "add_host":
+    if action == "configure_host":
+        sources = ssh_data.setdefault("credential_sources", {})
+        if not isinstance(sources, dict):
+            raise ValueError("ssh.credential_sources must be a mapping")
+        bindings = ssh_data.setdefault("project_bindings", {})
+        if not isinstance(bindings, dict):
+            raise ValueError("ssh.project_bindings must be a mapping")
+        source_id = str(mutation["credential_source_id"])
+        sources[source_id] = dict(mutation["credential_source"])
+        hosts[host_id] = _normalized_host(dict(mutation["host_config"]))
+        for binding_id, binding in dict(mutation["project_bindings"]).items():
+            bindings[str(binding_id)] = dict(binding)
+    elif action == "add_host":
         if exists:
             raise ValueError(f"SSH host already exists: {host_id}")
         hosts[host_id] = _normalized_host(dict(mutation["host_config"]))
@@ -395,12 +523,24 @@ def preview_ssh_profile_change(
     host_config: dict[str, Any] | None = None,
     command_id: str = "",
     command_profile: dict[str, Any] | None = None,
+    credential_source_id: str = "",
+    credential_source: dict[str, Any] | None = None,
+    project_bindings: dict[str, Any] | None = None,
+    activation_intent: str = "existing_host",
 ) -> dict[str, Any]:
     config_path = config_path.resolve()
     if not config_path.exists() or not config_path.is_file() or config_path.is_symlink():
         raise ValueError(f"Config path is not a regular file: {config_path}")
     mutation = _normalize_mutation(
-        action, host_id, host_config, command_id, command_profile
+        action,
+        host_id,
+        host_config,
+        command_id,
+        command_profile,
+        credential_source_id=credential_source_id,
+        credential_source=credential_source,
+        project_bindings=project_bindings,
+        activation_intent=activation_intent,
     )
     base_bytes = config_path.read_bytes()
     candidate_text, _candidate_config, capability_diff = _build_candidate(
@@ -420,6 +560,9 @@ def preview_ssh_profile_change(
         "action": mutation["action"],
         "host_id": mutation["host_id"],
         "command_id": mutation["command_id"],
+        "credential_source_id": mutation["credential_source_id"],
+        "project_binding_ids": sorted(mutation["project_bindings"]),
+        "activation_intent": mutation["activation_intent"],
         "mutation": mutation,
         "capability_diff": capability_diff,
         "result": {},
