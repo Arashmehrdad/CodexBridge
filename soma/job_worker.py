@@ -300,7 +300,7 @@ def _validate_ssh_reviewed_script_worker_input(
     }
     request = validate_reviewed_ssh_script_request(request_payload)
     host = resolve_ssh_host(config, request.host_id)
-    resolve_ssh_connection(host)
+    resolve_ssh_connection(host, config.ssh)
     policy_metadata = _authorize_persisted_ssh_reviewed_script_policy(
         input_data,
         request,
@@ -340,7 +340,7 @@ def _validate_ssh_root_shell_worker_input(
         {field: input_data[field] for field in _ROOT_SHELL_REQUEST_FIELDS}
     )
     host = resolve_ssh_host(config, request.host_id)
-    resolve_ssh_connection(host)
+    resolve_ssh_connection(host, config.ssh)
     policy_metadata = _authorize_persisted_ssh_root_shell_policy(
         input_data,
         request,
@@ -380,7 +380,7 @@ def _validate_ssh_transfer_worker_input(
 
     host_id = str(input_data["host_id"])
     host = resolve_ssh_host(config, host_id)
-    resolve_ssh_connection(host)
+    resolve_ssh_connection(host, config.ssh)
     remote_path = validate_remote_path(
         host,
         str(input_data.get("remote_path", "")),
@@ -457,7 +457,7 @@ def _validate_ssh_deployment_worker_input(
     host_id = str(input_data["host_id"])
     deployment_id = str(input_data["deployment_id"])
     host = resolve_ssh_host(config, host_id)
-    resolve_ssh_connection(host)
+    resolve_ssh_connection(host, config.ssh)
     deployment = _resolve_deployment(host, deployment_id)
     repo_root = resolve_repo(config, deployment.repo_name)
     source_root = validate_repo_relative_path(repo_root, deployment.local_subdir)
