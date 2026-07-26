@@ -140,6 +140,86 @@ processes were terminated at the end; a final sweep confirmed none survived.
 
 ---
 
+## Finding 5 — ACP does work, and `loadSession` is real
+
+ACP was reachable after all, through Zed's adapters
+(`@zed-industries/claude-code-acp` 0.16.2, `@zed-industries/codex-acp` 0.16.0),
+driven by a ~180-line dependency-free Python JSON-RPC client written for this
+pilot — deliberately shaped like a Soma adapter rather than a test harness, so
+the measured cost reflects what Soma would carry.
+
+Both adapters initialize and both advertise `loadSession: true`.
+
+| | claude-code-acp | codex-acp |
+|---|---|---|
+| protocolVersion | 1 | 1 |
+| `loadSession` | true | true |
+| promptCapabilities | image, embeddedContext | image, audio, embeddedContext |
+| authMethods | `claude-login` | `chatgpt`, `codex-api-key`, `openai-api-key` |
+
+## Finding 6 — crash/recovery matrix
+
+Measured. Native rows are from Findings 3–4; ACP rows from the client above.
+
+| Failure | Claude ACP | Claude native | Codex ACP | Codex native |
+|---|---|---|---|---|
+| Supervisor dies, then recover session | `session/load` ok, **context genuinely recalled** | `--resume <id>` ok, context recalled | `session/load` ok | `exec resume <id>` ok, context recalled |
+| Orphans after supervisor dies | 0 | n/a | 0 | n/a |
+| Agent killed mid-tool-call: tree size | 8 | 6 | not reached | 5 |
+| Orphans after killing agent root | **5 of 8** | **5 of 6** | not reached | **2 of 5** |
+| `session/load` still works after agent kill | yes | n/a | yes | n/a |
+| Turn execution works at all | yes | yes | **no** | yes |
+
+### The decisive row
+
+Orphaned processes survive a root kill under **both** transports. ACP does not
+improve cancellation, because the ACP adapter sits at the same level as the CLI
+and inherits the same process tree. Owned-tree cancellation must come from Soma
+either way. This removes the strongest possible argument for adopting ACP.
+
+## Finding 7 — the Codex ACP adapter is version-lagged and currently unusable
+
+`codex-acp` 0.16.0 establishes sessions and loads them, but **cannot complete a
+turn** against this ChatGPT account:
+
+- configured `gpt-5.6-sol` → `400: The 'gpt-5.6-sol' model requires a newer version of Codex`
+- `gpt-5.1-codex` → `400: not supported when using Codex with a ChatGPT account`
+- `gpt-5-codex`, `gpt-5.1`, `o3` → `Model metadata not found`, no `stopReason`
+
+The adapter bundles a Codex core older than the installed native CLI, which runs
+the same account's model without complaint. Adapter version-lag is therefore not
+a theoretical risk of adopting ACP; today it is blocking, and it would place a
+second upstream release cadence between Soma and a working coding agent.
+
+## Finding 8 — supervising agents leak identity into workers
+
+The first ACP attempt failed with `Claude Code cannot be launched inside another
+Claude Code session`, because the adapter inherited `CLAUDECODE` from the
+supervising process. The client now strips `CLAUDECODE`, `CLAUDE_CODE*`, and
+`CODEX_*` before spawning.
+
+This is a direct, measured instance of the roadmap's "sanitized inherited
+environment and handles for agent workers" requirement. Soma will hit it the
+moment it supervises a coding agent from inside another one.
+
+## Measurement corrections made during this pilot
+
+Recorded because both were caught only by re-checking a favourable result, and
+both would otherwise have become false findings.
+
+1. **"Codex leaves no orphans"** (Finding 4) was an artifact of a task with no
+   long-lived child process. Re-run with a real one, Codex orphans too.
+2. **"Codex ACP recalled context"** was an artifact of the recall check scanning
+   *all* drained notifications. `session/load` replays session history, which
+   contains the original prompt, so the codeword was matched from replayed
+   history rather than from the agent. Distinguishing the two requires checking
+   that the codeword arrives in an `agent_message_chunk` emitted *after* the
+   recall prompt. Under that stricter check Claude genuinely recalls and Codex
+   is unverified, because its turns never complete.
+
+Any future recovery test must assert on post-prompt agent output, never on the
+presence of a token anywhere in the stream.
+
 ## Outstanding tests
 
 - concurrency: two sessions in two worktrees, no interference
@@ -148,19 +228,34 @@ processes were terminated at the end; a final sweep confirmed none survived.
   not yet exercised)
 - Claude `--input-format stream-json` for mid-session steering
 
-## Provisional reading
+## Reading
 
-Not a conclusion; recorded so the direction of evidence is visible.
+The crash/recovery matrix is complete enough to state a direction, with one cell
+unmeasurable for reasons that are themselves evidence.
 
-The evidence so far points away from adopting ACP and towards **a thin
-Soma-owned adapter over each provider's native protocol**. ACP would add an
-external adapter dependency for both agents while providing nothing the native
-protocols do not already supply: structured streaming, stable session identity,
-and resume by explicit id are all present today. The one capability neither
-protocol provides — reliable termination of the whole process tree — is not
-supplied by ACP either and must come from Soma regardless.
+**ACP is a real, working protocol and its session recovery is genuine** — for
+Claude Code, `session/load` after a supervisor crash restored context that the
+agent then used. That was the pilot's central open question and the answer is
+yes, ACP recovery works.
 
-The adapter surface required looks small: spawn with a recorded session
+**It is still not worth adopting here**, for three measured reasons:
+
+1. It solves nothing the native protocols do not already solve. Structured
+   streaming, stable session identity, and resume by explicit id are present in
+   both native CLIs today.
+2. It does not solve the one problem that actually threatens correctness.
+   Orphaned processes survive a root kill under ACP exactly as under native, so
+   owned-tree cancellation must come from Soma regardless.
+3. It adds an upstream release cadence that is already failing. `codex-acp`
+   cannot complete a turn against this account while the native CLI can.
+
+The recommendation is therefore **a thin Soma-owned adapter over each provider's
+native protocol**, with ACP kept as a known-good fallback shape rather than a
+dependency. The required surface is small: spawn with a recorded session
 identifier, parse one event stream per provider into Soma task events, resume by
 identifier, and cancel through Soma's owned-tree mechanism rather than the
 agent's own process.
+
+The pilot's own framing should be updated: its name presumes ACP is the subject,
+but the decision it produced is *native-plus-Soma-adapter*, with ACP evaluated
+and declined on evidence.
