@@ -402,6 +402,7 @@ Create one process-level `SomaApplication` or equivalent container that owns and
 - configuration;
 - schema and migration service;
 - project and portfolio registry;
+- controller-identity and interaction-session service;
 - canonical work-graph and projection service;
 - task store and task manager;
 - agent-worker registry and session manager;
@@ -791,6 +792,11 @@ TaskCompleted
 TaskFailed
 WorkerHealthReported
 ProviderCatalogChanged
+ControllerSessionOpened
+ControllerSessionCheckpointed
+ControllerSessionResumed
+ControllerSessionForked
+ControllerSessionClosed
 ```
 
 This enables local-to-remote migration without coupling the kernel to one worker implementation.
@@ -926,6 +932,65 @@ provider_default
 ### Infrastructure-inference exit gate
 
 Graphiti can ingest project material through cloud Nemotron under the configured owner data-use mode, fail over to DeepSeek V4 Flash through OpenCode Zen without losing project identity or provenance, reject schema-invalid calls and forbidden secret material, continue background processing without an attached controller, and replace either provider or tighten privacy mode later without changing Graphiti, task, memory, or project contracts.
+
+### 7.14 Controller identity and interaction-continuity contract
+
+Soma separates who is directing work, where one controller interaction left off, and the canonical project state being directed. Conversation state is not project truth and a transcript is not a substitute for tasks, decisions, events, evidence, or memory.
+
+Use Soma-owned records for:
+
+```text
+ControllerIdentity
+ControllerChannelBinding
+InteractionSession
+SessionCheckpoint
+SessionHandoff
+ExternalTranscriptRef
+ResumeLink
+ForkLink
+```
+
+`ControllerIdentity` is stable across ChatGPT conversations, Cortana, CLI, browser, and future controller channels. External account, conversation, channel, or device identifiers are optional mappings rather than canonical identity. Controller identity is provenance and continuity metadata, not a permission tier or approval gate.
+
+Each `InteractionSession` records at minimum:
+
+- `interaction_session_id`, controller identity and controller kind;
+- required `project_id`, `ProjectScope`, scope generation, and optional task or checkpoint focus;
+- optional external conversation or channel reference;
+- creation, activity, disconnect, archive, and expiry timestamps;
+- last consumed project-event cursor;
+- last context-packet and handoff references;
+- last observed project, plan, task, and checkpoint versions;
+- explicit `resumes_from`, `forked_from`, and `supersedes` links;
+- session state and provenance.
+
+Session states include:
+
+```text
+active
+disconnected
+resumable
+superseded
+forked
+archived
+expired
+```
+
+A session stores where the controller left off, not copies of canonical project state. Owner instructions that change objectives, constraints, decisions, tasks, or project state are promoted into their proper canonical records with source-session provenance. Compact handoffs summarize completed discussion, current focus, unresolved questions, meaningful corrections, active work, and source references. They are derived resumability artifacts and cannot silently override newer canonical state.
+
+Soma does not duplicate every ChatGPT message by default and never stores private model chain-of-thought. Where a controller exposes a stable conversation reference or Arash imports an export, Soma may retain an `ExternalTranscriptRef` or protected transcript artifact for provenance. Transcript availability is optional; project continuity must work from canonical records, events, checkpoints, and handoffs alone.
+
+Resume creates a new interaction session linked by `resumes_from`, reads project changes after the previous event cursor, and builds a fresh context packet from current canonical state. Stale observations are labelled rather than replayed as current truth. A new controller session never adopts the old session's cached task state blindly.
+
+Fork creates an explicitly exploratory interaction anchored to a project and plan generation. A fork may create proposals, comparison work, or isolated experimental tasks, but it does not supersede the accepted project plan or decisions without the normal canonical update path.
+
+Multiple controller sessions may observe or direct one project concurrently. Commands use controller request identity plus project, plan, task, and checkpoint versions. A stale command is rejected or reconciled against the current version instead of overwriting newer work. There is no mutable process-global active conversation or current project.
+
+Session checkpoints are created only after referenced task, project, event, and decision updates are durably committed. Disconnecting or expiring an interaction session never stops project tasks, agents, workflows, schedules, or deliveries. Session cleanup may remove temporary presentation state while preserving canonical instructions, provenance, handoffs required by retention, and project history.
+
+### Interaction-continuity exit gate
+
+Arash can start a fresh ChatGPT conversation or future Cortana session, select a project, and receive a compact current-state handoff plus everything that changed after the previous cursor. Resume and fork remain distinct, simultaneous controller sessions cannot overwrite newer state silently, and continuity does not depend on retaining a complete transcript or one vendor's conversation object.
 
 ---
 
@@ -1095,6 +1160,8 @@ Every current execution type can be represented and supervised through one compa
 
 - one process-owned application container;
 - one schema-version table with ordered transactional migrations;
+- canonical controller identities, channel bindings, interaction sessions, checkpoints, compact handoffs, external transcript references, and explicit resume/fork links;
+- cursor- and version-based session resumption that reconstructs context from current canonical project state rather than copied chat state;
 - immutable execution-attempt and runtime-manifest storage with content-addressed identity;
 - runtime-bundle registration, compatibility evaluation, reachability, retention, and migration links;
 - canonical recovery-bundle schema, online-consistent SQLite backup, manifest hashing, isolated restore, and restore-readiness checks;
@@ -1512,6 +1579,8 @@ Build deterministic, byte-budgeted context packets containing:
 - source freshness and temporal-validity metadata.
 
 Context construction must query through Soma-owned contracts. Controllers must not depend directly on Anytype, Graphiti, Graphify, or their private storage schemas. Do not persist an entire controller conversation as a substitute for durable task context.
+
+For interaction resumption, build a fresh packet from the current project and task versions, then add the previous compact handoff and the bounded event delta after that session's last consumed cursor. Mark stale, superseded, disputed, or missing observations explicitly. Several interaction sessions may belong to one project; none owns or freezes project truth.
 
 ### Exit gate
 
@@ -1938,6 +2007,11 @@ Test relevant boundaries including:
 - owner-accepted cloud mode allowing private non-secret Graphiti content while still rejecting raw credentials, tokens, private keys, and provider-term violations;
 - fallback model removal, free-tier withdrawal, or model-ID change producing truthful provider degradation rather than hidden substitution;
 - repeated primary and fallback schema failure moving ingestion to durable retry or recovery state without publishing malformed graph facts;
+- a fresh ChatGPT or Cortana session resuming one project from a compact handoff and event cursor without the old transcript;
+- two concurrent controller sessions issuing commands from different observed task or plan versions, with the stale command rejected or reconciled;
+- resume versus fork preserving distinct lineage and preventing an exploratory fork from silently replacing accepted project state;
+- disconnect, expiry, restart, or controller replacement preserving active tasks and rebuilding a truthful session checkpoint only from committed state;
+- unavailable, deleted, or malformed external transcript references not breaking project continuity;
 - two simultaneous projects with similar names, files, stacks, objectives, ports, service names, browser logins, and cache keys remaining isolated;
 - unscoped internal command, query, event, cache entry, or retrieval request failing closed;
 - parent/child or producer/consumer storage write rejected when project IDs disagree;
