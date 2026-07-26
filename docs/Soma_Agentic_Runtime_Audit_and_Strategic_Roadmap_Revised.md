@@ -343,6 +343,8 @@ These are high-confidence components or directions, not permission to skip phase
 | Tree-sitter | C | Incremental structural parsing | Embedded repository-intelligence primitive |
 | Playwright | B or A | Deterministic browser automation and evidence capture | Isolated browser provider or MCP worker |
 | FastMCP | C | MCP protocol plumbing where it reduces boilerplate | Library below Soma’s public domain contracts |
+| NVIDIA-hosted Nemotron | B | Initial cloud inference provider for Graphiti structured extraction and separately selected embedding/reranking operations | Accessed only through Soma's narrow inference broker; provider terms and sensitivity ceilings govern eligible data |
+| OpenCode Zen DeepSeek V4 Flash | B | Initial Graphiti structured-extraction fallback using the OpenAI-compatible `deepseek-v4-flash-free` endpoint while available | Fallback is schema-validated, project-scoped, privacy-classified, and replaceable; free availability is never assumed permanent |
 | 1Password CLI | B | Initial owner credential store and project/task-scoped secret injection for local agents and tools | Soma stores only secret references, bindings, leases, and audit metadata; provider authentication is not a Soma approval gate |
 | Kopia | B | Initial encrypted snapshot, retention, verification, and independent restore engine | Soma owns consistent recovery-bundle creation and restore semantics; Kopia remains a replaceable external storage engine |
 | `uv` | B | Initial Python lock, exact environment sync, managed interpreter, and CycloneDX export tool | Soma owns runtime-manifest identity and accepts other ecosystem-native lock providers |
@@ -408,6 +410,7 @@ Create one process-level `SomaApplication` or equivalent container that owns and
 - execution-backend registry;
 - provider registry and connection manager;
 - credential broker and secret-provider registry;
+- narrow inference broker and model-provider registry;
 - context, memory, skill, and repository-knowledge services;
 - evidence, artifact, validation, and integration service;
 - recovery-bundle, backup, restore, and disaster-recovery service;
@@ -871,6 +874,51 @@ Run periodic restore drills into an isolated destination. A backup is not accept
 
 Soma can restore one project or the complete runtime after data corruption, failed upgrade, machine loss, or accidental deletion through either Soma automation or an independent Kopia interface; canonical stores are consistent and verified; derived indexes rebuild; secrets remain external; and the tested restore reaches truthful readiness before tasks resume.
 
+### 7.13 Narrow infrastructure-inference contract
+
+Soma may call models directly only for bounded infrastructure transformations with explicit input, output schema, authority class, project scope, sensitivity classification, and audit evidence. ChatGPT remains the executive reasoning controller; Codex, Claude Code, Hermes, OpenCode, and other agent workers own multi-step specialist reasoning and tool use.
+
+Routing follows this order:
+
+```text
+deterministic code when sufficient
+→ bounded infrastructure inference when one schema-defined transformation is required
+→ executive controller or agent worker when planning, tools, exploration, judgment, iteration, or mutation is required
+```
+
+The inference broker exposes narrow operations such as:
+
+```text
+embed
+generate_structured
+classify
+extract
+rerank
+summarize_bounded
+health
+cancel
+```
+
+It does not own a conversational persona, project plan, autonomous tool loop, long-lived hidden chat, skill promotion, accepted-memory authority, or agent-delegation authority.
+
+Every invocation records project/task or ingestion-job identity, purpose, source references, sensitivity class, prompt/template and output-schema hashes, requested and resolved provider/model, fallback reason, parameters, provider response identity where exposed, usage, latency, retries, validated output digest, and authority label. Outputs remain `EXTRACTED`, `INFERRED`, or `PROPOSED` until the appropriate canonical or owner-controlled acceptance path promotes them.
+
+For the initial Graphiti pilot:
+
+- use an NVIDIA-hosted Nemotron model as the primary structured extraction provider;
+- keep extraction, embedding, and reranking model selections independent;
+- use OpenCode Zen's OpenAI-compatible `deepseek-v4-flash-free` model as the first structured-extraction fallback while it remains available;
+- access OpenCode Zen directly through the inference-provider adapter rather than launching a full OpenCode coding-agent session for one bounded extraction;
+- trigger fallback only for provider unavailability, rate limits, timeouts, or schema-validation failure after bounded retry;
+- record both requested and actually resolved providers in the runtime manifest and ingestion journal;
+- never accept malformed fallback output merely to keep ingestion moving.
+
+Each provider manifest declares retention/training terms, region where known, credential reference, supported operations, structured-output behavior, rate and context limits, cost class, and a maximum permitted sensitivity. Trial or free endpoints that may retain data or use it for improvement are restricted to non-sensitive material unless their current terms permit the data class and Arash explicitly configures that use. Sensitive personal memory, credentials, private customer data, and confidential source material must route to a provider with suitable terms, an evaluated local/private endpoint, or remain pending rather than silently downgrade privacy.
+
+### Infrastructure-inference exit gate
+
+Graphiti can ingest eligible project material through cloud Nemotron, fail over to DeepSeek V4 Flash through OpenCode Zen without losing project identity or provenance, reject schema-invalid or privacy-ineligible calls, continue background processing without an attached controller, and replace either provider without changing Graphiti, task, memory, or project contracts.
+
 ---
 
 ## 8. Systems to preserve, migrate, or retire
@@ -1119,7 +1167,8 @@ Windows execution is truthful, unrestricted, durable, recoverable, and controlla
 - large-result spill to artifacts;
 - compatibility adapters for existing domain gateways;
 - provider-neutral client discovery;
-- credential-provider discovery, health, scoped reference resolution, injection, lease renewal where supported, revocation, and usage evidence without secret-value exposure.
+- credential-provider discovery, health, scoped reference resolution, injection, lease renewal where supported, revocation, and usage evidence without secret-value exposure;
+- inference-provider manifests, health, model discovery, sensitivity ceilings, structured-output capability, rate/cost metadata, explicit fallback chains, and usage evidence.
 
 ### Hermes H2 completion
 
@@ -1423,6 +1472,8 @@ context_subgraph
 Every returned fact or relationship must include authority class, source references, temporal validity, confidence where inferred, and whether it is accepted, derived, superseded, or disputed. Inferred Graphiti relationships must not be written back into the knowledge workspace as owner-authored facts. They may be published as proposals for review.
 
 Graphiti ingestion must be incremental and durable. Store source episode identity, source digest, ingestion revision, extraction provider/model where used, graph schema version, processing status, and retry state. Startup and periodic reconciliation must recover missed or partial ingestion. Complete export and rebuild from Soma-owned sources are mandatory.
+
+The initial inference route uses cloud Nemotron for structured extraction and a separately selected embedding model. OpenCode Zen `deepseek-v4-flash-free` is the first fallback for eligible non-sensitive episodes. Both routes pass through the Soma inference broker, use schema validation and bounded retries, and retain exact requested/resolved provider evidence. Promotion compares schema-validity rate, entity and relationship precision, temporal accuracy, duplicate rate, latency, privacy eligibility, availability, and cost; model branding alone is not an acceptance criterion.
 
 The Phase 5 pilot corpus begins with:
 
@@ -1875,6 +1926,10 @@ Test relevant boundaries including:
 - secret requested by the wrong project, task, agent, provider operation, or expired binding being rejected;
 - process injection proving the secret is absent from prompt, argv, public environment projection, logs, graphs, artifacts, and backup contents;
 - credential-provider outage, locked vault, lease expiry, rotation, and revocation producing truthful recoverable state without secret leakage;
+- Nemotron outage, rate limit, timeout, or malformed structured output causing bounded DeepSeek V4 Flash fallback with exact provider provenance;
+- privacy-ineligible Graphiti episode being refused rather than sent to a free/trial endpoint;
+- fallback model removal, free-tier withdrawal, or model-ID change producing truthful provider degradation rather than hidden substitution;
+- repeated primary and fallback schema failure moving ingestion to durable retry or recovery state without publishing malformed graph facts;
 - two simultaneous projects with similar names, files, stacks, objectives, ports, service names, browser logins, and cache keys remaining isolated;
 - unscoped internal command, query, event, cache entry, or retrieval request failing closed;
 - parent/child or producer/consumer storage write rejected when project IDs disagree;
