@@ -484,3 +484,24 @@ to build a supervising cycle on:
 The execution mode resolves from configuration like every other trading
 path, so the read answers for whichever backend the cycle is actually
 trading on.
+
+### Provenance is only reported when it is provable
+
+The build stamp `scripts/install_trading_lab_pinned.ps1` writes lives beside
+the installed package but is deliberately not part of the wheel's RECORD, so
+it survives an ordinary `pip install` over the top. That is a hazard: the code
+changes, the stamp does not, and the diagnostics keep naming the previous
+commit as the running source. An orphaned stamp is indistinguishable from a
+valid one by inspection.
+
+`package_identity()` therefore believes the stamp only when its recorded
+version matches the installed distribution. When they disagree it withholds
+`source_commit`, reports `provenance: "stale_stamp"`, and names both versions
+plus the installer that repairs it. An unstamped editable checkout reports
+`provenance: "unstamped"` or `"editable_checkout"`, which is expected rather
+than an error.
+
+The rule is that "unknown" is recoverable and "wrong" is not. Provenance
+exists to make one claim trustworthy — which source produced the code now
+executing — and a stamp that cannot support that claim must not be allowed to
+make it.

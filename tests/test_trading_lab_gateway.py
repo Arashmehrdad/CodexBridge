@@ -15,8 +15,10 @@ the domain lives in an external package.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -2391,3 +2393,108 @@ class TestExposureInventoryContract:
 
         assert not set(EXPOSURE_READ_OPERATIONS) & set(READ_OPERATIONS)
         assert not set(EXPOSURE_READ_OPERATIONS) & set(JOURNAL_QUERY_OPERATIONS)
+
+
+# --------------------------------------------------------------------------
+# Installed-package provenance.
+# --------------------------------------------------------------------------
+
+
+class TestPackageProvenance:
+    """The stamp must describe what is installed, or say nothing.
+
+    The build stamp is written beside the package but is not part of the
+    wheel's RECORD, so an ordinary reinstall over a pinned install replaces
+    the code and leaves the previous stamp behind. Reporting that orphan
+    would name the wrong commit as the running source.
+    """
+
+    def _identity(self, monkeypatch, tmp_path: Path, stamp: dict | None, version: str):
+        package_dir = tmp_path / "site-packages" / "trading_lab"
+        package_dir.mkdir(parents=True)
+        module_file = package_dir / "__init__.py"
+        module_file.write_text("", encoding="utf-8")
+        if stamp is not None:
+            (package_dir / "_build_stamp.json").write_text(
+                json.dumps(stamp), encoding="utf-8"
+            )
+
+        fake_module = SimpleNamespace(__file__=str(module_file))
+        monkeypatch.setitem(sys.modules, "trading_lab", fake_module)
+        monkeypatch.setattr(
+            "importlib.metadata.version", lambda _name: version
+        )
+        return trading_lab_adapter.package_identity()
+
+    def test_a_matching_stamp_reports_the_source_commit(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        identity = self._identity(
+            monkeypatch,
+            tmp_path,
+            {
+                "commit": "a" * 40,
+                "version": "9.9.9",
+                "wheel": "trading_lab-9.9.9-py3-none-any.whl",
+                "wheel_sha256": "b" * 64,
+            },
+            "9.9.9",
+        )
+
+        assert identity["provenance"] == "pinned"
+        assert identity["source_commit"] == "a" * 40
+        assert identity["stamp_version"] == "9.9.9"
+        assert identity["stamp_wheel_sha256"] == "b" * 64
+        assert identity["provenance_error"] == ""
+
+    def test_a_stale_stamp_withholds_the_commit_and_explains_why(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """The exact failure this guards: reinstall left the old stamp."""
+        identity = self._identity(
+            monkeypatch,
+            tmp_path,
+            {
+                "commit": "a" * 40,
+                "version": "9.9.8",
+                "wheel": "trading_lab-9.9.8-py3-none-any.whl",
+                "wheel_sha256": "b" * 64,
+            },
+            "9.9.9",
+        )
+
+        assert identity["provenance"] == "stale_stamp"
+        # Withheld, not guessed: naming the wrong commit is worse than none.
+        assert identity["source_commit"] == ""
+        assert identity["stamp_version"] == "9.9.8"
+        assert "9.9.8" in identity["provenance_error"]
+        assert "9.9.9" in identity["provenance_error"]
+        assert "install_trading_lab_pinned" in identity["provenance_error"]
+
+    def test_an_unstamped_install_is_named_rather_than_guessed(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        identity = self._identity(monkeypatch, tmp_path, None, "9.9.9")
+
+        assert identity["provenance"] == "unstamped"
+        assert identity["source_commit"] == ""
+        assert identity["provenance_error"] == ""
+
+    def test_the_live_install_is_pinned_to_its_commit(self) -> None:
+        """The real installed package, as the self-check reports it."""
+        identity = trading_lab_adapter.package_identity()
+
+        assert identity["editable"] is False
+        assert identity["provenance"] == "pinned", identity
+        assert len(identity["source_commit"]) == 40
+        assert identity["stamp_version"] == identity["installed_version"]
+        assert identity["provenance_error"] == ""
+
+    def test_the_self_check_surfaces_provenance(self) -> None:
+        from soma.self_check import run_self_check
+
+        check = run_self_check()["checks"]["trading_lab"]
+
+        assert check["ok"] is True
+        assert check["provenance"] == "pinned"
+        assert check["source_commit"]

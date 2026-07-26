@@ -243,7 +243,9 @@ def package_identity() -> dict[str, Any]:
     except Exception:  # pragma: no cover - metadata is optional
         identity["installed_version"] = ""
     identity["editable"] = _looks_editable(module_file)
-    identity["source_commit"] = _recorded_source_commit(module_file)
+    identity.update(
+        _provenance(module_file, identity["installed_version"], identity["editable"])
+    )
     return identity
 
 
@@ -254,24 +256,77 @@ def _looks_editable(module_file: str) -> bool:
     return "site-packages" not in Path(module_file).parts
 
 
-def _recorded_source_commit(module_file: str) -> str:
-    """The commit a pinned install recorded, when one is present.
+def _read_build_stamp(module_file: str) -> dict[str, Any]:
+    """The provenance record a pinned install wrote, if one is present.
 
     Written by ``scripts/install_trading_lab_pinned.ps1``. Absent for a
-    plain editable development install, which is expected and not an
-    error.
+    plain editable development install, which is expected and not an error.
     """
     if not module_file:
-        return ""
+        return {}
     stamp = Path(module_file).parent / "_build_stamp.json"
     if not stamp.is_file():
-        return ""
+        return {}
     try:
         import json
 
-        return str(json.loads(stamp.read_text("utf-8")).get("commit", ""))
+        payload = json.loads(stamp.read_text("utf-8"))
     except Exception:  # pragma: no cover - a bad stamp is not fatal
-        return ""
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _provenance(
+    module_file: str, installed_version: str, editable: bool
+) -> dict[str, Any]:
+    """Report the source commit only when the stamp describes what is installed.
+
+    The stamp lives beside the package but is not part of the wheel's
+    RECORD, so an ordinary ``pip install`` over an existing pinned install
+    replaces the code and leaves the old stamp behind. That orphan is
+    indistinguishable from a valid one by inspection, and reporting it
+    would name the wrong commit as the running source -- the exact claim
+    provenance exists to make trustworthy.
+
+    So the stamp is believed only when its version matches the installed
+    distribution. Otherwise the commit is withheld and the disagreement is
+    reported instead, because "unknown" is recoverable and "wrong" is not.
+    """
+    stamp = _read_build_stamp(module_file)
+    if not stamp:
+        return {
+            "source_commit": "",
+            "provenance": "editable_checkout" if editable else "unstamped",
+            "stamp_version": "",
+            "stamp_wheel": "",
+            "stamp_wheel_sha256": "",
+            "provenance_error": "",
+        }
+
+    stamp_version = str(stamp.get("version") or "")
+    common = {
+        "stamp_version": stamp_version,
+        "stamp_wheel": str(stamp.get("wheel") or ""),
+        "stamp_wheel_sha256": str(stamp.get("wheel_sha256") or ""),
+    }
+    if installed_version and stamp_version and stamp_version != installed_version:
+        return {
+            **common,
+            "source_commit": "",
+            "provenance": "stale_stamp",
+            "provenance_error": (
+                f"build stamp describes {stamp_version} but "
+                f"{installed_version} is installed; reinstall with "
+                "scripts/install_trading_lab_pinned.ps1"
+            ),
+        }
+    return {
+        **common,
+        "source_commit": str(stamp.get("commit") or ""),
+        "provenance": "pinned",
+        "provenance_error": "",
+    }
+
 
 __all__ = [
     "ACTION_OPERATIONS",
