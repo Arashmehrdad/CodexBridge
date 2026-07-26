@@ -20,7 +20,7 @@ The current public surface contains **32 consolidated MCP gateways**. The major 
 - strict Trading Lab companion steps for research, decision, model review, and demo-only execution;
 - hidden Windows logon startup for both the Soma server and Cloudflare tunnel.
 
-No roadmap lane is implicitly active. New implementation work starts only when the owner selects a bounded batch.
+STABILIZE-1 is the active pre-Roadmap V3 lane. Later pilots remain inactive until the owner selects them after the preceding gate is reviewed. See `PLANS.md` for the goal-based acceptance contract.
 
 ## Design principles
 
