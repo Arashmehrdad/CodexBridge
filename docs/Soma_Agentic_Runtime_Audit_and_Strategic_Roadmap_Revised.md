@@ -343,8 +343,8 @@ These are high-confidence components or directions, not permission to skip phase
 | Tree-sitter | C | Incremental structural parsing | Embedded repository-intelligence primitive |
 | Playwright | B or A | Deterministic browser automation and evidence capture | Isolated browser provider or MCP worker |
 | FastMCP | C | MCP protocol plumbing where it reduces boilerplate | Library below Soma’s public domain contracts |
-| NVIDIA-hosted Nemotron | B | Initial cloud inference provider for Graphiti structured extraction and separately selected embedding/reranking operations | Accessed only through Soma's narrow inference broker; provider terms and sensitivity ceilings govern eligible data |
-| OpenCode Zen DeepSeek V4 Flash | B | Initial Graphiti structured-extraction fallback using the OpenAI-compatible `deepseek-v4-flash-free` endpoint while available | Fallback is schema-validated, project-scoped, privacy-classified, and replaceable; free availability is never assumed permanent |
+| NVIDIA-hosted Nemotron | B | Initial cloud inference provider for Graphiti structured extraction and separately selected embedding/reranking operations | Accessed only through Soma's narrow inference broker; current provider terms are recorded and owner-configured data-use mode governs eligible non-secret data |
+| OpenCode Zen DeepSeek V4 Flash | B | Initial Graphiti structured-extraction fallback using the OpenAI-compatible `deepseek-v4-flash-free` endpoint while available | Fallback is schema-validated, project-scoped, owner-risk-configured, and replaceable; free availability is never assumed permanent |
 | 1Password CLI | B | Initial owner credential store and project/task-scoped secret injection for local agents and tools | Soma stores only secret references, bindings, leases, and audit metadata; provider authentication is not a Soma approval gate |
 | Kopia | B | Initial encrypted snapshot, retention, verification, and independent restore engine | Soma owns consistent recovery-bundle creation and restore semantics; Kopia remains a replaceable external storage engine |
 | `uv` | B | Initial Python lock, exact environment sync, managed interpreter, and CycloneDX export tool | Soma owns runtime-manifest identity and accepts other ecosystem-native lock providers |
@@ -913,11 +913,19 @@ For the initial Graphiti pilot:
 - record both requested and actually resolved providers in the runtime manifest and ingestion journal;
 - never accept malformed fallback output merely to keep ingestion moving.
 
-Each provider manifest declares retention/training terms, region where known, credential reference, supported operations, structured-output behavior, rate and context limits, cost class, and a maximum permitted sensitivity. Trial or free endpoints that may retain data or use it for improvement are restricted to non-sensitive material unless their current terms permit the data class and Arash explicitly configures that use. Sensitive personal memory, credentials, private customer data, and confidential source material must route to a provider with suitable terms, an evaluated local/private endpoint, or remain pending rather than silently downgrade privacy.
+Each provider manifest declares retention/training terms, region where known, credential reference, supported operations, structured-output behavior, rate and context limits, cost class, and data-handling characteristics. Soma supports explicit owner data-use modes rather than imposing one universal privacy ceiling:
+
+```text
+strict_private
+owner_accepted_cloud
+provider_default
+```
+
+`owner_accepted_cloud` is the initial configured mode for the Nemotron and DeepSeek Graphiti routes: Arash knowingly accepts that free or trial cloud providers may retain submitted non-secret content or use it for service/model improvement. This durable choice is made once at provider, project, or portfolio scope, is recorded in runtime and ingestion evidence, and does not require repetitive approval prompts. Private memories, confidential project source, and customer material may use the configured free cloud route under this mode. Raw credentials, passwords, API keys, tokens, private keys, recovery secrets, and material that would violate applicable law or provider terms remain excluded from model input. When a more private provider becomes affordable, changing the data-use mode and provider binding must reroute future calls without rewriting Graphiti, memory, task, or project contracts.
 
 ### Infrastructure-inference exit gate
 
-Graphiti can ingest eligible project material through cloud Nemotron, fail over to DeepSeek V4 Flash through OpenCode Zen without losing project identity or provenance, reject schema-invalid or privacy-ineligible calls, continue background processing without an attached controller, and replace either provider without changing Graphiti, task, memory, or project contracts.
+Graphiti can ingest project material through cloud Nemotron under the configured owner data-use mode, fail over to DeepSeek V4 Flash through OpenCode Zen without losing project identity or provenance, reject schema-invalid calls and forbidden secret material, continue background processing without an attached controller, and replace either provider or tighten privacy mode later without changing Graphiti, task, memory, or project contracts.
 
 ---
 
@@ -1473,7 +1481,7 @@ Every returned fact or relationship must include authority class, source referen
 
 Graphiti ingestion must be incremental and durable. Store source episode identity, source digest, ingestion revision, extraction provider/model where used, graph schema version, processing status, and retry state. Startup and periodic reconciliation must recover missed or partial ingestion. Complete export and rebuild from Soma-owned sources are mandatory.
 
-The initial inference route uses cloud Nemotron for structured extraction and a separately selected embedding model. OpenCode Zen `deepseek-v4-flash-free` is the first fallback for eligible non-sensitive episodes. Both routes pass through the Soma inference broker, use schema validation and bounded retries, and retain exact requested/resolved provider evidence. Promotion compares schema-validity rate, entity and relationship precision, temporal accuracy, duplicate rate, latency, privacy eligibility, availability, and cost; model branding alone is not an acceptance criterion.
+The initial inference route uses cloud Nemotron for structured extraction and a separately selected embedding model. OpenCode Zen `deepseek-v4-flash-free` is the first fallback under Arash's configured `owner_accepted_cloud` mode. Both routes pass through the Soma inference broker, use schema validation and bounded retries, exclude raw secrets, and retain exact requested/resolved provider and data-use-mode evidence. Promotion compares schema-validity rate, entity and relationship precision, temporal accuracy, duplicate rate, latency, data-handling terms, availability, and cost; model branding alone is not an acceptance criterion.
 
 The Phase 5 pilot corpus begins with:
 
@@ -1927,7 +1935,7 @@ Test relevant boundaries including:
 - process injection proving the secret is absent from prompt, argv, public environment projection, logs, graphs, artifacts, and backup contents;
 - credential-provider outage, locked vault, lease expiry, rotation, and revocation producing truthful recoverable state without secret leakage;
 - Nemotron outage, rate limit, timeout, or malformed structured output causing bounded DeepSeek V4 Flash fallback with exact provider provenance;
-- privacy-ineligible Graphiti episode being refused rather than sent to a free/trial endpoint;
+- owner-accepted cloud mode allowing private non-secret Graphiti content while still rejecting raw credentials, tokens, private keys, and provider-term violations;
 - fallback model removal, free-tier withdrawal, or model-ID change producing truthful provider degradation rather than hidden substitution;
 - repeated primary and fallback schema failure moving ingestion to durable retry or recovery state without publishing malformed graph facts;
 - two simultaneous projects with similar names, files, stacks, objectives, ports, service names, browser logins, and cache keys remaining isolated;
