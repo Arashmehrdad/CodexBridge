@@ -349,7 +349,7 @@ These are high-confidence components or directions, not permission to skip phase
 | Temporal | A | Optional execution backend for one isolated long-running workflow | Soma task identity and result publication remain canonical |
 | Mem0 | B | Derived preference/retrieval memory | Must be rebuildable from Soma-owned sources |
 | Graphiti | B | Temporal graph-memory experiment | Permissive backing store and full provenance/export required |
-| Native watcher / `watchfiles` / Watchman | C or A | Windows-first repository-change benchmark | Choose by measured correctness, overflow recovery, packaging, and cost |
+| `watchfiles` | C | Initial embedded Windows-first repository-change notification adapter | Low-latency hints only; Soma owns durable generations, reconciliation, queues, and public events. Native `ReadDirectoryChangesW` and Watchman remain replaceable benchmark candidates. |
 | Docker MCP Gateway | A | Third-party MCP profile packaging if a real need exists | No duplicate canonical capability registry |
 | Microsoft MCP Gateway | A | Hosted multi-session routing if scale justifies it | No unnecessary second control plane |
 | Supergateway | A | Transport conversion for an otherwise blocked MCP server | Edge shim only |
@@ -845,16 +845,21 @@ The existing `RepoWikiService` remains the publication engine because it already
 
 Add missing orchestration:
 
-- Soma-owned recursive repository watcher;
+- Soma-owned recursive repository-watcher adapter, initially backed by `watchfiles`;
+- normalization of watcher notifications into low-latency repository-change hints;
 - debounced and coalesced changed paths;
+- durable repository-change journal with monotonic event IDs and cursor-based reads;
+- controller-visible events for change detection, refresh queueing, refresh start, generation publication, refresh failure, reconciliation, and watcher degradation;
 - one refresh queue and worker per repository;
-- desired generation persisted durably;
+- desired generation and pending changed paths persisted durably;
 - incremental refresh through the existing service;
 - loop until indexed generation catches desired generation;
 - startup reconciliation;
-- periodic reconciliation for missed events and overflow;
+- periodic manifest/hash reconciliation for shutdown gaps, missed events, overflow, and watcher failure;
 - stale-aware reads that serve the last complete generation and queue refresh;
 - failure events and readiness visibility.
+
+The watcher is never repository authority. The live filesystem, source hashes, and published repository generations remain authoritative. Watcher events are hints that cause Soma to inspect and reconcile the repository. The public change stream must remain Soma-owned so controllers and the future Cortana dashboard do not depend on a watcher-specific API or direct database access.
 
 Exclude:
 
@@ -875,22 +880,27 @@ Do not modify Git, Git configuration, or Git fsmonitor.
 
 ### Windows watcher decision
 
-Benchmark:
+Use `watchfiles` as the initial embedded Windows-first notification source behind a Soma-owned watcher adapter. This choice minimizes integration and packaging cost while preserving replacement freedom. `watchfiles` supplies only recursive change notifications; it does not own repository truth, durable generations, refresh state, or public event semantics.
 
-- native `ReadDirectoryChangesW` implementation;
-- a compatible Python watcher such as `watchfiles`;
-- Watchman only if current native Windows behavior and packaging are acceptable.
+Retain these as measured replacement or recovery candidates rather than current dependencies:
+
+- native `ReadDirectoryChangesW` when direct Windows control demonstrates a material correctness or performance advantage;
+- Watchman when repository scale, daemon-based clocks, or recrawl behavior justifies its additional service and packaging boundary.
 
 Acceptance must cover:
 
 - create, modify, rename, and delete;
 - burst coalescing;
+- durable event ordering and cursor continuation;
 - overflow or missed-event reconciliation;
-- restart with pending refresh;
+- watcher shutdown or failure followed by hash/manifest recovery;
+- restart with pending refresh and unpublished change events;
 - source changes during generation;
 - refresh failure before publication;
 - no indexing of excluded paths;
-- bounded idle and refresh cost.
+- controller-visible watcher degradation and refresh status;
+- bounded idle and refresh cost;
+- clean adapter replacement without changing public repository-event or generation contracts.
 
 ### 5.2 Structural repository intelligence
 
