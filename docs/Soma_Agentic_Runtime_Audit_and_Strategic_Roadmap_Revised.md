@@ -343,6 +343,8 @@ These are high-confidence components or directions, not permission to skip phase
 | Tree-sitter | C | Incremental structural parsing | Embedded repository-intelligence primitive |
 | Playwright | B or A | Deterministic browser automation and evidence capture | Isolated browser provider or MCP worker |
 | FastMCP | C | MCP protocol plumbing where it reduces boilerplate | Library below Soma’s public domain contracts |
+| 1Password CLI | B | Initial owner credential store and project/task-scoped secret injection for local agents and tools | Soma stores only secret references, bindings, leases, and audit metadata; provider authentication is not a Soma approval gate |
+| Kopia | B | Initial encrypted snapshot, retention, verification, and independent restore engine | Soma owns consistent recovery-bundle creation and restore semantics; Kopia remains a replaceable external storage engine |
 | `uv` | B | Initial Python lock, exact environment sync, managed interpreter, and CycloneDX export tool | Soma owns runtime-manifest identity and accepts other ecosystem-native lock providers |
 | Syft | B | Optional cross-ecosystem SBOM generation for reusable runtime bundles and release artifacts | Inventory evidence only; never execution or package authority |
 | APScheduler | C | Lightweight trigger calculation and recurring jobs | Behind Soma’s canonical schedule/task store |
@@ -405,8 +407,10 @@ Create one process-level `SomaApplication` or equivalent container that owns and
 - resource lease and lock service;
 - execution-backend registry;
 - provider registry and connection manager;
+- credential broker and secret-provider registry;
 - context, memory, skill, and repository-knowledge services;
 - evidence, artifact, validation, and integration service;
+- recovery-bundle, backup, restore, and disaster-recovery service;
 - scheduler and delivery outbox;
 - event router;
 - telemetry and usage accounting;
@@ -804,6 +808,69 @@ Keep context sources explicit and project-scoped:
 
 A task from one project must not receive another project's context merely because names, technologies, or repository paths look similar. Explicit typed cross-project links are the only normal bridge. The hierarchy prevents projects, memory, wiki, evidence, agent transcripts, and chat history from becoming competing or accidentally mixed truth systems.
 
+### 7.11 Credential broker and secret-use contract
+
+Agents and tools are allowed to **use** credentials without receiving secret values in prompts, task records, context packets, graphs, transcripts, logs, evidence summaries, knowledge-workspace records, or recovery bundles.
+
+Soma owns provider-neutral records for:
+
+```text
+SecretRef
+CredentialBinding
+CredentialUseLease
+CredentialUseEvent
+RotationRecord
+RevocationRecord
+```
+
+A binding states which project, task, agent role, provider operation, host or workspace, and environment may use one secret reference. Secret values remain inside the selected credential provider or a protected injection boundary. Every use records the reference, purpose, actor, project, task, target process or provider, start/end state, and result without recording the value.
+
+1Password is the initial owner credential provider for personal API keys, SSH material, browser credentials, and local developer tools. Prefer 1Password CLI secret references and process-scoped injection for Codex CLI, Claude Code, deployment commands, Graphiti services, and other workers. Windows Credential Manager remains a local compatibility or break-glass adapter. Infisical and HashiCorp Vault remain later candidates where temporary machine identities, dynamic credentials, renewal, or central service operation justify them.
+
+The broker must support at least environment, standard-input, protected temporary-file, provider-native session, and future short-lived-token delivery modes. Select the narrowest supported mode, sanitize inherited environments and child-process handles, restrict temporary material to the owning project/task process tree, and remove it after use. A provider's biometric, vault-unlock, or session-authentication requirement is credential-provider authentication, not a return of Soma's retired approval machinery.
+
+Credential references are project-scoped resources under `ProjectScope`. Cross-project use requires an explicit typed shared-resource link. Suspension, archive, cancellation, expiry, or revocation prevents new issuance and terminates renewable leases where the provider supports it. Graphiti, Graphify, Anytype, embeddings, search indexes, backups, and model prompts must never ingest raw secrets.
+
+### Credential-broker exit gate
+
+A Codex, Claude Code, Hermes, browser, deployment, database, or provider task can use the exact project-scoped credential it needs without exposing the secret to its prompt or durable public records; use remains auditable and revocable; and 1Password can be replaced without rewriting task, project, or agent contracts.
+
+### 7.12 Recovery bundle and backup contract
+
+Soma creates one consistent, versioned, hash-verified recovery bundle before asking an external backup engine to store it. The bundle is the canonical restore unit; Kopia is the initial encrypted snapshot, deduplication, retention, verification, and file-restore engine.
+
+A recovery bundle contains at least:
+
+- online-consistent backups of canonical SQLite stores;
+- project, work-graph, task, workflow, schedule, delivery, entity, and runtime-manifest records;
+- promoted skills, accepted decisions, memory, configuration, schemas, and provider mappings;
+- repository registrations, active-workspace/worktree manifests, uncommitted-work evidence, and integration state;
+- knowledge-workspace exports and Graphiti source episodes or export metadata;
+- artifact and evidence inventories plus selected irreplaceable artifacts;
+- installation, dependency, runtime-bundle, and migration manifests;
+- one top-level manifest, source generation, checksums, integrity report, and restore instructions.
+
+Use SQLite's online backup mechanism or equivalent store-native consistent export; never treat a blind file copy of a changing database as a successful canonical backup. Graphify, search indexes, caches, generated wiki projections, and other derived data are normally rebuilt. Graphiti must be exportable but also reconstructable from Soma-owned sources.
+
+The durable states are distinct:
+
+```text
+bundle_created
+snapshot_stored
+snapshot_verified
+restore_test_passed
+```
+
+Kopia repositories are encrypted and independently accessible through Kopia CLI or KopiaUI so recovery does not depend on a working Soma installation. Store Kopia recovery credentials outside Soma, initially in 1Password. Maintain at least one fast local encrypted repository and one independently restorable remote encrypted repository when practical; remote immutability or object locking is preferred where supported. Restic remains the predefined fallback adapter.
+
+Support project-only recovery, full Soma recovery, new-machine recovery, and point-in-time recovery. Before schema migrations, upgrades, provider migrations, major swarm integration, or destructive cleanup, create a pinned recovery point protected from ordinary retention. Restore must verify hashes, schema and runtime compatibility, credential references, project identity, and duplicate-live-project rules before activation.
+
+Run periodic restore drills into an isolated destination. A backup is not accepted merely because upload completed. Recovery evidence records snapshot identity, bundle digest, verification, files or records restored, migration results, rebuild results, and final readiness.
+
+### Recovery exit gate
+
+Soma can restore one project or the complete runtime after data corruption, failed upgrade, machine loss, or accidental deletion through either Soma automation or an independent Kopia interface; canonical stores are consistent and verified; derived indexes rebuild; secrets remain external; and the tested restore reaches truthful readiness before tasks resume.
+
 ---
 
 ## 8. Systems to preserve, migrate, or retire
@@ -974,6 +1041,8 @@ Every current execution type can be represented and supervised through one compa
 - one schema-version table with ordered transactional migrations;
 - immutable execution-attempt and runtime-manifest storage with content-addressed identity;
 - runtime-bundle registration, compatibility evaluation, reachability, retention, and migration links;
+- canonical recovery-bundle schema, online-consistent SQLite backup, manifest hashing, isolated restore, and restore-readiness checks;
+- Kopia adapter for encrypted local and remote snapshots, verification, retention, pinned pre-migration recovery points, and independent restore;
 - incompatible workers fail readiness honestly;
 - one authoritative path for launch, worker lease, state transition, cancellation, publication, and recovery;
 - all ownership-sensitive progress updates use lease-generation compare-and-set;
@@ -1020,6 +1089,9 @@ One Soma kernel owns every active lifecycle decision, obsolete permission machin
 - canonical path containment with case, volume, symlink, junction, mount-point, and reparse-point inspection;
 - project/task-scoped temporary, cache, staging, environment, process-tree, port, and service identities;
 - sanitized inherited environment and handles for agent workers;
+- provider-neutral `SecretRef`, credential binding, use-lease, revocation, and audit records;
+- initial 1Password CLI integration for scoped process injection, with Windows Credential Manager as a local compatibility or break-glass adapter;
+- proof that raw secret values never enter task input, context packets, graphs, public events, logs, evidence summaries, or recovery bundles;
 - deterministic project/environment names for Docker Compose resources;
 - Windows Service installation and lifecycle;
 - resource leases for files, services, ports, repositories, browser profiles, and mutation targets;
@@ -1046,7 +1118,8 @@ Windows execution is truthful, unrestricted, durable, recoverable, and controlla
 - provider capacity and health reporting;
 - large-result spill to artifacts;
 - compatibility adapters for existing domain gateways;
-- provider-neutral client discovery.
+- provider-neutral client discovery;
+- credential-provider discovery, health, scoped reference resolution, injection, lease renewal where supported, revocation, and usage evidence without secret-value exposure.
 
 ### Hermes H2 completion
 
@@ -1709,8 +1782,9 @@ Add reproducible:
 - `status`;
 - `doctor`;
 - `migrate`;
-- `backup`;
-- `restore`;
+- `backup` and backup status over the Phase 2 recovery-bundle/Kopia foundation;
+- `restore`, isolated restore verification, project restore, and new-machine recovery;
+- scheduled restore drills and retention/garbage-collection reporting;
 - `upgrade`;
 - rollback;
 - configuration migration.
@@ -1794,6 +1868,13 @@ Test relevant boundaries including:
 - missing old executable, lockfile, container digest, or runtime bundle during recovery;
 - manifest tampering, hash mismatch, or attempted in-place manifest mutation;
 - deterministic replay claim rejected for a non-deterministic model-agent session;
+- crash during SQLite online backup, bundle assembly, Kopia snapshot, verification, restore, migration, or projection rebuild;
+- successful upload followed by failed integrity verification remaining non-successful;
+- independent Kopia restore while Soma is unavailable;
+- loss of local backup with successful remote restore and loss of remote access with successful local restore;
+- secret requested by the wrong project, task, agent, provider operation, or expired binding being rejected;
+- process injection proving the secret is absent from prompt, argv, public environment projection, logs, graphs, artifacts, and backup contents;
+- credential-provider outage, locked vault, lease expiry, rotation, and revocation producing truthful recoverable state without secret leakage;
 - two simultaneous projects with similar names, files, stacks, objectives, ports, service names, browser logins, and cache keys remaining isolated;
 - unscoped internal command, query, event, cache entry, or retrieval request failing closed;
 - parent/child or producer/consumer storage write rejected when project IDs disagree;
