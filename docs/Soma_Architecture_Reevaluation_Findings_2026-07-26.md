@@ -2,13 +2,13 @@
 
 **Date:** 2026-07-26  
 **Status:** Decision record and implementation gate  
-**Scope:** Independent reviews by Grok, Opus/Claude Code, GLM-5.2, Kimi-K3, followed by owner and ChatGPT synthesis
+**Scope:** Five architecture evaluations by ChatGPT, Grok, Opus/Claude Code, GLM-5.2, and Kimi-K3, followed by owner-guided synthesis
 
 ## 1. Why this document exists
 
 The revised Soma roadmap grew into a broad custom agent runtime covering projects, tasks, durable execution, agent sessions, memory, skills, knowledge systems, scheduling, model routing, browser and desktop automation, credentials, backup, provenance, and future Cortana presentation.
 
-Before continuing that implementation sequence, the architecture was independently challenged by four additional models. The purpose was not to prove Soma was a mistake. It was to identify the smallest, strongest, most maintainable system that preserves the original vision without rebuilding mature tools unnecessarily.
+Before continuing that implementation sequence, the architecture was evaluated from five model perspectives: ChatGPT, Grok, Opus/Claude Code, GLM-5.2, and Kimi-K3. ChatGPT's evaluation was one of the five and was later also used to reconcile the findings with the owner's intent. The purpose was not to prove Soma was a mistake. It was to identify the smallest, strongest, most maintainable system that preserves the original vision without rebuilding mature tools unnecessarily.
 
 The governing principle is now:
 
@@ -36,13 +36,23 @@ PROPOSED
 An architectural inference that still requires a bounded pilot.
 ```
 
-Opus/Claude Code had direct repository access and therefore receives the highest weight for claims about current Soma code, implemented capabilities, missing modules, duplication, and migration difficulty.
+## 2.1 Five evaluation perspectives
 
-Grok, GLM-5.2, Kimi-K3, and ChatGPT provide complementary ecosystem analysis and strategic alternatives. Their statements about external tools remain valuable, but their statements about current Soma implementation do not override direct repository inspection.
+The review set was:
+
+1. **ChatGPT** — independent architecture and ecosystem evaluation using the roadmap, prior Soma decisions, live bounded repository inspection through Soma, and external research. It recommended freezing the roadmap as an implementation sequence, preserving Soma as an independent durable control plane, testing ACP before building a custom worker layer, moving ProjectScope forward, beginning memory with Markdown plus SQLite, and treating OpenClaw as an optional later front door rather than an immediate foundation.
+2. **Grok** — broad strategic comparison that strongly favoured reducing Soma and adopting an existing personal-agent gateway, especially OpenClaw.
+3. **Opus/Claude Code** — direct repository-wide evaluation from inside the live codebase. It identified what is actually implemented, what remains speculative, where lifecycle systems overlap, and ACP as the largest missing standards opportunity.
+4. **GLM-5.2** — ecosystem and target-architecture evaluation favouring a thin Soma sidecar with OpenClaw, Basic Memory, Graphiti, coding agents, and Stagehand.
+5. **Kimi-K3** — broad specialist-tool evaluation covering Cognee, Mem0/OpenMemory, Basic Memory, Agent Fleet, OpenHands Agent Canvas, OpenClaw, LiteLLM, and other adoption candidates.
+
+Opus/Claude Code had the deepest direct repository access and therefore receives the highest weight for claims about current Soma code, implemented capabilities, missing modules, duplication, and migration difficulty.
+
+ChatGPT, Grok, GLM-5.2, and Kimi-K3 provide complementary architecture and ecosystem analysis. ChatGPT's role is explicitly dual: it supplied one of the five evaluations and subsequently helped the owner compare, challenge, and synthesize all five. External-tool claims remain subject to official-source verification and hands-on pilots; no model's architectural preference overrides repository evidence or the owner's accepted intent.
 
 ## 3. Strong consensus across the reviews
 
-All four reviews converged on the same high-level conclusion:
+All five evaluations converged on the same high-level conclusion:
 
 > Soma should not continue expanding into a complete personal-agent operating system. It should become a smaller durable, project-aware coordination and control plane, while mature specialist tools are adopted through standard interfaces.
 
