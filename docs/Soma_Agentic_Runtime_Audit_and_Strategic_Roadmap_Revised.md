@@ -302,6 +302,7 @@ External components may own their internal implementation state, but Soma remain
 | Controller-visible task state and commands | Soma |
 | Resource leases and repository isolation | Soma |
 | Evidence IDs, hashes, artifacts, and result publication | Soma |
+| Execution-attempt identity, immutable runtime manifests, compatibility decisions, and provenance links | Soma |
 | Repository identity and final grounded repository answers | Soma |
 | Memory policy, provenance, and context-packet selection | Soma |
 | Provider-local cache, browser session internals, parser cache, or workflow-engine internals | External component behind an adapter |
@@ -342,6 +343,8 @@ These are high-confidence components or directions, not permission to skip phase
 | Tree-sitter | C | Incremental structural parsing | Embedded repository-intelligence primitive |
 | Playwright | B or A | Deterministic browser automation and evidence capture | Isolated browser provider or MCP worker |
 | FastMCP | C | MCP protocol plumbing where it reduces boilerplate | Library below Soma’s public domain contracts |
+| `uv` | B | Initial Python lock, exact environment sync, managed interpreter, and CycloneDX export tool | Soma owns runtime-manifest identity and accepts other ecosystem-native lock providers |
+| Syft | B | Optional cross-ecosystem SBOM generation for reusable runtime bundles and release artifacts | Inventory evidence only; never execution or package authority |
 | APScheduler | C | Lightweight trigger calculation and recurring jobs | Behind Soma’s canonical schedule/task store |
 
 ### 6.2 Pilot later, behind explicit boundaries
@@ -480,7 +483,8 @@ why was this decision made
 
 A canonical task contains:
 
-- `task_id` and required `project_id`;
+- `task_id`, required `project_id`, and immutable attempt identities;
+- runtime-manifest references for every launched attempt or resumed agent session;
 - optional plan, milestone, work-package, parent-task, and typed-link references;
 - controller request ID and normalized request hash;
 - objective, acceptance criteria, and constraints references;
@@ -642,7 +646,70 @@ Persist for every session:
 
 Agent workers receive only project- and task-scoped context unless an explicit typed cross-project dependency requires more. Their output is a proposal or work product until the relevant validation and integration gates accept it. Agent replacement, restart adoption, and resumption must not change project or task identity.
 
-### 7.8 Typed worker messages
+### 7.8 Execution runtime manifest and capsule contract
+
+Every durable task attempt, workflow execution, consequential capability run, and agent session binds one immutable `runtime_manifest_id` before execution begins. The manifest is the frozen receipt for what was requested, what was actually resolved, what environment ran, and what outputs were produced.
+
+Use a Soma-owned schema inspired by SLSA provenance and the in-toto attestation model without making either project a runtime dependency. Separate:
+
+- requested worker, backend, model, skills, inputs, and constraints;
+- resolved dependencies and exact runtime identities;
+- run details, fallbacks, timestamps, process or container identity, outcome, and output digests.
+
+Canonicalize the JSON representation before hashing and identify it by SHA-256. The first implementation should use a deterministic JSON canonicalization compatible with RFC 8785 semantics. Once sealed, a manifest is immutable. Any change to a resolved worker, model, executable, skill, provider schema, configuration, dependency lock, container image, or workspace starting state creates a new attempt and a new manifest rather than rewriting history.
+
+A manifest records at minimum:
+
+- `runtime_manifest_id`, schema version, task attempt, project, task, workflow, and agent-session references;
+- Soma build or source revision and runtime schema version;
+- requested and resolved worker, adapter, backend, provider, and model identities, including fallback reasons;
+- executable path, SHA-256, reported version, package/source identity where available, and platform signature information;
+- OS build, architecture, interpreter, shell, container, remote-host, and workspace-provider identity as applicable;
+- provider catalog generation and invoked operation schema hashes;
+- exact promoted skill versions, digests, and resolved dependency graph;
+- context-packet, prompt/template, configuration-generation, and safe environment-description digests;
+- repository identity, base commit, branch, worktree, source snapshot, and dirty-state or patch-artifact digest;
+- language/runtime lockfile identities and dependency-inventory references;
+- resource and credential references without secret values;
+- started, resumed, migrated, and completed timestamps;
+- results, artifacts, tests, reviews, evidence, and output digests.
+
+Use the strongest practical identity method for each environment:
+
+- Windows host CLIs: resolved executable path, SHA-256, file/product version, Authenticode status and signer when present, package-manager/source identity where known, OS build, architecture, and shell identity;
+- Python: interpreter identity plus a `uv.lock` or standards-compatible `pylock.toml` digest, the `uv` version, and proof of locked exact synchronization; `uv` is the initial Soma and Python-worker choice, not a universal project requirement;
+- containers: immutable OCI image and platform digests rather than mutable tags;
+- Node, Rust, Java, .NET, and other ecosystems: native lockfile digest, runtime and package-manager versions, and an exact-sync or equivalent verification result;
+- remote workers: host-profile and binding identity plus the actual deployment build, image, executable, or environment revision.
+
+A reusable runtime bundle may hold stable environment material referenced by many attempt manifests. Optional Syft-generated CycloneDX or SPDX inventory may attach to a registered bundle or release artifact; a full SBOM is not required for every small task attempt.
+
+Classify replay honestly:
+
+```text
+IDENTIFIED       exact observed identities and inputs are recorded
+RECONSTRUCTABLE  required pinned dependencies and runtime material remain obtainable
+REPLAYABLE       the operation is deterministic enough to expect equivalent rerun behavior
+```
+
+Every attempt must be `IDENTIFIED`. Model-agent sessions and hosted-model calls must not claim byte-for-byte replay merely because the same public model name was recorded. Store provider response IDs, model revision when exposed, parameters, tool-schema hashes, and timestamps, then mark replayability honestly.
+
+Recovery follows one explicit path:
+
+1. resume under the same runtime manifest and available compatible bundle;
+2. create a new attempt manifest after an explicit compatibility-approved worker or environment transition;
+3. create a migration record linking `migrates_from` and `resumes_from` manifests;
+4. enter `recovery_pending` when compatibility or required runtime material cannot be proven.
+
+Fallback, reassignment, upgrade, or migration must record both requested and actual resolved runtime identities. Old runtime bundles and worker versions remain retained while active tasks or configured replay-retention windows can still reach them; cleanup uses reachability and retention evidence rather than age alone.
+
+Every consequential result and artifact links back to the producing runtime manifest. Soma may later emit in-toto-compatible attestations or signed envelopes for release, export, or cross-machine verification, but local task durability does not depend on deploying a separate attestation service.
+
+### Runtime-history exit gate
+
+After an upgrade or restart, Soma can prove which exact runtime produced every result, distinguish requested from actual worker/model selection, resume only under a verified compatible environment, create an explicit new attempt for any transition, and refuse silent substitution. Deterministic work can be reconstructed or replayed where its recorded class promises it; model-agent work remains fully traceable without making a false determinism claim.
+
+### 7.9 Typed worker messages
 
 Use versioned serializable messages between the kernel and process/host boundaries:
 
@@ -668,7 +735,7 @@ ProviderCatalogChanged
 
 This enables local-to-remote migration without coupling the kernel to one worker implementation.
 
-### 7.9 Context hierarchy
+### 7.10 Context hierarchy
 
 Keep context sources explicit and project-scoped:
 
@@ -852,6 +919,8 @@ Every current execution type can be represented and supervised through one compa
 
 - one process-owned application container;
 - one schema-version table with ordered transactional migrations;
+- immutable execution-attempt and runtime-manifest storage with content-addressed identity;
+- runtime-bundle registration, compatibility evaluation, reachability, retention, and migration links;
 - incompatible workers fail readiness honestly;
 - one authoritative path for launch, worker lease, state transition, cancellation, publication, and recovery;
 - all ownership-sensitive progress updates use lease-generation compare-and-set;
@@ -894,6 +963,7 @@ One Soma kernel owns every active lifecycle decision, obsolete permission machin
 - durable background execution;
 - Windows Job Objects or equivalent owned-tree cancellation;
 - process creation-time and canonical identity evidence;
+- executable SHA-256, file/product version, Authenticode status/signer, OS build, architecture, shell, and package/source identity capture for runtime manifests;
 - Windows Service installation and lifecycle;
 - resource leases for files, services, ports, repositories, browser profiles, and mutation targets;
 - `WindowsLocalWorkspace` behind the common workspace contract;
@@ -1652,6 +1722,11 @@ Test relevant boundaries including:
 - browser worker death with a leased profile;
 - coding-agent process death before and after checkpoint publication;
 - agent-session restart or replacement without project/task identity drift;
+- runtime component upgrade while an attempt is active;
+- requested worker or model falling back to a different resolved runtime;
+- missing old executable, lockfile, container digest, or runtime bundle during recovery;
+- manifest tampering, hash mismatch, or attempted in-place manifest mutation;
+- deterministic replay claim rejected for a non-deterministic model-agent session;
 - two simultaneous projects with similar names, files, stacks, or objectives remaining isolated;
 - stale assignment after plan revision;
 - duplicate agent work against one task;
@@ -1666,6 +1741,8 @@ Test relevant boundaries including:
 An external provider must prove:
 
 - exact version and schema identity;
+- runtime-manifest capture of requested and actual resolved identity;
+- compatibility behavior across adapter, executable, schema, and model changes;
 - health and readiness;
 - bounded timeouts;
 - cancellation behavior;
