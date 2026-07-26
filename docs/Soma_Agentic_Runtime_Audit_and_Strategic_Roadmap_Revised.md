@@ -344,7 +344,7 @@ These are high-confidence components or directions, not permission to skip phase
 | Candidate | Classification | Pilot purpose | Promotion constraint |
 |---|---:|---|---|
 | `lastmile-ai/mcp-agent` | D or narrow C | Application-container, connection-manager, and workflow-pattern comparison | Must not create a shadow task plane |
-| Graphify | A | Read-only repository graph sidecar | Every answer must re-ground to Soma file/evidence references |
+| Graphify-Labs/graphify | A or narrow C | Derived project knowledge-graph pilot across code, documentation, configuration, schemas, and selected media | Structural code facts may be imported from deterministic local extraction; semantic and inferred relations must remain provenance-labelled, rebuildable, and re-grounded to Soma source/evidence references |
 | Stagehand | C | Semantic action discovery above Playwright | Raw DOM/screenshot fallback and deterministic evidence remain available |
 | Temporal | A | Optional execution backend for one isolated long-running workflow | Soma task identity and result publication remain canonical |
 | Mem0 | B | Derived preference/retrieval memory | Must be rebuildable from Soma-owned sources |
@@ -902,9 +902,9 @@ Acceptance must cover:
 - bounded idle and refresh cost;
 - clean adapter replacement without changing public repository-event or generation contracts.
 
-### 5.2 Structural repository intelligence
+### 5.2 Structural and derived project knowledge graphs
 
-Adopt Tree-sitter as the first low-level candidate for:
+Adopt Tree-sitter as the first low-level candidate for deterministic structural extraction of:
 
 - definitions and symbols;
 - imports;
@@ -914,7 +914,17 @@ Adopt Tree-sitter as the first low-level candidate for:
 - cross-file relationships;
 - incremental changed-file parsing.
 
-Every graph fact carries provenance:
+Pilot the exact `Graphify-Labs/graphify` project as a derived, read-only project knowledge graph. Its useful reference patterns include:
+
+- deterministic local AST extraction for code;
+- one graph spanning code, documentation, configuration, schemas, and selected media;
+- machine-readable `graph.json`, human-readable reports, and an interactive graph view;
+- community and high-connectivity-node discovery;
+- path, neighbour, explanation, rationale, and impact queries;
+- explicit distinction between facts extracted from source and relations inferred during graph construction;
+- MCP access for bounded graph traversal rather than loading the complete graph into controller context.
+
+Every graph node and edge exposed through Soma must carry source class and provenance, including at minimum:
 
 ```text
 EXTRACTED
@@ -922,7 +932,9 @@ INFERRED
 AMBIGUOUS
 ```
 
-Add graph queries:
+For code, prefer deterministic local extraction. Semantic passes over documents, PDFs, images, audio, or video must record the model/provider, source digest, extraction revision, and confidence. Inferred or ambiguous relations must never be presented as equivalent to exact source facts.
+
+Add Soma-owned graph contracts for:
 
 ```text
 neighbours
@@ -930,34 +942,103 @@ path
 explain
 subsystem
 rationale
+impact
 ```
 
-Promote Graphify only as a read-only sidecar pilot. Soma must re-ground every useful answer to file, line, symbol, and evidence references. Graphify must remain replaceable and must not become the canonical repository model.
+The repository watcher and durable source-generation journal should drive incremental graph refresh. Each imported graph generation must be tied to the repository source generation, indexed file hashes, Graphify revision, extraction configuration, and graph schema version. Startup and periodic reconciliation must detect stale, partial, or missed updates.
 
-### 5.3 Skills and recipes
+Graphify remains a replaceable derived index. `RepoWikiService`, the live repository, source hashes, and Soma evidence remain authoritative. Soma must re-ground useful graph answers to exact files, lines, symbols, documents, generations, and evidence references. Graphify's interactive graph may inspire the future Cortana interface, but controllers and the dashboard must use Soma-owned query and event contracts rather than depend directly on `graph.html`, `graph.json`, or a Graphify-specific API.
 
-Support `SKILL.md`-style packages and portable recipes from:
+### 5.3 Skill plane
+
+Skills are a first-class Soma plane, not merely documents stored in the knowledge workspace. The knowledge workspace is the owner-facing authoring and review surface; Soma owns promoted skill identity, immutable versions, validation evidence, task binding, invocation provenance, supersession, and rollback.
+
+Support portable `SKILL.md`-style packages and compatible recipes from:
 
 - project roots;
 - user roots;
 - bundled Soma roots;
 - Hermes roots;
-- future compatible provider roots.
+- future compatible provider roots;
+- knowledge-workspace drafts exported through a provider-neutral package contract.
 
-Index metadata before full content:
+Use deterministic precedence:
 
-- name;
-- description;
-- version;
-- digest;
-- source;
+```text
+task-pinned version
+project scope
+user scope
+bundled Soma scope
+provider-imported scope
+```
+
+Conflicting IDs must not be silently merged or overwritten. Index metadata before loading full content:
+
+- stable skill ID;
+- name and description;
+- skill type;
+- version and digest;
+- source and source revision;
+- project/user/provider scope;
 - platform requirements;
 - required capabilities;
-- inputs and outputs;
-- resources;
-- deterministic steps.
+- declared inputs and outputs;
+- resources and dependencies;
+- deterministic steps where applicable;
+- validation status;
+- promotion, supersession, and rollback references.
 
-Use goose and similar projects as format references. Skill prose is instruction input; it is never executed directly without a capability invocation.
+Distinguish at least:
+
+- instruction skills for reasoning and domain guidance;
+- capability recipes for ordered typed-tool use;
+- workflow templates for durable multi-step execution;
+- context skills for deterministic knowledge selection and formatting;
+- evaluator skills for acceptance and evidence review;
+- transformation skills for deterministic artifact conversion.
+
+Use the lifecycle:
+
+```text
+draft
+→ candidate
+→ validated
+→ promoted immutable version
+→ active
+→ superseded or withdrawn
+```
+
+A freely editable knowledge-workspace note is never an active runtime version. Promotion creates an immutable, content-addressed package with validation evidence, capability compatibility, source provenance, and a rollback target. A running task binds the exact skill ID, version, digest, resolved dependencies, and selected resources; later workspace edits or promotions cannot alter that task silently.
+
+Skill selection may be explicit or assisted, but it must be explainable and constrained by scope, capability availability, platform compatibility, version requirements, task objective, and owner preference. Record why each skill was selected. Skill dependencies must be declared and resolved as a bounded acyclic graph; reject missing dependencies, cycles, ambiguous providers, and incompatible versions.
+
+Skill prose is instruction input; it is never executed directly. Consequential actions still pass through typed Soma capabilities, providers, tasks, runs, and evidence contracts.
+
+Add a Soma-owned skill-learning projector over canonical task and run evidence:
+
+```text
+task outcomes and evidence
+→ recurring success or friction analysis
+→ proposed lesson or candidate skill revision
+→ validation and comparison
+→ explicit owner promotion
+```
+
+Use Agent Fleet and similar systems as architecture references for human-readable task/run records, reflection over accumulated history, and proposals for reusable skills. Do not adopt their task runtime, scheduler, memory authority, or agent plane wholesale. Soma may generate candidate skill packages and suggested revisions, but it must never self-modify an active skill or promote a candidate without explicit owner acceptance.
+
+The skill plane must retain:
+
+- task and run evidence that motivated a candidate;
+- test or dry-run evidence;
+- declared input/output validation;
+- capability and platform checks;
+- invocation history and outcome metrics;
+- supersession and withdrawal reasons;
+- complete portable export independent of the selected knowledge-workspace provider.
+
+### Skill-plane exit gate
+
+A controller can deterministically discover, select, bind, and invoke a versioned skill through Soma capabilities; task execution retains immutable skill bindings; workspace edits cannot silently alter behavior; skill proposals are evidence-linked and owner-promoted; older versions remain replayable; and the complete skill corpus can be exported without dependence on one controller, agent runtime, or knowledge-workspace product.
 
 ### 5.4 Memory hierarchy
 
