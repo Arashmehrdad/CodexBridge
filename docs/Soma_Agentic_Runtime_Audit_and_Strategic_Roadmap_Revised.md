@@ -348,7 +348,7 @@ These are high-confidence components or directions, not permission to skip phase
 | Stagehand | C | Semantic action discovery above Playwright | Raw DOM/screenshot fallback and deterministic evidence remain available |
 | Temporal | A | Optional execution backend for one isolated long-running workflow | Soma task identity and result publication remain canonical |
 | Mem0 | B | Derived preference/retrieval memory | Must be rebuildable from Soma-owned sources |
-| Graphiti | B | Temporal graph-memory experiment | Permissive backing store and full provenance/export required |
+| Graphiti | B | Initial temporal context-graph provider for decisions, task history, skill learning, and continuity | Derived and rebuildable from Soma-owned sources; accepted facts, provenance, temporal validity, export, and provider replacement remain under Soma contracts |
 | `watchfiles` | C | Initial embedded Windows-first repository-change notification adapter | Low-latency hints only; Soma owns durable generations, reconciliation, queues, and public events. Native `ReadDirectoryChangesW` and Watchman remain replaceable benchmark candidates. |
 | Docker MCP Gateway | A | Third-party MCP profile packaging if a real need exists | No duplicate canonical capability registry |
 | Microsoft MCP Gateway | A | Hosted multi-session routing if scale justifies it | No unnecessary second control plane |
@@ -828,7 +828,7 @@ Any supported controller can progressively discover and durably invoke native, H
 
 ---
 
-## Phase 5 — Live repository knowledge, skills, memory, and deterministic context
+## Phase 5 — Live repository knowledge, skill plane, knowledge workspace, temporal context graph, and deterministic context
 
 ### 5.1 Live repository wiki
 
@@ -1040,42 +1040,102 @@ The skill plane must retain:
 
 A controller can deterministically discover, select, bind, and invoke a versioned skill through Soma capabilities; task execution retains immutable skill bindings; workspace edits cannot silently alter behavior; skill proposals are evidence-linked and owner-promoted; older versions remain replayable; and the complete skill corpus can be exported without dependence on one controller, agent runtime, or knowledge-workspace product.
 
-### 5.4 Memory hierarchy
+### 5.4 Canonical memory and knowledge workspace
 
-Extend the current SQLite memory and repository wiki before adding another memory authority.
+Soma requires an owner-readable knowledge workspace for decisions, memories, lessons, project knowledge, procedures, and skill authoring. The workspace provider is selected through a bounded pilot; Anytype is the primary graph-native candidate and a plain Markdown/JSON representation is the mandatory portable baseline. Obsidian, SiYuan, or another compatible provider may be evaluated without changing Soma contracts.
 
-Store:
+The knowledge workspace is the human-facing authoring, browsing, annotation, and correction surface. It must not own operational task state, run state, evidence identity, promoted skill versions, or the only copy of machine-critical provenance.
 
-- task summaries;
-- decisions and rationale;
-- reusable recipes;
+Soma-owned canonical records retain:
+
+- task and run summaries;
+- accepted owner decisions and rationale;
+- reusable procedures and promoted skill references;
 - artifact lineage;
 - child summaries;
 - repository/workspace snapshots;
-- supersession and expiry;
-- confidence;
-- source references.
+- supersession, expiry, and validity metadata;
+- confidence and authority class;
+- exact source and evidence references;
+- workspace object IDs and export digests where applicable.
 
-A Mem0 or Graphiti pilot may be added later as a **derived retrieval provider**. The pilot must be rebuildable from Soma-owned evidence, support export, preserve provenance, and use a licence-compatible backing store. Do not adopt Letta, Zep, or another platform as the primary task or memory authority.
+Every knowledge-workspace adapter must support deterministic import or export, stable identity mapping, change detection, provider removal, and full reconstruction of Soma-owned indexes. Workspace graph links are useful human-authored relationships, but they do not silently override canonical task, evidence, skill, or repository records.
 
-### 5.5 Context packets
+### 5.5 Temporal context graph
+
+Graphiti is selected as the initial temporal context-graph provider for Phase 5 rather than deferred as an unspecified later experiment. Its role is to strengthen continuity before broad delegation and scheduling by connecting changing facts, decisions, task outcomes, conversations, projects, people, skills, and evidence over time.
+
+Graphiti is a derived intelligence layer, not a competing memory authority. Soma owns the ingestion journal, canonical entity IDs, accepted-fact policy, source authority, provenance, exports, rebuild procedure, and public query contracts. Graphiti may index accepted owner knowledge, selected conversation episodes, canonical task/run summaries, skill-learning evidence, repository decisions, and knowledge-workspace records. It must never become the sole copy of an important fact.
+
+Use shared Soma entity identities so one concept may map safely across systems:
+
+```text
+Soma canonical entity ID
+├── knowledge-workspace object ID
+├── Graphiti entity or episode ID
+├── Graphify project node ID
+├── task and run IDs
+├── repository file or symbol reference
+└── evidence reference
+```
+
+The authority split is:
+
+- live repository, source hashes, and `RepoWikiService` generations for repository truth;
+- canonical task, run, evidence, skill, and structured-memory stores for operational and machine-critical truth;
+- accepted owner records in the knowledge workspace for human-authored knowledge;
+- Graphify for derived project structure and cross-source project relationships;
+- Graphiti for derived temporal context, relationship retrieval, superseded facts, and historical continuity.
+
+Add Soma-owned temporal-context contracts for at least:
+
+```text
+current_facts
+fact_history
+related_context
+why
+superseded_by
+source_episodes
+context_subgraph
+```
+
+Every returned fact or relationship must include authority class, source references, temporal validity, confidence where inferred, and whether it is accepted, derived, superseded, or disputed. Inferred Graphiti relationships must not be written back into the knowledge workspace as owner-authored facts. They may be published as proposals for review.
+
+Graphiti ingestion must be incremental and durable. Store source episode identity, source digest, ingestion revision, extraction provider/model where used, graph schema version, processing status, and retry state. Startup and periodic reconciliation must recover missed or partial ingestion. Complete export and rebuild from Soma-owned sources are mandatory.
+
+The Phase 5 pilot corpus begins with:
+
+- accepted architecture and owner decisions;
+- roadmap and task-history transitions;
+- canonical task summaries and meaningful outcomes;
+- skill proposals, promotions, failures, and supersession;
+- selected project and preference memories;
+- exact evidence and workspace-source links.
+
+Promotion requires proving that the temporal graph improves retrieval of current versus superseded facts, preserves source provenance, survives restart and provider loss, exports completely, rebuilds deterministically enough for its role, and provides enough value to justify its backing-service and model costs.
+
+Mem0 may still be studied for narrow preference or retrieval use, but it must not duplicate the temporal-context authority or create another competing memory plane. Do not adopt Letta, Zep, or another agent platform as the primary task or memory authority.
+
+### 5.6 Context packets
 
 Build deterministic, byte-budgeted context packets containing:
 
 - objective and constraints;
 - current checkpoint;
-- selected skills and recipes;
-- relevant decisions and memories;
-- repository/workspace identity;
+- selected immutable skill versions;
+- current accepted decisions and relevant superseded history;
+- a bounded Graphiti context subgraph with provenance;
+- relevant knowledge-workspace records;
+- repository/workspace identity and Graphify references;
 - child summaries;
 - exact evidence references;
-- source freshness metadata.
+- source freshness and temporal-validity metadata.
 
-Do not persist an entire controller conversation as a substitute for durable task context.
+Context construction must query through Soma-owned contracts. Controllers must not depend directly on Anytype, Graphiti, Graphify, or their private storage schemas. Do not persist an entire controller conversation as a substitute for durable task context.
 
 ### Exit gate
 
-A controller can resume complex work from a compact, source-linked packet; repository knowledge refreshes automatically; structural answers are provenance-grounded; and external memory or graph providers remain replaceable.
+A controller can resume complex work from a compact, source-linked packet; repository knowledge refreshes automatically; structural and temporal answers are provenance-grounded; current and superseded decisions are distinguished correctly; the knowledge workspace remains replaceable; and Graphiti can be disabled, exported, rebuilt, or replaced without losing canonical knowledge or operational continuity.
 
 ---
 
@@ -1541,7 +1601,7 @@ Phase 1      Canonical task plane
 Phase 2      Application container, lifecycle consolidation, and legacy permission removal
 Phase 3      Windows-first unrestricted host execution and workspace abstraction
 Phase 4      Unified capability broker and Hermes H2
-Phase 5      Live repository knowledge, skills, memory, and deterministic context
+Phase 5      Live repository knowledge, skill plane, knowledge workspace, temporal context graph, and deterministic context
 Phase 6      Delegation, parallel workers, workflows, worktrees, and optional backends
 Phase 7      Browser, desktop, and multimodal providers
 Phase 8      Durable scheduling, continuity, and return delivery
@@ -1555,8 +1615,8 @@ The sequence is intentionally conservative:
 - the existing durable engine remains primary until a measured optional-backend pilot proves value;
 - Windows host execution becomes coherent before cross-platform expansion;
 - Hermes and external tools enter through one provider model;
-- repository knowledge becomes live before graph and memory sidecars are trusted;
-- skills and deterministic context exist before broad delegation;
+- repository knowledge becomes live before derived project and temporal graphs are trusted;
+- the skill plane, owner knowledge workspace, temporal context graph, and deterministic context exist before broad delegation;
 - delegation and workflow semantics exist before unattended scheduling expands;
 - Playwright supplies deterministic browser primitives before higher-level browser agents;
 - observability begins early but distribution hardening and final cleanup happen after migrations are proven;
