@@ -1587,8 +1587,11 @@ class TestPublicContractUnchanged:
         for model in get_args(get_args(TradingQueryRequest)[0]):
             annotation = model.model_fields["operation"].annotation
             operations.update(get_args(annotation))
+        from soma.trading_lab_adapter import EXPOSURE_READ_OPERATIONS
+
         package_operations = (
             set(READ_OPERATIONS)
+            | set(EXPOSURE_READ_OPERATIONS)
             | set(JOURNAL_QUERY_OPERATIONS)
             | set(DEPRECATED_QUERY_OPERATIONS)
         )
@@ -2055,3 +2058,336 @@ class TestRuntimeControlCapabilitySwitch:
         result = trading_query(operation="configuration", view="full")["result"]
 
         assert result["runtime_control_mutations_enabled"] is False
+
+
+# --------------------------------------------------------------------------
+# The live execution book.
+# --------------------------------------------------------------------------
+
+
+class FakeExposureExecutor:
+    """An execution backend that reports a book without touching MT5."""
+
+    def __init__(self, positions=(), orders=(), *, mode: str = "broker_demo") -> None:
+        self._positions = tuple(positions)
+        self._orders = tuple(orders)
+        self._mode = mode
+        self.calls: list[str | None] = []
+
+    def exposure(self, symbol: str | None = None):
+        from trading_lab.provider_models import BrokerExposure
+
+        self.calls.append(symbol)
+        positions = tuple(
+            item for item in self._positions if symbol is None or item.symbol == symbol
+        )
+        orders = tuple(
+            item for item in self._orders if symbol is None or item.symbol == symbol
+        )
+        return BrokerExposure(
+            mode=self._mode,
+            account_environment="demo" if self._mode == "broker_demo" else "internal_paper",
+            symbol_filter=symbol,
+            positions=positions,
+            pending_orders=orders,
+            observed_at_utc=datetime.now(UTC),
+            complete=symbol is None,
+        )
+
+
+def open_position(ticket: int, **overrides):
+    from trading_lab.provider_models import OpenPosition
+
+    payload = {
+        "ticket": ticket,
+        "symbol": SYMBOL,
+        "direction": "LONG",
+        "volume_lots": 0.01,
+        "entry_price": 64_000.0,
+        "stop_loss": 63_000.0,
+        "take_profit": 65_000.0,
+        "current_price": 64_100.0,
+        "unrealized_profit": 1.0,
+    }
+    payload.update(overrides)
+    return OpenPosition(**payload)
+
+
+def pending_order(ticket: int, **overrides):
+    from trading_lab.provider_models import PendingOrder
+
+    payload = {
+        "ticket": ticket,
+        "symbol": SYMBOL,
+        "direction": "LONG",
+        "volume_lots": 0.02,
+        "price": 62_000.0,
+        "order_kind": "buy_limit",
+        "stop_loss": None,
+        "take_profit": None,
+    }
+    payload.update(overrides)
+    return PendingOrder(**payload)
+
+
+def use_exposure_executor(monkeypatch, executor: FakeExposureExecutor) -> None:
+    monkeypatch.setattr(
+        server, "_trading_executor_for_mode", lambda _mode, _provider: executor
+    )
+
+
+class TestBrokerExposureRead:
+    def test_open_positions_are_returned_with_every_reviewable_field(
+        self, monkeypatch, trading_env
+    ) -> None:
+        executor = FakeExposureExecutor(positions=[open_position(7001)])
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+
+        assert result["position_count"] == 1
+        position = result["positions"][0]
+        assert position["ticket"] == 7001
+        assert position["direction"] == "LONG"
+        assert position["volume_lots"] == 0.01
+        assert position["entry_price"] == 64_000.0
+        assert position["stop_loss"] == 63_000.0
+        assert position["take_profit"] == 65_000.0
+        assert position["current_price"] == 64_100.0
+        assert position["protected"] is True
+
+    def test_pending_orders_are_returned(self, monkeypatch, trading_env) -> None:
+        executor = FakeExposureExecutor(orders=[pending_order(8001)])
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+
+        assert result["pending_order_count"] == 1
+        assert result["pending_orders"][0]["ticket"] == 8001
+        assert result["pending_orders"][0]["order_kind"] == "buy_limit"
+
+    def test_the_read_derives_the_totals_a_supervisor_asks_for(
+        self, monkeypatch, trading_env
+    ) -> None:
+        executor = FakeExposureExecutor(
+            positions=[
+                open_position(7001, volume_lots=0.05),
+                open_position(7002, volume_lots=0.02, direction="SHORT"),
+                open_position(7003, take_profit=None),
+            ],
+            orders=[pending_order(8001)],
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+
+        assert result["flat"] is False
+        assert result["position_count"] == 3
+        assert result["pending_order_count"] == 1
+        assert result["open_volume_lots"] == pytest.approx(0.08)
+        assert result["net_volume_lots"] == pytest.approx(0.04)
+        assert result["unprotected_position_tickets"] == [7003]
+
+    def test_a_flat_account_is_reported_as_flat(
+        self, monkeypatch, trading_env
+    ) -> None:
+        use_exposure_executor(monkeypatch, FakeExposureExecutor())
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+
+        assert result["flat"] is True
+        assert result["position_count"] == 0
+        assert result["positions"] == []
+        assert result["complete"] is True
+
+    def test_a_symbol_scoped_read_is_marked_incomplete(
+        self, monkeypatch, trading_env
+    ) -> None:
+        executor = FakeExposureExecutor(
+            positions=[open_position(7001), open_position(7002, symbol="OTHER_i")]
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        scoped = trading_query(
+            operation="broker_exposure", symbol=SYMBOL, view="full"
+        )["result"]
+
+        assert executor.calls == [SYMBOL]
+        assert scoped["symbol_filter"] == SYMBOL
+        assert scoped["complete"] is False
+        assert scoped["position_count"] == 1
+
+    def test_the_answer_comes_from_the_backend_not_the_journal(
+        self, monkeypatch, trading_env
+    ) -> None:
+        """A position with no action record must still be visible."""
+        executor = FakeExposureExecutor(positions=[open_position(9999)])
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+        actions = trading_query(operation="action_list", view="full")["result"]
+
+        assert [item["ticket"] for item in result["positions"]] == [9999]
+        assert actions["actions"] == []
+        assert result["exposure_authority"] == "execution_backend"
+
+    def test_the_read_uses_the_configured_execution_mode(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, default_execution_mode="broker_demo")
+        selected: list[str] = []
+
+        def record(mode: str, _provider):
+            selected.append(mode)
+            return FakeExposureExecutor()
+
+        monkeypatch.setattr(server, "_trading_executor_for_mode", record)
+
+        trading_query(operation="broker_exposure", view="full")
+
+        assert selected == ["broker_demo"]
+
+    def test_an_explicit_mode_overrides_the_configuration(
+        self, monkeypatch, trading_env
+    ) -> None:
+        selected: list[str] = []
+
+        def record(mode: str, _provider):
+            selected.append(mode)
+            return FakeExposureExecutor(mode=mode)
+
+        monkeypatch.setattr(server, "_trading_executor_for_mode", record)
+
+        trading_query(
+            operation="broker_exposure", execution_mode="internal_paper", view="full"
+        )
+
+        assert selected == ["internal_paper"]
+
+    def test_a_provider_failure_is_classified_not_swallowed(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, default_execution_mode="broker_demo")
+
+        def unreachable():
+            raise RuntimeError("MT5 terminal is not running")
+
+        monkeypatch.setattr(server, "_configured_mt5_provider", unreachable)
+
+        response = trading_query(operation="broker_exposure")
+
+        assert response["ok"] is False
+        assert response["status"] == "provider_error"
+        assert "not running" in response["error"]
+
+    def test_a_non_demo_account_refuses_the_read(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, default_execution_mode="broker_demo")
+        live = FakeProvider(environment="real")
+        monkeypatch.setattr(server, "_configured_mt5_provider", lambda: live)
+
+        response = trading_query(operation="broker_exposure")
+
+        assert response["ok"] is False
+        assert "demo" in response["error"]
+
+    def test_the_read_is_refused_when_trading_is_disabled(
+        self, disabled_env
+    ) -> None:
+        assert trading_query(operation="broker_exposure")["status"] == "disabled"
+
+    def test_a_truncated_book_never_reads_as_flat(
+        self, monkeypatch, trading_env
+    ) -> None:
+        """Trimming for a budget must not turn exposure into no exposure."""
+        executor = FakeExposureExecutor(
+            positions=[open_position(7000 + index) for index in range(40)],
+            orders=[pending_order(8000 + index) for index in range(10)],
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        response = trading_query(
+            operation="broker_exposure", response_budget_bytes=4096
+        )
+        result = response["result"]
+
+        assert response_size(response) <= 4096
+        assert response["truncated"] is True
+        assert response["has_more"] is True
+        # The counts describe the book, not the trimmed list.
+        assert result["position_count"] == 40
+        assert result["pending_order_count"] == 10
+        assert result["flat"] is False
+        assert result["returned_position_count"] < 40
+        assert len(result["unprotected_position_tickets"]) == 0
+
+    def test_a_budget_below_the_floor_reports_honestly_rather_than_lying(
+        self, monkeypatch, trading_env
+    ) -> None:
+        """The totals are the floor. Below it the response overruns.
+
+        Trimming stops once only the envelope and the derived totals
+        remain, so a caller that asks for an impossible budget gets an
+        oversized truthful answer rather than a small false one.
+        """
+        executor = FakeExposureExecutor(
+            positions=[open_position(7000 + index) for index in range(40)]
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        response = trading_query(
+            operation="broker_exposure", response_budget_bytes=1024
+        )
+        result = response["result"]
+
+        assert response["truncated"] is True
+        assert result["returned_position_count"] == 0
+        assert result["position_count"] == 40
+        assert result["flat"] is False
+
+    def test_positions_are_trimmed_before_orders(
+        self, monkeypatch, trading_env
+    ) -> None:
+        executor = FakeExposureExecutor(
+            positions=[open_position(7000 + index) for index in range(30)],
+            orders=[pending_order(8001)],
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(
+            operation="broker_exposure", response_budget_bytes=2048
+        )["result"]
+
+        assert result["returned_pending_order_count"] == 1
+
+    def test_the_full_view_preserves_the_complete_book(
+        self, monkeypatch, trading_env
+    ) -> None:
+        executor = FakeExposureExecutor(
+            positions=[open_position(7000 + index) for index in range(40)]
+        )
+        use_exposure_executor(monkeypatch, executor)
+
+        result = trading_query(operation="broker_exposure", view="full")["result"]
+
+        assert len(result["positions"]) == 40
+
+
+class TestExposureInventoryContract:
+    def test_the_operation_is_served_from_the_package_inventory(self) -> None:
+        from soma.trading_lab_adapter import EXPOSURE_READ_OPERATIONS
+
+        assert EXPOSURE_READ_OPERATIONS == ("broker_exposure",)
+        assert server._TRADING_EXPOSURE_OPERATIONS == frozenset(
+            EXPOSURE_READ_OPERATIONS
+        )
+
+    def test_the_exposure_read_is_not_a_market_data_read(self) -> None:
+        from soma.trading_lab_adapter import EXPOSURE_READ_OPERATIONS
+
+        assert not set(EXPOSURE_READ_OPERATIONS) & set(READ_OPERATIONS)
+        assert not set(EXPOSURE_READ_OPERATIONS) & set(JOURNAL_QUERY_OPERATIONS)

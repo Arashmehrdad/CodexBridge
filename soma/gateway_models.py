@@ -320,6 +320,22 @@ TradingPolicyName = Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"]
 TradingCapabilityRoleName = Literal["internal_paper_agent", "broker_demo_agent"]
 
 
+class TradingBrokerExposureQuery(GatewayModel):
+    """Everything currently open on the configured execution backend.
+
+    The counterpart to the action gateway: it answers "what is open right
+    now" from the backend itself, never from the action journal, so a
+    position an earlier cycle left behind is as visible as one this cycle
+    opened. Omitting the symbol reads the whole account.
+    """
+
+    operation: Literal["broker_exposure"]
+    symbol: str = Field(default="", max_length=64)
+    execution_mode: TradingExecutionModeName | None = _CONFIGURED_EXECUTION_MODE_FIELD
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class TradingCandlesQuery(GatewayModel):
     """Completed candles plus the developing one, for any MT5 period."""
 
@@ -583,7 +599,7 @@ class TradingCompanionListQuery(GatewayModel):
 
 
 TradingQueryRequest = Annotated[
-    TradingHealthQuery | TradingConfigurationQuery
+    TradingHealthQuery | TradingConfigurationQuery | TradingBrokerExposureQuery
     | TradingSymbolsQuery | TradingSpecificationQuery
     | TradingTickQuery | TradingCandlesQuery | TradingCandleBoundaryQuery
     | TradingHistoricalCandlesQuery | TradingH1Query | TradingH4Query

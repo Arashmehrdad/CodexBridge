@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v13"
+    "cf1.3.gateway-operations.v14"
 )
 
 
@@ -931,6 +931,17 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes="One bounded object reporting the settings the trading domain actually resolved, so an omitted timeframe, candle count, probe-bar count, execution mode, or policy is discoverable rather than guessed; readable while the terminal is disconnected, and it carries no local path or credential.",
+    ),
+    _entry(
+        "trading_query",
+        ("broker_exposure",),
+        "soma.server:trading_query -> trading_lab.service:TradingLabServices",
+        "bounded live execution-book projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.NONE,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Every open position and working order read from the execution backend rather than the action journal, so exposure this process did not create is visible; compact trims positions before orders under a UTF-8 budget while the derived totals and unprotected-ticket list always survive, so a truncated snapshot never reads as flat, and view=full preserves the complete book.",
     ),
     _entry(
         "trading_query",

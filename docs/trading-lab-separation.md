@@ -430,3 +430,57 @@ state.
 
 A stopped continuous runtime remains a valid observation for an independent
 scheduled cycle. It is not a fault for the cycle to repair.
+
+
+## Connector update: the live execution book (trading-lab 0.4.0)
+
+Every read on the public trading surface answered one of two questions:
+what is the market doing, or what did we record. Neither answers what is
+*open*.
+
+`health` reports balance and equity, which move with exposure but name none
+of it. The action journal records what this process did, so a position left
+by an earlier cycle, opened by another controller, or placed by hand was
+invisible to it. `open_virtual_positions` and `portfolio_status` sound like
+the missing read and are not: both are deprecated, and both described the
+paper executor's in-memory book rather than the broker's.
+
+The capability existed inside `DemoExecutor` — it calls `positions_get()` and
+`orders_get()` throughout — but the only structured projection was
+`position_snapshot(ticket)`, which answers for a ticket the caller already
+knows. There was no way to ask what is open.
+
+`trading-lab` 0.4.0 adds `broker_exposure` to a new `EXPOSURE_READ_OPERATIONS`
+inventory, and Soma serves it as one more `trading_query` operation.
+
+| Field | Meaning |
+| --- | --- |
+| `positions[]` | ticket, symbol, direction, volume, entry price, SL/TP, and where the broker supplies them current price, unrealized profit, open time |
+| `pending_orders[]` | ticket, symbol, direction, volume, price, named kind, SL/TP, placed and expiry times |
+| `flat`, `position_count`, `pending_order_count` | what a supervisor asks first |
+| `open_volume_lots`, `net_volume_lots` | gross and signed exposure |
+| `unprotected_position_tickets` | positions missing a stop or a target |
+| `complete`, `symbol_filter` | whether the snapshot covers the account or one symbol |
+
+It is a separate inventory from `READ_OPERATIONS` because it is not a
+market-data read: it is answered by the execution backend, not the provider,
+and a host must not serve it as though the two were interchangeable.
+
+Three properties are worth stating because they are what make the read safe
+to build a supervising cycle on:
+
+- **It does not consult the journal.** Exposure this process did not create
+  is reported on equal terms with exposure it did.
+- **A demo read is still a demo gate.** The backend re-verifies the account
+  before answering. A read may not answer for a live account any more than a
+  write may act on one.
+- **A truncated snapshot never reads as flat.** Compact responses trim
+  positions before orders under the byte budget, but the derived totals and
+  the unprotected-ticket list always survive. Below the floor where only the
+  totals remain, the response overruns its budget rather than shrinking into
+  a false answer, and `truncated` says so. `view=full` preserves the whole
+  book.
+
+The execution mode resolves from configuration like every other trading
+path, so the read answers for whichever backend the cycle is actually
+trading on.

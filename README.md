@@ -6,7 +6,7 @@ Soma is not a coding-agent runtime and does not launch Codex, Claude Code, Gemin
 
 ## Current state
 
-The current public surface contains **30 consolidated MCP gateways**. The major completed milestones are:
+The current public surface contains **32 consolidated MCP gateways**. The major completed milestones are:
 
 - durable run ownership, restart reconciliation, process-tree cancellation, locks, and atomic terminal publication;
 - unrestricted owner-authorized local PowerShell, including parallel command groups;
@@ -398,6 +398,12 @@ Example canonical task start and poll:
 The task row never stores `argv`, `environment`, or stdin. It stores a normalized request hash plus references into the existing durable run input and terminal evidence, so a task response can never leak a secret the run record already protects.
 
 Legacy runs created before the task plane, or created through `run_start` directly, remain fully readable and simply have no canonical task. No historical run database backfill is performed.
+
+### Trading exposure
+
+`trading_query` with `operation: "broker_exposure"` returns everything currently open on the configured execution backend: each position's ticket, symbol, direction, volume, entry price, and SL/TP, each working order's ticket, price, volume and kind, plus `flat`, position and order counts, gross and signed volume, and `unprotected_position_tickets`.
+
+It reads the backend, not the action journal, so exposure Soma did not create is visible. A symbol-scoped read sets `complete: false`. The demo backend re-verifies the account before answering. Compact responses trim positions before orders and always retain the totals, so a truncated snapshot never reads as flat.
 
 ### Repository gateway
 

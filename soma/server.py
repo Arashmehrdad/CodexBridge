@@ -99,6 +99,7 @@ from .trading_lab_adapter import (
     COMPATIBILITY_READ_OPERATIONS,
     DEPRECATED_QUERY_NOTICE,
     DEPRECATED_QUERY_OPERATIONS,
+    EXPOSURE_READ_OPERATIONS,
     ExecutionMode as TradingExecutionMode,
     SUPPORTED_SESSION_CALENDARS,
     SUPPORTED_TIMEFRAMES,
@@ -4406,6 +4407,25 @@ def trading_query(request: TradingQueryRequest) -> dict:
         }
     if request.operation in _TRADING_JOURNAL_OPERATIONS:
         return _trading_journal_query(request)
+    if request.operation in _TRADING_EXPOSURE_OPERATIONS:
+        try:
+            result = _trading_exposure_result(
+                request.symbol,
+                _resolved_trading_execution_mode(request.execution_mode),
+            )
+        except Exception as exc:
+            return {"ok": False, "status": "provider_error", "error": str(exc)}
+        response = {
+            "ok": True,
+            "operation": request.operation,
+            "symbol": request.symbol or trading.symbol,
+            "result": _trading_json(result),
+        }
+        if request.view == "full":
+            return response
+        return _bounded_trading_exposure_response(
+            response, request.response_budget_bytes
+        )
     if request.operation == "configuration":
         response = {
             "ok": True,
@@ -4574,6 +4594,58 @@ _TRADING_CANDLE_SERIES_OPERATIONS = frozenset(
     {"candles", *COMPATIBILITY_READ_OPERATIONS}
 )
 
+#: The live execution-book read. Named from the package inventory rather
+#: than by hand, so a host cannot serve an operation the domain does not
+#: declare, or miss one it does.
+_TRADING_EXPOSURE_OPERATIONS = frozenset(EXPOSURE_READ_OPERATIONS)
+
+#: Bytes the transport adds after a gateway body returns: the fixed
+#: capability envelope plus the refreshed ``response_bytes`` value.
+_TRADING_RESPONSE_ENVELOPE_BYTES = (
+    len(
+        json.dumps(_PROCESS_CAPABILITY_METADATA, ensure_ascii=False).encode("utf-8")
+    )
+    + 32
+)
+
+
+def _bounded_trading_exposure_response(
+    response: dict[str, Any], response_budget_bytes: int
+) -> dict[str, Any]:
+    """Trim the book to its budget without ever implying it is empty.
+
+    Positions are dropped before orders, and the derived totals and the
+    unprotected-ticket list always survive: a truncated snapshot that
+    still reports twelve positions and three unprotected tickets is
+    honest, while one trimmed to an empty list would read as flat.
+    """
+    result = response["result"]
+    response["truncated"] = False
+    response["has_more"] = False
+    response["response_budget_bytes"] = response_budget_bytes
+    # The transport merges a fixed capability envelope and refreshes
+    # response_bytes after this returns, so the budget is reserved against
+    # the delivered response rather than against the payload alone.
+    limit_bytes = response_budget_bytes - _TRADING_RESPONSE_ENVELOPE_BYTES
+    while (
+        len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > limit_bytes
+    ):
+        if result.get("positions"):
+            result["positions"].pop()
+        elif result.get("pending_orders"):
+            result["pending_orders"].pop()
+        else:
+            break
+        response["truncated"] = True
+        response["has_more"] = True
+    result["returned_position_count"] = len(result.get("positions") or [])
+    result["returned_pending_order_count"] = len(result.get("pending_orders") or [])
+    response["response_bytes"] = len(
+        json.dumps(response, ensure_ascii=False).encode("utf-8")
+    )
+    return response
+
+
 #: Runtime-control actions that change trading runtime state. ``status`` is
 #: deliberately absent: observing the runtime stays available even when the
 #: owner has switched mutations off, so an unattended cycle can always
@@ -4607,6 +4679,79 @@ def _resolved_trading_capability_role(
         if execution_mode == "broker_demo"
         else "internal_paper_agent"
     )
+
+
+def _trading_exposure_result(
+    symbol: str, execution_mode: str
+) -> dict[str, Any]:
+    """The live execution book, projected without the journal.
+
+    A broker-demo read opens the configured provider and re-verifies the
+    demo account before answering; a paper read needs no provider. The
+    derived totals travel with the snapshot because a supervising cycle
+    asks the same questions of it every pass, and deriving them here means
+    every caller derives them the same way.
+    """
+    provider = None
+    try:
+        if execution_mode == "broker_demo":
+            provider = _configured_mt5_provider()
+            _require_demo_provider(provider)
+        executor = _trading_executor_for_mode(execution_mode, provider)
+        exposure = _trading_services().broker_exposure(
+            executor, symbol=symbol or None
+        )
+    finally:
+        if provider is not None:
+            provider.close()
+
+    return {
+        "mode": exposure.mode,
+        "account_environment": exposure.account_environment,
+        "symbol_filter": exposure.symbol_filter,
+        "complete": exposure.complete,
+        "observed_at_utc": exposure.observed_at_utc,
+        "flat": exposure.flat,
+        "position_count": exposure.position_count,
+        "pending_order_count": exposure.pending_order_count,
+        "open_volume_lots": exposure.open_volume_lots,
+        "net_volume_lots": exposure.net_volume_lots,
+        "unprotected_position_tickets": list(
+            exposure.unprotected_position_tickets
+        ),
+        "positions": [
+            {
+                "ticket": position.ticket,
+                "symbol": position.symbol,
+                "direction": position.direction,
+                "volume_lots": position.volume_lots,
+                "entry_price": position.entry_price,
+                "stop_loss": position.stop_loss,
+                "take_profit": position.take_profit,
+                "current_price": position.current_price,
+                "unrealized_profit": position.unrealized_profit,
+                "opened_at_utc": position.opened_at_utc,
+                "protected": position.protected,
+            }
+            for position in exposure.positions
+        ],
+        "pending_orders": [
+            {
+                "ticket": order.ticket,
+                "symbol": order.symbol,
+                "direction": order.direction,
+                "volume_lots": order.volume_lots,
+                "price": order.price,
+                "order_kind": order.order_kind,
+                "stop_loss": order.stop_loss,
+                "take_profit": order.take_profit,
+                "placed_at_utc": order.placed_at_utc,
+                "expires_at_utc": order.expires_at_utc,
+            }
+            for order in exposure.pending_orders
+        ],
+        "exposure_authority": "execution_backend",
+    }
 
 
 def _trading_configuration_result() -> dict[str, Any]:
