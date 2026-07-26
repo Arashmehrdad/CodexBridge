@@ -39,17 +39,16 @@ The repository and service continue to evolve. Before implementing any phase, re
 
 ## 1. Product definition
 
-Soma is a local, durable, model-independent agent runtime and engineering control plane.
+Soma is a local, durable, model-independent agent runtime, project coordination system, and engineering control plane.
 
 Its purpose is:
 
-> **To let the owner use the best available conversational controller, coding specialist, operational agent, or model while Soma preserves durable execution, tools, evidence, repository knowledge, memory, and continuity underneath them.**
+> **To let Arash give ChatGPT an owner-level outcome such as “build this SaaS,” after which ChatGPT can plan the work, decompose it into a project-aware agent swarm, delegate to the best available coding or operational specialists, review and replan from evidence, while Soma preserves identity, isolation, durable execution, tools, knowledge, and continuity underneath the whole operation.**
 
-ChatGPT is currently the preferred conversational interface for Arash because it carries the long-running personal and project context. That preference is a user-experience choice, not an architectural privilege.
+ChatGPT is Arash's primary executive controller and chief of staff. It interprets owner intent, forms and revises the project plan, chooses specialists, delegates work, resolves cross-cutting judgment, and presents the final outcome. Soma remains controller-portable at its protocol boundary so durability is not technically trapped inside one vendor, but that portability does not flatten the intended product relationship or turn every worker into an equal authority.
 
-A connected controller may be:
+Alternate or supporting controllers may include:
 
-- ChatGPT;
 - Claude;
 - Hermes;
 - another MCP-capable assistant;
@@ -57,64 +56,70 @@ A connected controller may be:
 
 A specialised worker may be:
 
-- a native Soma executor;
+- Codex CLI or another coding-agent runtime;
+- Claude Code or another coding specialist;
 - Hermes;
+- a native Soma executor;
 - an external MCP server;
-- a browser worker;
+- a browser or desktop agent;
 - a repository-intelligence sidecar;
-- a future coding-agent runtime;
-- another replaceable provider.
+- another replaceable provider or agent runtime.
 
 Soma supplies:
 
-- canonical task and run identity;
+- canonical project, task, agent-session, and run identity;
+- a project-aware work graph spanning goals, dependencies, assignments, workspaces, artifacts, decisions, and status;
 - durable execution, leases, recovery, cancellation, and reconciliation;
 - repository inspection and managed mutation;
+- isolated workspaces and worktrees for parallel specialists;
 - local and remote host execution;
-- provider discovery and invocation;
+- provider and agent-worker discovery, routing, invocation, and supervision;
 - skills and deterministic context;
 - memory and repository knowledge;
-- evidence, artifacts, hashes, and result publication;
-- workflows, delegation, scheduling, and return delivery;
+- evidence, artifacts, hashes, validation, and result publication;
+- workflows, swarm delegation, scheduling, and return delivery;
 - browser, desktop, and multimodal capability providers;
-- compact progressive disclosure for connected clients.
+- compact progressive disclosure for ChatGPT and other connected clients.
 
 ### Target relationship
 
 ```text
-Connected controllers
-ChatGPT / Claude / Hermes / future clients
-                    |
-                    v
-          Compact MCP control surface
-                    |
-                    v
-+--------------------------------------------------+
-| Soma application container                      |
-|                                                  |
-| Canonical task plane                             |
-| Capability broker                               |
-| Execution backends                              |
-| Context and memory service                       |
-| Evidence and artifact service                    |
-| Repository knowledge service                     |
-| Scheduler and delivery outbox                    |
-+--------------------------------------------------+
-             |                         |
-             v                         v
-   Native capability providers      Worker runtimes
-   repo / shell / SSH / Docker      local / remote
-   Cloudflare / Trading / browser   Hermes / browser
-   future domain providers          deterministic workers
+                         Arash
+                            |
+                            v
+          ChatGPT executive controller / chief of staff
+        plan | decompose | delegate | review | replan
+                            |
+                            v
+             Compact controller and interaction surface
+                            |
+                            v
++----------------------------------------------------------------+
+| Soma application container                                     |
+|                                                                |
+| Project and work-graph plane    Canonical task plane            |
+| Agent-worker registry           Capability broker               |
+| Execution/workspace backends    Context, memory, and skills      |
+| Evidence and artifact service   Repository knowledge             |
+| Scheduler, events, and delivery outbox                          |
++----------------------------------------------------------------+
+          |                         |                         |
+          v                         v                         v
+ Native capabilities        Specialist agent swarm       Knowledge graphs
+ repo / shell / SSH         Codex / Claude Code          Graphify / Graphiti
+ Docker / browser           Hermes / future agents       workspace projections
+ domain providers           local or remote
 ```
 
-Soma must not become tied to one model vendor, one conversation history, one coding tool, or one external agent framework.
+Soma must not become tied to one model vendor, one conversation history, one coding tool, or one external agent framework. Replaceability protects the infrastructure; it does not remove ChatGPT's default executive role for Arash.
 
-### Controller versus worker distinction
+### Executive controller versus specialist worker
 
-ChatGPT is the active reasoning and implementation controller and uses Soma's MCP tools directly. Soma workers execute deterministic local or remote operations; they are not model-agent processes.
+ChatGPT is the primary reasoning and project-direction controller and uses Soma's compact contracts to create plans, delegate work, inspect evidence, revise the work graph, and integrate results. Soma is the durable coordination substrate: it remembers which project is which, what every task depends on, which agent owns it, where its workspace lives, what it produced, and what still blocks completion.
 
-No current or deferred roadmap item authorizes Soma, Hermes, a supervisor, a workflow, or unrestricted PowerShell to launch a coding-agent CLI or model-agent process. Any generated handoff packet is an inert export artifact for a human outside Soma, not a worker adapter or fallback execution route.
+Soma is explicitly allowed to launch, supervise, resume, steer, and cancel coding-agent CLIs and other model-agent processes through versioned agent-worker adapters. Codex CLI, Claude Code, Hermes, and future specialists may reason, use tools, and modify isolated workspaces within their delegated task contracts. They do not own the global project plan, silently cross project boundaries, or publish unvalidated output as final truth.
+
+Every agent session is bound to an exact project, task, role, workspace or worktree, context packet, skill set, implementation version, model identity where available, budget, and evidence stream. ChatGPT receives compact progress, conflicts, reviews, and checkpoints and may replan without losing the history of earlier assignments. A handoff packet remains useful as an export format, but it is no longer the only permitted relationship with an external coding agent.
 
 ---
 
@@ -389,31 +394,99 @@ Create one process-level `SomaApplication` or equivalent container that owns and
 
 - configuration;
 - schema and migration service;
+- project and portfolio registry;
+- canonical work-graph and projection service;
 - task store and task manager;
+- agent-worker registry and session manager;
 - run/workflow compatibility adapters;
 - resource lease and lock service;
 - execution-backend registry;
 - provider registry and connection manager;
-- context, memory, and repository-knowledge services;
-- evidence and artifact service;
+- context, memory, skill, and repository-knowledge services;
+- evidence, artifact, validation, and integration service;
 - scheduler and delivery outbox;
 - event router;
-- telemetry;
+- telemetry and usage accounting;
 - readiness and reconciliation state.
 
 Do not continue discovering these services through scattered globals and server-level monkey patches.
 
-### 7.2 Canonical task plane
+### 7.2 Canonical project, portfolio, and work-graph plane
+
+An owner outcome such as “build this SaaS” is represented as a durable project, not as a loose collection of unrelated prompts and processes.
+
+A canonical project contains at least:
+
+- `project_id` and optional portfolio or product identity;
+- owner objective, success criteria, constraints, and current lifecycle state;
+- repositories, workspaces, services, environments, and deployment targets;
+- plan generation and accepted work-breakdown version;
+- milestones, work packages, and project-scoped budgets;
+- decision, memory, skill, and knowledge namespaces;
+- active task, agent-session, artifact, release, and evidence references;
+- project-level reconciliation and completion state;
+- timestamps and provenance.
+
+Every task, agent session, workflow, worktree, artifact, decision, skill binding, model invocation, build, deployment, and evidence record must bind to one primary `project_id`. Cross-project work uses explicit typed source and target links; a worker must never infer that two repositories, tasks, or similarly named artifacts belong to the same project.
+
+Soma owns a versioned work graph whose useful edge types include:
+
+```text
+PART_OF
+DEPENDS_ON
+BLOCKS
+ASSIGNED_TO
+OPERATES_IN
+READS
+CHANGES
+PRODUCES
+CONSUMES
+VALIDATES
+REVIEWS
+INTEGRATES
+DEPLOYS
+DERIVED_FROM
+SUPERSEDES
+```
+
+The graph supports bounded views over:
+
+- portfolio and project identity;
+- goals, milestones, tasks, dependencies, and critical path;
+- agent roles, sessions, assignments, capacity, and handoffs;
+- repositories, workspaces, worktrees, branches, files, and services;
+- artifacts, evidence, tests, builds, releases, and deployments;
+- decisions, skills, memories, and their effect on work.
+
+This coordination graph is projected from Soma-owned canonical records and events. Graphify enriches project structure, Graphiti enriches temporal and relational context, and the knowledge workspace supplies owner-readable knowledge; none of them replaces canonical project, task, assignment, artifact, or dependency state.
+
+Public graph queries and events must let ChatGPT and the future Cortana interface answer, without reading private databases directly:
+
+```text
+which project is this
+what belongs here
+what depends on this
+who or what owns it
+where is the active workspace
+what changed
+what was produced
+what conflicts
+what is blocked
+what should run next
+why was this decision made
+```
+
+### 7.3 Canonical task plane
 
 A canonical task contains:
 
-- `task_id`;
-- optional parent task and typed links;
+- `task_id` and required `project_id`;
+- optional plan, milestone, work-package, parent-task, and typed-link references;
 - controller request ID and normalized request hash;
-- objective and constraints references;
-- task kind;
+- objective, acceptance criteria, and constraints references;
+- task kind and swarm role;
 - controller identity where relevant;
-- selected executor, provider, or backend;
+- selected agent worker, executor, provider, or backend;
 - workspace and resource leases;
 - state and phase;
 - `state_version`;
@@ -448,7 +521,7 @@ A checkpoint contains:
 - source context and evidence references;
 - the task state version against which the controller must respond.
 
-### 7.3 Execution-backend contract
+### 7.4 Execution-backend contract
 
 Hide current and future engines behind one contract:
 
@@ -466,7 +539,7 @@ The existing Soma durable engine is the first and default backend.
 
 Temporal, another workflow service, or a future remote worker runtime may be added only as optional backends. Backend selection is persisted at task creation and must not change silently while a task is active.
 
-### 7.4 Workspace-provider contract
+### 7.5 Workspace-provider contract
 
 Use one platform-neutral workspace contract inspired by the strongest parts of OpenHands without adopting its product shell:
 
@@ -502,7 +575,7 @@ FutureMacOSWorkspace
 
 Each implementation maps to the same task, lease, cancellation, evidence, and artifact model.
 
-### 7.5 Capability provider contract
+### 7.6 Capability provider contract
 
 A provider exposes:
 
@@ -533,18 +606,60 @@ Provider identity includes:
 
 Persistent providers may keep warm connections. Transient providers may connect for one invocation. The kernel should not import detailed knowledge of every provider.
 
-### 7.6 Typed worker messages
+### 7.7 Agent-worker contract
+
+Model-agent specialists are integrated through a contract distinct from deterministic capability invocation:
+
+```python
+class AgentWorkerAdapter:
+    async def discover(self): ...
+    async def describe(self, worker_id): ...
+    async def start_session(self, assignment): ...
+    async def supply_input(self, session_ref, input): ...
+    async def query(self, session_ref): ...
+    async def stream_events(self, session_ref, cursor): ...
+    async def checkpoint(self, session_ref): ...
+    async def cancel(self, session_ref): ...
+    async def reconcile(self, session_ref): ...
+    async def result(self, session_ref): ...
+    async def close(self, session_ref): ...
+```
+
+Initial adapters may target Codex CLI, Claude Code, Hermes, and other explicitly selected local or remote coding agents. The adapter normalizes lifecycle and evidence without pretending that different agents have identical private features.
+
+Persist for every session:
+
+- canonical `agent_session_id`, `project_id`, and `task_id`;
+- worker adapter, tool, implementation version, and executable identity;
+- resolved model/provider identity where available;
+- role, assignment contract, expected output, and acceptance criteria;
+- context-packet, skill, prompt, and configuration digests;
+- workspace, worktree, branch, environment, and resource leases;
+- tool and capability grants required by the assignment;
+- budget, usage, progress cursor, checkpoint, and recovery state;
+- transcript or event-artifact references;
+- produced artifacts, proposed changes, reviews, tests, and final result.
+
+Agent workers receive only project- and task-scoped context unless an explicit typed cross-project dependency requires more. Their output is a proposal or work product until the relevant validation and integration gates accept it. Agent replacement, restart adoption, and resumption must not change project or task identity.
+
+### 7.8 Typed worker messages
 
 Use versioned serializable messages between the kernel and process/host boundaries:
 
 ```text
 CapabilityAdvertised
+PlanProposed
+AssignmentCreated
 TaskAssigned
 TaskAccepted
 ProgressReported
 CheckpointRequested
 InputSupplied
+ArtifactProduced
+ReviewReported
+IntegrationProposed
 CancellationRequested
+AgentSessionRecovered
 TaskCompleted
 TaskFailed
 WorkerHealthReported
@@ -553,19 +668,21 @@ ProviderCatalogChanged
 
 This enables local-to-remote migration without coupling the kernel to one worker implementation.
 
-### 7.7 Context hierarchy
+### 7.9 Context hierarchy
 
-Keep context sources explicit:
+Keep context sources explicit and project-scoped:
 
-1. current task objective, constraints, and checkpoint;
-2. repository-scoped decisions and critical facts;
-3. live repository source and current Git/worktree state;
-4. current repository wiki and structural index;
-5. current run/task evidence and child summaries;
-6. archival project memory;
-7. external MCP, graph, or retrieval providers.
+1. current project identity, owner objective, accepted plan, and work-graph position;
+2. current task objective, acceptance criteria, constraints, role, and checkpoint;
+3. project-scoped decisions, skills, dependencies, and critical facts;
+4. live repository source and the exact assigned workspace, worktree, branch, and environment state;
+5. current repository wiki, Graphify structure, and relevant project artifacts;
+6. current run/task evidence, reviews, integration state, and child summaries;
+7. accepted owner knowledge and bounded Graphiti temporal context;
+8. archival project memory;
+9. external MCP, graph, or retrieval providers.
 
-The hierarchy prevents memory, wiki, evidence, and chat history from becoming competing truth systems.
+A task from one project must not receive another project's context merely because names, technologies, or repository paths look similar. Explicit typed cross-project links are the only normal bridge. The hierarchy prevents projects, memory, wiki, evidence, agent transcripts, and chat history from becoming competing or accidentally mixed truth systems.
 
 ---
 
@@ -1139,72 +1256,114 @@ A controller can resume complex work from a compact, source-linked packet; repos
 
 ---
 
-## Phase 6 — Delegation, parallel workers, workflows, worktrees, and optional execution backends
+## Phase 6 — Project decomposition, agent swarms, parallel work, integration, and optional execution backends
 
-### Child tasks
+### Owner outcome to accepted project plan
 
-A controller may explicitly create child tasks with:
+ChatGPT, acting as executive controller, can turn one owner-level outcome into a versioned project plan containing:
 
-- objective;
-- context packet;
-- selected skills;
-- workspace;
-- executor/provider;
-- expected output schema;
-- resource limits.
+- product objective and acceptance criteria;
+- architecture and major decisions;
+- milestones and work packages;
+- typed task and dependency graph;
+- specialist roles and capability requirements;
+- repository, service, environment, artifact, and deployment boundaries;
+- validation and integration strategy;
+- budgets, concurrency, and checkpoint rules.
 
-Soma schedules, observes, recovers, and reports children. It does not invent their objectives without controller instruction.
+The plan is durable and revisable. Replanning creates a new generation with explicit supersession; it does not erase completed work or silently reinterpret active assignments.
 
-### Worker adapters
+### Child tasks and swarm assignments
 
-- native execution;
-- capability invocation;
-- Hermes worker;
+An accepted plan may create child tasks with:
+
+- required `project_id` and work-graph position;
+- objective, acceptance criteria, and dependency references;
+- project-scoped context packet and selected skills;
+- specialist role and candidate agent-worker requirements;
+- isolated workspace or worktree;
+- expected work products and output schema;
+- validation, review, and integration requirements;
+- resource and usage budgets.
+
+ChatGPT may decompose and revise the work. Once the owner outcome and plan boundaries are established, Soma may instantiate ready child tasks, route them to compatible workers, retry or reassign failed work, and advance satisfied dependencies without asking Arash to approve every ordinary step. Soma must not invent unrelated product goals or silently cross project boundaries.
+
+### Agent-worker adapters
+
+Initial worker families include:
+
+- Codex CLI adapter;
+- Claude Code adapter;
+- Hermes agent-worker adapter;
+- native deterministic execution;
+- capability invocation worker;
+- browser or desktop agent worker;
 - deterministic workflow worker;
-- external-coder handoff;
-- future explicitly selected coding-agent worker;
-- optional external execution backend.
+- external-coder export and import compatibility;
+- optional remote agent or external execution backend.
 
-### Parallel execution
+Each adapter must prove start, progress, checkpoint, input, cancellation, restart reconciliation, result capture, workspace isolation, identity provenance, and clean removal. Worker-specific strengths remain discoverable so ChatGPT can choose a coding implementer, researcher, reviewer, tester, browser specialist, deployment specialist, or other role deliberately.
 
-Generalize current parallel groups into platform-neutral parent/child execution with:
+### Swarm coordination
 
-- capacity and fair queuing;
-- independent leases;
-- independent evidence;
-- independent cancellation;
-- restart adoption;
-- typed worker health and load reports.
+Generalize current parallel groups into a project-aware coordination engine with:
 
-Capacity is resource management, not authorization.
+- dependency-aware ready queues and critical-path visibility;
+- capability, role, health, cost, and capacity-aware routing;
+- independent agent sessions, leases, evidence, cancellation, and budgets;
+- explicit artifact ownership and producer/consumer links;
+- structured progress, handoff, review, and completion summaries;
+- dynamic reassignment and replacement without losing task identity;
+- restart adoption and reconciliation of live agent processes;
+- detection of stale assignments, duplicate work, blocked dependencies, and orphan sessions;
+- controller-visible reasons for every assignment and replan;
+- portfolio isolation so simultaneous projects cannot contaminate one another.
 
-### Worktrees
+Capacity and budget are resource management, not authorization.
 
-- reserve;
-- create;
-- bind to child task;
-- record base commit;
-- exclude temporary worktrees from wiki/search;
-- preserve on failure;
-- inspect diff;
-- integrate only on explicit instruction;
-- clean up only after acknowledgement.
+### Workspace and worktree isolation
+
+For repository work:
+
+- reserve a repository and mutation scope;
+- create one task- or agent-owned worktree where parallel mutation requires it;
+- bind project, task, agent session, base commit, branch, and workspace identity;
+- keep unrelated agents out of the same mutable worktree;
+- exclude temporary worktrees from canonical wiki/search unless queried explicitly;
+- preserve failed work for inspection;
+- record diffs, generated artifacts, tests, and provenance;
+- detect overlapping changes and integration conflicts;
+- clean up only after result acknowledgement and evidence retention.
+
+### Review, validation, and integration
+
+Agent output is not automatically accepted because an agent reports success. Support independent roles and gates for:
+
+- implementation;
+- test generation and execution;
+- code and architecture review;
+- security, dependency, and licence review where relevant;
+- UI or browser verification;
+- merge and integration planning;
+- build, deployment, and smoke validation.
+
+Soma records proposed changes and evidence. ChatGPT may accept, revise, reject, or delegate corrective work. Integration into a canonical branch, release, environment, or deployed product occurs only through the project integration contract and remains traceable to producing tasks and agents.
 
 ### Workflows
 
 Support:
 
-- typed DAG steps;
+- typed DAG steps and graph-derived readiness;
 - parallel ready nodes;
-- retries and timeouts;
+- retries, timeouts, and worker reassignment;
 - compensation;
 - explicit uncertainty;
-- `awaiting_controller`;
+- `awaiting_controller` for strategic judgment rather than routine execution;
 - submit input;
-- continue, revise, and retry-step commands;
-- stable evidence IDs across recovery.
+- continue, revise, replan, and retry-step commands;
+- stable project, task, agent, artifact, and evidence IDs across recovery.
 
-Study mcp-agent and LangGraph for patterns, but keep workflow definitions and task identity Soma-owned.
+Study mcp-agent and LangGraph for patterns, but keep project plans, workflow definitions, assignments, and task identity Soma-owned.
 
 ### Temporal pilot
 
@@ -1221,7 +1380,7 @@ Temporal is promoted only if measured savings and durability benefits exceed the
 
 ### Exit gate
 
-Controllers can delegate isolated work, run children in parallel, steer and recover them, and receive compact summaries with exact evidence regardless of worker implementation.
+From one owner-level project objective, ChatGPT can create and revise a durable work graph, assign multiple isolated specialist agents, run independent and dependent work in parallel, recover or replace workers, detect conflicts and project leakage, validate and integrate their outputs, and return a coherent tested project state with exact provenance. The same controller can supervise multiple simultaneous projects without confusing their tasks, repositories, contexts, agents, artifacts, or decisions.
 
 ---
 
@@ -1491,6 +1650,14 @@ Test relevant boundaries including:
 - watcher overflow or missed events;
 - refresh failure before atomic publication;
 - browser worker death with a leased profile;
+- coding-agent process death before and after checkpoint publication;
+- agent-session restart or replacement without project/task identity drift;
+- two simultaneous projects with similar names, files, stacks, or objectives remaining isolated;
+- stale assignment after plan revision;
+- duplicate agent work against one task;
+- overlapping worktree edits and integration conflicts;
+- artifact produced for the wrong project or task being rejected;
+- dependency completion racing project replanning;
 - scheduler restart before and after attempt claim;
 - delivery failure after terminal task completion.
 
@@ -1586,6 +1753,7 @@ Soma will not become:
 - an architecture with competing canonical task, memory, evidence, repository, or schedule stores;
 - a wholesale Temporal, LangGraph, Letta, Mem0, Graphiti, or Graphify migration;
 - a platform that loads arbitrary unreviewed third-party plugins into the kernel;
+- an unscoped peer-agent swarm that shares one mutable workspace, loses project identity, invents unrelated objectives, or allows workers to overwrite the executive project plan;
 - a system that modifies Git or Git configuration to maintain the repository wiki;
 - an Apache-target codebase containing copied GPL/AGPL implementation code;
 - a monolithic rewrite that discards proven durability or historical evidence;
@@ -1602,7 +1770,7 @@ Phase 2      Application container, lifecycle consolidation, and legacy permissi
 Phase 3      Windows-first unrestricted host execution and workspace abstraction
 Phase 4      Unified capability broker and Hermes H2
 Phase 5      Live repository knowledge, skill plane, knowledge workspace, temporal context graph, and deterministic context
-Phase 6      Delegation, parallel workers, workflows, worktrees, and optional backends
+Phase 6      Project decomposition, agent swarms, parallel work, integration, and optional backends
 Phase 7      Browser, desktop, and multimodal providers
 Phase 8      Durable scheduling, continuity, and return delivery
 Phase 9      Linux and macOS adapters
@@ -1617,7 +1785,8 @@ The sequence is intentionally conservative:
 - Hermes and external tools enter through one provider model;
 - repository knowledge becomes live before derived project and temporal graphs are trusted;
 - the skill plane, owner knowledge workspace, temporal context graph, and deterministic context exist before broad delegation;
-- delegation and workflow semantics exist before unattended scheduling expands;
+- canonical project identity and the work graph prevent cross-project confusion before agent swarms expand;
+- project decomposition, agent-worker, review, integration, and workflow semantics exist before unattended scheduling expands;
 - Playwright supplies deterministic browser primitives before higher-level browser agents;
 - observability begins early but distribution hardening and final cleanup happen after migrations are proven;
 - external components save implementation time without taking ownership of Soma’s identity or history.
@@ -1626,4 +1795,4 @@ The architectural destination is not “Soma implements everything itself.”
 
 It is:
 
-> **Soma owns continuity, identity, durability, evidence, and orchestration while proven external components provide specialised capabilities through replaceable, measured, licence-compatible boundaries.**
+> **ChatGPT remains Arash's executive brain for intent, planning, delegation, review, and replanning; Soma owns the durable project graph, identity, isolation, execution, evidence, and orchestration; and replaceable specialist agents provide implementation and operational capability without losing track of which project, task, workspace, artifact, or decision belongs where.**
