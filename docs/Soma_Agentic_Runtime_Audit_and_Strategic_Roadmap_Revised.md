@@ -479,6 +479,58 @@ what should run next
 why was this decision made
 ```
 
+#### Project-scope isolation contract
+
+Project isolation is a correctness invariant, not a naming convention and not an owner-facing permission gate. Arash may explicitly direct cross-project work; ordinary tasks, workers, providers, projections, and retrieval paths must never infer or widen project scope.
+
+Every internal command, event, query, checkpoint, context packet, provider invocation, agent assignment, schedule attempt, delivery record, model call, artifact operation, and runtime manifest carries a validated `ProjectScope` containing at minimum:
+
+- primary `project_id`;
+- immutable project identity and lifecycle state;
+- `scope_generation` and plan generation where relevant;
+- task, agent-session, and runtime-manifest references where applicable;
+- bound repositories, workspace roots, worktrees, environments, services, and deployment targets;
+- allowed knowledge, skill, credential, browser-profile, and provider-session namespaces;
+- explicit shared-resource and cross-project-link references.
+
+There is no mutable process-global “current project.” Unscoped project-owned operations fail closed. Portfolio and owner-global operations use explicit global scope and must not be available accidentally through a project worker path.
+
+Storage enforces scope rather than trusting callers. Project-owned records retain immutable `project_id`; parent/child and producer/consumer relationships use composite foreign keys or equivalent transactional constraints that prove both records belong to the same project. SQLite foreign-key enforcement is enabled and verified on every connection. Cross-project relationships live in a dedicated typed-link record with source project, target project, direction, exposed records or resources, read/write semantics, expiry or revocation state, provenance, and owner/controller instruction.
+
+Shared repositories, libraries, services, credentials, datasets, or infrastructure are first-class shared resources rather than pretending to belong to whichever project touched them last. Each shared resource has one canonical identity, ownership class, lease model, and explicit project bindings. A worker receives only the bounded view required by its task.
+
+All externally visible or mutable resources are project-namespaced and registered, including:
+
+- filesystem roots, temporary directories, caches, staging areas, artifact stores, and backup/export paths;
+- repositories, branches, worktrees, Git mutation scopes, and integration queues;
+- process trees, inherited environment, ports, service names, Docker Compose project names, containers, volumes, and networks;
+- browser contexts, persistent profiles, downloads, authentication state, and API request contexts;
+- credential references and short-lived credential bindings;
+- Graphiti groups, Graphify generations, repository-wiki generations, search indexes, embedding/vector namespaces, and knowledge-workspace spaces or objects;
+- provider sessions, model invocations, schedules, delivery destinations, logs, events, traces, and usage records.
+
+Filesystem containment uses canonical resolved identity, not string-prefix checks. Normalize case and volume identity on Windows, reject traversal, and inspect symbolic links, junctions, mount points, and other reparse points before mutation or recursive traversal. A path escaping its registered root is rejected unless the escaped target is itself an explicitly bound resource.
+
+Retrieval is filtered by scope before ranking, traversal, deduplication, or context assembly—not filtered after results are returned. Unscoped legacy records are quarantined for reconciliation rather than treated as global. Worker-facing retrieval cannot use provider-global search. ChatGPT may request an explicit portfolio view, which remains source-labelled and does not silently inject records into one project’s task context.
+
+The initial provider mapping is:
+
+- Graphiti: one `group_id` namespace per project, plus separately named owner-global and explicitly shared groups; every ingest, search, delete, and rebuild call specifies the permitted group set;
+- Anytype: one dedicated space per project by default, plus separate owner-global/shared spaces; worker queries use space-specific endpoints rather than global search;
+- Graphify and `RepoWikiService`: separate project/repository generations and cache keys including project, repository, source generation, and extractor revision;
+- Docker Compose: a deterministic collision-resistant project name derived from Soma project and environment identity;
+- Playwright: a project/task-owned browser context or persistent profile, with authentication state treated as sensitive project-scoped material.
+
+Git worktrees isolate files and per-worktree state but still share repository refs and, by default, repository configuration. Soma therefore serializes shared-ref, remote, hook, maintenance, prune, and repository-configuration mutations through the repository coordinator; uses unique project/task branch namespaces; enables worktree-specific configuration where appropriate; and never treats a worktree alone as a complete security or correctness boundary.
+
+Project lifecycle is explicit: create, import, active, suspended, archived, restoring, deleting, and deleted/tombstoned. Project IDs are never reused. Suspension or archive prevents new tasks, schedules, provider writes, and agent launches while preserving readable evidence. Restore has two distinct modes: disaster replacement of the same identity only after proving no live duplicate exists, or clone/fork into a new project identity with deterministic remapping of all project-owned IDs and external bindings.
+
+Reconciliation continuously checks that live processes, worktrees, ports, services, provider sessions, graph namespaces, schedules, artifacts, and credentials still match their recorded project scope. Mismatch moves affected work to `recovery_pending` or quarantine; Soma does not guess ownership from paths, names, content similarity, or the last controller conversation.
+
+### Project-isolation exit gate
+
+Two or more simultaneous projects—including deliberately confusing projects with the same stack, filenames, service names, task titles, and similar objectives—remain isolated across storage, retrieval, agents, workspaces, Git, processes, ports, containers, browser state, credentials, graphs, artifacts, schedules, backups, and delivery. Every cross-project read or write is represented by an explicit typed link, and removing that link stops future access without corrupting either project’s history.
+
 ### 7.3 Canonical task plane
 
 A canonical task contains:
@@ -661,6 +713,7 @@ Canonicalize the JSON representation before hashing and identify it by SHA-256. 
 A manifest records at minimum:
 
 - `runtime_manifest_id`, schema version, task attempt, project, task, workflow, and agent-session references;
+- `ProjectScope` identity, scope generation, allowed resource bindings, and explicit cross-project links used by the attempt;
 - Soma build or source revision and runtime schema version;
 - requested and resolved worker, adapter, backend, provider, and model identities, including fallback reasons;
 - executable path, SHA-256, reported version, package/source identity where available, and platform signature information;
@@ -964,6 +1017,10 @@ One Soma kernel owns every active lifecycle decision, obsolete permission machin
 - Windows Job Objects or equivalent owned-tree cancellation;
 - process creation-time and canonical identity evidence;
 - executable SHA-256, file/product version, Authenticode status/signer, OS build, architecture, shell, and package/source identity capture for runtime manifests;
+- canonical path containment with case, volume, symlink, junction, mount-point, and reparse-point inspection;
+- project/task-scoped temporary, cache, staging, environment, process-tree, port, and service identities;
+- sanitized inherited environment and handles for agent workers;
+- deterministic project/environment names for Docker Compose resources;
 - Windows Service installation and lifecycle;
 - resource leases for files, services, ports, repositories, browser profiles, and mutation targets;
 - `WindowsLocalWorkspace` behind the common workspace contract;
@@ -1248,11 +1305,15 @@ Soma-owned canonical records retain:
 
 Every knowledge-workspace adapter must support deterministic import or export, stable identity mapping, change detection, provider removal, and full reconstruction of Soma-owned indexes. Workspace graph links are useful human-authored relationships, but they do not silently override canonical task, evidence, skill, or repository records.
 
+For the Anytype pilot, use a dedicated space for each project by default, with separately identified owner-global and explicitly shared spaces. Persist the `project_id` to `space_id` mapping in Soma. Worker retrieval and publication use space-specific endpoints; Anytype global search is reserved for explicit owner/portfolio operations and its results are never injected into one project without scope validation.
+
 ### 5.5 Temporal context graph
 
 Graphiti is selected as the initial temporal context-graph provider for Phase 5 rather than deferred as an unspecified later experiment. Its role is to strengthen continuity before broad delegation and scheduling by connecting changing facts, decisions, task outcomes, conversations, projects, people, skills, and evidence over time.
 
 Graphiti is a derived intelligence layer, not a competing memory authority. Soma owns the ingestion journal, canonical entity IDs, accepted-fact policy, source authority, provenance, exports, rebuild procedure, and public query contracts. Graphiti may index accepted owner knowledge, selected conversation episodes, canonical task/run summaries, skill-learning evidence, repository decisions, and knowledge-workspace records. It must never become the sole copy of an important fact.
+
+Map each project to a dedicated Graphiti `group_id`; maintain separately named owner-global and explicitly shared groups. Every ingestion, search, delete, export, and rebuild operation must receive the permitted group set from `ProjectScope`. Provider-default or unfiltered graph searches are forbidden in worker execution. Cross-project context is copied only into a bounded source-linked context packet or traversed through an explicit typed project link; Graphiti entity similarity must never merge project identities by itself.
 
 Use shared Soma entity identities so one concept may map safely across systems:
 
@@ -1398,7 +1459,9 @@ For repository work:
 - reserve a repository and mutation scope;
 - create one task- or agent-owned worktree where parallel mutation requires it;
 - bind project, task, agent session, base commit, branch, and workspace identity;
+- use collision-resistant project/task branch namespaces and worktree-specific configuration where appropriate;
 - keep unrelated agents out of the same mutable worktree;
+- route shared-ref, remote, hook, maintenance, prune, and repository-configuration changes through the repository coordinator because linked worktrees share repository-level state;
 - exclude temporary worktrees from canonical wiki/search unless queried explicitly;
 - preserve failed work for inspection;
 - record diffs, generated artifacts, tests, and provenance;
@@ -1462,7 +1525,9 @@ Use Playwright as the first candidate through an isolated provider or MCP worker
 
 Required contract:
 
-- create and recover session;
+- create and recover a project/task-owned browser context or persistent profile;
+- bind storage state, authentication material, downloads, recordings, and API request context to the same project scope;
+- prohibit implicit browser-profile or authentication-state reuse across projects;
 - list pages;
 - navigate;
 - inspect DOM and accessibility state;
@@ -1530,6 +1595,8 @@ A connected controller can operate browser and Windows desktop applications with
 
 Support:
 
+- required `project_id`, project scope generation, and task/workflow template identity for every schedule;
+- automatic launch suspension when the project is suspended, archived, deleting, or scope-incompatible;
 - one-shot schedules;
 - recurring schedules;
 - timezone and DST correctness;
@@ -1727,7 +1794,17 @@ Test relevant boundaries including:
 - missing old executable, lockfile, container digest, or runtime bundle during recovery;
 - manifest tampering, hash mismatch, or attempted in-place manifest mutation;
 - deterministic replay claim rejected for a non-deterministic model-agent session;
-- two simultaneous projects with similar names, files, stacks, or objectives remaining isolated;
+- two simultaneous projects with similar names, files, stacks, objectives, ports, service names, browser logins, and cache keys remaining isolated;
+- unscoped internal command, query, event, cache entry, or retrieval request failing closed;
+- parent/child or producer/consumer storage write rejected when project IDs disagree;
+- path traversal, case-insensitive collision, symlink, junction, mount-point, or reparse-point escape from a registered workspace;
+- Graphiti group, Anytype space, Graphify generation, wiki, embedding, or search result leaking across project scope;
+- shared Git ref/config/hook mutation racing linked worktrees;
+- Docker Compose project-name, port, volume, network, or service collision;
+- browser context, persistent profile, authentication state, download, or API request context reused across projects;
+- project archive preventing new schedules, workers, credentials, and provider writes;
+- restore-as-replacement rejecting a live duplicate and restore-as-clone remapping all project-owned identities;
+- revoked cross-project link preventing subsequent reads and writes while preserving provenance;
 - stale assignment after plan revision;
 - duplicate agent work against one task;
 - overlapping worktree edits and integration conflicts;
