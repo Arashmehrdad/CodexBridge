@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v12"
+    "cf1.3.gateway-operations.v13"
 )
 
 
@@ -924,6 +924,16 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
+        ("configuration",),
+        "soma.server:trading_query",
+        "bounded effective trading configuration projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="One bounded object reporting the settings the trading domain actually resolved, so an omitted timeframe, candle count, probe-bar count, execution mode, or policy is discoverable rather than guessed; readable while the terminal is disconnected, and it carries no local path or credential.",
+    ),
+    _entry(
+        "trading_query",
         ("candles", "h1_candles", "h4_candles"),
         "soma.server:trading_query",
         "bounded completed-candle series",
@@ -932,8 +942,8 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=200,
-        maximum_item_limit=2_000,
-        notes="Candle count remains request bounded on any requested timeframe; compact responses use a UTF-8 byte budget with truncation metadata, while view=full preserves the complete selected series. h1_candles and h4_candles are compatibility aliases over candles.",
+        maximum_item_limit=5_000,
+        notes="An omitted candle count resolves from the active configuration and the maximum matches TradingConfig.candle_count; compact responses use a UTF-8 byte budget with truncation metadata, while view=full preserves the complete selected series. h1_candles and h4_candles are compatibility aliases over candles.",
     ),
     _entry(
         "trading_query",
@@ -955,8 +965,8 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_response_bytes=12 * 1024,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=200,
-        maximum_item_limit=2_000,
-        notes="The analysis window is request bounded and read independently of the boundary probe; compact trims the oldest bars under a UTF-8 byte budget with truncation metadata while retaining every classified session gap, and view=full preserves the complete window.",
+        maximum_item_limit=5_000,
+        notes="An omitted count resolves from the active configuration; the analysis window is otherwise request bounded and read independently of the boundary probe; compact trims the oldest bars under a UTF-8 byte budget with truncation metadata while retaining every classified session gap, and view=full preserves the complete window.",
     ),
     _entry(
         "trading_query",

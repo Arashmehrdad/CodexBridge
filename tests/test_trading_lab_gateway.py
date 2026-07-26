@@ -1411,12 +1411,22 @@ class TestActionGateway:
         assert stored["result"]["state"] == "REJECTED"
 
     def test_research_collector_may_not_act(self, trading_env) -> None:
-        result = submit_action(
-            idempotency_key="role-refusal",
-            capability_role="internal_paper_agent",
-            execution_mode="broker_demo",
-        )
-        assert result["ok"] is False
+        """A paper role may not act on the broker.
+
+        The refusal now happens at the request schema rather than inside
+        the gateway: the pair is structurally contradictory, so it is
+        rejected before anything reaches a provider or a journal.
+        """
+        from pydantic import ValidationError
+        from soma.gateway_models import TradingActionSubmitRequest
+
+        with pytest.raises(ValidationError, match="contradicts"):
+            TradingActionSubmitRequest(
+                idempotency_key="role-refusal",
+                action_type="market_entry",
+                capability_role="internal_paper_agent",
+                execution_mode="broker_demo",
+            )
 
     def test_broker_demo_requires_a_connected_provider(
         self, monkeypatch, trading_env
@@ -1577,11 +1587,18 @@ class TestPublicContractUnchanged:
         for model in get_args(get_args(TradingQueryRequest)[0]):
             annotation = model.model_fields["operation"].annotation
             operations.update(get_args(annotation))
-        assert operations == (
+        package_operations = (
             set(READ_OPERATIONS)
             | set(JOURNAL_QUERY_OPERATIONS)
             | set(DEPRECATED_QUERY_OPERATIONS)
         )
+        # Every operation the package declares is served, and the only
+        # host-added read is `configuration`: what Soma resolved from its
+        # own configuration is a question the trading domain does not own,
+        # so it has no operation for it. Naming it here keeps the gateway
+        # from quietly growing a second inventory.
+        assert package_operations <= operations
+        assert operations - package_operations == {"configuration"}
 
     def test_action_inventory_matches_the_public_schema(self) -> None:
         from soma.gateway_models import TradingActionSubmitRequest
@@ -1624,3 +1641,417 @@ class TestPublicContractUnchanged:
         ):
             encoded = json.dumps(result, ensure_ascii=False)
             assert json.loads(encoded) == result
+
+
+def _field_maximum(model, field: str) -> int:
+    """The declared upper bound of a bounded integer field."""
+    for item in model.model_fields[field].metadata:
+        maximum = getattr(item, 'le', None)
+        if maximum is not None:
+            return int(maximum)
+    raise AssertionError(f'{model.__name__}.{field} declares no upper bound')
+
+
+# --------------------------------------------------------------------------
+# Effective configuration, configuration-resolved defaults, and the
+# runtime-control capability switch.
+# --------------------------------------------------------------------------
+
+
+def trading_query(**payload: Any) -> dict:
+    from pydantic import TypeAdapter
+    from soma.gateway_models import TradingQueryRequest
+
+    request = TypeAdapter(TradingQueryRequest).validate_python(payload)
+    return server.trading_query(request)
+
+
+def reconfigure(tmp_path: Path, **trading: Any) -> AppConfig:
+    """Rebuild the active config so a changed setting is genuinely active."""
+    settings: dict[str, Any] = {
+        "enabled": True,
+        "symbol": SYMBOL,
+        "provider_utc_offset_seconds": OFFSET,
+        "maximum_tick_age_seconds": 120,
+    }
+    settings.update(trading)
+    config = AppConfig(
+        repos={"repo": RepoConfig(path=str(tmp_path))},
+        runs_dir=str(tmp_path / "runs"),
+        trading=settings,
+        config_dir=tmp_path,
+    )
+    server.set_config(config, tmp_path / "config.yaml")
+    trading_lab_adapter.reset_services_cache()
+    return config
+
+
+class TestEffectiveConfigurationRead:
+    def test_configuration_reports_resolved_runtime_settings(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        # "1h" is a caller alias; the domain owns the canonical name.
+        reconfigure(
+            tmp_path,
+            timeframe="1h",
+            candle_count=321,
+            boundary_probe_bars=7,
+            session_calendar="continuous",
+        )
+
+        result = trading_query(operation="configuration", view="full")["result"]
+
+        assert result["symbol"] == SYMBOL
+        assert result["enabled"] is True
+        assert result["timeframe"] == "H1"
+        assert result["timeframe_seconds"] == H1
+        assert result["candle_count"] == 321
+        assert result["boundary_probe_bars"] == 7
+        assert result["session_calendar"] == "continuous"
+        assert result["maximum_tick_age_seconds"] == 120
+        assert result["provider_utc_offset_seconds"] == OFFSET
+        assert result["account_environment"] == "demo"
+        assert result["configured_account_environment"] == "demo"
+        assert result["default_execution_mode"] == "internal_paper"
+        assert result["default_policy_id"] == "agentic_demo_v1"
+        assert result["runtime_control_mutations_enabled"] is True
+        assert "H1" in result["supported_timeframes"]
+        assert "continuous" in result["supported_session_calendars"]
+
+    def test_configuration_answers_the_complete_scheduled_read(
+        self, trading_env
+    ) -> None:
+        """Every value a scheduled controller must not guess, in one call."""
+        result = trading_query(operation="configuration", view="full")["result"]
+
+        required = {
+            "symbol",
+            "account_environment",
+            "timeframe",
+            "timeframe_seconds",
+            "candle_count",
+            "session_calendar",
+            "boundary_probe_bars",
+            "maximum_tick_age_seconds",
+            "provider_utc_offset_seconds",
+            "enabled",
+        }
+        assert required <= set(result)
+        assert not any(
+            value == "" for key, value in result.items() if key in required
+        )
+
+    def test_configuration_survives_a_disconnected_terminal(
+        self, monkeypatch, trading_env
+    ) -> None:
+        """A controller needs its configuration most when the feed is down."""
+
+        def unreachable() -> FakeProvider:
+            raise RuntimeError("MT5 terminal is not running")
+
+        monkeypatch.setattr(server, "_configured_mt5_provider", unreachable)
+
+        response = trading_query(operation="configuration", view="full")
+
+        assert response["ok"] is True
+        assert response["result"]["timeframe"] == "H1"
+        assert response["result"]["account_environment"] == ""
+        assert "not running" in response["result"]["account_environment_error"]
+
+    def test_configuration_carries_no_local_path_or_secret(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, terminal_path="C:/Program Files/MT5/terminal64.exe")
+
+        encoded = json.dumps(trading_query(operation="configuration", view="full"))
+
+        assert "terminal64" not in encoded
+        assert "terminal_path" not in encoded
+
+    def test_configuration_is_refused_when_trading_is_disabled(
+        self, disabled_env
+    ) -> None:
+        assert trading_query(operation="configuration")["status"] == "disabled"
+
+    def test_compact_configuration_stays_within_its_budget(
+        self, trading_env
+    ) -> None:
+        response = trading_query(
+            operation="configuration", response_budget_bytes=4096
+        )
+        assert response_size(response) <= 4096
+
+
+class TestConfigurationResolvedDefaults:
+    def test_omitted_candle_count_follows_the_active_configuration(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, candle_count=17)
+
+        candles = trading_query(operation="candles", view="full")
+        assert len(candles["result"]["completed"]) == 17
+
+        # Changing configuration must move the default with it: a literal
+        # baked into the request model would silently keep the old depth.
+        reconfigure(tmp_path, candle_count=23)
+        later = trading_query(operation="candles", view="full")
+        assert len(later["result"]["completed"]) == 23
+
+    def test_omitted_historical_count_follows_the_active_configuration(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, candle_count=29)
+
+        window = trading_query(operation="historical_candles", view="full")
+
+        assert window["result"]["requested_count"] == 29
+        assert len(window["result"]["candles"]) == 29
+
+    def test_omitted_probe_bars_follows_the_active_configuration(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, boundary_probe_bars=5)
+
+        boundary = trading_query(operation="candle_boundary", view="full")
+
+        assert boundary["result"]["probe_bar_count"] == 5
+
+    def test_an_explicit_count_still_overrides_the_configuration(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, candle_count=40)
+
+        candles = trading_query(operation="candles", completed_count=3, view="full")
+
+        assert len(candles["result"]["completed"]) == 3
+
+    def test_public_candle_range_accepts_every_configurable_depth(self) -> None:
+        """No configured depth may be unreachable through the public schema."""
+        from soma.config import TradingConfig
+        from soma.gateway_models import (
+            TradingCandlesQuery,
+            TradingHistoricalCandlesQuery,
+        )
+
+        configured_maximum = _field_maximum(TradingConfig, "candle_count")
+        for model, field in (
+            (TradingCandlesQuery, "completed_count"),
+            (TradingHistoricalCandlesQuery, "count"),
+        ):
+            assert _field_maximum(model, field) >= configured_maximum, model.__name__
+
+    def test_companion_start_uses_the_configured_analysis_depth(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, candle_count=31)
+        provider = FakeProvider(now=datetime.now(UTC))
+        monkeypatch.setattr(server, "_configured_mt5_provider", lambda: provider)
+        monkeypatch.setattr(
+            trading_lab_adapter, "configured_mt5_provider", lambda _config: provider
+        )
+
+        started = companion_action(
+            action="start",
+            idempotency_key="configured-depth",
+            task_invocation_id="task-configured-depth",
+            research_summary="Configured analysis depth is used.",
+            scheduled_for_utc=datetime.now(UTC).isoformat(),
+            view="full",
+        )
+
+        assert started["ok"] is True
+        assert len(started["packet"]["payload"]["completed_candles"]) == 31
+
+
+class TestConfiguredExecutionModeAndPolicy:
+    def _started_cycle(self, monkeypatch, key: str) -> dict:
+        provider = FakeProvider(now=datetime.now(UTC))
+        monkeypatch.setattr(server, "_configured_mt5_provider", lambda: provider)
+        monkeypatch.setattr(
+            trading_lab_adapter, "configured_mt5_provider", lambda _config: provider
+        )
+        return companion_action(
+            action="start",
+            idempotency_key=key,
+            task_invocation_id=f"task-{key}",
+            research_summary="Configured mode reaches the immutable decision.",
+            scheduled_for_utc=datetime.now(UTC).isoformat(),
+            completed_count=100,
+            view="full",
+        )
+
+    def test_decision_stores_the_configured_mode_and_policy(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(
+            tmp_path,
+            default_execution_mode="broker_demo",
+            default_policy_id="agentic_demo_v1",
+        )
+        started = self._started_cycle(monkeypatch, "broker-mode")
+
+        decided = companion_action(
+            action="decide",
+            companion_run_id=started["run"]["companion_run_id"],
+            signal_idempotency_key="broker-mode-signal",
+            decision="LONG",
+            confidence=70,
+            stop_loss=63_000.0,
+            take_profit=66_000.0,
+            reason="Configured mode must reach the immutable decision.",
+            model_version="gpt-test",
+            prompt_version="decision-v1",
+            view="full",
+        )
+
+        # The mode and policy live on the immutable signal, which is what
+        # companion execute reads back when it chooses an executor and role.
+        assert decided["signal"]["execution_mode"] == "broker_demo"
+        assert decided["signal"]["policy_id"] == "agentic_demo_v1"
+
+    def test_an_explicit_request_still_overrides_the_configuration(
+        self, monkeypatch, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, default_execution_mode="broker_demo")
+        started = self._started_cycle(monkeypatch, "explicit-mode")
+
+        decided = companion_action(
+            action="decide",
+            companion_run_id=started["run"]["companion_run_id"],
+            signal_idempotency_key="explicit-mode-signal",
+            decision="NO_TRADE",
+            reason="Explicit paper mode overrides configuration.",
+            model_version="gpt-test",
+            prompt_version="decision-v1",
+            execution_mode="internal_paper",
+            view="full",
+        )
+
+        assert decided["signal"]["execution_mode"] == "internal_paper"
+
+    def test_guarded_action_inherits_the_configured_mode_and_role(
+        self, monkeypatch, trading_env
+    ) -> None:
+        """Broker-demo configuration reaches the executor and the role.
+
+        The fake provider carries no broker binding, so what is asserted
+        here is the routing decision itself: which mode the gateway
+        resolved and which executor it therefore asked for.
+        """
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, default_execution_mode="broker_demo")
+        selected: list[str] = []
+        original = server._trading_executor_for_mode
+
+        def record(mode: str, provider: Any):
+            selected.append(mode)
+            return original(mode, provider)
+
+        monkeypatch.setattr(server, "_trading_executor_for_mode", record)
+
+        submit_action(
+            idempotency_key="configured-role",
+            capability_role=None,
+            execution_mode=None,
+            policy_id=None,
+        )
+
+        assert selected == ["broker_demo"]
+        assert server._resolved_trading_execution_mode(None) == "broker_demo"
+        assert server._resolved_trading_policy_id(None) == "agentic_demo_v1"
+        assert (
+            server._resolved_trading_capability_role(None, "broker_demo")
+            == "broker_demo_agent"
+        )
+
+    def test_paper_configuration_derives_the_paper_role(self, trading_env) -> None:
+        result = submit_action(
+            idempotency_key="paper-role",
+            capability_role=None,
+            execution_mode=None,
+            policy_id=None,
+        )
+
+        assert result["action"]["execution_mode"] == "internal_paper"
+        assert result["action"]["capability_role"] == "internal_paper_agent"
+
+    def test_a_contradictory_role_and_mode_are_refused(self) -> None:
+        """Guessing which one was meant would decide where a real order goes."""
+        from pydantic import ValidationError
+        from soma.gateway_models import TradingActionSubmitRequest
+
+        with pytest.raises(ValidationError, match="contradicts"):
+            TradingActionSubmitRequest(
+                idempotency_key="contradiction",
+                action_type="market_entry",
+                capability_role="internal_paper_agent",
+                execution_mode="broker_demo",
+            )
+
+
+class TestRuntimeControlCapabilitySwitch:
+    def test_mutations_are_unavailable_when_configuration_disables_them(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, runtime_control_mutations_enabled=False)
+
+        for action, extra in (
+            ("start", {}),
+            ("stop", {"reason": "halt"}),
+            ("kill_switch_on", {"reason": "halt"}),
+            ("kill_switch_off", {"reason": "resume"}),
+            ("supervise_now", {}),
+            ("analyze_now", {}),
+        ):
+            result = runtime_control(action=action, **extra)
+            assert result["ok"] is False, action
+            assert result["status"] == "runtime_control_disabled", action
+            assert result["available_actions"] == ["status"], action
+
+    def test_runtime_status_remains_readable_when_mutations_are_disabled(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, runtime_control_mutations_enabled=False)
+
+        status = runtime_control(action="status")
+
+        assert status["ok"] is True
+        # A stopped runtime is a valid observation, not a repair request.
+        assert status["result"]["status"]["state"] == "stopped"
+        assert status["result"]["kill_switch"]["active"] is False
+
+    def test_a_disabled_switch_never_changes_runtime_state(
+        self, trading_env
+    ) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, runtime_control_mutations_enabled=False)
+
+        runtime_control(action="start")
+        runtime_control(action="kill_switch_on", reason="halt")
+
+        status = runtime_control(action="status")
+        assert status["result"]["status"]["state"] == "stopped"
+        assert status["result"]["kill_switch"]["active"] is False
+
+    def test_mutations_remain_available_by_default(self, trading_env) -> None:
+        assert runtime_control(action="start")["ok"] is True
+        assert runtime_control(action="stop", reason="done")["ok"] is True
+
+    def test_configuration_reports_the_switch(self, trading_env) -> None:
+        _config, _provider, tmp_path = trading_env
+        reconfigure(tmp_path, runtime_control_mutations_enabled=False)
+
+        result = trading_query(operation="configuration", view="full")["result"]
+
+        assert result["runtime_control_mutations_enabled"] is False

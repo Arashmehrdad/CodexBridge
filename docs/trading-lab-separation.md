@@ -351,3 +351,82 @@ from:
   — a wall-clock timing comparison that is sensitive to machine load.
 
 They are recorded here so they are not mistaken for migration damage.
+
+
+## Connector update: one authoritative configuration
+
+The timeframe work above made the chart period configurable but left three
+gaps that only appear when an unattended controller drives the gateway. All
+three are the same defect: a value that looks configured but is decided
+somewhere else.
+
+### The effective configuration is readable
+
+`trading_query` gained one host-level operation, `configuration`. It is the
+only `trading_query` operation the package does not declare, because "what did
+Soma resolve from its own config?" is not a market-data question the trading
+domain owns.
+
+It reports the resolved settings object, not Soma's copy of the input:
+
+| Field | Source |
+| --- | --- |
+| `symbol`, `candle_count`, `boundary_probe_bars`, `maximum_tick_age_seconds`, `provider_utc_offset_seconds` | `TradingLabSettings` after validation |
+| `timeframe`, `timeframe_label`, `timeframe_seconds` | `resolve_timeframe` on the resolved name |
+| `session_calendar`, `session_calendar_description` | `resolve_calendar` on the resolved name |
+| `account_environment` | observed from the terminal, best effort |
+| `enabled`, `default_execution_mode`, `default_policy_id`, `runtime_control_mutations_enabled` | `TradingConfig` |
+| `supported_timeframes`, `supported_session_calendars` | the package inventories |
+
+A configured alias therefore reads back canonical: `timeframe: "1h"` in
+`config.yaml` is reported as `H1`, because `TradingLabSettings` normalized it
+and this read asks the settings object rather than the file.
+
+The read deliberately does **not** fail when the terminal is unreachable. It
+returns `account_environment: ""` with the provider error alongside, because a
+controller needs its configuration most precisely when the feed is down. It
+carries no `terminal_path` and no credential.
+
+### Omitted values resolve from configuration, not from the schema
+
+`completed_count`, `count`, and `probe_bars` were bounded fields with literal
+defaults of 200, 200, and 3. A caller that omitted them got the literal, not
+the configured depth — so raising `candle_count` in `config.yaml` silently
+changed nothing for every caller that had been relying on the default, and the
+drift was invisible because both numbers were individually valid.
+
+They are now `None` by default, meaning "use the active configuration". The
+same treatment applies to `execution_mode` and `policy_id`, which had the
+sharper version of the same problem: an omitted field meant
+`internal_paper`/`hourly_fixed_bracket_v1` on a companion decision and
+`internal_paper`/`agentic_demo_v1` on a guarded action. One configured pair now
+answers for every public path, and `TradingConfig.default_execution_mode` plus
+`default_policy_id` are where it is decided.
+
+`capability_role` follows from the resolved mode when omitted. A caller that
+states both and contradicts itself — a paper role with a broker mode — is
+refused by the request model, because choosing on its behalf would decide
+whether a real demo order is placed.
+
+The public bulk-candle maximum was 2,000 while `TradingConfig.candle_count`
+permitted 5,000, so a legitimately configured depth was unreachable through the
+gateway that was supposed to serve it. Both are 5,000, and a test asserts the
+public bound can never again fall below the configurable one.
+
+### Runtime control is a capability, not an assumption
+
+`trading.runtime_control_mutations_enabled` decides whether `start`, `stop`,
+`kill_switch_on`, `kill_switch_off`, `supervise_now`, and `analyze_now` are
+reachable. `status` is always reachable.
+
+This is an owner-set switch on one domain provider, the same shape as
+`trading.enabled`. It is not a permission tier, an autonomy profile, or a
+per-command approval, and it does not distinguish callers: Soma cannot tell a
+scheduled companion from the owner's own client without rebuilding the client
+identity machinery that was deliberately removed. What it does guarantee is
+that while it is off, no client can start the runtime, stop it, or lift the
+kill switch — and that a companion cycle can still see and report runtime
+state.
+
+A stopped continuous runtime remains a valid observation for an independent
+scheduled cycle. It is not a fault for the cycle to repair.

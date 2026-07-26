@@ -267,7 +267,10 @@ def test_trading_companion_models_are_strict_and_model_owned() -> None:
             "scheduled_for_utc": "2026-07-24T11:00:00+00:00",
         }
     )
-    assert start.completed_count == 200
+    # Omitted means "resolve from the active configuration": the request
+    # model deliberately carries no literal depth of its own, so raising
+    # the configured candle_count cannot silently leave callers behind.
+    assert start.completed_count is None
     directional = adapter.validate_python(
         {
             "action": "decide",
@@ -282,7 +285,10 @@ def test_trading_companion_models_are_strict_and_model_owned() -> None:
             "prompt_version": "v1",
         }
     )
-    assert directional.execution_mode == "internal_paper"
+    # Same rule for the operating mode and policy: one configured pair
+    # answers for every public path rather than a literal per gateway.
+    assert directional.execution_mode is None
+    assert directional.policy_id is None
     assert adapter.validate_python(
         {
             "action": "review",

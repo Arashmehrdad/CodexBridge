@@ -261,6 +261,21 @@ class TradingHealthQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TradingConfigurationQuery(GatewayModel):
+    """The effective resolved Trading Lab runtime settings.
+
+    Answers "what will an omitted field actually use?" in one call, so a
+    scheduled controller never has to guess a timeframe from its own
+    schedule or carry a private copy of the configured analysis depth.
+    Every value is read back from the live resolved settings object, not
+    from a constant in this module.
+    """
+
+    operation: Literal["configuration"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class TradingSymbolsQuery(GatewayModel):
     operation: Literal["symbols"]
     query: str = Field(default="", max_length=128)
@@ -287,13 +302,30 @@ class TradingTickQuery(GatewayModel):
 # period it does accept. ``None`` means the configured timeframe.
 _TIMEFRAME_FIELD = Field(default=None, min_length=1, max_length=16)
 
+# ``None`` on any of the following means "use the active Trading Lab
+# configuration". They are deliberately not given a literal default here:
+# a number baked into this schema is a second source of truth that stops
+# tracking the configuration the moment the configuration changes, and the
+# drift is silent because both values are individually valid. The upper
+# bounds match ``TradingConfig.candle_count`` so a configured depth can
+# never exceed what the public schema will accept.
+_CONFIGURED_CANDLE_COUNT_FIELD = Field(default=None, ge=1, le=5_000)
+_CONFIGURED_PROBE_BARS_FIELD = Field(default=None, ge=2, le=50)
+_CONFIGURED_EXECUTION_MODE_FIELD = Field(default=None)
+_CONFIGURED_POLICY_FIELD = Field(default=None)
+_CONFIGURED_CAPABILITY_ROLE_FIELD = Field(default=None)
+
+TradingExecutionModeName = Literal["internal_paper", "broker_demo"]
+TradingPolicyName = Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"]
+TradingCapabilityRoleName = Literal["internal_paper_agent", "broker_demo_agent"]
+
 
 class TradingCandlesQuery(GatewayModel):
     """Completed candles plus the developing one, for any MT5 period."""
 
     operation: Literal["candles"]
     timeframe: str | None = _TIMEFRAME_FIELD
-    completed_count: int = Field(default=200, ge=1, le=2_000)
+    completed_count: int | None = _CONFIGURED_CANDLE_COUNT_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -308,7 +340,7 @@ class TradingCandleBoundaryQuery(GatewayModel):
 
     operation: Literal["candle_boundary"]
     timeframe: str | None = _TIMEFRAME_FIELD
-    probe_bars: int = Field(default=3, ge=2, le=50)
+    probe_bars: int | None = _CONFIGURED_PROBE_BARS_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -318,7 +350,7 @@ class TradingHistoricalCandlesQuery(GatewayModel):
 
     operation: Literal["historical_candles"]
     timeframe: str | None = _TIMEFRAME_FIELD
-    count: int = Field(default=200, ge=1, le=2_000)
+    count: int | None = _CONFIGURED_CANDLE_COUNT_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -551,7 +583,8 @@ class TradingCompanionListQuery(GatewayModel):
 
 
 TradingQueryRequest = Annotated[
-    TradingHealthQuery | TradingSymbolsQuery | TradingSpecificationQuery
+    TradingHealthQuery | TradingConfigurationQuery
+    | TradingSymbolsQuery | TradingSpecificationQuery
     | TradingTickQuery | TradingCandlesQuery | TradingCandleBoundaryQuery
     | TradingHistoricalCandlesQuery | TradingH1Query | TradingH4Query
     | TradingHistoricalTicksQuery
@@ -581,10 +614,8 @@ class TradingSignalSubmitRequest(GatewayModel):
     news_context: str = Field(default="", max_length=8000)
     model_version: str = Field(min_length=1, max_length=128)
     prompt_version: str = Field(min_length=1, max_length=128)
-    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
-        "hourly_fixed_bracket_v1"
-    )
-    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    policy_id: TradingPolicyName | None = _CONFIGURED_POLICY_FIELD
+    execution_mode: TradingExecutionModeName | None = _CONFIGURED_EXECUTION_MODE_FIELD
     experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
@@ -633,7 +664,7 @@ class TradingCompanionStartRequest(GatewayModel):
         default_factory=list, max_length=50
     )
     scheduled_for_utc: datetime | None = None
-    completed_count: int = Field(default=200, ge=10, le=5_000)
+    completed_count: int | None = _CONFIGURED_CANDLE_COUNT_FIELD
     timeframe: str | None = _TIMEFRAME_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
@@ -657,10 +688,8 @@ class TradingCompanionDecideRequest(GatewayModel):
     news_context: str = Field(default="", max_length=8000)
     model_version: str = Field(min_length=1, max_length=128)
     prompt_version: str = Field(min_length=1, max_length=128)
-    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
-        "hourly_fixed_bracket_v1"
-    )
-    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    policy_id: TradingPolicyName | None = _CONFIGURED_POLICY_FIELD
+    execution_mode: TradingExecutionModeName | None = _CONFIGURED_EXECUTION_MODE_FIELD
     experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
     submitted_at_utc: datetime | None = None
     view: Literal["compact", "full"] = "compact"
@@ -751,13 +780,11 @@ class TradingActionSubmitRequest(GatewayModel):
 
     idempotency_key: str = Field(min_length=1, max_length=128)
     action_type: _TRADING_ACTION_TYPES
-    capability_role: Literal["internal_paper_agent", "broker_demo_agent"] = (
-        "internal_paper_agent"
+    capability_role: TradingCapabilityRoleName | None = (
+        _CONFIGURED_CAPABILITY_ROLE_FIELD
     )
-    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
-    policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
-        "agentic_demo_v1"
-    )
+    execution_mode: TradingExecutionModeName | None = _CONFIGURED_EXECUTION_MODE_FIELD
+    policy_id: TradingPolicyName | None = _CONFIGURED_POLICY_FIELD
     experiment_id: str = Field(default="exp1", min_length=1, max_length=64)
     symbol: str = Field(default="", max_length=64)
     signal_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -772,6 +799,31 @@ class TradingActionSubmitRequest(GatewayModel):
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
+    @model_validator(mode="after")
+    def validate_capability_role(self) -> "TradingActionSubmitRequest":
+        """A stated role must agree with a stated mode.
+
+        Either may be omitted and resolved from configuration, but a caller
+        that spells out both and contradicts itself is refused rather than
+        silently corrected: which of the two it meant is not knowable here,
+        and guessing would decide where a real order goes.
+        """
+        expected = {
+            "internal_paper": "internal_paper_agent",
+            "broker_demo": "broker_demo_agent",
+        }
+        if (
+            self.execution_mode is not None
+            and self.capability_role is not None
+            and self.capability_role != expected[self.execution_mode]
+        ):
+            raise ValueError(
+                f"capability_role {self.capability_role!r} contradicts "
+                f"execution_mode {self.execution_mode!r}; omit one or "
+                f"use {expected[self.execution_mode]!r}"
+            )
+        return self
+
 
 class TradingRuntimeControlRequest(GatewayModel):
     action: Literal[
@@ -784,7 +836,7 @@ class TradingRuntimeControlRequest(GatewayModel):
         "analyze_now",
     ]
     reason: str = Field(default="", max_length=1000)
-    execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    execution_mode: TradingExecutionModeName | None = _CONFIGURED_EXECUTION_MODE_FIELD
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 

@@ -1122,6 +1122,25 @@ class TradingConfig(BaseModel):
         default="crypto_weekend_maintenance", min_length=1, max_length=64
     )
     boundary_probe_bars: int = Field(default=3, ge=2, le=50)
+    # The execution mode and policy a public request inherits when it omits
+    # them. One authoritative pair: before this existed, an omitted field
+    # meant different things on different gateways — the companion decision
+    # defaulted to internal_paper/hourly_fixed_bracket_v1 while a guarded
+    # action defaulted to internal_paper/agentic_demo_v1. Changing the
+    # operating mode is now one configuration edit that every public path
+    # observes, rather than an argument each caller must remember to repeat
+    # identically on every call.
+    default_execution_mode: Literal["internal_paper", "broker_demo"] = "internal_paper"
+    default_policy_id: Literal["hourly_fixed_bracket_v1", "agentic_demo_v1"] = (
+        "agentic_demo_v1"
+    )
+    # Whether the mutating runtime-control operations are reachable at all.
+    # This is an owner-set capability switch on one domain provider, the same
+    # shape as ``enabled`` above; it is not a per-command approval, a
+    # permission tier, or an autonomy gate. Runtime reads stay available
+    # either way, so an unattended companion cycle can always observe runtime
+    # state without being able to start it, stop it, or lift the kill switch.
+    runtime_control_mutations_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_terminal_path(self) -> "TradingConfig":

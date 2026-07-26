@@ -100,6 +100,10 @@ from .trading_lab_adapter import (
     DEPRECATED_QUERY_NOTICE,
     DEPRECATED_QUERY_OPERATIONS,
     ExecutionMode as TradingExecutionMode,
+    SUPPORTED_SESSION_CALENDARS,
+    SUPPORTED_TIMEFRAMES,
+    resolve_calendar,
+    resolve_timeframe,
     JOURNAL_QUERY_OPERATIONS,
     ModelApprovalDecision,
     MT5Provider,
@@ -4402,6 +4406,17 @@ def trading_query(request: TradingQueryRequest) -> dict:
         }
     if request.operation in _TRADING_JOURNAL_OPERATIONS:
         return _trading_journal_query(request)
+    if request.operation == "configuration":
+        response = {
+            "ok": True,
+            "operation": request.operation,
+            "result": _trading_json(_trading_configuration_result()),
+        }
+        if request.view == "full":
+            return response
+        return _bounded_trading_scalar_response(
+            response, request.response_budget_bytes
+        )
     provider = _configured_mt5_provider()
     try:
         health = provider.connect()
@@ -4427,7 +4442,11 @@ def trading_query(request: TradingQueryRequest) -> dict:
                 completed, developing = provider.candles(
                     trading.symbol,
                     request.timeframe or trading.timeframe,
-                    completed_count=request.completed_count,
+                    completed_count=(
+                        request.completed_count
+                        if request.completed_count is not None
+                        else trading.candle_count
+                    ),
                 )
             else:
                 # The H1/H4 aliases name their own period regardless of
@@ -4449,7 +4468,11 @@ def trading_query(request: TradingQueryRequest) -> dict:
             result = provider.candle_boundary(
                 trading.symbol,
                 request.timeframe or trading.timeframe,
-                probe_bars=request.probe_bars,
+                probe_bars=(
+                    request.probe_bars
+                    if request.probe_bars is not None
+                    else trading.boundary_probe_bars
+                ),
             )
         elif request.operation == "historical_candles":
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
@@ -4457,7 +4480,11 @@ def trading_query(request: TradingQueryRequest) -> dict:
             result = provider.historical_candles(
                 trading.symbol,
                 request.timeframe or trading.timeframe,
-                count=request.count,
+                count=(
+                    request.count
+                    if request.count is not None
+                    else trading.candle_count
+                ),
             )
         else:
             if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
@@ -4546,6 +4573,95 @@ _TRADING_JOURNAL_OPERATIONS = frozenset(JOURNAL_QUERY_OPERATIONS)
 _TRADING_CANDLE_SERIES_OPERATIONS = frozenset(
     {"candles", *COMPATIBILITY_READ_OPERATIONS}
 )
+
+#: Runtime-control actions that change trading runtime state. ``status`` is
+#: deliberately absent: observing the runtime stays available even when the
+#: owner has switched mutations off, so an unattended cycle can always
+#: report what it found without being able to act on it.
+_TRADING_RUNTIME_MUTATIONS = frozenset(
+    {"start", "stop", "kill_switch_on", "kill_switch_off", "supervise_now", "analyze_now"}
+)
+
+
+def _resolved_trading_execution_mode(requested: str | None) -> str:
+    return requested or get_config().trading.default_execution_mode
+
+
+def _resolved_trading_policy_id(requested: str | None) -> str:
+    return requested or get_config().trading.default_policy_id
+
+
+def _resolved_trading_capability_role(
+    requested: str | None, execution_mode: str
+) -> str:
+    """The role that matches the resolved mode, unless one was stated.
+
+    A contradictory explicit pair never reaches here: the request model
+    refuses it, because choosing for the caller would decide whether a real
+    demo order is placed.
+    """
+    if requested is not None:
+        return requested
+    return (
+        "broker_demo_agent"
+        if execution_mode == "broker_demo"
+        else "internal_paper_agent"
+    )
+
+
+def _trading_configuration_result() -> dict[str, Any]:
+    """Report the settings the domain actually resolved, not Soma's copy.
+
+    ``TradingLabSettings`` normalizes a configured alias like ``1H`` to its
+    canonical period and validates the session calendar, so reading the
+    resolved object back is the only honest answer to "what is in effect".
+    The account environment is observed from the terminal and is therefore
+    best effort: this read has to keep working while the terminal is down,
+    which is exactly when a controller most needs to know its configuration.
+    """
+    config = get_config()
+    trading = config.trading
+    settings = _trading_services().settings
+    timeframe = resolve_timeframe(settings.timeframe)
+    calendar = resolve_calendar(settings.session_calendar)
+
+    account_environment = ""
+    account_environment_error = ""
+    provider = None
+    try:
+        provider = _configured_mt5_provider()
+        account_environment = str(provider.connect().account_environment or "")
+    except Exception as exc:
+        account_environment_error = str(exc)
+    finally:
+        if provider is not None:
+            provider.close()
+
+    return {
+        "enabled": bool(trading.enabled),
+        "provider": trading.provider,
+        "symbol": settings.symbol,
+        "configured_account_environment": trading.account_environment,
+        "account_environment": account_environment,
+        "account_environment_error": account_environment_error,
+        "timeframe": timeframe.name,
+        "timeframe_label": timeframe.label,
+        "timeframe_seconds": timeframe.seconds,
+        "candle_count": settings.candle_count,
+        "session_calendar": calendar.name,
+        "session_calendar_description": calendar.description,
+        "boundary_probe_bars": settings.boundary_probe_bars,
+        "maximum_tick_age_seconds": settings.maximum_tick_age_seconds,
+        "provider_utc_offset_seconds": settings.provider_utc_offset_seconds,
+        "default_execution_mode": trading.default_execution_mode,
+        "default_policy_id": trading.default_policy_id,
+        "runtime_control_mutations_enabled": bool(
+            trading.runtime_control_mutations_enabled
+        ),
+        "supported_timeframes": list(SUPPORTED_TIMEFRAMES),
+        "supported_session_calendars": list(SUPPORTED_SESSION_CALENDARS),
+        "configuration_authority": "trading_lab.service:TradingLabSettings",
+    }
 
 
 def _trading_dir() -> Path:
@@ -4725,8 +4841,8 @@ def trading_signal_submit(request: TradingSignalSubmitRequest) -> dict:
         news_context=request.news_context,
         model_version=request.model_version,
         prompt_version=request.prompt_version,
-        policy_id=request.policy_id,
-        execution_mode=request.execution_mode,
+        policy_id=_resolved_trading_policy_id(request.policy_id),
+        execution_mode=_resolved_trading_execution_mode(request.execution_mode),
         experiment_id=request.experiment_id,
         submitted_at_utc=datetime.now(timezone.utc),
     )
@@ -4891,7 +5007,11 @@ def trading_companion_action(request: TradingCompanionActionRequest) -> dict:
                 ),
                 scheduled_for_utc=request.scheduled_for_utc,
                 now=datetime.now(timezone.utc),
-                completed_count=request.completed_count,
+                completed_count=(
+                    request.completed_count
+                    if request.completed_count is not None
+                    else get_config().trading.candle_count
+                ),
                 timeframe=request.timeframe,
             )
             response = {
@@ -4912,8 +5032,10 @@ def trading_companion_action(request: TradingCompanionActionRequest) -> dict:
                 news_context=request.news_context,
                 model_version=request.model_version,
                 prompt_version=request.prompt_version,
-                policy_id=request.policy_id,
-                execution_mode=request.execution_mode,
+                policy_id=_resolved_trading_policy_id(request.policy_id),
+                execution_mode=_resolved_trading_execution_mode(
+                    request.execution_mode
+                ),
                 experiment_id=request.experiment_id,
                 submitted_at_utc=request.submitted_at_utc,
             )
@@ -5008,13 +5130,17 @@ def trading_action_submit(request: TradingActionSubmitRequest) -> dict:
     Demo-only; raw order_send is unreachable."""
     if not get_config().trading.enabled:
         return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    execution_mode = _resolved_trading_execution_mode(request.execution_mode)
+    capability_role = _resolved_trading_capability_role(
+        request.capability_role, execution_mode
+    )
     action_request = TradingActionRequest(
         idempotency_key=request.idempotency_key,
         action_type=TradingActionType(request.action_type),
         origin="model",
-        capability_role=TradingCapabilityRole(request.capability_role),
-        execution_mode=TradingExecutionMode(request.execution_mode),
-        policy_id=request.policy_id,
+        capability_role=TradingCapabilityRole(capability_role),
+        execution_mode=TradingExecutionMode(execution_mode),
+        policy_id=_resolved_trading_policy_id(request.policy_id),
         experiment_id=request.experiment_id,
         symbol=request.symbol,
         signal_id=request.signal_id,
@@ -5029,12 +5155,10 @@ def trading_action_submit(request: TradingActionSubmitRequest) -> dict:
     )
     provider = None
     try:
-        if request.execution_mode == "broker_demo":
+        if execution_mode == "broker_demo":
             provider = _configured_mt5_provider()
-            provider.connect()
-        executor = _trading_executor_for_mode(
-            request.execution_mode, provider
-        )
+            _require_demo_provider(provider)
+        executor = _trading_executor_for_mode(execution_mode, provider)
         record = _trading_services().action_submit(action_request, executor)
     except Exception as exc:
         return {"ok": False, "status": "gateway_error", "error": str(exc)}
@@ -5056,8 +5180,25 @@ def trading_action_submit(request: TradingActionSubmitRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def trading_runtime_control(request: TradingRuntimeControlRequest) -> dict:
     """Start/stop/status, kill switch, and manual runtime passes."""
-    if not get_config().trading.enabled:
+    trading = get_config().trading
+    if not trading.enabled:
         return {"ok": False, "status": "disabled", "error": "Trading is disabled"}
+    if (
+        request.action in _TRADING_RUNTIME_MUTATIONS
+        and not trading.runtime_control_mutations_enabled
+    ):
+        # Reporting the reachable action keeps a caller that wanted to look
+        # at the runtime from concluding the runtime itself is broken.
+        return {
+            "ok": False,
+            "status": "runtime_control_disabled",
+            "action": request.action,
+            "error": (
+                "Trading runtime control mutations are disabled by "
+                "configuration; runtime status remains readable"
+            ),
+            "available_actions": ["status"],
+        }
     lab = _trading_services()
     now = datetime.now(timezone.utc)
     provider = None
