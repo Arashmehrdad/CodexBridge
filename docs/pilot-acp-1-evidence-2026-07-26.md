@@ -1,7 +1,8 @@
 # PILOT-ACP-1 — Worker Session Boundary
 
 **Date:** 2026-07-26
-**Status:** In progress. Findings below are measured, not projected.
+**Status:** Complete. Findings below are measured, not projected.
+**Decision:** see `pilot-acp-1-decision-2026-07-26.md`.
 **Constraint honoured:** bounded pilot, no new external service, no production code changed.
 
 ## Purpose
@@ -220,13 +221,59 @@ both would otherwise have become false findings.
 Any future recovery test must assert on post-prompt agent output, never on the
 presence of a token anywhere in the stream.
 
+## Finding 9 — concurrent mixed-agent sessions isolate cleanly
+
+Two git worktrees from one repository, one Claude Code session and one Codex
+session running simultaneously, 34s wall clock.
+
+| Check | Result |
+|---|---|
+| Worktree A (Claude) | `AGENT_A.txt` = `ALPHA`, no B artifact |
+| Worktree B (Codex) | `AGENT_B.txt` = `BRAVO`, no A artifact |
+| Main worktree | untouched |
+| `git status` per worktree | each shows only its own change |
+| Session identities | `91f5d23f-…` vs `019fa061-…`, distinct |
+| Claude cost for its half | $0.0774 |
+
+Two different agent products operated in parallel against one repository without
+contaminating each other or the main worktree. Nothing agent-specific was needed
+to achieve isolation: ordinary Git worktrees were sufficient.
+
+## Finding 10 — Claude Code accepts steering mid-turn
+
+`--input-format stream-json` with `--output-format stream-json` gives a genuine
+bidirectional channel. A second user message injected while a turn was already
+running was received and acted upon.
+
+Turn 1 was a deliberately slow counting task. After it had written `1`, `2`, and
+`3`, a steering message was sent. The agent replied "Stopping the count as
+instructed", abandoned the remaining count, and did the new work instead:
+
+```
+COUNT.txt : 1
+            2
+            3        <- halted mid-sequence, never reached 5
+STEER.txt : STEERED
+result    : is_error=False, num_turns=5
+```
+
+This is the capability a backend contract would expose as `supply_input` or
+`steer`, and it is available today over the native protocol without ACP.
+
+Practical note for any future implementation: the npm package ships a native
+`bin/claude.exe`. `subprocess` on Windows cannot resolve a bare `claude`, and
+there is no `cli.js` to invoke through node. The executable must be addressed by
+its full path.
+
 ## Outstanding tests
 
-- concurrency: two sessions in two worktrees, no interference
-- Soma-side restart mid-session, then recovery through provider resume
-- the Codex `app-server` protocol as an alternative to `exec` (schema extracted,
-  not yet exercised)
-- Claude `--input-format stream-json` for mid-session steering
+All tests this pilot committed to are complete. Two items were deliberately not
+pursued and are recorded as out of scope rather than pending:
+
+- the Codex `app-server` protocol as an alternative to `exec` — schema extracted
+  (39 files) but not exercised, because the decision no longer depends on it
+- Codex ACP turn execution — blocked upstream by adapter version-lag, which is
+  itself Finding 7
 
 ## Reading
 
