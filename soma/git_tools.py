@@ -506,7 +506,9 @@ def compact_stage_manifest(
     replaced by counts and a bounded tool-owned summary; the complete manifest
     remains authoritative in the run's evidence artifact.
     """
-    if not isinstance(manifest, dict):
+    if not isinstance(manifest, dict) or manifest.get("compacted"):
+        # Already compact. Recompacting would replace real counts with counts of
+        # the summary itself, so this must be a no-op.
         return manifest
     compact = {
         key: value
@@ -556,6 +558,11 @@ def compact_commit_result(
     Returns the input unchanged when there is nothing bulky to separate.
     """
     if not isinstance(commit_result, dict):
+        return commit_result, {}
+    if commit_result.get("compacted"):
+        # Never re-externalize an already-compacted record: the authoritative
+        # body has already been moved out, and a second pass would overwrite it
+        # with these summaries.
         return commit_result, {}
     full_body: dict[str, Any] = {}
     compact = dict(commit_result)

@@ -1118,3 +1118,26 @@ def test_compact_commit_result_is_a_noop_without_bulky_fields() -> None:
     assert compact == plain
     assert full_body == {}
     assert "compacted" not in compact
+
+
+def test_compaction_is_idempotent_and_never_re_externalizes(repo: Path) -> None:
+    """A second pass must not overwrite an already-externalized body."""
+    (repo / "selected.txt").write_text("payload\n", encoding="utf-8")
+    _write_tool_owned_files(repo, 25)
+    result = commit_selected_files(
+        repo,
+        ["selected.txt"],
+        title="Idempotence check",
+        description="Compaction must be a no-op the second time.",
+    )
+
+    once, first_body = git_tools.compact_commit_result(result)
+    twice, second_body = git_tools.compact_commit_result(once)
+
+    assert once == twice
+    assert first_body != {}
+    assert second_body == {}
+    assert len(first_body["stage_manifest_after"]["tool_owned"]) == 25
+
+    manifest_once = git_tools.compact_stage_manifest(result["stage_manifest_after"])
+    assert git_tools.compact_stage_manifest(manifest_once) == manifest_once
