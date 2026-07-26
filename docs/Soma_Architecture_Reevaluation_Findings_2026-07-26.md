@@ -2,13 +2,13 @@
 
 **Date:** 2026-07-26  
 **Status:** Decision record and implementation gate  
-**Scope:** Five architecture evaluations by ChatGPT, Grok, Opus/Claude Code, GLM-5.2, and Kimi-K3, followed by owner-guided synthesis
+**Scope:** Six architecture evaluations by ChatGPT, Grok, Opus/Claude Code, GLM-5.2, Kimi-K3, and GPT-5.6 Sol Ultra, followed by owner-guided synthesis
 
 ## 1. Why this document exists
 
 The revised Soma roadmap grew into a broad custom agent runtime covering projects, tasks, durable execution, agent sessions, memory, skills, knowledge systems, scheduling, model routing, browser and desktop automation, credentials, backup, provenance, and future Cortana presentation.
 
-Before continuing that implementation sequence, the architecture was evaluated from five model perspectives: ChatGPT, Grok, Opus/Claude Code, GLM-5.2, and Kimi-K3. ChatGPT's evaluation was one of the five and was later also used to reconcile the findings with the owner's intent. The purpose was not to prove Soma was a mistake. It was to identify the smallest, strongest, most maintainable system that preserves the original vision without rebuilding mature tools unnecessarily.
+Before continuing that implementation sequence, the architecture was evaluated from six model perspectives: ChatGPT, Grok, Opus/Claude Code, GLM-5.2, Kimi-K3, and GPT-5.6 Sol Ultra using multiple specialist subagents. ChatGPT's evaluation was one of the six and was later also used to reconcile the findings with the owner's intent. The purpose was not to prove Soma was a mistake. It was to identify the smallest, strongest, most maintainable system that preserves the original vision without rebuilding mature tools unnecessarily.
 
 The governing principle is now:
 
@@ -36,23 +36,24 @@ PROPOSED
 An architectural inference that still requires a bounded pilot.
 ```
 
-## 2.1 Five evaluation perspectives
+## 2.1 Six evaluation perspectives
 
 The review set was:
 
-1. **ChatGPT** — independent architecture and ecosystem evaluation using the roadmap, prior Soma decisions, live bounded repository inspection through Soma, and external research. It recommended freezing the roadmap as an implementation sequence, preserving Soma as an independent durable control plane, testing ACP before building a custom worker layer, moving ProjectScope forward, beginning memory with Markdown plus SQLite, and treating OpenClaw as an optional later front door rather than an immediate foundation.
+1. **ChatGPT** — independent architecture and ecosystem evaluation using the roadmap, prior Soma decisions, live bounded repository inspection through Soma, and external research. It recommended freezing the roadmap as an implementation sequence, preserving Soma as an independent durable control plane, testing ACP before building a custom worker layer, moving ProjectScope forward, beginning memory with Markdown plus SQLite, and initially treating OpenClaw as an external front door rather than Soma's foundation.
 2. **Grok** — broad strategic comparison that strongly favoured reducing Soma and adopting an existing personal-agent gateway, especially OpenClaw.
 3. **Opus/Claude Code** — direct repository-wide evaluation from inside the live codebase. It identified what is actually implemented, what remains speculative, where lifecycle systems overlap, and ACP as the largest missing standards opportunity.
 4. **GLM-5.2** — ecosystem and target-architecture evaluation favouring a thin Soma sidecar with OpenClaw, Basic Memory, Graphiti, coding agents, and Stagehand.
 5. **Kimi-K3** — broad specialist-tool evaluation covering Cognee, Mem0/OpenMemory, Basic Memory, Agent Fleet, OpenHands Agent Canvas, OpenClaw, LiteLLM, and other adoption candidates.
+6. **GPT-5.6 Sol Ultra with specialist subagents** — combined runtime-candidate, memory/workspace, and live-repository review. It endorsed the OpenClaw-shell plus Soma-kernel direction, found immediate repository issues that outrank new feature construction, rejected Agent Fleet as an execution authority while preserving its UX ideas, and proposed a measurable integration and latency gate.
 
-Opus/Claude Code had the deepest direct repository access and therefore receives the highest weight for claims about current Soma code, implemented capabilities, missing modules, duplication, and migration difficulty.
+Opus/Claude Code and GPT-5.6 Sol Ultra both inspected the live repository directly. Opus receives the highest weight for its repository-wide code-grounded findings; the Sol Ultra review adds a second direct audit plus specialist ecosystem analysis and concrete operational measurements.
 
-ChatGPT, Grok, GLM-5.2, and Kimi-K3 provide complementary architecture and ecosystem analysis. ChatGPT's role is explicitly dual: it supplied one of the five evaluations and subsequently helped the owner compare, challenge, and synthesize all five. External-tool claims remain subject to official-source verification and hands-on pilots; no model's architectural preference overrides repository evidence or the owner's accepted intent.
+ChatGPT, Grok, GLM-5.2, and Kimi-K3 provide complementary architecture and ecosystem analysis. ChatGPT's role is explicitly dual: it supplied one of the six evaluations and subsequently helped the owner compare, challenge, and synthesize all six. External-tool claims remain subject to official-source verification and hands-on pilots; no model's architectural preference overrides repository evidence or the owner's accepted intent.
 
 ## 3. Strong consensus across the reviews
 
-All five evaluations converged on the same high-level conclusion:
+All six evaluations converged on the same high-level conclusion:
 
 > Soma should not continue expanding into a complete personal-agent operating system. It should become a smaller durable, project-aware coordination and control plane, while mature specialist tools are adopted through standard interfaces.
 
@@ -84,36 +85,42 @@ They also consistently challenge or reduce:
 The current best synthesis is:
 
 ```text
-ChatGPT
-executive controller / chief of staff
+Owner / ChatGPT executive controller
+        │
+        ▼
+OpenClaw candidate shell
+├── chat, voice, channels, sessions, and notifications
+├── convenience schedules and browser automation
+├── Codex app-server / ACP coding sessions
+└── exact Soma MCP references and projections
         │
         │ MCP
         ▼
 Soma
-independent durable project-aware control plane
+independent durable project-aware kernel
 ├── projects and ProjectScope
-├── work graph
-├── canonical tasks and attempts
-├── durable execution and reconciliation
+├── sparse work graph and canonical tasks
+├── durable execution, leases, cancellation, and reconciliation
 ├── repository and worktree truth
-├── evidence and artifacts
-├── schedules and event digest
-├── controller checkpoints and handoffs
+├── immutable artifacts, evidence hashes, and result references
+├── controller checkpoints, external bindings, and event digest
 └── existing domain providers
         │
-        ├── ACP → Claude Code / Codex / Hermes / compatible agents
-        ├── MCP → Playwright and specialist tools
+        ├── ACP / external session bindings → coding agents
+        ├── MCP → specialist tools
         ├── CLI → 1Password and Kopia
         └── Markdown + Git → readable memory, decisions, and skills
                               ↑
                          Obsidian
-                 optional owner-facing workspace
-                 and bounded Agent Fleet pilot
+                 owner-facing workspace over ordinary files
 
-Optional later:
-OpenClaw → Cortana, voice, mobile, messaging, and channel front door
-Graphiti/Cognee/Mem0 → only after a memory benchmark proves added value
+Conditional only after measured failure:
+Basic Memory / Graphiti / Cognee / Mem0 / OpenHands
 ```
+
+The governing rule is:
+
+> **One authority per concern; every other component stores only an exact opaque reference.**
 
 Soma remains an independent local service and MCP authority. It should not be rebased wholesale onto OpenClaw, OpenHands, Letta, Agent Fleet, or another host runtime.
 
@@ -121,7 +128,7 @@ Soma remains an independent local service and MCP authority. It should not be re
 
 ### 5.1 Soma remains independent
 
-OpenClaw is the strongest candidate for a future Cortana-style front door, channels, voice, phone, messaging, and owner-facing interaction. It should initially be treated as an external MCP client of Soma rather than Soma's foundation.
+OpenClaw is now the leading candidate for the Cortana-style shell: chat, voice, channels, sessions, convenience scheduling, browser interaction, coding-session UX, and owner-facing presentation. It should be piloted now as an external MCP client and shell around Soma, not adopted as Soma's durable authority or codebase foundation.
 
 This avoids:
 
@@ -191,6 +198,18 @@ The direct repository review identified the strongest implemented assets as:
 
 The re-evaluation is a reduction of speculative expansion, not a rejection of this working foundation.
 
+### 5.6 Sixth-review live-repository findings accepted for action
+
+The sixth evaluation identified immediate repository concerns that take precedence over adding new architecture:
+
+1. **Evidence amplification in SQLite.** At review time, `runs/soma.sqlite3` was approximately 1.03 GB; about 954 MB was attributed to `runs.result_json`, and a small number of `repo_apply` results retained very large duplicated manifests. Full evidence must remain immutable, but SQLite should retain compact scalar results, hashes, and artifact references rather than duplicate large protected artifacts.
+2. **Reconciliation failures can disappear.** Startup reconciliation exceptions were found to be caught without durable publication. Soma must surface these failures through durable events, health/status, and evidence rather than silently continuing.
+3. **Repository-wiki exclusions and freshness need correction.** The wiki was stale during inspection, and generated/tool-owned paths including `.claude/worktrees/` and `.codex-tmp/` require explicit exclusion and reconciliation coverage.
+4. **The canonical task plane remains intentionally thin.** It currently lacks `project_id`, has a narrow backend and command surface, and should receive the minimal project-identity seam before a universal work graph is attempted.
+5. **Lifecycle authority is already duplicated.** Runs, workflows, supervisor variants, long-run jobs, and local-agent orchestration retain overlapping lifecycle logic. Consolidation must precede another lifecycle owner.
+
+These values are a dated repository observation, not permanent constants. The architectural conclusion is permanent: large evidence bodies belong in immutable artifacts, while canonical stores retain compact queryable identity and references.
+
 ## 6. Areas intentionally not yet decided
 
 The following remain pilot-gated rather than accepted architecture:
@@ -201,41 +220,65 @@ The following remain pilot-gated rather than accepted architecture:
 - whether Markdown plus SQLite is sufficient for current-versus-superseded memory retrieval;
 - whether Basic Memory, Graphiti, Cognee, or Mem0 provides measurable value beyond the baseline;
 - whether Agent Fleet should remain only a disposable design study or become an owner-facing helper;
-- whether OpenClaw is stable and useful enough on the owner's Windows environment to become the future Cortana front door;
+- whether OpenClaw passes the owner's Windows, restart, authority-separation, latency, and maintenance gates as the Cortana shell;
 - how much runtime provenance is actually necessary beyond executable, model, repository, lockfile, configuration, timing, and result identity.
 
 No major roadmap rewrite should convert these unknowns into commitments before the pilots.
 
 ## 7. Immediate implementation gate
 
-The current roadmap is frozen as an implementation sequence until three evidence-producing pilots finish.
+The current roadmap is frozen as an implementation sequence. The accepted order begins with stabilising the live kernel, then tests the proposed shell and coding path together.
 
-### PILOT-ACP-1 — coding-agent supervision
+### STABILIZE-1 — current Soma evidence and recovery hygiene
 
-**Budget:** up to three normal focused workdays, approximately 18–24 engineering hours in total. This is not continuous work and may be distributed across calendar days.
+This is the next implementation batch. It must remain bounded and preserve all historical evidence.
 
-**Goal:** prove that Soma can control Claude Code and Codex through one worker-session contract while retaining canonical task identity and durable guarantees.
+Required outcomes:
+
+1. Replace duplicated large manifests in `runs.result_json` with compact scalar results plus immutable artifact references and hashes.
+2. Provide a compatibility and migration path for existing large records; do not rewrite or discard opaque IDs or protected evidence.
+3. Publish startup and periodic reconciliation failures durably through events, health/status, and retrievable evidence.
+4. Add `.claude/worktrees/`, `.codex-tmp/`, and other confirmed tool-owned paths to repository-wiki exclusions.
+5. Reconcile wiki freshness reliably after managed repository mutations and record failures rather than hiding them.
+6. Produce a lifecycle-authority inventory identifying runs, workflows, supervisor variants, long-run jobs, and local-agent ownership before consolidation work begins.
+
+### PILOT-OPENCLAW-ACP-1 — shell, MCP authority split, and coding session
+
+**Budget:** three to five normal focused workdays. This is a total engineering budget, not continuous work.
+
+**Goal:** prove the proposed architecture end to end without transferring canonical authority away from Soma.
+
+Pilot path:
+
+```text
+OpenClaw shell
+→ exact Soma MCP operation
+→ stable canonical Soma task ID
+→ Codex app-server or ACP coding session
+→ managed worktree
+→ Soma monitoring, cancellation, evidence, and result projection
+```
 
 Required tests:
 
-1. Create a Soma task and isolated worktree.
-2. Start Claude Code through ACP.
-3. Start Codex through ACP using the same Soma-facing contract.
-4. Stream progress and tool activity without blocking Soma.
-5. Supply a follow-up instruction to an active session.
-6. Cancel during active work and verify no orphaned owned process tree remains.
-7. Run two sessions concurrently in separate worktrees without interference.
-8. Kill and restart Soma during a session.
-9. Resume through ACP session loading or a documented CLI fallback.
-10. Capture final diff, base revision, worker identity, session mapping, outcome, and evidence.
+1. Install a pinned OpenClaw build on the owner's Windows environment with one owner-only surface.
+2. Connect outbound to Soma through MCP without changing existing canonical schemas.
+3. Read, create, monitor, cancel, and retrieve one Soma durable task.
+4. Start one Codex app-server or ACP coding session bound to the exact Soma task ID.
+5. Use one managed worktree and preserve dirty/unpushed state honestly.
+6. Restart OpenClaw during a main turn, cron/convenience task, coding session, and raw background process.
+7. Restart Soma independently and verify canonical state remains consistent.
+8. Duplicate a submission and verify no duplicate irreversible action occurs.
+9. Drop the connection and delay final delivery; lost shell work must be reported honestly.
+10. Measure incremental OpenClaw-to-Soma overhead, task submission, runtime spawn, recovery, idle burden, and daily operator maintenance.
 
-The pilot must remain isolated. Existing production gateways and worker paths are preserved until the result is accepted.
+Pass only when Soma remains authoritative, exact IDs survive, no irreversible action duplicates, removal of OpenClaw leaves Soma data intact, and the measured overhead and maintenance are acceptable.
 
 ### PILOT-SCOPE-1 — ProjectScope retrofit spike
 
-**Budget:** two to three focused workdays.
+**Budget:** two to three focused workdays after the combined shell pilot.
 
-**Goal:** determine whether `project_id` can be introduced through the current canonical stores without breaking existing ChatGPT connector contracts.
+**Goal:** determine whether `project_id` and opaque external-session bindings can be introduced through the current canonical stores without breaking existing ChatGPT connector contracts.
 
 Initial scope:
 
@@ -244,42 +287,32 @@ Initial scope:
 - runs and attempts;
 - memory records;
 - repositories and worktrees;
-- agent sessions;
+- external OpenClaw, Codex, ACP, Hermes, or OpenHands bindings;
 - evidence and artifacts.
 
 The confusion test uses two projects with deliberately similar filenames, technology stacks, service names, and task descriptions. Retrieval, locks, processes, repositories, memory, and evidence must remain isolated. Unscoped project operations must fail closed.
 
-### PILOT-MEMORY-1 — canonical memory bake-off
+### PILOT-MEMORY-1 — Obsidian and canonical Markdown baseline
 
-**Budget:** two focused workdays after the first two pilots.
+**Budget:** one focused build day plus two normal usage days.
 
-**Baseline:** Markdown + Git + Soma SQLite metadata/index, viewed through Obsidian.
+**Baseline:** canonical Markdown + Git, Soma IDs/revision metadata, and Obsidian as the owner-facing application.
 
-**Candidates:** Basic Memory, a disposable Agent Fleet vault, and only one graph-oriented candidate selected from Graphiti, Cognee, or Mem0.
+Use 50–100 representative records and a fixed question set covering exact recall, current versus superseded facts, source resolution, project isolation, external file edits, deletion, and complete index rebuild.
 
-Use real Soma material containing accepted decisions, corrected decisions, superseded facts, preferences, project facts, task outcomes, and lessons.
+Start with the lightest available index. Compare Basic Memory only when the baseline misses a named project, source, relation, or independent-access requirement. Use Agent Fleet only in a disposable vault to extract UX mechanics such as reflection, proposal queues, bounded working memory, and Wiki Keeper behaviour.
 
-Required questions:
+A graph-memory candidate is not installed unless the baseline fails a fixed temporal or relationship benchmark. Graphiti, Cognee, Mem0, and Letta must not become parallel authorities.
 
-```text
-What is currently true?
-What used to be true?
-What replaced it?
-Why did it change?
-Which project owns it?
-What is its source?
-What should be included in a bounded ChatGPT context packet?
-```
+## 8. Conditional later comparisons
 
-A more complex provider is promoted only when it produces a meaningful correctness or maintenance advantage over the baseline.
+### PILOT-OPENHANDS-1
 
-## 8. Deferred fourth pilot
+Run only when OpenClaw's Codex/ACP path leaves a measured coding-control gap. OpenHands advances only when it materially improves completion time, cancellation/resumption, or workspace control after accounting for Docker and Windows operational burden.
 
-### PILOT-CORTANA-1 — OpenClaw as an external front door
+### PILOT-GRAPH-MEMORY-1
 
-This occurs only after ACP, ProjectScope, and memory authority are clearer.
-
-OpenClaw should initially operate as an external, disposable MCP client providing voice, messaging, mobile, or other Cortana-style surfaces. It must not own canonical Soma projects, tasks, schedules, repository mutations, or accepted memory.
+Run only after the Markdown baseline fails. Promote a graph provider only when it produces a clear correctness gain, preserves source resolution and current-fact precision, rebuilds from canonical files, and introduces zero project leakage.
 
 ## 9. Stop conditions
 
@@ -310,6 +343,6 @@ This finding does not yet rewrite or delete the detailed roadmap. It establishes
 
 The next concrete engineering activity is:
 
-> **PILOT-ACP-1: demonstrate Claude Code and Codex worker supervision through ACP while Soma retains task identity, worktree isolation, cancellation, restart recovery, and evidence.**
+> **STABILIZE-1: compact duplicated run-result evidence into immutable artifact references, durably surface reconciliation failures, correct repository-wiki exclusions and freshness handling, and inventory existing lifecycle authorities.**
 
-Before implementation begins, create a small pilot branch and an evidence checklist. Do not modify the production worker path or remove existing adapters during the experiment.
+After STABILIZE-1 is accepted, run **PILOT-OPENCLAW-ACP-1** as the first end-to-end architecture test. Preserve the production worker paths and existing public gateways until the replacement evidence is accepted.
