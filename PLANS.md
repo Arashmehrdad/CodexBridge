@@ -36,6 +36,9 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 
 - Soma remains the independent durable, project-aware control plane.
 - One authority owns each concern; integrations keep exact Soma identifiers and projections rather than competing truth.
+- Supported controllers reach Soma directly through its vendor-neutral MCP endpoint; an owner-facing companion or shell does not proxy ordinary capability calls.
+- Hermes remains Soma's accepted and integrated companion and capability foundation. Future companion, voice, or channel work begins from measured Hermes-specific gaps rather than a new parallel shell.
+- OpenClaw is rejected from the target architecture. Its pilot is closed, and no further OpenClaw version, Claude-backend, ACPX, voice, or channel testing is planned.
 - Historical evidence, opaque identifiers, compatibility, and recovery remain intact.
 - Failures and uncertainty must be published honestly rather than converted into apparent success.
 - Existing production paths remain available until a replacement is proven and accepted.
@@ -92,11 +95,13 @@ This is a bounded pilot, not permission to build the full worker plane.
 
 ### PILOT-OPENCLAW-1 - External Shell Boundary
 
-**Purpose:** determine whether OpenClaw is a worthwhile owner-facing shell around Soma without becoming a second task, schedule, memory, or evidence authority.
+**Status:** evaluated and rejected.
 
-The pilot must remain isolated, loopback-only, patched and pinned, free of public channels and third-party skills, and removable without loss of Soma state. It should measure restart behaviour, Windows burden, latency, duplicate submission handling, maintenance cost, and the exact MCP authority split.
+The incumbent and incremental-value gates are decisive. Hermes is already the accepted and integrated companion and capability layer wired to Soma, while Claude and Codex both reach Soma directly through vendor-neutral MCP. OpenClaw satisfies no unmet requirement and would duplicate the established architecture.
 
-Convenience schedules may submit idempotent requests to Soma. Once accepted, durable work belongs only to Soma, and must-run work may not depend solely on the shell.
+The account-coupled Codex Apps route worked but was rejected as the canonical path. OpenClaw's local Codex MCP projection failed, profile isolation was partial, a pinned build installed an unpinned Codex dependency, and the bundled ClawHub installer appeared by default. Shutdown, port cleanup, and repository isolation succeeded.
+
+Retain direct controller-to-Soma MCP and Hermes as the companion foundation. OpenClaw is not part of the target architecture, and no unresolved OpenClaw voice or channel role remains. The closure evidence and cleanup hold are recorded in [`docs/pilot-openclaw-1-evidence-2026-07-27.md`](docs/pilot-openclaw-1-evidence-2026-07-27.md). Cleanup requires separate owner approval after review.
 
 ### PILOT-SCOPE-1 - Project Isolation Seam
 

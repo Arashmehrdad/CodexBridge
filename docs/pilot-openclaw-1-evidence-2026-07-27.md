@@ -1,7 +1,7 @@
 # PILOT-OPENCLAW-1 — External Shell Boundary
 
 **Date:** 2026-07-27
-**Status:** Decided.
+**Status:** Closed — evaluated and rejected.
 **Constraint honoured:** isolated `somapilot` profile, loopback only, pinned
 2026.7.1, no public channels, no third-party skills, no production authority, no
 Windows service installed.
@@ -74,12 +74,12 @@ the correct branch.
 
 Same endpoint, same transport, no vendor catalog, no adapter, no shell.
 
-## Decision
+## Final decision
 
-> **OpenClaw is not adopted as a tool router. Controllers connect to Soma's MCP
-> endpoint directly. OpenClaw remains a candidate for presentation and channels
-> only, and is not adopted in that role by this pilot either — it was not
-> measured for it.**
+> **Retain direct controller-to-Soma MCP. Retain Hermes as Soma's established
+> companion and capability integration. Reject OpenClaw from the target
+> architecture. Perform no further OpenClaw version, Claude-backend, ACPX,
+> voice, or channel testing.**
 
 This is not a workaround. It is what the accepted authority rule already
 required:
@@ -92,18 +92,21 @@ Soma became reachable only through one vendor's catalog. Removing the shell from
 the tool path removes the coupling entirely, and costs nothing, because the
 direct route already works for both controllers.
 
-## What this means for the shell question
+## Incumbent and incremental-value gates
 
-The Cortana ambition is unaffected. It simply separates into two independent
-questions that were previously conflated:
+OpenClaw does not satisfy an unmet requirement:
 
-1. **How do controllers reach Soma's capabilities?** Answered: directly over
-   MCP. Neutral, measured, working today for two different vendors.
-2. **What provides voice, channels, and presence?** Still open. OpenClaw remains
-   the leading candidate, but as a presentation surface that talks to a
-   controller — not as something Soma's capability calls pass through.
+1. **Controller capability access is already solved.** Claude Code and Codex
+   both reach Soma directly over the same vendor-neutral MCP endpoint.
+2. **The companion and capability layer already has an incumbent.** Hermes is
+   accepted, integrated, and wired to Soma.
+3. **A second shell would duplicate architecture.** OpenClaw would add another
+   state, dependency, update, isolation, and failure surface without replacing a
+   measured deficiency.
 
-Question 2 was not tested here and should not be inferred as answered.
+There is therefore no unresolved OpenClaw presentation, voice, channel, or
+presence role. Future work in those areas starts from a measured
+Hermes-specific gap. It does not reopen OpenClaw by default.
 
 ## Finding 4 — `--profile` isolation is partial
 
@@ -127,15 +130,14 @@ carries the profile suffix — but the root does not follow the profile.
 
 This matters beyond tidiness. A shell whose isolation boundary is partial is a
 poor fit for per-project scoping, which is the property Soma treats as a
-correctness invariant rather than a convenience. Any future OpenClaw work must
-verify the isolation boundary empirically rather than trusting the flag, and
-removing a pilot cleanly means deleting two directories, not one.
+correctness invariant rather than a convenience. Removing the rejected pilot
+cleanly requires deleting both profile-specific and default-root state.
 
 ## Secondary findings
 
 - **OAuth installed `@openclaw/codex` with an unpinned npm install record.** A
   pinned shell that pulls an unpinned dependency during authentication is not
-  fully pinned. Worth checking before any future OpenClaw work.
+  fully pinned and weakens the value of the pinned-build precondition.
 - **A bundled ClawHub installer skill appears in the runtime prompt**, although
   no external ClawHub skills were installed. The no-third-party-skills
   precondition held in substance, but the surface is present by default.
@@ -149,11 +151,32 @@ removing a pilot cleanly means deleting two directories, not one.
 ## Pilot hygiene
 
 The gateway is stopped, port `18789` is free, no Windows service was installed,
-and no channel was configured. Removing the pilot requires deleting **both**
-`~/.openclaw-somapilot/` and `~/.openclaw/` per Finding 4; neither touches Soma
-state. Both are left in place pending the owner's decision. The Soma repository was not used as an
-agent workspace at any point. The Codex direct-route test used a config override
-and persisted nothing.
+and no channel was configured. The Soma repository was not used as an agent
+workspace at any point. The Codex direct-route test used a config override and
+persisted nothing.
+
+### Preserved cleanup inventory
+
+Nothing in this inventory has been deleted. Cleanup is blocked until this
+closure record is reviewed and the owner explicitly approves removal.
+
+| Scope | Exact target | Evidence at closure |
+|---|---|---|
+| Isolated profile state | `C:\Users\arash\.openclaw-somapilot\` | 7,602 files, 2,177,314,286 bytes; includes configuration, OAuth/auth state, logs, agent sessions, downloaded packages, and evidence |
+| Downloaded Codex provider project | `C:\Users\arash\.openclaw-somapilot\npm\projects\openclaw-codex-8902d781d4\` | 2,199 files, 2,083,098,645 bytes; nested inside the isolated profile and contains `@openclaw/codex` |
+| Pilot-created default-root state | `C:\Users\arash\.openclaw\` | 27 files, 39,785 bytes; contains `state\`, `tui\last-session.json`, and `workspace-somapilot\` |
+| Global OpenClaw package | `C:\Users\arash\AppData\Roaming\npm\node_modules\openclaw\` | OpenClaw 2026.7.1; 31,999 files, 301,955,573 bytes |
+| Global npm launchers | `C:\Users\arash\AppData\Roaming\npm\openclaw`, `openclaw.cmd`, and `openclaw.ps1` | all present at closure |
+
+The downloaded Codex project is listed separately because it is the largest
+pilot artifact and preserves the supply-chain evidence, even though removal of
+the parent profile would also remove it.
+
+The Node 24.18.0 installation is **not** an automatic cleanup target. Node is a
+shared machine dependency, and reverting or removing it requires a separate
+owner decision after checking other consumers. The pre-existing
+`mcp.vercel.com` configuration is unrelated to this pilot and is also outside
+cleanup scope.
 
 ## Stop conditions
 
@@ -161,3 +184,7 @@ None were triggered. The pilot stayed inside its boundaries, created no second
 authority, and produced a decision. The tool-projection defect is recorded as an
 OpenClaw portability limitation rather than a Soma defect, and nothing in Soma
 was changed to accommodate it.
+
+The decision is final for the current architecture catalogue: no further
+OpenClaw version, Claude-backend, ACPX, voice, or channel testing is authorised.
+`PILOT-SCOPE-1` and `PILOT-MEMORY-1` remain separate, inactive gates.
