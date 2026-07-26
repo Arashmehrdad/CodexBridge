@@ -1312,3 +1312,46 @@ def test_commit_evidence_write_failure_retains_inline_body(tmp_path: Path) -> No
     assert "commit_evidence_ref" not in result
     assert stub.events and stub.events[0][0] == "warning"
     assert "evidence" == stub.events[0][1]
+
+
+def test_wiki_freshness_failure_is_explicit_not_silent(tmp_path: Path, monkeypatch) -> None:
+    """A managed change must never leave repository knowledge quietly stale."""
+    from soma import job_worker as job_worker_module
+
+    stub = _EvidenceStub(None)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("wiki index locked")
+
+    monkeypatch.setattr(job_worker_module, "mark_repo_wiki_stale", explode)
+
+    freshness = JobWorker._mark_wiki_stale_with_evidence(
+        stub, tmp_path, "sample", reason="repo_apply"
+    )
+
+    assert freshness["ok"] is False
+    assert freshness["freshness_known"] is False
+    assert "wiki index locked" in freshness["error"]
+    assert freshness["recommended_action"]
+
+    # The failure must also be durable evidence, not only a return value.
+    assert stub.events and stub.events[0][0] == "error"
+    assert stub.events[0][1] == "repo_wiki"
+
+
+def test_wiki_freshness_success_is_passed_through(tmp_path: Path, monkeypatch) -> None:
+    from soma import job_worker as job_worker_module
+
+    stub = _EvidenceStub(None)
+    monkeypatch.setattr(
+        job_worker_module,
+        "mark_repo_wiki_stale",
+        lambda *a, **k: {"ok": True, "stale": True, "reason": "repo_apply"},
+    )
+
+    freshness = JobWorker._mark_wiki_stale_with_evidence(
+        stub, tmp_path, "sample", reason="repo_apply"
+    )
+
+    assert freshness == {"ok": True, "stale": True, "reason": "repo_apply"}
+    assert stub.events == []

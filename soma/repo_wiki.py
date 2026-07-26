@@ -14,6 +14,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from .return_loop.atomic_writer import atomic_write_text
+from .tool_owned_paths import is_tool_owned_path
 
 WIKI_VERSION = 2
 WIKI_SCHEMA_VERSION = 1
@@ -1154,6 +1155,12 @@ class RepoWikiService:
             return True
         if relative.startswith(".soma/wiki/"):
             return True
+        # Tool-owned scratch is never repository knowledge. This is a prefix
+        # match rather than a segment match so a nested path such as
+        # ``.claude/worktrees/...`` is excluded without excluding ``.claude``
+        # itself, which holds real project configuration.
+        if is_tool_owned_path(relative):
+            return True
         if relative in self.wiki_exclusions:
             return True
         return any(
@@ -1167,10 +1174,11 @@ class RepoWikiService:
         lowered_name = path.name.lower()
         if lowered_name in _BLOCKED_FILES or path.suffix.lower() in _BLOCKED_SUFFIXES:
             return False
-        lowered_parts = {
-            part.lower() for part in path.relative_to(self.repo_root).parts
-        }
+        relative = path.relative_to(self.repo_root)
+        lowered_parts = {part.lower() for part in relative.parts}
         if lowered_parts & _BLOCKED_DIRS:
+            return False
+        if is_tool_owned_path(relative):
             return False
         if any(part in {"secrets", "credentials"} for part in lowered_parts):
             return False

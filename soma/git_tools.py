@@ -12,14 +12,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .safety import SECRET_VALUE_PATTERNS, validate_repo_relative_path
+from .tool_owned_paths import TOOL_OWNED_PREFIXES, is_tool_owned_path
 
-
-TOOL_OWNED_PREFIXES = (
-    ".codex-tmp/",
-    ".pytest_cache/",
-    ".ruff_cache/",
-    "tests/pytest_tmp_probe/",
-)
+__all__ = ["TOOL_OWNED_PREFIXES", "is_tool_owned_path"]
 GIT_OPERATION_TIMEOUT_SECONDS = 10.0
 FULL_COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{40}$")
 DEFAULT_DIFF_RESPONSE_BYTES = 32 * 1024
@@ -458,11 +453,7 @@ _BULKY_COMMIT_FIELDS = (
 
 
 def _is_tool_owned_path(path: str) -> bool:
-    normalized = Path(str(path)).as_posix()
-    return any(
-        normalized == prefix.rstrip("/") or normalized.startswith(prefix)
-        for prefix in TOOL_OWNED_PREFIXES
-    )
+    return is_tool_owned_path(path)
 
 
 def _compact_path_list(

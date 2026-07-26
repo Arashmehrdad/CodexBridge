@@ -648,6 +648,38 @@ class JobWorker:
 
     COMMIT_EVIDENCE_ARTIFACT = "commit_evidence.json"
 
+    def _mark_wiki_stale_with_evidence(
+        self, repo_root: Path, repo_name: str, *, reason: str
+    ) -> dict[str, object]:
+        """Mark repository knowledge stale, publishing failure explicitly.
+
+        A managed change must lead to a fresh generation or to a visible
+        freshness failure. It must never leave repository knowledge quietly
+        stale, and a bookkeeping failure must not be reported as a failed
+        commit: the commit already succeeded.
+        """
+        try:
+            return mark_repo_wiki_stale(repo_root, repo_name, reason=reason)
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            self.event(
+                "error",
+                "repo_wiki",
+                "Repository knowledge could not be marked stale after a managed change",
+                {"repo_name": repo_name, "reason": reason, "error": detail[:500]},
+            )
+            return {
+                "ok": False,
+                "stale": None,
+                "freshness_known": False,
+                "reason": reason,
+                "error": detail[:500],
+                "recommended_action": (
+                    "Repository knowledge may be stale. Refresh the repository "
+                    "wiki before relying on it."
+                ),
+            }
+
     def _compact_commit_data(self, commit_data: dict[str, object]) -> dict[str, object]:
         """Keep the run record compact while preserving complete commit evidence.
 
@@ -2479,7 +2511,7 @@ class JobWorker:
                 result["status"] = "commit_failed"
                 result["error"] = commit_data["commit_error"]
             else:
-                result["wiki_freshness"] = mark_repo_wiki_stale(
+                result["wiki_freshness"] = self._mark_wiki_stale_with_evidence(
                     repo_root, repo_name, reason="repo_apply"
                 )
         result.setdefault("status", "completed" if result.get("ok") else "failed")
