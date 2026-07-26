@@ -10,6 +10,7 @@ from typing import Sequence
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata
 from .config import AppConfig, load_config
+from .reconciliation_status import read_status as read_reconciliation_status
 from .run_store import RunStore
 from .supervisor_store import SupervisorStore
 
@@ -94,6 +95,16 @@ def run_self_check(
         }
     except Exception as exc:
         checks["run_store"] = {"ok": False, "error": str(exc)}
+
+    # A lost startup reconciliation means recovery information for in-flight
+    # work is gone. Readiness must report that rather than looking healthy.
+    try:
+        checks["startup_reconciliation"] = read_reconciliation_status(runs_dir)
+    except Exception as exc:
+        checks["startup_reconciliation"] = {
+            "ok": False,
+            "error": f"reconciliation status unavailable: {exc}",
+        }
 
     try:
         supervisor_store = SupervisorStore(runs_dir)

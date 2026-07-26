@@ -349,8 +349,17 @@ class HermesServiceSupervisor:
             raw = state_path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return []
-        except OSError:
-            return []
+        except OSError as exc:
+            # An unreadable state file is not the same as no previous state:
+            # recorded workers may still be running and would be silently
+            # orphaned. Report it the same way corrupt state is reported.
+            return [
+                {
+                    "action": "unreadable_state",
+                    "state_path": str(state_path),
+                    "error": f"{type(exc).__name__}: {exc}"[:500],
+                }
+            ]
         try:
             previous = json.loads(raw)
         except json.JSONDecodeError:

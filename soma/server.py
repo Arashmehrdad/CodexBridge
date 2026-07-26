@@ -6,6 +6,7 @@ import base64
 import binascii
 import inspect
 import json
+import os
 import socket
 import subprocess
 import threading
@@ -77,6 +78,7 @@ from .managed_artifacts import (
     preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
 )
 from .operation_locks import repository_operation_lock
+from . import reconciliation_status
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_wiki import mark_repo_wiki_stale
@@ -6304,21 +6306,43 @@ def _ssh_activation_coordinator_loop(
     config_path: Path,
     stop_event: threading.Event,
 ) -> None:
+    runs_dir = get_config().resolve_runs_dir()
+    last_ok: bool | None = None
     while not stop_event.is_set():
         try:
             _reconcile_ssh_activation_once(config_path)
-        except Exception:
-            pass
+            failure = None
+        except Exception as exc:
+            failure = exc
+        # The loop runs continuously, so only state changes are recorded. A
+        # recurring failure must still be visible, and a recovery must clear it.
+        if (failure is None) != last_ok:
+            last_ok = failure is None
+            try:
+                reconciliation_status.resolve(
+                    runs_dir,
+                    reconciliation_status.PATH_SSH_ACTIVATION_COORDINATOR,
+                    ok=failure is None,
+                    detail=""
+                    if failure is None
+                    else f"{type(failure).__name__}: {failure}",
+                    exception_type="" if failure is None else type(failure).__name__,
+                    process_id=os.getpid(),
+                )
+            except Exception:
+                pass
         stop_event.wait(0.25)
 
 
 def run_server(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     set_config(load_config(config_path), config_path)
-    try:
+    runs_dir = get_config().resolve_runs_dir()
+    process_id = os.getpid()
+    with reconciliation_status.ReconciliationRecorder(
+        runs_dir, reconciliation_status.PATH_SSH_ACTIVATION, process_id=process_id
+    ):
         _reconcile_ssh_activation_once(config_path)
-    except Exception:
-        pass
     coordinator_stop = threading.Event()
     coordinator = threading.Thread(
         target=_ssh_activation_coordinator_loop,
@@ -6328,18 +6352,22 @@ def run_server(args: argparse.Namespace) -> None:
     )
     coordinator.start()
     try:
-        try:
+        # A reconciliation failure means recovery information was lost for that
+        # subsystem. Startup continues so one broken subsystem cannot make the
+        # service unreachable, but the failure is durable and readiness reports
+        # it rather than the service appearing healthy.
+        with reconciliation_status.ReconciliationRecorder(
+            runs_dir, reconciliation_status.PATH_JOB_RUNS, process_id=process_id
+        ):
             get_job_manager().reconcile_startup()
-        except Exception:
-            pass
-        try:
+        with reconciliation_status.ReconciliationRecorder(
+            runs_dir, reconciliation_status.PATH_WORKFLOWS, process_id=process_id
+        ):
             get_workflow_manager().reconcile_startup()
-        except Exception:
-            pass
-        try:
+        with reconciliation_status.ReconciliationRecorder(
+            runs_dir, reconciliation_status.PATH_TASKS, process_id=process_id
+        ):
             get_task_manager().reconcile_startup()
-        except Exception:
-            pass
         if args.transport == "stdio":
             mcp.run(transport="stdio")
             return
