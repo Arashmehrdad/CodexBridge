@@ -51,6 +51,8 @@ Opus/Claude Code and GPT-5.6 Sol Ultra both inspected the live repository direct
 
 ChatGPT, Grok, GLM-5.2, and Kimi-K3 provide complementary architecture and ecosystem analysis. ChatGPT's role is explicitly dual: it supplied one of the six evaluations and subsequently helped the owner compare, challenge, and synthesize all six. External-tool claims remain subject to official-source verification and hands-on pilots; no model's architectural preference overrides repository evidence or the owner's accepted intent.
 
+**Methodology note for future rounds.** Where practical, the synthesizer of a multi-model review should not also be one of the evaluated submissions. The dual role is disclosed here and the repository-grounded findings carry the decisive weight, which is an adequate mitigation for this round; it should not become the default arrangement.
+
 ## 3. Strong consensus across the reviews
 
 All six evaluations converged on the same high-level conclusion:
@@ -138,6 +140,12 @@ This avoids:
 - weakening Windows-first process and repository guarantees;
 - rebuilding Soma's differentiators inside a codebase we do not control.
 
+**Permanent authority rule — shell-initiated work.**
+
+> OpenClaw schedules and convenience automation may submit idempotent requests that create Soma tasks. Once accepted, durable work is owned exclusively by Soma. OpenClaw may retain only the exact Soma identifier and a projection. Work requiring must-run scheduling semantics may not depend solely on an OpenClaw schedule.
+
+This applies to any future shell or front-end, not only OpenClaw. It exists because a convenience scheduler in the presentation layer is the most likely path by which a second durable authority would appear.
+
 ### 5.2 ACP is the leading worker-integration candidate
 
 The planned coding-agent adapter substantially overlaps with the Agent Client Protocol. ACP should be tested as the standard worker-session interface for Claude Code, Codex, Hermes, OpenHands, OpenCode, and compatible future agents.
@@ -202,13 +210,41 @@ The re-evaluation is a reduction of speculative expansion, not a rejection of th
 
 The sixth evaluation identified immediate repository concerns that take precedence over adding new architecture:
 
-1. **Evidence amplification in SQLite.** At review time, `runs/soma.sqlite3` was approximately 1.03 GB; about 954 MB was attributed to `runs.result_json`, and a small number of `repo_apply` results retained very large duplicated manifests. Full evidence must remain immutable, but SQLite should retain compact scalar results, hashes, and artifact references rather than duplicate large protected artifacts.
-2. **Reconciliation failures can disappear.** Startup reconciliation exceptions were found to be caught without durable publication. Soma must surface these failures through durable events, health/status, and evidence rather than silently continuing.
+1. **Evidence amplification in SQLite — an active unbounded-growth defect.** This is not accumulated historical debt; it is still producing new amplification on every managed repository mutation.
+
+   Measured on 2026-07-26 against the live `runs/soma.sqlite3`:
+
+   | Measure | Value |
+   |---|---|
+   | Database file | `1,052,848,128` bytes (`1004.1` MiB) |
+   | `runs.result_json` total | `978,417,919` bytes (`933.1` MiB) |
+   | 138 `repo_apply` rows | `875,802,051` bytes (`835.2` MiB) |
+   | Share of all `result_json` | 89.5% |
+   | Share of the entire database | 83.2% |
+
+   The distribution is not uniform. All 14 `repo_apply` rows created on 2026-07-26 are approximately 23.0 MiB each and added roughly 321.9 MiB in a single day; the ten largest rows in the table are all from that day. A current result is dominated by two full stage manifests of approximately 9.05 MB each, plus roughly 1.85 MB of Git status and repeated dirty-file inventories. Result size therefore tracks repository size rather than change size.
+
+   Full evidence must remain immutable, but the canonical store must retain compact scalar results, hashes, and artifact references rather than duplicate large protected artifacts. The remediation has four required parts:
+
+   1. an immediate stop to new amplification;
+   2. compact results plus immutable artifact references;
+   3. a resumable, hash-verified backfill of existing records;
+   4. dual-read compatibility retained until migrated records are proven reconstructable.
+
+2. **Reconciliation failures can disappear.** Startup reconciliation exceptions were found to be caught without durable publication. This spans five distinct startup reconciliation paths, which do not share a method name: `reconcile_startup` in `soma/job_manager.py`, `soma/workflows/manager.py`, and `soma/tasks/manager.py`; `_reconcile_previous_state` in `soma/hermes_service_supervisor.py`; and `reconcile_pending_ssh_activations` in `soma/ssh_activation.py`. Soma must surface these failures through durable events, health/status, and evidence rather than silently continuing.
 3. **Repository-wiki exclusions and freshness need correction.** The wiki was stale during inspection, and generated/tool-owned paths including `.claude/worktrees/` and `.codex-tmp/` require explicit exclusion and reconciliation coverage.
 4. **The canonical task plane remains intentionally thin.** It currently lacks `project_id`, has a narrow backend and command surface, and should receive the minimal project-identity seam before a universal work graph is attempted.
 5. **Lifecycle authority is already duplicated.** Runs, workflows, supervisor variants, long-run jobs, and local-agent orchestration retain overlapping lifecycle logic. Consolidation must precede another lifecycle owner.
 
 These values are a dated repository observation, not permanent constants. The architectural conclusion is permanent: large evidence bodies belong in immutable artifacts, while canonical stores retain compact queryable identity and references.
+
+### 5.7 Requirements preserved for autonomous operation
+
+These two requirements enter the requirements catalogue now. They do not block STABILIZE-1 or PILOT-ACP-1, and they are recorded here so they are not lost during roadmap reduction. Both become **prerequisites before autonomous scheduled agent work is enabled**.
+
+**Project-scoped usage accounting.** Record provider, model, tokens, estimated and actual cost, and the associated task and external-session identifiers. Enforce a per-project ceiling that pauses scheduled work when reached. Unattended agent sessions on a schedule are the point at which unbounded spend becomes possible, so the ceiling must exist before that capability is enabled rather than after.
+
+**Golden-task evaluation.** Maintain a fixed set of representative tasks with expected repository, evidence, scope, correctness, and cleanliness outcomes. Agent output remains a proposal until deterministic checks and this evaluation mechanism accept it. This gives the existing principle — that agent output is not accepted merely because an agent reports success — an actual mechanism, and it gates changes to the ACP adapter itself.
 
 ## 6. Areas intentionally not yet decided
 
@@ -227,7 +263,7 @@ No major roadmap rewrite should convert these unknowns into commitments before t
 
 ## 7. Immediate implementation gate
 
-The current roadmap is frozen as an implementation sequence. The accepted order begins with stabilising the live kernel, then tests the proposed shell and coding path together.
+The current roadmap is frozen as an implementation sequence. The accepted order begins with stabilising the live kernel, then tests the coding path and the shell as two separate pilots so that a failure can be attributed to one or the other.
 
 ### STABILIZE-1 — current Soma evidence and recovery hygiene
 
@@ -235,48 +271,84 @@ This is the next implementation batch. It must remain bounded and preserve all h
 
 Required outcomes:
 
-1. Replace duplicated large manifests in `runs.result_json` with compact scalar results plus immutable artifact references and hashes.
-2. Provide a compatibility and migration path for existing large records; do not rewrite or discard opaque IDs or protected evidence.
-3. Publish startup and periodic reconciliation failures durably through events, health/status, and retrievable evidence.
-4. Add `.claude/worktrees/`, `.codex-tmp/`, and other confirmed tool-owned paths to repository-wiki exclusions.
-5. Reconcile wiki freshness reliably after managed repository mutations and record failures rather than hiding them.
-6. Produce a lifecycle-authority inventory identifying runs, workflows, supervisor variants, long-run jobs, and local-agent ownership before consolidation work begins.
+1. Stop new amplification first: `repo_apply` and any comparable path must cease writing full stage manifests, Git status, and dirty-file inventories into `runs.result_json`.
+2. Replace duplicated large manifests with compact scalar results plus immutable artifact references and hashes.
+3. Backfill existing large records through a resumable, hash-verified migration; do not rewrite or discard opaque IDs or protected evidence.
+4. Retain dual-read compatibility until migrated records are proven reconstructable from their artifact references.
+5. Publish startup and periodic reconciliation failures durably through events, health/status, and retrievable evidence, covering all five startup reconciliation paths identified in §5.6.
+6. Add `.claude/worktrees/`, `.codex-tmp/`, and other confirmed tool-owned paths to repository-wiki exclusions.
+7. Reconcile wiki freshness reliably after managed repository mutations and record failures rather than hiding them.
+8. Produce a lifecycle-authority inventory identifying runs, workflows, supervisor variants, long-run jobs, and local-agent ownership before consolidation work begins.
 
-### PILOT-OPENCLAW-ACP-1 — shell, MCP authority split, and coding session
+### Pilot separation rationale
 
-**Budget:** three to five normal focused workdays. This is a total engineering budget, not continuous work.
+The shell and the worker interface are orthogonal uncertainties and are tested separately. Combining them means a failure cannot be attributed cleanly, and it gates the lower-risk, higher-value half behind installing a new external service on Windows. ACP is tested first because it requires no new service and answers the single largest open question in §6.
 
-**Goal:** prove the proposed architecture end to end without transferring canonical authority away from Soma.
+### PILOT-ACP-1 — coding-agent session interface
+
+**Budget:** two focused workdays. No new external service is installed.
+
+**Goal:** determine whether ACP is sufficient as the standard worker-session interface, and specifically whether an active coding session survives a Soma process kill.
 
 Pilot path:
 
 ```text
-OpenClaw shell
-→ exact Soma MCP operation
-→ stable canonical Soma task ID
-→ Codex app-server or ACP coding session
-→ managed worktree
-→ Soma monitoring, cancellation, evidence, and result projection
+Soma task
+→ project-scoped disposable worktree
+→ ACP session (Claude Code, then Codex)
+→ streamed progress and steering
+→ Soma cancellation, reconciliation, evidence, and result projection
 ```
 
 Required tests:
 
-1. Install a pinned OpenClaw build on the owner's Windows environment with one owner-only surface.
+1. Start an ACP session bound to an exact canonical Soma task ID, in a disposable worktree.
+2. Stream progress and issue at least one mid-session steering input.
+3. Cancel mid-tool-call and verify no orphaned process survives, using existing process-identity and owned-tree cancellation.
+4. Kill Soma mid-session, restart, and attempt recovery via `session/load`.
+5. Kill the agent process mid-session and attempt recovery.
+6. Where `session/load` is unavailable or insufficient, test the CLI resume fallback (`--resume` for Claude Code, `codex exec resume` for Codex) and record which mechanism actually recovers.
+7. Run the same task contract against both agents and confirm the adapter normalises lifecycle and evidence without assuming identical private features.
+8. Run two concurrent sessions in two worktrees and confirm no interference.
+
+Pass only when Soma retains canonical task identity across every recovery path, cancellation leaves no orphans, and at least one recovery mechanism is proven for a killed session. If neither `session/load` nor CLI resume recovers, record the exact missing capability and the minimum custom component required.
+
+### PILOT-OPENCLAW-1 — shell and MCP authority split
+
+**Budget:** one to two focused workdays, after PILOT-ACP-1.
+
+**Goal:** evaluate only the shell boundary, Windows operation, restart behaviour, latency, and maintenance burden. Coding-session behaviour is out of scope; it was settled in PILOT-ACP-1.
+
+**Preconditions — required before install:**
+
+- a pinned, currently patched stable build;
+- fresh isolated state and profile;
+- loopback binding only;
+- no public channel exposure;
+- no ClawHub or third-party skills;
+- no production credentials beyond narrowly scoped test references.
+
+These preconditions are proportionate to the documented history rather than precautionary. CVE-2026-25253 was a high-severity one-click remote code execution issue fixed in `2026.1.29` ([GitHub advisory](https://github.com/advisories/GHSA-g8p2-7wf7-98mq)); Censys counted more than 21,000 publicly exposed instances on 31 January 2026 ([exposure study](https://censys.com/blog/openclaw-in-the-wild-mapping-the-public-exposure-of-a-viral-ai-assistant/)); and the skill ecosystem has experienced malicious campaigns ([skill-security study](https://openclaw.ai/publications/clawhub-security-signals.pdf)). Soma's runtime is by design more permissive than OpenClaw's, so an exposed shell in front of it is a more serious failure than an exposed shell alone.
+
+Required tests:
+
+1. Install under the preconditions above on the owner's Windows environment with one owner-only surface.
 2. Connect outbound to Soma through MCP without changing existing canonical schemas.
 3. Read, create, monitor, cancel, and retrieve one Soma durable task.
-4. Start one Codex app-server or ACP coding session bound to the exact Soma task ID.
-5. Use one managed worktree and preserve dirty/unpushed state honestly.
-6. Restart OpenClaw during a main turn, cron/convenience task, coding session, and raw background process.
-7. Restart Soma independently and verify canonical state remains consistent.
-8. Duplicate a submission and verify no duplicate irreversible action occurs.
-9. Drop the connection and delay final delivery; lost shell work must be reported honestly.
-10. Measure incremental OpenClaw-to-Soma overhead, task submission, runtime spawn, recovery, idle burden, and daily operator maintenance.
+4. Confirm the shell retains only the exact Soma identifier and a projection, per the §5.1 authority rule.
+5. Restart OpenClaw during a main turn, a cron/convenience task, and a raw background process.
+6. Restart Soma independently and verify canonical state remains consistent.
+7. Duplicate a submission and verify no duplicate irreversible action occurs.
+8. Drop the connection and delay final delivery; lost shell work must be reported honestly.
+9. Test explicitly for stale or orphaned gateway processes retaining port `18789` ([open issue](https://github.com/openclaw/openclaw/issues/41804)).
+10. If WSL is used, test keep-alive and restart behaviour explicitly against the WSL ≥2.6.1.0 idle-termination regression ([Windows documentation](https://docs.openclaw.ai/platforms/windows)).
+11. Measure incremental shell-to-Soma overhead, task submission, recovery, idle burden, and daily operator maintenance.
 
 Pass only when Soma remains authoritative, exact IDs survive, no irreversible action duplicates, removal of OpenClaw leaves Soma data intact, and the measured overhead and maintenance are acceptable.
 
 ### PILOT-SCOPE-1 — ProjectScope retrofit spike
 
-**Budget:** two to three focused workdays after the combined shell pilot.
+**Budget:** two to three focused workdays after PILOT-ACP-1 and PILOT-OPENCLAW-1.
 
 **Goal:** determine whether `project_id` and opaque external-session bindings can be introduced through the current canonical stores without breaking existing ChatGPT connector contracts.
 
@@ -308,7 +380,7 @@ A graph-memory candidate is not installed unless the baseline fails a fixed temp
 
 ### PILOT-OPENHANDS-1
 
-Run only when OpenClaw's Codex/ACP path leaves a measured coding-control gap. OpenHands advances only when it materially improves completion time, cancellation/resumption, or workspace control after accounting for Docker and Windows operational burden.
+Run only when PILOT-ACP-1 leaves a measured coding-control gap. OpenHands advances only when it materially improves completion time, cancellation/resumption, or workspace control after accounting for Docker and Windows operational burden. Note that OpenHands is itself an ACP agent, so it should first be reached through the ACP adapter rather than through its own SDK.
 
 ### PILOT-GRAPH-MEMORY-1
 
@@ -343,6 +415,8 @@ This finding does not yet rewrite or delete the detailed roadmap. It establishes
 
 The next concrete engineering activity is:
 
-> **STABILIZE-1: compact duplicated run-result evidence into immutable artifact references, durably surface reconciliation failures, correct repository-wiki exclusions and freshness handling, and inventory existing lifecycle authorities.**
+> **STABILIZE-1: stop active `repo_apply` result amplification, compact duplicated run-result evidence into immutable artifact references with a resumable hash-verified backfill and dual-read compatibility, durably surface reconciliation failures across all five startup paths, correct repository-wiki exclusions and freshness handling, and inventory existing lifecycle authorities.**
 
-After STABILIZE-1 is accepted, run **PILOT-OPENCLAW-ACP-1** as the first end-to-end architecture test. Preserve the production worker paths and existing public gateways until the replacement evidence is accepted.
+Stopping new amplification is the first sub-step and should not wait for the backfill design; the database grew by roughly 321.9 MiB on 2026-07-26 alone.
+
+After STABILIZE-1 is accepted, run **PILOT-ACP-1**, then **PILOT-OPENCLAW-1**, then **PILOT-SCOPE-1**. Preserve the production worker paths and existing public gateways until the replacement evidence is accepted.
