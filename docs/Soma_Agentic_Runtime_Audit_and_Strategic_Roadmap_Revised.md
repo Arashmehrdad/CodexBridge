@@ -16,7 +16,9 @@ This revision consolidates:
 
 Arash is the owner and final decision-maker for scope, risk acceptance, security posture, integrations, and roadmap priority. Audits and research reports are evidence and recommendations, not authority. Where this roadmap conflicts with a later explicit owner instruction or `AGENTS.md`, the later owner instruction and `AGENTS.md` take precedence.
 
-### Current verified baseline at this revision
+### Historical audit baseline captured for this revision
+
+The branch and HEAD below identify the repository state examined during this audit. They are intentionally preserved as historical audit evidence and are not intended to track the repository's current HEAD while the architecture remains under review.
 
 - Branch: `feature/domain-tool-gateway-migration`
 - Verified HEAD during the revision: `33623c404477165c07e9cc914cac46b365ee4d7a`
@@ -26,6 +28,10 @@ Arash is the owner and final decision-maker for scope, risk acceptance, security
 - Active implementation lane: whichever bounded post-CF1 batch Arash explicitly selects
 - Phase 1 first bounded batch (TASK-1 — Canonical Task Plane Foundation): **implemented and accepted on 2026-07-25**; see `docs/task1-canonical-task-plane-evidence.md`. Phase 1 as a whole is not complete: only the durable local command backend is mapped, only `cancel` is version-guarded, and no checkpoint round-trip exists yet.
 - Recommended next implementation lane: the remainder of **Phase 1** (additional backend mappings, the remaining version-guarded commands, and controller checkpoints), then **Phase 2**. This document does not activate either automatically.
+
+### Publication reconciliation status
+
+This audit remains under owner review. Its captured baseline should remain frozen until the architecture is accepted. When this document is promoted into the replacement implementation roadmap, reconcile the new roadmap against the live branch, HEAD, completed lanes, active lane, worktree, running service, and public schemas. Preserve this audit baseline as historical evidence and archive the existing V2 roadmap as a clearly labelled legacy roadmap rather than rewriting its history.
 
 The repository and service continue to evolve. Before implementing any phase, re-run preflight, inspect the live branch and worktree, verify the running service build and schemas, and re-check any external project whose licence or architecture could have changed.
 
