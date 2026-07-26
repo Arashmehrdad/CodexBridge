@@ -1212,3 +1212,103 @@ def test_worker_refuses_legacy_codex_run_without_launching_anything(
     persisted = store.get_run(run_id)
     assert persisted["status"] == "failed"
     assert "Unsupported async tool" in persisted["error"]
+
+
+class _EvidenceStub:
+    """Minimal stand-in exercising only what _compact_commit_data touches."""
+
+    COMMIT_EVIDENCE_ARTIFACT = JobWorker.COMMIT_EVIDENCE_ARTIFACT
+
+    def __init__(self, artifacts) -> None:
+        self.artifacts = artifacts
+        self.events: list[tuple[str, str, str, dict]] = []
+
+    def event(self, level, source, message, payload=None):
+        self.events.append((level, source, message, payload or {}))
+
+
+def _stub_commit_data(tool_owned_count: int) -> dict:
+    tool_owned = [f".codex-tmp/scratch-{i:04d}.txt" for i in range(tool_owned_count)]
+    manifest = {
+        "ok": True,
+        "staged": ["real.txt"],
+        "unstaged": [],
+        "untracked": tool_owned + ["other.txt"],
+        "deleted": [],
+        "ignored": [],
+        "renamed": [],
+        "tool_owned": tool_owned,
+        "files": [
+            {"path": path, "tool_owned": True, "size_bytes": 2, "line_count": 1}
+            for path in tool_owned
+        ]
+        + [{"path": "real.txt", "tool_owned": False, "size_bytes": 9, "line_count": 1}],
+        "git_status": "\n".join(f"?? {path}" for path in tool_owned),
+    }
+    return {
+        "commit_attempted": True,
+        "commit_error": "",
+        "preserved_preexisting_changes": list(tool_owned),
+        "commit_result": {
+            "ok": True,
+            "commit_hash": "a" * 40,
+            "stage_manifest_before": manifest,
+            "stage_manifest_after": manifest,
+            "git_status": manifest["git_status"],
+            "remaining_dirty_files": list(tool_owned),
+            "error": "",
+        },
+    }
+
+
+def test_commit_evidence_is_compacted_and_referenced_by_hash(tmp_path: Path) -> None:
+    from soma.events import ArtifactWriter
+    import json
+
+    run_dir = tmp_path / "run"
+    stub = _EvidenceStub(ArtifactWriter(run_dir))
+    original = _stub_commit_data(1500)
+    inline_size = len(json.dumps(original))
+
+    compacted = JobWorker._compact_commit_data(stub, original)
+
+    record_size = len(json.dumps(compacted))
+    assert record_size < inline_size / 50
+
+    reference = compacted["commit_evidence_ref"]
+    assert reference["available"] is True
+    assert reference["artifact"] == JobWorker.COMMIT_EVIDENCE_ARTIFACT
+
+    artifact_path = run_dir / JobWorker.COMMIT_EVIDENCE_ARTIFACT
+    payload = artifact_path.read_text(encoding="utf-8")
+    assert sha256(payload.encode("utf-8")).hexdigest() == reference["sha256"]
+    assert reference["size_bytes"] == len(payload.encode("utf-8"))
+
+    # The authoritative body must be complete and untruncated.
+    body = json.loads(payload)
+    assert len(body["stage_manifest_after"]["tool_owned"]) == 1500
+    assert len(body["remaining_dirty_files"]) == 1500
+    assert len(body["preserved_preexisting_changes"]) == 1500
+    assert body["git_status"] == original["commit_result"]["git_status"]
+
+    # Correctness-relevant state stays inline and exact.
+    assert compacted["commit_result"]["commit_hash"] == "a" * 40
+    assert compacted["commit_result"]["stage_manifest_after"]["staged"] == ["real.txt"]
+    assert compacted["preserved_preexisting_changes"]["tool_owned_count"] == 1500
+
+
+def test_commit_evidence_write_failure_retains_inline_body(tmp_path: Path) -> None:
+    class _FailingWriter:
+        def write_protected_text(self, name, text):
+            raise OSError("disk full")
+
+    stub = _EvidenceStub(_FailingWriter())
+    original = _stub_commit_data(10)
+
+    result = JobWorker._compact_commit_data(stub, original)
+
+    # An evidence-write failure must never silently discard evidence.
+    assert result == original
+    assert "commit_evidence_ref" not in result
+    assert stub.events and stub.events[0][0] == "warning"
+    assert "evidence" == stub.events[0][1]

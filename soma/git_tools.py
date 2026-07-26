@@ -446,6 +446,142 @@ def _build_compact_tool_owned_summary(
     }
 
 
+COMMIT_EVIDENCE_COMPACTION_VERSION = 1
+MAX_LISTED_PATHS = 500
+_BULKY_MANIFEST_FIELDS = ("files", "untracked", "tool_owned", "git_status")
+_BULKY_COMMIT_FIELDS = (
+    "stage_manifest_before",
+    "stage_manifest_after",
+    "git_status",
+    "remaining_dirty_files",
+)
+
+
+def _is_tool_owned_path(path: str) -> bool:
+    normalized = Path(str(path)).as_posix()
+    return any(
+        normalized == prefix.rstrip("/") or normalized.startswith(prefix)
+        for prefix in TOOL_OWNED_PREFIXES
+    )
+
+
+def _compact_path_list(
+    paths: Iterable[str], *, max_listed_paths: int = MAX_LISTED_PATHS
+) -> dict[str, Any]:
+    """Summarize a path list without letting repository size drive its size.
+
+    Tool-owned paths are collapsed to counts because they are never part of an
+    operation's intent. Remaining paths stay exact until ``max_listed_paths``,
+    after which the list is truncated and the complete body remains available
+    through the referenced evidence artifact.
+    """
+    ordered = [str(path) for path in paths]
+    tool_owned = [path for path in ordered if _is_tool_owned_path(path)]
+    retained = [path for path in ordered if not _is_tool_owned_path(path)]
+    root_group_counts: dict[str, int] = {}
+    for path in tool_owned:
+        root = _tool_owned_root_group(path)
+        root_group_counts[root] = root_group_counts.get(root, 0) + 1
+    listed = retained[:max_listed_paths]
+    return {
+        "total_count": len(ordered),
+        "tool_owned_count": len(tool_owned),
+        "tool_owned_root_group_counts": {
+            root: root_group_counts[root] for root in sorted(root_group_counts)
+        },
+        "paths": listed,
+        "listed_count": len(listed),
+        "omitted_count": len(ordered) - len(listed),
+        "truncated": len(retained) > len(listed),
+    }
+
+
+def compact_stage_manifest(
+    manifest: dict[str, Any], *, max_listed_paths: int = MAX_LISTED_PATHS
+) -> dict[str, Any]:
+    """Return a queryable stage manifest whose size reflects the operation.
+
+    ``staged``, ``unstaged``, ``deleted``, ``renamed``, and ``ignored`` are the
+    correctness-relevant lists and stay exact. The repository-scale fields are
+    replaced by counts and a bounded tool-owned summary; the complete manifest
+    remains authoritative in the run's evidence artifact.
+    """
+    if not isinstance(manifest, dict):
+        return manifest
+    compact = {
+        key: value
+        for key, value in manifest.items()
+        if key not in _BULKY_MANIFEST_FIELDS
+    }
+    entries = manifest.get("files")
+    entries = entries if isinstance(entries, list) else []
+    tool_owned_entries = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("tool_owned")
+    ]
+    retained_entries = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and not entry.get("tool_owned")
+    ]
+    compact["untracked"] = _compact_path_list(
+        manifest.get("untracked") or [], max_listed_paths=max_listed_paths
+    )
+    compact["file_count"] = len(entries)
+    compact["tool_owned_count"] = len(tool_owned_entries)
+    compact["tool_owned_summary"] = _build_compact_tool_owned_summary(
+        tool_owned_entries
+    )
+    listed_entries = retained_entries[:max_listed_paths]
+    compact["files"] = listed_entries
+    compact["files_listed_count"] = len(listed_entries)
+    compact["files_omitted_count"] = len(entries) - len(listed_entries)
+    compact["files_truncated"] = len(retained_entries) > len(listed_entries)
+    compact["git_status_line_count"] = len(
+        str(manifest.get("git_status") or "").splitlines()
+    )
+    compact["compacted"] = True
+    compact["compaction_version"] = COMMIT_EVIDENCE_COMPACTION_VERSION
+    return compact
+
+
+def compact_commit_result(
+    commit_result: dict[str, Any], *, max_listed_paths: int = MAX_LISTED_PATHS
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a commit result into a compact record and its authoritative body.
+
+    The second element contains every field removed or reduced, so the complete
+    evidence can be written to an immutable artifact and referenced by hash.
+    Returns the input unchanged when there is nothing bulky to separate.
+    """
+    if not isinstance(commit_result, dict):
+        return commit_result, {}
+    full_body: dict[str, Any] = {}
+    compact = dict(commit_result)
+    for field in _BULKY_COMMIT_FIELDS:
+        if field not in compact:
+            continue
+        value = compact[field]
+        full_body[field] = value
+        if field.startswith("stage_manifest"):
+            compact[field] = compact_stage_manifest(
+                value, max_listed_paths=max_listed_paths
+            )
+        elif field == "git_status":
+            compact[field + "_line_count"] = len(str(value or "").splitlines())
+            compact.pop(field, None)
+        else:
+            compact[field] = _compact_path_list(
+                value or [], max_listed_paths=max_listed_paths
+            )
+    if not full_body:
+        return compact, {}
+    compact["compacted"] = True
+    compact["compaction_version"] = COMMIT_EVIDENCE_COMPACTION_VERSION
+    return compact, full_body
+
+
 def inspect_status_compact(repo_root: Path) -> dict[str, Any]:
     started = time.monotonic()
     returned_entries: list[dict[str, Any]] = []

@@ -392,3 +392,40 @@ def test_existing_database_migrates_public_result_columns_in_place(
         }
 
     assert PUBLIC_RESULT_COLUMNS <= after
+
+
+def test_compacted_path_lists_project_the_same_public_counts() -> None:
+    """A compacted managed-apply result must not lose its public work counts."""
+    from soma.run_public_result import _managed_apply_summary
+
+    legacy = {
+        "preserved_preexisting_changes": ["README.md", "notes.txt"],
+        "remaining_dirty_files": ["a.txt", "b.txt", "c.txt"],
+    }
+    compacted = {
+        "preserved_preexisting_changes": {
+            "total_count": 2,
+            "tool_owned_count": 0,
+            "paths": ["README.md", "notes.txt"],
+            "listed_count": 2,
+            "omitted_count": 0,
+            "truncated": False,
+        },
+        "remaining_dirty_files": {
+            "total_count": 3,
+            "tool_owned_count": 1,
+            "paths": ["a.txt", "b.txt"],
+            "listed_count": 2,
+            "omitted_count": 1,
+            "truncated": True,
+        },
+    }
+
+    run = {"tool": "repo_apply", "status": "succeeded"}
+    legacy_summary = _managed_apply_summary(run, legacy)
+    compacted_summary = _managed_apply_summary(run, compacted)
+
+    assert legacy_summary["preserved_work"] == {"count": 2}
+    assert compacted_summary["preserved_work"] == {"count": 2}
+    assert legacy_summary["remaining_work"] == {"count": 3}
+    assert compacted_summary["remaining_work"] == {"count": 3}

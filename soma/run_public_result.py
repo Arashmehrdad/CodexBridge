@@ -36,6 +36,19 @@ _MAX_RISKS = 8
 _MAX_ARTIFACTS = 12
 
 
+def _compacted_total_count(value: object) -> int | None:
+    """Return the exact original count from a compacted path-list summary.
+
+    Managed repository results replace repository-scale path lists with a
+    compact summary that still carries ``total_count``. Older records hold plain
+    lists, so both shapes must project to the same public count rather than
+    letting the newer shape fall through and disappear from the summary.
+    """
+    if isinstance(value, dict) and isinstance(value.get("total_count"), int):
+        return int(value["total_count"])
+    return None
+
+
 def _managed_apply_summary(run: dict[str, Any], result: dict[str, Any]) -> dict[str, object] | None:
     """Return bounded terminal metadata for managed writes without exposing raw output."""
     if str(run.get("tool") or result.get("tool") or "") != "repo_apply":
@@ -72,9 +85,17 @@ def _managed_apply_summary(run: dict[str, Any], result: dict[str, Any]) -> dict[
         summary["preserved_work"] = {"count": len(preserved)}
     elif isinstance(preserved, int):
         summary["preserved_work"] = {"count": preserved}
+    elif _compacted_total_count(preserved) is not None:
+        summary["preserved_work"] = {"count": _compacted_total_count(preserved)}
     if result.get("remaining_dirty_files") not in (None, "", [], {}):
         remaining = result["remaining_dirty_files"]
-        summary["remaining_work"] = {"count": len(remaining)} if isinstance(remaining, list) else _bounded_text(remaining, 256)[0]
+        remaining_total = _compacted_total_count(remaining)
+        if isinstance(remaining, list):
+            summary["remaining_work"] = {"count": len(remaining)}
+        elif remaining_total is not None:
+            summary["remaining_work"] = {"count": remaining_total}
+        else:
+            summary["remaining_work"] = _bounded_text(remaining, 256)[0]
 
     freshness = result.get("wiki_freshness")
     if isinstance(freshness, dict):

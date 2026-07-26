@@ -1026,3 +1026,95 @@ def test_create_branch_failure_returns_structured_git_diagnostics(
     assert result["ok"] is False
     assert result["branch_name"] == "feature/test"
     assert result["git_error"]["stderr"] == "simulated branch failure"
+
+
+def _write_tool_owned_files(repo: Path, count: int) -> None:
+    scratch = repo / ".codex-tmp"
+    scratch.mkdir(exist_ok=True)
+    for index in range(count):
+        (scratch / f"scratch-{index:04d}.txt").write_text("x\n", encoding="utf-8")
+
+
+def test_compact_stage_manifest_preserves_correctness_lists_exactly(repo: Path) -> None:
+    (repo / "base.txt").write_text("changed\n", encoding="utf-8")
+    (repo / "added.txt").write_text("new\n", encoding="utf-8")
+    run(["git", "add", "added.txt"], repo)
+    _write_tool_owned_files(repo, 40)
+
+    manifest = dry_run_stage_manifest(repo)
+    compact = git_tools.compact_stage_manifest(manifest)
+
+    # Lists the commit path depends on must survive compaction byte for byte.
+    assert compact["staged"] == manifest["staged"]
+    assert compact["unstaged"] == manifest["unstaged"]
+    assert compact["deleted"] == manifest["deleted"]
+    assert compact["renamed"] == manifest["renamed"]
+    assert "added.txt" in compact["staged"]
+
+    assert compact["compacted"] is True
+    assert compact["tool_owned_count"] == 40
+    assert compact["file_count"] == len(manifest["files"])
+    assert compact["untracked"]["tool_owned_count"] == 40
+    assert compact["untracked"]["tool_owned_root_group_counts"] == {".codex-tmp": 40}
+    assert compact["tool_owned_summary"]["root_group_counts"] == {".codex-tmp": 40}
+    assert all(not entry["tool_owned"] for entry in compact["files"])
+
+
+def test_compact_stage_manifest_size_tracks_operation_not_repository(repo: Path) -> None:
+    (repo / "base.txt").write_text("changed\n", encoding="utf-8")
+    _write_tool_owned_files(repo, 20)
+    small = len(json.dumps(git_tools.compact_stage_manifest(dry_run_stage_manifest(repo))))
+
+    _write_tool_owned_files(repo, 2000)
+    large_manifest = dry_run_stage_manifest(repo)
+    large = len(json.dumps(git_tools.compact_stage_manifest(large_manifest)))
+
+    # 100x more tool-owned files must not meaningfully grow the compact record,
+    # while the authoritative manifest still enumerates every one of them.
+    assert len(large_manifest["tool_owned"]) == 2000
+    assert large < small * 2
+
+
+def test_compact_commit_result_full_body_preserves_removed_evidence(repo: Path) -> None:
+    (repo / "selected.txt").write_text("payload\n", encoding="utf-8")
+    _write_tool_owned_files(repo, 30)
+
+    result = commit_selected_files(
+        repo,
+        ["selected.txt"],
+        title="Add selected file",
+        description="Compaction round-trip evidence.",
+    )
+    assert result["ok"] is True
+
+    compact, full_body = git_tools.compact_commit_result(result)
+
+    assert compact["compacted"] is True
+    assert compact["commit_hash"] == result["commit_hash"]
+    assert "git_status" not in compact
+    assert compact["git_status_line_count"] == len(result["git_status"].splitlines())
+
+    # Everything removed or reduced must be recoverable from the full body.
+    for field in (
+        "stage_manifest_before",
+        "stage_manifest_after",
+        "git_status",
+        "remaining_dirty_files",
+    ):
+        assert field in full_body
+        assert full_body[field] == result[field]
+
+    assert full_body["stage_manifest_after"]["tool_owned"] == result[
+        "stage_manifest_after"
+    ]["tool_owned"]
+    assert len(full_body["stage_manifest_after"]["tool_owned"]) == 30
+
+
+def test_compact_commit_result_is_a_noop_without_bulky_fields() -> None:
+    plain = {"ok": True, "commit_hash": "abc", "error": ""}
+
+    compact, full_body = git_tools.compact_commit_result(plain)
+
+    assert compact == plain
+    assert full_body == {}
+    assert "compacted" not in compact

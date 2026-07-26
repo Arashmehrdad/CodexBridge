@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from base64 import b64decode
 from collections.abc import Collection
+import json
 import os
 import posixpath
 import subprocess
@@ -645,6 +646,59 @@ class JobWorker:
             progress_updates={"last_output_at": _utc_now()},
         )
 
+    COMMIT_EVIDENCE_ARTIFACT = "commit_evidence.json"
+
+    def _compact_commit_data(self, commit_data: dict[str, object]) -> dict[str, object]:
+        """Keep the run record compact while preserving complete commit evidence.
+
+        The authoritative stage manifests, Git status, and dirty-file inventories
+        are repository-scale. They are written once to a protected run artifact
+        and referenced by SHA-256 so the durable run result stays proportional to
+        the operation rather than to the repository.
+        """
+        commit_result = commit_data.get("commit_result")
+        if not isinstance(commit_result, dict):
+            return commit_data
+        compact_result, full_body = git_tools.compact_commit_result(commit_result)
+        preserved = commit_data.get("preserved_preexisting_changes")
+        compact_preserved = None
+        if isinstance(preserved, list):
+            full_body["preserved_preexisting_changes"] = preserved
+            compact_preserved = git_tools._compact_path_list(preserved)
+        if not full_body:
+            return commit_data
+        updated = dict(commit_data)
+        reference: dict[str, object] = {
+            "artifact": self.COMMIT_EVIDENCE_ARTIFACT,
+            "fields": sorted(full_body),
+            "available": False,
+        }
+        try:
+            payload = json.dumps(full_body, sort_keys=True, ensure_ascii=False)
+            self.artifacts.write_protected_text(self.COMMIT_EVIDENCE_ARTIFACT, payload)
+            reference.update(
+                {
+                    "available": True,
+                    "sha256": sha256(payload.encode("utf-8")).hexdigest(),
+                    "size_bytes": len(payload.encode("utf-8")),
+                }
+            )
+        except OSError as exc:
+            # Never convert an evidence-write failure into apparent success: keep
+            # the full body inline so nothing is lost, and report the failure.
+            self.event(
+                "warning",
+                "evidence",
+                "Commit evidence artifact could not be written; retaining inline body",
+                {"artifact": self.COMMIT_EVIDENCE_ARTIFACT, "error": str(exc)[:500]},
+            )
+            return commit_data
+        updated["commit_result"] = compact_result
+        if compact_preserved is not None:
+            updated["preserved_preexisting_changes"] = compact_preserved
+        updated["commit_evidence_ref"] = reference
+        return updated
+
     def _finalize_commit(
         self,
         repo_root: Path,
@@ -654,13 +708,15 @@ class JobWorker:
         commit_title: str = "",
         commit_description: str = "",
     ) -> dict[str, object]:
-        return git_tools.finalize_explicit_changes(
-            repo_root,
-            changed_files,
-            tool_name=tool_name,
-            run_id=self.run_id,
-            commit_title=commit_title or None,
-            commit_description=commit_description,
+        return self._compact_commit_data(
+            git_tools.finalize_explicit_changes(
+                repo_root,
+                changed_files,
+                tool_name=tool_name,
+                run_id=self.run_id,
+                commit_title=commit_title or None,
+                commit_description=commit_description,
+            )
         )
 
     def execute(self) -> int:
