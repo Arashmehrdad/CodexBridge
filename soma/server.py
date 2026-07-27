@@ -3249,6 +3249,12 @@ def task_query(request: TaskQueryRequest) -> dict:
             after_id=request.after_id,
             budget=request.response_budget_bytes,
         )
+    if request.operation == "quarantine":
+        return manager.list_quarantine(
+            request.project_id,
+            limit=request.limit,
+            budget=request.response_budget_bytes,
+        )
     return manager.get_links(
         request.task_id,
         project_id=request.project_id,
@@ -3274,6 +3280,17 @@ def task_action(request: TaskActionRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
             parent_task_id=request.parent_task_id,
+            budget=request.response_budget_bytes,
+        )
+    if request.operation == "adjudicate_quarantine":
+        return manager.adjudicate_quarantine(
+            project_id=request.project_id,
+            record_kind=request.record_kind,
+            record_id=request.record_id,
+            disposition=request.disposition,
+            reason=request.reason,
+            idempotency_key=request.idempotency_key,
+            successor_task_id=request.successor_task_id,
             budget=request.response_budget_bytes,
         )
     return manager.cancel_task(

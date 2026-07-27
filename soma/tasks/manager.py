@@ -25,6 +25,7 @@ from soma.config import AppConfig, resolve_repo_identity
 from soma.job_manager import JobManager
 from soma.project_scope import (
     ProjectScopeError,
+    ProjectScopeMismatch,
     ProjectScopeStore,
 )
 from soma.project_scope.models import (
@@ -60,6 +61,7 @@ from .projections import (
     TASK_LINK_DEFAULT_LIMIT,
     TASK_LINK_MAX_LIMIT,
     TASK_RESPONSE_BUDGET_BYTES,
+    _envelope,
     finalize,
     compact_task_events,
     compact_task_links,
@@ -117,6 +119,79 @@ class TaskManager:
         schema = self.store.schema_state()
         schema["project_scope"] = self.scope_store.schema_state()
         return task_capabilities(schema_state=schema, budget=budget)
+
+    def list_quarantine(
+        self,
+        project_id: str,
+        *,
+        limit: int = 50,
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        """Project-scoped quarantine evidence with any recorded adjudication."""
+        try:
+            records = self.scope_store.list_quarantine(project_id, limit=limit)
+        except ProjectScopeError as exc:
+            return task_error(
+                operation="quarantine",
+                error_code="project_scope_quarantine_unavailable",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        return finalize(
+            {
+                "ok": True,
+                "operation": "quarantine",
+                "project_id": project_id,
+                "records": records,
+                "returned_count": len(records),
+                "adjudicated_count": sum(1 for r in records if r["adjudicated"]),
+                "error": "",
+                **_envelope(budget),
+            }
+        )
+
+    def adjudicate_quarantine(
+        self,
+        *,
+        project_id: str,
+        record_kind: str,
+        record_id: str,
+        disposition: str,
+        reason: str,
+        idempotency_key: str,
+        successor_task_id: str = "",
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        """Record an owner disposition without mutating preserved evidence."""
+        try:
+            result = self.scope_store.adjudicate_quarantine(
+                project_id=project_id,
+                record_kind=record_kind,
+                record_id=record_id,
+                disposition=disposition,
+                reason=reason,
+                idempotency_key=idempotency_key,
+                successor_task_id=successor_task_id,
+            )
+        except ProjectScopeMismatch as exc:
+            # Deliberately identical for "absent", "not quarantined", and
+            # "other project" so the response cannot be used to enumerate.
+            return task_error(
+                operation="adjudicate_quarantine",
+                error_code="project_scope_mismatch",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except ProjectScopeError as exc:
+            return task_error(
+                operation="adjudicate_quarantine",
+                error_code="project_scope_adjudication_rejected",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        return finalize(
+            {**result, "operation": "adjudicate_quarantine", "error": "", **_envelope(budget)}
+        )
 
     def get_status(
         self,

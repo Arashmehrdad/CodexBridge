@@ -6,6 +6,8 @@ from .models import (
     PROJECT_SCOPE_SCHEMA_VERSION,
     ProjectScopeError,
     ProjectScopeMismatch,
+    QuarantineDisposition,
+    QuarantineRecordKind,
     RepositoryBinding,
     ScopeProjection,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "ProjectScopeError",
     "ProjectScopeMismatch",
     "ProjectScopeStore",
+    "QuarantineDisposition",
+    "QuarantineRecordKind",
     "RepositoryBinding",
     "ScopeProjection",
 ]

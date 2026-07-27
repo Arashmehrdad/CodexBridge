@@ -10,9 +10,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .models import (
+    ADJUDICATION_ID_DOMAIN,
     AttemptBindingStatus,
     ProjectScopeError,
     ProjectScopeMismatch,
+    QuarantineDisposition,
+    QuarantineRecordKind,
     RepositoryBinding,
     ScopeProjection,
     TaskBindingStatus,
@@ -722,6 +725,242 @@ class ProjectScopeStore:
             "changed": sum(counts.values()),
             "counts": counts,
         }
+
+    # ------------------------------------------------------------------
+    # quarantine adjudication (GATE-C-PREREQ-1)
+    # ------------------------------------------------------------------
+
+    _QUARANTINE_OWNER_SQL: dict[str, tuple[str, str]] = {
+        QuarantineRecordKind.TASK_RESERVATION.value: (
+            "project_task_reservations",
+            "task_id",
+        ),
+        QuarantineRecordKind.RUN_ATTEMPT.value: ("project_run_attempts", "run_id"),
+    }
+
+    def list_quarantine(
+        self, project_id: str, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Owner-facing quarantine evidence, with any adjudication attached.
+
+        This exists so the operational dead end is resolvable without manual
+        SQL, which is the whole point of the prerequisite.
+        """
+        validate_opaque_id(project_id, "project_id")
+        self._require_adjudication_schema()
+        bounded = max(1, min(int(limit), 200))
+        rows: list[dict[str, Any]] = []
+        with self._read() as conn:
+            for kind, (table, column) in self._QUARANTINE_OWNER_SQL.items():
+                for row in conn.execute(
+                    f"SELECT q.record_kind, q.record_id, q.reason_code, "
+                    f"q.evidence_hash, q.created_at, owner.project_id, "
+                    f"a.adjudication_id, a.disposition, a.successor_task_id, "
+                    f"a.reason AS adjudication_reason, a.created_at AS adjudicated_at "
+                    f"FROM project_scope_quarantine q "
+                    f"JOIN {table} owner ON owner.{column} = q.record_id "
+                    f"LEFT JOIN project_scope_adjudications a "
+                    f"ON a.record_kind = q.record_kind AND a.record_id = q.record_id "
+                    f"WHERE q.record_kind = ? AND owner.project_id = ? "
+                    f"ORDER BY q.created_at DESC LIMIT ?",
+                    (kind, project_id, bounded),
+                ).fetchall():
+                    rows.append(
+                        {
+                            "record_kind": str(row["record_kind"]),
+                            "record_id": str(row["record_id"]),
+                            "reason_code": str(row["reason_code"]),
+                            "evidence_hash": str(row["evidence_hash"]),
+                            "quarantined_at": str(row["created_at"]),
+                            "adjudicated": row["adjudication_id"] is not None,
+                            "adjudication_id": str(row["adjudication_id"] or ""),
+                            "disposition": str(row["disposition"] or ""),
+                            "successor_task_id": str(row["successor_task_id"] or ""),
+                            "adjudication_reason": str(
+                                row["adjudication_reason"] or ""
+                            ),
+                            "adjudicated_at": str(row["adjudicated_at"] or ""),
+                        }
+                    )
+        rows.sort(key=lambda item: (item["quarantined_at"], item["record_id"]), reverse=True)
+        return rows[:bounded]
+
+    def adjudicate_quarantine(
+        self,
+        *,
+        project_id: str,
+        record_kind: str,
+        record_id: str,
+        disposition: str,
+        reason: str,
+        idempotency_key: str,
+        successor_task_id: str = "",
+    ) -> dict[str, Any]:
+        """Record an owner disposition beside a preserved quarantine record.
+
+        This never returns a quarantined row to an active state. It adds a
+        separate immutable decision, so the original evidence and identity
+        survive exactly as they were written.
+        """
+        validate_opaque_id(project_id, "project_id")
+        validate_opaque_id(record_id, "record_id")
+        validate_opaque_id(idempotency_key, "idempotency_key")
+        if record_kind not in self._QUARANTINE_OWNER_SQL:
+            raise ProjectScopeError("record_kind must be task_reservation or run_attempt")
+        if disposition not in {d.value for d in QuarantineDisposition}:
+            raise ProjectScopeError("disposition must be acknowledged or superseded")
+        trimmed_reason = str(reason or "").strip()[:512]
+        if not trimmed_reason:
+            raise ProjectScopeError("reason is required to adjudicate a quarantine")
+        if disposition == QuarantineDisposition.SUPERSEDED.value:
+            validate_opaque_id(successor_task_id, "successor_task_id")
+            if successor_task_id == record_id:
+                raise ProjectScopeError("successor_task_id must differ from record_id")
+        elif successor_task_id:
+            raise ProjectScopeError(
+                "successor_task_id is only valid with disposition 'superseded'"
+            )
+
+        self._require_adjudication_schema()
+        table, column = self._QUARANTINE_OWNER_SQL[record_kind]
+        now = _utc_now()
+
+        with self._transaction() as conn:
+            # One generic failure for "not quarantined", "does not exist", and
+            # "belongs to another project". A caller must not be able to probe
+            # another project's identities by reading the error apart.
+            owner = conn.execute(
+                f"SELECT owner.project_id, owner.status, q.evidence_hash "
+                f"FROM project_scope_quarantine q "
+                f"JOIN {table} owner ON owner.{column} = q.record_id "
+                f"WHERE q.record_kind = ? AND q.record_id = ?",
+                (record_kind, record_id),
+            ).fetchone()
+            if (
+                owner is None
+                or str(owner["project_id"]) != project_id
+                or str(owner["status"]) != "quarantined"
+            ):
+                raise ProjectScopeMismatch(
+                    "No adjudicable quarantined record matches this project scope"
+                )
+            evidence_hash = str(owner["evidence_hash"])
+
+            if disposition == QuarantineDisposition.SUPERSEDED.value:
+                successor = conn.execute(
+                    "SELECT project_id, status FROM project_task_reservations "
+                    "WHERE task_id = ?",
+                    (successor_task_id,),
+                ).fetchone()
+                if (
+                    successor is None
+                    or str(successor["project_id"]) != project_id
+                    or str(successor["status"]) == "quarantined"
+                ):
+                    raise ProjectScopeMismatch(
+                        "Successor task is not an active reservation in this project"
+                    )
+
+            adjudication_id = sha256(
+                "\0".join(
+                    (
+                        ADJUDICATION_ID_DOMAIN,
+                        project_id,
+                        record_kind,
+                        record_id,
+                        idempotency_key,
+                    )
+                ).encode("utf-8")
+            ).hexdigest()
+
+            existing = conn.execute(
+                "SELECT * FROM project_scope_adjudications "
+                "WHERE record_kind = ? AND record_id = ?",
+                (record_kind, record_id),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["adjudication_id"]) != adjudication_id:
+                    raise ProjectScopeError(
+                        "Record is already adjudicated under a different "
+                        "idempotency key; adjudication is single-shot"
+                    )
+                return self._adjudication_payload(existing, replayed=True)
+
+            conn.execute(
+                "INSERT INTO project_scope_adjudications "
+                "(adjudication_id, project_id, record_kind, record_id, disposition, "
+                " successor_task_id, reason, idempotency_key, "
+                " quarantine_evidence_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    adjudication_id,
+                    project_id,
+                    record_kind,
+                    record_id,
+                    disposition,
+                    successor_task_id,
+                    trimmed_reason,
+                    idempotency_key,
+                    evidence_hash,
+                    now,
+                ),
+            )
+
+            # The record must still be quarantined and its evidence untouched.
+            # Asserting inside the transaction means any future change that
+            # weakens this rolls back instead of shipping.
+            after = conn.execute(
+                f"SELECT owner.status, q.evidence_hash "
+                f"FROM project_scope_quarantine q "
+                f"JOIN {table} owner ON owner.{column} = q.record_id "
+                f"WHERE q.record_kind = ? AND q.record_id = ?",
+                (record_kind, record_id),
+            ).fetchone()
+            if (
+                after is None
+                or str(after["status"]) != "quarantined"
+                or str(after["evidence_hash"]) != evidence_hash
+            ):
+                raise ProjectScopeError(
+                    "Adjudication would have altered the preserved quarantine record"
+                )
+
+            written = conn.execute(
+                "SELECT * FROM project_scope_adjudications WHERE adjudication_id = ?",
+                (adjudication_id,),
+            ).fetchone()
+
+        return self._adjudication_payload(written, replayed=False)
+
+    @staticmethod
+    def _adjudication_payload(row: sqlite3.Row, *, replayed: bool) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "adjudication_id": str(row["adjudication_id"]),
+            "project_id": str(row["project_id"]),
+            "record_kind": str(row["record_kind"]),
+            "record_id": str(row["record_id"]),
+            "disposition": str(row["disposition"]),
+            "successor_task_id": str(row["successor_task_id"]),
+            "reason": str(row["reason"]),
+            "quarantine_evidence_hash": str(row["quarantine_evidence_hash"]),
+            "created_at": str(row["created_at"]),
+            "quarantine_preserved": True,
+            "replayed": bool(replayed),
+        }
+
+    def _require_adjudication_schema(self) -> None:
+        self._require_installed()
+        with self._read() as conn:
+            present = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'project_scope_adjudications'"
+            ).fetchone()
+        if present is None:
+            raise ProjectScopeError(
+                "Quarantine adjudication requires ProjectScope schema v2; "
+                "this store is still at v1 and needs an owner-approved activation"
+            )
 
     # ------------------------------------------------------------------
     # helpers

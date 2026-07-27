@@ -11,9 +11,10 @@ from typing import Final
 
 
 PROJECT_SCOPE_SCHEMA_COMPONENT: Final[str] = "project_scope"
-PROJECT_SCOPE_SCHEMA_VERSION: Final[int] = 1
+PROJECT_SCOPE_SCHEMA_VERSION: Final[int] = 2
 PROJECT_SCOPE_MODEL_VERSION: Final[str] = "project_scope.v1"
 SCOPED_REQUEST_HASH_DOMAIN: Final[str] = "soma.project_scope.task_request.v1"
+ADJUDICATION_ID_DOMAIN: Final[str] = "soma.project_scope.quarantine_adjudication.v1"
 
 
 class ProjectLifecycle(str, Enum):
@@ -38,6 +39,18 @@ class AttemptBindingStatus(str, Enum):
     ATTACHED = "attached"
     RECOVERY_PENDING = "recovery_pending"
     QUARANTINED = "quarantined"
+
+
+class QuarantineRecordKind(str, Enum):
+    TASK_RESERVATION = "task_reservation"
+    RUN_ATTEMPT = "run_attempt"
+
+
+class QuarantineDisposition(str, Enum):
+    """Owner adjudication outcomes. Neither returns a record to an active state."""
+
+    ACKNOWLEDGED = "acknowledged"
+    SUPERSEDED = "superseded"
 
 
 class ProjectScopeError(ValueError):

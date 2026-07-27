@@ -194,7 +194,10 @@ def test_schema_is_additive_idempotent_empty_and_foreign_key_clean(
 
     scope = ProjectScopeStore(runs_dir)
     assert scope.is_installed() is False
-    assert scope.init_db() == [1]
+    # Every declared version applies in order on a fresh store, and a second
+    # call is a no-op. Asserted against the migration list rather than a fixed
+    # number so adding an ordered version does not silently weaken this test.
+    assert scope.init_db() == [version for version, _name, _sql in PROJECT_SCOPE_MIGRATIONS]
     assert scope.init_db() == []
     assert scope.schema_state()["up_to_date"] is True
     assert set(scope.schema_state()["tables"]) == set(PROJECT_SCOPE_TABLE_NAMES)

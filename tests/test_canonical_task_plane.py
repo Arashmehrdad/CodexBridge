@@ -1009,8 +1009,15 @@ def test_task_gateways_are_discoverable_with_strict_request_unions() -> None:
     action_ops = set(
         actions["task_action"]["inputSchema"]["properties"]["operation"]["enum"]
     )
-    assert query_ops == {"capabilities", "status", "result", "events", "links"}
-    assert action_ops == {"start", "cancel"}
+    assert query_ops == {
+        "capabilities",
+        "status",
+        "result",
+        "events",
+        "links",
+        "quarantine",
+    }
+    assert action_ops == {"start", "cancel", "adjudicate_quarantine"}
     for name in ("task_query", "task_action"):
         for variant in actions[name]["inputSchema"]["oneOf"]:
             assert variant["additionalProperties"] is False

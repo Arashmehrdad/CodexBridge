@@ -9,7 +9,7 @@ from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
 CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v14"
+    "cf1.3.gateway-operations.v15"
 )
 
 
@@ -474,6 +474,39 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Typed parent, child, backend_run, related, and supersedes links "
             "under a serialized UTF-8 budget."
+        ),
+    ),
+    _entry(
+        "task_query",
+        ("quarantine",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "bounded project-scoped quarantine evidence list",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=50,
+        maximum_item_limit=200,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Terminal quarantine records with any owner adjudication attached. "
+            "project_id is mandatory, so quarantine evidence is never reachable "
+            "through the project-less owner-controller compatibility path."
+        ),
+    ),
+    _entry(
+        "task_action",
+        ("adjudicate_quarantine",),
+        "soma.server:task_action -> soma.tasks.manager:TaskManager",
+        "compact quarantine adjudication acknowledgement",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Records an owner disposition beside a preserved quarantine record. "
+            "Quarantine stays terminal: no record returns to an active state. "
+            "Requires exact project_id, exact identity, reason, and idempotency "
+            "key, and at most one adjudication exists per quarantined record."
         ),
     ),
     _entry(

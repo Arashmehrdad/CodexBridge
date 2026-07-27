@@ -1300,9 +1300,19 @@ class TaskLinksQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TaskQuarantineQuery(GatewayModel):
+    """Owner-facing quarantine evidence. Project scope is mandatory here."""
+
+    operation: Literal["quarantine"]
+    project_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=50, ge=1, le=200)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 TaskQueryRequest = Annotated[
     TaskCapabilitiesQuery | TaskStatusQuery | TaskResultQuery | TaskEventsQuery
-    | TaskLinksQuery,
+    | TaskLinksQuery | TaskQuarantineQuery,
     Field(discriminator="operation"),
 ]
 
@@ -1347,8 +1357,38 @@ class TaskCancelCommand(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TaskQuarantineAdjudicate(GatewayModel):
+    """Owner-only disposition recorded beside a preserved quarantine record.
+
+    This never returns a quarantined record to an active state. `project_id`,
+    the exact quarantined identity, a reason, and an idempotency key are all
+    mandatory, so the operation cannot be issued speculatively.
+    """
+
+    operation: Literal["adjudicate_quarantine"]
+    project_id: str = Field(min_length=1, max_length=128)
+    record_kind: Literal["task_reservation", "run_attempt"]
+    record_id: str = Field(min_length=1, max_length=128)
+    disposition: Literal["acknowledged", "superseded"]
+    reason: str = Field(min_length=1, max_length=512)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    successor_task_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_successor(self) -> "TaskQuarantineAdjudicate":
+        if self.disposition == "superseded" and not self.successor_task_id:
+            raise ValueError("successor_task_id is required for disposition 'superseded'")
+        if self.disposition == "acknowledged" and self.successor_task_id:
+            raise ValueError(
+                "successor_task_id is only valid with disposition 'superseded'"
+            )
+        return self
+
+
 TaskActionRequest = Annotated[
-    TaskDurableCommandStart | TaskCancelCommand,
+    TaskDurableCommandStart | TaskCancelCommand | TaskQuarantineAdjudicate,
     Field(discriminator="operation"),
 ]
 

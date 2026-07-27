@@ -139,8 +139,45 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     """,
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    # Adjudication never mutates a quarantined row. It records a separate,
+    # owner-supplied disposition beside the preserved original evidence, which
+    # is why the quarantine tables are untouched by this version.
+    """
+    CREATE TABLE project_scope_adjudications (
+        adjudication_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        record_kind TEXT NOT NULL
+            CHECK(record_kind IN ('task_reservation', 'run_attempt')),
+        record_id TEXT NOT NULL,
+        disposition TEXT NOT NULL
+            CHECK(disposition IN ('acknowledged', 'superseded')),
+        successor_task_id TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        quarantine_evidence_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        -- At most one adjudication per quarantined record. A crash between the
+        -- decision and its commit can therefore never produce two successors.
+        UNIQUE(record_kind, record_id),
+        UNIQUE(project_id, record_kind, record_id, idempotency_key),
+        CHECK(
+            (disposition = 'superseded' AND successor_task_id != '')
+            OR (disposition = 'acknowledged' AND successor_task_id = '')
+        ),
+        CHECK(successor_task_id != record_id),
+        FOREIGN KEY(project_id) REFERENCES projects(project_id),
+        FOREIGN KEY(record_kind, record_id)
+            REFERENCES project_scope_quarantine(record_kind, record_id)
+    )
+    """,
+    "CREATE INDEX idx_project_adjudication_project "
+    "ON project_scope_adjudications(project_id, created_at)",
+)
+
 PROJECT_SCOPE_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "additive_project_identity_foundation", _MIGRATION_0001),
+    (2, "quarantine_adjudication_path", _MIGRATION_0002),
 )
 
 PROJECT_SCOPE_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -153,6 +190,7 @@ PROJECT_SCOPE_TABLE_NAMES: Final[tuple[str, ...]] = (
     "project_run_attempts",
     "project_scope_quarantine",
     "project_scope_bootstrap_events",
+    "project_scope_adjudications",
 )
 
 BINDING_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -164,6 +202,7 @@ BINDING_TABLE_NAMES: Final[tuple[str, ...]] = (
     "project_run_attempts",
     "project_scope_quarantine",
     "project_scope_bootstrap_events",
+    "project_scope_adjudications",
 )
 
 
