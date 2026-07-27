@@ -46,9 +46,9 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Validation should be proportional to risk: focused evidence first, adjacent regression coverage next, and broader gates when the change can affect the whole runtime.
 - Roadmap V3 feature construction is out of scope during this bridge phase.
 
-## Active Lane: STABILIZE-1
+## Completed Lane: STABILIZE-1
 
-**Status:** active.
+**Status:** accepted and closed.
 
 **Goal:** make the current Soma kernel safe and economical to keep modifying before any new architecture is promoted.
 
@@ -87,6 +87,8 @@ These gates are ordered but not automatically active. Each begins only after the
 
 ### PILOT-ACP-1 - Worker Session Boundary
 
+**Status:** evaluated and declined.
+
 **Purpose:** determine whether ACP can serve as Soma's standard coding-agent session boundary for Claude Code and Codex while Soma retains task, project, workspace, cancellation, evidence, and acceptance authority.
 
 The pilot should prove useful streaming, steering, cancellation, concurrency, restart recovery, and honest fallback behaviour. Its main decision is whether ACP session recovery is sufficient, whether provider CLI resume is also required, or whether a small custom component remains justified.
@@ -105,11 +107,15 @@ Retain direct controller-to-Soma MCP and Hermes as the companion foundation. Ope
 
 ### PILOT-SCOPE-1 - Project Isolation Seam
 
+**Status:** active - bounded investigation only. No production implementation is authorized by activation.
+
 **Purpose:** prove that immutable project identity and external-session bindings can be introduced through the current canonical stores and projections without breaking existing clients.
 
 The decisive test is confusion resistance: two deliberately similar projects must remain separated across tasks, runs, repositories, worktrees, evidence, retrieval, processes, credentials, and external bindings. Unscoped project work must fail closed.
 
 ### PILOT-MEMORY-1 - Smallest Durable Memory Baseline
+
+**Status:** inactive. Do not activate automatically.
 
 **Purpose:** test canonical Markdown plus Git, structured Soma metadata, and Obsidian as the owner-facing workspace before adding a graph or memory service.
 
