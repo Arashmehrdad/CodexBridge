@@ -1,0 +1,216 @@
+{
+  "authorized": true,
+  "executed": true,
+  "gate_c_executed": true,
+  "live_mutation_performed": true,
+  "schema_version": "scope_foundation_1.gate_c_activation.v1",
+  "status": "executed_and_verified_with_unexecuted_proof_items",
+  "stop_condition_fired": false,
+  "applied_identity": {
+    "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+    "project_key": "soma",
+    "resource_id": "res_5b67936d-9599-4f08-b817-b3c30564400f",
+    "resource_kind": "repository",
+    "repo_name": "soma",
+    "repository_root_canonical": "d:/github/soma",
+    "repository_identity_hash": "1f7c8e8726a452826177d0fb06d08b0e73df3695cd9e52f3a37d9b53cd451441",
+    "access_mode": "exclusive",
+    "lifecycle_state": "active",
+    "scope_generation": 1,
+    "identity_rederived_at_execution": true,
+    "identity_matched_reviewed_values": true
+  },
+  "phase_1": {
+    "head_commit": "6d5845b7d6384f19bdd1694d5d511550ddd889ec",
+    "worktree_clean": true,
+    "running_runs": 0,
+    "queued_runs": 0,
+    "launch_pending_runs": 0,
+    "locks": 0,
+    "soma_server_processes_at_apply": 0,
+    "port_8000_listeners_at_apply": 0,
+    "backup_path": "runs/gate-c-20260727T195813Z/soma-pre-gate-c-backup.sqlite3",
+    "backup_sha256": "ad6661de99c6ad7decf2df4e8ac797224ecad24d1d15f3f88fbc0da7b949b900",
+    "backup_size_bytes": 131309568,
+    "baseline_run_count": 4728,
+    "baseline_task_count": 2,
+    "baseline_run_id_hash": "fcd1f180ef2d7ae68ad6a2eb60e37c9df6fea1e442fcb4aaff29d20eeb6b5f84",
+    "baseline_task_id_hash": "f6f42e8b575375381d00cd86e107dd4c046efae95003e12b90052de18c13d241",
+    "baseline_publication_hash": "9c4b2961d6845641512fb94c78fe3fdc603c48b222527d34a97871deb8daea16",
+    "project_scope_version": 2,
+    "settings_before": [0, 0],
+    "preview_ok": true,
+    "preview_conflicts": [],
+    "preview_would_apply": true,
+    "preview_input_hash": "772e40251a7b88f42550beddf0f6993985fb156d46d4681f7aeab07c9cbe7c2d",
+    "preview_repeat_identical": true,
+    "preview_made_no_live_change": true
+  },
+  "phase_2": {
+    "input_hash": "772e40251a7b88f42550beddf0f6993985fb156d46d4681f7aeab07c9cbe7c2d",
+    "outcome_hash": "019e667a1df73d795564a009d0fc9f7f18f93b08e5248c7b3d9d9703a7a65bc1",
+    "evidence_event_id": "9d86f38841f0bcee291f09514a8dba7a072c7d3330f51f9c0477be9e2b8a17d5",
+    "reviewed_hashes_reproduced": true,
+    "idempotent": true,
+    "counts_after_bootstrap": {
+      "projects": 1,
+      "project_resources": 1,
+      "project_resource_bindings": 1,
+      "project_repository_bindings": 1,
+      "project_scope_bootstrap_events": 1,
+      "project_task_reservations": 0,
+      "project_run_attempts": 0,
+      "project_scope_quarantine": 0,
+      "project_scope_adjudications": 0
+    },
+    "settings_after_bootstrap": [0, 0],
+    "enforcement_after_bootstrap": "inactive",
+    "incumbent_identities_unchanged": true
+  },
+  "phase_3": {
+    "switch_has_public_mcp_surface": false,
+    "applied_with_all_writers_stopped": true,
+    "scope_aware_binary_started_only_afterwards": true,
+    "settings_after": [1, 1],
+    "enforcement_state": "enforced",
+    "active_binding_exact": true,
+    "cutover_created_scoped_records": false,
+    "incumbent_identities_unchanged": true,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "server_pid": 7508,
+    "converged": true,
+    "mismatches": [],
+    "capability_epoch": "198835df5c9c-42bdb69d96fb",
+    "startup_reconciliation": {
+      "ok": true,
+      "failed": [],
+      "incomplete": [],
+      "missing": [],
+      "paths_ok": [
+        "job_runs",
+        "project_scope",
+        "tasks",
+        "workflows",
+        "ssh_activation",
+        "ssh_activation_coordinator"
+      ]
+    }
+  },
+  "phase_4": {
+    "explicit_scoped_start": {
+      "proven": true,
+      "task_id": "task_20260727T200740Z_8f8995778083",
+      "run_id": "20260727T200740Z_executable_profile_889ea764",
+      "exit_code": 0
+    },
+    "idempotent_replay": {
+      "proven": true,
+      "created": false,
+      "idempotent_replay": true,
+      "same_task_and_run": true
+    },
+    "correct_project_reads": {
+      "proven": true,
+      "operations": ["task status", "task result", "task links", "run terminal"]
+    },
+    "wrong_project_fail_closed": {
+      "proven": true,
+      "error_code": "project_scope_mismatch",
+      "operations": ["task status", "task cancel", "run status", "run output"],
+      "state_disclosed": false,
+      "target_task_unchanged": true
+    },
+    "omitted_project_resolution": {
+      "proven": true,
+      "task_id": "task_20260727T201140Z_98d213ccd993",
+      "resolved_via_single_active_binding": true
+    },
+    "exact_reservation_and_attachment": {
+      "proven": true,
+      "task_reservations": 3,
+      "run_attempts": 3,
+      "all_exact_project_resource_generation": true,
+      "attached_once_each": true
+    },
+    "scoped_vs_legacy_request_hash": {
+      "proven": true,
+      "scoped": "551042be54b8c253a639bb90414ff4c56e4d2aaa1f9bd34c4d462dd80af4e720",
+      "legacy": "6dc479ab94f831d96389761ded75ca61b0aeeaa3203a2750adc4bbb20c5865ac",
+      "differ": true,
+      "stable": true,
+      "scoped_matches_live_task": true
+    },
+    "response_budget_and_publication_hash": {
+      "proven": true,
+      "payload_bytes": 1994,
+      "byte_budget": 12288,
+      "result_published_hash": "8d375ec6a6cd6658243df60ed53d7a149f88831833a2cae759205ccb5cd4e0fd",
+      "public_result_status": "ready"
+    },
+    "direct_claude_mcp": {
+      "proven": true,
+      "note": "every call in this activation was a direct Claude MCP call with no shell proxy or CLI-as-controller"
+    },
+    "direct_chatgpt_mcp": {
+      "proven": false,
+      "status": "not_executed",
+      "reason": "requires driving an external MCP client this lane cannot operate"
+    },
+    "direct_codex_mcp": {
+      "proven": false,
+      "status": "not_executed",
+      "reason": "requires driving an external MCP client this lane cannot operate"
+    }
+  },
+  "incident_unresolved_task": {
+    "task_id": "task_20260727T200608Z_8719fe3d9754",
+    "backend_reference": "20260727T200608Z_executable_profile_aa64f982",
+    "cause": "controller omitted working_directory; executable profile requires it",
+    "backend_launch_error": "ValueError: Arbitrary working-directory policy requires a directory",
+    "task_state": "uncertain",
+    "recovery_state": "unresolved",
+    "recovery_reason": "backend_run_record_missing",
+    "run_attempt_status": "recovery_pending",
+    "run_attempt_recovery_reason": "run_attachment_incomplete",
+    "gate_c_defect": false,
+    "left_in_place": true,
+    "resolution_requires": "quarantine adjudication or disposition, which Gate C excludes; needs a separate owner decision"
+  },
+  "post_activation_state": {
+    "project_scope_schema_version": 2,
+    "scoped_writes_enabled": true,
+    "enforcement_state": "enforced",
+    "ever_activated": 1,
+    "projects": 1,
+    "project_resources": 1,
+    "project_resource_bindings": 1,
+    "project_repository_bindings": 1,
+    "project_scope_bootstrap_events": 1,
+    "project_task_reservations": 3,
+    "project_run_attempts": 3,
+    "project_scope_quarantine": 0,
+    "project_scope_adjudications": 0,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "runs": 4730,
+    "tasks": 5
+  },
+  "rollback": {
+    "scoped_task_exists": true,
+    "restore_pre_gate_c_backup_permitted": false,
+    "reason": "restoring would erase authoritative scope reservations",
+    "procedure": "stop writers, disable scoped mutation to enter paused, retain sidecars and bindings, continue only with a scope-aware binary",
+    "retained_reference": "runs/gate-c-20260727T195813Z/soma-pre-gate-c-backup.sqlite3"
+  },
+  "exclusions_still_unauthorized": [
+    "historical assignment, backfill, or quarantine disposition",
+    "project-scoped memory or Obsidian integration",
+    "PILOT-MEMORY-1 activation",
+    "Hermes or external-session migration",
+    "worktrees, credentials, lock-key migration, or unrelated producers",
+    "permission tiers or restrictive autonomy policy",
+    "_pytest-cf1-temp cleanup",
+    "push"
+  ]
+}
