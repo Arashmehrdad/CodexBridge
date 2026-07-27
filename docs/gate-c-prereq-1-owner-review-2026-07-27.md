@@ -1,15 +1,15 @@
 # GATE-C-PREREQ-1 Owner Review
 
 **Date:** 2026-07-27
-**Decision:** returned for one focused fix; not accepted.
+**Decision:** focused finding closed; prerequisite accepted.
 **Schema v2 activation:** not authorized.
-**Gate C:** remains blocked and unapproved.
+**Gate C:** remains unapproved; schema v2 activation is still a separate owner gate.
 
 ## What passed
 
-The implementation preserves terminal quarantine, keeps the original evidence immutable, references rathe than creates successor tasks, requires exact project scope, prevents cross-project identity probing, exposes evidence without manual SQL, and introduces no second task/run/process authority. The focused suite independently passed: `12 passed in 4.97s`.
+The implementation preserves terminal quarantine, keeps the original evidence immutable, references rather than creates successor tasks, requires exact project scope, prevents cross-project identity probing, exposes evidence without manual SQL, and introduces no second task/run/process authority. The focused suite independently passed: `12 passed in 4.97s`.
 
-The reported full suite result of `2067 passed, 35 skipped`  is consistent with the twelve new tests and no reported regression.
+The reported full suite result of `2067 passed, 35 skipped` is consistent with the twelve new tests and no reported regression.
 
 ## Blocking finding
 
@@ -45,10 +45,18 @@ Because schema v2 is not live, amend migration v2 rather than adding schema v3:
    - same key with changed reason;
    - same key with changed successor;
    - different key after adjudication remaining single-shot;
-  - concurrent identical and conflicting requests.
+   - concurrent identical and conflicting requests.
 
 Do not widen this into permissions, historical disposition, Gate C bootstrap, memory, or unrelated cleanup.
 
 ## Memory shadow decision
 
 The `PILOT-MEMORY-1` shadow result is accepted as honest limitation evidence. Seven synthetic substring-based checks passing does not establish that the baseline is sufficient and does not justify a graph or memory service. Benchmark hardening may continue separately on supersession chains, semantic retrieval, metadata drift, and scale. No production memory authority or integration is authorized.
+
+## Re-review and acceptance
+
+Commit `22fd884bf685d766fcdad2b9ca017cede4acf183` closes the finding exactly within the requested boundary. Migration v2 now stores an immutable `request_hash` over the normalized decision-bearing fields. Replay requires both the deterministic adjudication ID and the request hash to match; changed disposition, normalized reason, or successor is rejected. Incidental surrounding whitespace normalizes to the same request, preserving real retry behavior. Concurrent identical requests converge on one row and one replay; concurrent conflicting requests produce one accepted decision and one rejection.
+
+Independent owner re-review reran the full focused file: **15 passed in 8.57s** (`20260727T185749Z_executable_profile_e47f4947`). The live store was then checked read-only: applied ProjectScope version remains `1`, `project_scope_adjudications` is absent, all existing ProjectScope sidecars are empty, and settings remain `(scoped_writes_enabled=0, ever_activated=0)` (`20260727T185839Z_executable_profile_8732b61b`).
+
+**Acceptance:** `GATE-C-PREREQ-1` is accepted and closed. This acceptance does not authorize applying schema v2, restarting the server on the v2 build, bootstrapping Gate C identities, enabling scoped writes, historical disposition, memory integration, Hermes changes, cleanup of `_pytest-cf1-temp`, or pushing.

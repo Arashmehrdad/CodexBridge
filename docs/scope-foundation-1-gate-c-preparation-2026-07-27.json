@@ -33,8 +33,11 @@
       "id": "GATE-C-PREREQ-1",
       "must_not_unquarantine_in_place": true,
       "reason": "Production code can quarantine a scoped record but has no explicit owner operation to adjudicate or supersede it without manual SQL.",
-      "required_before_gate_c_approval": true,
-      "title": "Quarantine adjudication or supersession"
+      "required_before_gate_c_approval": false,
+      "title": "Quarantine adjudication or supersession",
+      "status": "resolved_and_owner_accepted",
+      "resolved_by_commit": "22fd884bf685d766fcdad2b9ca017cede4acf183",
+      "resolution": "Terminal quarantine preserved; owner adjudication/supersession uses immutable normalized request hashing and single-shot conflict rejection."
     }
   ],
   "execution_boundaries": {
@@ -98,5 +101,9 @@
   ],
   "schema_version": "scope_foundation_1.gate_c_preparation.v1",
   "scoped_writes_enabled": false,
-  "status": "prepared_with_prerequisite_blocker"
+  "status": "prepared_with_prerequisite_blocker",
+  "remaining_execution_gates": [
+    "ProjectScope schema v2 activation",
+    "explicit Gate C owner approval of exact identities and cutover"
+  ]
 }

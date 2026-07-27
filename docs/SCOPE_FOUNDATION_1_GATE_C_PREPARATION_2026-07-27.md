@@ -3,7 +3,7 @@
 **Date:** 2026-07-27  
 **Status:** prepared for owner identity review, but not authorized or executed.  
 **Live state:** ProjectScope v1 is installed, empty, and `inactive`; scoped writes are disabled.  
-**Execution blocker:** `GATE-C-PREREQ-1` must provide an explicit owner-only quarantine adjudication or supersession path before Gate C can be approved.
+**Prerequisite status:** `GATE-C-PREREQ-1` is owner-accepted and closed at `22fd884`. Gate C still cannot execute until ProjectScope schema v2 receives its own stop/backup/rehearse/apply/verify approval and activation.
 
 ## Decision requested later
 
@@ -11,7 +11,7 @@ Gate C will require a separate owner decision covering all of the following toge
 
 1. approve the exact immutable project and resource IDs below;
 2. accept the exact normalized repository identity and exclusive binding;
-3. confirm that `GATE-C-PREREQ-1` has been implemented, tested, and accepted;
+3. confirm the separately approved ProjectScope schema-v2 activation completed successfully;
 4. authorize one bootstrap and scoped-write cutover using the reviewed procedure;
 5. keep historical disposition, memory, Obsidian, Hermes, other run producers, and push outside Gate C.
 
