@@ -1,0 +1,92 @@
+{
+  "contract": {
+    "boolean_classes": [
+      "external_edit_attribution",
+      "deterministic_rebuild"
+    ],
+    "contract_version": "pilot_memory_1b.contract.v1",
+    "corpus_rules": {
+      "canonical_format": "markdown_with_yaml_frontmatter",
+      "curated_max": 100,
+      "curated_min": 50,
+      "history": "git",
+      "index_is_derived_and_disposable": true,
+      "projects": [
+        "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "proj_0cf013d0-191b-57f4-a84b-7a43819a1578"
+      ],
+      "scale_corpora_committed": false,
+      "scale_corpora_location": "outside_tracked_repository_paths",
+      "scale_note_counts": [
+        1000,
+        10000
+      ]
+    },
+    "identity_inference_allowed": false,
+    "lexical_f1_thresholds": {
+      "contradiction_and_current_fact_precision": 0.9,
+      "deletion_and_dangling_links": 0.95,
+      "exact_recall": 0.95,
+      "multi_hop_full_supersession": 0.9,
+      "one_and_multi_hop_relations": 0.85,
+      "partial_claim_supersession": 0.9,
+      "project_isolation_and_unscoped_rejection": 1.0,
+      "semantic_paraphrase": 0.6,
+      "source_and_frontmatter_drift": 0.95
+    },
+    "local_derived_method_reported_separately": true,
+    "memory_budgets_mb": {
+      "index_peak_alloc_100": 25.0,
+      "index_peak_alloc_1000": 250.0,
+      "index_peak_alloc_10000": 1500.0
+    },
+    "network_dependency_allowed": false,
+    "project_ids": {
+      "confusion_sibling": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "soma": "proj_a144f759-1619-4276-9292-28704b6611f4"
+    },
+    "question_classes": [
+      "exact_recall",
+      "multi_hop_full_supersession",
+      "partial_claim_supersession",
+      "contradiction_and_current_fact_precision",
+      "semantic_paraphrase",
+      "one_and_multi_hop_relations",
+      "source_and_frontmatter_drift",
+      "external_edit_attribution",
+      "deletion_and_dangling_links",
+      "deterministic_rebuild",
+      "project_isolation_and_unscoped_rejection",
+      "scale_and_resource_measurement"
+    ],
+    "scoring_rules": {
+      "boolean_classes_scored": "all_or_nothing",
+      "class_score": "unweighted_mean_of_question_f1_within_class",
+      "f1": "harmonic_mean(precision, recall); 1.0 when both expected and retrieved are empty",
+      "oracle_leakage": "verbatim question text in any note body fails the whole run",
+      "precision": "true_positives / retrieved",
+      "ranked_cutoff_k": "r_precision: k = max(1, len(expected))",
+      "ranked_cutoff_k_first_revision": 5,
+      "recall": "true_positives / expected",
+      "retrieval_metric": "set_f1_over_expected_note_ids",
+      "unscoped_query": "must_raise; a returned result is an automatic class failure"
+    },
+    "seed": 20260727,
+    "time_budgets_seconds": {
+      "cold_rebuild_100": 2.0,
+      "cold_rebuild_1000": 15.0,
+      "cold_rebuild_10000": 150.0,
+      "warm_query_p95_100": 0.05,
+      "warm_query_p95_1000": 0.25,
+      "warm_query_p95_10000": 2.5
+    },
+    "unscoped_retrieval_allowed": false
+  },
+  "contract_hash": "abe1b318ae971b83ae2c950dfca57729c40ed206605405495384a8b8c97a1812",
+  "corpus_spec_hash": "78148f621578a4b4e27372ef3c4f6cba10cc205cef0145a960b20108fa02ddc1",
+  "curated_note_count": 62,
+  "frozen_before_first_measured_run": true,
+  "question_count": 34,
+  "questions_hash": "cff6f1d47bcb23774cf13e193f883ba27b8d402797692b038f439b9e8b33c109",
+  "schema_version": "pilot_memory_1b.frozen_benchmark.v1"
+}

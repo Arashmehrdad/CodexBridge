@@ -1,0 +1,1323 @@
+{
+  "cleanup": {
+    "workdir": "C:\\Users\\arash\\AppData\\Local\\Temp\\pilot-memory-1b-j7716zmp",
+    "workdir_removed": true
+  },
+  "corpus": {
+    "canonical_bytes_hash": "b257dbe078b2a21bb7f567171c2ee7c46762fe5e1c469ed00a3c9cd7d6e8652b",
+    "curated_notes": 62,
+    "projects": {
+      "proj_0cf013d0-191b-57f4-a84b-7a43819a1578": 26,
+      "proj_a144f759-1619-4276-9292-28704b6611f4": 36
+    }
+  },
+  "curated_scale": {
+    "cold_budget_seconds": 2.0,
+    "cold_rebuild_seconds": 0.0164,
+    "cold_within_budget": true,
+    "index_peak_alloc_mb": 0.3,
+    "memory_budget_mb": 25.0,
+    "notes": 62
+  },
+  "deletion": {
+    "dangling_after_delete": [
+      [
+        "lab-dangling-reference",
+        "lab-absent-target"
+      ],
+      [
+        "soma-dangling-reference",
+        "soma-absent-target"
+      ],
+      [
+        "soma-deletion-referrer",
+        "soma-deletion-target"
+      ]
+    ],
+    "present_after_delete": false,
+    "removed_note": "soma-deletion-target"
+  },
+  "deterministic_rebuild": {
+    "after_discard_identical": true,
+    "canonical_unchanged_by_rebuild": true,
+    "fingerprint": "b47b658cb0a871c7a23a3e990f8fe8af390424555b7358355095fd4af8202ff0",
+    "passed": true,
+    "repeat_identical": true
+  },
+  "external_edit_attribution": {
+    "attributed_by_git": true,
+    "git_status": [
+      "M soma-external-edit.md"
+    ],
+    "passed": true,
+    "visible_after_reindex": true
+  },
+  "failing_classes": [
+    "project_isolation_and_unscoped_rejection",
+    "semantic_paraphrase"
+  ],
+  "freeze": {
+    "contract_hash": "abe1b318ae971b83ae2c950dfca57729c40ed206605405495384a8b8c97a1812",
+    "corpus_spec_hash": "78148f621578a4b4e27372ef3c4f6cba10cc205cef0145a960b20108fa02ddc1",
+    "questions_hash": "cff6f1d47bcb23774cf13e193f883ba27b8d402797692b038f439b9e8b33c109",
+    "verified_before_measurement": true
+  },
+  "lexical": {
+    "per_class": {
+      "contradiction_and_current_fact_precision": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 0.9
+      },
+      "deletion_and_dangling_links": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 0.95
+      },
+      "deterministic_rebuild": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 1,
+        "threshold": 1.0
+      },
+      "exact_recall": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 5,
+        "threshold": 0.95
+      },
+      "external_edit_attribution": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 1,
+        "threshold": 1.0
+      },
+      "multi_hop_full_supersession": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 0.9
+      },
+      "one_and_multi_hop_relations": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 4,
+        "threshold": 0.85
+      },
+      "partial_claim_supersession": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 0.9
+      },
+      "project_isolation_and_unscoped_rejection": {
+        "mean_f1": 0.75,
+        "meets_threshold": false,
+        "questions": 4,
+        "threshold": 1.0
+      },
+      "semantic_paraphrase": {
+        "mean_f1": 0.3333,
+        "meets_threshold": false,
+        "questions": 6,
+        "threshold": 0.6
+      },
+      "source_and_frontmatter_drift": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 0.95
+      }
+    },
+    "per_question": [
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-runtime-port"
+        ],
+        "text": "loopback HTTP listener port and the MCP route path",
+        "true_positives": [
+          "soma-runtime-port"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-executable-profile"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-executable-profile"
+        ],
+        "text": "powershell executable profile pinned interpreter digest",
+        "true_positives": [
+          "soma-executable-profile"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-journal-mode"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-journal-mode"
+        ],
+        "text": "write-ahead logging journal mode for the durable store",
+        "true_positives": [
+          "soma-journal-mode"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-decision-scope-sidecar"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-04",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-decision-scope-sidecar"
+        ],
+        "text": "additive sidecar rather than rewriting incumbent authorities",
+        "true_positives": [
+          "soma-decision-scope-sidecar"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-procedure-backup"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-05",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-procedure-backup"
+        ],
+        "text": "backup interface inside a read transaction before trusting a restore point",
+        "true_positives": [
+          "soma-procedure-backup"
+        ]
+      },
+      {
+        "class": "multi_hop_full_supersession",
+        "error": "",
+        "expected": [
+          "soma-store-size-v3"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ms-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-store-size-v3"
+        ],
+        "text": "current on-disk size of the durable store",
+        "true_positives": [
+          "soma-store-size-v3"
+        ]
+      },
+      {
+        "class": "multi_hop_full_supersession",
+        "error": "",
+        "expected": [
+          "soma-store-size-v1",
+          "soma-store-size-v2"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_superseded",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ms-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-store-size-v1",
+          "soma-store-size-v2"
+        ],
+        "text": "store size values that are no longer current",
+        "true_positives": [
+          "soma-store-size-v1",
+          "soma-store-size-v2"
+        ]
+      },
+      {
+        "class": "multi_hop_full_supersession",
+        "error": "",
+        "expected": [
+          "soma-tunnel-duplicate",
+          "soma-tunnel-endpoint-current"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ms-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-tunnel-duplicate",
+          "soma-tunnel-endpoint-current"
+        ],
+        "text": "current public tunnel hostname",
+        "true_positives": [
+          "soma-tunnel-duplicate",
+          "soma-tunnel-endpoint-current"
+        ]
+      },
+      {
+        "class": "partial_claim_supersession",
+        "error": "",
+        "expected": [
+          "soma-worker-profile-v2"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "pc-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-worker-profile-v2"
+        ],
+        "text": "current worker lease duration",
+        "true_positives": [
+          "soma-worker-profile-v2"
+        ]
+      },
+      {
+        "class": "partial_claim_supersession",
+        "error": "",
+        "expected": [
+          "soma-worker-profile-v1"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "pc-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-worker-profile-v1"
+        ],
+        "text": "current worker retry limit",
+        "true_positives": [
+          "soma-worker-profile-v1"
+        ]
+      },
+      {
+        "class": "partial_claim_supersession",
+        "error": "",
+        "expected": [
+          "soma-worker-profile-v1"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_superseded",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "pc-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-worker-profile-v1"
+        ],
+        "text": "worker lease values that were replaced",
+        "true_positives": [
+          "soma-worker-profile-v1"
+        ]
+      },
+      {
+        "class": "contradiction_and_current_fact_precision",
+        "error": "",
+        "expected": [
+          "soma-executable-profile"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "cf-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-executable-profile"
+        ],
+        "text": "current default executable profile",
+        "true_positives": [
+          "soma-executable-profile"
+        ]
+      },
+      {
+        "class": "contradiction_and_current_fact_precision",
+        "error": "",
+        "expected": [
+          "soma-tunnel-endpoint-old"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_superseded",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "cf-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-tunnel-endpoint-old"
+        ],
+        "text": "retired tunnel hostname",
+        "true_positives": [
+          "soma-tunnel-endpoint-old"
+        ]
+      },
+      {
+        "class": "contradiction_and_current_fact_precision",
+        "error": "",
+        "expected": [
+          "soma-decision-fail-closed"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "claim_current",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "cf-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-decision-fail-closed"
+        ],
+        "text": "current mismatch behaviour",
+        "true_positives": [
+          "soma-decision-fail-closed"
+        ]
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-throttle"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-paraphrase-throttle"
+        ],
+        "false_positives": [
+          "soma-worker-profile-v1"
+        ],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-01",
+        "recall": 0.0,
+        "retrieved": [
+          "soma-worker-profile-v1"
+        ],
+        "text": "how many jobs may execute at the same moment before the machine is overloaded",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-evidence"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-paraphrase-evidence"
+        ],
+        "text": "are saved logs immutable once a job finishes",
+        "true_positives": [
+          "soma-paraphrase-evidence"
+        ]
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-quiet-failure"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-paraphrase-quiet-failure"
+        ],
+        "false_positives": [
+          "soma-paraphrase-throttle"
+        ],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-03",
+        "recall": 0.0,
+        "retrieved": [
+          "soma-paraphrase-throttle"
+        ],
+        "text": "why is hiding skipped items from a reviewer dangerous",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-runtime-port"
+        ],
+        "false_positives": [
+          "soma-dangling-reference"
+        ],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-04",
+        "recall": 0.0,
+        "retrieved": [
+          "soma-dangling-reference"
+        ],
+        "text": "which socket number does the service accept connections on",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-journal-mode"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-journal-mode"
+        ],
+        "false_positives": [
+          "soma-decision-fail-closed"
+        ],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-05",
+        "recall": 0.0,
+        "retrieved": [
+          "soma-decision-fail-closed"
+        ],
+        "text": "can a query stall the process that is saving data",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-decision-fail-closed"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-06",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-decision-fail-closed"
+        ],
+        "text": "what occurs when a caller names the wrong owner on a request",
+        "true_positives": [
+          "soma-decision-fail-closed"
+        ]
+      },
+      {
+        "class": "one_and_multi_hop_relations",
+        "error": "",
+        "expected": [
+          "soma-relation-gate-b"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "relation",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "rl-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-relation-gate-b"
+        ],
+        "text": "what does the cutover gate directly depend on",
+        "true_positives": [
+          "soma-relation-gate-b"
+        ]
+      },
+      {
+        "class": "one_and_multi_hop_relations",
+        "error": "",
+        "expected": [
+          "soma-relation-gate-a",
+          "soma-relation-gate-b"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "relation",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "rl-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-relation-gate-a",
+          "soma-relation-gate-b"
+        ],
+        "text": "every gate the cutover transitively depends on",
+        "true_positives": [
+          "soma-relation-gate-a",
+          "soma-relation-gate-b"
+        ]
+      },
+      {
+        "class": "one_and_multi_hop_relations",
+        "error": "",
+        "expected": [
+          "soma-procedure-backup"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "relation",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "rl-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-procedure-backup"
+        ],
+        "text": "which record the activation procedure depends on",
+        "true_positives": [
+          "soma-procedure-backup"
+        ]
+      },
+      {
+        "class": "one_and_multi_hop_relations",
+        "error": "",
+        "expected": [
+          "soma-deletion-referrer"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "referrers",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "rl-04",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-deletion-referrer"
+        ],
+        "text": "which records point at the removal target",
+        "true_positives": [
+          "soma-deletion-referrer"
+        ]
+      },
+      {
+        "class": "source_and_frontmatter_drift",
+        "error": "",
+        "expected": [
+          "soma-drift-deleted-source",
+          "soma-drift-moved-source"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dr-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-drift-deleted-source",
+          "soma-drift-moved-source"
+        ],
+        "text": "records whose source no longer resolves",
+        "true_positives": [
+          "soma-drift-deleted-source",
+          "soma-drift-moved-source"
+        ]
+      },
+      {
+        "class": "source_and_frontmatter_drift",
+        "error": "",
+        "expected": [
+          "soma-drift-empty-source"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dr-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-drift-empty-source"
+        ],
+        "text": "records carrying no source at all",
+        "true_positives": [
+          "soma-drift-empty-source"
+        ]
+      },
+      {
+        "class": "source_and_frontmatter_drift",
+        "error": "",
+        "expected": [
+          "soma-drift-malformed"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dr-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-drift-malformed"
+        ],
+        "text": "records whose metadata block does not parse",
+        "true_positives": [
+          "soma-drift-malformed"
+        ]
+      },
+      {
+        "class": "deletion_and_dangling_links",
+        "error": "",
+        "expected": [
+          "soma-dangling-reference"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dl-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-dangling-reference"
+        ],
+        "text": "references that point at an absent target before any deletion",
+        "true_positives": [
+          "soma-dangling-reference"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "pi-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-runtime-port"
+        ],
+        "text": "which port number is bound for incoming connections",
+        "true_positives": [
+          "soma-runtime-port"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "lab-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+        "qid": "pi-02",
+        "recall": 1.0,
+        "retrieved": [
+          "lab-runtime-port"
+        ],
+        "text": "which port number is bound for incoming connections",
+        "true_positives": [
+          "lab-runtime-port"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "lab-worker-profile-v1"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "lab-worker-profile-v1"
+        ],
+        "false_positives": [
+          "lab-source-runbook"
+        ],
+        "method": "lexical",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+        "qid": "pi-03",
+        "recall": 0.0,
+        "retrieved": [
+          "lab-source-runbook"
+        ],
+        "text": "how long is a lease held and how many retries are permitted",
+        "true_positives": []
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "unscoped",
+        "precision": 1.0,
+        "project_id": "",
+        "qid": "pi-04",
+        "recall": 1.0,
+        "retrieved": [],
+        "text": "which port number is bound for incoming connections",
+        "true_positives": []
+      },
+      {
+        "class": "deletion_and_dangling_links",
+        "error": "",
+        "expected": [
+          "soma-dangling-reference",
+          "soma-deletion-referrer"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural_post_delete",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dl-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-dangling-reference",
+          "soma-deletion-referrer"
+        ],
+        "text": "references left dangling after the removal",
+        "true_positives": [
+          "soma-dangling-reference",
+          "soma-deletion-referrer"
+        ]
+      },
+      {
+        "class": "deletion_and_dangling_links",
+        "error": "",
+        "expected": [],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "lexical",
+        "mode": "structural_post_delete",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "dl-03",
+        "recall": 1.0,
+        "retrieved": [],
+        "text": "the removed record is absent from the rebuilt index",
+        "true_positives": []
+      }
+    ]
+  },
+  "local_derived": {
+    "method": "corpus-only NPMI co-occurrence query expansion",
+    "network_used": false,
+    "per_class": {
+      "exact_recall": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 5,
+        "threshold": 0.95
+      },
+      "project_isolation_and_unscoped_rejection": {
+        "mean_f1": 1.0,
+        "meets_threshold": true,
+        "questions": 3,
+        "threshold": 1.0
+      },
+      "semantic_paraphrase": {
+        "mean_f1": 0.3333,
+        "meets_threshold": false,
+        "questions": 6,
+        "threshold": 0.6
+      }
+    },
+    "per_question": [
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-runtime-port"
+        ],
+        "text": "loopback HTTP listener port and the MCP route path",
+        "true_positives": [
+          "soma-runtime-port"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-executable-profile"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-executable-profile"
+        ],
+        "text": "powershell executable profile pinned interpreter digest",
+        "true_positives": [
+          "soma-executable-profile"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-journal-mode"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-03",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-journal-mode"
+        ],
+        "text": "write-ahead logging journal mode for the durable store",
+        "true_positives": [
+          "soma-journal-mode"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-decision-scope-sidecar"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-04",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-decision-scope-sidecar"
+        ],
+        "text": "additive sidecar rather than rewriting incumbent authorities",
+        "true_positives": [
+          "soma-decision-scope-sidecar"
+        ]
+      },
+      {
+        "class": "exact_recall",
+        "error": "",
+        "expected": [
+          "soma-procedure-backup"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "ex-05",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-procedure-backup"
+        ],
+        "text": "backup interface inside a read transaction before trusting a restore point",
+        "true_positives": [
+          "soma-procedure-backup"
+        ]
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-throttle"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-paraphrase-throttle"
+        ],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-01",
+        "recall": 0.0,
+        "retrieved": [],
+        "text": "how many jobs may execute at the same moment before the machine is overloaded",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-evidence"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-02",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-paraphrase-evidence"
+        ],
+        "text": "are saved logs immutable once a job finishes",
+        "true_positives": [
+          "soma-paraphrase-evidence"
+        ]
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-paraphrase-quiet-failure"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-paraphrase-quiet-failure"
+        ],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-03",
+        "recall": 0.0,
+        "retrieved": [],
+        "text": "why is hiding skipped items from a reviewer dangerous",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-runtime-port"
+        ],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-04",
+        "recall": 0.0,
+        "retrieved": [],
+        "text": "which socket number does the service accept connections on",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-journal-mode"
+        ],
+        "f1": 0.0,
+        "false_negatives": [
+          "soma-journal-mode"
+        ],
+        "false_positives": [
+          "soma-decision-fail-closed"
+        ],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 0.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-05",
+        "recall": 0.0,
+        "retrieved": [
+          "soma-decision-fail-closed"
+        ],
+        "text": "can a query stall the process that is saving data",
+        "true_positives": []
+      },
+      {
+        "class": "semantic_paraphrase",
+        "error": "",
+        "expected": [
+          "soma-decision-fail-closed"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "sp-06",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-decision-fail-closed"
+        ],
+        "text": "what occurs when a caller names the wrong owner on a request",
+        "true_positives": [
+          "soma-decision-fail-closed"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "soma-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "qid": "pi-01",
+        "recall": 1.0,
+        "retrieved": [
+          "soma-runtime-port"
+        ],
+        "text": "which port number is bound for incoming connections",
+        "true_positives": [
+          "soma-runtime-port"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "lab-runtime-port"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+        "qid": "pi-02",
+        "recall": 1.0,
+        "retrieved": [
+          "lab-runtime-port"
+        ],
+        "text": "which port number is bound for incoming connections",
+        "true_positives": [
+          "lab-runtime-port"
+        ]
+      },
+      {
+        "class": "project_isolation_and_unscoped_rejection",
+        "error": "",
+        "expected": [
+          "lab-worker-profile-v1"
+        ],
+        "f1": 1.0,
+        "false_negatives": [],
+        "false_positives": [],
+        "method": "derived",
+        "mode": "retrieval",
+        "precision": 1.0,
+        "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+        "qid": "pi-03",
+        "recall": 1.0,
+        "retrieved": [
+          "lab-worker-profile-v1"
+        ],
+        "text": "how long is a lease held and how many retries are permitted",
+        "true_positives": [
+          "lab-worker-profile-v1"
+        ]
+      }
+    ]
+  },
+  "ok": true,
+  "oracle_leakage": {
+    "clean": true,
+    "leaks": []
+  },
+  "scale": [
+    {
+      "cold_budget_seconds": 15.0,
+      "cold_rebuild_seconds": 9.534,
+      "cold_within_budget": true,
+      "index_peak_alloc_mb": 3.48,
+      "memory_budget_mb": 250.0,
+      "memory_within_budget": true,
+      "needle_retrieved_at_scale": true,
+      "note_files_generated": 1001,
+      "notes": 1000,
+      "vault_removed": true,
+      "warm_budget_seconds": 0.25,
+      "warm_query_p95_seconds": 0.000491,
+      "warm_within_budget": true
+    },
+    {
+      "cold_budget_seconds": 150.0,
+      "cold_rebuild_seconds": 89.5946,
+      "cold_within_budget": true,
+      "index_peak_alloc_mb": 34.61,
+      "memory_budget_mb": 1500.0,
+      "memory_within_budget": true,
+      "needle_retrieved_at_scale": true,
+      "note_files_generated": 10001,
+      "notes": 10000,
+      "vault_removed": true,
+      "warm_budget_seconds": 2.5,
+      "warm_query_p95_seconds": 0.011904,
+      "warm_within_budget": true
+    }
+  ],
+  "schema_version": "pilot_memory_1b.results.v1",
+  "shadow_only": {
+    "live_store_touched": false,
+    "network_used": false,
+    "project_scope_touched": false,
+    "soma_memory_package_imported": false,
+    "vault_location": "disposable_temp_directory",
+    "wiki_touched": false
+  },
+  "verdict": "baseline_has_named_measured_gaps"
+}
