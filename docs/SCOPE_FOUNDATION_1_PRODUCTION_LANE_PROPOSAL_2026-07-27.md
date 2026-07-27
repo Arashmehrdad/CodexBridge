@@ -1,11 +1,17 @@
 # SCOPE-FOUNDATION-1 Production Lane Proposal
 
-**Status:** proposed — awaiting explicit owner activation.
+**Status:** accepted — Gate A active. Gate B and Gate C remain inactive and require separate explicit owner approval.
 
 **Current verdict:** **proceed with scope cut**. Implement the smallest useful
 production authority seam for new canonical task/run work in the main Soma
 store. Do not include memory, Hermes, worktrees, credentials, other legacy run
 producers, or historical disposition in this lane.
+
+**Owner decision — 2026-07-27:** accepted without edits. Gate A is active and
+authorizes production code plus tests against fresh databases and disposable store
+copies only. It does not authorize a live schema mutation, live project or
+repository bootstrap, historical assignment or quarantine writes, memory or
+Hermes integration, or a push.
 
 ## Purpose
 
