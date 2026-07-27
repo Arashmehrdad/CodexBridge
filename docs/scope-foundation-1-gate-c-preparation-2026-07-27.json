@@ -1,0 +1,102 @@
+{
+  "disposable_cutover_rehearsal": {
+    "authoritative_run_id": "20260727T164558Z_executable_profile_645e5444",
+    "counts": {
+      "project_repository_bindings": 1,
+      "project_resource_bindings": 1,
+      "project_resources": 1,
+      "project_run_attempts": 0,
+      "project_scope_bootstrap_events": 1,
+      "project_scope_quarantine": 0,
+      "project_task_reservations": 0,
+      "projects": 1
+    },
+    "enforced_state_observed": true,
+    "evidence_event_id": "9d86f38841f0bcee291f09514a8dba7a072c7d3330f51f9c0477be9e2b8a17d5",
+    "foreign_key_check_count": 0,
+    "input_hash": "772e40251a7b88f42550beddf0f6993985fb156d46d4681f7aeab07c9cbe7c2d",
+    "integrity_check": "ok",
+    "outcome_hash": "019e667a1df73d795564a009d0fc9f7f18f93b08e5248c7b3d9d9703a7a65bc1",
+    "paused_state_observed": true,
+    "second_apply_same_outcome": true,
+    "settings_after_pause": {
+      "ever_activated": 1,
+      "scoped_writes_enabled": 0
+    },
+    "temp_cleanup": {
+      "remaining_items": 0,
+      "run_id": "20260727T164633Z_executable_profile_51dc7f12"
+    }
+  },
+  "execution_blockers": [
+    {
+      "id": "GATE-C-PREREQ-1",
+      "must_not_unquarantine_in_place": true,
+      "reason": "Production code can quarantine a scoped record but has no explicit owner operation to adjudicate or supersede it without manual SQL.",
+      "required_before_gate_c_approval": true,
+      "title": "Quarantine adjudication or supersession"
+    }
+  ],
+  "execution_boundaries": {
+    "bootstrap_before_enable": true,
+    "fresh_backup_required": true,
+    "historical_disposition_excluded": true,
+    "memory_obsidian_hermes_excluded": true,
+    "no_concurrent_old_or_new_writers": true,
+    "rollback_after_first_scoped_write": "pause scoped mutation and retain sidecars using a scope-aware binary",
+    "rollback_before_first_scoped_write": "fresh backup may be restored",
+    "server_stopped_for_bootstrap": true
+  },
+  "exclusions": [
+    "historical assignment or quarantine disposition",
+    "project-scoped memory or Obsidian integration",
+    "PILOT-MEMORY-1 activation",
+    "Hermes or external-session migration",
+    "worktrees, credentials, lock-key migration, or unrelated producers",
+    "push"
+  ],
+  "gate_c_authorized": false,
+  "gate_c_executed": false,
+  "live_mutation_performed": false,
+  "live_preview": {
+    "authoritative_run_id": "20260727T164356Z_executable_profile_e44caaed",
+    "conflicts": [],
+    "enforcement_state": "inactive",
+    "input_hash": "772e40251a7b88f42550beddf0f6993985fb156d46d4681f7aeab07c9cbe7c2d",
+    "no_rows_created": true,
+    "ok": true,
+    "repeat_identical": true,
+    "schema_version": 1,
+    "settings_unchanged": true,
+    "would_apply": true
+  },
+  "proposed_identity": {
+    "access_mode": "exclusive",
+    "initial_lifecycle": "active",
+    "initial_scope_generation": 1,
+    "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+    "project_key": "soma",
+    "repo_name": "soma",
+    "repository_identity_hash": "1f7c8e8726a452826177d0fb06d08b0e73df3695cd9e52f3a37d9b53cd451441",
+    "repository_root_canonical": "d:/github/soma",
+    "repository_root_input": "D:\\Github\\Soma",
+    "resource_id": "res_5b67936d-9599-4f08-b817-b3c30564400f",
+    "resource_kind": "repository"
+  },
+  "proposed_identity_owner_approved": false,
+  "required_live_controller_proof": [
+    "explicit scoped start",
+    "same-project idempotent replay",
+    "correct-project task and run reads",
+    "wrong-project fail-closed access",
+    "unique omitted-project resolution",
+    "exact reservation and attachment",
+    "direct ChatGPT MCP",
+    "direct Claude MCP",
+    "direct Codex MCP",
+    "response-budget and publication-hash preservation"
+  ],
+  "schema_version": "scope_foundation_1.gate_c_preparation.v1",
+  "scoped_writes_enabled": false,
+  "status": "prepared_with_prerequisite_blocker"
+}
