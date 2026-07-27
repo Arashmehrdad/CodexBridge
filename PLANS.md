@@ -133,13 +133,13 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 ### PILOT-MEMORY-1 - Smallest Durable Memory Baseline
 
-**Status:** started in **shadow mode** on 2026-07-27; not activated, not integrated, and holding no authority. Do not activate automatically.
+**Status:** the original ten-note shadow benchmark is closed as valid **limitation evidence**, not baseline acceptance. It passed 7/7 clean substring-oriented classes but did not discriminate on supersession depth, semantic retrieval, metadata drift, or scale. Its evidence remains in [`docs/pilot-memory-1-shadow-baseline-2026-07-27.md`](docs/pilot-memory-1-shadow-baseline-2026-07-27.md) and [`docs/pilot-memory-1-shadow-benchmark-2026-07-27.json`](docs/pilot-memory-1-shadow-benchmark-2026-07-27.json).
 
-The shadow baseline and its fixed benchmark are recorded in [`docs/pilot-memory-1-shadow-baseline-2026-07-27.md`](docs/pilot-memory-1-shadow-baseline-2026-07-27.md), with results in [`docs/pilot-memory-1-shadow-benchmark-2026-07-27.json`](docs/pilot-memory-1-shadow-benchmark-2026-07-27.json). Markdown plus Git plus Obsidian-native links, with a derive-on-read index and mandatory project scope, passed all seven required question classes in a disposable vault. That is **not** a finding that the baseline is sufficient: the corpus is small and synthetic, and every probe is a substring match. The benchmark does not yet discriminate, so it cannot yet justify or exclude a graph or memory service. The next step, when selected, is to harden the benchmark on superseding chains, meaning-based retrieval, frontmatter drift, and scale — not to adopt a provider. The owner review accepts this as valid **limitation evidence**, not as baseline acceptance or provider rejection. Shadow observation may continue; production memory authority and integration remain inactive.
+### PILOT-MEMORY-1B - Hardened Shadow Benchmark
 
-**Purpose:** test canonical Markdown plus Git, structured Soma metadata, and Obsidian as the owner-facing workspace before adding a graph or memory service.
+**Status:** **active and owner-authorized for sequential coding-agent execution.** The authoritative gate is [`docs/PILOT_MEMORY_1B_CODING_AGENT_GATE_2026-07-27.md`](docs/PILOT_MEMORY_1B_CODING_AGENT_GATE_2026-07-27.md), with machine-readable boundaries in [`docs/pilot-memory-1b-coding-agent-gate-2026-07-27.json`](docs/pilot-memory-1b-coding-agent-gate-2026-07-27.json). One coding agent implements and commits the hardened benchmark; a second coding agent independently reproduces and attacks it before any correction. The lane uses 50-100 curated records, fixed exact project IDs, multi-hop and partial supersession, paraphrased retrieval, source/frontmatter drift, relation questions, deterministic rebuilds, and generated 1,000/10,000-note scale measurements. Final acceptance also requires two real shadow-usage days; agents may prepare but may not fabricate elapsed use.
 
-The baseline must answer representative questions about exact recall, current versus superseded facts, source resolution, external edits, deletion, rebuild, and project isolation. A more complex memory provider advances only after a fixed benchmark demonstrates a real failure of the baseline.
+Memory remains shadow-only. Canonical content is Markdown + Git; every index is derived and rebuildable; unscoped access fails closed; no production vault, live memory store, ProjectScope mutation, MCP change, Hermes integration, provider installation, unrelated cleanup, or push is authorized. The result may be a pass, a named measured baseline gap, or an inconclusive benchmark. A memory provider advances only from an exact failure preserved by this gate.
 
 ## Prerequisites Before Autonomous Scheduled Agent Work
 
@@ -154,4 +154,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-Until a new lane is explicitly selected, a generic `continue` does not begin production implementation, activate PILOT-MEMORY-1, revive a Roadmap V2 lane, or start Roadmap V3 feature work.
+`PILOT-MEMORY-1B` is the only active bridge lane. A generic `continue` may advance that recorded gate but does not activate production memory, begin a provider comparison, revive a Roadmap V2 lane, or start Roadmap V3 feature work.

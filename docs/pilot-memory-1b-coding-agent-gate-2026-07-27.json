@@ -1,0 +1,100 @@
+{
+  "schema_version": "pilot_memory_1b.coding_agent_gate.v1",
+  "date": "2026-07-27",
+  "status": "active_owner_authorized",
+  "starting_head": "b1d604eb6eedaded5db541be12d220752e4ccf9a",
+  "branch": "feature/chatgpt-companion-cycle",
+  "runtime_build": "1632dc6ed8950c5e7dfa10ef5af83c30c71350260f9c1fd778c625d28c109546",
+  "project_scope": {
+    "schema_version": 2,
+    "enforcement": "enforced",
+    "production_project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+    "synthetic_confusion_project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+    "identity_inference_allowed": false,
+    "unscoped_retrieval_allowed": false
+  },
+  "prior_pilot": {
+    "note_count": 10,
+    "passed": 7,
+    "total": 7,
+    "index_sha256": "fcaa442c7d1a2c7d24cb18f8e565801c26365117c73a1256ebe2766aeaf729d4",
+    "limitations": [
+      "one-hop supersession only",
+      "substring retrieval only",
+      "clean recent frontmatter",
+      "tiny synthetic corpus",
+      "no scale evidence"
+    ]
+  },
+  "corpus": {
+    "curated_min": 50,
+    "curated_max": 100,
+    "scale_note_counts": [
+      1000,
+      10000
+    ],
+    "synthetic_or_sanitized_only": true,
+    "generated_bulk_committed": false,
+    "deterministic_seed_required": true
+  },
+  "question_classes": [
+    "exact_recall",
+    "multi_hop_full_supersession",
+    "partial_claim_supersession",
+    "contradiction_and_current_fact_precision",
+    "semantic_paraphrase",
+    "one_and_multi_hop_relations",
+    "source_and_frontmatter_drift",
+    "external_edit_attribution",
+    "deletion_and_dangling_links",
+    "deterministic_rebuild",
+    "project_isolation_and_unscoped_rejection",
+    "scale_and_resource_measurement"
+  ],
+  "benchmark_integrity": {
+    "freeze_before_first_measured_run": [
+      "seed",
+      "corpus_manifest",
+      "golden_answers",
+      "scoring_rules",
+      "operational_time_budgets",
+      "failure_thresholds"
+    ],
+    "post_result_threshold_changes_allowed": false,
+    "oracle_leakage_allowed": false,
+    "lexical_reported_separately": true,
+    "network_dependency_allowed": false
+  },
+  "authority": {
+    "canonical_content": "markdown_files",
+    "history": "git",
+    "derived_indexes_disposable": true,
+    "production_memory_activation": false,
+    "live_store_writes": false,
+    "mcp_schema_changes": false,
+    "memory_provider_evaluation": false
+  },
+  "agent_sequence": [
+    {
+      "role": "implementer",
+      "parallel": false,
+      "local_commit_required": true,
+      "push_allowed": false
+    },
+    {
+      "role": "independent_adversarial_reviewer",
+      "starts_after_clean_implementer_commit": true,
+      "holdout_before_logic_changes": true,
+      "preserve_pre_fix_failures": true,
+      "push_allowed": false
+    }
+  ],
+  "conclusions": [
+    "baseline_candidate_passes",
+    "baseline_has_named_measured_gaps",
+    "benchmark_inconclusive"
+  ],
+  "normal_usage_observation_days": 2,
+  "second_owner_approval_required": false,
+  "push_allowed": false
+}
