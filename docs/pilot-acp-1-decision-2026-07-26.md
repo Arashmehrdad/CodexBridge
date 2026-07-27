@@ -60,7 +60,7 @@ Every capability a future execution-backend contract would need was exercised.
 | Resume a **specific** session by id | yes | yes | F3 |
 | Context survives resume | yes | yes | F3 |
 | Steer a turn already in flight | yes | not tested | F10 |
-| Report cost/usage | `total_cost_usd`, `rate_limit_event` | not in `exec --json` | F2, F9 |
+| Report cost/usage | `total_cost_usd`, `rate_limit_event` | `turn.completed.usage` token counts | F2, F9 |
 | Concurrent isolated sessions | yes, mixed-agent | yes, mixed-agent | F9 |
 | Honest machine-readable failure | yes — id and `is_error` even when unauthenticated | yes | F2 |
 | Cancellation without orphans | **no — Soma must own this** | **no — Soma must own this** | F4 |
@@ -91,9 +91,11 @@ Stated as constraints for whoever writes Roadmap V3, not as a design.
    package ships a native `bin/claude.exe` with no `cli.js`; a bare command name
    is not resolvable by `subprocess` on Windows. This also matters for the
    runtime-identity capture the roadmap already requires.
-7. **Cost accounting has a source on at least one provider.** Claude reports
-   `total_cost_usd` per run. The usage-accounting prerequisite is reachable
-   without estimating tokens.
+7. **Cost accounting has a source on both providers.** Claude reports
+   `total_cost_usd` per run; Codex reports token counts in `turn.completed.usage`.
+   The usage-accounting prerequisite is reachable without estimating tokens.
+   (Corrected after a later run: an earlier reading said Codex reported nothing,
+   which was an extraction error on `item_type` versus `type`.)
 
 ## 5. What this record does not decide
 

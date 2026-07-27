@@ -59,7 +59,7 @@ behind a thin Soma adapter, versus taking on Zed's adapters as a dependency."**
 | Stable session identity | `session_id` | `thread_id` |
 | Identity emitted even on failure | yes — a not-logged-in run still returned `session_id` and `is_error: true` | not tested |
 | Applies real edits | yes (`Read`, `Edit`; `calc.py` +8) | yes (`calc.py` +4) |
-| Cost reported | `total_cost_usd` ($0.1094 on a 3-turn edit) | not observed in `exec --json` |
+| Cost/usage reported | `total_cost_usd` ($0.1094 on a 3-turn edit) | `turn.completed.usage` with input/cached/output token counts |
 
 Both emit a stable session identity and a structured event stream, which are the
 two things a Soma adapter requires. Claude additionally reports per-run cost and
