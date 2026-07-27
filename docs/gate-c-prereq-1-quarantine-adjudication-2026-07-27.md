@@ -238,12 +238,12 @@ silently.
 The first full-suite run of the fix reported `1 failed, 2069 passed`. The
 failure was `test_chat_footprint_acceptance.py::
 test_projection_overhead_and_full_retrieval_performance`, a wall-clock
-assertion (`excess_median <= 0.5`, measured `16.09`). Three focused suites were
-running against the same machine at the time. It passes in isolation and on a
-rerun of the full suite with nothing else competing, and it measures chat
-projection overhead, which shares no code with the scope store. Recorded here
-rather than quietly re-run: the test is timing-sensitive under load, which is
-worth knowing independently of this lane.
+assertion (`excess_median <= 0.5`, measured `16.09`). Three focused suites were running against the same machine, and the owner later
+recalled that the run may also have been stopped accidentally. The exact cause
+of that first result is therefore unproven and must not be labelled a test flake
+or a contention failure. It passes in isolation and on a clean full-suite rerun,
+and it measures chat projection overhead, which shares no code with the scope
+store. The clean rerun is the authoritative validation result.
 - ruff check across `soma/` and changed tests: passed
 
 Three existing tests were updated, all of them declared-contract pins rather
