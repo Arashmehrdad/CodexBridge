@@ -157,8 +157,9 @@ persisted nothing.
 
 ### Preserved cleanup inventory
 
-Nothing in this inventory has been deleted. Cleanup is blocked until this
-closure record is reviewed and the owner explicitly approves removal.
+At closure, nothing in this inventory had been deleted. Following review, the
+owner approved the exact documented cleanup, which was completed on 2026-07-27.
+Post-cleanup verification is recorded below.
 
 | Scope | Exact target | Evidence at closure |
 |---|---|---|
@@ -177,6 +178,31 @@ shared machine dependency, and reverting or removing it requires a separate
 owner decision after checking other consumers. The pre-existing
 `mcp.vercel.com` configuration is unrelated to this pilot and is also outside
 cleanup scope.
+
+### Post-review cleanup verification
+
+On 2026-07-27, the owner reviewed and accepted this closure record and approved
+removal of the exact documented OpenClaw targets. Cleanup then completed
+successfully:
+
+- `npm uninstall -g openclaw --ignore-scripts` exited successfully and removed the
+  global OpenClaw package and launchers.
+- `C:\Users\arash\.openclaw-somapilot\` and the pilot-created
+  `C:\Users\arash\.openclaw\` root were removed.
+- The nested downloaded `@openclaw/codex` project was removed with the isolated
+  profile.
+- All six documented cleanup targets were verified absent afterwards.
+- No OpenClaw process, listener on port `18789`, or Windows service remained.
+- Node `24.18.0`, Claude Code `2.1.220`, and Codex `0.145.0` remained installed
+  and callable.
+- The pre-existing Codex configuration remained present with its Vercel entries;
+  it was not modified by cleanup.
+- Soma's repository was untouched by the machine cleanup. Only the pre-existing
+  owner changes to `AGENTS.md` and the two ACP pilot documents remained dirty.
+
+The raw OpenClaw profile logs and session files were intentionally removed as part
+of the approved cleanup. The durable architectural findings and decision are
+preserved in this repository record.
 
 ## Stop conditions
 
