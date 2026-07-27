@@ -115,9 +115,11 @@ The decisive test is confusion resistance: two deliberately similar projects mus
 
 The completed evidence is recorded in [`docs/pilot-scope-1-evidence-2026-07-27.md`](docs/pilot-scope-1-evidence-2026-07-27.md). The additive sidecar passed focused isolation tests across the incumbent task, run, repository, worktree, memory, artifact, credential-reference, process, cancellation, restart, lock, projection, and Hermes boundaries. Transactional migration and rollback passed on disposable copies of both live stores, whose source hashes remained unchanged. Strict additive task/run MCP schemas preserve incumbent payloads. The owner reviewed and accepted the deterministic [`backfill/quarantine manifest`](docs/pilot-scope-1-backfill-quarantine-manifest-2026-07-27.json): 2,083 mappings remain candidate-only, 2,589 runs default to quarantine, and no inferred assignment is authorized. The final pilot outcome is **proceed**. Production implementation and live historical disposition require separate lanes and approval.
 
-### Active Lane: SCOPE-FOUNDATION-1 - Additive Project Identity Foundation
+### SCOPE-FOUNDATION-1 - Additive Project Identity Foundation
 
-**Status:** active — Gate A only. Production code and tests against fresh databases and disposable store copies are authorized. Gate B live schema activation, Gate C project/repository bootstrap, historical disposition, memory, Hermes, and push remain unauthorized.
+**Status:** Gate A implemented and owner-accepted at `e306d5c9ef0826967c28b63db465b64c1dc0efa2`. Gate B live schema activation and Gate C project/repository bootstrap remain inactive and require separate explicit owner approval. Historical disposition, memory, Hermes, and push remain unauthorized.
+
+Gate A passed the full implementation and disposable-store gates. The owner ratified project-less access as an owner-controller compatibility path only, terminal evidence-preserving quarantine with an explicit adjudication/supersession prerequisite before Gate C, and the v1 one-task/one-run-attempt invariant. No additional Claude CLI retry is required. Successful live scoped controller calls are deferred until Gate C because Gate B creates schema only.
 
 The smallest coherent production lane is a main-store ProjectScope v1 sidecar for **new canonical task/run work only**. It establishes immutable projects, repository-resource bindings, task scope reservations, run-attempt reservations, deterministic recovery/quarantine evidence, and optional strict MCP project assertions while preserving the incumbent task, run, process, result, evidence, and operation-lock authorities.
 

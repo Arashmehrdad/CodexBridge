@@ -1,6 +1,6 @@
 # SCOPE-FOUNDATION-1 Production Lane Proposal
 
-**Status:** accepted — Gate A active. Gate B and Gate C remain inactive and require separate explicit owner approval.
+**Status:** Gate A implemented, owner-reviewed, and accepted. Gate B and Gate C remain inactive and require separate explicit owner approval.
 
 **Current verdict:** **proceed with scope cut**. Implement the smallest useful
 production authority seam for new canonical task/run work in the main Soma
@@ -13,6 +13,47 @@ copies only. It does not authorize a live schema mutation, live project or
 repository bootstrap, historical assignment or quarantine writes, memory or
 Hermes integration, or a push.
 
+## Gate A owner review — 2026-07-27
+
+Gate A is accepted at commit
+`e306d5c9ef0826967c28b63db465b64c1dc0efa2`.
+
+The owner review accepts the implementation, migration, recovery, compatibility,
+full-suite, Ruff, and disposable-store evidence. No live ProjectScope schema,
+project binding, historical assignment, memory state, or Hermes state was
+changed.
+
+The remaining controller-evidence question is resolved without another Claude
+CLI attempt:
+
+- direct live Claude MCP calls satisfy the incumbent-controller half;
+- the genuine scoped Codex MCP transport call plus strict MCP/runtime tests
+  satisfy Gate A transport evidence;
+- a successful live scoped Claude and Codex workflow is deferred until Gate C
+  bootstrap and cutover, because Gate B is schema-only and cannot create a
+  scoped project binding.
+
+The owner also ratifies these ProjectScope v1 semantics:
+
+1. Project-less exact-ID reads and idempotent replay of an already-scoped task
+   are an owner-controller compatibility path only. Internal and worker-facing
+   callers must always provide or authoritatively resolve `project_id`.
+   Omission is not project authority and is not an allowed worker fallback.
+2. Quarantine is terminal and evidence-preserving. There is no in-place
+   unquarantine and manual SQL is not an operator remedy. Before Gate C, Soma
+   must provide a separate explicit adjudication or supersession operation that
+   preserves the original quarantine evidence.
+3. `UNIQUE(task_id)` on `project_run_attempts` is the accepted v1 invariant:
+   one canonical task owns one durable run attempt. Supporting multiple attempts
+   requires a later ordered schema version and is not implied by this lane.
+4. Live database byte size and timestamp are point-in-time observations, not a
+   standing invariant. The durable Gate A claim is structural migration
+   inertness plus the disposable-copy and unchanged-source evidence measured at
+   the time of rehearsal.
+
+Gate A completion does not authorize Gate B, Gate C, a server restart, live
+schema activation, bootstrap, cutover, historical disposition, memory or Hermes
+integration, or push.
 ## Purpose
 
 Introduce immutable project identity as a production correctness boundary for
