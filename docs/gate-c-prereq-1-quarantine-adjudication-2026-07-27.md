@@ -1,10 +1,12 @@
 # GATE-C-PREREQ-1 — Quarantine Adjudication
 
 **Date:** 2026-07-27
-**Status:** implemented and tested. Awaiting owner acceptance.
+**Status:** implemented and tested, then owner-reviewed. One focused idempotency fix is required before acceptance.
 **Unblocks:** `SCOPE-FOUNDATION-1` Gate C, which
 [`SCOPE_FOUNDATION_1_GATE_C_PREPARATION_2026-07-27.md`](SCOPE_FOUNDATION_1_GATE_C_PREPARATION_2026-07-27.md)
 records as not approvable until this prerequisite is accepted.
+
+**Owner review:** the terminal-quarantine and supersession design is accepted in principle, but the implementation is not accepted yet. A repeated idempotency key is considered a replay solely from its deterministic adjudication ID; a changed disposition, reason, or successor under that same key therefore returns the first row instead of rejecting a different request. See [`gate-c-prereq-1-owner-review-2026-07-27.md`](gate-c-prereq-1-owner-review-2026-07-27.md).
 
 **Not activated.** The live store remains at ProjectScope schema **v1**. This
 change adds schema **v2**, which is applied only by an explicit owner-approved
