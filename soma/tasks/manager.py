@@ -544,14 +544,21 @@ class TaskManager:
                 state_version=exc.task.state_version,
                 budget=budget,
             )
-        except (KeyError, ValueError, ProjectScopeMismatch) as exc:
+        except ProjectScopeMismatch as exc:
             return task_error(
                 operation="resolve_recovery",
                 error_code="project_scope_mismatch",
                 error=redact_secret_values(str(exc)),
                 budget=budget,
             )
-        except (ProjectScopeError, sqlite3.IntegrityError) as exc:
+        except KeyError as exc:
+            return task_error(
+                operation="resolve_recovery",
+                error_code="project_scope_mismatch",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except (ProjectScopeError, ValueError, sqlite3.IntegrityError) as exc:
             return task_error(
                 operation="resolve_recovery",
                 error_code="task_recovery_resolution_rejected",
