@@ -1,7 +1,7 @@
 # SCOPE-FOUNDATION-1 Gate C Activation
 
 **Date:** 2026-07-27
-**Status:** owner-approved, executed, and verified; direct ChatGPT MCP is now proven and direct Codex MCP remains unexecuted (see Limitations).
+**Status:** owner-approved, executed, and fully controller-proven through Claude, ChatGPT, and the attached CodexBridge Soma plugin.
 **Scope executed:** exact-identity bootstrap and scoped-write cutover against `runs/soma.sqlite3`.
 
 Executes the procedure in
@@ -93,23 +93,22 @@ restart the procedure calls for.
 | response budget and publication hash | payload `1,994` within budget `12,288`; `result_published_hash` `8d375ec6...`; `public_result_status: ready` |
 | direct Claude MCP | proven; every call in this activation was a direct Claude MCP call with no shell proxy or CLI-as-controller |
 | direct ChatGPT MCP | proven after activation review: direct scoped `task_action.start` replay returned `created: false`, `idempotent_replay: true`, the same task/run, and request hash `551042be...` |
-| direct Codex MCP | **not executed** - see Limitations |
+| direct Codex MCP | proven through the attached CodexBridge Soma plugin: exact scoped replay and status read, with no shell, CLI, subprocess, new reservation, run attempt, or backend execution |
 
 Wrong-project rejection returned no state, no backend reference, and no
 artifact data, and left the target task untouched at its existing state version.
 
-## Limitations
+## Controller-route note
 
-One required proof item remains unexecuted: `direct Codex MCP`. Direct ChatGPT
-MCP was exercised after activation review from the connected ChatGPT client
-against the live enforced endpoint. It replayed controller request
-`gate-c-proof-20260727-explicit-2` with the exact project ID and normalized
-payload, returned `created: false` and `idempotent_replay: true`, preserved task
-`task_20260727T200740Z_8f8995778083` and run
-`20260727T200740Z_executable_profile_889ea764`, and reproduced request hash
-`551042be54b8c253a639bb90414ff4c56e4d2aaa1f9bd34c4d462dd80af4e720`.
-No new reservation or backend execution was created. Closing Gate C's proof
-list completely now requires only a direct Codex MCP call.
+All three controller proofs are now complete. Claude proved the direct MCP route
+during activation. ChatGPT later replayed the exact scoped request through its
+connected Soma tools. Codex then used the attached CodexBridge Soma plugin,
+without a shell, CLI, or subprocess, to replay the same request and read status.
+
+The Codex proof establishes the attached CodexBridge plugin route. It does not
+independently establish that the running Codex task loaded the separately
+installed global `soma` MCP namespace. That distinction is retained as routing
+provenance, not as an open Gate C proof item.
 
 ## Incident: one unresolved task from a malformed request
 

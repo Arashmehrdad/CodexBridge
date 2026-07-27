@@ -4,7 +4,7 @@
   "gate_c_executed": true,
   "live_mutation_performed": true,
   "schema_version": "scope_foundation_1.gate_c_activation.v1",
-  "status": "executed_and_verified_with_one_unexecuted_proof_item",
+  "status": "executed_and_fully_controller_proven",
   "stop_condition_fired": false,
   "applied_identity": {
     "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
@@ -165,9 +165,29 @@
       "backend_reexecuted": false
     },
     "direct_codex_mcp": {
-      "proven": false,
-      "status": "not_executed",
-      "reason": "requires driving an external MCP client this lane cannot operate"
+      "proven": true,
+      "status": "proven_via_attached_codexbridge_soma_plugin",
+      "controller_request_id": "gate-c-proof-20260727-explicit-2",
+      "task_id": "task_20260727T200740Z_8f8995778083",
+      "run_id": "20260727T200740Z_executable_profile_889ea764",
+      "created": false,
+      "idempotent_replay": true,
+      "request_hash": "551042be54b8c253a639bb90414ff4c56e4d2aaa1f9bd34c4d462dd80af4e720",
+      "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "resource_id": "res_5b67936d-9599-4f08-b817-b3c30564400f",
+      "binding_status": "attached",
+      "attempt_status": "attached",
+      "scope_generation": 1,
+      "task_status": "completed",
+      "task_phase": "result_published",
+      "recovery_state": "none",
+      "timestamps_unchanged": true,
+      "new_task_reservation_created": false,
+      "new_run_attempt_created": false,
+      "backend_reexecuted": false,
+      "route_proven": "attached CodexBridge Soma plugin",
+      "global_soma_namespace_independently_proven": false,
+      "route_note": "The proof does not independently establish that the running Codex task loaded the separately installed global soma MCP namespace."
     }
   },
   "incident_unresolved_task": {
