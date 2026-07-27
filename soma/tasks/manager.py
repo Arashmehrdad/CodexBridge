@@ -21,8 +21,16 @@ from base64 import b64decode
 from pathlib import Path
 from typing import Any
 
-from soma.config import AppConfig
+from soma.config import AppConfig, resolve_repo_identity
 from soma.job_manager import JobManager
+from soma.project_scope import (
+    ProjectScopeError,
+    ProjectScopeStore,
+)
+from soma.project_scope.models import (
+    RepositoryBinding,
+    path_is_within_repository,
+)
 from soma.safety import redact_secret_values
 
 from .backends import BackendObservation, DurableCommandSpec, DurableRunBackend
@@ -40,6 +48,7 @@ from .models import (
     make_task_id,
     map_backend_status,
     normalize_durable_command_request,
+    normalize_scoped_durable_command_request,
     normalized_request_hash,
     run_input_reference,
     run_terminal_reference,
@@ -62,6 +71,10 @@ from .projections import (
 from .store import TaskRequestConflict, TaskStore
 
 
+class _ControllerRequestScopeConflict(Exception):
+    """Internal signal for a non-enumerating cross-project replay response."""
+
+
 class TaskManager:
     def __init__(
         self,
@@ -71,12 +84,14 @@ class TaskManager:
         job_manager: JobManager | None = None,
         backend: Any | None = None,
         store: TaskStore | None = None,
+        scope_store: ProjectScopeStore | None = None,
     ):
         self.config = config
         self.config_path = config_path
         self._job_manager = job_manager
         self._backend = backend
         self.store = store or TaskStore(config.resolve_runs_dir())
+        self.scope_store = scope_store or ProjectScopeStore(config.resolve_runs_dir())
 
     # ------------------------------------------------------------------
     # wiring
@@ -99,20 +114,21 @@ class TaskManager:
     # ------------------------------------------------------------------
 
     def capabilities(self, budget: int = TASK_RESPONSE_BUDGET_BYTES) -> dict[str, Any]:
-        return task_capabilities(
-            schema_state=self.store.schema_state(), budget=budget
-        )
+        schema = self.store.schema_state()
+        schema["project_scope"] = self.scope_store.schema_state()
+        return task_capabilities(schema_state=schema, budget=budget)
 
     def get_status(
         self,
         task_id: str,
         *,
+        project_id: str = "",
         reconcile: bool = True,
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         try:
-            task = self.store.get_task(task_id)
-        except (KeyError, ValueError) as exc:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
             return self._lookup_error("status", task_id, exc, budget)
         if reconcile and not task.is_terminal:
             task = self.reconcile_task(task.task_id)
@@ -123,14 +139,19 @@ class TaskManager:
             open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
             link_counts=self._link_counts(task.task_id),
             budget=budget,
+            project_scope=scope,
         )
 
     def get_result(
-        self, task_id: str, *, budget: int = TASK_RESPONSE_BUDGET_BYTES
+        self,
+        task_id: str,
+        *,
+        project_id: str = "",
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         try:
-            task = self.store.get_task(task_id)
-        except (KeyError, ValueError) as exc:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
             return self._lookup_error("result", task_id, exc, budget)
         if not task.is_terminal:
             task = self.reconcile_task(task.task_id)
@@ -144,25 +165,28 @@ class TaskManager:
         source["result_published_hash"] = observation.result_published_hash
         source["result_published_at"] = observation.result_published_at
         return compact_task_result(
-            task, observation=observation, result_source=source, budget=budget
+            task,
+            observation=observation,
+            result_source=source,
+            budget=budget,
+            project_scope=scope,
         )
 
     def get_events(
         self,
         task_id: str,
         *,
+        project_id: str = "",
         limit: int = TASK_EVENT_DEFAULT_LIMIT,
         after_id: int | None = None,
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         try:
-            task = self.store.get_task(task_id)
-        except (KeyError, ValueError) as exc:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
             return self._lookup_error("events", task_id, exc, budget)
         bounded = max(1, min(int(limit), TASK_EVENT_MAX_LIMIT))
-        events = self.store.list_events(
-            task.task_id, limit=bounded, after_id=after_id
-        )
+        events = self.store.list_events(task.task_id, limit=bounded, after_id=after_id)
         return compact_task_events(
             task,
             events,
@@ -170,22 +194,26 @@ class TaskManager:
             after_id=after_id,
             latest_event_id=self.store.latest_event_id(task.task_id),
             budget=budget,
+            project_scope=scope,
         )
 
     def get_links(
         self,
         task_id: str,
         *,
+        project_id: str = "",
         limit: int = TASK_LINK_DEFAULT_LIMIT,
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         try:
-            task = self.store.get_task(task_id)
-        except (KeyError, ValueError) as exc:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
             return self._lookup_error("links", task_id, exc, budget)
         bounded = max(1, min(int(limit), TASK_LINK_MAX_LIMIT))
         links = self.store.list_links(task.task_id, limit=bounded)
-        return compact_task_links(task, links, limit=bounded, budget=budget)
+        return compact_task_links(
+            task, links, limit=bounded, budget=budget, project_scope=scope
+        )
 
     # ------------------------------------------------------------------
     # commands
@@ -204,12 +232,13 @@ class TaskManager:
         stdin_base64: str | None = None,
         timeout_seconds: int | None = None,
         parent_task_id: str = "",
+        project_id: str = "",
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         """Idempotently create a canonical task backed by one durable run."""
         argv = list(argv or [])
         try:
-            normalized = normalize_durable_command_request(
+            legacy_normalized = normalize_durable_command_request(
                 repo_name=repo_name,
                 profile_id=profile_id,
                 argv=argv,
@@ -227,47 +256,174 @@ class TaskManager:
                 error=redact_secret_values(str(exc)),
                 budget=budget,
             )
-        request_hash = normalized_request_hash(normalized)
+        legacy_hash = normalized_request_hash(legacy_normalized)
+        enforcement_state = self.scope_store.enforcement_state()
+        scope_active = enforcement_state == "enforced"
+        binding: RepositoryBinding | None = None
+        effective_repo_name = repo_name
+        request_hash = legacy_hash
+
+        existing = self.store.find_by_controller_request(controller_request_id)
+        if existing is not None:
+            existing_scope = self.scope_store.scope_for_task(existing.task_id)
+            if existing_scope.project_id:
+                if project_id and project_id != existing_scope.project_id:
+                    return self._scope_conflict_response(budget=budget)
+                try:
+                    self.scope_store.require_task_attempt(
+                        existing_scope.project_id,
+                        existing.task_id,
+                        existing.backend_ref,
+                    )
+                    binding, effective_repo_name = self._resolve_repository_binding(
+                        project_id=project_id or existing_scope.project_id,
+                        repo_name=repo_name,
+                        working_directory=working_directory,
+                    )
+                    request_hash = self._scoped_request_hash(
+                        binding=binding,
+                        repo_name=effective_repo_name,
+                        profile_id=profile_id,
+                        argv=argv,
+                        working_directory=working_directory,
+                        environment=environment,
+                        stdin_text=stdin_text,
+                        stdin_base64=stdin_base64,
+                        timeout_seconds=timeout_seconds,
+                        parent_task_id=parent_task_id,
+                    )
+                except (ValueError, ProjectScopeError):
+                    return self._scope_conflict_response(budget=budget)
+            elif project_id:
+                return self._scope_conflict_response(budget=budget)
+            if existing.request_hash != request_hash:
+                return self._request_conflict_response(
+                    existing, request_hash, budget=budget
+                )
+            return self._replay_response(existing, budget=budget)
+
+        if enforcement_state == "paused":
+            return task_error(
+                operation="start",
+                error_code="project_scope_paused",
+                error=(
+                    "ProjectScope was previously activated and is now paused; "
+                    "new task creation is disabled"
+                ),
+                budget=budget,
+            )
+        if project_id and not scope_active:
+            return task_error(
+                operation="start",
+                error_code="project_scope_inactive",
+                error=(
+                    "ProjectScope writes are inactive; Gate B and Gate C "
+                    "activation have not been completed"
+                ),
+                budget=budget,
+            )
+        if scope_active:
+            try:
+                binding, effective_repo_name = self._resolve_repository_binding(
+                    project_id=project_id,
+                    repo_name=repo_name,
+                    working_directory=working_directory,
+                )
+                request_hash = self._scoped_request_hash(
+                    binding=binding,
+                    repo_name=effective_repo_name,
+                    profile_id=profile_id,
+                    argv=argv,
+                    working_directory=working_directory,
+                    environment=environment,
+                    stdin_text=stdin_text,
+                    stdin_base64=stdin_base64,
+                    timeout_seconds=timeout_seconds,
+                    parent_task_id=parent_task_id,
+                )
+            except (ValueError, ProjectScopeError) as exc:
+                return task_error(
+                    operation="start",
+                    error_code="project_scope_resolution_failed",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
 
         # The backend reference is reserved before the task row is committed so
         # the durable run identity is owned by exactly one canonical task.
         backend_ref = self.backend.reserve()
         task_id = make_task_id()
         try:
-            task, created = self.store.reserve_task(
-                task_id=task_id,
-                task_kind=TaskKind.DURABLE_COMMAND.value,
-                controller_request_id=controller_request_id,
-                request_hash=request_hash,
-                backend_kind=self.backend.kind,
-                backend_executor=self.backend.executor,
-                backend_ref=backend_ref,
-                backend_identity={
+            task_kwargs = {
+                "task_id": task_id,
+                "task_kind": TaskKind.DURABLE_COMMAND.value,
+                "controller_request_id": controller_request_id,
+                "request_hash": request_hash,
+                "backend_kind": self.backend.kind,
+                "backend_executor": self.backend.executor,
+                "backend_ref": backend_ref,
+                "backend_identity": {
                     "engine": self.backend.kind,
                     "run_tool": self.backend.executor,
-                    "repo_name": repo_name,
+                    "repo_name": effective_repo_name,
                     "profile_id": profile_id,
                 },
-                objective_ref=run_input_reference(backend_ref),
-                constraints_ref=run_input_reference(backend_ref),
-                workspace_kind="repository",
-                workspace_ref=repo_name,
-                parent_task_id=parent_task_id,
-            )
+                "objective_ref": run_input_reference(backend_ref),
+                "constraints_ref": run_input_reference(backend_ref),
+                "workspace_kind": "repository",
+                "workspace_ref": effective_repo_name,
+                "parent_task_id": parent_task_id,
+            }
+            if binding is None:
+                task, created = self.store.reserve_task(**task_kwargs)
+            else:
+                with self.store.transaction() as conn:
+                    concurrent = self.store.find_by_controller_request_in_connection(
+                        conn, controller_request_id
+                    )
+                    if concurrent is not None:
+                        concurrent_scope = self.scope_store.scope_for_task(
+                            concurrent.task_id
+                        )
+                        if (
+                            not concurrent_scope.project_id
+                            or concurrent_scope.project_id != binding.project_id
+                        ):
+                            raise _ControllerRequestScopeConflict(
+                                "Concurrent request belongs to another project"
+                            )
+                        self.scope_store.require_task_attempt(
+                            binding.project_id,
+                            concurrent.task_id,
+                            concurrent.backend_ref,
+                        )
+                        if concurrent.request_hash != request_hash:
+                            raise TaskRequestConflict(concurrent, request_hash)
+                        task, created = concurrent, False
+                    else:
+                        self.scope_store.reserve_task_attempt(
+                            conn,
+                            binding=binding,
+                            task_id=task_id,
+                            run_id=backend_ref,
+                            parent_task_id=parent_task_id,
+                        )
+                        task, created = self.store.reserve_task_in_connection(
+                            conn, **task_kwargs
+                        )
+                        self.scope_store.attach_task(conn, task.task_id)
+        except _ControllerRequestScopeConflict:
+            return self._scope_conflict_response(budget=budget)
         except TaskRequestConflict as exc:
+            return self._request_conflict_response(
+                exc.task, exc.submitted_hash, budget=budget
+            )
+        except ProjectScopeError as exc:
             return task_error(
                 operation="start",
-                error_code="controller_request_hash_conflict",
-                error=str(exc),
-                task_id=exc.task.task_id,
-                state=exc.task.state.value,
-                state_version=exc.task.state_version,
+                error_code="project_scope_reservation_failed",
+                error=redact_secret_values(str(exc)),
                 budget=budget,
-                extra={
-                    "existing_request_hash": exc.task.request_hash,
-                    "submitted_request_hash": exc.submitted_hash,
-                    "backend_reference": exc.task.backend_ref,
-                },
             )
         except sqlite3.IntegrityError:
             # A concurrent identical request won the reservation. Never launch
@@ -275,11 +431,31 @@ class TaskManager:
             existing = self.store.find_by_controller_request(controller_request_id)
             if existing is None:
                 raise
+            existing_scope = self.scope_store.scope_for_task(existing.task_id)
+            if binding is None:
+                if existing_scope.project_id:
+                    return self._scope_conflict_response(budget=budget)
+            elif existing_scope.project_id != binding.project_id:
+                return self._scope_conflict_response(budget=budget)
+            else:
+                try:
+                    self.scope_store.require_task_attempt(
+                        binding.project_id,
+                        existing.task_id,
+                        existing.backend_ref,
+                    )
+                except ProjectScopeError:
+                    return self._scope_conflict_response(budget=budget)
+            if existing.request_hash != request_hash:
+                return self._request_conflict_response(
+                    existing, request_hash, budget=budget
+                )
             task, created = existing, False
 
         if not created:
             return self._replay_response(task, budget=budget)
 
+        scope_projection = self.scope_store.scope_for_task(task.task_id).to_dict()
         self.store.append_event(
             task.task_id,
             level=TaskEventLevel.INFO,
@@ -290,11 +466,20 @@ class TaskManager:
             data={
                 "backend_kind": task.backend_kind.value,
                 "backend_reference": task.backend_ref,
+                **(
+                    {
+                        "project_id": binding.project_id,
+                        "resource_id": binding.resource_id,
+                        "scope_generation": binding.scope_generation,
+                    }
+                    if binding
+                    else {}
+                ),
             },
         )
 
         spec = DurableCommandSpec(
-            repo_name=repo_name,
+            repo_name=effective_repo_name,
             profile_id=profile_id,
             argv=argv,
             working_directory=working_directory,
@@ -309,33 +494,68 @@ class TaskManager:
         )
         launch: dict[str, Any] = {}
         launch_error = ""
-        try:
-            launch = self.backend.start(spec, task.backend_ref)
-        except Exception as exc:  # noqa: BLE001 - recorded as durable evidence
-            launch_error = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
+        if binding is not None:
+            try:
+                self.scope_store.require_launchable_attempt(
+                    binding=binding,
+                    task_id=task.task_id,
+                    run_id=task.backend_ref,
+                )
+            except ProjectScopeError as exc:
+                launch_error = f"ProjectScopeError: {redact_secret_values(str(exc))}"
+        if not launch_error:
+            try:
+                launch = self.backend.start(spec, task.backend_ref)
+            except Exception as exc:  # noqa: BLE001 - recorded as durable evidence
+                launch_error = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
+        if launch_error:
             self.store.append_event(
                 task.task_id,
                 level=TaskEventLevel.ERROR,
                 stage="backend_launch",
-                message="Durable backend launch raised before attachment",
+                message="Durable backend launch did not complete",
                 state=task.state.value,
                 state_version=task.state_version,
                 data={"error": launch_error},
             )
-        else:
-            if not launch.get("accepted", True):
-                launch_error = redact_secret_values(str(launch.get("reason") or ""))
+        elif not launch.get("accepted", True):
+            launch_error = redact_secret_values(str(launch.get("reason") or ""))
+            self.store.append_event(
+                task.task_id,
+                level=TaskEventLevel.WARNING,
+                stage="backend_launch",
+                message="Durable backend refused the launch",
+                state=task.state.value,
+                state_version=task.state_version,
+                data={"reason": launch_error},
+            )
+
+        if binding is not None:
+            try:
+                self.scope_store.attach_attempt(task.backend_ref)
+            except ProjectScopeError as exc:
+                recovery_error = redact_secret_values(str(exc))
+                self.scope_store.mark_attempt_recovery_pending(
+                    task.backend_ref, "run_attachment_incomplete"
+                )
                 self.store.append_event(
                     task.task_id,
                     level=TaskEventLevel.WARNING,
-                    stage="backend_launch",
-                    message="Durable backend refused the launch",
+                    stage="project_scope_attachment",
+                    message="Project run-attempt attachment requires reconciliation",
                     state=task.state.value,
                     state_version=task.state_version,
-                    data={"reason": launch_error},
+                    data={"error": recovery_error},
                 )
+            scope_projection = self.scope_store.scope_for_task(task.task_id).to_dict()
 
         task = self.reconcile_task(task.task_id, stage="backend_attachment")
+        polling_request: dict[str, Any] = {
+            "operation": "status",
+            "task_id": task.task_id,
+        }
+        if binding is not None:
+            polling_request["project_id"] = binding.project_id
         response = compact_task_status(
             task,
             observation=self.backend.query(task.backend_ref),
@@ -343,15 +563,18 @@ class TaskManager:
             link_counts=self._link_counts(task.task_id),
             operation="start",
             budget=budget,
+            project_scope=scope_projection,
             extra={
                 "created": True,
                 "idempotent_replay": False,
                 "request_hash": task.request_hash,
-                "backend_launch_accepted": bool(launch.get("accepted", not launch_error)),
+                "backend_launch_accepted": bool(
+                    launch.get("accepted", not launch_error)
+                ),
                 "backend_launch_error": launch_error,
                 "polling": {
                     "tool": "task_query",
-                    "request": {"operation": "status", "task_id": task.task_id},
+                    "request": polling_request,
                 },
             },
         )
@@ -365,12 +588,13 @@ class TaskManager:
         if_state_version: int,
         reason: str = "",
         controller_request_id: str = "",
+        project_id: str = "",
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         """Version-guarded cancellation delegated to the backend authority."""
         try:
-            task = self.store.get_task(task_id)
-        except (KeyError, ValueError) as exc:
+            task, _scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
             return self._lookup_error("cancel", task_id, exc, budget)
 
         if int(if_state_version) != int(task.state_version):
@@ -509,6 +733,13 @@ class TaskManager:
         and a concurrent writer simply wins the compare-and-set.
         """
         task = self.store.get_task(task_id)
+        scope = self.scope_store.scope_for_task(task.task_id)
+        if scope.project_id:
+            self.scope_store.require_task_attempt(
+                scope.project_id,
+                task.task_id,
+                task.backend_ref,
+            )
         observation = self.backend.query(task.backend_ref)
         target = self._derive_target(task, observation)
         if not target:
@@ -672,17 +903,128 @@ class TaskManager:
     # helpers
     # ------------------------------------------------------------------
 
+    def _load_task_scope(
+        self, task_id: str, project_id: str
+    ) -> tuple[TaskRecord, dict[str, Any]]:
+        """Load a task and prove its exact authoritative task-to-run binding."""
+        task = self.store.get_task(task_id)
+        scope = (
+            self.scope_store.require_task(project_id, task.task_id)
+            if project_id
+            else self.scope_store.scope_for_task(task.task_id)
+        )
+        if scope.project_id:
+            self.scope_store.require_task_attempt(
+                scope.project_id,
+                task.task_id,
+                task.backend_ref,
+            )
+        return task, scope.to_dict()
+
+    def _resolve_repository_binding(
+        self,
+        *,
+        project_id: str,
+        repo_name: str,
+        working_directory: str,
+    ) -> tuple[RepositoryBinding, str]:
+        canonical_name, repo_root, _repo = resolve_repo_identity(self.config, repo_name)
+        if working_directory and not path_is_within_repository(
+            working_directory, repo_root
+        ):
+            raise ProjectScopeError(
+                "working_directory is outside the bound repository root; "
+                "external worktrees are excluded from SCOPE-FOUNDATION-1"
+            )
+        binding = self.scope_store.resolve_repository(
+            project_id=project_id,
+            repo_name=canonical_name,
+            repository_root=repo_root,
+        )
+        return binding, canonical_name
+
+    @staticmethod
+    def _scoped_request_hash(
+        *,
+        binding: RepositoryBinding,
+        repo_name: str,
+        profile_id: str,
+        argv: list[str],
+        working_directory: str,
+        environment: dict[str, str] | None,
+        stdin_text: str | None,
+        stdin_base64: str | None,
+        timeout_seconds: int | None,
+        parent_task_id: str,
+    ) -> str:
+        normalized = normalize_scoped_durable_command_request(
+            project_id=binding.project_id,
+            resource_id=binding.resource_id,
+            repo_name=repo_name,
+            profile_id=profile_id,
+            argv=argv,
+            working_directory=working_directory,
+            environment=environment,
+            stdin_text=stdin_text,
+            stdin_base64=stdin_base64,
+            timeout_seconds=timeout_seconds,
+            parent_task_id=parent_task_id,
+        )
+        return normalized_request_hash(normalized)
+
+    @staticmethod
+    def _request_conflict_response(
+        task: TaskRecord, submitted_hash: str, *, budget: int
+    ) -> dict[str, Any]:
+        return task_error(
+            operation="start",
+            error_code="controller_request_hash_conflict",
+            error=(
+                "controller_request_id "
+                f"{task.controller_request_id!r} is already bound to task "
+                f"{task.task_id} with a different normalized request hash"
+            ),
+            task_id=task.task_id,
+            state=task.state.value,
+            state_version=task.state_version,
+            budget=budget,
+            extra={
+                "existing_request_hash": task.request_hash,
+                "submitted_request_hash": submitted_hash,
+                "backend_reference": task.backend_ref,
+            },
+        )
+
+    @staticmethod
+    def _scope_conflict_response(*, budget: int) -> dict[str, Any]:
+        """Return a non-enumerating cross-project idempotency conflict."""
+        response = task_error(
+            operation="start",
+            error_code="controller_request_scope_conflict",
+            error="controller_request_id is already owned by another project scope",
+            budget=budget,
+        )
+        for key in ("task_id", "state", "state_version"):
+            response.pop(key, None)
+        return finalize(response)
+
     def _link_counts(self, task_id: str) -> dict[str, int]:
         counts: dict[str, int] = {}
         for link in self.store.list_links(task_id, limit=TASK_LINK_MAX_LIMIT):
             counts[link.link_type.value] = counts.get(link.link_type.value, 0) + 1
         return counts
 
-    def _replay_response(
-        self, task: TaskRecord, *, budget: int
-    ) -> dict[str, Any]:
+    def _replay_response(self, task: TaskRecord, *, budget: int) -> dict[str, Any]:
         if not task.is_terminal:
             task = self.reconcile_task(task.task_id, stage="idempotent_replay")
+        scope = self.scope_store.scope_for_task(task.task_id).to_dict()
+        project_id = str(scope.get("project_id") or "")
+        polling_request: dict[str, Any] = {
+            "operation": "status",
+            "task_id": task.task_id,
+        }
+        if project_id:
+            polling_request["project_id"] = project_id
         return compact_task_status(
             task,
             observation=self.backend.query(task.backend_ref),
@@ -690,6 +1032,7 @@ class TaskManager:
             link_counts=self._link_counts(task.task_id),
             operation="start",
             budget=budget,
+            project_scope=scope,
             extra={
                 "created": False,
                 "idempotent_replay": True,
@@ -698,7 +1041,7 @@ class TaskManager:
                 "backend_launch_error": "",
                 "polling": {
                     "tool": "task_query",
-                    "request": {"operation": "status", "task_id": task.task_id},
+                    "request": polling_request,
                 },
             },
         )
@@ -722,12 +1065,12 @@ class TaskManager:
             link_counts=self._link_counts(task.task_id),
             operation="cancel",
             budget=budget,
+            project_scope=self.scope_store.scope_for_task(task.task_id).to_dict(),
             extra={
                 "command_id": command_id,
                 "already_terminal": already_terminal,
                 "cancellation_claimed": task.state is TaskState.CANCELLED,
-                "cancellation_pending": task.state
-                is TaskState.CANCELLATION_PENDING,
+                "cancellation_pending": task.state is TaskState.CANCELLATION_PENDING,
                 "backend_cancellation": {
                     "ok": bool(backend_result.get("ok", False)),
                     "status": str(backend_result.get("status") or ""),
@@ -752,7 +1095,10 @@ class TaskManager:
     def _lookup_error(
         operation: str, task_id: str, exc: Exception, budget: int
     ) -> dict[str, Any]:
-        code = "task_not_found" if isinstance(exc, KeyError) else "invalid_task_id"
+        if isinstance(exc, ProjectScopeError):
+            code = "project_scope_mismatch"
+        else:
+            code = "task_not_found" if isinstance(exc, KeyError) else "invalid_task_id"
         return task_error(
             operation=operation,
             error_code=code,

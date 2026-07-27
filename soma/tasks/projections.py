@@ -72,27 +72,55 @@ def finalize(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def status_retrieval(task_id: str) -> dict[str, Any]:
-    return {"tool": "task_query", "request": {"operation": "status", "task_id": task_id}}
+def _task_request(operation: str, task_id: str, project_id: str = "") -> dict[str, Any]:
+    request = {"operation": operation, "task_id": task_id}
+    if project_id:
+        request["project_id"] = project_id
+    return request
 
 
-def result_retrieval(task_id: str) -> dict[str, Any]:
-    return {"tool": "task_query", "request": {"operation": "result", "task_id": task_id}}
+def status_retrieval(task_id: str, project_id: str = "") -> dict[str, Any]:
+    return {
+        "tool": "task_query",
+        "request": _task_request("status", task_id, project_id),
+    }
 
 
-def backend_terminal_retrieval(run_id: str) -> dict[str, Any]:
-    return {"tool": "run_query", "request": {"operation": "terminal", "run_id": run_id}}
+def result_retrieval(task_id: str, project_id: str = "") -> dict[str, Any]:
+    return {
+        "tool": "task_query",
+        "request": _task_request("result", task_id, project_id),
+    }
 
 
-def backend_evidence_retrieval(run_id: str) -> dict[str, Any]:
-    return {"tool": "run_query", "request": {"operation": "input", "run_id": run_id}}
+def _run_request(operation: str, run_id: str, project_id: str = "") -> dict[str, Any]:
+    request = {"operation": operation, "run_id": run_id}
+    if project_id:
+        request["project_id"] = project_id
+    return request
+
+
+def backend_terminal_retrieval(run_id: str, project_id: str = "") -> dict[str, Any]:
+    return {
+        "tool": "run_query",
+        "request": _run_request("terminal", run_id, project_id),
+    }
+
+
+def backend_evidence_retrieval(run_id: str, project_id: str = "") -> dict[str, Any]:
+    return {
+        "tool": "run_query",
+        "request": _run_request("input", run_id, project_id),
+    }
 
 
 def _identity_fields(
-    task: TaskRecord, observation: BackendObservation | None
+    task: TaskRecord,
+    observation: BackendObservation | None,
+    project_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     backend_status = observation.status if observation and observation.exists else ""
-    return {
+    fields = {
         "task_id": task.task_id,
         "parent_task_id": task.parent_task_id,
         "task_kind": task.task_kind.value,
@@ -116,6 +144,8 @@ def _identity_fields(
         "ended_at": task.ended_at,
         "reconciled_at": task.reconciled_at,
     }
+    fields.update(project_scope or {"project_binding_status": "legacy_unassigned"})
+    return fields
 
 
 def compact_task_status(
@@ -127,11 +157,13 @@ def compact_task_status(
     operation: str = "status",
     budget: int = TASK_RESPONSE_BUDGET_BYTES,
     extra: dict[str, Any] | None = None,
+    project_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    project_id = str((project_scope or {}).get("project_id") or "")
     payload: dict[str, Any] = {
         "ok": True,
         "operation": operation,
-        **_identity_fields(task, observation),
+        **_identity_fields(task, observation, project_scope),
         "checkpoint": {
             "open_count": int(open_checkpoint_count),
             "checkpoint_ref": task.checkpoint_ref,
@@ -140,17 +172,17 @@ def compact_task_status(
         "objective_reference": task.objective_ref,
         "constraints_reference": task.constraints_ref,
         "result_available": bool(task.result_ref),
-        "result_retrieval": result_retrieval(task.task_id),
-        "status_retrieval": status_retrieval(task.task_id),
+        "result_retrieval": result_retrieval(task.task_id, project_id),
+        "status_retrieval": status_retrieval(task.task_id, project_id),
         "error": "",
         **_envelope(budget),
     }
     if task.backend_ref:
         payload["backend_evidence_retrieval"] = backend_evidence_retrieval(
-            task.backend_ref
+            task.backend_ref, project_id
         )
         payload["authoritative_result_retrieval"] = backend_terminal_retrieval(
-            task.backend_ref
+            task.backend_ref, project_id
         )
     if extra:
         payload.update(extra)
@@ -163,11 +195,13 @@ def compact_task_result(
     observation: BackendObservation | None,
     result_source: dict[str, Any],
     budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    project_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    project_id = str((project_scope or {}).get("project_id") or "")
     payload: dict[str, Any] = {
         "ok": True,
         "operation": "result",
-        **_identity_fields(task, observation),
+        **_identity_fields(task, observation, project_scope),
         "result_available": bool(task.result_ref),
         "result_reference": task.result_ref,
         "result_hash": task.result_hash,
@@ -180,15 +214,13 @@ def compact_task_result(
     }
     if task.backend_ref:
         payload["authoritative_result_retrieval"] = backend_terminal_retrieval(
-            task.backend_ref
+            task.backend_ref, project_id
         )
+        complete_request = _run_request("result", task.backend_ref, project_id)
+        complete_request["view"] = "full"
         payload["complete_result_retrieval"] = {
             "tool": "run_query",
-            "request": {
-                "operation": "result",
-                "run_id": task.backend_ref,
-                "view": "full",
-            },
+            "request": complete_request,
         }
     return finalize(payload)
 
@@ -199,6 +231,7 @@ def compact_task_links(
     *,
     limit: int,
     budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    project_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     projected = [
         {
@@ -215,6 +248,7 @@ def compact_task_links(
         "task_id": task.task_id,
         "state": task.state.value,
         "state_version": task.state_version,
+        **(project_scope or {"project_binding_status": "legacy_unassigned"}),
         "links": projected,
         "returned_count": len(projected),
         "limit": limit,
@@ -238,6 +272,7 @@ def compact_task_events(
     after_id: int | None,
     latest_event_id: int,
     budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    project_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     projected = [
         {
@@ -257,6 +292,7 @@ def compact_task_events(
         "task_id": task.task_id,
         "state": task.state.value,
         "state_version": task.state_version,
+        **(project_scope or {"project_binding_status": "legacy_unassigned"}),
         "events": projected,
         "returned_count": len(projected),
         "limit": limit,
@@ -291,9 +327,7 @@ def task_capabilities(
         "operation": "capabilities",
         "task_kinds": [kind.value for kind in TaskKind],
         "task_states": [state.value for state in TaskState],
-        "terminal_task_states": sorted(
-            state.value for state in TERMINAL_TASK_STATES
-        ),
+        "terminal_task_states": sorted(state.value for state in TERMINAL_TASK_STATES),
         "link_types": [link.value for link in TaskLinkType],
         "command_kinds": [command.value for command in TaskCommandKind],
         "backends": [

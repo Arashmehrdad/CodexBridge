@@ -78,10 +78,12 @@ from .managed_artifacts import (
     preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
 )
 from .operation_locks import repository_operation_lock
+from .project_scope import ProjectScopeError, ProjectScopeStore
 from . import reconciliation_status
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_wiki import mark_repo_wiki_stale
+from .run_query_chunks import decode_run_reference
 from .service_reload import (
     apply_reloaded_config,
     get_reload_status as _get_reload_status,
@@ -973,6 +975,11 @@ def get_workflow_manager() -> WorkflowManager:
 
 def get_task_manager() -> TaskManager:
     return TaskManager(get_config(), get_config_path())
+
+
+def get_project_scope_store() -> ProjectScopeStore:
+    """Return the non-migrating ProjectScope adapter for the current main store."""
+    return ProjectScopeStore(get_config().resolve_runs_dir())
 
 
 _hermes_service_gateway: HermesServiceGateway | None = None
@@ -3224,21 +3231,27 @@ def task_query(request: TaskQueryRequest) -> dict:
         return manager.capabilities(budget=request.response_budget_bytes)
     if request.operation == "status":
         return manager.get_status(
-            request.task_id, budget=request.response_budget_bytes
+            request.task_id,
+            project_id=request.project_id,
+            budget=request.response_budget_bytes,
         )
     if request.operation == "result":
         return manager.get_result(
-            request.task_id, budget=request.response_budget_bytes
+            request.task_id,
+            project_id=request.project_id,
+            budget=request.response_budget_bytes,
         )
     if request.operation == "events":
         return manager.get_events(
             request.task_id,
+            project_id=request.project_id,
             limit=request.limit,
             after_id=request.after_id,
             budget=request.response_budget_bytes,
         )
     return manager.get_links(
         request.task_id,
+        project_id=request.project_id,
         limit=request.limit,
         budget=request.response_budget_bytes,
     )
@@ -3251,6 +3264,7 @@ def task_action(request: TaskActionRequest) -> dict:
     if request.operation == "start":
         return manager.start_durable_command(
             controller_request_id=request.controller_request_id,
+            project_id=request.project_id,
             repo_name=request.repo_name,
             profile_id=request.profile_id,
             argv=list(request.argv),
@@ -3264,6 +3278,7 @@ def task_action(request: TaskActionRequest) -> dict:
         )
     return manager.cancel_task(
         request.task_id,
+        project_id=request.project_id,
         if_state_version=request.if_state_version,
         reason=request.reason,
         controller_request_id=request.controller_request_id,
@@ -3821,11 +3836,119 @@ def _bounded_group_response(group: dict[str, Any], response_budget_bytes: int) -
     return response
 
 
+def _run_scope_guard(
+    request: RunQueryRequest,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    project_id = str(getattr(request, "project_id", "") or "")
+    if not project_id:
+        return None, None
+    encoded_run_id = str(getattr(request, "run_id", "") or "")
+    try:
+        reference = decode_run_reference(encoded_run_id)
+        run_id = reference.resource_id if reference is not None else encoded_run_id
+        scope = get_project_scope_store().require_run(project_id, run_id)
+    except (ValueError, ProjectScopeError) as exc:
+        return (
+            {
+                "ok": False,
+                "operation": str(request.operation),
+                "run_id": encoded_run_id,
+                "project_id": project_id,
+                "error_code": "project_scope_mismatch",
+                "error": str(exc),
+            },
+            None,
+        )
+    return None, scope.to_dict()
+
+
+def _add_run_scope_projection(
+    request: RunQueryRequest,
+    scope: dict[str, Any] | None,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(scope, dict):
+        return result
+    projected = dict(result)
+    # ProjectScope is authoritative for these reserved identity fields. A
+    # backend result must never be able to shadow them.
+    projected.update(scope)
+
+    if int(projected.get("byte_budget") or 0):
+        projected = _finalize_scoped_run_projection(
+            request=request,
+            scope=scope,
+            projected=projected,
+            budget_key="byte_budget",
+            size_key="payload_bytes",
+            canonical=True,
+        )
+    elif int(projected.get("response_budget_bytes") or 0):
+        projected = _finalize_scoped_run_projection(
+            request=request,
+            scope=scope,
+            projected=projected,
+            budget_key="response_budget_bytes",
+            size_key="response_bytes",
+            canonical=False,
+        )
+    return projected
+
+
+def _finalize_scoped_run_projection(
+    *,
+    request: RunQueryRequest,
+    scope: dict[str, Any],
+    projected: dict[str, Any],
+    budget_key: str,
+    size_key: str,
+    canonical: bool,
+) -> dict[str, Any]:
+    budget = int(projected[budget_key])
+
+    def encoded_size(value: dict[str, Any]) -> int:
+        kwargs: dict[str, Any] = {"ensure_ascii": False}
+        if canonical:
+            kwargs.update({"separators": (",", ":"), "sort_keys": True})
+        return len(json.dumps(value, **kwargs).encode("utf-8"))
+
+    accounted = dict(projected)
+    accounted[size_key] = 0
+    for _ in range(8):
+        measured = encoded_size(accounted)
+        if accounted[size_key] == measured:
+            break
+        accounted[size_key] = measured
+    if encoded_size(accounted) <= budget:
+        return accounted
+
+    bounded = {
+        "ok": False,
+        "operation": str(request.operation),
+        "project_id": str(scope.get("project_id") or ""),
+        "error_code": "project_scope_projection_budget_exceeded",
+        "error": "Scoped run projection exceeds the declared response budget",
+        budget_key: budget,
+        size_key: 0,
+    }
+    for _ in range(8):
+        measured = encoded_size(bounded)
+        if bounded[size_key] == measured:
+            break
+        bounded[size_key] = measured
+    return bounded
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def run_query(request: RunQueryRequest) -> dict:
     """Read-only gateway for durable run summaries, status, evidence, lists, and locks."""
+    scope_error, scope = _run_scope_guard(request)
+    if scope_error is not None:
+        return scope_error
     if request.operation == "summary":
-        return get_run_summary(request.run_id)
+        return _add_run_scope_projection(
+            request, scope, get_run_summary(request.run_id)
+        )
     if request.operation == "summary_list":
         return list_run_summaries(
             request.repo_name,
@@ -3835,37 +3958,61 @@ def run_query(request: RunQueryRequest) -> dict:
             request.cursor,
         )
     if request.operation == "status":
-        return get_run_status(request.run_id)
+        return _add_run_scope_projection(
+            request, scope, get_run_status(request.run_id)
+        )
     if request.operation == "input":
-        return get_run_input(
-            request.run_id,
-            request.view,
-            request.cursor,
-            request.response_budget_bytes,
+        return _add_run_scope_projection(
+            request,
+            scope,
+            get_run_input(
+                request.run_id,
+                request.view,
+                request.cursor,
+                request.response_budget_bytes,
+            ),
         )
     if request.operation == "control":
-        return get_run_control_status(request.run_id, request.if_state_version)
+        return _add_run_scope_projection(
+            request,
+            scope,
+            get_run_control_status(request.run_id, request.if_state_version),
+        )
     if request.operation == "output":
-        return get_run_output(
-            request.run_id,
-            request.stream,
-            request.tail_bytes,
-            request.view,
-            request.response_budget_bytes,
+        return _add_run_scope_projection(
+            request,
+            scope,
+            get_run_output(
+                request.run_id,
+                request.stream,
+                request.tail_bytes,
+                request.view,
+                request.response_budget_bytes,
+            ),
         )
     if request.operation == "events":
-        return get_run_events(
-            request.run_id,
-            request.limit,
-            request.after_id,
-            request.cursor,
+        return _add_run_scope_projection(
+            request,
+            scope,
+            get_run_events(
+                request.run_id,
+                request.limit,
+                request.after_id,
+                request.cursor,
+            ),
         )
     if request.operation == "terminal":
-        return get_run_terminal_result(request.run_id)
+        return _add_run_scope_projection(
+            request, scope, get_run_terminal_result(request.run_id)
+        )
     if request.operation == "result":
         if request.view == "full":
-            return get_run_result(request.run_id)
-        return get_run_terminal_result(request.run_id)
+            return _add_run_scope_projection(
+                request, scope, get_run_result(request.run_id)
+            )
+        return _add_run_scope_projection(
+            request, scope, get_run_terminal_result(request.run_id)
+        )
     if request.operation in {"group_status", "group_result"}:
         group = get_job_manager().get_powershell_group(request.group_id)
         if request.view == "full":
@@ -6364,6 +6511,12 @@ def run_server(args: argparse.Namespace) -> None:
             runs_dir, reconciliation_status.PATH_WORKFLOWS, process_id=process_id
         ):
             get_workflow_manager().reconcile_startup()
+        with reconciliation_status.ReconciliationRecorder(
+            runs_dir,
+            reconciliation_status.PATH_PROJECT_SCOPE,
+            process_id=process_id,
+        ):
+            get_project_scope_store().reconcile_startup()
         with reconciliation_status.ReconciliationRecorder(
             runs_dir, reconciliation_status.PATH_TASKS, process_id=process_id
         ):

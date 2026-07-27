@@ -69,11 +69,13 @@ SSHInspectRequest = Annotated[
 class RunStatusQuery(GatewayModel):
     operation: Literal["status"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
 
 
 class RunInputQuery(GatewayModel):
     operation: Literal["input"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     view: Literal["compact", "full"] = "compact"
     cursor: str = Field(default="", max_length=2048)
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=12 * 1024)
@@ -88,12 +90,14 @@ class RunInputQuery(GatewayModel):
 class RunControlQuery(GatewayModel):
     operation: Literal["control"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     if_state_version: int | None = Field(default=None, ge=0)
 
 
 class RunOutputQuery(GatewayModel):
     operation: Literal["output"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     stream: Literal["combined", "stdout", "stderr"] = "combined"
     tail_bytes: int = Field(default=20_000, ge=1, le=200_000)
     view: Literal["compact", "full", "legacy"] = "compact"
@@ -103,6 +107,7 @@ class RunOutputQuery(GatewayModel):
 class RunEventsQuery(GatewayModel):
     operation: Literal["events"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     limit: int = Field(default=20, ge=1, le=500)
     after_id: int | None = Field(default=None, ge=0)
     cursor: str = Field(default="", max_length=2048)
@@ -117,11 +122,13 @@ class RunEventsQuery(GatewayModel):
 class RunTerminalQuery(GatewayModel):
     operation: Literal["terminal"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
 
 
 class RunResultQuery(GatewayModel):
     operation: Literal["result"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     cursor: str = Field(default="", max_length=2048)
     view: Literal["compact", "full"] = "compact"
 
@@ -150,6 +157,7 @@ class PowerShellGroupResultQuery(GatewayModel):
 class RunSummaryQuery(GatewayModel):
     operation: Literal["summary"]
     run_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
 
 
 class RunSummaryListQuery(GatewayModel):
@@ -1260,6 +1268,7 @@ class TaskCapabilitiesQuery(GatewayModel):
 class TaskStatusQuery(GatewayModel):
     operation: Literal["status"]
     task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -1267,6 +1276,7 @@ class TaskStatusQuery(GatewayModel):
 class TaskResultQuery(GatewayModel):
     operation: Literal["result"]
     task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -1274,6 +1284,7 @@ class TaskResultQuery(GatewayModel):
 class TaskEventsQuery(GatewayModel):
     operation: Literal["events"]
     task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     limit: int = Field(default=20, ge=1, le=500)
     after_id: int | None = Field(default=None, ge=0)
     view: Literal["compact", "full"] = "compact"
@@ -1283,6 +1294,7 @@ class TaskEventsQuery(GatewayModel):
 class TaskLinksQuery(GatewayModel):
     operation: Literal["links"]
     task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     limit: int = Field(default=50, ge=1, le=200)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
@@ -1300,6 +1312,7 @@ class TaskDurableCommandStart(GatewayModel):
 
     operation: Literal["start"]
     controller_request_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     task_kind: Literal["durable_command"] = "durable_command"
     backend_kind: Literal["soma_durable_run"] = "soma_durable_run"
     repo_name: str = Field(min_length=1, max_length=128)
@@ -1326,6 +1339,7 @@ class TaskCancelCommand(GatewayModel):
 
     operation: Literal["cancel"]
     task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
     if_state_version: int = Field(ge=0)
     reason: str = Field(default="", max_length=512)
     controller_request_id: str = Field(default="", max_length=128)

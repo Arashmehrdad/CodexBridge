@@ -220,12 +220,45 @@ def normalize_durable_command_request(
         "argv": list(argv),
         "working_directory": working_directory,
         "environment": {
-            str(key): str(value)
-            for key, value in sorted((environment or {}).items())
+            str(key): str(value) for key, value in sorted((environment or {}).items())
         },
         "stdin": _stdin_descriptor(stdin_text, stdin_base64),
         "timeout_seconds": timeout_seconds,
         "parent_task_id": parent_task_id,
+    }
+
+
+def normalize_scoped_durable_command_request(
+    *,
+    project_id: str,
+    resource_id: str,
+    repo_name: str,
+    profile_id: str,
+    argv: list[str],
+    working_directory: str = "",
+    environment: dict[str, str] | None = None,
+    stdin_text: str | None = None,
+    stdin_base64: str | None = None,
+    timeout_seconds: int | None = None,
+    parent_task_id: str = "",
+) -> dict[str, Any]:
+    """Return a versioned scoped hash domain without changing legacy hashes."""
+    legacy = normalize_durable_command_request(
+        repo_name=repo_name,
+        profile_id=profile_id,
+        argv=argv,
+        working_directory=working_directory,
+        environment=environment,
+        stdin_text=stdin_text,
+        stdin_base64=stdin_base64,
+        timeout_seconds=timeout_seconds,
+        parent_task_id=parent_task_id,
+    )
+    return {
+        "hash_domain": "soma.project_scope.task_request.v1",
+        "project_id": project_id,
+        "resource_id": resource_id,
+        "request": legacy,
     }
 
 

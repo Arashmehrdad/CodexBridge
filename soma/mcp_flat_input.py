@@ -47,6 +47,7 @@ _DISCRIMINATOR_NAMES: Final[tuple[str, ...]] = ("operation", "action")
 # Identity fields are pulled directly behind the discriminator so a reader sees
 # "which operation, against which object" before any tuning knobs.
 _IDENTITY_FIELD_ORDER: Final[tuple[str, ...]] = (
+    "project_id",
     "repo_name",
     "run_id",
     "group_id",

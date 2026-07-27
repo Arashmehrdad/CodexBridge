@@ -143,6 +143,12 @@ class TaskStore:
         finally:
             conn.close()
 
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Public shared-main-store transaction for narrow sidecar coordination."""
+        with self._transaction() as conn:
+            yield conn
+
     # ------------------------------------------------------------------
     # row mapping
     # ------------------------------------------------------------------
@@ -183,10 +189,17 @@ class TaskStore:
         self, controller_request_id: str
     ) -> TaskRecord | None:
         with self._read() as conn:
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE controller_request_id = ?",
-                (controller_request_id,),
-            ).fetchone()
+            return self.find_by_controller_request_in_connection(
+                conn, controller_request_id
+            )
+
+    def find_by_controller_request_in_connection(
+        self, conn: sqlite3.Connection, controller_request_id: str
+    ) -> TaskRecord | None:
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE controller_request_id = ?",
+            (controller_request_id,),
+        ).fetchone()
         return None if row is None else self._row_to_task(row)
 
     def find_by_backend_ref(
@@ -294,79 +307,118 @@ class TaskStore:
         reserve a backend reference.
         """
         validate_task_id(task_id)
-        now = utc_now()
         with self._transaction() as conn:
-            existing = conn.execute(
-                "SELECT * FROM tasks WHERE controller_request_id = ?",
-                (controller_request_id,),
-            ).fetchone()
-            if existing is not None:
-                record = self._row_to_task(existing)
-                if record.request_hash != request_hash:
-                    raise TaskRequestConflict(record, request_hash)
-                return record, False
-            conn.execute(
-                """
-                INSERT INTO tasks (
-                    task_id, parent_task_id, task_kind, controller_request_id,
-                    request_hash, objective_ref, constraints_ref, backend_kind,
-                    backend_executor, backend_ref, backend_identity_json,
-                    workspace_kind, workspace_ref, state, phase, state_version,
-                    checkpoint_ref, result_ref, result_hash, evidence_ref,
-                    recovery_state, recovery_reason, reconciled_at,
-                    created_at, updated_at, started_at, ended_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,
-                          '', '', '', ?, ?, '', NULL, ?, ?, NULL, NULL)
-                """,
-                (
-                    task_id,
-                    parent_task_id,
-                    task_kind,
-                    controller_request_id,
-                    request_hash,
-                    objective_ref,
-                    constraints_ref,
-                    backend_kind,
-                    backend_executor,
-                    backend_ref,
-                    _dumps(backend_identity),
-                    workspace_kind,
-                    workspace_ref,
-                    state,
-                    phase,
-                    "",
-                    TaskRecoveryState.NONE.value,
-                    now,
-                    now,
-                ),
+            return self.reserve_task_in_connection(
+                conn,
+                task_id=task_id,
+                task_kind=task_kind,
+                controller_request_id=controller_request_id,
+                request_hash=request_hash,
+                backend_kind=backend_kind,
+                backend_executor=backend_executor,
+                backend_ref=backend_ref,
+                backend_identity=backend_identity,
+                objective_ref=objective_ref,
+                constraints_ref=constraints_ref,
+                workspace_kind=workspace_kind,
+                workspace_ref=workspace_ref,
+                parent_task_id=parent_task_id,
+                state=state,
+                phase=phase,
             )
-            if backend_ref:
-                self._insert_link(
-                    conn,
-                    task_id=task_id,
-                    link_type=TaskLinkType.BACKEND_RUN.value,
-                    target_kind=TaskLinkTargetKind.DURABLE_RUN.value,
-                    target_id=backend_ref,
-                    metadata={
-                        "backend_kind": backend_kind,
-                        "backend_executor": backend_executor,
-                    },
-                    now=now,
-                )
-            if parent_task_id:
-                self._insert_link(
-                    conn,
-                    task_id=task_id,
-                    link_type=TaskLinkType.PARENT.value,
-                    target_kind=TaskLinkTargetKind.TASK.value,
-                    target_id=parent_task_id,
-                    metadata={},
-                    now=now,
-                )
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            return self._row_to_task(row), True
+
+    def reserve_task_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        task_id: str,
+        task_kind: str,
+        controller_request_id: str,
+        request_hash: str,
+        backend_kind: str,
+        backend_executor: str,
+        backend_ref: str,
+        backend_identity: dict[str, Any],
+        objective_ref: str = "",
+        constraints_ref: str = "",
+        workspace_kind: str = "",
+        workspace_ref: str = "",
+        parent_task_id: str = "",
+        state: str = TaskState.ACCEPTED.value,
+        phase: str = TaskPhase.BACKEND_RESERVED.value,
+    ) -> tuple[TaskRecord, bool]:
+        """Connection-scoped insert used by the ProjectScope coordinator."""
+        validate_task_id(task_id)
+        existing = self.find_by_controller_request_in_connection(
+            conn, controller_request_id
+        )
+        if existing is not None:
+            if existing.request_hash != request_hash:
+                raise TaskRequestConflict(existing, request_hash)
+            return existing, False
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                task_id, parent_task_id, task_kind, controller_request_id,
+                request_hash, objective_ref, constraints_ref, backend_kind,
+                backend_executor, backend_ref, backend_identity_json,
+                workspace_kind, workspace_ref, state, phase, state_version,
+                checkpoint_ref, result_ref, result_hash, evidence_ref,
+                recovery_state, recovery_reason, reconciled_at,
+                created_at, updated_at, started_at, ended_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,
+                      '', '', '', ?, ?, '', NULL, ?, ?, NULL, NULL)
+            """,
+            (
+                task_id,
+                parent_task_id,
+                task_kind,
+                controller_request_id,
+                request_hash,
+                objective_ref,
+                constraints_ref,
+                backend_kind,
+                backend_executor,
+                backend_ref,
+                _dumps(backend_identity),
+                workspace_kind,
+                workspace_ref,
+                state,
+                phase,
+                "",
+                TaskRecoveryState.NONE.value,
+                now,
+                now,
+            ),
+        )
+        if backend_ref:
+            self._insert_link(
+                conn,
+                task_id=task_id,
+                link_type=TaskLinkType.BACKEND_RUN.value,
+                target_kind=TaskLinkTargetKind.DURABLE_RUN.value,
+                target_id=backend_ref,
+                metadata={
+                    "backend_kind": backend_kind,
+                    "backend_executor": backend_executor,
+                },
+                now=now,
+            )
+        if parent_task_id:
+            self._insert_link(
+                conn,
+                task_id=task_id,
+                link_type=TaskLinkType.PARENT.value,
+                target_kind=TaskLinkTargetKind.TASK.value,
+                target_id=parent_task_id,
+                metadata={},
+                now=now,
+            )
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        return self._row_to_task(row), True
 
     @staticmethod
     def _insert_link(
