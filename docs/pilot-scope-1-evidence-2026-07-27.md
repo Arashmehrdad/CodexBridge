@@ -166,6 +166,73 @@ This proves the feasibility of an additive identity seam. It does not yet prove
 the production store migration, live process/lock/credential behaviour, public
 projection budgets, or restart reconciliation.
 
+## Production-shaped real-store checkpoint
+
+The second checkpoint is preserved as
+`tests/test_pilot_scope_1.py`. It remains test-only and uses temporary
+databases, the real Soma stores, and a Hermes supervisor fake. No live schema,
+configuration, record, process, credential, or artifact was changed.
+
+The test sidecar reserves exact task and run IDs before the incumbent
+`TaskStore` and `RunStore` insert their authoritative rows. SQLite triggers then
+reject a task, task link, run, memory record, or operation lock that lacks the
+matching reservation. This avoids adding columns to the current strict task
+row model and preserves persist-before-launch ordering.
+
+Five pilot tests passed:
+
+1. **Additive and fail-closed migration.** Reapplying the fixture migration was
+   idempotent, the incumbent task schema remained readable, foreign-key checks
+   were clean, and unscoped task/run inserts failed.
+2. **Real task, run, repository, worktree, process, and lock stores.** Two
+   projects used the same repository alias, task objective, filename, and
+   branch name but retained distinct opaque repository, worktree, task, run,
+   worker-process, and project identities. Cross-project task links failed.
+3. **Project-first memory.** Identical source IDs, content, and content hashes
+   survived under different projects; retrieval filtered by project before
+   matching and deduplication. The incumbent raw memory search still returned
+   both projects, confirming that project workers require the scoped adapter.
+4. **Evidence, credentials, and projection.** Artifacts inherited project
+   identity through the exact run ID; cross-project artifact access failed; a
+   credential reference became visible to the second project only after an
+   explicit shared-resource binding; additive project fields remained within
+   the task response budget.
+5. **Hermes binding before execution.** The test reserved the exact Hermes run
+   and session binding before the gateway created its durable run. The result
+   remained readable through the owning session and project; the other project
+   failed its scope check.
+
+Focused validation passed:
+
+- `ruff format --check tests/test_pilot_scope_1.py`;
+- `ruff check tests/test_pilot_scope_1.py`;
+- 93 focused tests covering the pilot plus the incumbent task, memory, lock,
+  Hermes, artifact, and SSH-binding suites.
+
+### Measured integration requirements
+
+The proof narrows the production work but does not authorize it:
+
+- Task and run IDs must be allocated and scope-reserved before the incumbent
+  store insert. A failed attachment needs deterministic reconciliation of the
+  reserved sidecar records.
+- The separate memory database cannot have a SQLite foreign key to the main
+  project registry. The adapter therefore validates the authoritative project
+  generation before reserving memory, and startup reconciliation must quarantine
+  orphaned or stale-generation reservations.
+- Current memory deduplication and global search need a project-first adapter or
+  store change. Filtering their current global result afterward is not
+  acceptable.
+- Hermes currently allocates its run ID inside the gateway. Production
+  integration needs a narrow pre-reservation hook or a caller-supplied reserved
+  run ID; the test used a fixed generator to prove that seam.
+- `operation_locks.repo_name` safely over-serializes two distinct repositories
+  that use the same alias. It prevents concurrent mutation, but the canonical
+  lock key must eventually be the resource identity while preserving the one
+  existing lock authority.
+- The projection proof was performed at the projection function boundary, not
+  through the live MCP schema. Connector-live compatibility remains open.
+
 ## Working seam under investigation
 
 The leading design is additive and preserves incumbent authorities:
@@ -283,26 +350,32 @@ Decision:
 - [x] Live source and schema inventory.
 - [x] Historical-run backfill classification.
 - [x] Disposable two-project schema proof.
+- [x] Production-shaped sidecar fixture on temporary real Soma stores.
+- [x] Real-store confusion proof for tasks, runs, repositories, worktrees,
+  memory, artifacts, explicit credential bindings, and Hermes session binding.
+- [x] Additive task projection fields remained within the CF1 byte budget at the
+  projection-function boundary.
 - [x] Baseline task, memory, artifact, and SSH-binding tests:
   `57 passed in 7.90s`.
+- [x] Extended focused validation: `93 passed in 18.13s`.
 - [ ] Production-shaped migration test on a disposable copy of the live stores.
 - [ ] Lock, process, cancellation, and restart confusion tests.
-- [ ] Credential and Hermes session-binding confusion tests.
-- [ ] Memory query/deduplication confusion tests through the real repository API.
-- [ ] Public task/run projection and response-budget compatibility tests.
+- [ ] Credential-provider and Hermes restart/reconciliation confusion tests.
+- [ ] Public MCP task/run schema and connector-live compatibility tests.
 - [ ] Backfill and quarantine manifest reviewed by the owner.
 - [ ] Final proceed, scope-cut, switch, blocked, or stop decision.
 
 ## Ranked next actions
 
-1. Write the production-shaped sidecar schema and migration as a disposable
-   test fixture only, including the separate-memory-store boundary.
-2. Run the two-project confusion matrix through real `TaskStore`, `RunStore`,
-   memory repository, operation-lock, artifact, and Hermes gateway fakes.
+1. Exercise cancellation, worker/process adoption, operation-lock recovery,
+   Hermes restart, and orphaned sidecar reservations with deterministic fakes.
+2. Apply the fixture migration to disposable copies of the live run and memory
+   databases and record timing, size, integrity checks, and rollback evidence.
 3. Produce a deterministic backfill/quarantine manifest containing counts and
    hashes, not inferred assignments.
 4. Exercise current MCP task/run projections with additive project fields and
-   verify CF1 budgets and exact-ID retrieval.
+   verify strict schemas, CF1 budgets, exact-ID retrieval, and incumbent
+   controller payloads.
 5. Present the pilot verdict and smallest implementation batch for owner
    approval. Do not merge the proof into production code during this pilot.
 
