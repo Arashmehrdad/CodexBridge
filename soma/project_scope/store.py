@@ -11,6 +11,7 @@ from typing import Any, Iterator
 
 from .models import (
     ADJUDICATION_ID_DOMAIN,
+    ADJUDICATION_REQUEST_DOMAIN,
     AttemptBindingStatus,
     ProjectScopeError,
     ProjectScopeMismatch,
@@ -872,6 +873,14 @@ class ProjectScopeStore:
                     )
                 ).encode("utf-8")
             ).hexdigest()
+            request_hash = self._adjudication_request_hash(
+                project_id=project_id,
+                record_kind=record_kind,
+                record_id=record_id,
+                disposition=disposition,
+                reason=trimmed_reason,
+                successor_task_id=successor_task_id,
+            )
 
             existing = conn.execute(
                 "SELECT * FROM project_scope_adjudications "
@@ -884,14 +893,33 @@ class ProjectScopeStore:
                         "Record is already adjudicated under a different "
                         "idempotency key; adjudication is single-shot"
                     )
+                # Matching the ID proves only that the same key addressed the
+                # same record. A replay must also carry the same decision:
+                # returning the stored row otherwise would report a decision
+                # that was never recorded as though it had been accepted.
+                if str(existing["request_hash"]) != request_hash:
+                    divergent = ", ".join(
+                        field
+                        for field, submitted in (
+                            ("disposition", disposition),
+                            ("successor_task_id", successor_task_id),
+                            ("reason", trimmed_reason),
+                        )
+                        if str(existing[field]) != submitted
+                    )
+                    raise ProjectScopeError(
+                        "Idempotency key was already used for a different "
+                        f"decision (differing fields: {divergent}); "
+                        "adjudication is single-shot"
+                    )
                 return self._adjudication_payload(existing, replayed=True)
 
             conn.execute(
                 "INSERT INTO project_scope_adjudications "
                 "(adjudication_id, project_id, record_kind, record_id, disposition, "
-                " successor_task_id, reason, idempotency_key, "
+                " successor_task_id, reason, idempotency_key, request_hash, "
                 " quarantine_evidence_hash, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     adjudication_id,
                     project_id,
@@ -901,6 +929,7 @@ class ProjectScopeStore:
                     successor_task_id,
                     trimmed_reason,
                     idempotency_key,
+                    request_hash,
                     evidence_hash,
                     now,
                 ),
@@ -933,10 +962,40 @@ class ProjectScopeStore:
         return self._adjudication_payload(written, replayed=False)
 
     @staticmethod
+    def _adjudication_request_hash(
+        *,
+        project_id: str,
+        record_kind: str,
+        record_id: str,
+        disposition: str,
+        reason: str,
+        successor_task_id: str,
+    ) -> str:
+        """Fingerprint every decision-bearing field of an adjudication request.
+
+        The caller-supplied reason arrives already normalized (stripped and
+        bounded) so that the same decision written two ways hashes the same.
+        """
+        return sha256(
+            "\0".join(
+                (
+                    ADJUDICATION_REQUEST_DOMAIN,
+                    project_id,
+                    record_kind,
+                    record_id,
+                    disposition,
+                    successor_task_id,
+                    reason,
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
     def _adjudication_payload(row: sqlite3.Row, *, replayed: bool) -> dict[str, Any]:
         return {
             "ok": True,
             "adjudication_id": str(row["adjudication_id"]),
+            "request_hash": str(row["request_hash"]),
             "project_id": str(row["project_id"]),
             "record_kind": str(row["record_kind"]),
             "record_id": str(row["record_id"]),

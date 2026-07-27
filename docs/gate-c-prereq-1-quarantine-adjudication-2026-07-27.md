@@ -1,12 +1,14 @@
 # GATE-C-PREREQ-1 — Quarantine Adjudication
 
 **Date:** 2026-07-27
-**Status:** implemented and tested, then owner-reviewed. One focused idempotency fix is required before acceptance.
+**Status:** implemented and tested, then owner-reviewed and returned for one
+focused idempotency fix. That fix is implemented as specified — see §3.1.
+Awaiting re-review. Nothing outside the fix was widened.
 **Unblocks:** `SCOPE-FOUNDATION-1` Gate C, which
 [`SCOPE_FOUNDATION_1_GATE_C_PREPARATION_2026-07-27.md`](SCOPE_FOUNDATION_1_GATE_C_PREPARATION_2026-07-27.md)
 records as not approvable until this prerequisite is accepted.
 
-**Owner review:** the terminal-quarantine and supersession design is accepted in principle, but the implementation is not accepted yet. A repeated idempotency key is considered a replay solely from its deterministic adjudication ID; a changed disposition, reason, or successor under that same key therefore returns the first row instead of rejecting a different request. See [`gate-c-prereq-1-owner-review-2026-07-27.md`](gate-c-prereq-1-owner-review-2026-07-27.md).
+**Owner review:** the terminal-quarantine and supersession design was accepted in principle, but the implementation was not. A repeated idempotency key was treated as a replay solely from its deterministic adjudication ID, so a changed disposition, reason, or successor under that same key returned the first row instead of rejecting a different request. See [`gate-c-prereq-1-owner-review-2026-07-27.md`](gate-c-prereq-1-owner-review-2026-07-27.md); the finding and its closure are in §3.1 below.
 
 **Not activated.** The live store remains at ProjectScope schema **v1**. This
 change adds schema **v2**, which is applied only by an explicit owner-approved
@@ -39,6 +41,8 @@ project_scope_adjudications
   disposition                'acknowledged' | 'superseded'
   successor_task_id          required iff superseded, and never equal to record_id
   reason, idempotency_key
+  request_hash               normalized fingerprint of the decision this key
+                             was used for (see §3.1)
   quarantine_evidence_hash   copied from the preserved quarantine row
   created_at
   UNIQUE(record_kind, record_id)
@@ -74,11 +78,95 @@ pass.
 | Original identity and evidence remain immutable | same as row 1, plus an in-transaction assertion that rolls back if the record or its evidence hash moved |
 | Requires exact `project_id`, exact identity, reason, idempotency key | `test_invalid_requests_are_rejected_before_any_write`, `test_mcp_surface_is_strict_and_scope_mandatory` |
 | Cross-project fails before disclosing or mutating | `test_cross_project_adjudication_fails_without_disclosure` |
-| Repeated requests are idempotent | `test_adjudication_is_idempotent_and_single_shot` |
+| Repeated requests are idempotent | `test_adjudication_is_idempotent_and_single_shot`, plus the two conflict tests in §3.1 |
 | Crash/restart cannot create two replacements | `test_concurrent_adjudication_yields_exactly_one_replacement` — two threads race, exactly one wins |
 | Evidence queryable without manual SQL | `test_evidence_is_queryable_without_manual_sql` |
 | No second authority introduced | `test_no_second_authority_is_introduced` — task, run, and backend-launch counts are unchanged |
 | No historical disposition performed | the migration is `CREATE TABLE` + `CREATE INDEX` only and writes no row |
+
+### 3.1 Idempotency conflict — review finding, closed
+
+The owner's acceptance review rejected the first implementation on a real
+defect. Reusing one idempotency key with a **materially different** decision
+returned the original adjudication as a successful replay:
+
+```
+first  : acknowledged / "first decision"          -> written
+second : superseded / valid successor / "conflicting decision", same key
+returned: acknowledged / replayed=true            <- wrong
+```
+
+Changing only the `reason` under the same key behaved the same way. A caller
+could therefore believe a different owner decision had been accepted when
+nothing was recorded — the most dangerous shape of failure for an operation
+whose whole purpose is recording an owner's intent.
+
+The original single-shot check only compared the derived `adjudication_id`,
+which is a hash over `(domain, project_id, record_kind, record_id,
+idempotency_key)`. Two requests that differ *only* in their decision content
+hash identically, so the check could not see them apart. Matching that ID
+proves the same key addressed the same record — nothing more.
+
+The fix is the one the review specified. Migration v2 was **amended rather than
+superseded by a v3**, which is sound only because no store has ever applied v2;
+the live store is at v1 and applying v2 requires an authorization that has not
+been given. Re-verified read-only against the live store immediately before
+this change was committed:
+
+```
+applied versions: [('canonical_task_plane', 1), ('project_scope', 1)]
+project_scope_adjudications present: False
+```
+
+The new `request_hash` column is a sha256 over a distinct domain string plus
+every decision-bearing field: project, record kind and ID, disposition,
+successor task ID, and the **normalized** reason. Normalization matters — the
+reason is stripped and bounded before hashing, so the same decision written
+with incidental whitespace replays instead of falsely conflicting
+(`test_reused_key_with_a_different_decision_is_rejected` pins this). A replay
+now requires both the adjudication ID *and* the request hash to match; any
+divergence raises and names the differing fields, which is diagnostic only —
+the gate itself is the single hash comparison.
+
+The column is written once with the row and has no update path, so a stored
+decision cannot be retro-fitted to match a later request.
+
+This is fail-closed. A caller that hits the conflict has recorded nothing and
+can resubmit under a new key, which the pre-existing single-shot rule then
+rejects on the correct grounds — the record is already adjudicated.
+
+The review's probe, re-run against the fix on a disposable store:
+
+```
+First request:  acknowledged / 'first decision'
+Second (different disposition): REJECTED -> Idempotency key was already used for
+  a different decision (differing fields: disposition, successor_task_id, reason)
+Second (different reason only): REJECTED -> Idempotency key was already used for
+  a different decision (differing fields: reason)
+Exact resubmit: acknowledged / replayed=True
+Rows on record: [('acknowledged', 'first decision', '')]
+```
+
+Every case the review asked to be tested:
+
+| Case | Behaviour | Test |
+|---|---|---|
+| Same key, identical normalized request | replay, `replayed=true`, no second row | `…different_decision_is_rejected` (whitespace variant), `…is_idempotent_and_single_shot` |
+| Same key, changed `disposition` | rejected, naming the fields | `…different_decision_is_rejected` |
+| Same key, changed `reason` only | rejected | `…different_decision_is_rejected` |
+| Same key, changed `successor_task_id` | rejected | `…different_successor_is_rejected` |
+| Different key after adjudication | rejected as single-shot (unchanged) | `…is_idempotent_and_single_shot` |
+| Concurrent identical requests | both callers get the same accepted decision, exactly one row | `…resolve_by_request_fingerprint` |
+| Concurrent conflicting requests | one accepted, one rejected, exactly one row | `…resolve_by_request_fingerprint` |
+
+`test_reused_key_with_a_different_successor_is_rejected` also pins that an
+identical resubmission still replays, so the conflict check cannot silently
+harden into "no idempotency at all". Each conflict test asserts the stored row
+is unchanged and still the only one on record.
+
+The gap existed because the original idempotency test covered only the matching
+replay and the different-key case, and never varied decision content under a
+fixed key. That axis is now tested per field, and under concurrency.
 
 ### Non-disclosure detail
 
@@ -142,9 +230,22 @@ silently.
 
 ## 7. Validation
 
-- `tests/test_project_scope_quarantine_adjudication.py`: **12 passed**
+- `tests/test_project_scope_quarantine_adjudication.py`: **15 passed**
+  (12 at first review, plus the three added by the §3.1 fix)
 - `tests/test_project_scope_foundation.py`: **19 passed**
 - affected gateway/task/capability modules: **172 passed**
+- full suite: **2070 passed, 35 skipped** — the pre-lane baseline of 2055 plus
+  exactly the 15 tests in this lane, with no regression
+
+The first full-suite run of the fix reported `1 failed, 2069 passed`. The
+failure was `test_chat_footprint_acceptance.py::
+test_projection_overhead_and_full_retrieval_performance`, a wall-clock
+assertion (`excess_median <= 0.5`, measured `16.09`). Three focused suites were
+running against the same machine at the time. It passes in isolation and on a
+rerun of the full suite with nothing else competing, and it measures chat
+projection overhead, which shares no code with the scope store. Recorded here
+rather than quietly re-run: the test is timing-sensitive under load, which is
+worth knowing independently of this lane.
 - ruff check across `soma/` and changed tests: passed
 
 Three existing tests were updated, all of them declared-contract pins rather
@@ -164,3 +265,8 @@ No behavioural assertion was relaxed to make this land.
 It does not approve Gate C, apply schema v2 to any live store, restart the
 server, bootstrap a project, enable scoped writes, dispose of any historical
 record, or push.
+
+The §3.1 fix in particular was kept to the bounds the review set: it touches
+migration v2's table definition, the adjudication write and replay path, and
+its tests. It does not extend into permissions, historical disposition, Gate C
+bootstrap, memory, or unrelated cleanup.

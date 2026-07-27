@@ -15,6 +15,9 @@ PROJECT_SCOPE_SCHEMA_VERSION: Final[int] = 2
 PROJECT_SCOPE_MODEL_VERSION: Final[str] = "project_scope.v1"
 SCOPED_REQUEST_HASH_DOMAIN: Final[str] = "soma.project_scope.task_request.v1"
 ADJUDICATION_ID_DOMAIN: Final[str] = "soma.project_scope.quarantine_adjudication.v1"
+ADJUDICATION_REQUEST_DOMAIN: Final[str] = (
+    "soma.project_scope.quarantine_adjudication_request.v1"
+)
 
 
 class ProjectLifecycle(str, Enum):

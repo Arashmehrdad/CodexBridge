@@ -155,6 +155,12 @@ _MIGRATION_0002: Final[tuple[str, ...]] = (
         successor_task_id TEXT NOT NULL DEFAULT '',
         reason TEXT NOT NULL,
         idempotency_key TEXT NOT NULL,
+        -- Normalized fingerprint of the decision this key was used for. An
+        -- adjudication ID binds only project, record identity, and key, so
+        -- without this a second request under the same key carrying a
+        -- different decision would be indistinguishable from a retry. Written
+        -- once with the row; there is no code path that updates it.
+        request_hash TEXT NOT NULL CHECK(length(request_hash) = 64),
         quarantine_evidence_hash TEXT NOT NULL,
         created_at TEXT NOT NULL,
         -- At most one adjudication per quarantined record. A crash between the

@@ -74,6 +74,11 @@ def test_schema_v2_is_additive_and_idempotent(tmp_path: Path) -> None:
     with scope._read() as conn:
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(project_scope_adjudications)")
+        }
+        assert "request_hash" in columns
         assert (
             int(
                 conn.execute(
@@ -175,6 +180,201 @@ def test_adjudication_is_idempotent_and_single_shot(tmp_path: Path) -> None:
             )
             == 1
         )
+
+
+def test_reused_key_with_a_different_decision_is_rejected(tmp_path: Path) -> None:
+    """One key must never replay a decision the caller did not submit.
+
+    Silently returning the stored row here would tell an owner that a different
+    decision had been accepted when nothing was recorded.
+    """
+    _c, _p, _r, scope, _b, manager = _scoped_manager(tmp_path)
+    _started, task_id = _quarantined_task(manager, scope)
+    successor = manager.start_durable_command(
+        controller_request_id="successor-a",
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        argv=["Write-Output", "successor-a"],
+    )
+    assert successor["ok"], successor
+
+    first = scope.adjudicate_quarantine(
+        project_id=PROJECT_ALPHA,
+        record_kind="task_reservation",
+        record_id=task_id,
+        disposition="acknowledged",
+        reason="first decision",
+        idempotency_key="shared-key",
+    )
+    assert first["replayed"] is False
+
+    conflicting = [
+        # A materially different disposition under the original key.
+        {
+            "disposition": "superseded",
+            "reason": "conflicting decision",
+            "successor_task_id": successor["task_id"],
+        },
+        # The rationale on the record is itself decision-bearing.
+        {"disposition": "acknowledged", "reason": "conflicting decision"},
+    ]
+    for kwargs in conflicting:
+        with pytest.raises(ProjectScopeError, match="already used for a different"):
+            scope.adjudicate_quarantine(
+                project_id=PROJECT_ALPHA,
+                record_kind="task_reservation",
+                record_id=task_id,
+                idempotency_key="shared-key",
+                **kwargs,
+            )
+
+    # The original decision is untouched and still the only one on record.
+    with scope._read() as conn:
+        rows = [
+            dict(row)
+            for row in conn.execute("SELECT * FROM project_scope_adjudications")
+        ]
+    assert len(rows) == 1
+    assert rows[0]["disposition"] == "acknowledged"
+    assert rows[0]["reason"] == "first decision"
+    assert rows[0]["successor_task_id"] == ""
+    assert rows[0]["request_hash"] == first["request_hash"]
+
+    # The fingerprint is over the *normalized* request, so the same decision
+    # written with incidental whitespace is a replay rather than a conflict.
+    normalized = scope.adjudicate_quarantine(
+        project_id=PROJECT_ALPHA,
+        record_kind="task_reservation",
+        record_id=task_id,
+        disposition="acknowledged",
+        reason="   first decision   ",
+        idempotency_key="shared-key",
+    )
+    assert normalized["replayed"] is True
+    assert normalized["request_hash"] == first["request_hash"]
+
+
+def test_reused_key_with_a_different_successor_is_rejected(tmp_path: Path) -> None:
+    """successor_task_id alone makes a request a different decision.
+
+    Also pins that the conflict check does not over-reject: an identical
+    resubmission is still an idempotent replay.
+    """
+    _c, _p, _r, scope, _b, manager = _scoped_manager(tmp_path)
+    _started, task_id = _quarantined_task(manager, scope)
+    chosen, rejected = (
+        manager.start_durable_command(
+            controller_request_id=f"successor-{label}",
+            project_id=PROJECT_ALPHA,
+            repo_name="sample",
+            argv=["Write-Output", label],
+        )
+        for label in ("chosen", "rejected")
+    )
+
+    decision = dict(
+        project_id=PROJECT_ALPHA,
+        record_kind="task_reservation",
+        record_id=task_id,
+        disposition="superseded",
+        reason="replaced after owner review",
+        idempotency_key="successor-key",
+    )
+    first = scope.adjudicate_quarantine(
+        **decision, successor_task_id=chosen["task_id"]
+    )
+    assert first["successor_task_id"] == chosen["task_id"]
+
+    with pytest.raises(ProjectScopeError, match="differing fields: successor_task_id"):
+        scope.adjudicate_quarantine(
+            **decision, successor_task_id=rejected["task_id"]
+        )
+
+    replay = scope.adjudicate_quarantine(
+        **decision, successor_task_id=chosen["task_id"]
+    )
+    assert replay["replayed"] is True
+    assert replay["adjudication_id"] == first["adjudication_id"]
+
+    with scope._read() as conn:
+        stored = conn.execute(
+            "SELECT successor_task_id FROM project_scope_adjudications"
+        ).fetchall()
+    assert [row[0] for row in stored] == [chosen["task_id"]]
+
+
+def _race(work) -> list[object]:
+    """Run two attempts against the same record with a barrier between them."""
+    barrier = threading.Barrier(2)
+    outcomes: list[object] = []
+    lock = threading.Lock()
+
+    def attempt(index: int) -> None:
+        barrier.wait()
+        try:
+            result: object = work(index)
+        except (ProjectScopeError, sqlite3.IntegrityError) as exc:
+            result = exc
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt, args=(i,)) for i in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return outcomes
+
+
+def test_concurrent_same_key_requests_resolve_by_request_fingerprint(
+    tmp_path: Path,
+) -> None:
+    """Concurrency does not change the rule: same decision replays, different rejects."""
+    _c, _p, _r, scope, _b, manager = _scoped_manager(tmp_path)
+    _started, identical_task = _quarantined_task(manager, scope)
+    _second, conflicting_task = _quarantined_task(
+        manager, scope, controller_request_id="q-conflict"
+    )
+
+    def same_decision(_index: int) -> dict:
+        return scope.adjudicate_quarantine(
+            project_id=PROJECT_ALPHA,
+            record_kind="task_reservation",
+            record_id=identical_task,
+            disposition="acknowledged",
+            reason="identical decision",
+            idempotency_key="concurrent-key",
+        )
+
+    identical = _race(same_decision)
+    # Both callers see the same accepted decision; neither is told it failed.
+    assert all(isinstance(o, dict) for o in identical), identical
+    assert len({o["adjudication_id"] for o in identical}) == 1
+    assert len({o["request_hash"] for o in identical}) == 1
+    assert sorted(o["replayed"] for o in identical) == [False, True]
+
+    def conflicting_decision(index: int) -> dict:
+        return scope.adjudicate_quarantine(
+            project_id=PROJECT_ALPHA,
+            record_kind="task_reservation",
+            record_id=conflicting_task,
+            disposition="acknowledged",
+            reason=f"decision {index}",
+            idempotency_key="concurrent-key",
+        )
+
+    conflicting = _race(conflicting_decision)
+    assert len([o for o in conflicting if isinstance(o, dict)]) == 1
+    assert len([o for o in conflicting if isinstance(o, Exception)]) == 1
+
+    with scope._read() as conn:
+        counts = conn.execute(
+            "SELECT record_id, COUNT(*) FROM project_scope_adjudications "
+            "GROUP BY record_id"
+        ).fetchall()
+    assert sorted(tuple(row) for row in counts) == sorted(
+        [(conflicting_task, 1), (identical_task, 1)]
+    )
 
 
 def test_concurrent_adjudication_yields_exactly_one_replacement(
