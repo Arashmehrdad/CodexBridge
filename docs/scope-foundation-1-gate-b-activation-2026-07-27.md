@@ -1,7 +1,7 @@
 # SCOPE-FOUNDATION-1 Gate B — Live Schema Activation
 
 **Date:** 2026-07-27
-**Status:** executed and verified. ProjectScope v1 schema is live.
+**Status:** executed, owner-reviewed, and accepted. ProjectScope v1 schema is live, empty, and inactive.
 **Authorization:** owner approval recorded at
 [`60f8bec`](../docs/SCOPE_FOUNDATION_1_GATE_B_PREPARATION_2026-07-27.md), for
 one schema-only activation using the prepared procedure.
@@ -170,3 +170,31 @@ recorded in PLANS.md: Gate B creates schema only, so there is no binding for a
 scoped call to resolve against. The scoped payload path itself was already
 proved on a disposable store in
 [`scope-foundation-1-gate-a-review-2026-07-27.md`](scope-foundation-1-gate-a-review-2026-07-27.md) §4.2.
+
+## 10. Owner acceptance
+
+**Decision:** accepted on 2026-07-27.
+
+The owner review independently confirmed:
+
+- the committed activation changed only the plan and Gate B evidence records;
+- live task capabilities report ProjectScope schema v1 installed, with every
+  table present, scoped writes disabled, and enforcement `inactive`;
+- all ten runtime self-check categories pass;
+- the repository is clean at activation commit
+  `2cfbd1c153258e82aaa5f961767e25e043719793`, with no active runs or locks at
+  the review checkpoint;
+- incumbent run `20260727T033409Z_executable_profile_84d39cd6` still reports
+  publication hash
+  `b12e400beb5eb8138765836d728667cb6dd48b1dcabb4b5be0114ef3669664e7`;
+- the rollback artifact independently re-opened read-only with integrity `ok`,
+  4,688 runs, two tasks, zero `project%` tables, and sha256
+  `f47cc830c0ecc5f7cd13a1103a230adff0b645417dc4368dbdaa8b98e9af1296`.
+
+The 4,688-run count is point-in-time activation evidence. Ordinary durable
+verification traffic after activation may increase the live run count without
+changing this decision.
+
+Gate B is closed. This acceptance does not authorize Gate C, scoped-write
+enablement, project or repository bootstrap, historical disposition,
+PILOT-MEMORY-1, Obsidian integration, Hermes changes, or a push.

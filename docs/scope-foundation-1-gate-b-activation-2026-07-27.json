@@ -68,6 +68,32 @@
     },
     "size_bytes_after": 130596864
   },
+  "owner_review": {
+    "accepted": true,
+    "decision": "accepted",
+    "exclusions": [
+      "Gate C project or repository bootstrap",
+      "scoped-write enablement",
+      "historical assignment or quarantine writes",
+      "PILOT-MEMORY-1 or Obsidian integration",
+      "Hermes changes",
+      "push"
+    ],
+    "gate_b_closed": true,
+    "independent_checks": {
+      "enforcement_state": "inactive",
+      "live_schema_version": 1,
+      "publication_hash_preserved": true,
+      "rollback_backup_integrity": "ok",
+      "rollback_backup_project_table_count": 0,
+      "rollback_backup_run_count": 4688,
+      "rollback_backup_sha256": "f47cc830c0ecc5f7cd13a1103a230adff0b645417dc4368dbdaa8b98e9af1296",
+      "rollback_backup_task_count": 2,
+      "runtime_self_checks_passed": 10,
+      "scoped_writes_enabled": false
+    },
+    "recorded_at_utc": "2026-07-27T16:25:46.413393+00:00"
+  },
   "rehearsal": {
     "first_apply": [
       1
