@@ -235,15 +235,19 @@ silently.
 - full suite: **2070 passed, 35 skipped** — the pre-lane baseline of 2055 plus
   exactly the 15 tests in this lane, with no regression
 
-The first full-suite run of the fix reported `1 failed, 2069 passed`. The
-failure was `test_chat_footprint_acceptance.py::
-test_projection_overhead_and_full_retrieval_performance`, a wall-clock
-assertion (`excess_median <= 0.5`, measured `16.09`). Three focused suites were running against the same machine, and the owner later
-recalled that the run may also have been stopped accidentally. The exact cause
-of that first result is therefore unproven and must not be labelled a test flake
-or a contention failure. It passes in isolation and on a clean full-suite rerun,
-and it measures chat projection overhead, which shares no code with the scope
-store. The clean rerun is the authoritative validation result.
+The first full-suite attempt ran for about five hours in Claude and was manually
+stopped by the owner because it appeared stuck. Before it was stopped, partial
+pytest output had reported `1 failed, 2069 passed`; the reported failure was
+`test_chat_footprint_acceptance.py::
+test_projection_overhead_and_full_retrieval_performance`, whose assertion showed
+`excess_median = 16.09`. That `16.09` value was the test's measured projection
+overhead, not the duration of the full-suite run. Because the suite was manually
+interrupted, this attempt is incomplete and cannot be treated as a completed
+full-suite failure or as proof of a flaky test, contention failure, or hang root
+cause. Three focused suites were also running, but no causal attribution is
+possible from the surviving evidence. The test passes in isolation and the clean
+uninterrupted full-suite rerun passed, so the clean rerun is the authoritative
+validation result.
 - ruff check across `soma/` and changed tests: passed
 
 Three existing tests were updated, all of them declared-contract pins rather
