@@ -113,6 +113,8 @@ Retain direct controller-to-Soma MCP and Hermes as the companion foundation. Ope
 
 The decisive test is confusion resistance: two deliberately similar projects must remain separated across tasks, runs, repositories, worktrees, evidence, retrieval, processes, credentials, and external bindings. Unscoped project work must fail closed.
 
+The baseline inventory, historical-run classification, bounded execution plan, and first disposable two-project schema proof are recorded in [`docs/pilot-scope-1-evidence-2026-07-27.md`](docs/pilot-scope-1-evidence-2026-07-27.md). The current evidence supports continuing the investigation through an additive sidecar identity seam; it does not pass the full isolation gate or authorize production implementation.
+
 ### PILOT-MEMORY-1 - Smallest Durable Memory Baseline
 
 **Status:** inactive. Do not activate automatically.
