@@ -1,0 +1,88 @@
+{
+  "activation_requirements": {
+    "all_scope_data_tables_remain_empty": true,
+    "ever_activated_remains_zero": true,
+    "first_apply_must_equal": [
+      2
+    ],
+    "fresh_durable_backup_required": true,
+    "no_concurrent_writers": true,
+    "rehearse_exact_backup": true,
+    "runtime_must_converge_to_schema_version": 2,
+    "scoped_writes_remain_disabled": true,
+    "second_apply_must_equal": [],
+    "separate_owner_approval_required": true,
+    "server_stopped": true
+  },
+  "authorized": false,
+  "disposable_rehearsal": {
+    "adjudication_count": 0,
+    "adjudication_index_schema_sha256": "cf39f40cac9a8b0a29d0b3915058b066d68d4df24127ccef57ddaca1c253e5e5",
+    "adjudication_table_schema_sha256": "b72af7e92f31e8fcf4ecb95675ddf5354b2c6a93c95041766442afe266f8bac9",
+    "authoritative_run_id": "20260727T191822Z_executable_profile_80bee901",
+    "backup_matches_source_transaction": true,
+    "changed_existing_objects": {},
+    "checks_passed": 12,
+    "failed_wrapper_run_id": "20260727T191745Z_executable_profile_c43a5551",
+    "first_apply": [
+      2
+    ],
+    "foreign_key_count": 0,
+    "integrity": "ok",
+    "migrated_backup_sha256": "46a79adcfe5b2adc8c681ec1ac14c11695def8ae3c5a126bf92f7ed20cc80a99",
+    "new_objects": [
+      "index:idx_project_adjudication_project",
+      "table:project_scope_adjudications"
+    ],
+    "pre_migration_backup_sha256": "3576d1b3ec02dd591301dae2b3a9d23bb61d8c99b504df50a9fcda965092aba6",
+    "pre_migration_backup_size_bytes": 131137536,
+    "publication_hash": "69409019b78b91ab88ca15be1c0ee71cd64a9552798d0a2b487616196a4e1a2f",
+    "request_hash_present": true,
+    "run_count": 4720,
+    "run_id_hash": "7047e12fe65f655ad864237f7abfdbdc79589d5555f7816035a8e8cb7e00b1a5",
+    "scope_data_tables_empty": true,
+    "second_apply": [],
+    "settings": [
+      0,
+      0
+    ],
+    "snapshot_utc": "2026-07-27T19:18:29.211939+00:00",
+    "task_count": 2,
+    "task_id_hash": "20ad5dbff226e5c31de618d541dc434570243a785f8ab7722ff87eb61738e8f6",
+    "temporary_items_remaining": 0
+  },
+  "exclusions": [
+    "Gate C",
+    "project or repository bootstrap",
+    "scoped-write enablement",
+    "historical disposition",
+    "memory or Obsidian integration",
+    "Hermes integration",
+    "Codebase Memory integration",
+    "other lifecycle producer migration",
+    "_pytest-cf1-temp cleanup",
+    "push"
+  ],
+  "executed": false,
+  "gate_c_authorized": false,
+  "live_after_rehearsal": {
+    "adjudications_table_present": false,
+    "project_scope_version": 1,
+    "scope_data_tables_empty": true,
+    "settings": [
+      0,
+      0
+    ]
+  },
+  "schema_version": "scope_foundation_1.project_scope_v2_activation_preparation.v1",
+  "source": {
+    "branch": "feature/chatgpt-companion-cycle",
+    "head_commit": "da418d70e89236d4e31c70b08a43fbc685baa6d6",
+    "live_capability_epoch": "1b7a0021933e-42bdb69d96fb",
+    "live_schema_hash": "42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888",
+    "live_server_build_hash": "1b7a0021933e0e79da763e5de8cd2c1222336fec15d587408ab5d8f31646f572",
+    "prerequisite_acceptance_commit": "b3a5f01a449d086698a6bbd18abaf7ce0380df46",
+    "prerequisite_implementation_commit": "22fd884bf685d766fcdad2b9ca017cede4acf183"
+  },
+  "status": "prepared_awaiting_owner_approval"
+}
