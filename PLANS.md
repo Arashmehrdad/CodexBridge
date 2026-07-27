@@ -107,13 +107,13 @@ Retain direct controller-to-Soma MCP and Hermes as the companion foundation. Ope
 
 ### PILOT-SCOPE-1 - Project Isolation Seam
 
-**Status:** active - bounded investigation only. No production implementation is authorized by activation.
+**Status:** evaluated, owner-reviewed, and accepted with outcome **proceed**. The pilot is closed; no production implementation or historical assignment is authorized by this decision.
 
 **Purpose:** prove that immutable project identity and external-session bindings can be introduced through the current canonical stores and projections without breaking existing clients.
 
 The decisive test is confusion resistance: two deliberately similar projects must remain separated across tasks, runs, repositories, worktrees, evidence, retrieval, processes, credentials, and external bindings. Unscoped project work must fail closed.
 
-The baseline inventory, historical-run classification, bounded execution plan, disposable schema proof, and production-shaped checkpoints are recorded in [`docs/pilot-scope-1-evidence-2026-07-27.md`](docs/pilot-scope-1-evidence-2026-07-27.md). The additive sidecar passes focused isolation tests across the incumbent task, run, repository, worktree, memory, artifact, explicit credential-reference, process, cancellation, restart, lock, projection, and Hermes boundaries. Transactional migration and rollback passed on disposable copies of both live stores, whose source hashes remained unchanged. Strict additive task/run MCP schemas preserve incumbent payloads, and the deterministic [`backfill/quarantine manifest`](docs/pilot-scope-1-backfill-quarantine-manifest-2026-07-27.json) applies no inferred assignment. The evidence supports **proceed**, but owner review of that manifest and the final pilot decision remain open. No production implementation is authorized.
+The completed evidence is recorded in [`docs/pilot-scope-1-evidence-2026-07-27.md`](docs/pilot-scope-1-evidence-2026-07-27.md). The additive sidecar passed focused isolation tests across the incumbent task, run, repository, worktree, memory, artifact, credential-reference, process, cancellation, restart, lock, projection, and Hermes boundaries. Transactional migration and rollback passed on disposable copies of both live stores, whose source hashes remained unchanged. Strict additive task/run MCP schemas preserve incumbent payloads. The owner reviewed and accepted the deterministic [`backfill/quarantine manifest`](docs/pilot-scope-1-backfill-quarantine-manifest-2026-07-27.json): 2,083 mappings remain candidate-only, 2,589 runs default to quarantine, and no inferred assignment is authorized. The final pilot outcome is **proceed**. Production implementation and live historical disposition require separate lanes and approval.
 
 ### PILOT-MEMORY-1 - Smallest Durable Memory Baseline
 
@@ -136,4 +136,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-Until then, a generic `continue` advances only the currently accepted STABILIZE-1 goal. It does not activate a pilot, revive a Roadmap V2 lane, or begin Roadmap V3 feature work.
+Until a new lane is explicitly selected, a generic `continue` does not begin production implementation, activate PILOT-MEMORY-1, revive a Roadmap V2 lane, or start Roadmap V3 feature work.

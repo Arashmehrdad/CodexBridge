@@ -1,11 +1,12 @@
 # PILOT-SCOPE-1 Evidence and Execution Record
 
-**Status:** active — bounded investigation only.
+**Status:** closed — owner-reviewed outcome: **proceed**.
 
-**Current verdict:** the evidence supports **proceed**, subject to owner review
-of the deterministic backfill/quarantine manifest. The proof remains test-only;
-no production implementation, live migration, backfill, or quarantine is
-authorized.
+**Final verdict:** owner review accepts the deterministic backfill/quarantine
+manifest and the additive sidecar seam. PILOT-SCOPE-1 is complete. This decision
+authorizes planning a smallest production implementation lane only; it does not
+authorize production code, live migration, historical assignment, backfill, or
+quarantine.
 
 ## Purpose
 
@@ -297,6 +298,28 @@ Candidate does not mean approved. Repository names, paths, content, host labels,
 and controller conversations remain locators, never authority. No live record
 was assigned, backfilled, or quarantined.
 
+## Owner review and accepted disposition
+
+Owner review on 2026-07-27 independently verified the manifest's canonical
+SHA-256 and arithmetic: all 4,672 runs are accounted for, with 2,083 candidate
+records, 2,589 quarantine-default records, and zero multiple-candidate records.
+The accepted disposition is:
+
+- the 2,083 run mappings remain **candidate-only** and must not be applied
+  automatically;
+- the 2,589 runs with no safe candidate default to quarantine;
+- the 98 legacy `codexbridge` memory records default to quarantine until an
+  explicit owner mapping exists;
+- the two `soma` memory records and two canonical tasks remain candidate-only;
+- zero ambiguous classifications does not promote repository names, paths, or
+  structured content into project authority;
+- any later live assignment requires a separate, explicit migration map and
+  owner approval in the production implementation lane.
+
+The final pilot outcome is **proceed** with the additive project-identity seam.
+The test-only schema proves the architecture and invariants; it is not itself a
+production migration or permission to mutate historical state.
+
 ### Measured integration requirements
 
 The proof narrows the production work but does not authorize it:
@@ -454,17 +477,18 @@ Decision:
   restart/reconciliation confusion tests.
 - [x] Strict additive public MCP task/run schema, incumbent-payload, and
   prior direct-controller transport compatibility evidence.
-- [ ] Backfill and quarantine manifest reviewed by the owner.
-- [ ] Final proceed, scope-cut, switch, blocked, or stop decision.
+- [x] Backfill and quarantine manifest reviewed and accepted by the owner.
+- [x] Final decision: **proceed** with the additive project-identity seam.
 
-## Ranked next actions
+## Post-pilot next actions
 
-1. Owner reviews the deterministic manifest and either accepts its
-   candidate/quarantine disposition or supplies an explicit mapping correction.
-2. Record the final pilot outcome. Current evidence supports **proceed**.
-3. If the owner accepts that outcome, propose the smallest production
-   implementation batch for separate approval. Do not merge this proof into
-   production code during the pilot.
+1. Define the smallest production implementation lane from the accepted
+   sidecar seam and measured integration requirements.
+2. Keep every historical candidate unassigned until a separate explicit
+   migration map is reviewed and approved; unresolved records remain
+   quarantine-default.
+3. Keep PILOT-MEMORY-1 inactive until separately selected. Do not copy the
+   test fixture wholesale into production or begin implementation implicitly.
 
 ## Loop avoidance rules
 
