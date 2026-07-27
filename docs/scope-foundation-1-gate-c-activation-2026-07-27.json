@@ -4,7 +4,7 @@
   "gate_c_executed": true,
   "live_mutation_performed": true,
   "schema_version": "scope_foundation_1.gate_c_activation.v1",
-  "status": "executed_and_verified_with_unexecuted_proof_items",
+  "status": "executed_and_verified_with_one_unexecuted_proof_item",
   "stop_condition_fired": false,
   "applied_identity": {
     "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
@@ -153,9 +153,16 @@
       "note": "every call in this activation was a direct Claude MCP call with no shell proxy or CLI-as-controller"
     },
     "direct_chatgpt_mcp": {
-      "proven": false,
-      "status": "not_executed",
-      "reason": "requires driving an external MCP client this lane cannot operate"
+      "proven": true,
+      "status": "proven_after_activation_review",
+      "controller_request_id": "gate-c-proof-20260727-explicit-2",
+      "task_id": "task_20260727T200740Z_8f8995778083",
+      "run_id": "20260727T200740Z_executable_profile_889ea764",
+      "created": false,
+      "idempotent_replay": true,
+      "request_hash": "551042be54b8c253a639bb90414ff4c56e4d2aaa1f9bd34c4d462dd80af4e720",
+      "new_reservation_created": false,
+      "backend_reexecuted": false
     },
     "direct_codex_mcp": {
       "proven": false,
