@@ -1,0 +1,133 @@
+{
+  "backup": {
+    "matches_source": true,
+    "path": "D:\\Github\\Soma\\runs\\soma.sqlite3.backup-gate-b-20260727T131451Z",
+    "sha256": "f47cc830c0ecc5f7cd13a1103a230adff0b645417dc4368dbdaa8b98e9af1296",
+    "size_bytes": 130494464
+  },
+  "failures": [],
+  "gate_b_executed": true,
+  "live": {
+    "applied": [
+      1
+    ],
+    "enforcement_state": "inactive",
+    "post_incumbent": {
+      "foreign_key_check_count": 0,
+      "incumbent_schema_hash": "197c30a8d3a797f3f54c0dc779da3b95eb9e5ed10755373e1bf609c1600755e3",
+      "integrity_check": "ok",
+      "run_count": 4688,
+      "run_id_hash": "bfb6d75f87ccbe8a0149b80d0e8dd852631e0c1e4c7a13aaf847cda85c1ebb7e",
+      "task_count": 2,
+      "task_id_hash": "f6f42e8b575375381d00cd86e107dd4c046efae95003e12b90052de18c13d241"
+    },
+    "scoped_writes_enabled": false,
+    "second_apply": [],
+    "sidecar": {
+      "all_migration_rows": [
+        [
+          "canonical_task_plane",
+          1
+        ],
+        [
+          "project_scope",
+          1
+        ]
+      ],
+      "binding_table_counts": {
+        "project_repository_bindings": 0,
+        "project_resource_bindings": 0,
+        "project_resources": 0,
+        "project_run_attempts": 0,
+        "project_scope_bootstrap_events": 0,
+        "project_scope_quarantine": 0,
+        "project_task_reservations": 0,
+        "projects": 0
+      },
+      "ever_activated": 0,
+      "markers": [
+        [
+          "project_scope",
+          "1",
+          "additive_project_identity_foundation"
+        ]
+      ],
+      "missing_tables": [],
+      "scoped_writes_enabled": 0,
+      "tables_present": [
+        "project_repository_bindings",
+        "project_resource_bindings",
+        "project_resources",
+        "project_run_attempts",
+        "project_scope_bootstrap_events",
+        "project_scope_quarantine",
+        "project_scope_settings",
+        "project_task_reservations",
+        "projects"
+      ]
+    },
+    "size_bytes_after": 130596864
+  },
+  "rehearsal": {
+    "first_apply": [
+      1
+    ],
+    "incumbent_unchanged": true,
+    "second_apply": [],
+    "sidecar": {
+      "all_migration_rows": [
+        [
+          "canonical_task_plane",
+          1
+        ],
+        [
+          "project_scope",
+          1
+        ]
+      ],
+      "binding_table_counts": {
+        "project_repository_bindings": 0,
+        "project_resource_bindings": 0,
+        "project_resources": 0,
+        "project_run_attempts": 0,
+        "project_scope_bootstrap_events": 0,
+        "project_scope_quarantine": 0,
+        "project_task_reservations": 0,
+        "projects": 0
+      },
+      "ever_activated": 0,
+      "markers": [
+        [
+          "project_scope",
+          "1",
+          "additive_project_identity_foundation"
+        ]
+      ],
+      "missing_tables": [],
+      "scoped_writes_enabled": 0,
+      "tables_present": [
+        "project_repository_bindings",
+        "project_resource_bindings",
+        "project_resources",
+        "project_run_attempts",
+        "project_scope_bootstrap_events",
+        "project_scope_quarantine",
+        "project_scope_settings",
+        "project_task_reservations",
+        "projects"
+      ]
+    }
+  },
+  "schema_version": "scope_foundation_1.gate_b_activation.v1",
+  "source": {
+    "foreign_key_check_count": 0,
+    "incumbent_schema_hash": "197c30a8d3a797f3f54c0dc779da3b95eb9e5ed10755373e1bf609c1600755e3",
+    "integrity_check": "ok",
+    "mtime_utc": "2026-07-27T12:50:35.934631+00:00",
+    "run_count": 4688,
+    "run_id_hash": "bfb6d75f87ccbe8a0149b80d0e8dd852631e0c1e4c7a13aaf847cda85c1ebb7e",
+    "size_bytes": 130281472,
+    "task_count": 2,
+    "task_id_hash": "f6f42e8b575375381d00cd86e107dd4c046efae95003e12b90052de18c13d241"
+  }
+}

@@ -40,8 +40,9 @@
     "task_count": 2,
     "task_id_hash": "f01ebfd5f61eeef8f3703966ef99f528feb1cca0fef937f9dbce29850d0e0285"
   },
+  "execution_reference": "docs/scope-foundation-1-gate-b-activation-2026-07-27.json",
   "gate_b_authorized": true,
-  "gate_b_executed": false,
+  "gate_b_executed": true,
   "gate_c_authorized": false,
   "live_runtime": {
     "capability_epoch": "1b7a0021933e-42bdb69d96fb",
@@ -56,19 +57,19 @@
     "self_check_passed": true,
     "server_build_hash": "1b7a0021933e0e79da763e5de8cd2c1222336fec15d587408ab5d8f31646f572"
   },
-  "schema_version": "scope_foundation_1.gate_b_preparation.v1",
-  "status": "owner_approved_awaiting_execution",
   "owner_approval": {
-    "decision": "approved",
-    "recorded_at_utc": "2026-07-27T13:06:41.2813974Z",
     "authorized_scope": "one live ProjectScope v1 schema-only activation using the prepared Gate B procedure",
-    "live_migration_executed": false,
+    "decision": "approved",
     "exclusions": [
       "Gate C project or repository bootstrap",
       "scoped-write enablement",
       "historical assignment or quarantine writes",
       "memory or Hermes activation",
       "push"
-    ]
-  }
+    ],
+    "live_migration_executed": true,
+    "recorded_at_utc": "2026-07-27T13:06:41.2813974Z"
+  },
+  "schema_version": "scope_foundation_1.gate_b_preparation.v1",
+  "status": "executed_and_verified"
 }
