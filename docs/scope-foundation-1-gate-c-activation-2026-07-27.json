@@ -4,7 +4,7 @@
   "gate_c_executed": true,
   "live_mutation_performed": true,
   "schema_version": "scope_foundation_1.gate_c_activation.v1",
-  "status": "executed_and_fully_controller_proven",
+  "status": "executed_fully_controller_proven_and_recovery_closed",
   "stop_condition_fired": false,
   "applied_identity": {
     "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
@@ -190,19 +190,71 @@
       "route_note": "The proof does not independently establish that the running Codex task loaded the separately installed global soma MCP namespace."
     }
   },
-  "incident_unresolved_task": {
+  "recovery_closure": {
+    "operation": "task_action.resolve_recovery",
+    "atomic_main_store_transaction": true,
+    "project_scoped": true,
+    "version_guarded": true,
+    "idempotent": true,
+    "implementation_commits": [
+      "b27e8133826ebcc230753e740f4182a7e64a843a",
+      "d8fb79835e4f6c67cf1c15f02a7dabe4b76c4279",
+      "b4c22ee28d2aa5901db80efe4b6915e326dcc747"
+    ],
+    "validation": {
+      "focused_run_id": "20260727T212346Z_executable_profile_2fe670b5",
+      "focused_result": "6 passed, 16 deselected",
+      "task_and_quarantine_run_id": "20260727T212408Z_executable_profile_aff5d79c",
+      "task_and_quarantine_result": "63 passed",
+      "foundation_and_contract_run_id": "20260727T212454Z_executable_profile_9ab55a0a",
+      "foundation_and_contract_result": "321 passed",
+      "ruff_run_id": "20260727T212656Z_executable_profile_0a51daed",
+      "ruff_result": "clean",
+      "disposable_rehearsal_run_id": "20260727T212831Z_executable_profile_43a66ca8",
+      "disposable_rehearsal_ok": true
+    },
+    "runtime": {
+      "server_build_hash": "1632dc6ed8950c5e7dfa10ef5af83c30c71350260f9c1fd778c625d28c109546",
+      "capability_epoch": "1632dc6ed895-42bdb69d96fb",
+      "self_checks_passed": 10,
+      "live_tools_list_strict_branch_present": true,
+      "attached_chatgpt_tool_card_cache_stale": true,
+      "cache_effect": "client-side rejection before execution",
+      "live_invocation_route": "FastMCP client to the same local HTTP MCP endpoint after tools/list assertion",
+      "private_store_or_manual_sql_mutation_used": false
+    },
+    "live_execution_run_id": "20260727T213459Z_executable_profile_9d884557",
+    "durable_verification_run_id": "20260727T213703Z_executable_profile_16b42010",
+    "adjudication_id": "5426bdebddec1b8e7c9d1c63e02178082055bf7faa46e3a5c31a2a8b0ff5f507",
+    "request_hash": "e78d65a2db7997fa4ee99cd06bffa90b304578db6d8f9565c4d93292ce2710f9",
+    "quarantine_evidence_hash": "9f2159c4cc3d4fbafa0e8f929eb81fbdf038c4537ff5458e7b7f019cd9edeab2",
+    "replay_verified": true,
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "incident_resolved_task": {
     "task_id": "task_20260727T200608Z_8719fe3d9754",
     "backend_reference": "20260727T200608Z_executable_profile_aa64f982",
     "cause": "controller omitted working_directory; executable profile requires it",
     "backend_launch_error": "ValueError: Arbitrary working-directory policy requires a directory",
-    "task_state": "uncertain",
-    "recovery_state": "unresolved",
-    "recovery_reason": "backend_run_record_missing",
-    "run_attempt_status": "recovery_pending",
-    "run_attempt_recovery_reason": "run_attachment_incomplete",
+    "task_state_before": "uncertain",
+    "recovery_state_before": "unresolved",
+    "run_attempt_status_before": "recovery_pending",
+    "task_state_after": "failed",
+    "task_phase_after": "recovery",
+    "task_state_version_after": 3,
+    "recovery_state_after": "resolved",
+    "recovery_reason_after": "owner_superseded_unresolved_backend",
+    "task_reservation_status_after": "quarantined",
+    "run_attempt_status_after": "quarantined",
+    "successor_task_id": "task_20260727T200740Z_8f8995778083",
+    "disposition": "superseded",
+    "backend_run_fabricated": false,
+    "result_or_evidence_fabricated": false,
+    "supersedes_link_count": 1,
+    "recovery_event_count": 1,
     "gate_c_defect": false,
-    "left_in_place": true,
-    "resolution_requires": "quarantine adjudication or disposition, which Gate C excludes; needs a separate owner decision"
+    "left_unresolved": false
   },
   "post_activation_state": {
     "project_scope_schema_version": 2,
@@ -216,12 +268,13 @@
     "project_scope_bootstrap_events": 1,
     "project_task_reservations": 3,
     "project_run_attempts": 3,
-    "project_scope_quarantine": 0,
-    "project_scope_adjudications": 0,
+    "project_scope_quarantine": 1,
+    "project_scope_adjudications": 1,
     "integrity": "ok",
     "foreign_key_violations": 0,
-    "runs": 4730,
-    "tasks": 5
+    "runs_at_recovery_verification": 4752,
+    "tasks": 5,
+    "recovery_incident_open": false
   },
   "rollback": {
     "scoped_task_exists": true,

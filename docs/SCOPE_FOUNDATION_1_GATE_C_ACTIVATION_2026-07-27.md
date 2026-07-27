@@ -1,7 +1,7 @@
 # SCOPE-FOUNDATION-1 Gate C Activation
 
 **Date:** 2026-07-27
-**Status:** owner-approved, executed, and fully controller-proven through Claude, ChatGPT, and the attached CodexBridge Soma plugin.
+**Status:** owner-approved, executed, fully controller-proven, and recovery-closed.
 **Scope executed:** exact-identity bootstrap and scoped-write cutover against `runs/soma.sqlite3`.
 
 Executes the procedure in
@@ -110,24 +110,75 @@ independently establish that the running Codex task loaded the separately
 installed global `soma` MCP namespace. That distinction is retained as routing
 provenance, not as an open Gate C proof item.
 
-## Incident: one unresolved task from a malformed request
+## Incident closure: malformed proof task terminally superseded
 
 The first explicit start omitted `working_directory`, which the executable
-profile requires. The backend launch failed with
-`ValueError: Arbitrary working-directory policy requires a directory`.
+profile requires. The backend launch failed before creating a durable run and
+the canonical task correctly entered `uncertain / unresolved` rather than
+claiming success. Leaving that record non-terminal was an operational loose end,
+so a narrow public recovery operation was added and exercised.
 
-- task `task_20260727T200608Z_8719fe3d9754`;
-- backend reference `20260727T200608Z_executable_profile_aa64f982`;
-- final state `uncertain`, `recovery_state: unresolved`,
-  `recovery_reason: backend_run_record_missing`;
-- its run attempt is `recovery_pending` with `run_attachment_incomplete`.
+`task_action.resolve_recovery` is exact-project, state-version guarded, and
+idempotent. In one main-store transaction it:
 
-This was a malformed request from the controller, not a Gate C defect, and the
-system behaved correctly: the scope reservation attached with the exact
-identity, no backend run record was fabricated, and the task was marked
-`uncertain` rather than reported as succeeded. It is left in place. Resolving it
-would mean quarantine adjudication or disposition, which Gate C explicitly
-excludes, so it is recorded here for a separate owner decision.
+- moves only an unresolved missing-backend task to canonical `failed`, phase
+  `recovery`, with recovery `resolved`;
+- preserves the absent backend and leaves result/evidence references empty;
+- terminally quarantines the task reservation and its run attempt;
+- writes immutable quarantine evidence and a single `superseded` adjudication;
+- links the completed successor to the failed task with `supersedes`;
+- appends one recovery-disposition event;
+- commits every authority change together or rolls all of them back.
+
+Implementation and focused fixes:
+
+- `b27e8133826ebcc230753e740f4182a7e64a843a` - atomic recovery surface;
+- `d8fb79835e4f6c67cf1c15f02a7dabe4b76c4279` - exact scope ownership query;
+- `b4c22ee28d2aa5901db80efe4b6915e326dcc747` - correct non-enumerating error classification.
+
+Validation evidence:
+
+- focused recovery cases: `6 passed` in
+  `20260727T212346Z_executable_profile_2fe670b5`;
+- full canonical-task and quarantine pair: `63 passed` in
+  `20260727T212408Z_executable_profile_aff5d79c`;
+- ProjectScope foundation and discovery/contract matrix: `321 passed` in
+  `20260727T212454Z_executable_profile_9ab55a0a`;
+- Ruff: clean in `20260727T212656Z_executable_profile_0a51daed`;
+- exact-current-store disposable rehearsal: every check passed in
+  `20260727T212831Z_executable_profile_43a66ca8`.
+
+Soma restarted on build
+`1632dc6ed8950c5e7dfa10ef5af83c30c71350260f9c1fd778c625d28c109546`;
+all ten self-checks passed and ProjectScope remained enforced. The live HTTP MCP
+`tools/list` exposed the reviewed strict `resolve_recovery` branch. The current
+ChatGPT conversation's attached tool card retained an older cached schema and
+rejected the new operation client-side, so a FastMCP client called the same live
+HTTP MCP endpoint directly after asserting the schema. No private manager call,
+manual SQL mutation, or store bypass was used.
+
+Live execution and identical replay passed in
+`20260727T213459Z_executable_profile_9d884557`:
+
+- target `task_20260727T200608Z_8719fe3d9754` is now terminal `failed`, state
+  version `3`, recovery `resolved`;
+- missing backend `20260727T200608Z_executable_profile_aa64f982` remains absent;
+- reservation and attempt are `quarantined` under the exact project/resource and
+  scope generation `1`;
+- successor `task_20260727T200740Z_8f8995778083` remains completed and unchanged;
+- adjudication ID
+  `5426bdebddec1b8e7c9d1c63e02178082055bf7faa46e3a5c31a2a8b0ff5f507`;
+- request hash
+  `e78d65a2db7997fa4ee99cd06bffa90b304578db6d8f9565c4d93292ce2710f9`;
+- quarantine evidence hash
+  `9f2159c4cc3d4fbafa0e8f929eb81fbdf038c4537ff5458e7b7f019cd9edeab2`;
+- replay returned the same adjudication with `replayed: true`.
+
+Independent read-only durable verification passed in
+`20260727T213703Z_executable_profile_16b42010`: one quarantine row, one
+adjudication, one supersedes link, one recovery event, no fabricated backend or
+result, integrity `ok`, and zero foreign-key violations. The incident is closed;
+it is no longer an active or unresolved task.
 
 ## Post-activation state
 
@@ -139,10 +190,10 @@ ever_activated:        1
 Projects:              1
 Resources/bindings:    1 / 1 / 1
 Bootstrap events:      1
-Task reservations:     3
-Run attempts:          3   (2 attached, 1 recovery_pending)
-Quarantine:            0
-Adjudications:         0
+Task reservations:     3   (2 attached, 1 quarantined)
+Run attempts:          3   (2 attached, 1 quarantined)
+Quarantine:            1
+Adjudications:         1   (superseded)
 Integrity:             ok
 Foreign-key check:     0
 Push:                  none
