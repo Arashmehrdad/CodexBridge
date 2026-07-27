@@ -247,13 +247,15 @@ class TaskManager:
                     conn, successor_task_id
                 )
                 target_scope = conn.execute(
-                    "SELECT project_id, resource_id, scope_generation, status "
+                    "SELECT project_id, scope_generation, status "
                     "FROM project_task_reservations WHERE task_id = ?",
                     (task_id,),
                 ).fetchone()
                 attempt = conn.execute(
-                    "SELECT attempt.run_id, attempt.status, "
-                    "attempt.recovery_reason, run.run_id AS stored_run_id "
+                    "SELECT attempt.run_id, attempt.project_id, "
+                    "attempt.resource_id, attempt.scope_generation, "
+                    "attempt.status, attempt.recovery_reason, "
+                    "run.run_id AS stored_run_id "
                     "FROM project_run_attempts attempt "
                     "LEFT JOIN runs run ON run.run_id = attempt.run_id "
                     "WHERE attempt.task_id = ?",
@@ -269,6 +271,9 @@ class TaskManager:
                     or attempt is None
                     or successor_scope is None
                     or str(target_scope["project_id"]) != project_id
+                    or str(attempt["project_id"]) != project_id
+                    or int(attempt["scope_generation"])
+                    != int(target_scope["scope_generation"])
                     or str(successor_scope["project_id"]) != project_id
                 ):
                     raise ProjectScopeMismatch(
