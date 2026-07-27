@@ -1,0 +1,61 @@
+{
+  "activation_requirements": {
+    "fresh_backup_required_at_activation": true,
+    "gate_c_not_implied": true,
+    "no_active_runs_workers_or_locks": true,
+    "scoped_writes_remain_disabled": true,
+    "server_stopped_during_migration": true,
+    "zero_identity_binding_reservation_or_quarantine_writes": true
+  },
+  "disposable_rehearsal": {
+    "all_binding_and_quarantine_tables_empty": true,
+    "authoritative_run_id": "20260727T125908Z_executable_profile_f66990c8",
+    "backup_matches_source_transaction": true,
+    "backup_sha256": "df9adb4959946da228a83f17d058e78755d261ff9b900b1c75e2eaed62df48ab",
+    "backup_size_bytes": 130338816,
+    "disposable_temp_directories_remaining": 0,
+    "ever_activated": 0,
+    "expected_project_tables_present": true,
+    "incumbent_schema_hash": "59481e61b17bd2ec36f67866a1d9f4311af96189d27eeadc60735f01b8fb4deb",
+    "incumbent_state_unchanged_after_migration": true,
+    "migrated_foreign_key_check_count": 0,
+    "migrated_integrity_check": "ok",
+    "migration_first_apply": [
+      1
+    ],
+    "migration_marker": [
+      "project_scope",
+      1,
+      "additive_project_identity_foundation"
+    ],
+    "migration_second_apply": [],
+    "run_count": 4681,
+    "run_id_hash": "b4e6c7bb84680eac05092577b98e192798dc916d4ed63b5817f0e215a1551522",
+    "scoped_writes_enabled": 0,
+    "snapshot_utc": "2026-07-27T12:59:12Z",
+    "source_foreign_key_check_count": 0,
+    "source_integrity_check": "ok",
+    "source_mtime_utc": "2026-07-27T12:50:35Z",
+    "source_size_bytes": 130281472,
+    "task_count": 2,
+    "task_id_hash": "f01ebfd5f61eeef8f3703966ef99f528feb1cca0fef937f9dbce29850d0e0285"
+  },
+  "gate_b_authorized": false,
+  "gate_b_executed": false,
+  "gate_c_authorized": false,
+  "live_runtime": {
+    "capability_epoch": "1b7a0021933e-42bdb69d96fb",
+    "converged": true,
+    "discovery_cache_generation": "560b973d3ca51b7ee24a09f5c3ae2c6eb785bed396a6ab5214404a72fda15d78",
+    "enforcement_state": "inactive",
+    "project_scope_schema_version": 0,
+    "project_scope_tables": [],
+    "public_schema_hash": "5627542cd1fdf44e90562836b44f90130c75cc776fe371318c79a215108f5938",
+    "schema_hash": "42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888",
+    "scoped_writes_enabled": false,
+    "self_check_passed": true,
+    "server_build_hash": "1b7a0021933e0e79da763e5de8cd2c1222336fec15d587408ab5d8f31646f572"
+  },
+  "schema_version": "scope_foundation_1.gate_b_preparation.v1",
+  "status": "prepared_awaiting_owner_activation"
+}
