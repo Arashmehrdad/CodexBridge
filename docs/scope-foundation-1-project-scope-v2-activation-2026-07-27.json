@@ -1,0 +1,126 @@
+{
+  "authorized": true,
+  "executed": true,
+  "gate_c_authorized": false,
+  "schema_version": "scope_foundation_1.project_scope_v2_activation.v1",
+  "status": "executed_and_verified",
+  "exclusions": [
+    "Gate C",
+    "project or repository bootstrap",
+    "scoped-write enablement",
+    "historical disposition",
+    "memory or Obsidian integration",
+    "Hermes integration",
+    "Codebase Memory integration",
+    "other lifecycle producer migration",
+    "_pytest-cf1-temp cleanup",
+    "push"
+  ],
+  "preflight": {
+    "branch": "feature/chatgpt-companion-cycle",
+    "head_commit": "a69096fce4630860bcb0e63b3b9f96effd238c62",
+    "preparation_head_commit": "da418d70e89236d4e31c70b08a43fbc685baa6d6",
+    "source_delta_since_preparation": "docs_and_plans_only",
+    "worktree_clean": true,
+    "running_runs": 0,
+    "queued_runs": 0,
+    "launch_pending_runs": 0,
+    "locks": 0,
+    "project_scope_version_before": 1,
+    "scoped_writes_enabled_before": false,
+    "enforcement_state_before": "inactive",
+    "running_server_build_hash_before": "1b7a0021933e0e79da763e5de8cd2c1222336fec15d587408ab5d8f31646f572",
+    "capability_epoch_before": "1b7a0021933e-42bdb69d96fb",
+    "soma_server_processes_at_apply": 0,
+    "port_8000_listeners_at_apply": 0
+  },
+  "backup": {
+    "path": "runs/scope-v2-activation-20260727T193134Z/soma-pre-v2-backup.sqlite3",
+    "sha256": "aeb034931d48548ab9d1001dfe1390caf612621acb44db3912eee2d2dcddeb04",
+    "size_bytes": 131211264,
+    "logically_equals_closed_live_store": true,
+    "preparation_values_reused_as_baseline": false
+  },
+  "fresh_baseline": {
+    "run_count": 4723,
+    "task_count": 2,
+    "run_id_hash": "6264307e148fea81009628af00a6a86d9fb6aeeb4f4f01020cd3a9fe710f3c89",
+    "task_id_hash": "f6f42e8b575375381d00cd86e107dd4c046efae95003e12b90052de18c13d241",
+    "publication_hash": "f6db23263c3c0779c1cf8c25b37f676313ce8b2af0b933a5030f8ea534d0790f",
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "settings": [0, 0],
+    "preparation_run_count": 4720
+  },
+  "rehearsal": {
+    "checks_passed": 12,
+    "first_apply": [2],
+    "second_apply": [],
+    "temporary_items_remaining": 0,
+    "live_untouched_after_rehearsal": true,
+    "adjudication_table_schema_sha256": "b72af7e92f31e8fcf4ecb95675ddf5354b2c6a93c95041766442afe266f8bac9",
+    "adjudication_index_schema_sha256": "cf39f40cac9a8b0a29d0b3915058b066d68d4df24127ccef57ddaca1c253e5e5",
+    "expected_hashes_reproduced": true
+  },
+  "live_apply": {
+    "first_apply": [2],
+    "second_apply": [],
+    "project_scope_markers_after": [
+      [1, "additive_project_identity_foundation"],
+      [2, "quarantine_adjudication_path"]
+    ],
+    "explicit_new_objects": [
+      "index:idx_project_adjudication_project",
+      "table:project_scope_adjudications"
+    ],
+    "constraint_indexes": [
+      ["pk", ["adjudication_id"]],
+      ["u", ["record_kind", "record_id"]],
+      ["u", ["project_id", "record_kind", "record_id", "idempotency_key"]],
+      ["c", ["project_id", "created_at"]]
+    ],
+    "changed_existing_objects": {},
+    "removed_objects": [],
+    "request_hash_present_and_constrained": true,
+    "adjudication_count": 0,
+    "scope_data_tables_empty": true,
+    "settings_after": [0, 0],
+    "incumbent_identities_unchanged": true,
+    "publication_hash_unchanged": true,
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "restart": {
+    "server_pid": 32476,
+    "converged": true,
+    "mismatches": [],
+    "running_server_build_hash_after": "198835df5c9c3a3351306e57ed197180051d32a46e03ef0483f77c23f6098e2c",
+    "capability_epoch_after": "198835df5c9c-42bdb69d96fb",
+    "operation_schema_count_before": 212,
+    "operation_schema_count_after": 214,
+    "project_scope_schema_version": 2,
+    "project_scope_target_schema_version": 2,
+    "up_to_date": true,
+    "missing_tables": [],
+    "scoped_writes_enabled": false,
+    "enforcement_state": "inactive"
+  },
+  "quarantine_probe": {
+    "operation": "task_query.quarantine",
+    "project_id_kind": "explicit_nonexistent",
+    "fixture_created": false,
+    "ok": true,
+    "returned_count": 0,
+    "adjudicated_count": 0,
+    "preparation_expected": "fail safely because no project exists",
+    "observed": "empty result rather than an error",
+    "assessment": "surface is a project-filtered list query; empty is the safe outcome. _require_adjudication_schema() passing is positive evidence the v2 table is live and load-bearing.",
+    "scope_data_tables_empty_after_probe": true,
+    "settings_after_probe": [0, 0]
+  },
+  "rollback": {
+    "post_backup_durable_mutation_required": false,
+    "restore_point": "runs/scope-v2-activation-20260727T193134Z/soma-pre-v2-backup.sqlite3",
+    "never_drop_adjudication_table_automatically": true
+  }
+}
