@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS pilot_scope_attempts (
     task_id TEXT NOT NULL,
     resource_id TEXT NOT NULL,
     scope_generation INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('reserved', 'attached', 'quarantined')),
+    status TEXT NOT NULL
+        CHECK(status IN ('reserved', 'attached', 'recovery_pending', 'quarantined')),
     created_at TEXT NOT NULL,
     FOREIGN KEY(project_id, task_id)
         REFERENCES pilot_scope_task_reservations(project_id, task_id),
@@ -386,20 +387,160 @@ class PilotProjectScopeStore:
     def attach_task_attempt(self, task_id: str, run_id: str) -> None:
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            task = conn.execute(
-                "UPDATE pilot_scope_task_reservations SET status = 'attached' "
-                "WHERE task_id = ? AND status = 'reserved'",
-                (task_id,),
-            )
             attempt = conn.execute(
                 "UPDATE pilot_scope_attempts SET status = 'attached' "
                 "WHERE run_id = ? AND task_id = ? AND status = 'reserved'",
                 (run_id, task_id),
             )
-            if task.rowcount != 1 or attempt.rowcount != 1:
+            task = conn.execute(
+                "SELECT status FROM pilot_scope_task_reservations WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if (
+                task is None
+                or str(task["status"]) != "attached"
+                or attempt.rowcount != 1
+            ):
                 conn.rollback()
                 raise PilotScopeError("scope attachment lost its reservation")
             conn.commit()
+
+    def attach_task(self, task_id: str) -> None:
+        with self.connect() as conn:
+            updated = conn.execute(
+                "UPDATE pilot_scope_task_reservations SET status = 'attached' "
+                "WHERE task_id = ? AND status = 'reserved'",
+                (task_id,),
+            )
+        if updated.rowcount != 1:
+            raise PilotScopeError("task scope attachment lost its reservation")
+
+    def reconcile_startup(self) -> dict[str, int]:
+        counts = {
+            "task_quarantined": 0,
+            "attempt_recovery_pending": 0,
+            "attempt_attached": 0,
+            "attempt_quarantined": 0,
+        }
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                missing_tasks = conn.execute(
+                    "SELECT scope.task_id FROM pilot_scope_task_reservations scope "
+                    "LEFT JOIN tasks task ON task.task_id = scope.task_id "
+                    "WHERE task.task_id IS NULL AND scope.status != 'quarantined'"
+                ).fetchall()
+                for row in missing_tasks:
+                    task_id = str(row["task_id"])
+                    conn.execute(
+                        "UPDATE pilot_scope_task_reservations "
+                        "SET status = 'quarantined' WHERE task_id = ?",
+                        (task_id,),
+                    )
+                    conn.execute(
+                        "UPDATE pilot_scope_attempts SET status = 'quarantined' "
+                        "WHERE task_id = ? AND status != 'attached'",
+                        (task_id,),
+                    )
+                    self._quarantine(
+                        conn,
+                        "task_reservation",
+                        task_id,
+                        "reserved task row is absent at startup",
+                    )
+                    counts["task_quarantined"] += 1
+
+                attempts = conn.execute(
+                    "SELECT attempt.run_id, attempt.task_id, attempt.status, "
+                    "task_scope.status AS task_scope_status, "
+                    "run.run_id AS stored_run_id "
+                    "FROM pilot_scope_attempts attempt "
+                    "JOIN pilot_scope_task_reservations task_scope "
+                    "ON task_scope.task_id = attempt.task_id "
+                    "LEFT JOIN runs run ON run.run_id = attempt.run_id "
+                    "WHERE attempt.status IN ('reserved', 'attached')"
+                ).fetchall()
+                for row in attempts:
+                    run_id = str(row["run_id"])
+                    status = str(row["status"])
+                    task_scope_status = str(row["task_scope_status"])
+                    run_exists = row["stored_run_id"] is not None
+                    if task_scope_status == "quarantined":
+                        continue
+                    if status == "reserved" and not run_exists:
+                        conn.execute(
+                            "UPDATE pilot_scope_attempts "
+                            "SET status = 'recovery_pending' WHERE run_id = ?",
+                            (run_id,),
+                        )
+                        counts["attempt_recovery_pending"] += 1
+                    elif status == "reserved" and run_exists:
+                        conn.execute(
+                            "UPDATE pilot_scope_attempts SET status = 'attached' "
+                            "WHERE run_id = ?",
+                            (run_id,),
+                        )
+                        counts["attempt_attached"] += 1
+                    elif status == "attached" and not run_exists:
+                        conn.execute(
+                            "UPDATE pilot_scope_attempts "
+                            "SET status = 'quarantined' WHERE run_id = ?",
+                            (run_id,),
+                        )
+                        self._quarantine(
+                            conn,
+                            "attempt",
+                            run_id,
+                            "attached attempt has no durable run row",
+                        )
+                        counts["attempt_quarantined"] += 1
+            except BaseException:
+                conn.rollback()
+                raise
+            conn.commit()
+        return counts
+
+    def claim_recovery(self, run_id: str) -> None:
+        with self.connect() as conn:
+            updated = conn.execute(
+                "UPDATE pilot_scope_attempts SET status = 'reserved' "
+                "WHERE run_id = ? AND status = 'recovery_pending'",
+                (run_id,),
+            )
+        if updated.rowcount != 1:
+            raise PilotScopeError("attempt is not recoverable")
+
+    @staticmethod
+    def _quarantine(
+        conn: sqlite3.Connection,
+        record_kind: str,
+        record_id: str,
+        reason: str,
+    ) -> None:
+        evidence_hash = sha256(
+            f"{record_kind}\0{record_id}\0{reason}".encode("utf-8")
+        ).hexdigest()
+        conn.execute(
+            "INSERT OR REPLACE INTO pilot_scope_quarantine VALUES (?, ?, ?, ?, ?)",
+            (record_kind, record_id, reason, evidence_hash, utc_now()),
+        )
+
+    def reservation_status(self, table: str, record_id: str) -> str:
+        allowed = {
+            "task": ("pilot_scope_task_reservations", "task_id"),
+            "attempt": ("pilot_scope_attempts", "run_id"),
+        }
+        if table not in allowed:
+            raise ValueError(f"unsupported reservation table: {table}")
+        table_name, field = allowed[table]
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT status FROM {table_name} WHERE {field} = ?",
+                (record_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(record_id)
+        return str(row["status"])
 
     def project_for_task(self, task_id: str) -> str:
         return self._project_for("pilot_scope_task_reservations", "task_id", task_id)
@@ -467,6 +608,30 @@ class PilotProjectScopeStore:
                     utc_now(),
                 ),
             )
+
+    def require_external_session(
+        self,
+        *,
+        project_id: str,
+        provider_kind: str,
+        provider_session_id: str,
+        run_id: str,
+    ) -> None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM pilot_scope_external_sessions "
+                "WHERE project_id = ? AND provider_kind = ? "
+                "AND provider_session_id = ? AND run_id = ? "
+                "AND status = 'active'",
+                (
+                    project_id,
+                    provider_kind,
+                    provider_session_id,
+                    run_id,
+                ),
+            ).fetchone()
+        if row is None:
+            raise PilotScopeError("external session project scope mismatch")
 
     def require_resource(
         self, project_id: str, resource_kind: str, resource_id: str
@@ -662,6 +827,7 @@ def _reserve_real_task(
     )
     assert created is True
     assert task.task_id == task_id
+    scope.attach_task(task_id)
     return task_id
 
 

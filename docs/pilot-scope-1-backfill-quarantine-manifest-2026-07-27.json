@@ -1,0 +1,142 @@
+{
+  "schema_version": "pilot-scope-1.backfill-manifest.v1",
+  "source_head": "b478702267fd71f26b845dc69f44d8f666c3768c",
+  "generated_at": "2026-07-27",
+  "decision": "evidence_only_no_assignments_applied",
+  "manifest_sha256": "d3b58d94ed3acac19bfbc1418bf17463fe563ea7122bfc917b1581bc3ad6a917",
+  "authority": {
+    "project_assignments": "owner-reviewed explicit migration map",
+    "repository_names_paths_content_hosts_and_conversations": "locators_not_authority",
+    "default_for_unresolved_records": "quarantine"
+  },
+  "classifier": {
+    "direct_current_repository_candidate": "case-insensitive exact match between the run repo_name and one currently configured repository name",
+    "one_structured_candidate": "one exact current repository name in a structured repository input field",
+    "multiple_candidates": "more than one exact current repository candidate",
+    "no_safe_candidate": "no exact current repository candidate; do not infer from names, paths, content, hosts, or conversations"
+  },
+  "sources": [
+    {
+      "path": "runs/soma.sqlite3",
+      "bytes": 130039808,
+      "sha256": "8bf4452d80a923c7ed15e2c560efcb18ffd5f0724520f460e937c5c90cad49db",
+      "live_file_unchanged_after_copy_test": true
+    },
+    {
+      "path": "runs/memory/project_memory.sqlite3",
+      "bytes": 282624,
+      "sha256": "07aedf6db312bb3ba588e117921b4d3f8f06d9123fc1de3809558ef24bba9d4a",
+      "live_file_unchanged_after_copy_test": true
+    }
+  ],
+  "run_classification": {
+    "total": 4672,
+    "categories": [
+      {
+        "classification": "direct_current_repository_candidate",
+        "count": 1920,
+        "sorted_run_ids_sha256": "5fb74ea9132cff00a4e45f9e894edcf7f96009ad35ce0da56b905f44257d3c7f"
+      },
+      {
+        "classification": "one_structured_candidate",
+        "count": 163,
+        "sorted_run_ids_sha256": "9b1f87164fa889d9631747b3e2aea42fbf12c0768cb00d1871e11e264691e0ab"
+      },
+      {
+        "classification": "multiple_candidates",
+        "count": 0,
+        "sorted_run_ids_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "classification": "quarantine_no_safe_candidate",
+        "count": 2589,
+        "sorted_run_ids_sha256": "ed9b0f07e3076455d8ce2a8c49b1b814736a451afea3dd286289dd468367fea3"
+      }
+    ],
+    "candidate_groups": [
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "andia_beauty",
+        "count": 350
+      },
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "seedmind",
+        "count": 582
+      },
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "soma",
+        "count": 434
+      },
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "stream_alpha",
+        "count": 7
+      },
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "wan2_2",
+        "count": 541
+      },
+      {
+        "classification": "direct_current_repository_candidate",
+        "repository_name": "wan2gp",
+        "count": 6
+      },
+      {
+        "classification": "one_structured_candidate",
+        "repository_name": "andia_beauty",
+        "count": 133
+      },
+      {
+        "classification": "one_structured_candidate",
+        "repository_name": "wan2_2",
+        "count": 30
+      }
+    ],
+    "quarantine_group_count_by_repo_name_and_tool": 32
+  },
+  "task_candidates": [
+    {
+      "workspace_kind": "repository",
+      "workspace_ref": "soma",
+      "count": 2,
+      "sorted_task_ids_sha256": "f6f42e8b575375381d00cd86e107dd4c046efae95003e12b90052de18c13d241",
+      "disposition": "candidate_only_owner_review_required"
+    }
+  ],
+  "memory_candidates": [
+    {
+      "legacy_project_key": "codexbridge",
+      "count": 98,
+      "sorted_memory_ids_sha256": "b0182eef73eb3f7a4c6e0e7b4fe044f8e73b4f3e241a11d561e623f3f521ccc7",
+      "disposition": "quarantine_until_explicit_mapping"
+    },
+    {
+      "legacy_project_key": "soma",
+      "count": 2,
+      "sorted_memory_ids_sha256": "e3903dec54275ff02d86ea7b3b979064b37c65ba5504e474ec0018321e62bdd5",
+      "disposition": "candidate_only_owner_review_required"
+    }
+  ],
+  "disposable_copy_migration": {
+    "main_backup_copy_bytes_before_migration": 130179072,
+    "main_copy_bytes_after_migration": 130277376,
+    "main_copy_migration_seconds": 0.0027,
+    "main_copy_integrity_check": "ok",
+    "main_copy_foreign_key_violations": 0,
+    "main_copy_pilot_table_count": 9,
+    "main_copy_migration_rows": 1,
+    "memory_backup_copy_bytes_before_migration": 282624,
+    "memory_copy_bytes_after_migration": 294912,
+    "memory_copy_migration_seconds": 0.0022,
+    "memory_copy_integrity_check": "ok",
+    "memory_copy_foreign_key_violations": 0,
+    "memory_copy_pilot_table_count": 1,
+    "rollback_expected_error": "no such table: pilot_scope_forced_missing_table",
+    "rollback_pilot_table_count_after_failure": 0,
+    "rollback_migration_rows_after_failure": 0,
+    "rollback_integrity_check": "ok"
+  }
+}

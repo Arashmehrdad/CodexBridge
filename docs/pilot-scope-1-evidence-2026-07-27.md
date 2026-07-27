@@ -2,9 +2,10 @@
 
 **Status:** active — bounded investigation only.
 
-**Current verdict:** proceed with the bounded investigation. The disposable
-schema proof passed its first confusion test, but the pilot has not passed its
-full exit gate and no production implementation is authorized.
+**Current verdict:** the evidence supports **proceed**, subject to owner review
+of the deterministic backfill/quarantine manifest. The proof remains test-only;
+no production implementation, live migration, backfill, or quarantine is
+authorized.
 
 ## Purpose
 
@@ -209,6 +210,93 @@ Focused validation passed:
 - 93 focused tests covering the pilot plus the incumbent task, memory, lock,
   Hermes, artifact, and SSH-binding suites.
 
+## Recovery, migration, and public-contract checkpoint
+
+The third checkpoint adds `tests/test_pilot_scope_1_recovery.py` and extends the
+test-only sidecar. Ten pilot tests now pass. The added cases establish:
+
+1. **Deterministic reservation recovery.** A reserved attempt without a run
+   moves to `recovery_pending` and can be claimed once. A missing canonical task
+   and an attached attempt whose run disappeared are quarantined with
+   deterministic SHA-256 evidence rather than guessed into a project.
+2. **Process, cancellation, and lock continuity.** Restart adoption retained
+   the exact project, worker lease, generation, process identity, and incumbent
+   operation lock. `cancellation_pending` retained the lock after a dead-owner
+   probe; only the lease-owned terminal cancellation released it. The proof did
+   not introduce a second lock authority.
+3. **Hermes restart continuity.** Closing and recreating the gateway preserved
+   the exact Hermes session/run/project binding. The owning project could read
+   the completed result and the confusing second project failed closed.
+4. **Transactional migration rollback.** A forced failure after the sidecar
+   statements rolled back all pilot tables and the migration marker as one
+   transaction.
+5. **Strict additive MCP evolution.** The live FastMCP schemas for
+   `task_query`, `task_action`, and `run_query` remain strict. Incumbent
+   project-less task-start and exact-run-status payloads parse unchanged under
+   proposed subclasses that add only an optional `project_id`. Required fields
+   and `additionalProperties: false` remain unchanged. Owner exact-ID reads
+   remain usable, while scoped worker reads validate the exact project first.
+
+Existing direct Claude and Codex access already established transport-level
+client neutrality through Soma's live MCP endpoint. This checkpoint deliberately
+did not publish the proposed test schema to that endpoint: doing so would have
+crossed the pilot boundary into a production contract mutation. The schema
+inspection plus incumbent-payload proof is the strongest connector compatibility
+evidence available without that mutation.
+
+## Disposable live-store-copy migration
+
+The fixture migration was applied to SQLite backup copies created from both
+live stores. A second main-store copy received a forced failing statement to
+exercise rollback. The source databases were opened read-only for classification
+and copied to a temporary directory; all temporary copies were removed after
+the run.
+
+| Check | Main-store copy | Memory-store copy |
+|---|---:|---:|
+| Backup-copy bytes before migration | 130,179,072 | 282,624 |
+| Bytes after migration | 130,277,376 | 294,912 |
+| Migration time | 0.0027 s | 0.0022 s |
+| Integrity check | `ok` | `ok` |
+| Foreign-key violations | 0 | 0 |
+| Pilot tables | 9 | 1 |
+
+The main backup's byte size differs from the physical live database because
+SQLite backup materializes a consistent view that includes WAL state. The live
+main file remained 130,039,808 bytes. SHA-256 hashes of both live files were
+identical before and after the experiment:
+
+- `runs/soma.sqlite3`:
+  `8bf4452d80a923c7ed15e2c560efcb18ffd5f0724520f460e937c5c90cad49db`;
+- `runs/memory/project_memory.sqlite3`:
+  `07aedf6db312bb3ba588e117921b4d3f8f06d9123fc1de3809558ef24bba9d4a`.
+
+The forced failure reported
+`no such table: pilot_scope_forced_missing_table`. It left zero pilot tables,
+zero pilot migration rows, and an `ok` integrity check.
+
+## Deterministic backfill/quarantine manifest
+
+The review artifact is
+[`pilot-scope-1-backfill-quarantine-manifest-2026-07-27.json`](pilot-scope-1-backfill-quarantine-manifest-2026-07-27.json).
+Its canonical SHA-256, computed with `manifest_sha256` omitted, is
+`d3b58d94ed3acac19bfbc1418bf17463fe563ea7122bfc917b1581bc3ad6a917`.
+
+The manifest records counts and sorted opaque-ID hashes rather than applying
+assignments:
+
+- 1,920 runs have a direct exact current-repository candidate;
+- 163 have one exact candidate in a structured repository field;
+- zero have multiple exact candidates;
+- 2,589 have no safe candidate and default to quarantine;
+- the two canonical tasks have a simple `repository:soma` candidate;
+- the 98 `codexbridge` memory records default to quarantine until an explicit
+  owner mapping, while the two `soma` records remain candidates only.
+
+Candidate does not mean approved. Repository names, paths, content, host labels,
+and controller conversations remain locators, never authority. No live record
+was assigned, backfilled, or quarantined.
+
 ### Measured integration requirements
 
 The proof narrows the production work but does not authorize it:
@@ -230,8 +318,9 @@ The proof narrows the production work but does not authorize it:
   that use the same alias. It prevents concurrent mutation, but the canonical
   lock key must eventually be the resource identity while preserving the one
   existing lock authority.
-- The projection proof was performed at the projection function boundary, not
-  through the live MCP schema. Connector-live compatibility remains open.
+- The production MCP contract must preserve the tested optional-field shape and
+  strict schemas. A later implementation batch must repeat the direct Claude and
+  Codex live invocation after that production contract changes.
 
 ## Working seam under investigation
 
@@ -358,26 +447,24 @@ Decision:
 - [x] Baseline task, memory, artifact, and SSH-binding tests:
   `57 passed in 7.90s`.
 - [x] Extended focused validation: `93 passed in 18.13s`.
-- [ ] Production-shaped migration test on a disposable copy of the live stores.
-- [ ] Lock, process, cancellation, and restart confusion tests.
-- [ ] Credential-provider and Hermes restart/reconciliation confusion tests.
-- [ ] Public MCP task/run schema and connector-live compatibility tests.
+- [x] Production-shaped migration test on disposable copies of the live stores;
+  both live file hashes remained unchanged.
+- [x] Lock, process, cancellation, and restart confusion tests.
+- [x] Explicit credential-reference binding and Hermes
+  restart/reconciliation confusion tests.
+- [x] Strict additive public MCP task/run schema, incumbent-payload, and
+  prior direct-controller transport compatibility evidence.
 - [ ] Backfill and quarantine manifest reviewed by the owner.
 - [ ] Final proceed, scope-cut, switch, blocked, or stop decision.
 
 ## Ranked next actions
 
-1. Exercise cancellation, worker/process adoption, operation-lock recovery,
-   Hermes restart, and orphaned sidecar reservations with deterministic fakes.
-2. Apply the fixture migration to disposable copies of the live run and memory
-   databases and record timing, size, integrity checks, and rollback evidence.
-3. Produce a deterministic backfill/quarantine manifest containing counts and
-   hashes, not inferred assignments.
-4. Exercise current MCP task/run projections with additive project fields and
-   verify strict schemas, CF1 budgets, exact-ID retrieval, and incumbent
-   controller payloads.
-5. Present the pilot verdict and smallest implementation batch for owner
-   approval. Do not merge the proof into production code during this pilot.
+1. Owner reviews the deterministic manifest and either accepts its
+   candidate/quarantine disposition or supplies an explicit mapping correction.
+2. Record the final pilot outcome. Current evidence supports **proceed**.
+3. If the owner accepts that outcome, propose the smallest production
+   implementation batch for separate approval. Do not merge this proof into
+   production code during the pilot.
 
 ## Loop avoidance rules
 
