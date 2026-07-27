@@ -117,9 +117,9 @@ The completed evidence is recorded in [`docs/pilot-scope-1-evidence-2026-07-27.m
 
 ### SCOPE-FOUNDATION-1 - Additive Project Identity Foundation
 
-**Status:** Gate A implemented and owner-accepted at `e306d5c9ef0826967c28b63db465b64c1dc0efa2`. Gate B is prepared for owner review but remains inactive; the live schema has not been changed. Gate C project/repository bootstrap remains inactive. Historical disposition, memory, Hermes, and push remain unauthorized.
+**Status:** Gate A implemented and owner-accepted at `e306d5c9ef0826967c28b63db465b64c1dc0efa2`. Gate B is owner-approved for one live schema-only activation but has not yet been executed; the live schema remains unchanged. Gate C project/repository bootstrap remains inactive. Historical disposition, memory, Hermes, and push remain unauthorized.
 
-Gate B preparation is recorded in [`docs/SCOPE_FOUNDATION_1_GATE_B_PREPARATION_2026-07-27.md`](docs/SCOPE_FOUNDATION_1_GATE_B_PREPARATION_2026-07-27.md), with a machine-readable rehearsal manifest in [`docs/scope-foundation-1-gate-b-preparation-2026-07-27.json`](docs/scope-foundation-1-gate-b-preparation-2026-07-27.json). A current-store disposable rehearsal passed with zero assignments and unchanged incumbent identities. Activation still requires a fresh backup, maintenance window, and explicit owner approval.
+Gate B preparation is recorded in [`docs/SCOPE_FOUNDATION_1_GATE_B_PREPARATION_2026-07-27.md`](docs/SCOPE_FOUNDATION_1_GATE_B_PREPARATION_2026-07-27.md), with a machine-readable rehearsal manifest in [`docs/scope-foundation-1-gate-b-preparation-2026-07-27.json`](docs/scope-foundation-1-gate-b-preparation-2026-07-27.json). A current-store disposable rehearsal passed with zero assignments and unchanged incumbent identities. Owner approval is now recorded. Execution still requires the prepared fresh backup, maintenance window, stop conditions, and post-migration verification.
 
 Gate A passed the full implementation and disposable-store gates. The owner ratified project-less access as an owner-controller compatibility path only, terminal evidence-preserving quarantine with an explicit adjudication/supersession prerequisite before Gate C, and the v1 one-task/one-run-attempt invariant. No additional Claude CLI retry is required. Successful live scoped controller calls are deferred until Gate C because Gate B creates schema only.
 

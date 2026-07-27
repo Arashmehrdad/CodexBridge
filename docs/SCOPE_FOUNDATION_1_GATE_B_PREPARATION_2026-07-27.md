@@ -1,17 +1,16 @@
 # SCOPE-FOUNDATION-1 Gate B Preparation
 
-**Status:** prepared for owner review. Gate B is not authorized and has not been
-executed. Gate C remains inactive.
+**Status:** owner-approved for one live **schema-only** activation. Approval is
+recorded, but the migration has not been executed. Gate C remains inactive.
 
-## Decision requested
+## Owner decision
 
-Approve or decline one live **schema-only** activation of ProjectScope v1 in
-`runs/soma.sqlite3`.
+Approved on 2026-07-27 for one execution of the prepared ProjectScope v1
+schema-only activation against `runs/soma.sqlite3`.
 
-Approval would authorize only the additive migration and its verification. It
-would not create a project, bind a repository, enable scoped writes, classify
-historical records, activate memory, or begin Gate C.
-
+This approval authorizes only the additive migration and its verification. It
+does not create a project, bind a repository, enable scoped writes, classify
+historical records, activate memory, begin Gate C, or authorize a push.
 ## Current live state
 
 The refreshed runtime is healthy and converged on Gate A code:
