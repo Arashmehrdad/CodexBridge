@@ -178,9 +178,16 @@ class TaskStore:
     def get_task(self, task_id: str) -> TaskRecord:
         validate_task_id(task_id)
         with self._read() as conn:
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
+            return self.get_task_in_connection(conn, task_id)
+
+    def get_task_in_connection(
+        self, conn: sqlite3.Connection, task_id: str
+    ) -> TaskRecord:
+        """Read one task inside an existing shared main-store transaction."""
+        validate_task_id(task_id)
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
         if row is None:
             raise KeyError(f"Task not found: {task_id}")
         return self._row_to_task(row)

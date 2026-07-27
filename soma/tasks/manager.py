@@ -15,9 +15,10 @@ Boundaries this manager keeps:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from base64 import b64decode
-
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,11 @@ from soma.project_scope import (
     ProjectScopeStore,
 )
 from soma.project_scope.models import (
+    ADJUDICATION_ID_DOMAIN,
+    ADJUDICATION_REQUEST_DOMAIN,
     RepositoryBinding,
     path_is_within_repository,
+    validate_opaque_id,
 )
 from soma.safety import redact_secret_values
 
@@ -75,6 +79,11 @@ from .store import TaskRequestConflict, TaskStore
 
 class _ControllerRequestScopeConflict(Exception):
     """Internal signal for a non-enumerating cross-project replay response."""
+
+
+class _StaleRecoveryResolution(Exception):
+    def __init__(self, task: TaskRecord) -> None:
+        self.task = task
 
 
 class TaskManager:
@@ -191,6 +200,386 @@ class TaskManager:
             )
         return finalize(
             {**result, "operation": "adjudicate_quarantine", "error": "", **_envelope(budget)}
+        )
+
+    def resolve_recovery(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        if_state_version: int,
+        successor_task_id: str,
+        reason: str,
+        idempotency_key: str,
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        """Terminally resolve one missing-backend task as superseded.
+
+        The task transition, scope quarantine, supersedes link, event, and
+        immutable adjudication share one main-store transaction. No backend row
+        or result evidence is invented.
+        """
+        trimmed_reason = str(reason or "").strip()[:512]
+        if not trimmed_reason:
+            return task_error(
+                operation="resolve_recovery",
+                error_code="task_recovery_resolution_rejected",
+                error="reason is required",
+                budget=budget,
+            )
+        try:
+            for value, field in (
+                (project_id, "project_id"),
+                (task_id, "task_id"),
+                (successor_task_id, "successor_task_id"),
+                (idempotency_key, "idempotency_key"),
+            ):
+                validate_opaque_id(value, field)
+            schema = self.scope_store.schema_state()
+            if "project_scope_adjudications" not in schema.get("tables", []):
+                raise ProjectScopeError(
+                    "ProjectScope adjudication schema is unavailable"
+                )
+
+            with self.store.transaction() as conn:
+                target = self.store.get_task_in_connection(conn, task_id)
+                successor = self.store.get_task_in_connection(
+                    conn, successor_task_id
+                )
+                target_scope = conn.execute(
+                    "SELECT project_id, resource_id, scope_generation, status "
+                    "FROM project_task_reservations WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                attempt = conn.execute(
+                    "SELECT attempt.run_id, attempt.status, "
+                    "attempt.recovery_reason, run.run_id AS stored_run_id "
+                    "FROM project_run_attempts attempt "
+                    "LEFT JOIN runs run ON run.run_id = attempt.run_id "
+                    "WHERE attempt.task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                successor_scope = conn.execute(
+                    "SELECT project_id, status FROM project_task_reservations "
+                    "WHERE task_id = ?",
+                    (successor_task_id,),
+                ).fetchone()
+                if (
+                    target_scope is None
+                    or attempt is None
+                    or successor_scope is None
+                    or str(target_scope["project_id"]) != project_id
+                    or str(successor_scope["project_id"]) != project_id
+                ):
+                    raise ProjectScopeMismatch(
+                        "No recoverable task matches this project scope"
+                    )
+
+                adjudication_id = sha256(
+                    "\0".join(
+                        (
+                            ADJUDICATION_ID_DOMAIN,
+                            project_id,
+                            "task_reservation",
+                            task_id,
+                            idempotency_key,
+                        )
+                    ).encode("utf-8")
+                ).hexdigest()
+                request_hash = sha256(
+                    "\0".join(
+                        (
+                            ADJUDICATION_REQUEST_DOMAIN,
+                            project_id,
+                            "task_reservation",
+                            task_id,
+                            "superseded",
+                            successor_task_id,
+                            trimmed_reason,
+                        )
+                    ).encode("utf-8")
+                ).hexdigest()
+                existing = conn.execute(
+                    "SELECT * FROM project_scope_adjudications "
+                    "WHERE record_kind = 'task_reservation' AND record_id = ?",
+                    (task_id,),
+                ).fetchone()
+
+                if existing is not None:
+                    if str(existing["adjudication_id"]) != adjudication_id:
+                        raise ProjectScopeError(
+                            "Record is already adjudicated under a different "
+                            "idempotency key; adjudication is single-shot"
+                        )
+                    if str(existing["request_hash"]) != request_hash:
+                        raise ProjectScopeError(
+                            "Idempotency key was already used for a different "
+                            "recovery decision"
+                        )
+                    replayed = True
+                    adjudication = existing
+                else:
+                    if int(if_state_version) != int(target.state_version):
+                        raise _StaleRecoveryResolution(target)
+                    if target.state not in {
+                        TaskState.UNCERTAIN,
+                        TaskState.RECOVERY_PENDING,
+                    } or target.recovery_state not in {
+                        TaskRecoveryState.UNRESOLVED,
+                        TaskRecoveryState.PENDING,
+                    }:
+                        raise ProjectScopeError(
+                            "Task is not in unresolved recovery"
+                        )
+                    if task_id == successor_task_id:
+                        raise ProjectScopeError(
+                            "successor_task_id must differ from task_id"
+                        )
+                    if successor.state is not TaskState.COMPLETED:
+                        raise ProjectScopeError(
+                            "Successor task must be completed"
+                        )
+                    if str(successor_scope["status"]) == "quarantined":
+                        raise ProjectScopeMismatch(
+                            "Successor task is not active in this project"
+                        )
+                    if attempt["stored_run_id"] is not None:
+                        raise ProjectScopeError(
+                            "Backend run exists; normal reconciliation owns this task"
+                        )
+                    if str(target_scope["status"]) == "quarantined":
+                        raise ProjectScopeError(
+                            "Task is already quarantined without an adjudication"
+                        )
+
+                    now = utc_now()
+                    updated = conn.execute(
+                        "UPDATE tasks SET state = 'failed', phase = 'recovery', "
+                        "state_version = state_version + 1, "
+                        "recovery_state = 'resolved', "
+                        "recovery_reason = 'owner_superseded_unresolved_backend', "
+                        "reconciled_at = ?, ended_at = ?, updated_at = ? "
+                        "WHERE task_id = ? AND state_version = ? "
+                        "AND state IN ('uncertain', 'recovery_pending')",
+                        (
+                            now,
+                            now,
+                            now,
+                            task_id,
+                            int(target.state_version),
+                        ),
+                    )
+                    if updated.rowcount != 1:
+                        raise _StaleRecoveryResolution(
+                            self.store.get_task_in_connection(conn, task_id)
+                        )
+                    target = self.store.get_task_in_connection(conn, task_id)
+
+                    reason_code = "owner_superseded_unresolved_backend"
+                    conn.execute(
+                        "UPDATE project_task_reservations "
+                        "SET status = 'quarantined', updated_at = ? "
+                        "WHERE task_id = ? AND status != 'quarantined'",
+                        (now, task_id),
+                    )
+                    conn.execute(
+                        "UPDATE project_run_attempts "
+                        "SET status = 'quarantined', recovery_reason = ?, "
+                        "updated_at = ? WHERE task_id = ? "
+                        "AND status != 'quarantined'",
+                        (reason_code, now, task_id),
+                    )
+                    evidence_hash = sha256(
+                        json.dumps(
+                            {
+                                "record_kind": "task_reservation",
+                                "record_id": task_id,
+                                "reason_code": reason_code,
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    conn.execute(
+                        "INSERT OR IGNORE INTO project_scope_quarantine "
+                        "(record_kind, record_id, reason_code, evidence_hash, "
+                        "created_at) VALUES ('task_reservation', ?, ?, ?, ?)",
+                        (task_id, reason_code, evidence_hash, now),
+                    )
+                    quarantine = conn.execute(
+                        "SELECT evidence_hash FROM project_scope_quarantine "
+                        "WHERE record_kind = 'task_reservation' AND record_id = ?",
+                        (task_id,),
+                    ).fetchone()
+                    if (
+                        quarantine is None
+                        or str(quarantine["evidence_hash"]) != evidence_hash
+                    ):
+                        raise ProjectScopeError(
+                            "Recovery quarantine evidence does not match"
+                        )
+
+                    conn.execute(
+                        "INSERT INTO project_scope_adjudications "
+                        "(adjudication_id, project_id, record_kind, record_id, "
+                        "disposition, successor_task_id, reason, "
+                        "idempotency_key, request_hash, "
+                        "quarantine_evidence_hash, created_at) "
+                        "VALUES (?, ?, 'task_reservation', ?, 'superseded', "
+                        "?, ?, ?, ?, ?, ?)",
+                        (
+                            adjudication_id,
+                            project_id,
+                            task_id,
+                            successor_task_id,
+                            trimmed_reason,
+                            idempotency_key,
+                            request_hash,
+                            evidence_hash,
+                            now,
+                        ),
+                    )
+                    conn.execute(
+                        "INSERT OR IGNORE INTO task_links "
+                        "(task_id, link_type, target_kind, target_id, "
+                        "created_at, metadata_json) "
+                        "VALUES (?, 'supersedes', 'task', ?, ?, ?)",
+                        (
+                            successor_task_id,
+                            task_id,
+                            now,
+                            json.dumps(
+                                {
+                                    "project_id": project_id,
+                                    "reason": "recovery_disposition",
+                                },
+                                sort_keys=True,
+                            ),
+                        ),
+                    )
+                    conn.execute(
+                        "INSERT INTO task_events "
+                        "(task_id, timestamp, level, stage, message, state, "
+                        "state_version, data_json) "
+                        "VALUES (?, ?, 'warning', 'recovery_disposition', ?, "
+                        "'failed', ?, ?)",
+                        (
+                            task_id,
+                            now,
+                            "Unresolved missing-backend task was terminally "
+                            "quarantined and superseded",
+                            target.state_version,
+                            json.dumps(
+                                {
+                                    "project_id": project_id,
+                                    "successor_task_id": successor_task_id,
+                                    "backend_reference": target.backend_ref,
+                                    "backend_run_fabricated": False,
+                                    "adjudication_id": adjudication_id,
+                                },
+                                sort_keys=True,
+                            ),
+                        ),
+                    )
+                    adjudication = conn.execute(
+                        "SELECT * FROM project_scope_adjudications "
+                        "WHERE adjudication_id = ?",
+                        (adjudication_id,),
+                    ).fetchone()
+                    replayed = False
+
+                target = self.store.get_task_in_connection(conn, task_id)
+                scope_after = conn.execute(
+                    "SELECT status FROM project_task_reservations "
+                    "WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                attempt_after = conn.execute(
+                    "SELECT status FROM project_run_attempts WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                quarantine_after = conn.execute(
+                    "SELECT evidence_hash FROM project_scope_quarantine "
+                    "WHERE record_kind = 'task_reservation' AND record_id = ?",
+                    (task_id,),
+                ).fetchone()
+                link_after = conn.execute(
+                    "SELECT 1 FROM task_links WHERE task_id = ? "
+                    "AND link_type = 'supersedes' AND target_kind = 'task' "
+                    "AND target_id = ?",
+                    (successor_task_id, task_id),
+                ).fetchone()
+                if (
+                    target.state is not TaskState.FAILED
+                    or target.recovery_state is not TaskRecoveryState.RESOLVED
+                    or scope_after is None
+                    or attempt_after is None
+                    or str(scope_after["status"]) != "quarantined"
+                    or str(attempt_after["status"]) != "quarantined"
+                    or quarantine_after is None
+                    or adjudication is None
+                    or str(adjudication["quarantine_evidence_hash"])
+                    != str(quarantine_after["evidence_hash"])
+                    or link_after is None
+                ):
+                    raise ProjectScopeError(
+                        "Stored recovery disposition is incomplete"
+                    )
+
+        except _StaleRecoveryResolution as exc:
+            return task_error(
+                operation="resolve_recovery",
+                error_code="stale_state_version",
+                error=(
+                    "Task state version has advanced: expected "
+                    f"{int(if_state_version)}, current {exc.task.state_version}"
+                ),
+                task_id=exc.task.task_id,
+                state=exc.task.state.value,
+                state_version=exc.task.state_version,
+                budget=budget,
+            )
+        except (KeyError, ValueError, ProjectScopeMismatch) as exc:
+            return task_error(
+                operation="resolve_recovery",
+                error_code="project_scope_mismatch",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except (ProjectScopeError, sqlite3.IntegrityError) as exc:
+            return task_error(
+                operation="resolve_recovery",
+                error_code="task_recovery_resolution_rejected",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+
+        return finalize(
+            {
+                "ok": True,
+                "operation": "resolve_recovery",
+                "project_id": project_id,
+                "task_id": target.task_id,
+                "successor_task_id": successor_task_id,
+                "disposition": "superseded",
+                "state": target.state.value,
+                "phase": target.phase.value,
+                "state_version": target.state_version,
+                "recovery_state": target.recovery_state.value,
+                "recovery_reason": target.recovery_reason,
+                "backend_reference": target.backend_ref,
+                "backend_run_fabricated": False,
+                "task_reservation_status": "quarantined",
+                "run_attempt_status": "quarantined",
+                "adjudication_id": str(adjudication["adjudication_id"]),
+                "request_hash": str(adjudication["request_hash"]),
+                "quarantine_evidence_hash": str(
+                    adjudication["quarantine_evidence_hash"]
+                ),
+                "replayed": replayed,
+                "error": "",
+                **_envelope(budget),
+            }
         )
 
     def get_status(

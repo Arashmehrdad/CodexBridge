@@ -19,6 +19,7 @@ import soma.server as server
 from soma.project_scope import ProjectScopeError, ProjectScopeMismatch, ProjectScopeStore
 from soma.project_scope.schema import PROJECT_SCOPE_TABLE_NAMES
 from soma.tasks.manager import TaskManager
+from soma.tasks.models import TaskState
 from soma.tasks.store import TaskStore
 from test_project_scope_foundation import (
     PROJECT_ALPHA,
@@ -748,3 +749,292 @@ def test_no_second_authority_is_introduced(tmp_path: Path) -> None:
             == 0
         )
     assert len(backend.started) == launched_before
+
+
+class _ToggleRecoveryBackend(StoredRunBackend):
+    def __init__(self, runs_dir: Path) -> None:
+        super().__init__(runs_dir)
+        self.fail_start = True
+
+    def start(self, spec, backend_ref: str) -> dict:
+        if self.fail_start:
+            self.started.append(backend_ref)
+            raise ValueError("fixture launch rejected before run creation")
+        return super().start(spec, backend_ref)
+
+
+def _recovery_fixture(tmp_path: Path):
+    config, config_path, repo = _make_config(tmp_path)
+    TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    _bootstrap(scope, repo, access_mode="shared")
+    scope.set_scoped_writes_enabled(True)
+    backend = _ToggleRecoveryBackend(config.resolve_runs_dir())
+    manager = TaskManager(
+        config, config_path, backend=backend, scope_store=scope
+    )
+
+    failed = manager.start_durable_command(
+        controller_request_id="recovery-target",
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        argv=["Write-Output", "never-launched"],
+        working_directory=str(repo),
+    )
+    assert failed["ok"] is False
+    target = manager.get_status(
+        failed["task_id"], project_id=PROJECT_ALPHA
+    )
+    assert target["state"] == "uncertain"
+
+    backend.fail_start = False
+    successor = manager.start_durable_command(
+        controller_request_id="recovery-successor",
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        argv=["Write-Output", "successor"],
+        working_directory=str(repo),
+    )
+    assert successor["ok"] is True
+    stored = backend.store.get_run(successor["backend_reference"])
+    completed = backend.store.transition_terminal(
+        successor["backend_reference"],
+        status="completed",
+        result={"summary": "successor"},
+        expected_statuses=(str(stored["status"]),),
+        expected_state_version=int(stored["state_version"]),
+        exit_code=0,
+        summary="successor",
+    )
+    assert completed is not None
+    successor = manager.get_status(
+        successor["task_id"], project_id=PROJECT_ALPHA
+    )
+    assert successor["state"] == "completed"
+    return manager, scope, backend, target, successor
+
+
+def _resolve_recovery(manager, target, successor, **overrides):
+    payload = {
+        "project_id": PROJECT_ALPHA,
+        "task_id": target["task_id"],
+        "if_state_version": target["state_version"],
+        "successor_task_id": successor["task_id"],
+        "reason": "malformed proof request was replaced by the successful proof",
+        "idempotency_key": "resolve-recovery-1",
+    }
+    payload.update(overrides)
+    return manager.resolve_recovery(**payload)
+
+
+def test_recovery_resolution_is_atomic_terminal_and_evidence_preserving(
+    tmp_path: Path,
+) -> None:
+    manager, scope, _backend, target, successor = _recovery_fixture(tmp_path)
+    result = _resolve_recovery(manager, target, successor)
+    assert result["ok"] is True
+    assert result["state"] == "failed"
+    assert result["phase"] == "recovery"
+    assert result["recovery_state"] == "resolved"
+    assert result["task_reservation_status"] == "quarantined"
+    assert result["run_attempt_status"] == "quarantined"
+    assert result["backend_run_fabricated"] is False
+    assert result["replayed"] is False
+
+    task = manager.store.get_task(target["task_id"])
+    assert task.state is TaskState.FAILED
+    assert task.result_ref == task.result_hash == task.evidence_ref == ""
+    with scope._read() as conn:
+        reservation = conn.execute(
+            "SELECT status FROM project_task_reservations WHERE task_id = ?",
+            (target["task_id"],),
+        ).fetchone()[0]
+        attempt = conn.execute(
+            "SELECT status FROM project_run_attempts WHERE task_id = ?",
+            (target["task_id"],),
+        ).fetchone()[0]
+        run = conn.execute(
+            "SELECT 1 FROM runs WHERE run_id = ?",
+            (target["backend_reference"],),
+        ).fetchone()
+        adjudication = conn.execute(
+            "SELECT disposition, successor_task_id "
+            "FROM project_scope_adjudications "
+            "WHERE record_kind = 'task_reservation' AND record_id = ?",
+            (target["task_id"],),
+        ).fetchone()
+        link = conn.execute(
+            "SELECT 1 FROM task_links WHERE task_id = ? "
+            "AND link_type = 'supersedes' AND target_kind = 'task' "
+            "AND target_id = ?",
+            (successor["task_id"], target["task_id"]),
+        ).fetchone()
+    assert reservation == attempt == "quarantined"
+    assert run is None
+    assert tuple(adjudication) == ("superseded", successor["task_id"])
+    assert link is not None
+
+    records = manager.list_quarantine(PROJECT_ALPHA)["records"]
+    record = next(
+        item for item in records if item["record_id"] == target["task_id"]
+    )
+    assert record["adjudicated"] is True
+    assert record["disposition"] == "superseded"
+
+
+def test_identical_recovery_resolution_replays_without_duplicate_evidence(
+    tmp_path: Path,
+) -> None:
+    manager, scope, _backend, target, successor = _recovery_fixture(tmp_path)
+    first = _resolve_recovery(manager, target, successor)
+    replay = _resolve_recovery(manager, target, successor)
+    assert replay["ok"] is True
+    assert replay["replayed"] is True
+    assert replay["state_version"] == first["state_version"]
+    assert replay["adjudication_id"] == first["adjudication_id"]
+    with scope._read() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM project_scope_adjudications"
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM task_links WHERE link_type = 'supersedes'"
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM task_events WHERE task_id = ? "
+            "AND stage = 'recovery_disposition'",
+            (target["task_id"],),
+        ).fetchone()[0] == 1
+
+
+def test_recovery_resolution_conflicts_and_scope_fail_closed(
+    tmp_path: Path,
+) -> None:
+    manager, _scope, _backend, target, successor = _recovery_fixture(tmp_path)
+    stale = _resolve_recovery(
+        manager,
+        target,
+        successor,
+        if_state_version=target["state_version"] + 1,
+    )
+    assert stale["ok"] is False
+    assert stale["error_code"] == "stale_state_version"
+    wrong = _resolve_recovery(
+        manager, target, successor, project_id=PROJECT_BETA
+    )
+    assert wrong["ok"] is False
+    assert wrong["error_code"] == "project_scope_mismatch"
+
+    first = _resolve_recovery(manager, target, successor)
+    assert first["ok"] is True
+    changed = _resolve_recovery(
+        manager, target, successor, reason="different decision"
+    )
+    assert changed["ok"] is False
+    assert changed["error_code"] == "task_recovery_resolution_rejected"
+    other_key = _resolve_recovery(
+        manager,
+        target,
+        successor,
+        idempotency_key="resolve-recovery-2",
+    )
+    assert other_key["ok"] is False
+    assert other_key["error_code"] == "task_recovery_resolution_rejected"
+
+
+def test_existing_backend_row_keeps_normal_reconciliation_authority(
+    tmp_path: Path,
+) -> None:
+    manager, scope, backend, target, successor = _recovery_fixture(tmp_path)
+    run_dir = backend.store.runs_dir / target["backend_reference"]
+    run_dir.mkdir(parents=True, exist_ok=True)
+    backend.store.create_run(
+        run_id=target["backend_reference"],
+        repo_name="sample",
+        tool="executable_profile",
+        run_dir=run_dir,
+        input_data={"late": True},
+        status="queued",
+    )
+    rejected = _resolve_recovery(manager, target, successor)
+    assert rejected["ok"] is False
+    assert rejected["error_code"] == "task_recovery_resolution_rejected"
+    with scope._read() as conn:
+        assert conn.execute(
+            "SELECT status FROM project_task_reservations WHERE task_id = ?",
+            (target["task_id"],),
+        ).fetchone()[0] == "attached"
+
+
+def test_recovery_resolution_rolls_back_every_authority_on_failure(
+    tmp_path: Path,
+) -> None:
+    manager, scope, _backend, target, successor = _recovery_fixture(tmp_path)
+    with scope.transaction() as conn:
+        conn.execute(
+            "CREATE TRIGGER fail_recovery_adjudication "
+            "BEFORE INSERT ON project_scope_adjudications "
+            "BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+    failed = _resolve_recovery(manager, target, successor)
+    assert failed["ok"] is False
+    task = manager.store.get_task(target["task_id"])
+    assert task.state is TaskState.UNCERTAIN
+    with scope._read() as conn:
+        assert conn.execute(
+            "SELECT status FROM project_task_reservations WHERE task_id = ?",
+            (target["task_id"],),
+        ).fetchone()[0] == "attached"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM project_scope_quarantine"
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM task_links WHERE link_type = 'supersedes'"
+        ).fetchone()[0] == 0
+
+
+def test_concurrent_identical_recovery_resolution_converges(
+    tmp_path: Path,
+) -> None:
+    manager, _scope, _backend, target, successor = _recovery_fixture(tmp_path)
+    barrier = threading.Barrier(2)
+    results = []
+    lock = threading.Lock()
+
+    def work() -> None:
+        barrier.wait()
+        result = _resolve_recovery(manager, target, successor)
+        with lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=work) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert all(result["ok"] for result in results)
+    assert sorted(result["replayed"] for result in results) == [False, True]
+    assert len({result["adjudication_id"] for result in results}) == 1
+
+
+def test_recovery_resolution_mcp_shape_is_strict_and_project_scoped() -> None:
+    async def tools() -> dict:
+        return {tool.name: tool for tool in await server.mcp.list_tools()}
+
+    discovered = asyncio.run(tools())
+    branch = next(
+        item
+        for item in discovered["task_action"].parameters["oneOf"]
+        if item["properties"]["operation"].get("const")
+        == "resolve_recovery"
+    )
+    assert branch["additionalProperties"] is False
+    assert set(branch["required"]) == {
+        "operation",
+        "project_id",
+        "task_id",
+        "if_state_version",
+        "successor_task_id",
+        "reason",
+        "idempotency_key",
+    }

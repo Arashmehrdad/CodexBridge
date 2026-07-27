@@ -347,7 +347,7 @@ def task_capabilities(
             "same_request_returns_existing_task": True,
             "different_request_same_id_rejected": True,
         },
-        "version_guarded_commands": ["cancel"],
+        "version_guarded_commands": ["cancel", "resolve_recovery"],
         "schema": dict(schema_state),
         "authority": {
             "task_identity": "task_store",

@@ -1017,7 +1017,12 @@ def test_task_gateways_are_discoverable_with_strict_request_unions() -> None:
         "links",
         "quarantine",
     }
-    assert action_ops == {"start", "cancel", "adjudicate_quarantine"}
+    assert action_ops == {
+        "start",
+        "cancel",
+        "resolve_recovery",
+        "adjudicate_quarantine",
+    }
     for name in ("task_query", "task_action"):
         for variant in actions[name]["inputSchema"]["oneOf"]:
             assert variant["additionalProperties"] is False
@@ -1030,7 +1035,10 @@ def test_task_capabilities_declare_the_canonical_contract(tmp_path: Path) -> Non
 
     assert capabilities["default_backend_kind"] == "soma_durable_run"
     assert capabilities["backends"][0]["default"] is True
-    assert capabilities["version_guarded_commands"] == ["cancel"]
+    assert capabilities["version_guarded_commands"] == [
+        "cancel",
+        "resolve_recovery",
+    ]
     assert capabilities["idempotency"]["keys"] == [
         "controller_request_id",
         "request_hash",

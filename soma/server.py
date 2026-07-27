@@ -3265,7 +3265,7 @@ def task_query(request: TaskQueryRequest) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def task_action(request: TaskActionRequest) -> dict:
-    """Write gateway for idempotent canonical task starts and version-guarded cancellation."""
+    """Write gateway for canonical starts, cancellation, and recovery disposition."""
     manager = get_task_manager()
     if request.operation == "start":
         return manager.start_durable_command(
@@ -3280,6 +3280,16 @@ def task_action(request: TaskActionRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
             parent_task_id=request.parent_task_id,
+            budget=request.response_budget_bytes,
+        )
+    if request.operation == "resolve_recovery":
+        return manager.resolve_recovery(
+            project_id=request.project_id,
+            task_id=request.task_id,
+            if_state_version=request.if_state_version,
+            successor_task_id=request.successor_task_id,
+            reason=request.reason,
+            idempotency_key=request.idempotency_key,
             budget=request.response_budget_bytes,
         )
     if request.operation == "adjudicate_quarantine":

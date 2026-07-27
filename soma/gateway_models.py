@@ -1357,6 +1357,20 @@ class TaskCancelCommand(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TaskRecoveryResolve(GatewayModel):
+    """Owner-only terminal resolution for one unresolved scoped task."""
+
+    operation: Literal["resolve_recovery"]
+    project_id: str = Field(min_length=1, max_length=128)
+    task_id: str = Field(min_length=1, max_length=128)
+    if_state_version: int = Field(ge=0)
+    successor_task_id: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=512)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class TaskQuarantineAdjudicate(GatewayModel):
     """Owner-only disposition recorded beside a preserved quarantine record.
 
@@ -1388,7 +1402,10 @@ class TaskQuarantineAdjudicate(GatewayModel):
 
 
 TaskActionRequest = Annotated[
-    TaskDurableCommandStart | TaskCancelCommand | TaskQuarantineAdjudicate,
+    TaskDurableCommandStart
+    | TaskCancelCommand
+    | TaskRecoveryResolve
+    | TaskQuarantineAdjudicate,
     Field(discriminator="operation"),
 ]
 

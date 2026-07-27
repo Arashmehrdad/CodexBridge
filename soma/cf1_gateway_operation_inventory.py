@@ -495,6 +495,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "task_action",
+        ("resolve_recovery",),
+        "soma.server:task_action -> soma.tasks.manager:TaskManager",
+        "compact terminal recovery disposition",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Version-guarded, project-scoped resolution of one unresolved "
+            "missing-backend task. Canonical failure, terminal quarantine, "
+            "supersedes link, event, and adjudication commit atomically."
+        ),
+    ),
+    _entry(
+        "task_action",
         ("adjudicate_quarantine",),
         "soma.server:task_action -> soma.tasks.manager:TaskManager",
         "compact quarantine adjudication acknowledgement",
