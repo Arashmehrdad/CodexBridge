@@ -1,0 +1,55 @@
+{
+  "schema_version": "pilot_memory_1.shadow_benchmark.v1",
+  "note_count": 10,
+  "projects": [
+    "soma",
+    "soma-lab"
+  ],
+  "baseline_index_sha256": "fcaa442c7d1a2c7d24cb18f8e565801c26365117c73a1256ebe2766aeaf729d4",
+  "results": [
+    {
+      "class": "exact-recall",
+      "question": "Can an exact fact be recalled verbatim?",
+      "ok": true,
+      "detail": "1 hit(s): ['soma-runtime-port']"
+    },
+    {
+      "class": "current-vs-superseded",
+      "question": "Does a corrected fact win over the fact it replaced?",
+      "ok": true,
+      "detail": "current=['soma-db-size'] superseded=['soma-db-size-old']"
+    },
+    {
+      "class": "source-resolution",
+      "question": "Does every fact carry a source that still resolves?",
+      "ok": true,
+      "detail": "all sources resolve in the Soma repo"
+    },
+    {
+      "class": "external-edits",
+      "question": "Is an edit made outside the tool visible and attributable?",
+      "ok": true,
+      "detail": "git reports: ['M soma-transport.md']"
+    },
+    {
+      "class": "deletion",
+      "question": "After a deletion, are the references to it detectable?",
+      "ok": true,
+      "detail": "dangling references found: [('soma-dangling', 'soma-removed-note')]"
+    },
+    {
+      "class": "rebuild",
+      "question": "Does a full rebuild reproduce the index exactly?",
+      "ok": true,
+      "detail": "fcaa442c7d1a2c7d\u2026 vs baseline fcaa442c7d1a2c7d\u2026"
+    },
+    {
+      "class": "project-isolation",
+      "question": "Do two near-identical projects stay separated, and does an unscoped query fail closed?",
+      "ok": true,
+      "detail": "soma=['soma-runtime-port'] soma-lab=['somalab-runtime-port'] unscoped_query_allowed=False"
+    }
+  ],
+  "passed": 7,
+  "total": 7
+}
