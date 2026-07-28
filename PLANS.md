@@ -143,7 +143,7 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 **Status:** **accepted and documentation-closed.** The authoritative decision is [`docs/MEMORY_PROVIDER_DECISION_2026-07-28.md`](docs/MEMORY_PROVIDER_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/memory-provider-decision-2026-07-28.json`](docs/memory-provider-decision-2026-07-28.json).
 
-The selected architecture is Markdown + Git as canonical content, Obsidian as the owner-facing workspace, Basic Memory Local as the first ready-made AI memory provider candidate, and Soma as the sole authority for project identity, provider binding, routing, provenance, continuity, and acceptance. Mem0 is not selected for canonical project memory; Cognee is deferred until a named graph-reasoning gap; a custom Soma retrieval engine is rejected.
+The selected architecture is Markdown + Git as canonical content, Obsidian as the owner-facing workspace, Basic Memory Local as the first ready-made AI memory provider candidate, and Soma as the sole authority for project identity, provider binding, routing, provenance, continuity, and acceptance. Mem0 is not selected for canonical project memory; Cognee is deferred until a named graph-reasoning gap. `PILOT-MEMORY-1B` custom code is recorded only as an overbuilt benchmark artifact; a custom Soma retrieval engine was never an accepted architecture candidate.
 
 A premature disposable Basic Memory probe was removed completely and is not acceptance evidence. No provider installation, persistent provider state, production memory, MCP integration, owner-memory import, subagent work, or push is active.
 

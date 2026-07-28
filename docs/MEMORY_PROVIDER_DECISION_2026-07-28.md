@@ -58,9 +58,11 @@ Mem0 is designed primarily as an application memory engine that extracts and res
 
 Cognee combines relational, vector, and graph stores and normally uses an LLM plus embeddings to construct graph memory. That is useful when measured graph reasoning or large heterogeneous ingestion is required, but it is substantially heavier than the current need. It may be reconsidered only after Basic Memory fails a named relationship or reasoning requirement.
 
-### Custom Soma retrieval engine - rejected
+### PILOT-MEMORY-1B clarification
 
-The `PILOT-MEMORY-1B` package demonstrated that custom benchmark and retrieval work expands quickly into ranking, embeddings, graph traversal, scoring, and maintenance code. Soma will not continue that path. The committed experiment remains historical evidence only and is not a production dependency.
+A custom Soma retrieval engine was **never an architecture candidate in the accepted plan**. `PILOT-MEMORY-1B` was supposed to benchmark the Markdown baseline and identify named gaps before comparing ready-made providers. Its custom package was an overbuilt benchmark artifact produced during execution, not a proposed production direction. It remains historical evidence only.
+
+The original decision rule still applies: adopt or wrap a ready-made provider first, and add only the minimum custom component after a specific provider gap is demonstrated.
 
 ## Premature probe disposition
 

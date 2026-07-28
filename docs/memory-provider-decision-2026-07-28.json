@@ -29,10 +29,6 @@
     "cognee": {
       "decision": "deferred_until_named_graph_reasoning_gap",
       "reason": "relational_vector_graph_and_llm_pipeline_is_heavier_than_current_need"
-    },
-    "custom_soma_retrieval": {
-      "decision": "rejected",
-      "reason": "duplicates_ready_made_provider_capabilities_and_creates_new_memory_engine"
     }
   },
   "premature_probe": {
@@ -46,5 +42,11 @@
   "subagents_authorized": false,
   "provider_installation_authorized": false,
   "production_activation": false,
-  "push_allowed": false
+  "push_allowed": false,
+  "pilot_memory_1b_clarification": {
+    "custom_engine_was_original_candidate": false,
+    "actual_role": "overbuilt_benchmark_artifact",
+    "production_direction": "none",
+    "decision_rule": "adopt_or_wrap_ready_made_provider_then_add_only_minimum_custom_component_for_named_gap"
+  }
 }
