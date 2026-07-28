@@ -1,26 +1,30 @@
 # Soma
 
-Soma is a Windows-first, client-neutral MCP engineering control plane. It connects an MCP-capable controller to local Git repositories, durable PowerShell execution, remote hosts, infrastructure providers, repository knowledge, Hermes tools, and the optional Trading Lab domain package.
+Soma is a local-first, project-aware coordination and execution runtime for ChatGPT, Claude Code, Hermes, and other MCP-capable controllers. It gives them one durable control plane for project identity, tasks, runs, tools, research, evidence, and continuity.
 
-Soma is not a coding-agent runtime and does not launch Codex, Claude Code, Gemini CLI, or another model-agent process. The connected client remains the reasoning controller; Soma supplies durable identity, execution, cancellation, evidence, repository operations, and bounded domain gateways.
+The connected AI remains the reasoning controller. Soma does not replace ChatGPT, Claude Code, or Hermes; it provides the shared runtime beneath them: recoverable execution, exact project scope, cancellation, repository operations, infrastructure gateways, source-grounded research preservation, and bounded context.
+
+Soma is Windows-first today, while most of its Python core remains platform-neutral.
 
 ## Current state
 
 The current public surface contains **32 consolidated MCP gateways**. The major completed milestones are:
 
 - durable run ownership, restart reconciliation, process-tree cancellation, locks, and atomic terminal publication;
+- a canonical task plane and exact ProjectScope bindings for shared cross-controller identity;
 - unrestricted owner-authorized local PowerShell, including parallel command groups;
 - compact `cf1.v1` public projections with exact authoritative evidence retrieval;
 - hash-bound managed repository previews, applies, rollback evidence, and selected-file commits;
 - shared multi-session Hermes service with a one-request companion fallback;
 - durable workflows and supervisors;
 - repository wiki and scoped decision memory;
+- a manual, source-grounded research platform with immutable raw artifacts, structured claims and evidence, decisions, and reproducible context packets;
 - bounded Docker, Cloudflare, and SSH providers;
 - Trading Lab extracted into its own package and wired back through one adapter;
 - strict Trading Lab companion steps for research, decision, model review, and demo-only execution;
 - hidden Windows logon startup for both the Soma server and Cloudflare tunnel.
 
-STABILIZE-1 is the active pre-Roadmap V3 lane. Later pilots remain inactive until the owner selects them after the preceding gate is reviewed. See `PLANS.md` for the goal-based acceptance contract.
+The pre-Roadmap V3 bridge is evidence-led. Completed work, prepared pilots, and the currently selected lane are recorded in [`PLANS.md`](PLANS.md); nothing in the README implicitly activates a deferred pilot.
 
 ## Design principles
 
@@ -43,8 +47,9 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- system identity, health, config reload and rollback
   +-- repository inspection and hash-bound managed changes
   +-- durable local and remote execution
-  +-- run, workflow and supervisor state
-  +-- repository wiki and scoped decision memory
+  +-- canonical task, run, workflow and supervisor state
+  +-- exact ProjectScope identity and repository bindings
+  +-- repository wiki, scoped memory and source-grounded research
   +-- Hermes one-request companion / shared worker service
   +-- Docker, Cloudflare and SSH domain gateways
   +-- Trading Lab adapter
@@ -54,6 +59,7 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- runs/workflows/                workflow artifacts
   +-- runs/supervisors/              supervisor artifacts and resume prompts
   +-- runs/trading/                  Trading Lab journals and state
+  +-- runs/research/                 raw-source archive and research overlay
   +-- <repo>/.soma/wiki/             generated repository knowledge
 ```
 
