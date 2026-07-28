@@ -1,0 +1,193 @@
+{
+  "schema_version": "pilot_obsidian_mcp_1_results.v1",
+  "date": "2026-07-28",
+  "gate": "PILOT-OBSIDIAN-MCP-1",
+  "gate_source": "PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md",
+  "status": "executed_stopped_on_documented_stop_condition",
+  "outcome": "reject_mcp_connector_activate_basic_memory_comparison",
+  "execution": {
+    "controller_count": 1,
+    "coding_agents": 0,
+    "subagents": 0,
+    "parallel_basic_memory": false,
+    "parallel_codebase_memory": false,
+    "pushed": false
+  },
+  "repository_preflight": {
+    "head_at_start": "cd6d90436baf1fff65eedabee3ae8f8d0686efde",
+    "worktree_clean": true,
+    "running_runs": 0,
+    "queued_runs": 0,
+    "locks": 0,
+    "capability_epoch": "1632dc6ed895-42bdb69d96fb"
+  },
+  "host": {
+    "obsidian_version": "1.12.7",
+    "obsidian_install_path": "D:\\Program Files\\Obsidian",
+    "obsidian_exe_sha256": "fb6b2133c21ef7051c41f66d5c06f0e69162febfbb3f838a3556d54d13304b69",
+    "authenticode": "Valid, CN=Dynalist Inc",
+    "installed_by": "owner, not controller",
+    "cli_enabled_by_controller": true,
+    "cli_enable_mechanism": "global obsidian.json flag cli=true, equivalent to Settings > General > Advanced; file did not pre-exist and was removed at cleanup"
+  },
+  "frozen_provider_release": {
+    "plugin_id": "mcp-tools-istefox",
+    "repository": "istefox/obsidian-mcp-connector",
+    "version": "0.28.1",
+    "license": "MIT",
+    "min_app_version": "1.7.2",
+    "install_channel": "official Obsidian community store via official CLI plugin:install",
+    "brat_used": false,
+    "mcpb_used": false,
+    "community_store_manually_reviewed_by_obsidian_staff": false,
+    "release_asset_sha256": {
+      "main.js": "4be75215e84f94944f1887e69171f4455a5745c04b69d8a2d749151e142bcae8",
+      "manifest.json": "5b8484320f27027eec9f14bee0ada6b024ed28896bf9e3909fb0810f165f47fc",
+      "obsidian-mcp-connector.mcpb": "ebe7536656c9be6d8f08dd3194866573079d323f3559ec6974e5b7247d6de46c"
+    },
+    "installed_main_js_sha256": "b18c788fc929115bb6506050c150d4124bed90a655c9fc8a9b97a0e04c26807f",
+    "installed_vs_release": "byte-identical for all 2591536 release bytes; Obsidian's installer appends an 18-byte suffix '\\n/* nosourcemap */'. Difference is client-side and fully explained.",
+    "manifest_hash_match": true
+  },
+  "projects": [
+    {
+      "soma_project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "vault_name": "soma-pilot-vault",
+      "obsidian_vault_id": "a144f75916194276",
+      "fixed_port": 27231,
+      "bearer_token_ref": "sha256:358131ddb930d185",
+      "server_info_name": "Obsidian - soma-pilot-vault",
+      "notes": 17,
+      "semantic_index_records": 17
+    },
+    {
+      "soma_project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "vault_name": "soma-lab-pilot-vault",
+      "obsidian_vault_id": "0cf013d0191b57f4",
+      "fixed_port": 27232,
+      "bearer_token_ref": "sha256:8247d47d2a09971a",
+      "server_info_name": "Obsidian - soma-lab-pilot-vault",
+      "notes": 7,
+      "semantic_index_records": 1
+    }
+  ],
+  "frozen_benchmark": {
+    "corpus_hash": "cb1aaad133243ef6557d02ae24bd728c90a1ee34f6f3e522997ce4f207cf2042",
+    "questions_hash": "da0a578b9bc1b406ba87a7dadcb3faf5a56d1c0d75f7fc9958d44c6d8dcbab75",
+    "total_notes": 24,
+    "questions": 20,
+    "base_views": 1,
+    "final_state_hash": "789a5605160f063c06be26428211a81ba5400248e855e40aabb4315b7f506ea4",
+    "cli_transcript_sha256": "d69541f8aad6fd5c93c04cc38dc191d2b8340f3b04c0fd2000858260c6efc143",
+    "cli_calls_logged": 57
+  },
+  "passed": {
+    "loopback_only_binding": "single listener 127.0.0.1 per vault; no LAN interface bound",
+    "bearer_auth": "missing, wrong and empty tokens all rejected HTTP 401; correct token 200",
+    "per_vault_token_isolation": "distinct tokens; cross-token use rejected 401 in both directions",
+    "sibling_isolation": "zero cross-vault results across all 20 questions in both literal and semantic methods",
+    "source_integrity": "installed bytes match the frozen official release exactly, delta explained",
+    "core_profile_restricts_surface": "profile=core reduced advertised tools from 52 to 16; fetch, execute_obsidian_command, execute_template, execute_dataview_query all removed from the advertised surface",
+    "semantic_paraphrase": "6/6 intended notes in top 3 - closes the named gap PILOT-MEMORY-1B recorded, where 4/6 missed entirely",
+    "persian_paraphrase": "3/3 intended notes in top 3",
+    "literal_search": "2/2 with path, line and context grounding",
+    "structured_property_queries": "2/2; .base view returned structured CSV filtered on properties",
+    "backlinks": "returned exactly the 3 expected referrers including the Persian note",
+    "external_manual_edit": "out-of-band write detected and searchable after reload",
+    "deletion": "explicit, and correctly produced a dangling reference",
+    "markdown_never_corrupted": "21/25 files byte-identical at close; the 4 differences are exactly the intentional edit, delete and rename operations. Survived two forced process kills with zero drift.",
+    "no_client_autoconfiguration": "claude_desktop_config.json last modified 2026-07-25, three days before the pilot, and contains no obsidian or mcp-tools-istefox entry",
+    "clean_removal": "plugin and embeddings index removed from both vaults, no listeners remain, no residue outside approved locations"
+  },
+  "failed": [
+    {
+      "id": "core-surface-not-static",
+      "requirement": "the advertised Core surface is static and cannot self-activate additional tools",
+      "observed": "Core always includes tool_catalog, activate_tool and activate_tools. Any bearer-token holder can enumerate all 52 tools and promote any of the 36 inactive ones, including fetch (open-world), execute_obsidian_command, delete_vault_file and search_and_replace. Demonstrated: surface grew 16 to 18 via two MCP calls.",
+      "persisted": false,
+      "note": "persist defaults to false, so the expansion leaves no trace in data.json - it is invisible to configuration audit"
+    },
+    {
+      "id": "semantic-index-cannot-be-rebuilt",
+      "requirement": "rebuild the semantic index completely from the unchanged vault",
+      "observed": "soma-lab-pilot-vault indexed 1 of 7 notes (embeddings.meta.json recordCount=1). Survived index deletion plus plugin reload, foreground focus, and mtime touch. soma-pilot-vault indexed 17/17 under identical settings.",
+      "reproduced_after_clean_rerun": true
+    },
+    {
+      "id": "stale-success-on-incomplete-index",
+      "requirement": "closing Obsidian makes the endpoint fail clearly rather than returning stale success",
+      "observed": "With a 1-of-7 index the provider reported status ok and answered every query confidently from the single indexed note, including a negative-similarity match (-0.065). No warning, no error, no completeness signal.",
+      "reproduced_after_clean_rerun": true
+    },
+    {
+      "id": "multilingual-model-silently-empty",
+      "requirement": "for the bilingual check use Multilingual-E5 or the provider's documented non-Latin recommendation",
+      "observed": "Setting semanticSearch.provider=multilingual-e5-base produced 0 results for every query with no errorCode and isError=false. The multilingual-e5-base index directory was never created. status remained ok.",
+      "reproduced_after_clean_rerun": false
+    },
+    {
+      "id": "cross-language-retrieval",
+      "requirement": "the selected multilingual model handles the fixed Persian and cross-language questions",
+      "observed": "0/2 cross-language questions retrieved the intended note under the only working model (native-minilm-l6-v2, English-only, 384-dim)."
+    },
+    {
+      "id": "link-aware-rename-broken-and-hangs",
+      "requirement": "link-aware rename preserves wikilinks and backlinks",
+      "observed": "CLI rename hung with no response for 45s, then 150s on a clean rerun. In both cases the file was renamed on disk but referring wikilinks were NOT rewritten, creating 3 dangling references across 2 renames.",
+      "reproduced_after_clean_rerun": true
+    }
+  ],
+  "stop_condition_fired": {
+    "text": "Windows hangs, stale-success behavior or Markdown corruption repeats after one clean rerun",
+    "instances": [
+      "rename hang and broken link integrity, reproduced on a second independent note",
+      "stale-success on an incomplete semantic index, reproduced after index deletion and rebuild"
+    ]
+  },
+  "harness_defect_disclosed": {
+    "defect": "The first corpus revision named files by slug while wikilinks used frontmatter titles. Obsidian resolves [[X]] against the file name, not a title property, so all 13 wikilinks dangled and CLI file= lookups missed. A .base view also used a bare filter list instead of an and/or/not key.",
+    "correction": "Files renamed so filename equals title; .base filter syntax fixed. Corpus re-frozen before the affected checks were rerun.",
+    "affected_results": "link, backlink and .base checks only. Retrieval class results were produced by semantic and literal search, which do not depend on link resolution.",
+    "outcome_impact": "none - every provider failure above is independent of this defect and was observed after the correction"
+  },
+  "boundaries_preserved": {
+    "obsidian_installed_by_controller": false,
+    "global_mcp_config_modified": false,
+    "claude_or_codex_settings_modified": false,
+    "agents_md_hooks_skills_modified": false,
+    "auto_client_config_used": false,
+    "mcpb_used": false,
+    "brat_used": false,
+    "adaptive_or_all_profile_used": false,
+    "command_execution_invoked": false,
+    "web_fetch_invoked": false,
+    "provider_source_patched": false,
+    "custom_retrieval_implemented": false,
+    "cloud_or_remote_sync": false,
+    "hosted_model_or_api": false,
+    "production_vault_opened": false,
+    "live_project_scope_mutated": false,
+    "soma_stores_mutated": false,
+    "soma_wiki_touched": false,
+    "hermes_memory_touched": false,
+    "mcp_schema_changed": false,
+    "repository_source_files_changed": false,
+    "tokens_in_committed_evidence": false,
+    "pushed": false
+  },
+  "cleanup": {
+    "plugin_uninstalled_both_vaults": true,
+    "embeddings_index_removed": true,
+    "listeners_remaining": 0,
+    "vaults_removed": true,
+    "obsidian_json_removed": true,
+    "obsidian_json_pre_existed": false,
+    "residue_outside_approved_locations": "none",
+    "obsidian_application_left_installed": true
+  },
+  "after_this_gate": {
+    "basic_memory_reactivation_scope": "only the named gaps: semantic index rebuild completeness, multilingual retrieval, and rename link integrity",
+    "code_intelligence_pilot": "remains planned and inactive",
+    "production_memory_integration": "not begun; requires a separate acceptance decision"
+  }
+}

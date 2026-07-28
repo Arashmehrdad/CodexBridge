@@ -1,0 +1,242 @@
+{
+  "schema_version": "pilot_obsidian_mcp_1_corpus.v1",
+  "date": "2026-07-28",
+  "frozen_before_measurement": true,
+  "vaults": [
+    {
+      "name": "soma-pilot-vault",
+      "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "root": "D:\\Github\\Soma\\runs\\pilots\\obsidian-mcp-1\\soma-pilot-vault",
+      "notes": 17,
+      "port_fact": 8801,
+      "concurrency_fact": 4
+    },
+    {
+      "name": "soma-lab-pilot-vault",
+      "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "root": "D:\\Github\\Soma\\runs\\pilots\\obsidian-mcp-1\\soma-lab-pilot-vault",
+      "notes": 7,
+      "port_fact": 9142,
+      "concurrency_fact": 12
+    }
+  ],
+  "total_notes": 24,
+  "base_views": 1,
+  "trial_targets": {
+    "manual_edit": "soma-pilot-vault/Retention Window Note.md",
+    "rename": "soma-pilot-vault/Link Integrity Probe.md",
+    "delete": "soma-pilot-vault/Deletion Probe.md"
+  },
+  "corpus_hash": "cb1aaad133243ef6557d02ae24bd728c90a1ee34f6f3e522997ce4f207cf2042",
+  "questions_hash": "da0a578b9bc1b406ba87a7dadcb3faf5a56d1c0d75f7fc9958d44c6d8dcbab75",
+  "question_count": 20,
+  "questions": [
+    {
+      "id": "en-01",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "Which socket number accepts service connections?",
+      "vault": "soma-pilot-vault",
+      "expect": "Service Endpoint Binding",
+      "expect_value": 8801
+    },
+    {
+      "id": "en-02",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "How many jobs may run at once?",
+      "vault": "soma-pilot-vault",
+      "expect": "Worker Concurrency Ceiling",
+      "expect_value": 4
+    },
+    {
+      "id": "en-03",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "Why is hiding skipped review items dangerous?",
+      "vault": "soma-pilot-vault",
+      "expect": "Silent Omission Hazard",
+      "expect_value": null
+    },
+    {
+      "id": "en-04",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "Can a read query stall the process saving data?",
+      "vault": "soma-pilot-vault",
+      "expect": "Journal Mode and Reader Isolation",
+      "expect_value": null
+    },
+    {
+      "id": "en-05",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "What happens when a caller names the wrong project owner?",
+      "vault": "soma-pilot-vault",
+      "expect": "Binding Mismatch Rejection",
+      "expect_value": null
+    },
+    {
+      "id": "en-06",
+      "lang": "en",
+      "cls": "semantic_paraphrase",
+      "q": "Which procedure depends on taking a verified backup?",
+      "vault": "soma-pilot-vault",
+      "expect": "Store Upgrade Runbook",
+      "expect_value": null
+    },
+    {
+      "id": "fa-01",
+      "lang": "fa",
+      "cls": "persian_paraphrase",
+      "q": "شواهد تا چه مدت نگهداری می‌شوند؟",
+      "vault": "soma-pilot-vault",
+      "expect": "سیاست نگهداشت شواهد",
+      "expect_value": 90
+    },
+    {
+      "id": "fa-02",
+      "lang": "fa",
+      "cls": "persian_paraphrase",
+      "q": "پس از خرابی چه مراحلی باید انجام شود؟",
+      "vault": "soma-pilot-vault",
+      "expect": "رویه بازیابی پس از خرابی",
+      "expect_value": null
+    },
+    {
+      "id": "fa-03",
+      "lang": "fa",
+      "cls": "persian_paraphrase",
+      "q": "چرا نادیده گرفتن بی‌صدای موارد ردشده خطرناک است؟",
+      "vault": "soma-pilot-vault",
+      "expect": "درس آموخته درباره هشدارهای خاموش",
+      "expect_value": null
+    },
+    {
+      "id": "xl-01",
+      "lang": "en->fa",
+      "cls": "cross_language",
+      "q": "how long are execution artifacts kept before pruning",
+      "vault": "soma-pilot-vault",
+      "expect": "سیاست نگهداشت شواهد",
+      "expect_value": 90
+    },
+    {
+      "id": "xl-02",
+      "lang": "fa->en",
+      "cls": "cross_language",
+      "q": "کدام شماره درگاه برای اتصال‌های ورودی باز است؟",
+      "vault": "soma-pilot-vault",
+      "expect": "Service Endpoint Binding",
+      "expect_value": 8801
+    },
+    {
+      "id": "lit-01",
+      "lang": "en",
+      "cls": "literal",
+      "q": "write-ahead logging",
+      "vault": "soma-pilot-vault",
+      "expect": "Journal Mode and Reader Isolation",
+      "expect_value": null
+    },
+    {
+      "id": "lit-02",
+      "lang": "en",
+      "cls": "literal",
+      "q": "admission queue",
+      "vault": "soma-pilot-vault",
+      "expect": "Worker Concurrency Ceiling",
+      "expect_value": 4
+    },
+    {
+      "id": "st-01",
+      "lang": "en",
+      "cls": "structured",
+      "q": "notes with status superseded",
+      "vault": "soma-pilot-vault",
+      "expect": "Endpoint Binding Retired|Concurrency Ceiling Retired",
+      "expect_value": null
+    },
+    {
+      "id": "st-02",
+      "lang": "en",
+      "cls": "structured",
+      "q": "notes with kind procedure",
+      "vault": "soma-pilot-vault",
+      "expect": "Store Upgrade Runbook|رویه بازیابی پس از خرابی",
+      "expect_value": null
+    },
+    {
+      "id": "rel-01",
+      "lang": "en",
+      "cls": "relation",
+      "q": "what links to Silent Omission Hazard",
+      "vault": "soma-pilot-vault",
+      "expect": "Evidence Completeness Rule|Daily 2026-07-24|درس آموخته درباره هشدارهای خاموش",
+      "expect_value": null
+    },
+    {
+      "id": "rel-02",
+      "lang": "en",
+      "cls": "relation",
+      "q": "which note supersedes the retired listener value",
+      "vault": "soma-pilot-vault",
+      "expect": "Service Endpoint Binding",
+      "expect_value": 8801
+    },
+    {
+      "id": "iso-01",
+      "lang": "en",
+      "cls": "sibling_isolation",
+      "q": "Which socket number accepts service connections?",
+      "vault": "soma-lab-pilot-vault",
+      "expect": "Service Endpoint Binding",
+      "expect_value": 9142
+    },
+    {
+      "id": "iso-02",
+      "lang": "en",
+      "cls": "sibling_isolation",
+      "q": "How many jobs may run at once?",
+      "vault": "soma-lab-pilot-vault",
+      "expect": "Worker Concurrency Ceiling",
+      "expect_value": 12
+    },
+    {
+      "id": "iso-03",
+      "lang": "fa",
+      "cls": "sibling_isolation",
+      "q": "شواهد تا چه مدت نگهداری می‌شوند؟",
+      "vault": "soma-lab-pilot-vault",
+      "expect": "سیاست نگهداشت آزمایشگاه",
+      "expect_value": 7
+    }
+  ],
+  "file_hashes": {
+    "soma-pilot-vault/Service Endpoint Binding.md": "d9fc43e7a819ac702ecbfd7aba9d6f0f7cf4b90d28a55061b8e504a82b260d71",
+    "soma-pilot-vault/Endpoint Binding Retired.md": "5043368d6df89b85d0f6d5a8f4977c99ce2e05e83073aed911904b436941c037",
+    "soma-pilot-vault/Worker Concurrency Ceiling.md": "5a3d1e4459e7a6b5591b6e25950f920548552958e56c8a1c34c0de554c07e189",
+    "soma-pilot-vault/Concurrency Ceiling Retired.md": "7f6252af2d23511a46af6fb78d30a9013a44551df40310df3c74f0d7f557f67f",
+    "soma-pilot-vault/Silent Omission Hazard.md": "f06c8db6a9c45bf220296d88a32cbb36d7393f831004a91c76d32a52965e0848",
+    "soma-pilot-vault/Evidence Completeness Rule.md": "126d07dc7e880df44102ab7653fa229b1eace4eebdbab2f76175677acc5f9de0",
+    "soma-pilot-vault/Journal Mode and Reader Isolation.md": "97f843198af0ccdad3a324cbb1173d786ceb67a560fbeb6ff1e549679b9ca19e",
+    "soma-pilot-vault/Binding Mismatch Rejection.md": "e773e17565faf2e5ebe1e749332e3f6732956640e7893327c68ffc68f90b2057",
+    "soma-pilot-vault/Active Context Is Not Identity.md": "8a24b7edeec4f05db6ca10742d2b0127f7f11827f712739c1c4dc451927246be",
+    "soma-pilot-vault/Store Upgrade Runbook.md": "6881b4cce8b7bdd9a0208a9e63bc4968a7d29079f4cd3a1851bb76fbd585a175",
+    "soma-pilot-vault/Retention Window Note.md": "55d3e9a9e687055ada343b507daf6bd3c3b51e721c66bd5d3e60d9d149b726b7",
+    "soma-pilot-vault/Link Integrity Probe.md": "2e2b285639cd99d472d4c93b65fb787764314262951cb1fcf378d2446ad912ab",
+    "soma-pilot-vault/Deletion Probe.md": "c959b88eed8d4a3fdc4e09caa2c457c8d31df39f473718e9801c53d758743220",
+    "soma-pilot-vault/Daily 2026-07-24.md": "b346002bed96dc43231fd9d5c47ba7bfb101d3b30c774b629c0b732bb3bd3841",
+    "soma-pilot-vault/سیاست نگهداشت شواهد.md": "d6530aa9947e4aedefb1591339ac72416e2beef2d4bc2cdac28e646e45f8ef20",
+    "soma-pilot-vault/رویه بازیابی پس از خرابی.md": "5ac539269a7626817d93fc81160cdf2c2526fbd528300821bded4ba2653d8102",
+    "soma-pilot-vault/درس آموخته درباره هشدارهای خاموش.md": "9528970b37dfbb8364f30eed298c974fd4d6cf9ec5695e55d8988b19c4a9f7d1",
+    "soma-pilot-vault/project-notes.base": "e0c14e1625831d0e260393e43800a84da8c5b7a901aac6c719d1acefbceab89c",
+    "soma-lab-pilot-vault/Service Endpoint Binding.md": "45d1eef8de21668f6b4c348d0c275fa4e01f3da4b0290253f9d5944a18a118ab",
+    "soma-lab-pilot-vault/Worker Concurrency Ceiling.md": "c8701c95b9f7178109f3f9ac147764f586e30c5cc090f0abd8fa5af1d5d568af",
+    "soma-lab-pilot-vault/Quiet Skip Hazard.md": "4479ccd8f4523e4b2fe84b0ef20bf4e2d16e516e10c933b06ac76496ee9277c6",
+    "soma-lab-pilot-vault/Journal Mode Notes.md": "c48fcfafda2f92f315443b15ba2096a96a3b42dbfa4213415764dbf25dfda888",
+    "soma-lab-pilot-vault/Lab Upgrade Runbook.md": "d87db5b65ea59dba3b24c8c6ce3e1ff2fc4c04b26774fa4e0262e6a8b9523314",
+    "soma-lab-pilot-vault/سیاست نگهداشت آزمایشگاه.md": "9877537c71454fae2eec2ce8520a7d295bd0b4716fbc84d540e9bc3e0159b71f",
+    "soma-lab-pilot-vault/Daily 2026-07-24.md": "a5ce838dafe0af852aa6cad9313c09641d87cc7c56e8bbf8ec9de92918b014f4"
+  }
+}
