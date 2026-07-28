@@ -1,0 +1,142 @@
+{
+  "schema_version": "pilot_basic_memory_2_gate.v1",
+  "date": "2026-07-28",
+  "status": "gate_prepared_execution_not_started",
+  "decision_source": "MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md",
+  "supersedes_before_execution": "PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md",
+  "purpose": "focused_basic_memory_provider_health_bilingual_and_filesystem_freshness_trial",
+  "execution": {
+    "controller_count": 1,
+    "coding_agents": 0,
+    "subagents": 0,
+    "parallel_provider_pilots": false,
+    "parallel_code_intelligence_pilot": false,
+    "execution_trigger": "subsequent_owner_instruction_such_as_continue",
+    "production_integration_authorized": false
+  },
+  "authority": {
+    "canonical_content": "markdown_plus_git",
+    "owner_workspace": "Obsidian",
+    "provider": "Basic Memory Local",
+    "soma_owns_project_identity_binding_health_and_provenance": true,
+    "provider_state_disposable": true,
+    "default_project_authoritative": false,
+    "production_memory_activation": false,
+    "live_project_scope_mutation": false,
+    "mcp_schema_change": false
+  },
+  "threat_model": {
+    "host": "owner_personal_windows_laptop",
+    "human_users": 1,
+    "local_tool_expansion_is_selection_blocker": false,
+    "future_soma_allowlist_required": true
+  },
+  "projects": [
+    {
+      "provider_name": "soma-pilot",
+      "soma_project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "provider_uuid": "resolve_during_execution",
+      "process_constraint": "BASIC_MEMORY_MCP_PROJECT=soma-pilot"
+    },
+    {
+      "provider_name": "soma-lab-pilot",
+      "soma_project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "provider_uuid": "resolve_during_execution",
+      "process_constraint": "BASIC_MEMORY_MCP_PROJECT=soma-lab-pilot"
+    }
+  ],
+  "provider_release": {
+    "version": "resolve_and_freeze_before_install",
+    "source": "official_only",
+    "hashes_required": true,
+    "auto_update_disabled": true,
+    "isolated_install_root": "runs/pilots/basic-memory-2",
+    "global_install": false,
+    "provider_source_modification": false,
+    "cloud_or_hosted_embeddings": false
+  },
+  "corpus": {
+    "projects": 2,
+    "notes_total": 14,
+    "notes_per_project": 7,
+    "per_file_lexical_canary": true,
+    "per_file_semantic_canary": true,
+    "stable_physical_filenames": true,
+    "empty_or_frontmatter_only_note": true,
+    "frozen_and_hashed_before_queries": true
+  },
+  "hardest_requirement": "delete_derived_state_rebuild_from_markdown_account_for_every_file_and_refuse_stale_healthy_success",
+  "test_order": [
+    "installation_release_and_model_freeze",
+    "initial_os_manifest_provider_accounting_and_all_file_known_hits",
+    "delete_and_full_rebuild_from_canonical_markdown",
+    "interrupted_rebuild_and_stale_success",
+    "four_direction_english_persian_matrix",
+    "os_create_edit_rename_delete_freshness",
+    "provider_specific_project_constraint_omission_and_sibling_isolation",
+    "safe_abstention_diagnostic",
+    "markdown_obsidian_and_link_behavior",
+    "restart_removal_and_cleanup"
+  ],
+  "black_box_contract": {
+    "single_canary_proves_completeness": false,
+    "every_eligible_synthetic_file_must_be_accounted_for": true,
+    "os_manifest_compared_to_provider_stats": true,
+    "known_hit_queries_prove_ingestion": true,
+    "nonsense_empty_result_is_failure": false,
+    "low_score_result_proves_health": false,
+    "os_rename_must_rewrite_obsidian_links": false,
+    "provider_specific_safety_checks_required": true
+  },
+  "bilingual_matrix": [
+    "english_note_english_query",
+    "persian_note_persian_query",
+    "persian_note_english_query",
+    "english_note_persian_query"
+  ],
+  "minimal_soma_guard_if_required": {
+    "allowed": true,
+    "roles": [
+      "exact_project_provider_process_root_binding",
+      "omission_and_wrong_project_rejection",
+      "os_manifest_vs_provider_coverage_health_check",
+      "semantic_fail_closed_when_completeness_unproven",
+      "exact_tool_allowlist",
+      "returned_path_validation",
+      "literal_markdown_fallback"
+    ],
+    "forbidden": [
+      "storage",
+      "embeddings",
+      "ranking",
+      "semantic_search",
+      "graph_traversal",
+      "provider_repair"
+    ]
+  },
+  "outcomes": [
+    "accept_basic_memory_provider",
+    "accept_with_minimal_soma_health_and_binding_guard",
+    "reject_basic_memory_activate_single_alternative_discovery",
+    "inconclusive"
+  ],
+  "forbidden": [
+    "model_training",
+    "fine_tuning",
+    "custom_retrieval_engine",
+    "custom_embeddings_or_ranking",
+    "provider_source_patch",
+    "cloud_or_remote_sync",
+    "hosted_embedding_api",
+    "private_or_production_memory",
+    "global_or_client_configuration_changes",
+    "parallel_provider_pilot",
+    "parallel_codebase_memory_pilot",
+    "push"
+  ],
+  "code_intelligence_pilot_remains_inactive": true,
+  "provider_installation_authorized_by_gate_preparation": false,
+  "execution_started": false,
+  "active": true,
+  "push_allowed": false
+}
