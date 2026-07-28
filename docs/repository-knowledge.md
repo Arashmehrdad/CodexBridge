@@ -2,6 +2,12 @@
 
 Soma combines a generated repository wiki with persistent project memory.
 
+Source-grounded external research is handled separately by the Soma research
+platform described in [`SOMA_KNOWLEDGE_LAYER.md`](SOMA_KNOWLEDGE_LAYER.md).
+Its raw archive and structured SQLite overlay are authoritative; this legacy
+wiki/Markdown system is not a substitute for research provenance, claims, or
+evidence.
+
 ## Knowledge hierarchy
 
 1. **Live source code** is the current truth.

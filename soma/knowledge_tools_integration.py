@@ -215,7 +215,18 @@ PROJECT_KNOWLEDGE_ACTION_OUTPUT = {
         "status": {"type": "string"},
         "canonical_path": {"type": "string"},
         "source_count": {"type": "integer"},
+        "source_id": {"type": "string"},
+        "source_version_id": {"type": "string"},
+        "sha256": {"type": "string"},
+        "archive_path": {"type": "string"},
+        "size_bytes": {"type": "integer"},
+        "ingestion_status": {"type": "string"},
+        "reused": {"type": "boolean"},
+        "packet_id": {"type": "string"},
+        "entity_counts": {"type": "object"},
+        "dataset_id": {"type": "string"},
         "indexed_count": {"type": "integer"},
+        "failed_count": {"type": "integer"},
         "malformed_count": {"type": "integer"},
         "error": {"type": "string"},
         "truncated": {"type": "boolean"},
@@ -344,6 +355,23 @@ def _project_knowledge_context(mcp: Any, project_id: str, repo_name: str):
     return service, binding, canonical_name
 
 
+def _project_research_context(mcp: Any, project_id: str, repo_name: str):
+    from .project_scope import ProjectScopeStore
+    from .research import ResearchPlatformService
+
+    config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
+    binding = ProjectScopeStore(config.resolve_runs_dir()).resolve_repository(
+        project_id=project_id,
+        repo_name=canonical_name,
+        repository_root=repo_root,
+    )
+    service = ResearchPlatformService(
+        config.resolve_runs_dir() / "research",
+        binding.project_id,
+    )
+    return service, binding, canonical_name
+
+
 def _knowledge_record_projection(record: Any, *, include_body: bool) -> dict[str, Any]:
     projected = {
         "knowledge_id": record.knowledge_id,
@@ -381,9 +409,23 @@ def _bounded_project_result(result: dict[str, Any], budget: int) -> dict[str, An
         )
         > budget
     ):
-        records = bounded.get("records") or []
-        if records:
-            records.pop()
+        removed = False
+        for key in (
+            "retrieved_passages",
+            "evidence",
+            "claims",
+            "questions",
+            "candidates",
+            "decisions",
+            "citations",
+            "records",
+        ):
+            values = bounded.get(key) or []
+            if values:
+                values.pop()
+                removed = True
+                break
+        if removed:
             bounded["truncated"] = True
             bounded["has_more"] = True
             continue
@@ -829,9 +871,236 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "error": str(exc),
             }
 
+    def import_research_source(request: Any) -> dict:
+        from hashlib import sha256
+
+        from .research import SourceImportDraft
+
+        try:
+            service, binding, canonical_name = _project_research_context(
+                mcp, request.project_id, request.repo_name
+            )
+            draft = SourceImportDraft(
+                project_id=binding.project_id,
+                canonical_uri=request.canonical_uri,
+                title=request.title,
+                source_type=request.source_type,
+                retrieved_at=request.retrieved_at,
+                origin_namespace=request.origin_namespace,
+                origin_key=request.origin_key or request.canonical_uri,
+            )
+            if request.content_text:
+                content = request.content_text.encode("utf-8")
+                if request.expected_sha256 and (
+                    sha256(content).hexdigest() != request.expected_sha256.lower()
+                ):
+                    raise ValueError(
+                        "source content SHA-256 does not match expected_sha256"
+                    )
+                result = service.import_bytes(
+                    draft,
+                    content,
+                    original_name=request.original_name,
+                    media_type=request.media_type or "text/plain",
+                    index=request.index,
+                )
+            else:
+                source_path = Path(
+                    request.local_path or request.captured_artifact_path
+                ).resolve()
+                if request.expected_sha256:
+                    digest = sha256()
+                    with source_path.open("rb") as source:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != request.expected_sha256.lower():
+                        raise ValueError(
+                            "source file SHA-256 does not match expected_sha256"
+                        )
+                result = service.import_file(draft, source_path, index=request.index)
+            return {
+                "ok": True,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": "import_research_source",
+                "source_id": result.source_id,
+                "source_version_id": result.source_version_id,
+                "sha256": result.source_sha256,
+                "archive_path": result.archive_path,
+                "size_bytes": result.size_bytes,
+                "ingestion_status": result.ingestion_status,
+                "reused": result.reused,
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "repo_name": request.repo_name,
+                "operation": "import_research_source",
+                "error": str(exc),
+            }
+
+    def preserve_research_packet(request: Any) -> dict:
+        from .research import ResearchPacketDraft
+
+        try:
+            service, binding, canonical_name = _project_research_context(
+                mcp, request.project_id, request.repo_name
+            )
+            payload = dict(request.packet)
+            payload.setdefault("project_id", binding.project_id)
+            for field in (
+                "claims",
+                "evidence",
+                "questions",
+                "candidates",
+                "decisions",
+                "experiments",
+                "summaries",
+                "relationships",
+            ):
+                for item in payload.get(field, []):
+                    item.setdefault("project_id", binding.project_id)
+            if payload.get("analysis_run"):
+                payload["analysis_run"].setdefault("project_id", binding.project_id)
+            packet = ResearchPacketDraft.model_validate(payload)
+            preserved = service.preserve_packet(packet)
+            return {
+                "ok": True,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": "preserve_research_packet",
+                "packet_id": preserved.packet_id,
+                "status": (
+                    "idempotent_replay" if preserved.idempotent_replay else "preserved"
+                ),
+                "entity_counts": {
+                    key: len(value) for key, value in preserved.entity_ids.items()
+                },
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "repo_name": request.repo_name,
+                "operation": "preserve_research_packet",
+                "error": str(exc),
+            }
+
+    def rebuild_research_index(request: Any) -> dict:
+        try:
+            service, binding, canonical_name = _project_research_context(
+                mcp, request.project_id, request.repo_name
+            )
+            result = service.rebuild_index()
+            return {
+                "ok": result.failed_count == 0,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": "rebuild_research_index",
+                "dataset_id": result.dataset_id,
+                "indexed_count": result.indexed_count,
+                "failed_count": result.failed_count,
+                "status": "healthy" if result.failed_count == 0 else "degraded",
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "repo_name": request.repo_name,
+                "operation": "rebuild_research_index",
+                "status": "not_configured",
+                "error": str(exc),
+            }
+
     @mcp.tool(output_schema=KNOWLEDGE_QUERY_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
+        if request.operation in {
+            "get_research_source",
+            "get_claim_evidence",
+            "list_research_questions",
+            "list_research_decisions",
+            "search_research",
+            "build_context_packet",
+            "research_health",
+        }:
+            try:
+                service, binding, canonical_name = _project_research_context(
+                    mcp, request.project_id, request.repo_name
+                )
+                base = {
+                    "ok": True,
+                    "project_id": binding.project_id,
+                    "repo_name": canonical_name,
+                    "operation": request.operation,
+                    "contract_version": "soma.research.v1",
+                    "error": "",
+                }
+                if request.operation == "get_research_source":
+                    record = (
+                        service.get_source(request.source_id)
+                        if request.source_id
+                        else service.get_source_version(request.source_version_id)
+                    )
+                    result = {**base, "record": record.model_dump(mode="json")}
+                elif request.operation == "get_claim_evidence":
+                    result = {
+                        **base,
+                        "records": [
+                            item.model_dump(mode="json")
+                            for item in service.claim_evidence(request.claim_id)
+                        ],
+                    }
+                elif request.operation == "list_research_questions":
+                    result = {
+                        **base,
+                        "records": [
+                            item.model_dump(mode="json")
+                            for item in service.list_questions()[: request.limit]
+                        ],
+                    }
+                elif request.operation == "list_research_decisions":
+                    result = {
+                        **base,
+                        "records": [
+                            item.model_dump(mode="json")
+                            for item in service.list_decisions()[: request.limit]
+                        ],
+                    }
+                elif request.operation in {
+                    "search_research",
+                    "build_context_packet",
+                }:
+                    packet = service.build_context_packet(
+                        request.query, limit=request.limit
+                    )
+                    payload = packet.model_dump(mode="json")
+                    if request.operation == "search_research":
+                        payload = {
+                            "query": packet.query,
+                            "retrieved_passages": packet.retrieved_passages,
+                            "citations": packet.citations,
+                            "content_sha256": packet.content_sha256,
+                        }
+                    result = {**base, **payload}
+                else:
+                    result = {
+                        **base,
+                        **service.health().model_dump(mode="json"),
+                    }
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "project_id": request.project_id,
+                    "repo_name": request.repo_name,
+                    "operation": request.operation,
+                    "error": str(exc),
+                }
+            return _bounded_project_result(result, request.response_budget_bytes)
         if request.operation in {
             "search_knowledge",
             "get_knowledge",
@@ -929,6 +1198,12 @@ def register_knowledge_tools(mcp: Any) -> None:
             result = save_project_knowledge(request)
         elif request.action == "supersede_knowledge":
             result = save_project_knowledge(request, supersede=True)
+        elif request.action == "import_research_source":
+            result = import_research_source(request)
+        elif request.action == "preserve_research_packet":
+            result = preserve_research_packet(request)
+        elif request.action == "rebuild_research_index":
+            result = rebuild_research_index(request)
         else:
             result = rebuild_project_knowledge(request)
         if request.view == "full":
@@ -936,6 +1211,9 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "save_knowledge",
                 "supersede_knowledge",
                 "rebuild_knowledge",
+                "import_research_source",
+                "preserve_research_packet",
+                "rebuild_research_index",
             }:
                 return _bounded_project_result(result, request.response_budget_bytes)
             return result
@@ -943,6 +1221,9 @@ def register_knowledge_tools(mcp: Any) -> None:
             "save_knowledge",
             "supersede_knowledge",
             "rebuild_knowledge",
+            "import_research_source",
+            "preserve_research_packet",
+            "rebuild_research_index",
         }:
             return _bounded_project_result(result, request.response_budget_bytes)
         return _bounded_knowledge_action(result, request.response_budget_bytes)

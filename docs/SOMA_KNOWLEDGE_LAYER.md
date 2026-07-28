@@ -1,131 +1,218 @@
-# Soma Knowledge Layer
+# Soma External Research Knowledge Platform
 
-**Status:** production architecture accepted; first implementation batch active by explicit owner instruction on 2026-07-28.
+**Status:** corrected production foundation implemented after commit `df83a6a`.
 
 ## Purpose
 
-Soma's knowledge layer preserves project facts, decisions, documents, research notes, lessons, relationships, sources, and historical context across ChatGPT, Claude Code, Hermes, and later compatible controllers.
+Soma preserves completed, owner-requested research so ChatGPT, Claude Code, and
+Hermes can recover the same source-grounded project understanding across
+conversations. Soma does not crawl, schedule research, discover sources
+autonomously, or decide that a conversation should be saved.
 
-It is designed for the owner's practical workflow: substantial research and architecture reasoning can be saved from a conversation, found in a later session, inspected in Obsidian, and traced back to its source.
+The operating workflow is explicit:
 
-## Authority boundary
+1. Arash asks a controller to research a subject.
+2. The controller researches normally.
+3. Arash explicitly asks to preserve the result.
+4. The controller manually imports source captures and submits a structured
+   research packet.
+5. Soma archives original artifacts, records reviewed research state, and
+   optionally projects the artifacts into RAGFlow.
+6. A later controller retrieves citations, claims, contradictory evidence,
+   questions, candidates, and decisions through the same Soma contract.
 
-Soma owns:
+## Ownership
 
-- exact opaque `project_id` selection and project access;
-- stable knowledge identity, lifecycle, provenance, health, and continuity;
-- the public save, search, retrieval, supersession, health, and rebuild contract;
-- validation that returned paths and records belong to the requested project.
+```text
+explicit URL capture / local file / ChatGPT packet
+                         |
+                         v
+               canonical manual importer
+                         |
+             +-----------+-----------+
+             v                       v
+  content-addressed archive   SQLite research overlay
+  immutable original bytes    provenance and reviewed state
+             |                       |
+             +-----------+-----------+
+                         |
+                         v
+                replaceable RAGFlow
+       parsing, OCR, chunks, embeddings, retrieval
+                         |
+                         v
+              reproducible context packet
+```
 
-Ordinary Markdown is the durable, human-readable content representation. Obsidian is an editor and browser over that content, not a second authority. `KnowledgeCatalog` is a rebuildable SQLite projection used for scoped literal retrieval and continuity checks. Its loss must reduce convenience, not destroy the Markdown knowledge.
+- The content-addressed raw archive is canonical for original PDFs, webpage
+  captures, documents, datasets, and research-packet artifacts.
+- The project-scoped SQLite overlay is canonical for source identity and
+  versions, provenance, claims, evidence, questions, candidates, decisions,
+  generated summaries, relationships, analysis records, audit events, and
+  supersession.
+- RAGFlow is disposable. It owns parsing, OCR, chunks, embeddings, retrieval,
+  reranking, and derived citations.
+- Markdown and Obsidian are optional owner-readable projections. They do not
+  rebuild or override the research overlay.
+- Soma owns exact ProjectScope identity, routing, lifecycle, health, bounded
+  public gateways, and controller access.
 
-No external memory or vector provider is authoritative. A later provider may supply a replaceable derived index only after passing the same project-isolation, rebuild, health, provenance, and bilingual acceptance contract.
+The earlier `soma.knowledge` Markdown catalog remains a compatible legacy
+projection for generic notes and existing clients. It is not the authoritative
+research platform.
 
-## First production slice
+## Raw archive
 
-The first slice uses these implementation concepts:
+Each project receives an isolated archive beneath Soma's ignored run state:
 
-- `KnowledgeInput` (also exposed as `ResearchNoteInput`) describes a requested save.
-- `KnowledgeRecord` is the stable, source-grounded public record.
-- `SourceReference` and `SourceLocator` preserve where information came from.
-- `MarkdownVault` owns safe, atomic Markdown materialization beneath the bound project root.
-- `KnowledgeCatalog` owns the rebuildable SQLite projection and literal full-text retrieval.
-- `KnowledgeService` is the sole consistency boundary for save, search, get, supersede, health, and rebuild.
-- `KnowledgeSearchPage`, `KnowledgeHealth`, and `RebuildResult` provide bounded, typed results.
+```text
+runs/research/projects/<project-id-hash>/raw/
+├── objects/
+│   └── <sha-prefix>/<sha256>
+└── staging/
+```
 
-Supported knowledge kinds are facts, decisions, documents, research, lessons, and questions. Relationships and richer distinctions may be represented in typed metadata in this slice; they are not yet a general evidence-graph engine.
+Imports stream into staging, calculate SHA-256, flush and fsync, verify any
+existing object, and atomically replace the final digest-only path. Identical
+bytes reuse one object even when filenames differ. Original name, media type,
+size, URI, retrieval time, and version lineage live in the overlay; source
+bytes never enter SQLite or Git.
 
-Every record must retain:
+Supported manual inputs are:
 
-- exact `project_id` and stable `knowledge_id`;
-- kind, title, original content, language, tags, and status;
-- canonical Markdown path and content hash;
-- source references and exact locators when supplied;
-- creation and update identity and timestamps;
-- an explicit supersession link and reason when replaced.
+- a local file;
+- an already captured artifact;
+- caller-supplied captured text associated with a URL;
+- an artifact referenced by a completed research packet.
 
-Saving the same idempotent request must return the same logical result. Updating knowledge creates preserved historical context rather than silently erasing the prior statement. Superseded and disputed information remains retrievable when explicitly requested, while default search favours current active knowledge.
+Supplying a URL does not authorize Soma to crawl or silently fetch it.
 
-## Public workflow
+## Structured research overlay
 
-The service contract comprises:
+The overlay stores these project-scoped entities:
 
-1. `save` — validate exact project scope, normalize a typed input, preserve provenance, write Markdown atomically, and update the catalog projection.
-2. `search` — perform bounded, project-scoped literal retrieval with filters and a stable continuation cursor.
-3. `get` — retrieve one exact record and its provenance without relying on ranking.
-4. `supersede` — link an old record to its replacement and preserve both records.
-5. `health` — compare canonical files with catalog generations and report healthy, degraded, or rebuilding state honestly.
-6. `rebuild` — recreate derived catalog state from canonical Markdown without changing the Markdown.
+- logical `sources` and immutable `source_versions`;
+- `research_packets` and packet idempotency;
+- reviewed or proposed `claims`;
+- `evidence_links` with support, contradiction, qualification, replication,
+  and failed-replication roles;
+- exact quote, quote hash, archive hash, locator, page range, chunk
+  fingerprint, and optional disposable RAGFlow chunk identity;
+- `research_questions` and missing evidence;
+- `design_candidates`;
+- accepted, rejected, deferred, under-review, and superseded
+  `design_decisions`;
+- bounded `experiment_proposals` that remain separate from external results and
+  accepted decisions;
+- non-authoritative `generated_summaries` with review state;
+- typed `relationships`;
+- `analysis_runs`, audit events, and reproducible context-packet manifests.
 
-All controller integrations must use this same Soma-owned service boundary. Provider defaults, active Obsidian vault state, repository names, working directories, and conversation identity must never infer `project_id`.
+Packet preservation validates every project and reference before one SQLite
+transaction. Repeating the packet idempotency key returns the same packet and
+entity identities. Supporting and contradictory evidence coexist; neither is
+silently overwritten.
 
-## Markdown and Obsidian contract
+## RAGFlow boundary
 
-Knowledge files use stable physical filenames based on Soma identity. Editable titles and aliases belong in frontmatter. External edits made through Obsidian remain ordinary Markdown changes and are incorporated through a controlled rebuild or reconciliation path.
+`RagFlowGateway` is a replaceable typed interface. Source versions may progress
+through stored, uploaded, parsing, indexed, failed, and retry states. RAGFlow
+credentials, dataset configuration, and live deployment remain external to the
+canonical archive and overlay.
 
-The first slice must not promise automatic live filesystem watching or link-aware rename behaviour. A physical rename outside Soma may be treated as remove-plus-add unless stable identity remains present and valid in frontmatter. Conflicting or malformed external edits must produce degraded health or a quarantine-style diagnostic; they must not be silently accepted as another project's knowledge.
+Rebuild verifies every raw object before upload, recreates only derived
+documents/chunks, and updates disposable mappings. It must not change reviewed
+claims, evidence, questions, candidates, decisions, or audit history. Live
+long-running rebuilds must use Soma's existing task/run controller rather than
+introducing another worker or lease authority.
 
-Git may preserve additional owner-visible history, but runtime correctness and recovery must not depend on an automatic commit for every save.
+An unconfigured RAGFlow adapter is reported as `not_configured`; this does not
+mean canonical research has been lost.
 
-## Retrieval and language limits
+## Public controller contract
 
-The first production slice provides literal and full-text retrieval only. It does **not** claim semantic search, embeddings, cross-language retrieval, or a working memory provider.
+The existing `knowledge_action` and `knowledge_query` MCP gateways remain the
+only public knowledge tools.
 
-English and Persian content must round-trip without alteration. Search normalization may account for Unicode and common Persian/Arabic character variants, but stored source text remains unchanged. Same-language literal Persian retrieval is required where the indexed terms are present.
+Research write operations:
 
-English-to-Persian, Persian-to-English, and paraphrase retrieval remain named limitations until a replaceable multilingual semantic index passes a frozen bilingual benchmark. Semantic health must be proven through complete manifest accounting and known-hit tests; an incomplete index may never present itself as healthy.
+- `import_research_source`
+- `preserve_research_packet`
+- `rebuild_research_index`
 
-## Recovery model
+Research read operations:
 
-Canonical Markdown and its stable identities are sufficient to rebuild the catalog projection. Rebuild must:
+- `get_research_source`
+- `get_claim_evidence`
+- `list_research_questions`
+- `list_research_decisions`
+- `search_research`
+- `build_context_packet`
+- `research_health`
 
-- remain strictly project-scoped;
-- account for every eligible canonical file;
-- reject or report duplicate identities, invalid paths, malformed provenance, and hash drift;
-- publish a new derived generation only after the generation is complete;
-- leave the prior healthy generation available, or report degraded state, after interruption;
-- never modify canonical Markdown merely to make indexing succeed.
+Every operation requires the exact active `project_id` and bound `repo_name`.
+ChatGPT, Claude Code, and Hermes use the same request models; controller identity
+is audit metadata, not a different storage path.
 
-The first slice does not yet provide an immutable content-addressed raw-source archive, a normalized multi-table evidence graph, automatic database-to-vault disaster reconstruction, or a remote backup policy. Source URLs, repository paths, document locators, and supplied excerpts are preserved, but complete external documents must be retained separately when reproducibility requires them.
+Legacy wiki and Markdown operations remain compatible and are explicitly
+separate from the research archive.
 
-## Security and isolation
+## Context packets
 
-- Every public operation requires an exact active `project_id`.
-- Storage and retrieval enforce scope; filtering only after an unscoped query is insufficient.
-- Unknown, archived, suspended, omitted, or mismatched project identity fails closed.
-- Vault-relative paths must remain beneath the approved project root and reject traversal and unsafe links.
-- Secrets are rejected or redacted under Soma's existing memory policy and must not enter Markdown, catalog rows, events, or returned context.
-- Cross-project relationships and sharing are out of scope until Soma has an explicit typed, revocable binding contract.
+A context packet joins:
 
-## Acceptance for the first slice
+- ordered RAGFlow passages;
+- exact source and source-version citations;
+- archive SHA-256 and durable chunk fingerprints;
+- reviewed claims;
+- supporting, contradictory, qualifying, replication, and failed-replication
+  evidence;
+- unresolved questions and missing evidence;
+- related candidates;
+- previous decisions and supersession;
+- stable entity identities and a canonical packet SHA-256.
 
-Production acceptance requires evidence for:
+Retrieved text and generated summaries are derived material. They do not become
+reviewed claims merely because they appear in a packet.
 
-- atomic save and exact get across restart;
-- idempotent repeated save;
-- facts, decisions, documents, research, lessons, and questions;
-- exact source references and locators;
-- explicit supersession with preserved historical retrieval;
-- strict sibling-project isolation for save, get, search, relationships, health, and rebuild;
-- English and Persian round-trip plus same-language literal retrieval;
-- external Markdown edit detection through rebuild or reconciliation;
-- complete deletion and rebuild of the catalog from unchanged Markdown;
-- interrupted or malformed rebuild reporting degraded rather than false healthy state;
-- path traversal, symlink escape, malformed identity, duplicate identity, and secret rejection;
-- bounded search results with stable continuation;
-- existing repository knowledge and memory behaviour remaining compatible.
+## Layered health and recovery
 
-## Deferred work
+Health is reported independently:
 
-The following are deliberate later batches:
+- archive: empty, healthy, or corrupt after size/hash verification;
+- overlay: schema/count/ingestion health;
+- index: not configured, empty, healthy, partial, or degraded;
+- Markdown projection: legacy-compatible and non-authoritative.
 
-- a multilingual semantic provider or in-process semantic adapter;
-- automated claim extraction, deduplication, merging, or truth adjudication;
-- normalized source-version, evidence, contradiction, relationship, and immutable revision tables;
-- a content-addressed raw document archive and capture pipeline;
-- graph traversal, advanced temporal/as-of reasoning, and cross-project sharing;
-- filesystem watchers, cloud synchronization, OCR, web crawling, and automatic Obsidian link rewrites;
-- importing private conversation history or existing owner vaults.
+The overlay supports checksummed JSONL export and all-or-nothing restore into an
+empty project database. Raw artifacts are backed up and restored separately
+using their archive paths and hashes. Deleting RAGFlow reduces retrieval
+convenience only; archive and reviewed overlay state remain intact.
 
-These may be added only from measured gaps. They must remain replaceable projections or bounded services beneath Soma's authority.
+## Deliberate non-goals
 
+- autonomous crawling or discovery;
+- scheduled research or mass ingestion;
+- custom PDF parsing, OCR, embeddings, vector storage, or reranking;
+- automatic claim extraction or truth adjudication;
+- automatic promotion of generated content to reviewed knowledge;
+- a second task, worker, lease, cancellation, or repository-lock authority;
+- storing original source blobs in SQLite, Markdown, or Git.
+
+## Acceptance evidence
+
+Focused acceptance proves:
+
+- idempotent repeated imports;
+- changed bytes create a traceable successor version;
+- immutable SHA-256-verifiable raw artifacts;
+- no source blobs in SQLite;
+- exact evidence with support and contradiction;
+- restart-safe questions, candidates, decisions, and review state;
+- sibling-project isolation;
+- one explicit ChatGPT preservation workflow;
+- one reproducible later context packet;
+- deletion and rebuild of a replaceable fake RAGFlow index without canonical
+  overlay loss;
+- checksummed overlay export and restore;
+- compatibility with the existing knowledge gateway and ProjectScope contract.

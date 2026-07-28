@@ -446,6 +446,9 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 - `save_knowledge` — preserve a sourced fact, decision, document, research note, lesson, or question as canonical Markdown;
 - `supersede_knowledge` — preserve a replacement without deleting the historical record;
 - `rebuild_knowledge` — rebuild the derived project catalog from canonical Markdown.
+- `import_research_source` — manually archive a URL capture, local file, or already captured artifact and record an immutable source version;
+- `preserve_research_packet` — atomically preserve a completed controller research packet with claims, evidence, questions, candidates, and decisions;
+- `rebuild_research_index` — rebuild the replaceable RAGFlow projection from verified raw archive objects.
 
 `knowledge_query`:
 
@@ -454,14 +457,20 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 - `search_knowledge` — run bounded literal English/Persian project search;
 - `get_knowledge` — retrieve one exact record and its source locators;
 - `knowledge_health` — compare canonical Markdown with the rebuildable catalog.
+- `get_research_source` — retrieve exact logical-source or immutable-version provenance;
+- `get_claim_evidence` — inspect supporting, contradictory, qualifying, and replication evidence;
+- `list_research_questions` and `list_research_decisions` — recover unresolved questions and prior reviewed choices;
+- `search_research` — search the configured derived RAGFlow index with source-version citations;
+- `build_context_packet` — assemble a reproducible research packet for a later conversation;
+- `research_health` — inspect raw archive, structured overlay, index, and projection health independently.
 
 The wiki is a generated cache, not the source of truth. Check its freshness fields and verify architecture-sensitive claims against live source before editing.
 
 Project knowledge operations require an exact active `project_id` and its bound
-`repo_name`. Canonical notes live beneath
-`runs/knowledge/projects/<project_id>/vault`; SQLite is a replaceable literal
-search projection. Semantic and cross-language search are not claimed in this
-first slice.
+`repo_name`. The generic Markdown catalog remains a compatible note projection.
+For research, immutable source artifacts under `runs/research/` and the
+project-scoped SQLite overlay are canonical; Markdown is not. RAGFlow remains a
+replaceable derived parser, OCR, chunk, embedding, and retrieval service.
 
 See [`docs/repository-knowledge.md`](docs/repository-knowledge.md) and
 [`docs/SOMA_KNOWLEDGE_LAYER.md`](docs/SOMA_KNOWLEDGE_LAYER.md).

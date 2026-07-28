@@ -2163,12 +2163,69 @@ class ProjectKnowledgeHealthQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class ResearchSourceQuery(GatewayModel):
+    operation: Literal["get_research_source"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    source_id: str = Field(default="", max_length=128)
+    source_version_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_source_identity(self) -> "ResearchSourceQuery":
+        if bool(self.source_id) == bool(self.source_version_id):
+            raise ValueError("exactly one source_id or source_version_id is required")
+        return self
+
+
+class ResearchClaimEvidenceQuery(GatewayModel):
+    operation: Literal["get_claim_evidence"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    claim_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ResearchListQuery(GatewayModel):
+    operation: Literal["list_research_questions", "list_research_decisions"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=20, ge=1, le=100)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ResearchContextQuery(GatewayModel):
+    operation: Literal["search_research", "build_context_packet"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=10_000)
+    limit: int = Field(default=12, ge=1, le=50)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ResearchHealthQuery(GatewayModel):
+    operation: Literal["research_health"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeQueryRequest = Annotated[
     KnowledgeReadWikiQuery
     | KnowledgeSearchQuery
     | ProjectKnowledgeSearchQuery
     | ProjectKnowledgeGetQuery
-    | ProjectKnowledgeHealthQuery,
+    | ProjectKnowledgeHealthQuery
+    | ResearchSourceQuery
+    | ResearchClaimEvidenceQuery
+    | ResearchListQuery
+    | ResearchContextQuery
+    | ResearchHealthQuery,
     Field(discriminator="operation"),
 ]
 
@@ -2244,11 +2301,72 @@ class KnowledgeRebuildAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class ResearchImportSourceAction(GatewayModel):
+    action: Literal["import_research_source"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    canonical_uri: str = Field(min_length=1, max_length=4096)
+    title: str = Field(min_length=1, max_length=1000)
+    source_type: str = Field(default="document", min_length=1, max_length=128)
+    retrieved_at: str = Field(min_length=1, max_length=128)
+    origin_namespace: Literal[
+        "manual_url", "local_file", "research_packet", "captured_artifact"
+    ] = "local_file"
+    origin_key: str = Field(default="", max_length=4096)
+    original_name: str = Field(default="", max_length=1000)
+    media_type: str = Field(default="", max_length=256)
+    local_path: str = Field(default="", max_length=32_768)
+    captured_artifact_path: str = Field(default="", max_length=32_768)
+    content_text: str = Field(default="", max_length=1_000_000)
+    expected_sha256: str = Field(default="", pattern=r"^[a-fA-F0-9]{64}$|^$")
+    index: bool = True
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_source_material(self) -> "ResearchImportSourceAction":
+        supplied = sum(
+            bool(value)
+            for value in (
+                self.local_path,
+                self.captured_artifact_path,
+                self.content_text,
+            )
+        )
+        if supplied != 1:
+            raise ValueError(
+                "exactly one of local_path, captured_artifact_path, or content_text is required"
+            )
+        if self.content_text and not self.original_name:
+            raise ValueError("content_text requires original_name")
+        return self
+
+
+class ResearchPreservePacketAction(GatewayModel):
+    action: Literal["preserve_research_packet"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    packet: dict[str, Any] = Field(min_length=1, max_length=100)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ResearchRebuildIndexAction(GatewayModel):
+    action: Literal["rebuild_research_index"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeActionRequest = Annotated[
     KnowledgeRefreshWikiAction
     | KnowledgeRememberDecisionAction
     | KnowledgeSaveAction
     | KnowledgeSupersedeAction
-    | KnowledgeRebuildAction,
+    | KnowledgeRebuildAction
+    | ResearchImportSourceAction
+    | ResearchPreservePacketAction
+    | ResearchRebuildIndexAction,
     Field(discriminator="action"),
 ]
