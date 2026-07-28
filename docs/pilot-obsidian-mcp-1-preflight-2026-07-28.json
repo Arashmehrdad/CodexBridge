@@ -1,0 +1,138 @@
+{
+  "schema_version": "pilot_obsidian_mcp_1_preflight.v1",
+  "date": "2026-07-28",
+  "gate": "PILOT-OBSIDIAN-MCP-1",
+  "gate_source": "PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md",
+  "status": "execution_started_halted_on_bounded_blocker",
+  "outcome_declared": false,
+  "outcome_reason": "No provider behavior was observed; declaring any of the four outcomes would be unevidenced.",
+  "execution": {
+    "controller_count": 1,
+    "coding_agents": 0,
+    "subagents": 0,
+    "parallel_basic_memory": false,
+    "parallel_codebase_memory": false,
+    "trigger": "owner_instruction_2026-07-28",
+    "phase_reached": "source_integrity_freeze_and_repository_preflight"
+  },
+  "repository_preflight": {
+    "repo_root": "D:\\Github\\Soma",
+    "head": "cd6d90436baf1fff65eedabee3ae8f8d0686efde",
+    "worktree_clean_at_preflight": true,
+    "running_runs": 0,
+    "queued_runs": 0,
+    "locks": 0,
+    "capability_epoch": "1632dc6ed895-42bdb69d96fb",
+    "unpushed_commits": 5,
+    "pushed": false,
+    "runs_pilots_root": "runs/pilots/",
+    "runs_pilots_empty": true,
+    "obsidian_mcp_1_root_created": false
+  },
+  "frozen_provider_release": {
+    "plugin_id": "mcp-tools-istefox",
+    "plugin_name": "MCP Connector",
+    "author": "Stefano Ferri (istefox)",
+    "repository": "istefox/obsidian-mcp-connector",
+    "license": "MIT",
+    "archived": false,
+    "default_branch": "main",
+    "release_tag": "0.28.1",
+    "release_published_at": "2026-07-22T20:13:10Z",
+    "repository_pushed_at": "2026-07-22T20:14:06Z",
+    "matches_gate_reviewed_version": true,
+    "manifest": {
+      "id": "mcp-tools-istefox",
+      "version": "0.28.1",
+      "minAppVersion": "1.7.2",
+      "isDesktopOnly": true
+    },
+    "asset_hashes": [
+      {
+        "name": "main.js",
+        "size_bytes": 2591536,
+        "sha256": "4be75215e84f94944f1887e69171f4455a5745c04b69d8a2d749151e142bcae8"
+      },
+      {
+        "name": "manifest.json",
+        "size_bytes": 389,
+        "sha256": "5b8484320f27027eec9f14bee0ada6b024ed28896bf9e3909fb0810f165f47fc"
+      },
+      {
+        "name": "obsidian-mcp-connector.mcpb",
+        "size_bytes": 3577,
+        "sha256": "ebe7536656c9be6d8f08dd3194866573079d323f3559ec6974e5b7247d6de46c",
+        "note": "Not used. The gate forbids the .mcpb auto-client-configuration path."
+      }
+    ],
+    "community_store": {
+      "listed": true,
+      "registry": "obsidianmd/obsidian-releases community-plugins.json",
+      "registry_total_plugins": 6116,
+      "listing_id": "mcp-tools-istefox",
+      "listing_repo": "istefox/obsidian-mcp-connector",
+      "manually_reviewed_by_obsidian_staff": false,
+      "brat_required": false
+    },
+    "artifacts_downloaded": false,
+    "plugin_enabled_anywhere": false
+  },
+  "host_inventory": {
+    "obsidian_installed": false,
+    "obsidian_version": null,
+    "searched": [
+      "%LOCALAPPDATA%\\Obsidian\\Obsidian.exe",
+      "%PROGRAMFILES%\\Obsidian\\Obsidian.exe",
+      "%PROGRAMFILES(X86)%\\Obsidian\\Obsidian.exe",
+      "HKLM and HKCU Uninstall registry keys",
+      "PATH lookup for obsidian",
+      "%APPDATA%\\obsidian",
+      "recursive Obsidian.exe scan, depth 4, C:\\Users\\arash and D:\\",
+      "recursive .obsidian vault scan, depth 3, D:\\"
+    ],
+    "obsidian_cli_present": false,
+    "existing_vaults_found": 0,
+    "package_managers": {
+      "winget": false,
+      "scoop": false,
+      "choco": false
+    }
+  },
+  "blocker": {
+    "id": "obsidian-application-absent",
+    "bounded": true,
+    "count": 1,
+    "description": "The gate's first fixed boundary requires inventorying the installed stable Obsidian version before any change. Obsidian is not installed on this host. MCP Connector runs in-process inside Obsidian, so no endpoint, tool surface, vault binding or retrieval behavior can be observed without it.",
+    "dependent_checks_blocked": [
+      "installation_and_source_integrity",
+      "transport_and_authentication",
+      "windows_reliability",
+      "obsidian_native_structured_access",
+      "retrieval_and_provenance",
+      "write_phase_after_isolation_passes",
+      "rebuild_and_removal"
+    ],
+    "why_not_self_resolved": [
+      "Installing the Obsidian desktop application is a global, non-disposable host change; no gate boundary authorizes it, and the gate confines pilot state to disposable roots under runs/pilots/obsidian-mcp-1/.",
+      "Obsidian version 1.12.0 or later is additionally required because the gate mandates the official Obsidian CLI, which shipped in desktop v1.12.0; the plugin manifest alone only requires 1.7.2.",
+      "Community-store installation and plugin configuration (Core tool profile, bearer token, fixed loopback port) are desktop GUI operations that the controller cannot perform without owner interaction.",
+      "Writing plugin files directly into a vault's .obsidian/plugins/ directory is a sideload, and the gate treats non-community-store installation as a stop for owner review."
+    ]
+  },
+  "boundaries_preserved": {
+    "global_configuration_modified": false,
+    "obsidian_installed_by_controller": false,
+    "plugin_downloaded_or_enabled": false,
+    "vaults_created": false,
+    "production_vault_opened": false,
+    "live_project_scope_mutated": false,
+    "soma_stores_mutated": false,
+    "soma_wiki_touched": false,
+    "hermes_memory_touched": false,
+    "mcp_schema_changed": false,
+    "repository_source_files_changed": false,
+    "tokens_recorded": false,
+    "pushed": false
+  },
+  "next_required_owner_action": "Install the official stable Obsidian desktop application (1.12.0 or later) from obsidian.md, then reissue the execution instruction. No other gate parameter changes."
+}
