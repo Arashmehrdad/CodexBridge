@@ -103,6 +103,7 @@ def profile(tmp_path: Path, roots: tuple[Path, Path]) -> ProviderProfile:
     (config_dir / "config.json").write_text(
         json.dumps(
             {
+                "disable_permalinks": True,
                 "ensure_frontmatter_on_sync": False,
                 "default_project": None,
                 "auto_update": False,
@@ -240,6 +241,18 @@ def test_profile_refuses_provider_markdown_mutation(profile):
         validate_profile(config)
 
 
+def test_profile_requires_the_control_that_actually_works(profile):
+    """`disable_permalinks` is the measured control, not ensure_frontmatter_on_sync.
+
+    The live confirmation measured 6/6 canonical files still rewritten with
+    ensure_frontmatter_on_sync=False alone, and 0/6 once disable_permalinks=True.
+    """
+    config = dict(profile.config)
+    config["disable_permalinks"] = False
+    with pytest.raises(ProfileRefused, match="mutating_profile"):
+        validate_profile(config)
+
+
 def test_profile_refuses_configured_default_project(profile):
     config = dict(profile.config)
     config["default_project"] = "soma-pilot"
@@ -259,6 +272,26 @@ def test_profile_refuses_missing_setting(profile):
     del config["auto_update"]
     with pytest.raises(ProfileRefused, match="missing required setting"):
         validate_profile(config)
+
+
+def test_environment_inherits_ambient_so_the_subprocess_can_actually_start(profile):
+    """Regression: env() once returned ONLY the BASIC_MEMORY_* keys.
+
+    That is not a usable process environment on Windows -- no PATH, no
+    SystemRoot -- so every real provider call failed. Unit tests with a fake
+    runner could not see it; the live confirmation did.
+    """
+    env = profile.env()
+    assert "PATH" in env or "Path" in env
+    assert env["BASIC_MEMORY_CONFIG_DIR"] == str(profile.config_dir)
+    assert env["BASIC_MEMORY_FORCE_LOCAL"] == "1"
+
+
+def test_environment_strips_inherited_cloud_overrides(profile, monkeypatch):
+    monkeypatch.setenv("BASIC_MEMORY_FORCE_CLOUD", "1")
+    env = profile.env()
+    assert "BASIC_MEMORY_FORCE_CLOUD" not in env
+    validate_env(env)
 
 
 def test_environment_forces_local_and_refuses_cloud_overrides(profile):

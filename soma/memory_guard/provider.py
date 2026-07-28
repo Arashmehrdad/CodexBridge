@@ -114,10 +114,15 @@ class BasicMemoryProvider:
         if not provider_project:
             raise ToolRefused("provider_project is required for every call")
 
-        argv = [*prefix, *[str(a) for a in args]]
         # Identity is always explicit and always the guard's, never the caller's.
-        if operation in {"search", "read_note", "status", "project_info", "reindex"}:
-            argv += ["--project", provider_project]
+        # `project info` takes the project as a POSITIONAL argument and rejects
+        # `--project`; every other allowed operation takes the flag. Getting this
+        # wrong silently breaks coverage reconciliation, so it is encoded here
+        # rather than left to callers.
+        if operation == "project_info":
+            argv = [*prefix, provider_project, *[str(a) for a in args]]
+        else:
+            argv = [*prefix, *[str(a) for a in args], "--project", provider_project]
 
         env = self._profile.env(process_env)
         validate_env(env)

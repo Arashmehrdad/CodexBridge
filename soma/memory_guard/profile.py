@@ -10,6 +10,7 @@ is explicitly not accepted as the control.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,8 +19,15 @@ from .models import ProfileRefused, RefusalReason
 
 #: Settings that must hold in the production profile, with the value required.
 REQUIRED_SETTINGS: dict[str, object] = {
-    # Provider must never rewrite canonical Markdown. The pilot measured first
-    # sync adding a `permalink:` key and unquoting `title` across every note.
+    # Provider must never rewrite canonical Markdown.
+    #
+    # `ensure_frontmatter_on_sync: False` alone is NOT sufficient: the live
+    # confirmation measured all 6 canonical files still rewritten with it set.
+    # `disable_permalinks: True` is the setting that actually stops the injected
+    # `permalink:` key, and with it the measured drift is 0/6 across initial
+    # index, repeated sync and full delete-and-rebuild. Both are required --
+    # the second is the working control, the first is defence in depth.
+    "disable_permalinks": True,
     "ensure_frontmatter_on_sync": False,
     # No silent routing when identity is omitted. The guard supplies identity.
     "default_project": None,
@@ -63,10 +71,20 @@ class ProviderProfile:
     config: dict[str, object]
 
     def env(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        """The complete environment for a guarded provider process.
+
+        This inherits the ambient environment on purpose: a provider subprocess
+        needs PATH, SystemRoot and friends to start at all. The guard's own keys
+        are applied last so they always win, and `validate_env` still refuses any
+        inherited variable that could re-enable a cloud path.
+        """
         env = {
+            **os.environ,
             "BASIC_MEMORY_CONFIG_DIR": str(self.config_dir),
             **FORCED_ENV,
         }
+        for key in FORBIDDEN_ENV:
+            env.pop(key, None)
         if extra:
             env.update(extra)
         return env
@@ -100,7 +118,7 @@ def validate_profile(config: dict[str, object]) -> None:
         if actual != required:
             reason = (
                 RefusalReason.MUTATING_PROFILE.value
-                if key == "ensure_frontmatter_on_sync"
+                if key in {"disable_permalinks", "ensure_frontmatter_on_sync"}
                 else "profile_mismatch"
             )
             raise ProfileRefused(

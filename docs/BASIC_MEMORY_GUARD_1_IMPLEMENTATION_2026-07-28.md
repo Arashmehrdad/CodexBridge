@@ -1,8 +1,11 @@
 # BASIC-MEMORY-GUARD-1 — Implementation Record
 
 **Date:** 2026-07-28
-**Status:** guard implemented and unit-accepted; **bounded production-readiness
-confirmation against the live provider has not been run.**
+**Status:** guard implemented and unit-accepted. The bounded production-readiness
+confirmation **has since been run** and closed both open questions, finding two
+defects in this implementation which are now fixed — see
+[`BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md).
+The "What is NOT yet proven" section below is superseded by that record.
 **Decision:** [`BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md)
 **Evidence:** [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md)
 
