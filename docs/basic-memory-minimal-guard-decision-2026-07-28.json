@@ -1,0 +1,92 @@
+{
+  "schema_version": "basic_memory_minimal_guard_decision.v1",
+  "date": "2026-07-28",
+  "decision_id": "BASIC-MEMORY-GUARD-1",
+  "status": "accepted_architecture_decision_implementation_not_started",
+  "decision_level": "C",
+  "provider": {
+    "name": "basic-memory",
+    "version": "0.22.1",
+    "role": "replaceable_local_semantic_memory_provider",
+    "canonical_authority": false
+  },
+  "accepted_evidence": {
+    "complete_rebuild_from_markdown": true,
+    "interrupted_rebuild_fails_closed": true,
+    "english_persian_four_direction_matrix": true,
+    "sibling_isolation": true,
+    "filesystem_freshness": true,
+    "restart_stability": true,
+    "clean_removal": true
+  },
+  "canonical_ownership": {
+    "content": "markdown_plus_git",
+    "owner_workspace": "obsidian",
+    "identity_health_routing_lifecycle": "soma",
+    "semantic_index": "basic_memory_disposable"
+  },
+  "required_guard_roles": [
+    "exact_project_provider_process_root_binding",
+    "reject_omitted_unknown_inactive_mismatched_and_sibling_identity_before_provider_call",
+    "make_cloud_routing_remote_sync_and_hosted_embeddings_unreachable",
+    "os_manifest_vs_provider_entity_and_embedding_coverage",
+    "semantic_fail_closed_when_completeness_is_unproven",
+    "exact_tool_allowlist",
+    "returned_path_validation",
+    "bounded_direct_markdown_read_and_literal_fallback",
+    "existing_soma_task_and_run_authority_for_long_rebuilds"
+  ],
+  "canonical_markdown_gate": {
+    "required_setting": "disable ensure_frontmatter_on_sync or exact supported equivalent",
+    "required_evidence": "initial index repeated sync full index deletion and rebuild leave markdown byte-identical",
+    "failure_disposition": "stop_for_explicit_owner_decision"
+  },
+  "frozen_evidence_stack": {
+    "basic_memory": "0.22.1",
+    "fastembed": "0.8.0",
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "windows_litellm_pin": "1.91.4",
+    "pilot_similarity_threshold": 0.30,
+    "synchronization_path": "bm reindex",
+    "forbidden_health_or_sync_shortcuts": [
+      "bm status --wait",
+      "bm doctor as project completeness oracle"
+    ]
+  },
+  "forbidden_scope": [
+    "canonical_storage",
+    "custom_embeddings",
+    "custom_ranking",
+    "custom_semantic_search",
+    "graph_traversal",
+    "provider_repair_or_source_patch",
+    "autonomous_memory_curation",
+    "personal_profile_inference",
+    "conversation_history_import",
+    "cross_project_sharing",
+    "cloud_sync",
+    "second_public_memory_authority"
+  ],
+  "implementation_entry_gate": {
+    "production_memory_import_authorized": false,
+    "requires_no_mutation_confirmation": true,
+    "requires_two_sibling_project_scope_proof": true,
+    "requires_complete_rebuild_and_interruption_health_proof": true,
+    "requires_bilingual_regression": true,
+    "requires_provider_free_cleanup_proof": true
+  },
+  "next_permitted_lane": "implement_minimal_binding_and_health_guard_with_bounded_production_readiness_confirmation",
+  "not_authorized": [
+    "another_provider_comparison",
+    "production_owner_memory_import",
+    "memagent_integration",
+    "code_intelligence_activation",
+    "voice_work",
+    "push"
+  ],
+  "evidence": {
+    "gate": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
+    "result": "PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md",
+    "result_json": "pilot-basic-memory-2-results-2026-07-28.json"
+  }
+}

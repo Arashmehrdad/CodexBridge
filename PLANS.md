@@ -145,11 +145,11 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 ### MEMORY-PROVIDER-SOLUTION-DISCOVERY-2 - Trustworthy Local Project Memory
 
-**Status:** **accepted and documentation-closed; implementation has not started.** The authoritative decision is [`docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md), with machine-readable controls in [`docs/memory-provider-solution-discovery-2026-07-28.json`](docs/memory-provider-solution-discovery-2026-07-28.json).
+**Status:** **provider discovery and pilot sequence documentation-closed; production integration has not started.** The original decision remains in [`docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md), the executed result is [`docs/PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md), and the accepted production boundary is [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md).
 
-The decision preserves Markdown + Git as canonical, Obsidian as owner workspace and Soma as authority. It selects Basic Memory Local for one bounded compatibility pilot, preserves a materially changed MCP Connector release for later re-test, rejects parallel provider trials and custom retrieval, and treats provider state as disposable.
+The decision preserves Markdown + Git as canonical, Obsidian as owner workspace and Soma as authority. Basic Memory `0.22.1` passed the bounded compatibility pilot and is accepted as the replaceable local semantic provider only behind a minimal Soma binding and health guard. MCP Connector `0.28.1` remains rejected; no parallel provider trial or custom retrieval engine is authorized.
 
-The hardest requirement is tested first: delete all derived state, rebuild from unchanged Markdown, account for every eligible synthetic file, survive restart/interruption, and prove incomplete state cannot masquerade as healthy. The provider-independent black-box contract uses per-file lexical and semantic canaries, explicit OS-manifest versus provider accounting, a four-direction English/Persian matrix, filesystem create/edit/rename/delete freshness, and safe abstention. A single sentinel is not accepted as completeness proof, and an empty nonsense-query result is not treated as a dead index.
+The black-box contract was executed hardest requirement first. Basic Memory rebuilt 7/7 entities per project from deleted derived state, failed closed from a deliberately partial interrupted index, passed every lexical canary and all four English/Persian directions, leaked no sibling result, reflected filesystem changes, survived three restart cycles and removed cleanly. Direct production use remains blocked by fail-open project omission, cloud fallback for unknown identity, insufficient provider-native completeness health and canonical Markdown mutation on first sync.
 
 ### KNOWLEDGE-LAYER-1 - Soma External Research Knowledge Platform
 
@@ -183,11 +183,23 @@ The only permitted custom component after provider acceptance is a thin Soma pro
 
 ### PILOT-BASIC-MEMORY-2 - Provider Health and Bilingual Compatibility Gate
 
-**Status:** **gate prepared; execution has not started.** The authoritative gate is [`docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md), with machine-readable boundaries in [`docs/pilot-basic-memory-2-gate-2026-07-28.json`](docs/pilot-basic-memory-2-gate-2026-07-28.json).
+**Status:** **executed and documentation-closed** with outcome `accept_with_minimal_soma_health_and_binding_guard`. The gate remains in [`docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md); the authoritative result is [`docs/PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md), with machine-readable evidence in [`docs/pilot-basic-memory-2-results-2026-07-28.json`](docs/pilot-basic-memory-2-results-2026-07-28.json) and [`docs/pilot-basic-memory-2-frozen-corpus-2026-07-28.json`](docs/pilot-basic-memory-2-frozen-corpus-2026-07-28.json).
 
-The gate uses one controller, no coding agents or subagents, two project-constrained Basic Memory processes, two disposable seven-note projects, per-file lexical and semantic canaries, one frozen local multilingual model, official full rebuild/reset commands, an interrupted-rebuild stale-success test, all four English/Persian query directions, OS create/edit/rename/delete freshness, minimum provider-specific omission/isolation/Markdown checks, three restart cycles and complete removal. It installs only inside `runs/pilots/basic-memory-2/`, touches no production memory or client configuration, performs no source patch or custom retrieval, and does not push.
+Basic Memory `0.22.1` passed complete rebuild, partial-index fail-closed behaviour, all lexical canaries, the four-direction English/Persian matrix, sibling isolation, safe abstention, filesystem freshness, restart stability and clean removal. It requires a Soma guard because omitted identity routes to a configured project, unknown identity attempts cloud routing, `bm doctor` and `bm status --wait` cannot establish safe project health, the multilingual threshold requires frozen calibration, Windows installation needs the tested dependency pin, and first sync rewrites canonical Markdown.
 
-A subsequent owner instruction such as `continue` executes only this gate. Gate preparation itself authorizes no provider installation or production integration.
+No production integration begins from the pilot result alone.
+
+### BASIC-MEMORY-GUARD-1 - Minimal Soma Binding and Health Guard
+
+**Status:** **accepted architecture decision; implementation has not started.** The authoritative boundary is [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md), with machine-readable controls in [`docs/basic-memory-minimal-guard-decision-2026-07-28.json`](docs/basic-memory-minimal-guard-decision-2026-07-28.json).
+
+**Goal:** integrate Basic Memory only as a disposable local semantic provider beneath Soma's exact ProjectScope, health, provenance and controller boundary.
+
+**Required outcome:** exact project-to-provider/process/root binding; rejection of omitted, unknown, inactive, mismatched and sibling identity before provider invocation; local-only operation with cloud routing unreachable; OS-manifest-versus-provider coverage health; semantic fail-closed when completeness is unproven; exact tool and path validation; bounded direct Markdown fallback; `bm reindex` rather than `bm status --wait`; and no second lifecycle authority.
+
+**Canonical integrity gate:** disable `ensure_frontmatter_on_sync`, or the exact supported equivalent, and prove initial indexing, repeated synchronization, full derived-state deletion and rebuild leave Markdown byte-identical before any production owner memory is imported. Continued provider mutation is a stop requiring explicit owner disposition.
+
+**Non-goals:** no custom storage, embeddings, ranking, semantic search, graph traversal, provider repair, autonomous curation, personal inference, conversation-history import, cross-project sharing, cloud sync, MemAgent integration or code-intelligence activation.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -209,7 +221,7 @@ This research remains behind durable memory continuity and derived code intellig
 
 **Status:** **accepted as planned but inactive.** The authoritative boundary is [`docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md`](docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md), with machine-readable controls in [`docs/codebase-memory-mcp-decision-2026-07-28.json`](docs/codebase-memory-mcp-decision-2026-07-28.json).
 
-`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with the owner-authored project-memory lane. Basic Memory is the active prepared provider gate, not code intelligence, and neither provider replaces the repository, Git, `RepoWikiService`, canonical Markdown or Soma authority.
+`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with the owner-authored project-memory lane. The Basic Memory provider gate is now documentation-closed and its minimal guard decision is prepared; code intelligence remains inactive until the owner selects it, and neither provider replaces the repository, Git, `RepoWikiService`, canonical Markdown or Soma authority.
 
 A future `PILOT-CODE-INTELLIGENCE-1` may test a pinned, checksum-verified binary through an explicit Soma project/repository binding, with cache outside the repository, `CBM_ALLOWED_ROOT` enforced, auto-index and auto-watch disabled, no installer edits, no `manage_adr`, no committed graph artifact, no subagents, and no push. The pilot is not active.
 
@@ -226,4 +238,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1` is closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `PILOT-BASIC-MEMORY-2` is the only prepared executable memory gate and is not yet running; a generic `continue` executes that gate only. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive until the Basic Memory result is documentation-closed. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` is parked and creates no implementation authority. No provider alternatives, code-intelligence pilot or voice work may overlap. A generic `continue` does not authorize production integration, Roadmap V3 feature work or push.
+`PILOT-OBSIDIAN-MCP-1` and `PILOT-BASIC-MEMORY-2` are closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `BASIC-MEMORY-GUARD-1` is the only prepared memory implementation boundary and still requires explicit owner activation; a generic `continue` does not import production memory or authorize push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive but is no longer blocked by unfinished memory-provider documentation. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No provider alternative, code-intelligence pilot, MemAgent work or voice work begins automatically.

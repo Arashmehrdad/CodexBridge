@@ -1,9 +1,10 @@
 # MEMORY-PROVIDER-SOLUTION-DISCOVERY-2 — Trustworthy Local Project Memory
 
 **Date:** 2026-07-28
-**Status:** accepted decision; implementation has not started.
+**Status:** accepted discovery; provider pilot executed and documentation-closed; production integration has not started.
 **Decision level:** C — foundational durability and continuity boundary.
 **Method:** `preimplementation-solution-discovery` plus the owner's evidence-first, reversible, lowest-complexity decision rules.
+**Post-pilot disposition:** Basic Memory `0.22.1` passed the complete-rebuild, interrupted-rebuild, bilingual, isolation, freshness, restart and removal gates with outcome `accept_with_minimal_soma_health_and_binding_guard`. The authoritative result is [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md); the accepted production boundary is [`BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md).
 
 ## Capability
 
@@ -191,20 +192,18 @@ MCP Connector `0.28.1`, Basic Memory Local, SeekLink, Obsidian Semantic MCP and 
 Delete all derived state, rebuild from Markdown, prove every synthetic file is represented, and prove incomplete state cannot masquerade as healthy.
 
 ### Spike result
-Not yet tested for Basic Memory. MCP Connector `0.28.1` failed.
+Basic Memory `0.22.1` passed complete rebuild from deleted derived state, failed closed from a deliberately partial interrupted rebuild, returned all four English/Persian directions at rank 1 under the frozen multilingual model, preserved sibling isolation, reflected filesystem changes, survived three restart cycles and removed cleanly. It requires a Soma guard because omitted identity routes, unknown identity attempts cloud routing, provider health commands do not prove project completeness and first sync rewrites canonical Markdown.
 
 ### Recommended path
-Proceed with constraints through `PILOT-BASIC-MEMORY-2`.
+Proceed only through [`BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md). Do not begin another provider comparison.
 
-### Unknowns
-- exact current Basic Memory release and frozen artifact hashes;
-- which local FastEmbed multilingual model works reliably on this Windows host;
-- exact machine-readable project-info and embedding-coverage fields;
-- interrupted-rebuild behavior;
-- provider handling of renamed paths and optional permalink updates.
+### Remaining unknowns
+- whether disabling `ensure_frontmatter_on_sync`, or the exact supported equivalent, preserves full provider operation while leaving canonical Markdown byte-identical;
+- the exact production manifest-versus-provider coverage evidence available through the narrow adapter;
+- whether the measured multilingual threshold remains suitable beyond the frozen pilot corpus.
 
 ### Implementation gate
-**Proceed with constraints.** Gate preparation does not install or execute the provider.
+**Proceed with the minimal guard only after a no-mutation confirmation.** The decision authorizes no production memory import, client configuration or push.
 
 ## Primary sources reviewed
 

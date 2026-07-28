@@ -1,7 +1,7 @@
 # PILOT-BASIC-MEMORY-2 — Result
 
 **Date:** 2026-07-28
-**Status:** executed; all phases completed; no stop condition fired.
+**Status:** executed and documentation-closed; all phases completed; no stop condition fired.
 **Gate:** [`PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md)
 **Outcome:** **`accept_with_minimal_soma_health_and_binding_guard`**
 
@@ -164,7 +164,8 @@ predates this pilot (created 06:11 by an earlier removed probe) and was left as 
 
 ## After this gate
 
-No production integration begins automatically. The permitted next step is preparation of
-a **minimal Soma adapter and health-guard decision** — not an implementation lane, and not
-a second provider pilot. `PILOT-CODE-INTELLIGENCE-1` remains inactive until this result is
-documentation-closed.
+No production integration begins automatically. The minimal adapter and health-guard decision
+is now accepted in [`BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md).
+The next permitted memory lane is implementation of that narrow guard plus its no-mutation and
+production-readiness confirmation. It is not another provider pilot and does not authorize
+production owner-memory import, MemAgent integration, code-intelligence activation or push.
