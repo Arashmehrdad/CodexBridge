@@ -164,6 +164,12 @@ class CanonicalMemoryService:
     def knowledge(self) -> KnowledgeService:
         return self._knowledge
 
+    @property
+    def packets(self) -> PacketStore:
+        if self._packets is None:
+            raise MemoryWriteRefused("no context-packet store is configured")
+        return self._packets
+
     # ------------------------------------------------------------------
     # writes
 

@@ -356,6 +356,58 @@ def _project_knowledge_context(mcp: Any, project_id: str, repo_name: str):
     return service, binding, canonical_name
 
 
+def _memory_retrieval_state() -> tuple[str, str]:
+    """Published provider health and retrieval mode.
+
+    `MEMORY-INTEGRATION-FOUNDATION-1` step 2 measured that Basic Memory 0.22.1
+    cannot prove which files a generation indexed, so semantic retrieval is not
+    permitted and Soma answers from the canonical catalog, which is complete by
+    construction. The published state says exactly that rather than presenting a
+    lexical answer as a semantic one.
+    """
+    from .memory_guard.health import PROVIDER_MEMBERSHIP_AVAILABLE
+
+    if PROVIDER_MEMBERSHIP_AVAILABLE:
+        return "healthy", "semantic"
+    return "degraded", "catalog_lexical"
+
+
+def _launch_memory_rebuild(mcp: Any, request: Any, binding: Any) -> dict[str, Any]:
+    """Hand a provider rebuild to Soma's existing durable task authority.
+
+    The adapter describes the work and this function submits it; neither creates
+    a task, lease, cancellation or recovery plane. Cancellation, retry, restart
+    reconciliation and result publication are already owned by TaskManager and
+    the durable run engine, and a second lifecycle would be a second truth about
+    whether a rebuild is running.
+
+    A rebuild is only useful once semantic retrieval can be trusted, which step
+    2 measured is not yet the case, so the request is accepted and refused here
+    with the reason rather than launching work whose result cannot be believed.
+    """
+    from .memory_guard.health import PROVIDER_MEMBERSHIP_AVAILABLE
+
+    if not PROVIDER_MEMBERSHIP_AVAILABLE:
+        raise ValueError(
+            "provider rebuild is not launched because semantic retrieval is "
+            "disabled: the accepted provider interface cannot prove which files "
+            "an index generation contains, so a completed rebuild would not "
+            "establish coverage. Canonical lexical retrieval needs no rebuild; "
+            "use memory_sync_provider to reconcile the canonical catalog"
+        )
+
+    from .tasks.manager import TaskManager  # pragma: no cover - unreachable today
+
+    manager = TaskManager(_active_server_config(mcp))
+    return manager.start_durable_command(
+        controller_request_id=request.controller_request_id,
+        project_id=binding.project_id,
+        repo_name=binding.repo_name,
+        argv=[],
+        working_directory=binding.repository_root,
+    )
+
+
 def _canonical_memory_context(mcp: Any, project_id: str, repo_name: str):
     """Resolve one bound `CanonicalMemoryService`, or refuse.
 
@@ -598,6 +650,20 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
             "source_generation",
             "indexed_source_generation",
             "refresh_operation_id",
+            # Canonical memory acknowledgements. `content_sha256` is not
+            # diagnostic decoration: it is the token the caller needs for the
+            # next compare-and-swap, so dropping it under budget would make
+            # correction impossible rather than merely terser.
+            "project_id",
+            "operation",
+            "content_sha256",
+            "revision",
+            "indexed_count",
+            "malformed_count",
+            "unadopted_count",
+            "generation",
+            "task_id",
+            "run_id",
             "error",
             "server_build_hash",
             "schema_hash",
@@ -638,7 +704,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     if getattr(mcp, "_soma_knowledge_tools_registered", False):
         return
 
-    from .knowledge import KnowledgeInput
+    from .knowledge import KnowledgeInput, SourceLocator, SourceReference
     from .memory.repository import ProjectMemoryRepository
     from .operation_locks import repository_operation_lock
     from .repo_wiki import RepoWikiService
@@ -1085,9 +1151,89 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "error": str(exc),
             }
 
+    def memory_query_operation(request: Any) -> dict:
+        """The named memory partition: canonical, scope-bound, honest about mode.
+
+        Separate from the research operations on the same gateway and from the
+        legacy repo-scoped `search`. A memory record never acquires research
+        authority by being returned here.
+        """
+        operation = request.operation
+        try:
+            service, _binding, canonical_name = _canonical_memory_context(
+                mcp, request.scope.project_id, request.scope.repo_name
+            )
+            provider_health, retrieval_mode = _memory_retrieval_state()
+            base = {
+                "ok": True,
+                "project_id": service.scope.project_id,
+                "repo_name": canonical_name,
+                "operation": operation,
+                "error": "",
+            }
+            if operation == "memory_search":
+                outcome = service.search(
+                    request.query,
+                    limit=request.limit,
+                    include_non_authoritative=request.include_non_authoritative,
+                    provider_health=provider_health,
+                    retrieval_mode=retrieval_mode,
+                )
+                return {
+                    **base,
+                    **outcome.to_dict(),
+                    "records": [
+                        service.project_record(record) for record in outcome.records
+                    ],
+                }
+            if operation == "memory_get":
+                record = service.get(request.knowledge_id)
+                projected = service.project_record(record)
+                if request.view == "full":
+                    projected["body"] = record.body
+                return {**base, "record": projected}
+            if operation == "memory_health":
+                health = service.knowledge.health(service.scope.project_id)
+                return {
+                    **base,
+                    "canonical_health": health.status,
+                    "provider_health": provider_health,
+                    "retrieval_mode": retrieval_mode,
+                    **health.model_dump(mode="json"),
+                }
+            if operation == "memory_context":
+                packet = service.build_packet(
+                    request.query,
+                    limit=request.limit,
+                    provider_health=provider_health,
+                    retrieval_mode=retrieval_mode,
+                )
+                return {**base, **packet.to_dict()}
+            if operation == "memory_packet_get":
+                return {**base, **service.packets.get(request.packet_id)}
+            raise ValueError(f"unsupported memory operation: {operation!r}")
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.scope.project_id,
+                "repo_name": request.scope.repo_name,
+                "operation": operation,
+                "error": str(exc),
+            }
+
     @mcp.tool(output_schema=KNOWLEDGE_QUERY_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
+        if request.operation in {
+            "memory_search",
+            "memory_get",
+            "memory_health",
+            "memory_context",
+            "memory_packet_get",
+        }:
+            return _bounded_project_result(
+                memory_query_operation(request), request.response_budget_bytes
+            )
         if request.operation in {
             "get_research_source",
             "get_claim_evidence",
@@ -1254,9 +1400,127 @@ def register_knowledge_tools(mcp: Any) -> None:
             request.view,
         )
 
+    def memory_action_operation(request: Any) -> dict:
+        """Canonical memory writes. One authority, one write path."""
+        action = request.action
+        try:
+            service, binding, canonical_name = _canonical_memory_context(
+                mcp, request.scope.project_id, request.scope.repo_name
+            )
+            base = {
+                "ok": True,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": action,
+                "error": "",
+            }
+
+            if action in {"memory_save", "memory_supersede"}:
+                note = KnowledgeInput(
+                    project_id=binding.project_id,
+                    vault_path=request.vault_path,
+                    kind=request.kind,
+                    title=request.title,
+                    summary=request.summary,
+                    body=request.body,
+                    tags=list(request.tags),
+                    review_state=request.review_state,
+                    valid_from=request.valid_from,
+                    valid_until=request.valid_until,
+                    controller=request.controller,
+                    task_id=request.task_id,
+                    run_id=request.run_id,
+                    idempotency_key=request.idempotency_key,
+                    authority_class="controller_memory",
+                    sources=[
+                        SourceReference(**item.model_dump())
+                        for item in request.sources
+                    ],
+                    locators=[
+                        SourceLocator(**item.model_dump())
+                        for item in request.locators
+                    ],
+                )
+                record = (
+                    service.supersede(note, list(request.supersedes_ids))
+                    if action == "memory_supersede"
+                    else service.save(note)
+                )
+                return {
+                    **base,
+                    "memory_id": record.knowledge_id,
+                    "memory_type": f"{record.kind}_memory",
+                    "title": record.title,
+                    "summary": record.summary,
+                    "content_sha256": record.content_sha256,
+                    "revision": record.revision,
+                }
+
+            if action in {
+                "memory_mark_disputed",
+                "memory_archive",
+                "memory_reject",
+            }:
+                status = {
+                    "memory_mark_disputed": "disputed",
+                    "memory_archive": "archived",
+                    "memory_reject": "rejected",
+                }[action]
+                record = service.set_status(
+                    request.knowledge_id,
+                    status,
+                    expected_sha256=request.expected_sha256,
+                )
+                return {
+                    **base,
+                    "memory_id": record.knowledge_id,
+                    "memory_type": f"{record.kind}_memory",
+                    "title": record.title,
+                    "summary": record.summary,
+                    "status": record.status,
+                    "content_sha256": record.content_sha256,
+                }
+
+            if action == "memory_sync_provider":
+                result = service.knowledge.rebuild(binding.project_id)
+                health = service.knowledge.health(binding.project_id)
+                return {
+                    **base,
+                    "indexed_count": result.indexed_count,
+                    "malformed_count": result.malformed_count,
+                    "unadopted_count": result.unadopted_count,
+                    "status": health.status,
+                    "generation": health.generation,
+                }
+
+            if action == "memory_rebuild_index":
+                return {**base, **_launch_memory_rebuild(mcp, request, binding)}
+
+            raise ValueError(f"unsupported memory action: {action!r}")
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.scope.project_id,
+                "repo_name": request.scope.repo_name,
+                "operation": action,
+                "error": str(exc),
+            }
+
     @mcp.tool(output_schema=KNOWLEDGE_ACTION_OUTPUT, annotations=WRITE_ANNOTATIONS)
     def knowledge_action(request: KnowledgeActionRequest) -> dict:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
+        if request.action in {
+            "memory_save",
+            "memory_supersede",
+            "memory_mark_disputed",
+            "memory_archive",
+            "memory_reject",
+            "memory_rebuild_index",
+            "memory_sync_provider",
+        }:
+            return _bounded_knowledge_action(
+                memory_action_operation(request), request.response_budget_bytes
+            )
         if request.action == "refresh_wiki":
             result = refresh_repo_wiki(request.repo_name, request.force)
         elif request.action == "remember_decision":

@@ -2215,12 +2215,89 @@ class ResearchHealthQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class MemoryScopeInput(GatewayModel):
+    """Exactly-named memory scope. There is no default and no inference path.
+
+    `personal` is accepted by the schema and refused by the resolver, so
+    activating personal memory later is a resolver change rather than a public
+    contract change.
+    """
+
+    kind: Literal["project", "personal"] = "project"
+    project_id: str = Field(default="", max_length=128)
+    repo_name: str = Field(default="", max_length=128)
+    owner_id: str = Field(default="", max_length=128)
+
+    @model_validator(mode="after")
+    def validate_scope_identity(self) -> "MemoryScopeInput":
+        if self.kind == "project":
+            if not self.project_id or not self.repo_name:
+                raise ValueError(
+                    "project memory scope requires both project_id and repo_name"
+                )
+        elif not self.owner_id:
+            raise ValueError("personal memory scope requires owner_id")
+        return self
+
+    def to_request(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+class MemorySearchQuery(GatewayModel):
+    operation: Literal["memory_search"]
+    scope: MemoryScopeInput
+    query: str = Field(min_length=1, max_length=10_000)
+    limit: int = Field(default=10, ge=1, le=50)
+    include_non_authoritative: bool = False
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemoryGetQuery(GatewayModel):
+    operation: Literal["memory_get"]
+    scope: MemoryScopeInput
+    knowledge_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemoryHealthQuery(GatewayModel):
+    operation: Literal["memory_health"]
+    scope: MemoryScopeInput
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemoryContextQuery(GatewayModel):
+    operation: Literal["memory_context"]
+    scope: MemoryScopeInput
+    query: str = Field(min_length=1, max_length=10_000)
+    limit: int = Field(default=10, ge=1, le=50)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemoryPacketGetQuery(GatewayModel):
+    """Retrieve the exact stored packet that a bounded projection came from."""
+
+    operation: Literal["memory_packet_get"]
+    scope: MemoryScopeInput
+    packet_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeQueryRequest = Annotated[
     KnowledgeReadWikiQuery
     | KnowledgeSearchQuery
     | ProjectKnowledgeSearchQuery
     | ProjectKnowledgeGetQuery
     | ProjectKnowledgeHealthQuery
+    | MemorySearchQuery
+    | MemoryGetQuery
+    | MemoryHealthQuery
+    | MemoryContextQuery
+    | MemoryPacketGetQuery
     | ResearchSourceQuery
     | ResearchClaimEvidenceQuery
     | ResearchListQuery
@@ -2359,12 +2436,82 @@ class ResearchRebuildIndexAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class MemorySaveAction(GatewayModel):
+    action: Literal["memory_save"]
+    scope: MemoryScopeInput
+    vault_path: str = Field(min_length=3, max_length=512)
+    kind: Literal[
+        "fact", "decision", "document", "lesson", "question", "handoff", "preference"
+    ]
+    title: str = Field(min_length=1, max_length=500)
+    summary: str = Field(default="", max_length=4000)
+    body: str = Field(min_length=1, max_length=200_000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    review_state: str = Field(default="unreviewed", max_length=64)
+    valid_from: str = Field(default="", max_length=64)
+    valid_until: str = Field(default="", max_length=64)
+    controller: str = Field(default="", max_length=128)
+    task_id: str = Field(default="", max_length=128)
+    run_id: str = Field(default="", max_length=128)
+    idempotency_key: str = Field(default="", max_length=256)
+    sources: list[KnowledgeSourceInput] = Field(default_factory=list, max_length=50)
+    locators: list[KnowledgeLocatorInput] = Field(default_factory=list, max_length=100)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemorySupersedeAction(MemorySaveAction):
+    action: Literal["memory_supersede"]
+    supersedes_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class MemoryLifecycleAction(GatewayModel):
+    """Move one record to a non-authoritative state under compare-and-swap.
+
+    `superseded` is absent by design: it is derived from a successor's link, so
+    setting it directly would let a caller assert a lifecycle no record backs.
+    """
+
+    action: Literal["memory_mark_disputed", "memory_archive", "memory_reject"]
+    scope: MemoryScopeInput
+    knowledge_id: str = Field(min_length=1, max_length=128)
+    expected_sha256: str = Field(min_length=64, max_length=64)
+    reason: str = Field(default="", max_length=4000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemoryRebuildIndexAction(GatewayModel):
+    """Request a provider rebuild through the durable task authority."""
+
+    action: Literal["memory_rebuild_index"]
+    scope: MemoryScopeInput
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    full: bool = True
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class MemorySyncProviderAction(GatewayModel):
+    """Reconcile the canonical catalog after out-of-band Obsidian edits."""
+
+    action: Literal["memory_sync_provider"]
+    scope: MemoryScopeInput
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeActionRequest = Annotated[
     KnowledgeRefreshWikiAction
     | KnowledgeRememberDecisionAction
     | KnowledgeSaveAction
     | KnowledgeSupersedeAction
     | KnowledgeRebuildAction
+    | MemorySaveAction
+    | MemorySupersedeAction
+    | MemoryLifecycleAction
+    | MemoryRebuildIndexAction
+    | MemorySyncProviderAction
     | ResearchImportSourceAction
     | ResearchPreservePacketAction
     | ResearchRebuildIndexAction,
