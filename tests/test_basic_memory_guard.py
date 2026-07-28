@@ -143,6 +143,7 @@ def make_guard(
     *,
     lifecycles: dict[str, tuple[str, int]] | None = None,
     record: list[list[str]] | None = None,
+    membership_supported: bool = True,
 ) -> BasicMemoryGuard:
     a, b = roots
     source = StaticBindingSource(
@@ -170,7 +171,15 @@ def make_guard(
                 return code, out, ""
         return 0, "", ""
 
-    return BasicMemoryGuard(resolver, profile, BasicMemoryProvider(profile, runner))
+    # Most tests exercise the reconciliation mechanism, so they opt into
+    # membership. Production defaults to False for Basic Memory 0.22.1 by
+    # measurement -- covered by the dedicated test below.
+    return BasicMemoryGuard(
+        resolver,
+        profile,
+        BasicMemoryProvider(profile, runner),
+        membership_supported=membership_supported,
+    )
 
 
 #: The canonical files the `roots` fixture writes into project A.
@@ -585,6 +594,41 @@ def test_os_manifest_excludes_provider_and_vcs_state(tmp_path):
 
 # ----------------------------------------------------------------------
 # MEMORY-INTEGRATION-FOUNDATION-1 step 1 -- verified defect repairs
+
+
+def test_measured_provider_cannot_prove_membership_so_semantic_stays_blocked(
+    profile, roots
+):
+    """Step 2 measurement: Basic Memory 0.22.1 enumerates no complete set.
+
+    `project info` carries a ten-row recency feed; measured against 34 files it
+    named 10. The production guard therefore reports degraded even when every
+    other signal is perfect, and retrieval falls back to canonical Markdown.
+    """
+    guard = make_guard(
+        profile, roots, healthy_responses(2), membership_supported=False
+    )
+    health = guard.health(PROJECT_A)
+    assert health.state is HealthState.DEGRADED
+    assert not health.semantic_permitted
+    assert health.reason is RefusalReason.COVERAGE_MEMBERSHIP_UNAVAILABLE
+
+    result = guard.search(PROJECT_A, "ALPHA_CANARY")
+    assert result.used_fallback
+    assert [item["file_path"] for item in result.items] == ["service-endpoint.md"]
+
+
+def test_activity_feed_is_never_read_as_membership():
+    """The exact false positive step 2 caught: a feed that looks like a set."""
+    from soma.memory_guard.health import indexed_paths
+
+    payload = {
+        "statistics": {"total_entities": 34},
+        "activity": {
+            "recently_created": [{"file_path": f"note-{i}.md"} for i in range(10)]
+        },
+    }
+    assert indexed_paths(payload) is None
 
 
 def test_cardinality_alone_does_not_prove_coverage(profile, roots):

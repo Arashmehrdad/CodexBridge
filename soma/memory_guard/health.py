@@ -68,17 +68,46 @@ def _pending_changes(payload: dict | None) -> int | None:
     return None
 
 
+#: Measured in `MEMORY-INTEGRATION-FOUNDATION-1` step 2 against Basic Memory
+#: 0.22.1: no accepted operation enumerates the full indexed set.
+#:
+#: `bm project info --json` reports `statistics.total_entities` and an
+#: `activity` block. The activity block *looks* like membership -- its rows
+#: carry `file_path` -- but it is a recency feed capped at ten rows. Measured
+#: with a 34-file corpus: `total_entities` 34, files on disk 34, distinct
+#: enumerable paths 10. A four-file corpus reads as "complete" purely because
+#: it fits under the cap, which is exactly the kind of false positive this
+#: constant exists to prevent.
+#:
+#: `bm status --json` reports only pending deltas (empty when synchronised),
+#: and `tool search-notes` returns matches subject to the similarity threshold,
+#: so neither enumerates the set either.
+PROVIDER_MEMBERSHIP_AVAILABLE: bool = False
+
+#: Payload keys that carry `file_path` but are recency feeds rather than the
+#: indexed set. Reading these as membership would silently prove ten files and
+#: call the rest absent.
+ACTIVITY_FEED_KEYS: frozenset[str] = frozenset(
+    {"recently_created", "recently_updated", "monthly_growth", "activity"}
+)
+
+
 def indexed_paths(payload: dict | None) -> tuple[str, ...] | None:
     """Relative paths the provider says it has indexed, or None when unknown.
 
-    None is *unproven membership*, never "the provider indexed nothing". The
-    accepted interface may not expose membership at all; see
-    `MEMORY-INTEGRATION-FOUNDATION-1` step 2. Until it is measured, coverage
-    stays unproven and semantic retrieval stays blocked.
+    None is *unproven membership*, never "the provider indexed nothing".
+
+    This deliberately reads only keys that mean "the complete set". Activity
+    feeds are never consulted: see `ACTIVITY_FEED_KEYS` and the step-2
+    measurement above. The function is retained in full because the moment a
+    provider release does expose enumeration, membership becomes available with
+    no other change.
     """
     if not isinstance(payload, dict):
         return None
     for key in ("entities", "notes", "files", "results", "documents"):
+        if key in ACTIVITY_FEED_KEYS:  # defensive: never treat a feed as the set
+            continue
         rows = payload.get(key)
         if not isinstance(rows, list):
             continue

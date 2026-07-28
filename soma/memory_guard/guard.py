@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from .binding import ProjectBindingResolver
 from .fallback import literal_search, read_note, resolve_within_root
-from .health import build_coverage, disposition
+from .health import PROVIDER_MEMBERSHIP_AVAILABLE, build_coverage, disposition
 from .models import (
     GuardResult,
     HealthDisposition,
@@ -61,12 +61,18 @@ class BasicMemoryGuard:
         *,
         enforce_runtime: bool = True,
         expected_executable_sha256: str = "",
+        membership_supported: bool = PROVIDER_MEMBERSHIP_AVAILABLE,
     ) -> None:
         self._resolver = resolver
         self._profile = profile
         self._provider = provider
         self._enforce_runtime = enforce_runtime
         self._expected_executable_sha256 = expected_executable_sha256
+        # Whether the bound provider release enumerates its indexed set. False
+        # for Basic Memory 0.22.1 by measurement, which is why semantic
+        # retrieval stays blocked. A release that does enumerate flips this one
+        # flag and the existing reconciliation applies unchanged.
+        self._membership_supported = membership_supported
         self._runtime_mismatch: str | None = None
 
     # ------------------------------------------------------------------
@@ -121,12 +127,14 @@ class BasicMemoryGuard:
             binding,
             info_call=info,
             status_call=status,
-            # Membership evidence comes from whichever accepted call is measured
-            # to enumerate indexed paths. `project info` is tried because it is
-            # the richest allowlisted payload; when it carries no enumeration the
-            # coverage report records membership as unproven rather than assuming
-            # the counts agree.
-            membership_call=info,
+            # No membership call is made. `MEMORY-INTEGRATION-FOUNDATION-1`
+            # step 2 measured every accepted operation against a 34-file corpus
+            # and none enumerates the indexed set: `project info` carries only a
+            # ten-row recency feed, `status` reports pending deltas, and search
+            # is threshold-gated. Passing `info` here would look like membership
+            # on a small corpus and silently degrade on a real one, so the guard
+            # records membership as unproven -- which blocks semantic retrieval.
+            membership_call=(info if self._membership_supported else None),
         )
         return disposition(coverage, runtime_mismatch=self.runtime_mismatch())
 
