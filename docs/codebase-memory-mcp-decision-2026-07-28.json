@@ -10,15 +10,17 @@
     "with_obsidian": false,
     "with_basic_memory": false,
     "with_soma_authority": false,
-    "reason": "codebase_memory_derives_structural_source_facts_while_memory_stack_holds_owner_authored_knowledge_and_soma_owns_identity_routing_and_evidence"
+    "reason": "codebase_memory_derives_structural_source_facts_while_obsidian_mcp_connector_serves_owner_authored_knowledge_basic_memory_is_headless_fallback_and_soma_owns_identity_routing_and_evidence",
+    "with_mcp_connector": false
   },
   "authorities": {
     "source": "repository_and_git",
     "project_and_repository_binding": "Soma",
     "task_run_evidence_lifecycle": "Soma",
-    "owner_authored_memory": "Markdown_Git_Obsidian_selected_memory_provider",
+    "owner_authored_memory": "Markdown_Git_Obsidian_MCP_Connector",
     "repository_wiki": "Soma_RepoWikiService",
-    "derived_code_graph": "Codebase Memory MCP"
+    "derived_code_graph": "Codebase Memory MCP",
+    "headless_memory_fallback": "Basic_Memory_Local_after_named_failure"
   },
   "future_lane": "PILOT-CODE-INTELLIGENCE-1",
   "future_lane_active": false,

@@ -1,7 +1,7 @@
 {
   "schema_version": "pilot_basic_memory_1_gate.v1",
   "date": "2026-07-28",
-  "status": "prepared_execution_not_started",
+  "status": "superseded_before_execution",
   "starting_head": "071c266a33b620b099a3a32447f282c06ac0ecb9",
   "purpose": "official_ready_made_basic_memory_local_compatibility_trial",
   "execution": {
@@ -9,8 +9,8 @@
     "coding_agents": 0,
     "subagents": 0,
     "parallel_code_intelligence_pilot": false,
-    "second_design_approval_required": false,
-    "execution_trigger": "subsequent_owner_instruction"
+    "second_design_approval_required": true,
+    "execution_trigger": "not_executable_until_reactivated_by_accepted_obsidian_pilot_result"
   },
   "authority": {
     "canonical_content": "markdown_plus_git",
@@ -71,5 +71,9 @@
     "inconclusive"
   ],
   "code_intelligence_pilot_remains_inactive": true,
-  "push_allowed": false
+  "push_allowed": false,
+  "execution_started": false,
+  "active": false,
+  "superseded_by": "PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md",
+  "reactivation_condition": "accepted_named_obsidian_pilot_failure_requiring_headless_or_independent_access"
 }

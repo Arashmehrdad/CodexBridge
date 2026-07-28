@@ -1,0 +1,59 @@
+{
+  "schema_version": "pilot_obsidian_mcp_1_gate.v1",
+  "date": "2026-07-28",
+  "status": "gate_prepared_execution_not_started",
+  "active": false,
+  "execution_started": false,
+  "decision_source": "OBSIDIAN_MCP_DECISION_2026-07-28.md",
+  "candidate": {
+    "name": "MCP Connector",
+    "repository": "istefox/obsidian-mcp-connector",
+    "reviewed_version": "0.28.1",
+    "installation_channel": "Obsidian community store",
+    "runtime": "in_process_inside_obsidian",
+    "transport": "streamable_http_loopback_bearer",
+    "semantic_provider": "native_multilingual_or_documented_non_latin_model"
+  },
+  "execution": {
+    "controller_count": 1,
+    "coding_agents": 0,
+    "subagents": 0,
+    "parallel_basic_memory": false,
+    "parallel_codebase_memory": false,
+    "production_data": false,
+    "push_allowed": false
+  },
+  "projects": [
+    {
+      "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "vault_name": "soma-pilot-vault"
+    },
+    {
+      "project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "vault_name": "soma-lab-pilot-vault"
+    }
+  ],
+  "security": {
+    "loopback_only": true,
+    "bearer_auth_required": true,
+    "core_profile_only": true,
+    "adaptive_loading": false,
+    "command_execution": false,
+    "web_fetch": false,
+    "auto_client_config": false,
+    "phase_a_read_only": true
+  },
+  "canonical_content": "markdown_plus_git",
+  "soma_authority": true,
+  "custom_retrieval_allowed": false,
+  "outcomes": [
+    "accept_obsidian_native_stack",
+    "accept_with_minimal_soma_binding_guard",
+    "reject_mcp_connector_activate_basic_memory_comparison",
+    "inconclusive"
+  ],
+  "basic_memory_gate_status": "superseded_inactive_fallback",
+  "codebase_memory_gate_status": "planned_inactive",
+  "generic_continue_executes_this_gate_only": true,
+  "prepared_from_head": "6bbd0240222990c0b493120ae789e3db6d3a8458"
+}

@@ -10,7 +10,7 @@ Add `DeusData/codebase-memory-mcp` to the Soma plan as the preferred ready-made 
 
 It does not overlap with the selected memory architecture:
 
-- **Markdown + Git + Obsidian + Basic Memory Local** cover owner-readable project knowledge, decisions, lessons, procedures, continuity, and personal/project memory.
+- **Markdown + Git + Obsidian + MCP Connector** cover owner-readable project knowledge, decisions, lessons, procedures, continuity, and personal/project memory. Basic Memory Local remains only a headless fallback after a named failure.
 - **Codebase Memory MCP** derives structural facts from source repositories: symbols, definitions, imports, call paths, routes, impact, architecture, and source snippets.
 - **Soma** remains the authority for project identity, repository binding, source generation, provenance, permissions, lifecycle, evidence, and controller routing.
 
@@ -23,7 +23,7 @@ Codebase Memory MCP is therefore an index and query provider, not a memory autho
 | Source files and Git history | Repository itself |
 | Repository identity and approved root | Soma ProjectScope/resource binding |
 | Tasks, runs, evidence and lifecycle | Soma |
-| Owner-authored decisions, lessons and continuity | Markdown + Git, edited in Obsidian and served by the selected project-memory provider |
+| Owner-authored decisions, lessons and continuity | Markdown + Git, edited in Obsidian and served first through MCP Connector |
 | Existing repository wiki and evidence references | Soma `RepoWikiService` and canonical repository evidence |
 | Structural code graph, call paths and impact analysis | Codebase Memory MCP as a disposable derived index |
 | Architectural decision records | Owner Markdown/Soma evidence; **not** Codebase Memory `manage_adr` |
@@ -77,7 +77,7 @@ The pilot may evaluate only read/derive operations needed for coding assistance:
 - background watchers or auto-indexing before explicit reliability acceptance;
 - provider-owned project identity inference from current working directory;
 - provider graph artifacts committed to the repository;
-- replacement of `RepoWikiService`, Git, source files, Basic Memory, Obsidian, or Soma evidence;
+- replacement of `RepoWikiService`, Git, source files, Obsidian/MCP Connector, the preserved Basic Memory fallback, or Soma evidence;
 - production controller dependency before a separate acceptance decision.
 
 ## Acceptance questions for a future pilot

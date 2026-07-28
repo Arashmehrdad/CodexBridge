@@ -1,0 +1,45 @@
+{
+  "schema_version": "obsidian_mcp_decision.v1",
+  "date": "2026-07-28",
+  "status": "accepted_documentation_closed",
+  "implementation_lane_active": false,
+  "supersedes": [
+    "MEMORY_PROVIDER_DECISION_2026-07-28.md",
+    "PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md"
+  ],
+  "decision": {
+    "canonical_content": "markdown_plus_git",
+    "owner_and_runtime_surface": "Obsidian",
+    "selected_first_candidate": "MCP Connector by istefox",
+    "reviewed_version": "0.28.1",
+    "provider_role": "in_process_local_semantic_and_mcp_access",
+    "soma_remains_authority": true,
+    "basic_memory_role": "headless_fallback_after_named_failure",
+    "codebase_memory_overlap": false
+  },
+  "minimum_custom_component": {
+    "allowed": true,
+    "role": "exact_project_vault_binding_path_validation_and_provenance_guard",
+    "forbidden": [
+      "storage",
+      "embeddings",
+      "ranking",
+      "semantic_search",
+      "graph_traversal",
+      "provider_patch"
+    ]
+  },
+  "security_defaults": {
+    "loopback_only": true,
+    "bearer_auth_required": true,
+    "core_static_profile": true,
+    "command_execution_enabled": false,
+    "open_world_fetch_enabled": false,
+    "external_client_auto_configuration": false
+  },
+  "next_lane": "PILOT-OBSIDIAN-MCP-1",
+  "next_lane_active": false,
+  "plugin_installation_authorized": false,
+  "production_activation": false,
+  "push_allowed": false
+}

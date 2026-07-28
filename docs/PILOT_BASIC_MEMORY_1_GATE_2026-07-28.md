@@ -1,11 +1,16 @@
 # PILOT-BASIC-MEMORY-1 - Ready-Made Local Memory Compatibility Gate
 
 **Date:** 2026-07-28
-**Status:** gate prepared; execution has not started.
+**Status:** superseded before execution by [`PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md).
 **Decision source:** [`MEMORY_PROVIDER_DECISION_2026-07-28.md`](MEMORY_PROVIDER_DECISION_2026-07-28.md)
 **Scope:** disposable compatibility trial of official Basic Memory Local behavior only.
 
-## Purpose
+
+## Supersession notice
+
+This gate remains preserved as a ready-made headless fallback comparison. It did not execute and authorizes no installation. It may become active only if `PILOT-OBSIDIAN-MCP-1` returns a named failure requiring independent or headless memory access.
+
+## Historical purpose
 
 Determine whether Basic Memory Local can serve as Soma's ready-made project-memory provider while preserving the accepted architecture:
 
@@ -18,9 +23,9 @@ This is a product compatibility trial, not a model experiment. It includes no mo
 
 ## Execution ownership
 
-The pilot is executed by one controller through Soma using official provider commands and MCP tools. No coding agent or subagent is needed. No parallel Codebase Memory MCP pilot may run while this gate is executing.
+The historical pilot would have been executed by one controller through Soma using official provider commands and MCP tools, with no coding agent, subagent, or parallel Codebase Memory pilot.
 
-The gate is documentation-complete. Execution begins only after a subsequent owner instruction such as `continue`; no second design or approval ceremony is required.
+This historical gate is not executable through a generic `continue`. A separate accepted Obsidian-pilot result must explicitly reactivate it.
 
 ## Fixed boundaries
 

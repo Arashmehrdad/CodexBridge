@@ -1,13 +1,13 @@
 {
   "schema_version": "memory_provider_decision.v1",
   "date": "2026-07-28",
-  "status": "accepted_documentation_closed",
+  "status": "superseded_before_provider_pilot_execution",
   "implementation_lane_active": false,
   "decision": {
     "canonical_content": "markdown_plus_git",
     "owner_ui": "Obsidian",
     "selected_provider": "Basic Memory Local",
-    "provider_status": "selected_for_future_bounded_pilot_not_activated",
+    "provider_status": "historical_basic_memory_first_order_superseded",
     "soma_remains_authority": true,
     "provider_index_disposable": true,
     "default_project_fallback_trusted": false,
@@ -37,7 +37,7 @@
     "production_state_created": false,
     "remaining_provider_state": false
   },
-  "next_recommended_lane": "PILOT-BASIC-MEMORY-1",
+  "next_recommended_lane": "PILOT-OBSIDIAN-MCP-1",
   "next_lane_active": false,
   "subagents_authorized": false,
   "provider_installation_authorized": false,
@@ -48,5 +48,7 @@
     "actual_role": "overbuilt_benchmark_artifact",
     "production_direction": "none",
     "decision_rule": "adopt_or_wrap_ready_made_provider_then_add_only_minimum_custom_component_for_named_gap"
-  }
+  },
+  "superseded_by": "OBSIDIAN_MCP_DECISION_2026-07-28.md",
+  "supersession_reason": "current_obsidian_cli_bases_and_native_semantic_mcp_options_restore_obsidian_native_first_order"
 }

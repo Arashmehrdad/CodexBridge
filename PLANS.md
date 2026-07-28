@@ -141,23 +141,33 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 ### MEMORY-DECISION-1 - Ready-Made Memory Provider Selection
 
-**Status:** **accepted and documentation-closed.** The authoritative decision is [`docs/MEMORY_PROVIDER_DECISION_2026-07-28.md`](docs/MEMORY_PROVIDER_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/memory-provider-decision-2026-07-28.json`](docs/memory-provider-decision-2026-07-28.json).
+**Status:** superseded before provider-pilot execution. The historical Basic Memory-first decision remains in [`docs/MEMORY_PROVIDER_DECISION_2026-07-28.md`](docs/MEMORY_PROVIDER_DECISION_2026-07-28.md) and [`docs/memory-provider-decision-2026-07-28.json`](docs/memory-provider-decision-2026-07-28.json). No Basic Memory installation or pilot execution occurred under it.
 
-The selected architecture is Markdown + Git as canonical content, Obsidian as the owner-facing workspace, Basic Memory Local as the first ready-made AI memory provider candidate, and Soma as the sole authority for project identity, provider binding, routing, provenance, continuity, and acceptance. Mem0 is not selected for canonical project memory; Cognee is deferred until a named graph-reasoning gap. `PILOT-MEMORY-1B` custom code is recorded only as an overbuilt benchmark artifact; a custom Soma retrieval engine was never an accepted architecture candidate.
+### OBSIDIAN-MCP-DECISION-1 - Obsidian-Native Memory Access
 
-A premature disposable Basic Memory probe was removed completely and is not acceptance evidence. No provider installation, persistent provider state, production memory, MCP integration, owner-memory import, subagent work, or push is active.
+**Status:** **accepted and documentation-closed.** The current decision is [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).
 
-### PILOT-BASIC-MEMORY-1 - Ready-Made Local Compatibility Gate
+The selected order is Markdown + Git as canonical content, Obsidian as both owner workspace and first runtime surface, MCP Connector by istefox as the first semantic/MCP candidate, and Soma as sole authority for project identity, vault binding, routing, provenance, continuity and acceptance. Basic Memory Local is retained only as a headless fallback after a named Obsidian-native failure.
 
-**Status:** **gate prepared; execution has not started.** The authoritative gate is [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md), with machine-readable boundaries in [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json).
+The only anticipated custom component is a thin Soma binding and path/provenance guard. It may not implement storage, embeddings, ranking, semantic search, graph traversal or provider behavior.
 
-The gate uses one controller, official Basic Memory tools, two disposable project roots, exact Soma-to-provider project bindings, plain Markdown, Obsidian/manual edits, literal/semantic/linked-context checks, Windows restart checks, full index rebuild, and clean removal. It includes no coding agents, subagents, model training, custom retrieval code, production memory, global configuration changes, or push. A subsequent owner instruction such as `continue` starts execution without another design approval.
+### PILOT-BASIC-MEMORY-1 - Preserved Headless Fallback Gate
+
+**Status:** superseded before execution and inactive. Its historical gate remains in [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md) and [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json). It may be reactivated only by a documentation-closed Obsidian-pilot failure requiring headless or independent access.
+
+### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
+
+**Status:** **gate prepared; execution has not started.** The authoritative gate is [`docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md), with machine-readable boundaries in [`docs/pilot-obsidian-mcp-1-gate-2026-07-28.json`](docs/pilot-obsidian-mcp-1-gate-2026-07-28.json).
+
+The gate uses one controller, two disposable project vaults, the community-store MCP Connector release, fixed Core tool loading, direct loopback HTTP with per-vault bearer authentication, command execution and web fetch disabled, native multilingual embeddings, Obsidian CLI and Bases checks, strict Soma-to-vault binding, external-edit and link-integrity checks, Windows restart checks, full semantic-index rebuild and clean uninstall. It includes no coding agents, subagents, custom retrieval, production memory, client auto-configuration or push.
+
+A subsequent owner instruction such as `continue` executes only this recorded gate.
 
 ### CODE-INTELLIGENCE-DECISION-1 - Codebase Memory MCP
 
 **Status:** **accepted as planned but inactive.** The authoritative boundary is [`docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md`](docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md), with machine-readable controls in [`docs/codebase-memory-mcp-decision-2026-07-28.json`](docs/codebase-memory-mcp-decision-2026-07-28.json).
 
-`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with Basic Memory/Obsidian, which cover owner-authored project knowledge and continuity. It does not replace the repository, Git, `RepoWikiService`, or Soma authority.
+`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with Obsidian/MCP Connector, which cover owner-authored project knowledge and continuity; Basic Memory remains only the inactive headless fallback. It does not replace the repository, Git, `RepoWikiService`, or Soma authority.
 
 A future `PILOT-CODE-INTELLIGENCE-1` may test a pinned, checksum-verified binary through an explicit Soma project/repository binding, with cache outside the repository, `CBM_ALLOWED_ROOT` enforced, auto-index and auto-watch disabled, no installer edits, no `manage_adr`, no committed graph artifact, no subagents, and no push. The pilot is not active.
 
@@ -174,4 +184,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-BASIC-MEMORY-1` is documentation-prepared but not executing. A subsequent owner instruction such as `continue` may execute only that recorded gate; it does not activate production memory or integrate the provider into Soma. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive until the Basic Memory result is documentation-closed. The two pilots must not overlap. A generic `continue` does not revive a Roadmap V2 lane, start Roadmap V3 feature work, or authorize a push.
+`PILOT-OBSIDIAN-MCP-1` is documentation-prepared but not executing. A subsequent owner instruction such as `continue` may execute only that recorded gate; it does not activate production memory or integrate the plugin into Soma. `PILOT-BASIC-MEMORY-1` is a preserved inactive fallback, and `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive until the Obsidian memory result is documentation-closed. These pilots must not overlap. A generic `continue` does not revive a Roadmap V2 lane, start Roadmap V3 feature work, or authorize a push.

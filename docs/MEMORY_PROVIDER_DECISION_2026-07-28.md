@@ -1,10 +1,17 @@
 # MEMORY-DECISION-1 - Ready-Made Memory Provider Selection
 
 **Date:** 2026-07-28
-**Status:** accepted and documentation-closed.
+**Status:** superseded before provider-pilot execution by [`OBSIDIAN_MCP_DECISION_2026-07-28.md`](OBSIDIAN_MCP_DECISION_2026-07-28.md).
 **Decision scope:** architecture selection only; no provider integration or active implementation lane.
 
-## Decision
+
+## Supersession notice
+
+This record is preserved as decision history. Its Basic Memory-first ordering was accepted before current Obsidian CLI, Bases, and native semantic MCP options were fully considered. No Basic Memory pilot execution or production integration occurred under this decision.
+
+The current order is Obsidian-native first through MCP Connector, with Basic Memory retained only as a headless fallback after a named failure. The canonical-content and Soma-authority rules in this document remain valid.
+
+## Historical decision
 
 Use the following memory architecture for Soma/Cortana:
 
