@@ -292,6 +292,15 @@ class CanonicalMemoryService:
                 f"canonical vault is degraded: {health.malformed_count} malformed "
                 f"record(s)"
             )
+        if health.drifted_count:
+            # The content is still authoritative; what is unproven is that it is
+            # the content the writer recorded. A controller citing such a record
+            # is entitled to know that before it does.
+            warnings.append(
+                f"{health.drifted_count} record(s) carry a stored integrity hash "
+                "that no longer matches their content, so their provenance is "
+                "unverified even though they remain readable"
+            )
         if health.unadopted_count:
             warnings.append(
                 f"{health.unadopted_count} owner-authored note(s) are not adopted and "

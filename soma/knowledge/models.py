@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceReference(BaseModel):
@@ -67,6 +67,21 @@ class KnowledgeInput(BaseModel):
     run_id: str = Field(default="", max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("body")
+    @classmethod
+    def _canonical_body(cls, value: str) -> str:
+        """Trailing newlines are formatting, not content, so they never enter a hash.
+
+        The vault writer appends a terminating newline and the reader strips
+        every trailing one. A caller that submitted a body already ending in a
+        newline therefore had its integrity hash computed over a string the file
+        could never read back: the record was written, its stored hash was
+        correct for the bytes hashed, and every subsequent read recomputed a
+        different one. Normalising here makes the round trip exact at the only
+        boundary where both sides are guaranteed to agree.
+        """
+        return value.rstrip("\n")
+
 
 ResearchNoteInput = KnowledgeInput
 
@@ -94,6 +109,7 @@ class RebuildResult(BaseModel):
     indexed_count: int
     malformed_count: int
     unadopted_count: int = 0
+    drifted_count: int = 0
 
 
 class KnowledgeHealth(BaseModel):
@@ -113,4 +129,8 @@ class KnowledgeHealth(BaseModel):
     unadopted_count: int = 0
     unadopted_paths: list[str] = Field(default_factory=list)
     malformed_paths: list[str] = Field(default_factory=list)
+    #: Records whose stored integrity hash disagrees with their own content.
+    #: Reported, never repaired implicitly -- see `vault.integrity_drift`.
+    drifted_count: int = 0
+    drifted_paths: list[str] = Field(default_factory=list)
     generation: int = 0

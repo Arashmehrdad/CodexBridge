@@ -127,9 +127,13 @@ class MarkdownVault:
         metadata["vault_path"] = relative
         metadata["body"] = text[match.end() :].rstrip("\n")
         validate_project_id(str(metadata.get("project_id") or ""))
-        record = KnowledgeRecord.model_validate(metadata)
-        record.content_sha256 = content_hash(record)
-        return record
+        # The stored hash is kept exactly as written. Recomputing it here made
+        # the integrity field self-fulfilling: any divergence between the bytes
+        # on disk and the hash the writer recorded was overwritten on the way
+        # out, so a drifted record and an intact one were indistinguishable and
+        # the hash proved nothing it claimed to prove. Divergence is now
+        # detectable, and `integrity_drift` is the only thing that reports it.
+        return KnowledgeRecord.model_validate(metadata)
 
     def markdown_files(self) -> list[Path]:
         return sorted(path for path in self.root.rglob("*.md") if path.is_file())
@@ -184,3 +188,15 @@ def content_hash(record: KnowledgeRecord) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def integrity_drift(record: KnowledgeRecord) -> bool:
+    """True when a record's stored hash disagrees with its own content.
+
+    Drift is never repaired implicitly. A stored hash that does not match the
+    file can mean the writer was wrong or that the file was edited afterwards,
+    and nothing in the record distinguishes the two. Restamping it would absorb
+    an out-of-band edit exactly as silently as it would absorb a writer bug, so
+    the only safe response is to report it and let the owner decide.
+    """
+    return bool(record.content_sha256) and record.content_sha256 != content_hash(record)

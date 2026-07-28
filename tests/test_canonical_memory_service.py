@@ -323,6 +323,50 @@ def test_zero_results_from_a_question_says_why_not_just_zero(service):
     assert any("every query term" in warning for warning in outcome.warnings)
 
 
+def test_a_body_ending_in_a_newline_round_trips_to_the_same_hash(service):
+    """Regression: the acknowledged hash disagreed with every later read.
+
+    The vault writer terminates a body with a newline and the reader strips
+    every trailing one, so a caller that submitted a body already ending in a
+    newline had its hash computed over a string the file could not read back.
+    The write acknowledged one hash and `memory_get` reported another, which
+    also made the acknowledged compare-and-swap token unusable.
+    """
+    from soma.knowledge.vault import integrity_drift
+
+    saved = service.save(
+        note(body="Trailing newline present.\n", idempotency_key="k-newline")
+    )
+    fetched = service.get(saved.knowledge_id)
+
+    assert fetched.content_sha256 == saved.content_sha256
+    assert not integrity_drift(fetched)
+    assert service.knowledge.health(PROJECT_ID).drifted_count == 0
+
+    # The acknowledged token must actually work as a CAS precondition.
+    service.correct(
+        saved.knowledge_id,
+        expected_sha256=saved.content_sha256,
+        changes={"review_state": "reviewed"},
+    )
+
+
+def test_a_drifted_record_is_still_returned_but_search_says_so(service, tmp_path):
+    """Unverified provenance is not a reason to hide a record, or to stay quiet."""
+    saved = service.save(note(idempotency_key="k1"))
+    path = tmp_path / "vault" / saved.vault_path
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("port 8801", "port 9999"),
+        encoding="utf-8",
+    )
+    service.knowledge.rebuild(PROJECT_ID)
+
+    outcome = service.search("ALPHACANARY")
+    assert [record.title for record in outcome.records] == ["Listener port"]
+    assert any("integrity hash" in warning for warning in outcome.warnings)
+    assert outcome.canonical_health == "dirty"
+
+
 def test_single_term_miss_does_not_add_the_phrasing_warning(service):
     """One term that genuinely is not there is a real absence, not a phrasing hint."""
     service.save(note(idempotency_key="k1"))

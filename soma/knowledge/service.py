@@ -17,7 +17,13 @@ from .models import (
     KnowledgeSearchPage,
     RebuildResult,
 )
-from .vault import MarkdownVault, UnadoptedNote, content_hash, validate_project_id
+from .vault import (
+    MarkdownVault,
+    UnadoptedNote,
+    content_hash,
+    integrity_drift,
+    validate_project_id,
+)
 
 
 def _now() -> str:
@@ -209,6 +215,7 @@ class KnowledgeService:
         records: list[KnowledgeRecord] = []
         malformed: list[str] = []
         unadopted: list[str] = []
+        drifted: list[str] = []
         for path in self.vault.markdown_files():
             relative = path.resolve().relative_to(self.vault.root).as_posix()
             try:
@@ -220,6 +227,12 @@ class KnowledgeService:
                 malformed.append(relative)
                 continue
             if record.project_id == project_id:
+                # A drifted record is still indexed and still retrievable. Its
+                # content is the canonical truth either way; what is in doubt is
+                # only whether the content is what the writer recorded, and
+                # hiding the record would answer a question nobody asked.
+                if integrity_drift(record):
+                    drifted.append(relative)
                 records.append(record)
         self.catalog.replace_project(
             project_id,
@@ -230,12 +243,14 @@ class KnowledgeService:
             unadopted_count=len(unadopted),
             unadopted_paths=unadopted,
             malformed_paths=malformed,
+            drifted_paths=drifted,
         )
         return RebuildResult(
             project_id=project_id,
             indexed_count=len(records),
             malformed_count=len(malformed),
             unadopted_count=len(unadopted),
+            drifted_count=len(drifted),
         )
 
     def health(self, project_id: str) -> KnowledgeHealth:
@@ -250,9 +265,15 @@ class KnowledgeService:
         unadopted = int(state["unadopted_count"])
         unadopted_paths = json.loads(state["unadopted_paths_json"] or "[]")
         malformed_paths = json.loads(state["malformed_paths_json"] or "[]")
+        drifted_paths = json.loads(state["drifted_paths_json"] or "[]")
+        drifted = int(state["drifted_count"])
 
         if malformed or indexed != canonical:
             status = "degraded"
+        elif drifted:
+            # Readable and retrievable, but the stored hash no longer proves the
+            # content. That is not corruption and not health either.
+            status = "dirty"
         elif not canonical:
             # Unadopted owner notes mean the vault is not empty even when Soma
             # manages nothing in it yet.
@@ -269,6 +290,8 @@ class KnowledgeService:
             unadopted_count=unadopted,
             unadopted_paths=list(unadopted_paths),
             malformed_paths=list(malformed_paths),
+            drifted_count=drifted,
+            drifted_paths=list(drifted_paths),
             generation=int(state["generation"]),
         )
 

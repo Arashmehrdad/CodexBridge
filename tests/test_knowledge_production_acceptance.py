@@ -210,12 +210,26 @@ def test_rebuild_detects_external_obsidian_body_edit(
         encoding="utf-8",
     )
 
-    knowledge.rebuild(SOMA_PROJECT_ID)
+    from soma.knowledge.vault import integrity_drift
+
+    result = knowledge.rebuild(SOMA_PROJECT_ID)
     recovered = knowledge.get(SOMA_PROJECT_ID, saved.knowledge_id)
 
-    assert recovered.content_sha256 != saved.content_sha256
+    # The edit is adopted -- the file is canonical -- and it is *reported*.
+    # `read()` used to recompute the stored hash on the way out, so an external
+    # edit silently became its own proof of integrity: the record looked intact
+    # and no caller could tell. The stored hash is now left alone, so the
+    # disagreement between it and the content is what surfaces the edit.
     assert "Obsidian edited" in recovered.body
     assert knowledge.search(SOMA_PROJECT_ID, "Obsidian edited").total == 1
+    assert recovered.content_sha256 == saved.content_sha256
+    assert integrity_drift(recovered)
+
+    assert result.drifted_count == 1
+    health = knowledge.health(SOMA_PROJECT_ID)
+    assert health.status == "dirty"
+    assert health.drifted_paths == [saved.vault_path]
+    assert health.malformed_count == 0
 
 
 def test_malformed_markdown_is_excluded_and_health_is_degraded(

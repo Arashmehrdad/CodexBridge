@@ -76,6 +76,8 @@ class KnowledgeCatalog:
             ("generation", "INTEGER NOT NULL DEFAULT 0"),
             ("unadopted_paths_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("malformed_paths_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("drifted_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("drifted_paths_json", "TEXT NOT NULL DEFAULT '[]'"),
         ):
             if column not in existing:
                 connection.execute(
@@ -232,6 +234,7 @@ class KnowledgeCatalog:
         unadopted_count: int = 0,
         unadopted_paths: list[str] | None = None,
         malformed_paths: list[str] | None = None,
+        drifted_paths: list[str] | None = None,
     ) -> None:
         with self.connect() as connection:
             previous = connection.execute(
@@ -277,8 +280,9 @@ class KnowledgeCatalog:
                 INSERT INTO knowledge_rebuild_state (
                     project_id, canonical_count, indexed_count, malformed_count,
                     updated_at, unadopted_count, generation,
-                    unadopted_paths_json, malformed_paths_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    unadopted_paths_json, malformed_paths_json,
+                    drifted_count, drifted_paths_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id) DO UPDATE SET
                   canonical_count=excluded.canonical_count,
                   indexed_count=excluded.indexed_count,
@@ -287,7 +291,9 @@ class KnowledgeCatalog:
                   unadopted_count=excluded.unadopted_count,
                   generation=excluded.generation,
                   unadopted_paths_json=excluded.unadopted_paths_json,
-                  malformed_paths_json=excluded.malformed_paths_json
+                  malformed_paths_json=excluded.malformed_paths_json,
+                  drifted_count=excluded.drifted_count,
+                  drifted_paths_json=excluded.drifted_paths_json
                 """,
                 (
                     project_id,
@@ -299,6 +305,8 @@ class KnowledgeCatalog:
                     generation,
                     json.dumps(sorted(unadopted_paths or []), ensure_ascii=False),
                     json.dumps(sorted(malformed_paths or []), ensure_ascii=False),
+                    len(drifted_paths or []),
+                    json.dumps(sorted(drifted_paths or []), ensure_ascii=False),
                 ),
             )
 
