@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Ad-hoc pytest --basetemp roots owned by Soma/Codex tooling.
+_pytest-cf1-temp/
+.codex-pytest-temp/
 soma-server*.log
 .env
 config.yaml
