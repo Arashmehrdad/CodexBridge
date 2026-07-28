@@ -14,8 +14,11 @@ from soma.memory.repository import ProjectMemoryRepository
 
 
 def repo(tmp_path: Path) -> ProjectMemoryRepository:
+    # Exercises the legacy store's own behaviour, which stays readable and
+    # importable after SOMA-SHARED-MEMORY-ARCH-1 freezes canonical writes.
     return ProjectMemoryRepository(
-        db_path=tmp_path / "runs" / "memory" / "project_memory.sqlite3"
+        db_path=tmp_path / "runs" / "memory" / "project_memory.sqlite3",
+        allow_canonical_writes=True,
     )
 
 
@@ -61,6 +64,7 @@ def test_orchestrator_routes_explicit_memory_tasks(tmp_path: Path) -> None:
     memory_repo = repo(tmp_path)
     orchestrator = LocalAgentOrchestrator(memory_repository=memory_repo)
 
+    memory_repo.remember_project_fact("Soma uses allowlisted commands")
     remembered = orchestrator.handle_task(
         "remember project fact: Soma uses allowlisted commands"
     )
@@ -68,7 +72,12 @@ def test_orchestrator_routes_explicit_memory_tasks(tmp_path: Path) -> None:
 
     assert remembered.task_type == LocalAgentTaskType.MEMORY
     assert remembered.routing_decision == RoutingDecision.LOCAL_ONLY
-    assert remembered.memory_result["memory_type"] == "static_memory"
+    # The local agent may no longer write canonical facts. Writing them from
+    # inside the agent loop established no project scope, provenance or
+    # lifecycle, and left a second canonical truth beside the Markdown vault.
+    # Reads and operational imports are deliberately unaffected.
+    assert remembered.memory_result["ok"] is False
+    assert "frozen" in remembered.memory_result["error"]
     assert search.memory_result["total"] == 1
     assert remembered.audit_event.metadata["external_coder_invoked"] is False
 

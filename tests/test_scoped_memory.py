@@ -6,7 +6,9 @@ from soma.memory.repository import ProjectMemoryRepository
 
 
 def test_scoped_search_does_not_cross_repositories(tmp_path: Path) -> None:
-    memory = ProjectMemoryRepository(db_path=tmp_path / "memory.sqlite3")
+    memory = ProjectMemoryRepository(
+        db_path=tmp_path / "memory.sqlite3", allow_canonical_writes=True
+    )
     memory.remember_decision("Use event sourcing for Alpha", repo_name="alpha")
     memory.remember_decision("Use direct writes for Beta", repo_name="beta")
 
@@ -20,7 +22,9 @@ def test_scoped_search_does_not_cross_repositories(tmp_path: Path) -> None:
 
 
 def test_scoped_search_can_include_global_memory(tmp_path: Path) -> None:
-    memory = ProjectMemoryRepository(db_path=tmp_path / "memory.sqlite3")
+    memory = ProjectMemoryRepository(
+        db_path=tmp_path / "memory.sqlite3", allow_canonical_writes=True
+    )
     memory.remember_project_fact("Prefer PowerShell for validation")
     memory.remember_project_fact("Alpha uses Python 3.12", repo_name="alpha")
     memory.remember_project_fact("Beta uses Go", repo_name="beta")
@@ -34,7 +38,9 @@ def test_scoped_search_can_include_global_memory(tmp_path: Path) -> None:
 
 
 def test_latest_decision_is_repository_scoped(tmp_path: Path) -> None:
-    memory = ProjectMemoryRepository(db_path=tmp_path / "memory.sqlite3")
+    memory = ProjectMemoryRepository(
+        db_path=tmp_path / "memory.sqlite3", allow_canonical_writes=True
+    )
     alpha = memory.remember_decision("Alpha decision", repo_name="alpha")
     beta = memory.remember_decision("Beta decision", repo_name="beta")
 

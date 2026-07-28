@@ -128,8 +128,14 @@ def test_registered_fastmcp_knowledge_action_accepts_refresh_and_remember(
     refresh, remembered = asyncio.run(call_tools())
     assert refresh.structured_content["ok"] is True
     assert refresh.structured_content["status"] == "generated"
-    assert remembered.structured_content["ok"] is True
-    assert remembered.structured_content["memory_id"]
+    # `remember_decision` now writes canonical Markdown instead of the retired
+    # SQLite store, so it requires an exact active ProjectScope binding. This
+    # repository has none, and refusing is the point: a canonical write without
+    # authoritative scope is the second authority the architecture retires.
+    # The response shape is unchanged, which is what this test guards.
+    assert remembered.structured_content["ok"] is False
+    assert remembered.structured_content["memory_id"] == ""
+    assert "seedmind" in remembered.structured_content["error"]
     for result in (refresh, remembered):
         assert len(result.structured_content["server_build_hash"]) == 64
         assert len(result.structured_content["schema_hash"]) == 64

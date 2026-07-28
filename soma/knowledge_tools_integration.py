@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from functools import wraps
@@ -355,6 +356,52 @@ def _project_knowledge_context(mcp: Any, project_id: str, repo_name: str):
     return service, binding, canonical_name
 
 
+def _canonical_memory_context(mcp: Any, project_id: str, repo_name: str):
+    """Resolve one bound `CanonicalMemoryService`, or refuse.
+
+    `project_id` may be empty for the legacy compatibility aliases: ProjectScope
+    then resolves the repository's single active project and refuses when that
+    is ambiguous. Every named memory operation supplies it explicitly.
+    """
+    from .knowledge import CanonicalMemoryService, KnowledgeService, PacketStore
+    from .knowledge.scope import MemoryScope, ScopeRefused
+    from .project_scope import ProjectScopeStore
+
+    config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
+    try:
+        binding = ProjectScopeStore(config.resolve_runs_dir()).resolve_repository(
+            project_id=project_id,
+            repo_name=canonical_name,
+            repository_root=repo_root,
+        )
+    except Exception as exc:
+        # A canonical write without authoritative scope is exactly the second
+        # authority this architecture removes, so refuse -- but say why in terms
+        # the caller can act on rather than leaking a storage-layer error.
+        raise ScopeRefused(
+            f"canonical memory for {canonical_name!r} requires an exact active "
+            f"ProjectScope binding, which could not be resolved: {exc}"
+        ) from exc
+    runs_dir = config.resolve_runs_dir()
+    vault_root = config.canonical_memory.resolve_vault_root(
+        runs_dir, binding.project_id
+    )
+    knowledge = KnowledgeService(
+        vault_root=vault_root,
+        db_path=runs_dir / "knowledge" / "knowledge.sqlite3",
+    )
+    service = CanonicalMemoryService(
+        knowledge,
+        MemoryScope(
+            kind="project",
+            project_id=binding.project_id,
+            repo_name=canonical_name,
+        ),
+        packet_store=PacketStore(runs_dir / "knowledge" / "packets"),
+    )
+    return service, binding, canonical_name
+
+
 def _project_research_context(mcp: Any, project_id: str, repo_name: str):
     from .project_scope import ProjectScopeStore
     from .research import ResearchPlatformService
@@ -591,6 +638,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     if getattr(mcp, "_soma_knowledge_tools_registered", False):
         return
 
+    from .knowledge import KnowledgeInput
     from .memory.repository import ProjectMemoryRepository
     from .operation_locks import repository_operation_lock
     from .repo_wiki import RepoWikiService
@@ -746,24 +794,45 @@ def register_knowledge_tools(mcp: Any) -> None:
         decision: str,
         accepted_by: str = "chatgpt",
     ) -> dict:
-        """Persist an architectural or product decision scoped to one repository."""
+        """Persist an architectural or product decision scoped to one repository.
+
+        Compatibility alias. This used to write into the legacy SQLite memory
+        store, which SOMA-SHARED-MEMORY-ARCH-1 retires as a competing content
+        authority -- the same decision could otherwise exist in two places with
+        two lifecycles. The operation name, request shape and response shape are
+        unchanged; the destination is now canonical Markdown, so the record
+        gains provenance, supersession and owner-readable storage.
+        """
         try:
-            if not decision.strip():
+            text = decision.strip()
+            if not text:
                 raise ValueError("decision must not be empty")
-            config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
-            memory = ProjectMemoryRepository(config=config)
-            record = memory.remember_decision(
-                decision.strip(),
-                repo_name=canonical_name,
-                repo_path=repo_root,
-                accepted_by=accepted_by.strip() or None,
+            service, binding, canonical_name = _canonical_memory_context(
+                mcp, "", repo_name
+            )
+            digest = hashlib.sha256(
+                f"{binding.project_id}\0{text}".encode("utf-8")
+            ).hexdigest()
+            record = service.save(
+                KnowledgeInput(
+                    project_id=binding.project_id,
+                    vault_path=f"decisions/{digest[:16]}.md",
+                    kind="decision",
+                    title=(text.splitlines()[0][:200] or "Decision"),
+                    summary=text[:300],
+                    body=text,
+                    tags=["decision"],
+                    authority_class="controller_memory",
+                    controller=(accepted_by.strip() or "chatgpt")[:128],
+                    idempotency_key=f"remember_decision:{digest}",
+                )
             )
             return _with_capability_metadata(
                 {
                     "ok": True,
                     "repo_name": canonical_name,
-                    "memory_id": record.memory_id,
-                    "memory_type": record.memory_type.value,
+                    "memory_id": record.knowledge_id,
+                    "memory_type": "decision_memory",
                     "title": record.title,
                     "summary": record.summary,
                     "error": "",

@@ -907,6 +907,37 @@ class ReturnLoopConfig(BaseModel):
     require_stable_file_check: bool = True
 
 
+class CanonicalMemoryConfig(BaseModel):
+    """Where owner-readable canonical memory actually lives.
+
+    The default preserves the historical location under ignored `runs/` state so
+    nothing moves without an explicit choice. That location is deliberately not
+    the production intent: SOMA-SHARED-MEMORY-ARCH-1 makes the production
+    default an owner-configured external private Obsidian vault, outside code
+    repositories and outside `runs/`, because a vault beneath `runs/*` is
+    visible to neither Git nor Obsidian and so cannot be the owner workspace the
+    architecture describes.
+    """
+
+    #: Absolute path to the vault root. Empty keeps the legacy location.
+    canonical_vault_root: str = ""
+    #: `external_private_vault` is the production intent; `runs_internal` is the
+    #: legacy default and is reported as such rather than silently accepted.
+    canonical_vault_kind: str = Field(
+        default="runs_internal",
+        pattern=r"^(runs_internal|external_private_vault)$",
+    )
+
+    def resolve_vault_root(self, runs_dir: Path, project_id: str) -> Path:
+        """The canonical Markdown root for exactly one project."""
+        if self.canonical_vault_root:
+            root = Path(self.canonical_vault_root).expanduser()
+            if not root.is_absolute():
+                raise ValueError("canonical_vault_root must be an absolute path")
+            return root / "projects" / project_id
+        return runs_dir / "knowledge" / "projects" / project_id / "vault"
+
+
 class MemoryConfig(BaseModel):
     memory_enabled: bool = True
     memory_db_path: str | None = None
@@ -1188,6 +1219,9 @@ class AppConfig(BaseModel):
     )
     return_loop: ReturnLoopConfig = Field(default_factory=ReturnLoopConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    canonical_memory: CanonicalMemoryConfig = Field(
+        default_factory=CanonicalMemoryConfig
+    )
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
     external_coder: ExternalCoderConfig = Field(default_factory=ExternalCoderConfig)
     local_supervisor: LocalSupervisorConfig = Field(

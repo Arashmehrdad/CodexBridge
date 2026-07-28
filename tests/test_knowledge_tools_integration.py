@@ -165,10 +165,17 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     )
 
     assert refresh["ok"] is True
-    assert remembered["ok"] is True
+    # `remember_decision` writes canonical Markdown now, so it requires an exact
+    # active ProjectScope binding; this repository has none. The legacy combined
+    # `search` keeps its own contract and still returns wiki hits, but canonical
+    # memory is no longer reachable through it -- that path reads the retired
+    # SQLite store, and serving memory from two surfaces was the duplicate
+    # authority SOMA-SHARED-MEMORY-ARCH-1 removes.
+    assert remembered["ok"] is False
+    assert "seedmind" in remembered["error"]
     assert result["ok"] is True
     assert any("Repository scoped" in hit["snippet"] for hit in result["wiki_hits"])
-    assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])
+    assert result["memory_hits"] == []
     assert len(result["server_build_hash"]) == 64
     assert len(remembered["schema_hash"]) == 64
 

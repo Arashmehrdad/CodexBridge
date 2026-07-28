@@ -238,7 +238,8 @@ def test_huge_logs_are_truncated_not_fully_embedded(tmp_path: Path) -> None:
 
 def test_memory_context_and_local_model_summary_are_optional(tmp_path: Path) -> None:
     memory_repo = ProjectMemoryRepository(
-        db_path=tmp_path / "runs" / "memory" / "project_memory.sqlite3"
+        db_path=tmp_path / "runs" / "memory" / "project_memory.sqlite3",
+        allow_canonical_writes=True,
     )
     memory_repo.remember_project_fact("Handoff architecture uses packet artifacts")
 

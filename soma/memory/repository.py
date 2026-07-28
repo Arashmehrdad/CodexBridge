@@ -15,13 +15,35 @@ from .models import (
 from .store import ProjectMemoryStore
 
 
+class LegacyCanonicalWriteFrozen(RuntimeError):
+    """A canonical fact or decision was written to the retired store.
+
+    SOMA-SHARED-MEMORY-ARCH-1 retires this SQLite store as a competing content
+    authority. Freezing only the public `remember_decision` operation would have
+    left split authority, because the local agent writes facts, decisions and
+    validation recipes through the same repository. Canonical writes now belong
+    to `CanonicalMemoryService`; this store keeps operational run, job and
+    artifact recollection and remains readable for migration.
+    """
+
+
 class ProjectMemoryRepository:
+    #: Writes that assert durable project truth, as distinct from recording what
+    #: Soma executed. Only these are frozen.
+    CANONICAL_WRITE_METHODS = (
+        "remember_project_fact",
+        "remember_decision",
+        "remember_validation_recipe",
+        "remember_validation_recipe_model",
+    )
+
     def __init__(
         self,
         *,
         config: AppConfig | None = None,
         db_path: Path | None = None,
         memory_config: MemoryConfig | None = None,
+        allow_canonical_writes: bool = False,
     ):
         settings = memory_config or (config.memory if config else MemoryConfig())
         if db_path is None:
@@ -36,10 +58,24 @@ class ProjectMemoryRepository:
             redact_sensitive=settings.memory_redact_sensitive,
             block_sensitive=settings.memory_block_sensitive,
         )
+        # Retained only for the bounded read-only importer and for tests that
+        # exercise the legacy store's own behaviour.
+        self._allow_canonical_writes = allow_canonical_writes
+
+    def _refuse_canonical_write(self, method: str) -> None:
+        if self._allow_canonical_writes:
+            return
+        raise LegacyCanonicalWriteFrozen(
+            f"{method} is frozen: the legacy SQLite memory store is no longer a "
+            "canonical authority. Write through CanonicalMemoryService so the "
+            "record lands in owner-readable Markdown with provenance and "
+            "lifecycle. This store remains readable for migration."
+        )
 
     def remember_project_fact(
         self, fact: str, *, repo_name: str | None = None, repo_path: Path | None = None
     ) -> MemoryRecord:
+        self._refuse_canonical_write("remember_project_fact")
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.STATIC,
@@ -61,6 +97,7 @@ class ProjectMemoryRepository:
         repo_path: Path | None = None,
         accepted_by: str | None = None,
     ) -> MemoryRecord:
+        self._refuse_canonical_write("remember_decision")
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.DECISION,
@@ -78,6 +115,7 @@ class ProjectMemoryRepository:
     def remember_validation_recipe(
         self, recipe: str, *, repo_name: str | None = None
     ) -> MemoryRecord:
+        self._refuse_canonical_write("remember_validation_recipe")
         return self.store.create(
             MemoryRecord(
                 memory_type=MemoryType.STATIC,

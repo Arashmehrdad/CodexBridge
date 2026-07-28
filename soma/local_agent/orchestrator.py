@@ -390,20 +390,31 @@ class LocalAgentOrchestrator:
             return LocalAgentTaskInput(objective=task_input)
         return LocalAgentTaskInput(**task_input)
 
+    #: Canonical writes the local agent may no longer perform directly.
+    #:
+    #: SOMA-SHARED-MEMORY-ARCH-1 retires the legacy SQLite store as a content
+    #: authority. Freezing only the public `remember_decision` gateway would
+    #: have left this path writing a second canonical truth from inside the
+    #: agent loop, where no ProjectScope identity, provenance or lifecycle is
+    #: established. Reads and operational imports are untouched.
+    FROZEN_MEMORY_ACTIONS = {
+        "remember_fact",
+        "remember_decision",
+        "remember_validation_recipe",
+    }
+
     def _handle_memory_action(self, action: str, value: str, task: LocalAgentTask):
         repository = self.memory_repository or ProjectMemoryRepository()
-        if action == "remember_fact":
-            return repository.remember_project_fact(
-                value, repo_name=task.repo_name, repo_path=task.repo_path
-            ).to_dict()
-        if action == "remember_decision":
-            return repository.remember_decision(
-                value, repo_name=task.repo_name, repo_path=task.repo_path
-            ).to_dict()
-        if action == "remember_validation_recipe":
-            return repository.remember_validation_recipe(
-                value, repo_name=task.repo_name
-            ).to_dict()
+        if action in self.FROZEN_MEMORY_ACTIONS:
+            return {
+                "ok": False,
+                "action": action,
+                "error": (
+                    f"{action} is frozen: canonical memory is written through the "
+                    "knowledge_action memory surface with an exact project scope, "
+                    "not through the local agent's legacy memory store"
+                ),
+            }
         if action == "search":
             return repository.search(value).model_dump(mode="json")
         if action == "latest_job":
