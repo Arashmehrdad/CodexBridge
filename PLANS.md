@@ -145,23 +145,33 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 ### OBSIDIAN-MCP-DECISION-1 - Obsidian-Native Memory Access
 
-**Status:** **accepted and documentation-closed.** The current decision is [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).
+**Status:** architecture ordering accepted and documentation-closed; the selected MCP Connector release was subsequently tested and rejected for the current lane. The decision record remains [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).
 
-The selected order is Markdown + Git as canonical content, Obsidian as both owner workspace and first runtime surface, MCP Connector by istefox as the first semantic/MCP candidate, and Soma as sole authority for project identity, vault binding, routing, provenance, continuity and acceptance. Basic Memory Local is retained only as a headless fallback after a named Obsidian-native failure.
+The accepted order remains Markdown + Git as canonical content, Obsidian as owner workspace and first native runtime surface, and Soma as sole authority for project identity, vault binding, routing, provenance, continuity and acceptance. The current MCP Connector release is not accepted because the completed pilot found incomplete semantic-index rebuilds with stale-success reporting, broken link-aware rename and no working multilingual configuration.
 
-The only anticipated custom component is a thin Soma binding and path/provenance guard. It may not implement storage, embeddings, ranking, semantic search, graph traversal or provider behavior.
+The only permitted custom component remains a thin Soma binding and path/provenance guard. It may not implement storage, embeddings, ranking, semantic search, graph traversal or provider behavior.
 
-### PILOT-BASIC-MEMORY-1 - Preserved Headless Fallback Gate
+### PILOT-BASIC-MEMORY-1 - Bounded Headless Comparison
 
-**Status:** superseded before execution and inactive. Its historical gate remains in [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md) and [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json). It may be reactivated only by a documentation-closed Obsidian-pilot failure requiring headless or independent access.
+**Status:** eligible for a narrowed future comparison but not executing. The preserved gate remains in [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md) and [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json).
+
+The Obsidian pilot activates comparison only for three named gaps: semantic-index rebuild completeness, multilingual retrieval and rename/link integrity. Basic Memory does not need to re-litigate MCP Connector's accepted evidence for authentication, sibling-vault isolation, English paraphrase retrieval or canonical Markdown integrity. No provider installation or execution is active.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
-**Status:** **gate prepared; execution has not started.** The authoritative gate is [`docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md), with machine-readable boundaries in [`docs/pilot-obsidian-mcp-1-gate-2026-07-28.json`](docs/pilot-obsidian-mcp-1-gate-2026-07-28.json).
+**Status:** **executed and documentation-closed** with outcome `reject_mcp_connector_activate_basic_memory_comparison`. The gate remains in [`docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md); the authoritative result is [`docs/PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md) with machine-readable evidence in [`docs/pilot-obsidian-mcp-1-results-2026-07-28.json`](docs/pilot-obsidian-mcp-1-results-2026-07-28.json).
 
-The gate uses one controller, two disposable project vaults, the community-store MCP Connector release, fixed Core tool loading, direct loopback HTTP with per-vault bearer authentication, command execution and web fetch disabled, native multilingual embeddings, Obsidian CLI and Bases checks, strict Soma-to-vault binding, external-edit and link-integrity checks, Windows restart checks, full semantic-index rebuild and clean uninstall. It includes no coding agents, subagents, custom retrieval, production memory, client auto-configuration or push.
+The executed gate used one controller, two disposable project vaults, the community-store MCP Connector release, fixed Core tool loading, direct loopback HTTP with per-vault bearer authentication, command execution and web fetch disabled, native multilingual embeddings, Obsidian CLI and Bases checks, strict Soma-to-vault binding, external-edit and link-integrity checks, Windows restart checks, full semantic-index rebuild and clean uninstall. It includes no coding agents, subagents, custom retrieval, production memory, client auto-configuration or push.
 
-A subsequent owner instruction such as `continue` executes only this recorded gate.
+The provider passed loopback authentication, strict sibling isolation, English and Persian same-language paraphrase retrieval, structured access and Markdown survival. It was rejected after reproducible incomplete-index stale success, a self-expandable Core tool surface, broken/hanging link-aware rename and failure of the required multilingual model. Cleanup completed without loss of canonical Markdown.
+
+### FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH - Parked Two-Speed Conversation
+
+**Status:** parked future research; no active lane, provider choice, API spend, browser automation, voice integration or telephony work. The preserved concept is [`docs/FUTURE_CONVERSATIONAL_PRESENCE_AGENT_RESEARCH.md`](docs/FUTURE_CONVERSATIONAL_PRESENCE_AGENT_RESEARCH.md).
+
+The future architecture separates a fast presence agent for immediate acknowledgement, bounded clarification, interruption and truthful progress narration from a heavy reasoning backend that performs research, judgment and tools through Soma. The same packet-bound pattern may later support prepared phone calls with owner-approved facts, answers, limits, escalation and human takeover. Nemotron-family models, ElevenLabs-style speech infrastructure, browser/API backends and telephony providers remain candidates to re-research later, not current selections.
+
+This research remains behind durable memory continuity and derived code intelligence unless the owner explicitly reprioritizes it.
 
 ### CODE-INTELLIGENCE-DECISION-1 - Codebase Memory MCP
 
@@ -184,4 +194,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1` is documentation-prepared but not executing. A subsequent owner instruction such as `continue` may execute only that recorded gate; it does not activate production memory or integrate the plugin into Soma. `PILOT-BASIC-MEMORY-1` is a preserved inactive fallback, and `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive until the Obsidian memory result is documentation-closed. These pilots must not overlap. A generic `continue` does not revive a Roadmap V2 lane, start Roadmap V3 feature work, or authorize a push.
+`PILOT-OBSIDIAN-MCP-1` is closed. `PILOT-BASIC-MEMORY-1` is eligible only as a narrowed comparison for the three named Obsidian failures and is not executing. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` is parked and creates no implementation authority. These lanes must not overlap. A generic `continue` does not install a provider, start voice or telephony work, revive a Roadmap V2 lane, start Roadmap V3 feature work, or authorize a push.
