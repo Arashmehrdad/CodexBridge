@@ -2,7 +2,7 @@
   "schema_version": "soma_shared_memory_architecture_decision.v1",
   "date": "2026-07-28",
   "decision_id": "SOMA-SHARED-MEMORY-ARCH-1",
-  "status": "owner_approved_documentation_closed_next_lane_not_started",
+  "status": "owner_approved_foundation_implemented_production_vault_chosen_real_memory_not_imported",
   "decision_level": "C",
   "public_contract": {
     "first_lane_gateways": [
@@ -34,7 +34,9 @@
     "semantic_provider": "basic_memory_disposable_adapter_beneath_canonical_service",
     "task_and_run_lifecycle": "existing_TaskManager_and_RunStore",
     "research": "separate_ResearchPlatformService_authority",
-    "legacy_soma_memory": "temporary_read_only_importer_and_compatibility"
+    "legacy_soma_memory": "temporary_read_only_importer_and_compatibility",
+    "canonical_vault_root": "D:/SomaMemory",
+    "canonical_vault_kind": "external_private_vault"
   },
   "lifecycle": {
     "states": [
@@ -81,9 +83,9 @@
     "legacy_writers_create_competing_authority"
   ],
   "next_lane": {
-    "lane_id": "MEMORY-INTEGRATION-FOUNDATION-1",
-    "status": "accepted_not_started",
-    "goal": "repair authority integrity scope provider health supersession and legacy writer defects; establish one disposable canonical vault; prove exact semantic coverage before controller connection",
+    "lane_id": "MEMORY-REAL-PROJECT-TRIAL-1",
+    "status": "permitted_after_explicit_owner_authorization",
+    "goal": "prove a small reviewed real Soma project-memory set across fresh controller sessions without personal scope or bulk import",
     "production_owner_memory_import_authorized": false,
     "push_authorized": false
   },
@@ -105,6 +107,7 @@
     "provider_pilot": "PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md",
     "guard_decision": "BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md",
     "guard_confirmation": "BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md",
-    "knowledge_layer": "SOMA_KNOWLEDGE_LAYER.md"
+    "knowledge_layer": "SOMA_KNOWLEDGE_LAYER.md",
+    "vault_decision": "SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md"
   }
 }

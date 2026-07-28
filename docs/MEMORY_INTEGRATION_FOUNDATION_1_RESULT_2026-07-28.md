@@ -1,8 +1,7 @@
 # MEMORY-INTEGRATION-FOUNDATION-1 — Implementation Result
 
 **Date:** 2026-07-28
-**Status:** all nine required steps executed; one acceptance item closed by
-refusal rather than by capability.
+**Status:** all nine required steps executed; the semantic acceptance item is closed by refusal rather than capability; the production vault root is owner-decided and locally configured.
 **Decision:** [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md)
 **Coverage measurement:** [`MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md`](MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md)
 **Branch:** `lane/memory-integration-foundation-1` — not pushed.
@@ -21,7 +20,7 @@ so in every response.
 |---|---|
 | 1. repair verified defects | all seven repaired, each with a regression test |
 | 2. measure exact coverage capability | **negative branch fires** — membership unprovable |
-| 3. disposable canonical vault root | `CanonicalMemoryConfig`, default unchanged |
+| 3. disposable canonical vault root | `CanonicalMemoryConfig`; production root later chosen as `D:\SomaMemory` |
 | 4. `CanonicalMemoryService` | wraps `KnowledgeService`; adds scope, CAS, lifecycle, packets |
 | 5. named memory operations | 5 query + 7 action on the existing gateway pair |
 | 6. legacy writer freeze | all writers, not only the public operation |
@@ -110,12 +109,13 @@ outliers as a known effect. The final full run passed.
 - **Semantic retrieval is disabled.** Reopening requires a provider release that
   enumerates its indexed set. Reading the provider's SQLite directly is not an
   accepted path.
-- **The production vault root is not yet chosen.** The default still points
-  under `runs/`; the tests prove the external-vault path works. This is the
-  owner decision the architecture flagged.
 - **Personal memory is modelled and refused**, per the lane's exclusions.
 - **Bulk legacy migration** is deliberately not done; the old store is readable.
 - `memory_rebuild_index` is wired but unreachable while membership is unprovable.
+
+## Owner vault decision
+
+[`SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md`](SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md) selects `D:\SomaMemory` as the external private Obsidian vault root. The local directory topology exists and the ignored live `config.yaml` carries `canonical_vault_kind: external_private_vault`. No service restart or real-memory import is part of this closure.
 
 ## Boundaries
 

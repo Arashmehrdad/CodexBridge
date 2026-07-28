@@ -1,7 +1,7 @@
 # SOMA-SHARED-MEMORY-ARCH-1 — Canonical Shared Memory Architecture
 
 **Date:** 2026-07-28
-**Status:** owner-approved and documentation-closed; `MEMORY-INTEGRATION-FOUNDATION-1` is the next implementation lane and has not started.
+**Status:** owner-approved; `MEMORY-INTEGRATION-FOUNDATION-1` implemented; production vault root chosen as `D:\SomaMemory`; real owner-memory import has not started.
 **Decision level:** C — foundational continuity, authority and controller-contract boundary.
 **Supersedes:** the earlier assumption that the confirmed Basic Memory guard could proceed directly to controller connection.
 **Provider evidence:** [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md), [`BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md)
@@ -97,7 +97,7 @@ A later dedicated `memory_query` / `memory_action` split is permitted only after
 
 ## Canonical vault and record model
 
-The production default is an owner-configured **external private Obsidian vault**, outside code repositories and outside `runs/`. The exact filesystem path remains configuration, not architecture. A disposable synthetic vault with the same shape is used for the first lane.
+The production canonical root is the owner-decided external private Obsidian vault at `D:\SomaMemory`, outside code repositories and outside `runs/`. The ignored live configuration uses `canonical_vault_kind: external_private_vault`; project memory resolves below `D:\SomaMemory\projects\<project_id>`. The decision is recorded in [`SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md`](SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md).
 
 Recommended topology:
 

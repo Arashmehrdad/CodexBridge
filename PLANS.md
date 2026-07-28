@@ -207,19 +207,33 @@ Soma owns one coherent memory authority across ChatGPT, Claude Code and Hermes. 
 
 The first public contract uses named `memory_*` operations inside the existing `knowledge_query` and `knowledge_action` gateways. No new top-level memory gateways are added in the first lane. Supersession is immutable replacement-link-derived, complete context packets are persisted before bounded controller projection, project scope is exact through ProjectScope, and personal scope remains a later sibling authority.
 
-The production default vault is an owner-configured external private Obsidian vault. The first lane uses one disposable synthetic project and vault with the same structure; it does not import real owner memory.
+The production external private Obsidian vault root is now owner-decided as `D:\SomaMemory`. Project memory resolves below `D:\SomaMemory\projects\<project_id>`. No real owner memory has been imported.
 
 ### MEMORY-INTEGRATION-FOUNDATION-1 - Canonical Authority and Guard Repair
 
-**Status:** **accepted as the next implementation lane; implementation has not started.**
+**Status:** **implemented, validated, and result-documented on `lane/memory-integration-foundation-1`; not pushed.** The authoritative result is [`docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md), with the decisive provider measurement in [`docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md).
 
-**Goal:** repair the verified authority, integrity, scope, provider-health, supersession and legacy-writer defects; establish one disposable canonical vault; and prove whether exact semantic-index coverage is achievable before controller connection.
+All ten reviewed defects are repaired. `CanonicalMemoryService` now owns scope-bound canonical Markdown, compare-and-swap correction, link-derived crash-safe supersession, lifecycle, health, and exact persisted context packets. Five query and seven action operations use the existing knowledge gateways. Every legacy canonical writer is frozen or redirected, and rebuild work remains under the existing task/run authority.
 
-**Required sequence:** repair the ten documented blockers; measure exact provider path/hash coverage capability; establish one synthetic external-vault-shaped canonical root; evolve or wrap `KnowledgeService` as `CanonicalMemoryService`; add typed named memory operations to the existing knowledge gateways; redirect or freeze every legacy writer; execute provider rebuild through TaskManager and RunStore; persist exact context packets with continuation; and prove one synthetic end-to-end project flow.
+The exact provider-membership measurement is negative. Basic Memory `0.22.1` exposes correct cardinality but only a capped ten-row activity feed, not the indexed set. Semantic retrieval is therefore disabled; canonical lexical retrieval ships and identifies itself honestly. A future provider that enumerates its full indexed membership can activate the implemented reconciliation path without changing authority.
 
-**Semantic stop rule:** when exact provider path/hash reconciliation cannot be established through the accepted provider interface, canonical lexical retrieval may ship but semantic mode must remain disabled or explicitly non-authoritative. Matching counts alone may never publish healthy semantic completeness.
+Full regression: 2227 passed, 35 skipped. The disposable provider was removed completely. No owner memory, personal scope, bulk legacy migration, deployment, push, or provider-internal database dependency was introduced.
 
-**Exclusions:** no real owner-memory import, personal-memory activation, bulk legacy migration, physical `memory_guard` package move, dedicated new gateway, MemAgent, temporal graph provider, code-intelligence activation, research redesign, voice work, deployment or push.
+### SOMA-CANONICAL-MEMORY-VAULT-1 - Production Vault Root
+
+**Status:** **owner-decided, locally configured, and documentation-closed.** The authoritative decision is [`docs/SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md`](docs/SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md), with machine-readable controls in [`docs/soma-canonical-memory-vault-decision-2026-07-28.json`](docs/soma-canonical-memory-vault-decision-2026-07-28.json).
+
+The production external private Obsidian vault root is `D:\SomaMemory`. Project memory resolves below `D:\SomaMemory\projects\<project_id>`. Empty `projects`, `personal`, and `shared` scaffolding exists locally, and the ignored live `config.yaml` is configured with `canonical_vault_kind: external_private_vault`.
+
+The path is outside code repositories, outside `runs/`, and outside cloud-synchronised user folders by default. No owner memory was imported, no personal scope was activated, no private Git repository or cloud sync was created, and the service was not restarted by the decision.
+
+### MEMORY-REAL-PROJECT-TRIAL-1 - Bounded Cross-Controller Trial
+
+**Status:** **permitted after explicit owner authorisation; not active.**
+
+A future trial may seed a small reviewed set of real Soma project memories into `D:\SomaMemory`, then verify exact retrieval and continuity through fresh ChatGPT, Claude Code, and Hermes sessions. It must use canonical lexical retrieval, preserve source/provenance and packet identity, and keep research authority separate.
+
+The trial does not authorise personal memory, bulk legacy import, unprovable semantic retrieval, automatic conversation ingestion, Git/cloud backup, deployment, or push.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -258,4 +272,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1` and `PILOT-BASIC-MEMORY-2` are closed. `BASIC-MEMORY-GUARD-1` remains closed as provider/no-mutation evidence but is not accepted as a production controller boundary. `SOMA-SHARED-MEMORY-ARCH-1` is accepted, and `MEMORY-INTEGRATION-FOUNDATION-1` is the next implementation lane. A generic `continue` does not import production owner memory or authorize push. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No personal-memory activation, provider alternative, MemAgent work, code-intelligence pilot or voice work begins automatically.
+`MEMORY-INTEGRATION-FOUNDATION-1` is implemented and validated on its local lane. `SOMA-CANONICAL-MEMORY-VAULT-1` selects and locally configures `D:\SomaMemory` as the production external private Obsidian vault. Semantic retrieval remains disabled because Basic Memory cannot enumerate exact indexed membership; canonical lexical retrieval is the accepted production mode. `MEMORY-REAL-PROJECT-TRIAL-1` is permitted only after explicit owner authorisation. A generic `continue` does not import owner memory, activate personal scope, initialise Git/cloud sync, deploy, or push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked.

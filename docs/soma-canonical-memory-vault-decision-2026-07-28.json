@@ -1,0 +1,49 @@
+{
+  "schema_version": "soma_canonical_memory_vault_decision.v1",
+  "date": "2026-07-28",
+  "decision_id": "SOMA-CANONICAL-MEMORY-VAULT-1",
+  "status": "owner_decided_locally_configured_documentation_closed",
+  "vault": {
+    "root_windows": "D:\\SomaMemory",
+    "root_config": "D:/SomaMemory",
+    "kind": "external_private_vault",
+    "project_resolution": "D:\\SomaMemory\\projects\\<project_id>",
+    "owner_workspace": "obsidian",
+    "inside_code_repository": false,
+    "inside_runs": false,
+    "cloud_sync_enabled": false,
+    "private_git_enabled": false
+  },
+  "local_topology": [
+    "projects",
+    "personal",
+    "shared"
+  ],
+  "activation": {
+    "config_yaml_updated": true,
+    "directories_created": true,
+    "service_restarted": false,
+    "owner_memory_imported": false,
+    "personal_scope_activated": false,
+    "legacy_memory_migrated": false,
+    "config_validation_passed": true,
+    "obsidian_application_configured": false
+  },
+  "retrieval": {
+    "canonical_lexical_enabled": true,
+    "semantic_enabled": false,
+    "semantic_reason": "provider_indexed_membership_unprovable"
+  },
+  "next_permitted_lane": "MEMORY-REAL-PROJECT-TRIAL-1_after_explicit_owner_authorization",
+  "not_authorized": [
+    "service_restart_by_this_decision",
+    "owner_memory_import",
+    "personal_scope_activation",
+    "bulk_legacy_migration",
+    "semantic_enablement_without_exact_membership",
+    "git_initialization",
+    "cloud_sync",
+    "deployment",
+    "push"
+  ]
+}
