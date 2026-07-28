@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from functools import wraps
+from pathlib import Path
 from typing import Any, Callable
 
 from .capabilities import capability_metadata
@@ -200,6 +201,30 @@ MEMORY_WRITE_OUTPUT = {
         "error",
     ],
 }
+PROJECT_KNOWLEDGE_ACTION_OUTPUT = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        **public_projection_schema_properties(),
+        "ok": {"type": "boolean"},
+        "project_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "operation": {"type": "string"},
+        "knowledge_id": {"type": "string"},
+        "revision": {"type": "integer"},
+        "status": {"type": "string"},
+        "canonical_path": {"type": "string"},
+        "source_count": {"type": "integer"},
+        "indexed_count": {"type": "integer"},
+        "malformed_count": {"type": "integer"},
+        "error": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
+    },
+    "required": ["ok", "project_id", "repo_name", "operation", "error"],
+}
 WIKI_REFRESH_COMPACT_OUTPUT = {
     # Compact refresh acknowledgements project bounded counts instead of the
     # full page and changed-file arrays, and always carry the compact envelope.
@@ -259,6 +284,7 @@ KNOWLEDGE_ACTION_OUTPUT = {
         WIKI_REFRESH_OUTPUT,
         WIKI_REFRESH_COMPACT_OUTPUT,
         MEMORY_WRITE_OUTPUT,
+        PROJECT_KNOWLEDGE_ACTION_OUTPUT,
     ],
 }
 KNOWLEDGE_QUERY_OUTPUT = {
@@ -289,9 +315,7 @@ def _active_server_config(mcp: Any):
         setattr(mcp, "_soma_runtime_config", config)
         return config
 
-    raise RuntimeError(
-        "Soma active MCP owner/config could not be resolved"
-    )
+    raise RuntimeError("Soma active MCP owner/config could not be resolved")
 
 
 def _runtime_context(mcp: Any, repo_name: str):
@@ -300,6 +324,82 @@ def _runtime_context(mcp: Any, repo_name: str):
     config = _active_server_config(mcp)
     canonical_name, repo_root, _ = resolve_repo_identity(config, repo_name)
     return config, repo_root, canonical_name
+
+
+def _project_knowledge_context(mcp: Any, project_id: str, repo_name: str):
+    from .knowledge import KnowledgeService
+    from .project_scope import ProjectScopeStore
+
+    config, repo_root, canonical_name = _runtime_context(mcp, repo_name)
+    binding = ProjectScopeStore(config.resolve_runs_dir()).resolve_repository(
+        project_id=project_id,
+        repo_name=canonical_name,
+        repository_root=repo_root,
+    )
+    knowledge_root = config.resolve_runs_dir() / "knowledge"
+    service = KnowledgeService(
+        vault_root=knowledge_root / "projects" / binding.project_id / "vault",
+        db_path=knowledge_root / "knowledge.sqlite3",
+    )
+    return service, binding, canonical_name
+
+
+def _knowledge_record_projection(record: Any, *, include_body: bool) -> dict[str, Any]:
+    projected = {
+        "knowledge_id": record.knowledge_id,
+        "project_id": record.project_id,
+        "kind": record.kind,
+        "title": record.title,
+        "summary": record.summary,
+        "status": record.status,
+        "review_state": record.review_state,
+        "tags": list(record.tags),
+        "revision": record.revision,
+        "vault_path": record.vault_path,
+        "content_sha256": record.content_sha256,
+        "updated_at": record.updated_at,
+        "sources": [item.model_dump(mode="json") for item in record.sources],
+        "locators": [item.model_dump(mode="json") for item in record.locators],
+        "supersedes_ids": list(record.supersedes_ids),
+    }
+    if include_body:
+        projected["body"] = record.body
+    return projected
+
+
+def _bounded_project_result(result: dict[str, Any], budget: int) -> dict[str, Any]:
+    bounded = apply_compact_projection_envelope(dict(result))
+    bounded.setdefault("truncated", False)
+    bounded.setdefault("has_more", False)
+    bounded["response_budget_bytes"] = budget
+    bounded["response_bytes"] = 0
+    while (
+        len(
+            json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+        > budget
+    ):
+        records = bounded.get("records") or []
+        if records:
+            records.pop()
+            bounded["truncated"] = True
+            bounded["has_more"] = True
+            continue
+        record = bounded.get("record") or {}
+        body = str(record.get("body") or "")
+        if body:
+            record["body"] = body[: max(0, len(body) - 1024)]
+            bounded["truncated"] = True
+            bounded["has_more"] = True
+            continue
+        bounded["error"] = str(bounded.get("error") or "")[:256]
+        break
+    bounded["response_bytes"] = len(
+        json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return bounded
 
 
 def _memory_hit(record) -> dict[str, Any]:
@@ -323,14 +423,23 @@ def _with_capability_metadata(
     return enriched
 
 
-def _bounded_knowledge_search(result: dict[str, Any], budget: int = 12 * 1024) -> dict[str, Any]:
+def _bounded_knowledge_search(
+    result: dict[str, Any], budget: int = 12 * 1024
+) -> dict[str, Any]:
     """Keep knowledge search deterministic and connector-safe while preserving freshness metadata."""
     bounded = apply_compact_projection_envelope(dict(result))
     bounded["truncated"] = False
     bounded["has_more"] = False
     bounded["response_budget_bytes"] = budget
     bounded["response_bytes"] = 0
-    while len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > budget:
+    while (
+        len(
+            json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+        > budget
+    ):
         wiki_hits = bounded.get("wiki_hits") or []
         memory_hits = bounded.get("memory_hits") or []
         if wiki_hits:
@@ -358,7 +467,14 @@ def _bounded_wiki_page(result: dict[str, Any], budget: int) -> dict[str, Any]:
     bounded["has_more"] = False
     bounded["response_budget_bytes"] = budget
     bounded.setdefault("truncated", False)
-    while len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > budget:
+    while (
+        len(
+            json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+        > budget
+    ):
         content = str(bounded.get("content") or "")
         if not content:
             break
@@ -377,11 +493,26 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
     compact: dict[str, Any] = {
         key: result[key]
         for key in (
-            "ok", "repo_name", "status", "wiki_root", "memory_id", "memory_type",
-            "title", "incremental", "scan_truncated", "stale", "generation_id",
-            "indexed_head", "indexed_branch", "source_generation",
-            "indexed_source_generation", "refresh_operation_id", "error",
-            "server_build_hash", "schema_hash", "capability_epoch",
+            "ok",
+            "repo_name",
+            "status",
+            "wiki_root",
+            "memory_id",
+            "memory_type",
+            "title",
+            "incremental",
+            "scan_truncated",
+            "stale",
+            "generation_id",
+            "indexed_head",
+            "indexed_branch",
+            "source_generation",
+            "indexed_source_generation",
+            "refresh_operation_id",
+            "error",
+            "server_build_hash",
+            "schema_hash",
+            "capability_epoch",
         )
         if key in result
     }
@@ -397,7 +528,9 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
     compact["truncated"] = False
     compact["has_more"] = False
     compact["response_budget_bytes"] = budget
-    encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
     if len(encoded) > budget:
         # Empty rather than remove: "summary" stays schema-required for
         # memory-write acknowledgements even when the budget forces truncation.
@@ -477,7 +610,11 @@ def register_knowledge_tools(mcp: Any) -> None:
                         "corrupt"
                         if any(
                             marker in str(exc).lower()
-                            for marker in ("current.json", "generation", "manifest_sha256")
+                            for marker in (
+                                "current.json",
+                                "generation",
+                                "manifest_sha256",
+                            )
                         )
                         else "not_found"
                         if isinstance(exc, FileNotFoundError)
@@ -605,14 +742,169 @@ def register_knowledge_tools(mcp: Any) -> None:
                 MEMORY_WRITE_OUTPUT,
             )
 
+    def save_project_knowledge(request: Any, *, supersede: bool = False) -> dict:
+        from .knowledge import KnowledgeInput, SourceLocator, SourceReference
+        from .memory.redaction import detect_sensitivity
+
+        try:
+            service, binding, canonical_name = _project_knowledge_context(
+                mcp, request.project_id, request.repo_name
+            )
+            sensitive = detect_sensitivity(
+                "\n".join((request.title, request.summary, request.body))
+            )
+            if sensitive:
+                raise ValueError(f"Sensitive knowledge content blocked: {sensitive}")
+            note = KnowledgeInput(
+                project_id=binding.project_id,
+                vault_path=request.vault_path,
+                kind=request.kind,
+                title=request.title,
+                summary=request.summary,
+                body=request.body,
+                tags=request.tags,
+                review_state=request.review_state,
+                idempotency_key=request.idempotency_key,
+                sources=[
+                    SourceReference(**source.model_dump()) for source in request.sources
+                ],
+                locators=[
+                    SourceLocator(**locator.model_dump())
+                    for locator in request.locators
+                ],
+                metadata={"language": request.language, "gateway": "knowledge_action"},
+            )
+            record = (
+                service.supersede(note, request.supersedes_ids)
+                if supersede
+                else service.save(note)
+            )
+            return {
+                "ok": True,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": "supersede" if supersede else "save",
+                "knowledge_id": record.knowledge_id,
+                "revision": record.revision,
+                "status": record.status,
+                "canonical_path": str(
+                    Path(service.vault_root) / Path(record.vault_path)
+                ),
+                "source_count": len(record.sources),
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "repo_name": request.repo_name,
+                "operation": "supersede" if supersede else "save",
+                "error": str(exc),
+            }
+
+    def rebuild_project_knowledge(request: Any) -> dict:
+        try:
+            service, binding, canonical_name = _project_knowledge_context(
+                mcp, request.project_id, request.repo_name
+            )
+            result = service.rebuild(binding.project_id)
+            return {
+                "ok": result.malformed_count == 0,
+                "project_id": binding.project_id,
+                "repo_name": canonical_name,
+                "operation": "rebuild",
+                "status": "healthy" if result.malformed_count == 0 else "degraded",
+                "indexed_count": result.indexed_count,
+                "malformed_count": result.malformed_count,
+                "error": ""
+                if result.malformed_count == 0
+                else "Malformed notes excluded",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "repo_name": request.repo_name,
+                "operation": "rebuild",
+                "error": str(exc),
+            }
+
     @mcp.tool(output_schema=KNOWLEDGE_QUERY_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
+        if request.operation in {
+            "search_knowledge",
+            "get_knowledge",
+            "knowledge_health",
+        }:
+            try:
+                service, binding, canonical_name = _project_knowledge_context(
+                    mcp, request.project_id, request.repo_name
+                )
+                if request.operation == "search_knowledge":
+                    page = service.search(
+                        binding.project_id,
+                        request.query,
+                        limit=request.limit,
+                        current_only=request.current_only,
+                        cursor=request.cursor,
+                    )
+                    result = {
+                        "ok": True,
+                        "project_id": binding.project_id,
+                        "repo_name": canonical_name,
+                        "operation": "search",
+                        "query": request.query,
+                        "records": [
+                            _knowledge_record_projection(
+                                record, include_body=request.view == "full"
+                            )
+                            for record in page.records
+                        ],
+                        "total": page.total,
+                        "next_cursor": page.next_cursor or "",
+                        "has_more": page.has_more,
+                        "error": "",
+                    }
+                elif request.operation == "get_knowledge":
+                    record = service.get(binding.project_id, request.knowledge_id)
+                    result = {
+                        "ok": True,
+                        "project_id": binding.project_id,
+                        "repo_name": canonical_name,
+                        "operation": "get",
+                        "record": _knowledge_record_projection(
+                            record, include_body=request.view == "full"
+                        ),
+                        "error": "",
+                    }
+                else:
+                    health = service.health(binding.project_id)
+                    result = {
+                        "ok": True,
+                        "project_id": binding.project_id,
+                        "repo_name": canonical_name,
+                        "operation": "health",
+                        **health.model_dump(mode="json"),
+                        "error": "",
+                    }
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "project_id": request.project_id,
+                    "repo_name": request.repo_name,
+                    "operation": request.operation,
+                    "error": str(exc),
+                }
+            return _bounded_project_result(result, request.response_budget_bytes)
         if request.operation == "read_wiki":
             page = read_repo_wiki(request.repo_name, request.page)
             if request.view == "full":
                 return page
-            if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
+            if (
+                request.response_budget_bytes < 1024
+                or request.response_budget_bytes > 64 * 1024
+            ):
                 raise ValueError("response_budget_bytes must be between 1024 and 65536")
             return _bounded_wiki_page(page, request.response_budget_bytes)
         return search_repo_knowledge(
@@ -629,12 +921,30 @@ def register_knowledge_tools(mcp: Any) -> None:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action == "refresh_wiki":
             result = refresh_repo_wiki(request.repo_name, request.force)
-        else:
+        elif request.action == "remember_decision":
             result = remember_repo_decision(
                 request.repo_name, request.decision, request.accepted_by
             )
+        elif request.action == "save_knowledge":
+            result = save_project_knowledge(request)
+        elif request.action == "supersede_knowledge":
+            result = save_project_knowledge(request, supersede=True)
+        else:
+            result = rebuild_project_knowledge(request)
         if request.view == "full":
+            if request.action in {
+                "save_knowledge",
+                "supersede_knowledge",
+                "rebuild_knowledge",
+            }:
+                return _bounded_project_result(result, request.response_budget_bytes)
             return result
+        if request.action in {
+            "save_knowledge",
+            "supersede_knowledge",
+            "rebuild_knowledge",
+        }:
+            return _bounded_project_result(result, request.response_budget_bytes)
         return _bounded_knowledge_action(result, request.response_budget_bytes)
 
     setattr(mcp, "_soma_knowledge_tools_registered", True)

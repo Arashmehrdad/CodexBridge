@@ -151,6 +151,24 @@ The decision preserves Markdown + Git as canonical, Obsidian as owner workspace 
 
 The hardest requirement is tested first: delete all derived state, rebuild from unchanged Markdown, account for every eligible synthetic file, survive restart/interruption, and prove incomplete state cannot masquerade as healthy. The provider-independent black-box contract uses per-file lexical and semantic canaries, explicit OS-manifest versus provider accounting, a four-direction English/Persian matrix, filesystem create/edit/rename/delete freshness, and safe abstention. A single sentinel is not accepted as completeness proof, and an empty nonsense-query result is not treated as a dead index.
 
+### KNOWLEDGE-LAYER-1 - Smallest Production Project Knowledge Layer
+
+**Status:** explicitly reactivated and selected by the owner on 2026-07-28, overriding the prior pause and provider-pilot ordering for this lane. The active work is the smallest coherent production foundation described in [`docs/SOMA_KNOWLEDGE_LAYER.md`](docs/SOMA_KNOWLEDGE_LAYER.md); it does not reactivate H2, TL5, SSH expansion, or other paused roadmap work.
+
+**Goal:** let ChatGPT, Claude Code, and Hermes preserve and recover the same project facts, decisions, documents, research, lessons, sources, relationships, and historical context through Soma, while the knowledge remains ordinary Markdown that the owner can read and edit in Obsidian.
+
+**Production boundary:** Soma owns exact project identity, stable knowledge identity, lifecycle, provenance, health, recovery, and the public interface. `MarkdownVault` stores canonical human-readable content. `KnowledgeCatalog` is a rebuildable SQLite literal-search projection. `KnowledgeService` is the sole save/search/get/supersede/health/rebuild consistency boundary. External databases, memory providers, embeddings, and indexes are non-authoritative and replaceable.
+
+**First-batch scope:** implement typed facts, decisions, documents, research, lessons, and questions; source references and exact locators; stable Markdown identity and hashes; explicit supersession; strict project isolation; bounded literal English/Persian retrieval; external-edit-aware rebuild; and honest health. Preserve existing repository wiki and memory compatibility.
+
+**Non-goals:** no semantic-provider claim, embeddings, automatic cross-language or paraphrase retrieval, LLM extraction or truth merging, general evidence graph, content-addressed full-document archive, cross-project sharing, crawler, cloud sync, owner-vault import, or broad memory refactor.
+
+**Recovery and limitation contract:** canonical Markdown must survive catalog loss and rebuild. A generation is healthy only when every eligible file is accounted for; interrupted, malformed, duplicate, mismatched, or unsafe content reports degraded and cannot masquerade as complete. English and Persian content round-trips unchanged, but only literal/same-language indexed retrieval is promised in this batch. Cross-language and semantic retrieval remain measured future work.
+
+**Acceptance:** prove atomic/idempotent save, restart-safe exact retrieval, provenance, supersession history, sibling-project isolation on every surface, English/Persian round-trip and literal retrieval, bounded continuation, external-edit reconciliation, full rebuild from unchanged Markdown, degraded interrupted rebuild, unsafe-path/malformed-ID/secret rejection, and compatibility with existing knowledge tools. Use focused tests, then the configured Python quality gates because this is runtime work.
+
+**Next batch after acceptance:** run a production evidence review. If the literal layer satisfies the owner's preservation workflow, add only operational hardening found necessary. If bilingual paraphrase discovery remains a demonstrated blocker, prepare one replaceable multilingual semantic-index batch using the frozen provider-independent health and rebuild gate; do not imply that provider support exists before it passes.
+
 ### OBSIDIAN-MCP-DECISION-1 - Obsidian-Native Memory Access
 
 **Status:** architecture accepted and documentation-closed; frozen MCP Connector release `0.28.1` was tested and rejected for the current provider lane. The reconciled decision is [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).

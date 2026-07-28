@@ -15,6 +15,7 @@ from soma.knowledge_tools_integration import (
 )
 from soma.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
 from soma.memory.repository import ProjectMemoryRepository
+from soma.project_scope import ProjectScopeStore
 from soma.repo_wiki import RepoWikiService
 from pydantic import TypeAdapter
 
@@ -33,6 +34,22 @@ class FakeMCP:
             return function
 
         return decorator
+
+
+def _activate_project_scope(
+    config: AppConfig, repo: Path, *, repo_name: str = "seedmind"
+) -> str:
+    project_id = "proj_seedmind_knowledge"
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    scope.apply_bootstrap(
+        project_id=project_id,
+        project_key="seedmind-knowledge",
+        resource_id="res_seedmind_repository",
+        repo_name=repo_name,
+        repository_root=repo,
+    )
+    return project_id
 
 
 def test_registers_repository_knowledge_tools_once() -> None:
@@ -89,7 +106,9 @@ def test_tools_resolve_config_from_active_mcp_module(
     assert result["status"] == "generated"
     current = repo / ".soma" / "wiki" / "CURRENT.json"
     generation_id = json.loads(current.read_text(encoding="utf-8"))["generation_id"]
-    assert (repo / ".soma" / "wiki" / "generations" / generation_id / "overview.md").is_file()
+    assert (
+        repo / ".soma" / "wiki" / "generations" / generation_id / "overview.md"
+    ).is_file()
     assert getattr(mcp, "_soma_runtime_config") is config
     assert len(result["server_build_hash"]) == 64
     assert len(result["schema_hash"]) == 64
@@ -132,12 +151,15 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
                 "repo_name": "seedmind",
                 "decision": "SeedMind project knowledge must remain repository-scoped.",
             }
-
         )
     )
     result = mcp.tools["knowledge_query"]["function"](
         TypeAdapter(KnowledgeQueryRequest).validate_python(
-            {"operation": "search", "repo_name": "seedmind", "query": "repository-scoped"}
+            {
+                "operation": "search",
+                "repo_name": "seedmind",
+                "query": "repository-scoped",
+            }
         )
     )
 
@@ -148,6 +170,85 @@ def test_combined_search_returns_normalized_wiki_and_scoped_memory_hits(
     assert any("repository-scoped" in hit["summary"] for hit in result["memory_hits"])
     assert len(result["server_build_hash"]) == 64
     assert len(remembered["schema_hash"]) == 64
+
+
+def test_project_knowledge_gateway_saves_searches_and_reports_health(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = tmp_path / "SeedMind"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    config = AppConfig(
+        repos={"seedmind": RepoConfig(path=str(repo))},
+        runs_dir=str(tmp_path / "runs"),
+        config_dir=tmp_path,
+    )
+    project_id = _activate_project_scope(config, repo)
+    mcp = FakeMCP()
+    runtime_module = ModuleType("soma_test_project_knowledge_server")
+    runtime_module.mcp = mcp
+    runtime_module.get_config = lambda: config
+    monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
+    register_knowledge_tools(mcp)
+
+    saved = mcp.tools["knowledge_action"]["function"](
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {
+                "action": "save_knowledge",
+                "project_id": project_id,
+                "repo_name": "seedmind",
+                "vault_path": "research/chatgpt-architecture.md",
+                "kind": "research_note",
+                "title": "Durable architecture research",
+                "body": "دانش پروژه must remain available across agent sessions.",
+                "idempotency_key": "chatgpt-architecture-1",
+                "sources": [
+                    {
+                        "source_id": "src_owner_chat",
+                        "uri": "chat://architecture-research",
+                        "title": "Architecture research chat",
+                    }
+                ],
+                "locators": [
+                    {
+                        "source_id": "src_owner_chat",
+                        "locator": "owner synthesis",
+                    }
+                ],
+            }
+        )
+    )
+    found = mcp.tools["knowledge_query"]["function"](
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {
+                "operation": "search_knowledge",
+                "project_id": project_id,
+                "repo_name": "seedmind",
+                "query": "دانش پروژه",
+            }
+        )
+    )
+    health = mcp.tools["knowledge_query"]["function"](
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {
+                "operation": "knowledge_health",
+                "project_id": project_id,
+                "repo_name": "seedmind",
+            }
+        )
+    )
+
+    assert saved["ok"] is True
+    assert saved["project_id"] == project_id
+    assert saved["source_count"] == 1
+    assert Path(saved["canonical_path"]).is_file()
+    assert found["ok"] is True
+    assert [item["knowledge_id"] for item in found["records"]] == [
+        saved["knowledge_id"]
+    ]
+    assert found["records"][0]["sources"][0]["source_id"] == "src_owner_chat"
+    assert health["ok"] is True
+    assert health["status"] == "healthy"
 
 
 def test_knowledge_search_full_view_preserves_complete_hits(
@@ -218,7 +319,12 @@ def test_knowledge_search_projection_is_bounded_and_marks_truncation() -> None:
         "repo_name": "seedmind",
         "query": "needle",
         "wiki_hits": [
-            {"source": "wiki", "page": f"page-{index}", "line": index, "snippet": "x" * 2_000}
+            {
+                "source": "wiki",
+                "page": f"page-{index}",
+                "line": index,
+                "snippet": "x" * 2_000,
+            }
             for index in range(20)
         ],
         "memory_hits": [
@@ -332,17 +438,23 @@ def test_knowledge_tools_follow_the_active_config_after_reload(
 
     action = mcp.tools["knowledge_action"]["function"]
     query = mcp.tools["knowledge_query"]["function"]
-    action(TypeAdapter(KnowledgeActionRequest).validate_python(
-        {"action": "refresh_wiki", "repo_name": "first"}
-    ))
+    action(
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {"action": "refresh_wiki", "repo_name": "first"}
+        )
+    )
 
     active["config"] = second
-    refreshed = action(TypeAdapter(KnowledgeActionRequest).validate_python(
-        {"action": "refresh_wiki", "repo_name": "second"}
-    ))
-    page = query(TypeAdapter(KnowledgeQueryRequest).validate_python(
-        {"operation": "read_wiki", "repo_name": "second", "page": "modules.md"}
-    ))
+    refreshed = action(
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {"action": "refresh_wiki", "repo_name": "second"}
+        )
+    )
+    page = query(
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {"operation": "read_wiki", "repo_name": "second", "page": "modules.md"}
+        )
+    )
 
     assert refreshed["ok"] is True
     assert refreshed["repo_name"] == "second"
@@ -377,15 +489,21 @@ def test_refresh_read_and_search_share_the_active_wiki_generation(
 
     action = mcp.tools["knowledge_action"]["function"]
     query = mcp.tools["knowledge_query"]["function"]
-    refreshed = action(TypeAdapter(KnowledgeActionRequest).validate_python(
-        {"action": "refresh_wiki", "repo_name": "seedmind"}
-    ))
-    page = query(TypeAdapter(KnowledgeQueryRequest).validate_python(
-        {"operation": "read_wiki", "repo_name": "seedmind", "page": "modules.md"}
-    ))
-    searched = query(TypeAdapter(KnowledgeQueryRequest).validate_python(
-        {"operation": "search", "repo_name": "seedmind", "query": marker}
-    ))
+    refreshed = action(
+        TypeAdapter(KnowledgeActionRequest).validate_python(
+            {"action": "refresh_wiki", "repo_name": "seedmind"}
+        )
+    )
+    page = query(
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {"operation": "read_wiki", "repo_name": "seedmind", "page": "modules.md"}
+        )
+    )
+    searched = query(
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {"operation": "search", "repo_name": "seedmind", "query": marker}
+        )
+    )
 
     assert refreshed["ok"] is True
     assert page["generation_id"] == refreshed["generation_id"]

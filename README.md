@@ -443,15 +443,28 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 
 - `refresh_wiki` — generate or incrementally refresh `.soma/wiki`;
 - `remember_decision` — persist a repository-scoped accepted decision.
+- `save_knowledge` — preserve a sourced fact, decision, document, research note, lesson, or question as canonical Markdown;
+- `supersede_knowledge` — preserve a replacement without deleting the historical record;
+- `rebuild_knowledge` — rebuild the derived project catalog from canonical Markdown.
 
 `knowledge_query`:
 
 - `read_wiki` — read one generated page;
 - `search` — search generated wiki content and repository-scoped memory.
+- `search_knowledge` — run bounded literal English/Persian project search;
+- `get_knowledge` — retrieve one exact record and its source locators;
+- `knowledge_health` — compare canonical Markdown with the rebuildable catalog.
 
 The wiki is a generated cache, not the source of truth. Check its freshness fields and verify architecture-sensitive claims against live source before editing.
 
-See [`docs/repository-knowledge.md`](docs/repository-knowledge.md).
+Project knowledge operations require an exact active `project_id` and its bound
+`repo_name`. Canonical notes live beneath
+`runs/knowledge/projects/<project_id>/vault`; SQLite is a replaceable literal
+search projection. Semantic and cross-language search are not claimed in this
+first slice.
+
+See [`docs/repository-knowledge.md`](docs/repository-knowledge.md) and
+[`docs/SOMA_KNOWLEDGE_LAYER.md`](docs/SOMA_KNOWLEDGE_LAYER.md).
 
 ## Compact projections and authoritative evidence
 

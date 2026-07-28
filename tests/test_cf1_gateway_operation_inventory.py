@@ -25,13 +25,17 @@ def _resolve_schema(value: dict[str, Any], root: dict[str, Any]) -> dict[str, An
     while "$ref" in current:
         reference = str(current["$ref"])
         if reference in seen or not reference.startswith("#/"):
-            raise AssertionError(f"unsupported or recursive schema reference: {reference}")
+            raise AssertionError(
+                f"unsupported or recursive schema reference: {reference}"
+            )
         seen.add(reference)
         resolved: Any = root
         for part in reference[2:].split("/"):
             resolved = resolved[part.replace("~1", "/").replace("~0", "~")]
         if not isinstance(resolved, dict):
-            raise AssertionError(f"schema reference did not resolve to an object: {reference}")
+            raise AssertionError(
+                f"schema reference did not resolve to an object: {reference}"
+            )
         current = resolved
     return current
 
@@ -67,10 +71,7 @@ def _discovered_actions() -> dict[str, dict[str, Any]]:
     async def _list() -> dict[str, dict[str, Any]]:
         register_knowledge_tools(server.mcp)
         tools = await server.mcp.list_tools()
-        return {
-            tool.name: tool.to_mcp_tool().model_dump(mode="json")
-            for tool in tools
-        }
+        return {tool.name: tool.to_mcp_tool().model_dump(mode="json") for tool in tools}
 
     return asyncio.run(_list())
 
@@ -89,18 +90,14 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     validate_gateway_operation_inventory()
     grouped = operation_inventory_by_gateway()
 
-    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == (
-        "cf1.3.gateway-operations.v15"
-    )
+    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == ("cf1.3.gateway-operations.v16")
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
 
     for gateway, entries in grouped.items():
         assert entries
         flattened = [
-            operation
-            for entry in entries
-            for operation in entry.operation_names
+            operation for entry in entries for operation in entry.operation_names
         ]
         assert flattened
         assert len(flattened) == len(set(flattened)), gateway
@@ -206,8 +203,7 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "repo_apply",
     }
     assert all(
-        entry.default_response_bytes is None
-        and entry.maximum_response_bytes is None
+        entry.default_response_bytes is None and entry.maximum_response_bytes is None
         for entry in PUBLIC_GATEWAY_OPERATION_INVENTORY
         if entry.gateway == "run_query"
         and compact_operations.isdisjoint(entry.operation_names)

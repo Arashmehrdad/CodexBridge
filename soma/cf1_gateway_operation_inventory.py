@@ -8,9 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = (
-    "cf1.3.gateway-operations.v15"
-)
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v16"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -95,9 +93,7 @@ class PublicGatewayOperationInventoryEntry:
             and self.maximum_item_limit is not None
             and self.default_item_limit > self.maximum_item_limit
         ):
-            raise ValueError(
-                "default_item_limit must not exceed maximum_item_limit"
-            )
+            raise ValueError("default_item_limit must not exceed maximum_item_limit")
 
 
 def _entry(
@@ -352,8 +348,11 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "ssh_query",
         (
-            "credential_probe", "profile_preview", "profile_status",
-            "capability_snapshot", "project_bindings",
+            "credential_probe",
+            "profile_preview",
+            "profile_status",
+            "capability_snapshot",
+            "project_bindings",
             "project_binding_validation",
         ),
         "soma.server:ssh_query",
@@ -1056,7 +1055,13 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "trading_query",
-        ("market_packet_get", "outcome_get", "action_get", "runtime_status", "companion_get"),
+        (
+            "market_packet_get",
+            "outcome_get",
+            "action_get",
+            "runtime_status",
+            "companion_get",
+        ),
         "soma.server:trading_query",
         "bounded durable trading record",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
@@ -1450,6 +1455,29 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes="Search results remain item limited; compact responses expose a caller-selected serialized UTF-8 budget with truncation metadata, while view=full preserves complete selected wiki and memory hits.",
     ),
     _entry(
+        "knowledge_query",
+        ("search_knowledge",),
+        "soma.knowledge_tools_integration:knowledge_query",
+        "bounded project knowledge search result",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CURSOR,
+        default_item_limit=10,
+        maximum_item_limit=50,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Exact-project literal search returns compact provenance records and an opaque continuation cursor under the public byte budget.",
+    ),
+    _entry(
+        "knowledge_query",
+        ("get_knowledge", "knowledge_health"),
+        "soma.knowledge_tools_integration:knowledge_query",
+        "bounded exact knowledge record or health projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Exact retrieval and rebuild health require an active project binding and remain bounded by the caller-selected UTF-8 budget.",
+    ),
+    _entry(
         "knowledge_action",
         ("refresh_wiki",),
         "soma.knowledge_tools_integration:knowledge_action",
@@ -1470,6 +1498,17 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_response_bytes=12 * 1024,
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
         notes="Compact decision acknowledgement bounds title/summary diagnostics; view=full remains explicit evidence access.",
+    ),
+    _entry(
+        "knowledge_action",
+        ("save_knowledge", "supersede_knowledge", "rebuild_knowledge"),
+        "soma.knowledge_tools_integration:knowledge_action",
+        "bounded project knowledge mutation acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
+        notes="Project knowledge mutations return only stable identity, lifecycle, provenance counts, and rebuild health; canonical Markdown remains exact evidence.",
     ),
 )
 
@@ -1509,9 +1548,7 @@ def validate_gateway_operation_inventory() -> None:
             for operation_name in entry.operation_names
         ]
         if len(operation_names) != len(set(operation_names)):
-            raise ValueError(
-                f"gateway {gateway!r} repeats an operation inventory name"
-            )
+            raise ValueError(f"gateway {gateway!r} repeats an operation inventory name")
 
 
 validate_gateway_operation_inventory()

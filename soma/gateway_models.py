@@ -4,6 +4,7 @@ The models intentionally describe routing and operation-specific inputs only.
 They do not duplicate the established manager, repository, SSH, or cloud
 validation that executes after a request is accepted.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -407,7 +408,9 @@ class TradingHistoricalTicksQuery(GatewayModel):
     @model_validator(mode="after")
     def validate_range(self) -> "TradingHistoricalTicksQuery":
         if self.start_utc.tzinfo is None or self.end_utc.tzinfo is None:
-            raise ValueError("Trading historical tick timestamps must be timezone-aware")
+            raise ValueError(
+                "Trading historical tick timestamps must be timezone-aware"
+            )
         if self.end_utc <= self.start_utc:
             raise ValueError("Trading historical tick end_utc must be after start_utc")
         return self
@@ -417,9 +420,7 @@ class TradingDeprecatedPortfolioQuery(GatewayModel):
     """Removed runtime virtual-portfolio reads kept only for an explicit
     deprecation response pointing at the offline replay reports."""
 
-    operation: Literal[
-        "open_virtual_positions", "portfolio_status", "threshold_report"
-    ]
+    operation: Literal["open_virtual_positions", "portfolio_status", "threshold_report"]
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -432,9 +433,7 @@ def _validate_period(model: Any) -> Any:
     start = getattr(model, "period_start_utc", None)
     end = getattr(model, "period_end_utc", None)
     if start is not None and end is not None and end <= start:
-        raise ValueError(
-            "Trading report period_end_utc must be after period_start_utc"
-        )
+        raise ValueError("Trading report period_end_utc must be after period_start_utc")
     return model
 
 
@@ -607,19 +606,34 @@ class TradingCompanionListQuery(GatewayModel):
 
 
 TradingQueryRequest = Annotated[
-    TradingHealthQuery | TradingConfigurationQuery | TradingBrokerExposureQuery
-    | TradingSymbolsQuery | TradingSpecificationQuery
-    | TradingTickQuery | TradingCandlesQuery | TradingCandleBoundaryQuery
-    | TradingHistoricalCandlesQuery | TradingH1Query | TradingH4Query
+    TradingHealthQuery
+    | TradingConfigurationQuery
+    | TradingBrokerExposureQuery
+    | TradingSymbolsQuery
+    | TradingSpecificationQuery
+    | TradingTickQuery
+    | TradingCandlesQuery
+    | TradingCandleBoundaryQuery
+    | TradingHistoricalCandlesQuery
+    | TradingH1Query
+    | TradingH4Query
     | TradingHistoricalTicksQuery
-    | TradingDeprecatedPortfolioQuery | TradingPacketGetQuery
-    | TradingPacketListQuery | TradingOutcomeGetQuery
-    | TradingOutcomeListQuery | TradingRejectionListQuery
-    | TradingDataQualityQuery | TradingCalibrationReportQuery
-    | TradingReplayReportQuery | TradingActionGetQuery
-    | TradingActionListQuery | TradingRuntimeStatusQuery
-    | TradingDemoPerformanceQuery | TradingReconciliationQuery
-    | TradingCompanionGetQuery | TradingCompanionListQuery,
+    | TradingDeprecatedPortfolioQuery
+    | TradingPacketGetQuery
+    | TradingPacketListQuery
+    | TradingOutcomeGetQuery
+    | TradingOutcomeListQuery
+    | TradingRejectionListQuery
+    | TradingDataQualityQuery
+    | TradingCalibrationReportQuery
+    | TradingReplayReportQuery
+    | TradingActionGetQuery
+    | TradingActionListQuery
+    | TradingRuntimeStatusQuery
+    | TradingDemoPerformanceQuery
+    | TradingReconciliationQuery
+    | TradingCompanionGetQuery
+    | TradingCompanionListQuery,
     Field(discriminator="operation"),
 ]
 
@@ -725,7 +739,9 @@ class TradingCompanionDecideRequest(GatewayModel):
         if self.decision == "NO_TRADE" and any(value is not None for value in values):
             raise ValueError("NO_TRADE must not include confidence or bracket prices")
         if self.decision != "NO_TRADE" and any(value is None for value in values):
-            raise ValueError("Directional decisions require confidence, stop_loss, and take_profit")
+            raise ValueError(
+                "Directional decisions require confidence, stop_loss, and take_profit"
+            )
         if self.submitted_at_utc is not None and self.submitted_at_utc.tzinfo is None:
             raise ValueError("submitted_at_utc must be timezone-aware")
         return self
@@ -995,9 +1011,7 @@ class RepoReadFilesQuery(GatewayModel):
     operation: Literal["read_files"]
     repo_name: str = Field(min_length=1, max_length=128)
     requests: list[dict[str, Any]] = Field(min_length=1, max_length=20)
-    response_budget_bytes: int = Field(
-        default=48 * 1024, ge=48 * 1024, le=128 * 1024
-    )
+    response_budget_bytes: int = Field(default=48 * 1024, ge=48 * 1024, le=128 * 1024)
 
 
 class RepoSearchTextQuery(GatewayModel):
@@ -1016,7 +1030,9 @@ class RepoSearchTextQuery(GatewayModel):
     @model_validator(mode="after")
     def validate_scope(self) -> "RepoSearchTextQuery":
         if self.file_path and (self.directory or self.file_patterns):
-            raise ValueError("file_path cannot be combined with directory or file_patterns")
+            raise ValueError(
+                "file_path cannot be combined with directory or file_patterns"
+            )
         return self
 
 
@@ -1068,8 +1084,15 @@ class RepoCommitRangeQuery(GatewayModel):
 
 
 RepoQueryRequest = Annotated[
-    RepoStatusQuery | RepoCompactStatusQuery | RepoPatchStatusQuery | RepoListFilesQuery | RepoReadFilesQuery
-    | RepoSearchTextQuery | RepoRecentFilesQuery | RepoDiffQuery | RepoLogQuery
+    RepoStatusQuery
+    | RepoCompactStatusQuery
+    | RepoPatchStatusQuery
+    | RepoListFilesQuery
+    | RepoReadFilesQuery
+    | RepoSearchTextQuery
+    | RepoRecentFilesQuery
+    | RepoDiffQuery
+    | RepoLogQuery
     | RepoCommitRangeQuery,
     Field(discriminator="operation"),
 ]
@@ -1112,7 +1135,10 @@ class RepoCleanupPreview(GatewayModel):
 
 
 RepoPreviewRequest = Annotated[
-    RepoPatchPreview | RepoCreateFilePreview | RepoRemoveFilePreview | RepoCleanupPreview,
+    RepoPatchPreview
+    | RepoCreateFilePreview
+    | RepoRemoveFilePreview
+    | RepoCleanupPreview,
     Field(discriminator="operation"),
 ]
 
@@ -1195,7 +1221,9 @@ class ParallelPowerShellStart(GatewayModel):
     children: list[ParallelPowerShellChild] = Field(min_length=1, max_length=1_000)
     requested_concurrency: int | None = Field(default=None, ge=1, le=1_000)
     repository_lock_policy: Literal["none"] = "none"
-    failure_policy: Literal["continue_all", "cancel_remaining_on_failure"] = "continue_all"
+    failure_policy: Literal["continue_all", "cancel_remaining_on_failure"] = (
+        "continue_all"
+    )
 
 
 class LocalPowerShellStart(GatewayModel):
@@ -1224,7 +1252,9 @@ class HermesCompanionStart(GatewayModel):
     profile_id: str = Field(min_length=1, max_length=128)
     checkout: str = Field(min_length=1, max_length=32_768)
     hermes_home: str = Field(default="", max_length=32_768)
-    companion_operation: Literal["handshake", "tool_search", "tool_describe", "tool_call"]
+    companion_operation: Literal[
+        "handshake", "tool_search", "tool_describe", "tool_call"
+    ]
     payload: dict[str, Any] = Field(default_factory=dict, max_length=100)
     expected_registry_generation: int | None = Field(default=None, ge=0)
     expected_schema_hash: str = Field(default="", max_length=64)
@@ -1253,8 +1283,11 @@ class RemotePowerShellStart(GatewayModel):
 
 
 RunStartRequest = Annotated[
-    LocalPowerShellStart | RemotePowerShellStart | ParallelPowerShellStart
-    | HermesCompanionStart | HermesServiceStart,
+    LocalPowerShellStart
+    | RemotePowerShellStart
+    | ParallelPowerShellStart
+    | HermesCompanionStart
+    | HermesServiceStart,
     Field(discriminator="operation"),
 ]
 
@@ -1311,8 +1344,12 @@ class TaskQuarantineQuery(GatewayModel):
 
 
 TaskQueryRequest = Annotated[
-    TaskCapabilitiesQuery | TaskStatusQuery | TaskResultQuery | TaskEventsQuery
-    | TaskLinksQuery | TaskQuarantineQuery,
+    TaskCapabilitiesQuery
+    | TaskStatusQuery
+    | TaskResultQuery
+    | TaskEventsQuery
+    | TaskLinksQuery
+    | TaskQuarantineQuery,
     Field(discriminator="operation"),
 ]
 
@@ -1393,7 +1430,9 @@ class TaskQuarantineAdjudicate(GatewayModel):
     @model_validator(mode="after")
     def validate_successor(self) -> "TaskQuarantineAdjudicate":
         if self.disposition == "superseded" and not self.successor_task_id:
-            raise ValueError("successor_task_id is required for disposition 'superseded'")
+            raise ValueError(
+                "successor_task_id is required for disposition 'superseded'"
+            )
         if self.disposition == "acknowledged" and self.successor_task_id:
             raise ValueError(
                 "successor_task_id is only valid with disposition 'superseded'"
@@ -1454,7 +1493,20 @@ class DockerActionBase(GatewayModel):
 
 
 class DockerComposeAction(DockerActionBase):
-    action: Literal["compose_build", "compose_up", "compose_down", "compose_start", "compose_stop", "compose_restart", "compose_pause", "compose_unpause", "compose_kill", "compose_pull", "compose_down_volumes", "compose_rm"]
+    action: Literal[
+        "compose_build",
+        "compose_up",
+        "compose_down",
+        "compose_start",
+        "compose_stop",
+        "compose_restart",
+        "compose_pause",
+        "compose_unpause",
+        "compose_kill",
+        "compose_pull",
+        "compose_down_volumes",
+        "compose_rm",
+    ]
 
 
 class DockerExecAction(DockerActionBase):
@@ -1463,27 +1515,51 @@ class DockerExecAction(DockerActionBase):
 
 
 class DockerImageAction(DockerActionBase):
-    action: Literal["image_build", "image_pull", "image_tag", "image_push", "image_remove"]
+    action: Literal[
+        "image_build", "image_pull", "image_tag", "image_push", "image_remove"
+    ]
     target: str = Field(min_length=1, max_length=512)
 
 
 class DockerContainerAction(DockerActionBase):
-    action: Literal["container_start", "container_stop", "container_restart", "container_pause", "container_unpause", "container_kill", "container_remove"]
+    action: Literal[
+        "container_start",
+        "container_stop",
+        "container_restart",
+        "container_pause",
+        "container_unpause",
+        "container_kill",
+        "container_remove",
+    ]
     target: str = Field(min_length=1, max_length=512)
 
 
 class DockerNetworkVolumeAction(DockerActionBase):
-    action: Literal["network_create", "network_remove", "volume_create", "volume_remove"]
+    action: Literal[
+        "network_create", "network_remove", "volume_create", "volume_remove"
+    ]
     target: str = Field(min_length=1, max_length=512)
 
 
 class DockerPruneAction(DockerActionBase):
-    action: Literal["builder_prune", "container_prune", "image_prune", "network_prune", "volume_prune", "system_prune", "system_prune_volumes"]
+    action: Literal[
+        "builder_prune",
+        "container_prune",
+        "image_prune",
+        "network_prune",
+        "volume_prune",
+        "system_prune",
+        "system_prune_volumes",
+    ]
 
 
 DockerActionRequest = Annotated[
-    DockerComposeAction | DockerExecAction | DockerImageAction | DockerContainerAction
-    | DockerNetworkVolumeAction | DockerPruneAction,
+    DockerComposeAction
+    | DockerExecAction
+    | DockerImageAction
+    | DockerContainerAction
+    | DockerNetworkVolumeAction
+    | DockerPruneAction,
     Field(discriminator="action"),
 ]
 
@@ -1533,7 +1609,15 @@ class CloudflareActionBase(GatewayModel):
 
 
 class CloudflareDnsAction(CloudflareActionBase):
-    action: Literal["create_dns_record", "update_dns_record", "delete_dns_record", "dns_create", "dns_update", "dns_delete", "dns_batch"]
+    action: Literal[
+        "create_dns_record",
+        "update_dns_record",
+        "delete_dns_record",
+        "dns_create",
+        "dns_update",
+        "dns_delete",
+        "dns_batch",
+    ]
 
 
 class CloudflareCacheAction(CloudflareActionBase):
@@ -1541,20 +1625,48 @@ class CloudflareCacheAction(CloudflareActionBase):
 
 
 class CloudflareZoneAction(CloudflareActionBase):
-    action: Literal["update_ssl_settings", "zone_setting_update", "dnssec_enable", "dnssec_disable", "ssl_universal_update"]
+    action: Literal[
+        "update_ssl_settings",
+        "zone_setting_update",
+        "dnssec_enable",
+        "dnssec_disable",
+        "ssl_universal_update",
+    ]
 
 
 class CloudflareRulesetAction(CloudflareActionBase):
-    action: Literal["ruleset_create", "ruleset_update", "ruleset_delete", "ruleset_rule_add", "ruleset_rule_update", "ruleset_rule_delete"]
+    action: Literal[
+        "ruleset_create",
+        "ruleset_update",
+        "ruleset_delete",
+        "ruleset_rule_add",
+        "ruleset_rule_update",
+        "ruleset_rule_delete",
+    ]
 
 
 class CloudflareEdgeAction(CloudflareActionBase):
-    action: Literal["turnstile_create", "turnstile_update", "turnstile_rotate_secret", "turnstile_delete", "update_turnstile_widget", "create_tunnel", "tunnel_create", "tunnel_config_update", "tunnel_delete", "tunnel_route_create", "tunnel_route_delete"]
+    action: Literal[
+        "turnstile_create",
+        "turnstile_update",
+        "turnstile_rotate_secret",
+        "turnstile_delete",
+        "update_turnstile_widget",
+        "create_tunnel",
+        "tunnel_create",
+        "tunnel_config_update",
+        "tunnel_delete",
+        "tunnel_route_create",
+        "tunnel_route_delete",
+    ]
 
 
 CloudflareActionRequest = Annotated[
-    CloudflareDnsAction | CloudflareCacheAction | CloudflareZoneAction
-    | CloudflareRulesetAction | CloudflareEdgeAction,
+    CloudflareDnsAction
+    | CloudflareCacheAction
+    | CloudflareZoneAction
+    | CloudflareRulesetAction
+    | CloudflareEdgeAction,
     Field(discriminator="action"),
 ]
 
@@ -1598,7 +1710,9 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
     execution_mode: Literal["reviewed_script"] = "reviewed_script"
     host_id: str = Field(min_length=1, max_length=128)
     interpreter: Literal["bash", "sh", "python3", "pwsh"]
-    arguments: list[str] = Field(default_factory=list, max_length=MAX_REVIEWED_SSH_SCRIPT_ARGS)
+    arguments: list[str] = Field(
+        default_factory=list, max_length=MAX_REVIEWED_SSH_SCRIPT_ARGS
+    )
     script: str = Field(min_length=1, max_length=MAX_REVIEWED_SSH_SCRIPT_BYTES)
     script_sha256: str = Field(
         min_length=64,
@@ -1626,12 +1740,18 @@ class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
         for argument in self.arguments:
             encoded_argument = argument.encode("utf-8")
             if any(byte < 32 or byte == 127 for byte in encoded_argument):
-                raise ValueError("Reviewed SSH script arguments must not contain control characters")
+                raise ValueError(
+                    "Reviewed SSH script arguments must not contain control characters"
+                )
             if len(encoded_argument) > MAX_REVIEWED_SSH_SCRIPT_ARG_BYTES:
-                raise ValueError("Reviewed SSH script argument exceeds the maximum UTF-8 byte length")
+                raise ValueError(
+                    "Reviewed SSH script argument exceeds the maximum UTF-8 byte length"
+                )
             total_argument_bytes += len(encoded_argument)
         if total_argument_bytes > MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES:
-            raise ValueError("Reviewed SSH script arguments exceed the aggregate UTF-8 byte limit")
+            raise ValueError(
+                "Reviewed SSH script arguments exceed the aggregate UTF-8 byte limit"
+            )
         policy = evaluate_ssh_policy(
             SSHPolicyRequest(
                 autonomy_profile=self.autonomy_profile,
@@ -1675,9 +1795,7 @@ def validate_reviewed_ssh_script_request(
             str(error.get("msg", "invalid value"))
             for error in exc.errors(include_input=False)
         )
-        raise ValueError(
-            f"Invalid reviewed SSH script request: {messages}"
-        ) from None
+        raise ValueError(f"Invalid reviewed SSH script request: {messages}") from None
 
 
 class SSHRootShellAction(SSHExecutionPolicyGatewayRequest):
@@ -1702,12 +1820,16 @@ class SSHRootShellAction(SSHExecutionPolicyGatewayRequest):
     @model_validator(mode="after")
     def validate_root_shell(self) -> "SSHRootShellAction":
         if not self.script.strip():
-            raise ValueError("SSH root shell script must contain non-whitespace content")
+            raise ValueError(
+                "SSH root shell script must contain non-whitespace content"
+            )
         script_bytes = self.script.encode("utf-8")
         if b"\x00" in script_bytes:
             raise ValueError("SSH root shell script must not contain NUL bytes")
         if len(script_bytes) > MAX_REVIEWED_SSH_SCRIPT_BYTES:
-            raise ValueError("SSH root shell script exceeds the maximum UTF-8 byte length")
+            raise ValueError(
+                "SSH root shell script exceeds the maximum UTF-8 byte length"
+            )
         if sha256(script_bytes).hexdigest() != self.script_sha256:
             raise ValueError("SSH root shell script SHA-256 does not match its content")
         policy = evaluate_ssh_policy(
@@ -1795,7 +1917,9 @@ class SSHProfilePreviewQuery(GatewayModel):
                 raise ValueError(
                     "configure_host requires credential_source_id and credential_source"
                 )
-        elif self.credential_source_id or self.credential_source or self.project_bindings:
+        elif (
+            self.credential_source_id or self.credential_source or self.project_bindings
+        ):
             raise ValueError(
                 "Credential-source and project-binding fields require action=configure_host"
             )
@@ -1843,9 +1967,13 @@ class SSHProjectBindingValidationQuery(GatewayModel):
 
 
 SSHQueryRequest = Annotated[
-    SSHCapabilitiesQuery | SSHCredentialProbeQuery | SSHProfilePreviewQuery
-    | SSHProfileStatusQuery | SSHCapabilitySnapshotQuery
-    | SSHProjectBindingsQuery | SSHProjectBindingValidationQuery,
+    SSHCapabilitiesQuery
+    | SSHCredentialProbeQuery
+    | SSHProfilePreviewQuery
+    | SSHProfileStatusQuery
+    | SSHCapabilitySnapshotQuery
+    | SSHProjectBindingsQuery
+    | SSHProjectBindingValidationQuery,
     Field(discriminator="operation"),
 ]
 
@@ -1901,8 +2029,12 @@ class SSHDeploymentAction(SSHStructuredExecutionGatewayRequest):
 
 
 SSHActionRequest = Annotated[
-    SSHProfileApplyAction | SSHCommandAction | SSHReviewedScriptAction
-    | SSHRootShellAction | SSHAdministrationAction | SSHTransferAction
+    SSHProfileApplyAction
+    | SSHCommandAction
+    | SSHReviewedScriptAction
+    | SSHRootShellAction
+    | SSHAdministrationAction
+    | SSHTransferAction
     | SSHDeploymentAction,
     Field(discriminator="action"),
 ]
@@ -1956,9 +2088,12 @@ class SystemReloadStatusQuery(GatewayModel):
 
 
 SystemQueryRequest = Annotated[
-    SystemCapabilitiesQuery | SystemSelfCheckQuery | SystemCapabilityIdentityQuery
+    SystemCapabilitiesQuery
+    | SystemSelfCheckQuery
+    | SystemCapabilityIdentityQuery
     | SystemLocalModelHealthQuery
-    | SystemValidateConfigQuery | SystemReloadStatusQuery,
+    | SystemValidateConfigQuery
+    | SystemReloadStatusQuery,
     Field(discriminator="operation"),
 ]
 
@@ -1999,8 +2134,42 @@ class KnowledgeSearchQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class ProjectKnowledgeSearchQuery(GatewayModel):
+    operation: Literal["search_knowledge"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=10_000)
+    limit: int = Field(default=10, ge=1, le=50)
+    current_only: bool = True
+    cursor: str | None = Field(default=None, max_length=512)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ProjectKnowledgeGetQuery(GatewayModel):
+    operation: Literal["get_knowledge"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    knowledge_id: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class ProjectKnowledgeHealthQuery(GatewayModel):
+    operation: Literal["knowledge_health"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeQueryRequest = Annotated[
-    KnowledgeReadWikiQuery | KnowledgeSearchQuery, Field(discriminator="operation")
+    KnowledgeReadWikiQuery
+    | KnowledgeSearchQuery
+    | ProjectKnowledgeSearchQuery
+    | ProjectKnowledgeGetQuery
+    | ProjectKnowledgeHealthQuery,
+    Field(discriminator="operation"),
 ]
 
 
@@ -2021,7 +2190,65 @@ class KnowledgeRememberDecisionAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class KnowledgeSourceInput(GatewayModel):
+    source_id: str = Field(min_length=1, max_length=128)
+    uri: str = Field(default="", max_length=2048)
+    title: str = Field(default="", max_length=500)
+    version: str = Field(default="", max_length=256)
+    content_hash: str = Field(default="", max_length=128)
+
+
+class KnowledgeLocatorInput(GatewayModel):
+    source_id: str = Field(min_length=1, max_length=128)
+    locator: str = Field(min_length=1, max_length=2000)
+    relationship: Literal["supports", "contradicts", "qualifies"] = "supports"
+
+
+class KnowledgeSaveAction(GatewayModel):
+    action: Literal["save_knowledge"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    vault_path: str = Field(min_length=3, max_length=512)
+    kind: Literal[
+        "fact",
+        "decision",
+        "document",
+        "research",
+        "research_note",
+        "lesson",
+        "question",
+    ]
+    title: str = Field(min_length=1, max_length=500)
+    summary: str = Field(default="", max_length=4000)
+    body: str = Field(min_length=1, max_length=200_000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    language: str = Field(default="", max_length=32)
+    review_state: str = Field(default="unreviewed", max_length=64)
+    idempotency_key: str = Field(default="", max_length=256)
+    sources: list[KnowledgeSourceInput] = Field(default_factory=list, max_length=50)
+    locators: list[KnowledgeLocatorInput] = Field(default_factory=list, max_length=100)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class KnowledgeSupersedeAction(KnowledgeSaveAction):
+    action: Literal["supersede_knowledge"]
+    supersedes_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class KnowledgeRebuildAction(GatewayModel):
+    action: Literal["rebuild_knowledge"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 KnowledgeActionRequest = Annotated[
-    KnowledgeRefreshWikiAction | KnowledgeRememberDecisionAction,
+    KnowledgeRefreshWikiAction
+    | KnowledgeRememberDecisionAction
+    | KnowledgeSaveAction
+    | KnowledgeSupersedeAction
+    | KnowledgeRebuildAction,
     Field(discriminator="action"),
 ]
