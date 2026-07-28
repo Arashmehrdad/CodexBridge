@@ -1,0 +1,109 @@
+{
+  "schema_version": "memory_provider_solution_discovery.v2",
+  "date": "2026-07-28",
+  "status": "accepted_decision_implementation_not_started",
+  "decision_level": "C",
+  "capability": "trustworthy_local_project_scoped_semantic_memory_over_canonical_markdown",
+  "authority": {
+    "canonical_content": "markdown_plus_git",
+    "owner_workspace": "Obsidian",
+    "soma_owns": [
+      "project_identity",
+      "provider_binding",
+      "routing",
+      "provenance",
+      "health_acceptance",
+      "lifecycle"
+    ],
+    "provider_state": "derived_disposable_replaceable"
+  },
+  "hard_requirements": [
+    "complete_rebuild_from_unchanged_markdown",
+    "explicit_complete_incomplete_degraded_failed_evidence",
+    "no_stale_success_from_incomplete_index",
+    "english_persian_same_and_cross_language_retrieval",
+    "bounded_out_of_band_create_edit_rename_delete_freshness",
+    "exact_project_constraint_and_sibling_isolation",
+    "markdown_git_integrity_through_restart_rebuild_and_removal",
+    "local_windows_without_hosted_embeddings_or_cloud_memory",
+    "no_custom_storage_embeddings_ranking_search_or_graph_engine"
+  ],
+  "threat_model": {
+    "host": "owner_personal_windows_laptop",
+    "human_users": 1,
+    "network_binding": "local_only",
+    "tool_surface_expansion_severity": "manageable_with_soma_allowlist_not_provider_selection_blocker"
+  },
+  "failing_layers": {
+    "mcp_connector_index_rebuild": "provider_index_lifecycle",
+    "mcp_connector_stale_success": "provider_health_contract_decisive_blocker",
+    "obsidian_rename": "unsafe_reproducible_operation_root_cause_unproven_setting_not_recorded",
+    "core_tool_expansion": "integration_weakness_downgraded_for_owner_threat_model"
+  },
+  "shortlist": [
+    {
+      "candidate": "Basic Memory Local",
+      "disposition": "next_bounded_pilot",
+      "reason": "official_full_reindex_reset_project_constraint_project_stats_local_windows_embeddings_and_configurable_model"
+    },
+    {
+      "candidate": "later MCP Connector release",
+      "disposition": "preserve_for_materially_changed_release_retest",
+      "reason": "excellent_retrieval_and_isolation_with_current_release_health_failure"
+    },
+    {
+      "candidate": "single_ready_made_alternative_after_basic_memory_failure",
+      "disposition": "future_bounded_discovery_only",
+      "reason": "seeklink_not_first_class_windows_and_obsidian_semantic_mcp_heavy"
+    },
+    {
+      "candidate": "custom Soma retrieval engine",
+      "disposition": "rejected",
+      "reason": "duplicates_mature_generic_infrastructure_and_increases_lock_in_and_maintenance"
+    }
+  ],
+  "black_box_contract": {
+    "per_file_lexical_and_semantic_canaries": true,
+    "single_canary_claims_completeness": false,
+    "bilingual_directions": [
+      "english_note_english_query",
+      "persian_note_persian_query",
+      "persian_note_english_query",
+      "english_note_persian_query"
+    ],
+    "os_manifest_vs_provider_accounting": true,
+    "official_delete_rebuild_restart": true,
+    "interrupted_rebuild_must_not_be_healthy": true,
+    "filesystem_create_edit_rename_delete": true,
+    "os_rename_expected_to_rewrite_obsidian_links": false,
+    "nonsense_query_empty_is_failure": false,
+    "health_proved_by_known_hits_and_accounting": true,
+    "provider_specific_minimum_safety_checks": true
+  },
+  "decision": {
+    "mode": "adopt_for_pilot_then_wrap_only_if_passes",
+    "next_gate": "PILOT-BASIC-MEMORY-2",
+    "parallel_provider_pilots": false,
+    "custom_retrieval_authorized": false,
+    "implementation_gate": "proceed_with_constraints"
+  },
+  "hardest_requirement": "delete_all_derived_state_rebuild_from_markdown_prove_every_synthetic_file_and_reject_incomplete_health",
+  "unknowns": [
+    "exact_current_basic_memory_release_and_hashes",
+    "working_local_fastembed_multilingual_model_on_windows",
+    "machine_readable_project_info_and_embedding_coverage_fields",
+    "interrupted_rebuild_behavior",
+    "renamed_path_and_optional_permalink_update_behavior"
+  ],
+  "replacement_triggers": [
+    "basic_memory_incomplete_rebuild_or_stale_success_after_clean_rerun",
+    "no_supported_local_model_passes_bilingual_matrix",
+    "repeated_windows_process_failure",
+    "project_isolation_or_markdown_integrity_failure",
+    "materially_changed_mcp_connector_release_addresses_failed_behavior",
+    "windows_capable_provider_demonstrates_better_health_with_acceptable_complexity"
+  ],
+  "provider_installation_authorized": false,
+  "execution_started": false,
+  "push_allowed": false
+}
