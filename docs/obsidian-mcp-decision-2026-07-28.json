@@ -1,25 +1,47 @@
 {
-  "schema_version": "obsidian_mcp_decision.v1",
+  "schema_version": "obsidian_mcp_decision.v2",
   "date": "2026-07-28",
-  "status": "accepted_documentation_closed",
+  "status": "architecture_accepted_candidate_release_rejected",
   "implementation_lane_active": false,
   "supersedes": [
-    "MEMORY_PROVIDER_DECISION_2026-07-28.md",
-    "PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md"
+    "MEMORY_PROVIDER_DECISION_2026-07-28.md"
   ],
   "decision": {
     "canonical_content": "markdown_plus_git",
-    "owner_and_runtime_surface": "Obsidian",
+    "owner_workspace": "Obsidian",
     "selected_first_candidate": "MCP Connector by istefox",
-    "reviewed_version": "0.28.1",
-    "provider_role": "in_process_local_semantic_and_mcp_access",
+    "tested_version": "0.28.1",
+    "tested_release_disposition": "rejected_for_current_provider_lane",
+    "provider_role": "replaceable_local_semantic_and_mcp_access",
     "soma_remains_authority": true,
-    "basic_memory_role": "headless_fallback_after_named_failure",
+    "basic_memory_role": "next_focused_provider_pilot",
     "codebase_memory_overlap": false
   },
+  "post_pilot_interpretation": {
+    "decisive_blockers": [
+      "incomplete_index_rebuild",
+      "stale_healthy_success_from_incomplete_index",
+      "silent_multilingual_model_failure"
+    ],
+    "rename_root_cause_proven": false,
+    "rename_missing_control": "obsidian_automatically_update_internal_links_setting_not_recorded",
+    "core_tool_expansion_severity": "manageable_in_owner_single_user_loopback_threat_model",
+    "future_soma_tool_allowlist_required": true,
+    "passed_evidence_supports_future_release_retest": true,
+    "passed_evidence_transfers_to_other_provider": false
+  },
   "minimum_custom_component": {
-    "allowed": true,
-    "role": "exact_project_vault_binding_path_validation_and_provenance_guard",
+    "allowed_after_provider_acceptance": true,
+    "role": "exact_project_provider_binding_health_path_validation_and_provenance_guard",
+    "allowed_functions": [
+      "exact_project_binding",
+      "provider_health_and_coverage_check",
+      "semantic_fail_closed",
+      "tool_allowlist",
+      "returned_path_validation",
+      "source_provenance",
+      "literal_markdown_fallback"
+    ],
     "forbidden": [
       "storage",
       "embeddings",
@@ -29,17 +51,18 @@
       "provider_patch"
     ]
   },
-  "security_defaults": {
+  "tested_security_observations": {
     "loopback_only": true,
     "bearer_auth_required": true,
-    "core_static_profile": true,
-    "command_execution_enabled": false,
-    "open_world_fetch_enabled": false,
+    "core_static_profile_in_tested_artifact": false,
+    "command_execution_invoked": false,
+    "open_world_fetch_invoked": false,
     "external_client_auto_configuration": false
   },
-  "next_lane": "PILOT-OBSIDIAN-MCP-1",
-  "next_lane_active": false,
-  "plugin_installation_authorized": false,
+  "next_decision": "MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md",
+  "next_lane": "PILOT-BASIC-MEMORY-2",
+  "next_lane_active": true,
+  "provider_installation_authorized_by_decision": false,
   "production_activation": false,
   "push_allowed": false
 }

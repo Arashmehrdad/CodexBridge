@@ -1,21 +1,22 @@
 # OBSIDIAN-MCP-DECISION-1 - Obsidian-Native Memory Access
 
 **Date:** 2026-07-28
-**Status:** accepted and documentation-closed.
-**Decision scope:** architecture selection and provider ordering only; no plugin installation or pilot execution.
+**Status:** architecture accepted and documentation-closed; MCP Connector `0.28.1` was subsequently tested and rejected for the current provider lane.
+**Decision scope:** architecture selection, provider ordering and post-pilot disposition; no production integration.
 **Supersedes:** the Basic Memory-first ordering in [`MEMORY_PROVIDER_DECISION_2026-07-28.md`](MEMORY_PROVIDER_DECISION_2026-07-28.md).
 
 ## Decision
 
-Use the lightest Obsidian-native stack first:
+Use the lightest file-first architecture and validate providers behind it:
 
 1. **Markdown + Git** remain the durable, owner-readable canonical content layer.
-2. **Obsidian** is both the owner-facing workspace and the first runtime surface for structured and automated access.
-3. **MCP Connector by istefox** is the selected first candidate for local semantic retrieval and MCP access inside Obsidian.
-4. **Soma** remains the sole authority for exact `project_id`, vault binding, routing, provenance, acceptance, continuity, and lifecycle decisions.
-5. **Basic Memory Local** is deferred as a headless fallback and advances only after a named Obsidian-native failure.
+2. **Obsidian** remains the owner-facing workspace and preferred native surface over those files.
+3. **MCP Connector by istefox** was the correct first candidate to test; frozen release `0.28.1` is rejected because rebuild completeness and healthy-state reporting could not be trusted.
+4. **Soma** remains the sole authority for exact `project_id`, provider/vault binding, routing, provenance, health acceptance, continuity, and lifecycle decisions.
+5. **Basic Memory Local** advances through the focused [`PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md), prepared from [`MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md).
+6. A materially changed MCP Connector release may later re-enter through the same black-box provider contract; the architecture is not abandoned because one release failed.
 
-No plugin, vault, model, client configuration, or production-memory integration is authorized by this decision alone.
+No production vault, provider integration, client configuration, custom retrieval or owner-memory import is authorized by this decision.
 
 ## Why this aligns with the accepted plan
 
@@ -35,10 +36,26 @@ Relevant provider characteristics:
 - MiniLM, Gemma 300M and Multilingual-E5 providers are available without a hosted embedding API;
 - semantic and text results are grounded to note paths and line positions;
 - the embedding index is derived and incrementally updated by file;
-- the fixed Core profile exposes a small static tool surface and cannot self-promote additional tools;
-- command execution is opt-in, deny-by-default and must remain disabled in the first pilot;
-- vault access uses Obsidian APIs, preserving normal link-aware rename and metadata behavior;
+- current upstream documentation describes Core as a fixed surface without activation tools, but the frozen `0.28.1` artifact exposed activation tools and could expand live; future acceptance must test the shipped artifact rather than trust documentation;
+- command execution is opt-in, deny-by-default and remained disabled in the pilot;
+- vault access uses Obsidian APIs, but the unattended rename path hung and left incoming links unchanged in the pilot; the Obsidian **Automatically update internal links** setting was not recorded, so the precise root cause remains unproven;
 - the plugin is MIT-licensed and desktop-only.
+
+## Post-pilot interpretation
+
+The authoritative execution result is [`PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md`](PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md).
+
+The decisive blockers are:
+
+- an index rebuild that represented only one of seven notes;
+- healthy-looking semantic success from that incomplete index;
+- a multilingual configuration that silently produced no usable index or results.
+
+The remaining findings are treated differently:
+
+- **Rename:** the operation is unsafe as observed, but the pilot did not establish whether Obsidian was waiting for a link-update confirmation because the automatic-link-update setting was not frozen. A later connector re-test must record that setting and separate Obsidian UI rename, provider rename and raw OS rename.
+- **Tool expansion:** on the owner's single-user, loopback-only personal laptop, this is a manageable integration weakness rather than a selection blocker. A future Soma boundary must expose an exact allowlist and never forward activation, open-world fetch, command-execution or destructive tools unless separately authorized.
+- **Passed evidence:** MCP Connector proved excellent same-language semantic retrieval, strict sibling-vault isolation, authentication and canonical Markdown survival. That evidence supports the architecture and a future release re-test, but it does not transfer as a safety certificate to another provider.
 
 ## Intended boundary
 
@@ -76,9 +93,9 @@ Neither provider replaces Git, the repository, `RepoWikiService`, canonical evid
 
 ## Candidate disposition
 
-### MCP Connector - selected for the first pilot
+### MCP Connector - first pilot completed; current release rejected
 
-Best fit for the Obsidian-first baseline because it combines local semantic retrieval, graph access, structured note operations and a local authenticated MCP endpoint without a second memory service.
+It remained the best first test of the Obsidian-native baseline and proved real retrieval and isolation value. Release `0.28.1` is not accepted because incomplete index state could masquerade as healthy. Preserve it for a materially changed release re-test rather than production use.
 
 ### Semantic Notes Vault MCP - runner-up
 
@@ -88,9 +105,9 @@ Retained as a security-oriented alternative because it documents path and permis
 
 Provides native vault embeddings, ChromaDB and a companion MCP server, but is younger and operationally heavier. It may be reconsidered only if MCP Connector fails a named semantic or scope requirement.
 
-### Basic Memory Local - headless fallback
+### Basic Memory Local - next focused provider pilot
 
-Remains the preferred fallback when Obsidian cannot remain running reliably, independent/headless operation is mandatory, or a safe project boundary cannot be achieved with the Obsidian-native stack.
+It is now the selected candidate for one bounded health and bilingual compatibility gate. The gate tests full rebuild, interrupted-rebuild state, English/Persian retrieval, filesystem freshness and minimum provider-specific isolation/Markdown safety. It is not accepted or integrated yet.
 
 ### Obsidian Memory MCP - not selected as authority
 
@@ -106,12 +123,13 @@ Its transparent Markdown entities and wikilinks are useful design references, bu
 - Windows `mcp-remote` behavior is irrelevant to this pilot because Soma must test direct loopback HTTP rather than editing external client configurations.
 - The plugin exposes open-world and write capabilities that must be disabled or excluded from the first phase.
 
-## Decision rule after the pilot
+## Current decision rule
 
-- Accept the Obsidian-native stack when local semantic retrieval, structured access, restart behavior, project isolation, rebuild and removal all pass.
-- Accept with only a minimal Soma binding guard when the provider passes but cannot itself reject missing Soma project identity.
-- Activate the preserved Basic Memory comparison only after a named headless, reliability, or isolation failure.
-- Do not move directly to Mem0, Cognee, Graphiti, Analogy or custom retrieval development.
+- Execute only `PILOT-BASIC-MEMORY-2`, hardest requirement first.
+- Accept a provider only when derived state can be deleted and rebuilt from Markdown, every eligible synthetic file is accounted for, and incomplete state cannot masquerade as healthy.
+- Permit only a minimal Soma binding/health/provenance guard after provider acceptance; do not implement provider behavior.
+- On Basic Memory rejection, perform one fresh bounded alternative discovery. Do not automatically install SeekLink, Obsidian Semantic MCP, a new MCP Connector release or a custom retriever.
+- Keep `PILOT-CODE-INTELLIGENCE-1` inactive until the memory result is documentation-closed.
 
 ## Official sources reviewed
 
