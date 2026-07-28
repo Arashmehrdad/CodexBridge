@@ -9,8 +9,8 @@
     "coding_agents": 0,
     "subagents": 0,
     "parallel_code_intelligence_pilot": false,
-    "second_design_approval_required": true,
-    "execution_trigger": "not_executable_until_reactivated_by_accepted_obsidian_pilot_result"
+    "second_design_approval_required": false,
+    "execution_trigger": "never_historical_gate_superseded_by_pilot_basic_memory_2"
   },
   "authority": {
     "canonical_content": "markdown_plus_git",
@@ -74,6 +74,7 @@
   "push_allowed": false,
   "execution_started": false,
   "active": false,
-  "superseded_by": "PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md",
-  "reactivation_condition": "accepted_named_obsidian_pilot_failure_requiring_headless_or_independent_access"
+  "superseded_by": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
+  "replacement_decision": "MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md",
+  "reactivation_condition": "never_historical_gate"
 }

@@ -1,14 +1,14 @@
 # PILOT-BASIC-MEMORY-1 - Ready-Made Local Memory Compatibility Gate
 
 **Date:** 2026-07-28
-**Status:** superseded before execution by [`PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md).
-**Decision source:** [`MEMORY_PROVIDER_DECISION_2026-07-28.md`](MEMORY_PROVIDER_DECISION_2026-07-28.md)
-**Scope:** disposable compatibility trial of official Basic Memory Local behavior only.
-
+**Status:** historical; superseded before execution by [`PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md).
+**Original decision source:** [`MEMORY_PROVIDER_DECISION_2026-07-28.md`](MEMORY_PROVIDER_DECISION_2026-07-28.md)
+**Replacement decision source:** [`MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md)
+**Scope:** preserved first-draft compatibility gate; it never executed.
 
 ## Supersession notice
 
-This gate remains preserved as a ready-made headless fallback comparison. It did not execute and authorizes no installation. It may become active only if `PILOT-OBSIDIAN-MCP-1` returns a named failure requiring independent or headless memory access.
+This gate did not execute and authorizes no installation. `PILOT-OBSIDIAN-MCP-1` later produced the named provider-health failures, but the resulting research materially changed the test design. The executable successor is `PILOT-BASIC-MEMORY-2`, which tests rebuild completeness and stale-success first, adds the four-direction English/Persian matrix, separates filesystem freshness from Obsidian link rewriting, and retains minimum provider-specific isolation and Markdown-integrity checks.
 
 ## Historical purpose
 
@@ -25,7 +25,7 @@ This is a product compatibility trial, not a model experiment. It includes no mo
 
 The historical pilot would have been executed by one controller through Soma using official provider commands and MCP tools, with no coding agent, subagent, or parallel Codebase Memory pilot.
 
-This historical gate is not executable through a generic `continue`. A separate accepted Obsidian-pilot result must explicitly reactivate it.
+This historical gate is not executable through a generic `continue` and cannot be reactivated. While the successor gate is active, a generic `continue` executes only `PILOT-BASIC-MEMORY-2`.
 
 ## Fixed boundaries
 
