@@ -143,19 +143,33 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 **Status:** superseded before provider-pilot execution. The historical Basic Memory-first decision remains in [`docs/MEMORY_PROVIDER_DECISION_2026-07-28.md`](docs/MEMORY_PROVIDER_DECISION_2026-07-28.md) and [`docs/memory-provider-decision-2026-07-28.json`](docs/memory-provider-decision-2026-07-28.json). No Basic Memory installation or pilot execution occurred under it.
 
+### MEMORY-PROVIDER-SOLUTION-DISCOVERY-2 - Trustworthy Local Project Memory
+
+**Status:** **accepted and documentation-closed; implementation has not started.** The authoritative decision is [`docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](docs/MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md), with machine-readable controls in [`docs/memory-provider-solution-discovery-2026-07-28.json`](docs/memory-provider-solution-discovery-2026-07-28.json).
+
+The decision preserves Markdown + Git as canonical, Obsidian as owner workspace and Soma as authority. It selects Basic Memory Local for one bounded compatibility pilot, preserves a materially changed MCP Connector release for later re-test, rejects parallel provider trials and custom retrieval, and treats provider state as disposable.
+
+The hardest requirement is tested first: delete all derived state, rebuild from unchanged Markdown, account for every eligible synthetic file, survive restart/interruption, and prove incomplete state cannot masquerade as healthy. The provider-independent black-box contract uses per-file lexical and semantic canaries, explicit OS-manifest versus provider accounting, a four-direction English/Persian matrix, filesystem create/edit/rename/delete freshness, and safe abstention. A single sentinel is not accepted as completeness proof, and an empty nonsense-query result is not treated as a dead index.
+
 ### OBSIDIAN-MCP-DECISION-1 - Obsidian-Native Memory Access
 
-**Status:** architecture ordering accepted and documentation-closed; the selected MCP Connector release was subsequently tested and rejected for the current lane. The decision record remains [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).
+**Status:** architecture accepted and documentation-closed; frozen MCP Connector release `0.28.1` was tested and rejected for the current provider lane. The reconciled decision is [`docs/OBSIDIAN_MCP_DECISION_2026-07-28.md`](docs/OBSIDIAN_MCP_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/obsidian-mcp-decision-2026-07-28.json`](docs/obsidian-mcp-decision-2026-07-28.json).
 
-The accepted order remains Markdown + Git as canonical content, Obsidian as owner workspace and first native runtime surface, and Soma as sole authority for project identity, vault binding, routing, provenance, continuity and acceptance. The current MCP Connector release is not accepted because the completed pilot found incomplete semantic-index rebuilds with stale-success reporting, broken link-aware rename and no working multilingual configuration.
+The decisive blockers are incomplete index rebuild, stale healthy success from the incomplete index and silent multilingual-model failure. The rename path remains unsafe as observed, but its root cause is not proven because the Obsidian automatic-link-update setting was not recorded. Core tool expansion is downgraded to a manageable integration weakness for the owner's single-user, loopback-only laptop and requires a future Soma allowlist rather than provider rejection by itself.
 
-The only permitted custom component remains a thin Soma binding and path/provenance guard. It may not implement storage, embeddings, ranking, semantic search, graph traversal or provider behavior.
+The only permitted custom component after provider acceptance is a thin Soma project-binding, health, tool-allowlist, path-validation and provenance guard with literal Markdown fallback. It may not implement storage, embeddings, ranking, semantic search, graph traversal or provider repair.
 
-### PILOT-BASIC-MEMORY-1 - Bounded Headless Comparison
+### PILOT-BASIC-MEMORY-1 - Historical First-Draft Gate
 
-**Status:** eligible for a narrowed future comparison but not executing. The preserved gate remains in [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md) and [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json).
+**Status:** superseded before execution and permanently inactive. The preserved historical gate remains in [`docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md) and [`docs/pilot-basic-memory-1-gate-2026-07-28.json`](docs/pilot-basic-memory-1-gate-2026-07-28.json). It cannot be reactivated.
 
-The Obsidian pilot activates comparison only for three named gaps: semantic-index rebuild completeness, multilingual retrieval and rename/link integrity. Basic Memory does not need to re-litigate MCP Connector's accepted evidence for authentication, sibling-vault isolation, English paraphrase retrieval or canonical Markdown integrity. No provider installation or execution is active.
+### PILOT-BASIC-MEMORY-2 - Provider Health and Bilingual Compatibility Gate
+
+**Status:** **gate prepared; execution has not started.** The authoritative gate is [`docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](docs/PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md), with machine-readable boundaries in [`docs/pilot-basic-memory-2-gate-2026-07-28.json`](docs/pilot-basic-memory-2-gate-2026-07-28.json).
+
+The gate uses one controller, no coding agents or subagents, two project-constrained Basic Memory processes, two disposable seven-note projects, per-file lexical and semantic canaries, one frozen local multilingual model, official full rebuild/reset commands, an interrupted-rebuild stale-success test, all four English/Persian query directions, OS create/edit/rename/delete freshness, minimum provider-specific omission/isolation/Markdown checks, three restart cycles and complete removal. It installs only inside `runs/pilots/basic-memory-2/`, touches no production memory or client configuration, performs no source patch or custom retrieval, and does not push.
+
+A subsequent owner instruction such as `continue` executes only this gate. Gate preparation itself authorizes no provider installation or production integration.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -163,7 +177,7 @@ The Obsidian pilot activates comparison only for three named gaps: semantic-inde
 
 The executed gate used one controller, two disposable project vaults, the community-store MCP Connector release, fixed Core tool loading, direct loopback HTTP with per-vault bearer authentication, command execution and web fetch disabled, native multilingual embeddings, Obsidian CLI and Bases checks, strict Soma-to-vault binding, external-edit and link-integrity checks, Windows restart checks, full semantic-index rebuild and clean uninstall. It includes no coding agents, subagents, custom retrieval, production memory, client auto-configuration or push.
 
-The provider passed loopback authentication, strict sibling isolation, English and Persian same-language paraphrase retrieval, structured access and Markdown survival. It was rejected after reproducible incomplete-index stale success, a self-expandable Core tool surface, broken/hanging link-aware rename and failure of the required multilingual model. Cleanup completed without loss of canonical Markdown.
+The provider passed loopback authentication, strict sibling isolation, English and Persian same-language paraphrase retrieval, structured access and Markdown survival. It was rejected because incomplete-index rebuild and stale healthy success reproduced, while the required multilingual path silently failed. Post-pilot review records the rename root cause as unproven and the Core expansion issue as manageable through a future Soma allowlist under the owner's actual threat model. Cleanup completed without loss of canonical Markdown.
 
 ### FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH - Parked Two-Speed Conversation
 
@@ -177,7 +191,7 @@ This research remains behind durable memory continuity and derived code intellig
 
 **Status:** **accepted as planned but inactive.** The authoritative boundary is [`docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md`](docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md), with machine-readable controls in [`docs/codebase-memory-mcp-decision-2026-07-28.json`](docs/codebase-memory-mcp-decision-2026-07-28.json).
 
-`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with Obsidian/MCP Connector, which cover owner-authored project knowledge and continuity; Basic Memory remains only the inactive headless fallback. It does not replace the repository, Git, `RepoWikiService`, or Soma authority.
+`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with the owner-authored project-memory lane. Basic Memory is the active prepared provider gate, not code intelligence, and neither provider replaces the repository, Git, `RepoWikiService`, canonical Markdown or Soma authority.
 
 A future `PILOT-CODE-INTELLIGENCE-1` may test a pinned, checksum-verified binary through an explicit Soma project/repository binding, with cache outside the repository, `CBM_ALLOWED_ROOT` enforced, auto-index and auto-watch disabled, no installer edits, no `manage_adr`, no committed graph artifact, no subagents, and no push. The pilot is not active.
 
@@ -194,4 +208,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1` is closed. `PILOT-BASIC-MEMORY-1` is eligible only as a narrowed comparison for the three named Obsidian failures and is not executing. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` is parked and creates no implementation authority. These lanes must not overlap. A generic `continue` does not install a provider, start voice or telephony work, revive a Roadmap V2 lane, start Roadmap V3 feature work, or authorize a push.
+`PILOT-OBSIDIAN-MCP-1` is closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `PILOT-BASIC-MEMORY-2` is the only prepared executable memory gate and is not yet running; a generic `continue` executes that gate only. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive until the Basic Memory result is documentation-closed. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` is parked and creates no implementation authority. No provider alternatives, code-intelligence pilot or voice work may overlap. A generic `continue` does not authorize production integration, Roadmap V3 feature work or push.
