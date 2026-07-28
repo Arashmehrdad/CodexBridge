@@ -329,6 +329,87 @@ def test_owner_authored_note_is_reported_not_treated_as_corruption(gateway):
     assert health["unadopted_count"] == 1
 
 
+def test_drift_is_reported_then_accepted_only_on_purpose(gateway):
+    """The whole repair path, through the public surface."""
+    mcp, _config, vault = gateway
+    saved = action(mcp, save_payload())
+
+    path = vault / "projects" / PROJECT_ID / "decisions" / "listener-port.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("ALPHACANARY", "ALPHACANARY EDITED"),
+        encoding="utf-8",
+    )
+    synced = action(
+        mcp, {"action": "memory_sync_provider", "scope": project_scope()}
+    )
+    assert synced["ok"] is True, synced.get("error")
+    assert synced["drifted_count"] == 1
+    assert synced["malformed_count"] == 0
+
+    health = query(mcp, {"operation": "memory_health", "scope": project_scope()})
+    assert health["canonical_health"] == "dirty"
+    assert health["drifted_paths"] == ["decisions/listener-port.md"]
+
+    # The record still answers, and says its provenance is unverified.
+    found = query(
+        mcp,
+        {
+            "operation": "memory_search",
+            "scope": project_scope(),
+            "query": "ALPHACANARY",
+        },
+    )
+    assert found["records"]
+    assert any("integrity hash" in warning for warning in found["warnings"])
+
+    # Accepting the *old* hash is refused: the caller must name what it adopts.
+    refused = action(
+        mcp,
+        {
+            "action": "memory_accept_drift",
+            "scope": project_scope(),
+            "knowledge_id": saved["memory_id"],
+            "accepted_sha256": saved["content_sha256"],
+        },
+    )
+    assert refused["ok"] is False
+    assert "re-read before accepting" in refused["error"]
+
+    current = query(
+        mcp,
+        {
+            "operation": "memory_get",
+            "scope": project_scope(),
+            "knowledge_id": saved["memory_id"],
+        },
+    )
+    accepted = action(
+        mcp,
+        {
+            "action": "memory_accept_drift",
+            "scope": project_scope(),
+            "knowledge_id": saved["memory_id"],
+            "accepted_sha256": _content_hash_on_disk(vault, path),
+            "reason": "owner reviewed the Obsidian edit",
+        },
+    )
+    assert accepted["ok"] is True, accepted.get("error")
+    assert accepted["revision"] == 2
+    assert "EDITED" in current["record"]["excerpt"]
+
+    settled = query(mcp, {"operation": "memory_health", "scope": project_scope()})
+    assert settled["canonical_health"] == "healthy"
+    assert settled["drifted_count"] == 0
+
+
+def _content_hash_on_disk(vault: Path, path: Path) -> str:
+    """The hash of the record as the file currently stands."""
+    from soma.knowledge.vault import MarkdownVault, content_hash
+
+    root = MarkdownVault(vault / "projects" / PROJECT_ID)
+    return content_hash(root.read(path))
+
+
 def test_context_packet_is_stored_and_retrievable_exactly(gateway):
     mcp, _config, _vault = gateway
     saved = action(mcp, save_payload())

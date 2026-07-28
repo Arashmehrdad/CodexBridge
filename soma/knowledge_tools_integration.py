@@ -1504,6 +1504,21 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "revision": record.revision,
                 }
 
+            if action == "memory_accept_drift":
+                record = service.accept_drift(
+                    request.knowledge_id,
+                    accepted_sha256=request.accepted_sha256,
+                )
+                return {
+                    **base,
+                    "memory_id": record.knowledge_id,
+                    "memory_type": f"{record.kind}_memory",
+                    "title": record.title,
+                    "status": record.status,
+                    "content_sha256": record.content_sha256,
+                    "revision": record.revision,
+                }
+
             if action in {
                 "memory_mark_disputed",
                 "memory_archive",
@@ -1564,6 +1579,7 @@ def register_knowledge_tools(mcp: Any) -> None:
             "memory_mark_disputed",
             "memory_archive",
             "memory_reject",
+            "memory_accept_drift",
             "memory_rebuild_index",
             "memory_sync_provider",
         }:

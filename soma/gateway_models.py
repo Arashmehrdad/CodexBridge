@@ -2481,6 +2481,26 @@ class MemoryLifecycleAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class MemoryAcceptDriftAction(GatewayModel):
+    """Adopt a drifted record's current content as canonical, deliberately.
+
+    Separate from `MemoryLifecycleAction` because it is not a lifecycle move and
+    its precondition is the opposite one: a lifecycle action names the hash it
+    expects to still hold, while this names the *new* hash being adopted. It is
+    deliberately not folded into `memory_rebuild_index`, because a rebuild that
+    repaired drift on its own would launder an out-of-band edit into canon.
+    """
+
+    action: Literal["memory_accept_drift"]
+    scope: MemoryScopeInput
+    knowledge_id: str = Field(min_length=1, max_length=128)
+    #: The hash of the content as it stands, which the caller is adopting.
+    accepted_sha256: str = Field(min_length=64, max_length=64)
+    reason: str = Field(default="", max_length=4000)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class MemoryRebuildIndexAction(GatewayModel):
     """Request a provider rebuild through the durable task authority."""
 
@@ -2510,6 +2530,7 @@ KnowledgeActionRequest = Annotated[
     | MemorySaveAction
     | MemorySupersedeAction
     | MemoryLifecycleAction
+    | MemoryAcceptDriftAction
     | MemoryRebuildIndexAction
     | MemorySyncProviderAction
     | ResearchImportSourceAction

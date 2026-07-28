@@ -1524,6 +1524,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
             "memory_mark_disputed",
             "memory_archive",
             "memory_reject",
+            "memory_accept_drift",
             "memory_rebuild_index",
             "memory_sync_provider",
         ),
@@ -1533,7 +1534,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes="Canonical memory mutations return stable identity, lifecycle and the integrity hash the next compare-and-swap needs; canonical Markdown remains exact evidence. Lifecycle transitions require the expected hash, and superseded is derived from a successor link rather than settable.",
+        notes="Canonical memory mutations return stable identity, lifecycle and the integrity hash the next compare-and-swap needs; canonical Markdown remains exact evidence. Lifecycle transitions require the expected hash, and superseded is derived from a successor link rather than settable. Integrity drift is reported by rebuild and health but never repaired by them: memory_accept_drift is the only path that restamps a record, and it names the new hash being adopted so an out-of-band edit cannot be laundered into canon by a rebuild.",
     ),
     _entry(
         "knowledge_action",

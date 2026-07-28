@@ -233,6 +233,48 @@ class CanonicalMemoryService:
         self._knowledge.catalog.upsert(updated)
         return updated
 
+    def accept_drift(
+        self, knowledge_id: str, *, accepted_sha256: str
+    ) -> KnowledgeRecord:
+        """Adopt a drifted record's current content as canonical, deliberately.
+
+        Drift means the stored hash no longer matches the file, and nothing in
+        the record says whether the writer was wrong or the file was edited
+        afterwards. Rebuild therefore reports drift and never repairs it: an
+        automatic restamp would launder an out-of-band edit into canon.
+
+        Acceptance is that judgement made explicitly, and it is narrow on
+        purpose:
+
+        - the record must actually be drifted, so this cannot be used as a
+          general-purpose way to rewrite an intact record's hash;
+        - `accepted_sha256` must equal the hash of the content *as it stands*,
+          so the caller names the exact bytes being adopted rather than
+          accepting whatever happens to be on disk at the moment the call
+          lands. A file that changes between reading and accepting is a
+          refusal, not a race.
+
+        Nothing about the content changes. Only the record's own claim about
+        its integrity is brought back into agreement with it.
+        """
+        current = self._knowledge.get(self._scope_project(), knowledge_id)
+        actual = content_hash(current)
+        if current.content_sha256 == actual:
+            raise MemoryWriteRefused(
+                f"record {knowledge_id} is not drifted; there is nothing to accept"
+            )
+        if accepted_sha256 != actual:
+            raise MemoryConflict(
+                f"record {knowledge_id} now hashes to {actual[:16]}... but the caller "
+                f"accepted {accepted_sha256[:16]}...; re-read before accepting"
+            )
+        accepted = current.model_copy(update={"updated_at": _now()})
+        accepted.revision = current.revision + 1
+        accepted.content_sha256 = actual
+        self._knowledge.vault.write(accepted)
+        self._knowledge.catalog.upsert(accepted)
+        return self._stamp(accepted)
+
     def set_status(
         self, knowledge_id: str, status: str, *, expected_sha256: str
     ) -> KnowledgeRecord:

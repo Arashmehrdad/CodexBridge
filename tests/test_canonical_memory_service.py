@@ -367,6 +367,82 @@ def test_a_drifted_record_is_still_returned_but_search_says_so(service, tmp_path
     assert outcome.canonical_health == "dirty"
 
 
+# ----------------------------------------------------------------------
+# explicit drift acceptance
+
+
+def _drift(service, tmp_path, replacement="port 9999"):
+    """Save a record, then edit its file out of band so it drifts."""
+    saved = service.save(note(idempotency_key="k1"))
+    path = tmp_path / "vault" / saved.vault_path
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("port 8801", replacement),
+        encoding="utf-8",
+    )
+    service.knowledge.rebuild(PROJECT_ID)
+    return saved
+
+
+def test_accepting_drift_restamps_only_the_hash(service, tmp_path):
+    from soma.knowledge.vault import content_hash, integrity_drift
+
+    saved = _drift(service, tmp_path)
+    drifted = service.get(saved.knowledge_id)
+    assert integrity_drift(drifted)
+
+    accepted = service.accept_drift(
+        saved.knowledge_id, accepted_sha256=content_hash(drifted)
+    )
+
+    assert not integrity_drift(accepted)
+    assert accepted.revision == saved.revision + 1
+    # The content is adopted, not altered.
+    assert accepted.body == drifted.body
+    assert "port 9999" in accepted.body
+    assert service.knowledge.health(PROJECT_ID).drifted_count == 0
+    assert service.knowledge.health(PROJECT_ID).status == "healthy"
+
+
+def test_accepting_a_stale_hash_is_refused_not_raced(service, tmp_path):
+    """A file that changes between reading and accepting is a refusal."""
+    from soma.knowledge.vault import content_hash
+
+    saved = _drift(service, tmp_path)
+    stale = content_hash(service.get(saved.knowledge_id))
+
+    path = tmp_path / "vault" / saved.vault_path
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("port 9999", "port 7777"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryConflict, match="re-read before accepting"):
+        service.accept_drift(saved.knowledge_id, accepted_sha256=stale)
+
+
+def test_accepting_an_intact_record_is_refused(service):
+    """Not a general-purpose way to rewrite an undrifted record's hash."""
+    from soma.knowledge.vault import content_hash
+
+    saved = service.save(note(idempotency_key="k1"))
+    with pytest.raises(MemoryWriteRefused, match="not drifted"):
+        service.accept_drift(
+            saved.knowledge_id, accepted_sha256=content_hash(saved)
+        )
+
+
+def test_rebuild_never_repairs_drift_on_its_own(service, tmp_path):
+    """Repair must stay an explicit act, or a rebuild launders external edits."""
+    from soma.knowledge.vault import integrity_drift
+
+    saved = _drift(service, tmp_path)
+    for _ in range(3):
+        service.knowledge.rebuild(PROJECT_ID)
+
+    assert integrity_drift(service.get(saved.knowledge_id))
+    assert service.knowledge.health(PROJECT_ID).drifted_count == 1
+
+
 def test_single_term_miss_does_not_add_the_phrasing_warning(service):
     """One term that genuinely is not there is a real absence, not a phrasing hint."""
     service.save(note(idempotency_key="k1"))
