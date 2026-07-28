@@ -1,0 +1,210 @@
+{
+  "schema_version": "pilot_basic_memory_2_results.v1",
+  "date": "2026-07-28",
+  "gate": "PILOT-BASIC-MEMORY-2",
+  "gate_source": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
+  "status": "executed_all_phases_completed",
+  "outcome": "accept_with_minimal_soma_health_and_binding_guard",
+  "execution": {
+    "controller_count": 1,
+    "coding_agents": 0,
+    "subagents": 0,
+    "parallel_provider_pilots": false,
+    "parallel_code_intelligence_pilot": false,
+    "pushed": false
+  },
+  "repository_preflight": {
+    "head_at_start": "e3b322d26f0bf910dc35b256d1a27a34b55bda64",
+    "worktree_clean": true,
+    "running_runs": 0,
+    "queued_runs": 0,
+    "locks": 0,
+    "capability_epoch": "1632dc6ed895-42bdb69d96fb",
+    "pushed": false
+  },
+  "frozen_provider_release": {
+    "name": "basic-memory",
+    "version": "0.22.1",
+    "license": "AGPL-3.0-or-later",
+    "source": "PyPI official",
+    "upload_time": "2026-06-13T03:35:17Z",
+    "wheel_sha256": "066057bdd0ec50c6ba88a4f8e6104b52f192000932f97aab3a0408a69598cd46",
+    "sdist_sha256": "d44115cf38dc6d88936218278ed840b449e57f90065820fb98f5dd293299a87e",
+    "downloaded_wheel_hash_verified": true,
+    "auto_update_disabled": true,
+    "provider_source_modified": false,
+    "isolated_install_root": "runs/pilots/basic-memory-2",
+    "soma_venv_modified": false,
+    "path_modified": false
+  },
+  "frozen_model": {
+    "provider": "fastembed 0.8.0",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "dimensions": 384,
+    "languages": "~50 including Persian",
+    "hosted_api_used": false,
+    "e5_rejected_reason": "intfloat/multilingual-e5-large requires query:/passage: prefixes; Basic Memory exposes prefix control only via semantic_embedding_*_input_type, documented as LiteLLM-only and ignored by the fastembed provider. Running E5 unprefixed would handicap the provider."
+  },
+  "frozen_corpus": {
+    "total_notes": 14,
+    "per_project": 7,
+    "zero_content_notes": 2,
+    "eligible_for_known_hit": 12,
+    "semantic_questions": 9,
+    "corpus_hash": "053536d75d94a15925f7fc080176444e52624e657d0dfaa9a339eb93caf6aa58",
+    "questions_hash": "35d323e45b910cdab5c7147ca9a829fe621b6b3be06af5e60ecebf823d753e14",
+    "canaries_hash": "52cad677db36b8e288df54e8842c1e581571d543b1569dccba5bb0d09a245295",
+    "final_markdown_state_hash": "657f9ccfab6bc92698ded1246bfa4c9cd655a74201ed9392dd3c9a1667cc8e3f",
+    "frozen_before_any_query": true,
+    "question_leakage": "none"
+  },
+  "projects": [
+    {
+      "provider_name": "soma-pilot",
+      "soma_project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "notes": 7,
+      "entities_indexed": 7,
+      "process_constraint": "BASIC_MEMORY_MCP_PROJECT=soma-pilot"
+    },
+    {
+      "provider_name": "soma-lab-pilot",
+      "soma_project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "notes": 7,
+      "entities_indexed": 7,
+      "process_constraint": "BASIC_MEMORY_MCP_PROJECT=soma-lab-pilot"
+    }
+  ],
+  "passed": {
+    "complete_rebuild_from_markdown": "Deleted memory.db entirely. bm reindex --full restored 7/7 entities per project (0 skipped, 0 errors) in ~5.5s each. Lexical 12/12 rank-1 and semantic 9/9 top-3 identical before and after. THE REQUIREMENT THAT KILLED MCP CONNECTOR.",
+    "no_stale_healthy_success": "Interrupted a rebuild at 2.4s leaving a genuinely partial index (6 of 14 entities). bm status reported 3 pending changes; a known-hit lexical probe for a note that must exist returned 0 hits; semantic returned 0 hits. The provider FAILED CLOSED rather than answering from a partial index.",
+    "full_recovery_after_interruption": "Official bm reindex --full restored 14/14 entities, lexical 12/12, semantic 9/9.",
+    "lexical_known_hits": "12/12 eligible notes returned themselves at rank 1 for their cryptographic canary; the 2 zero-content notes correctly returned 0 hits (explicit zero-content accounting).",
+    "black_box_completeness_probe": "A threshold-0 nonsense query returned all 7 notes in each project, proving every file including the zero-content note holds a live embedding.",
+    "bilingual_matrix_all_four_directions": "At the calibrated threshold all four directions returned the intended note at rank 1: en->en, fa->fa (0.462), fa->en (0.540), en->fa (0.558).",
+    "sibling_isolation": "Zero cross-project results in every query across all phases. The same ambiguous question answered from soma-pilot/service-endpoint in A and soma-lab-pilot/lab-service-endpoint in B.",
+    "safe_abstention": "The fixed nonsense query returned 0 results at both the default 0.55 and the calibrated 0.30 threshold.",
+    "filesystem_freshness": "OS create, edit, rename and delete were all correctly reflected after the official reindex, including the deleted file disappearing from results.",
+    "restart_stability": "Three stop/start cycles produced byte-identical representative results: lexical rank 1, all three bilingual directions rank 1, zero leakage.",
+    "constrained_mcp_process": "bm mcp starts a FastMCP 3.3.1 stdio server constrained by BASIC_MEMORY_MCP_PROJECT.",
+    "markdown_human_readable_and_git_compatible": "Frontmatter remains plain YAML, wikilinks survive every rebuild, files stay ordinary Markdown.",
+    "clean_removal": "Provider runtime, databases, embeddings, caches and config all removed. No processes, no PATH change (35 entries before and after), nothing in Soma's .venv, no basic-memory directory in home or AppData, claude_desktop_config.json untouched since 2026-07-25."
+  },
+  "failed_or_requires_guard": [
+    {
+      "id": "project-omission-fails-open",
+      "severity": "high",
+      "requirement": "omitted or wrong project identity cannot silently route to the sibling project",
+      "observed": "With default_project explicitly set to null, omitting --project still returned 3 results from soma-pilot with exit 0. Omission did not fail closed.",
+      "guard_role": "omission_and_wrong_project_rejection"
+    },
+    {
+      "id": "unknown-project-attempts-cloud-routing",
+      "severity": "high",
+      "requirement": "local mode only; no cloud routing",
+      "observed": "An unknown project name produced: 'Cloud routing requested but no credentials found. Run bm cloud api-key save <key> or bm cloud login first.' It failed closed only because no credentials exist on this host. The fallback path for an unresolvable project is cloud, not refusal.",
+      "guard_role": "exact_project_provider_process_root_binding"
+    },
+    {
+      "id": "similarity-threshold-not-calibrated-per-model",
+      "severity": "medium",
+      "requirement": "bilingual retrieval works with a supported local multilingual model",
+      "observed": "semantic_min_similarity defaults to 0.55, calibrated for the default English bge-small-en-v1.5. With the required multilingual model, correct answers score 0.311-0.558, so only 1 of 9 questions returned anything at the default. At a threshold derived from the measured nonsense-query noise ceiling (0.238) plus margin -> 0.30, all 9 returned the intended note at rank 1. Basic Memory provides no per-model calibration or documented recommended threshold.",
+      "important_qualifier": "This is fail-closed (empty results), never a confident wrong answer.",
+      "guard_role": "semantic_fail_closed_when_completeness_unproven"
+    },
+    {
+      "id": "bm-status-wait-livelocks",
+      "severity": "medium",
+      "requirement": "Windows reliability; no hangs",
+      "observed": "bm status --wait polls get_project_status roughly every 0.6s. Each poll restarts a 'First sync for this project, performing full scan' that finds the same 7 new files and never applies them. It never converges when no indexer process is running; 124s of CPU burned before it was stopped, and it would have run to its full timeout. bm reindex is the working sync path.",
+      "guard_role": "avoid_status_wait_as_a_sync_trigger"
+    },
+    {
+      "id": "provider-modifies-canonical-markdown",
+      "severity": "medium",
+      "requirement": "canonical Markdown remains byte-identical",
+      "observed": "On first sync the provider rewrote all 14 notes, adding a 'permalink:' key to frontmatter and unquoting the 'title' value (ensure_frontmatter_on_sync defaults true). 0 of 14 files are byte-identical to the frozen corpus.",
+      "important_qualifier": "The result is human-readable, Git-compatible and non-destructive to note bodies. It is a mutation of owner content, not corruption. Phase C's byte-identical result was measured relative to this already-mutated state, so it proves rebuild stability - repeated rebuilds change nothing further - but NOT that the provider never writes to canonical files.",
+      "guard_role": "declare_permalink_injection_or_disable_ensure_frontmatter_on_sync"
+    },
+    {
+      "id": "windows-install-needs-dependency-pin",
+      "severity": "medium",
+      "requirement": "isolated installation without a global compiler",
+      "observed": "Default resolution selects litellm 1.93.0, which publishes only manylinux wheels. On Windows pip must build its sdist, which requires a Rust toolchain and fails. Pinned to litellm 1.91.4, the newest stable version inside basic-memory's own declared range >=1.60.0,<2.0.0 that ships a pure-Python wheel.",
+      "important_qualifier": "No Rust toolchain was installed by this pilot; the pre-existing .cargo and .rustup directories were not touched.",
+      "guard_role": "pin_litellm_in_any_future_install_recipe"
+    },
+    {
+      "id": "doctor-is-not-a-completeness-oracle",
+      "severity": "medium",
+      "requirement": "official consistency check reflects project health",
+      "observed": "bm doctor reported 'Doctor checks passed' while the two pilot projects held a partial 6-of-14 index. It validates the write/sync/search mechanism using its own scratch project rather than auditing existing project completeness. It also left a doctor-fbb52e2a project directory behind.",
+      "guard_role": "os_manifest_vs_provider_coverage_health_check"
+    },
+    {
+      "id": "config-database-divergence",
+      "severity": "low",
+      "observed": "config.json listed a 'main' project pointing at C:\\Users\\arash\\basic-memory while 'bm project remove main' returned \"Project not found: 'main'\". The JSON config and the project database disagreed about which projects exist.",
+      "note": "The C:\\Users\\arash\\basic-memory directory was created at 06:11 by an earlier removed probe, not by this pilot, and remained empty."
+    },
+    {
+      "id": "default-search-blends-semantic",
+      "severity": "low",
+      "observed": "search-notes without a mode flag is not pure lexical FTS; it blends semantic scoring. At the lowered 0.30 threshold, exact-canary searches returned 3-5 loosely related results from the SAME project alongside the correct rank-1 hit. No cross-project result ever appeared.",
+      "guard_role": "returned_path_validation"
+    }
+  ],
+  "required_soma_guard": {
+    "justified": true,
+    "roles_needed": [
+      "exact_project_provider_process_root_binding",
+      "omission_and_wrong_project_rejection",
+      "os_manifest_vs_provider_coverage_health_check",
+      "semantic_fail_closed_when_completeness_unproven",
+      "exact_tool_allowlist",
+      "returned_path_validation"
+    ],
+    "roles_not_needed": [
+      "literal_markdown_fallback_is_optional_because_lexical_search_is_reliable"
+    ],
+    "forbidden_and_not_implemented": [
+      "storage", "embeddings", "ranking", "semantic_search", "graph_traversal", "provider_repair"
+    ]
+  },
+  "boundaries_preserved": {
+    "global_install": false,
+    "soma_venv_modified": false,
+    "path_or_shell_profile_modified": false,
+    "global_mcp_or_client_config_modified": false,
+    "cloud_or_remote_sync_used": false,
+    "hosted_embedding_api_used": false,
+    "telemetry_enabled": false,
+    "private_or_production_memory_used": false,
+    "provider_source_patched": false,
+    "custom_retrieval_implemented": false,
+    "live_project_scope_mutated": false,
+    "soma_stores_mutated": false,
+    "soma_wiki_touched": false,
+    "hermes_memory_touched": false,
+    "mcp_schema_changed": false,
+    "repository_source_files_changed": false,
+    "parallel_provider_pilot": false,
+    "pushed": false
+  },
+  "cleanup": {
+    "provider_runtime_removed": true,
+    "databases_and_embeddings_removed": true,
+    "caches_removed": true,
+    "disposable_projects_removed": true,
+    "evidence_hashes_recorded_before_removal": true,
+    "processes_remaining": 0,
+    "residue_outside_approved_root": "none",
+    "home_directory_basic_memory_dirs": "none created by this pilot"
+  },
+  "after_this_gate": {
+    "production_integration_authorized": false,
+    "next_permitted_step": "prepare a minimal Soma adapter/health-guard decision only",
+    "code_intelligence_pilot": "remains inactive until this result is documentation-closed"
+  }
+}

@@ -1,0 +1,211 @@
+{
+  "schema_version": "pilot_basic_memory_2_corpus.v1",
+  "date": "2026-07-28",
+  "frozen_before_any_query": true,
+  "projects": {
+    "soma-pilot": {
+      "soma_project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+      "root": "D:\\Github\\Soma\\runs\\pilots\\basic-memory-2\\projects\\soma-pilot",
+      "notes": 7,
+      "port": 8801,
+      "concurrency": 4,
+      "retention_days": 90
+    },
+    "soma-lab-pilot": {
+      "soma_project_id": "proj_0cf013d0-191b-57f4-a84b-7a43819a1578",
+      "root": "D:\\Github\\Soma\\runs\\pilots\\basic-memory-2\\projects\\soma-lab-pilot",
+      "notes": 7,
+      "port": 9142,
+      "concurrency": 12,
+      "retention_days": 7
+    }
+  },
+  "total_notes": 14,
+  "zero_content_notes": [
+    "soma-pilot/frontmatter-only.md",
+    "soma-lab-pilot/lab-frontmatter-only.md"
+  ],
+  "eligible_for_known_hit": [
+    "soma-pilot/service-endpoint.md",
+    "soma-pilot/worker-ceiling.md",
+    "soma-pilot/retention-policy.md",
+    "soma-pilot/recovery-runbook.md",
+    "soma-pilot/backup-verification.md",
+    "soma-pilot/volatile-note.md",
+    "soma-lab-pilot/lab-service-endpoint.md",
+    "soma-lab-pilot/lab-worker-ceiling.md",
+    "soma-lab-pilot/lab-retention-policy.md",
+    "soma-lab-pilot/lab-recovery-runbook.md",
+    "soma-lab-pilot/lab-backup-verification.md",
+    "soma-lab-pilot/lab-volatile-note.md"
+  ],
+  "canaries": {
+    "service-endpoint.md": "CANARY67601EDF68F0A5A0",
+    "worker-ceiling.md": "CANARYBCAC75FC192C452A",
+    "retention-policy.md": "CANARY9F426AC2FE2D4EBD",
+    "recovery-runbook.md": "CANARYF129A668BDCBD4F9",
+    "backup-verification.md": "CANARYE459872B5916E3A6",
+    "frontmatter-only.md": "CANARY9C27F62C01CE2449",
+    "volatile-note.md": "CANARY9C5D25BDE2EB1083",
+    "lab-service-endpoint.md": "CANARYF2A5D34C87062B3E",
+    "lab-worker-ceiling.md": "CANARY7D732CE0322CB104",
+    "lab-retention-policy.md": "CANARY352E6A36BD06910A",
+    "lab-recovery-runbook.md": "CANARY40DDB2C3890692C4",
+    "lab-backup-verification.md": "CANARYD18F7817CC0DCDC0",
+    "lab-frontmatter-only.md": "CANARY586CFA46ABC2B41B",
+    "lab-volatile-note.md": "CANARY34DE35E77A59A312"
+  },
+  "semantic_concepts": {
+    "soma-pilot/service-endpoint.md": "inbound-connection-port",
+    "soma-pilot/worker-ceiling.md": "simultaneous-work-limit",
+    "soma-pilot/retention-policy.md": "how-long-records-are-kept",
+    "soma-pilot/recovery-runbook.md": "steps-after-a-crash",
+    "soma-pilot/backup-verification.md": "proving-a-copy-can-be-opened",
+    "soma-pilot/volatile-note.md": "reserved-for-filesystem-operations",
+    "soma-lab-pilot/lab-service-endpoint.md": "lab-inbound-connection-port",
+    "soma-lab-pilot/lab-worker-ceiling.md": "lab-simultaneous-work-limit",
+    "soma-lab-pilot/lab-retention-policy.md": "lab-how-long-records-are-kept",
+    "soma-lab-pilot/lab-recovery-runbook.md": "lab-steps-after-a-crash",
+    "soma-lab-pilot/lab-backup-verification.md": "lab-proving-a-copy-can-be-opened",
+    "soma-lab-pilot/lab-volatile-note.md": "lab-reserved-for-filesystem-operations"
+  },
+  "link_expectations": {
+    "soma-pilot/service-endpoint.md": [
+      "Worker Ceiling"
+    ],
+    "soma-pilot/worker-ceiling.md": [
+      "Service Endpoint"
+    ],
+    "soma-pilot/retention-policy.md": [
+      "بازیابی پس از خرابی"
+    ],
+    "soma-pilot/recovery-runbook.md": [
+      "سیاست نگهداشت"
+    ],
+    "soma-pilot/backup-verification.md": [
+      "Service Endpoint"
+    ],
+    "soma-pilot/frontmatter-only.md": [
+      "Service Endpoint"
+    ],
+    "soma-pilot/volatile-note.md": [
+      "Service Endpoint"
+    ],
+    "soma-lab-pilot/lab-service-endpoint.md": [
+      "Lab Worker Ceiling"
+    ],
+    "soma-lab-pilot/lab-worker-ceiling.md": [
+      "Lab Service Endpoint"
+    ],
+    "soma-lab-pilot/lab-retention-policy.md": [
+      "بازیابی آزمایشگاه"
+    ],
+    "soma-lab-pilot/lab-recovery-runbook.md": [
+      "سیاست نگهداشت آزمایشگاه"
+    ],
+    "soma-lab-pilot/lab-backup-verification.md": [
+      "Lab Service Endpoint"
+    ],
+    "soma-lab-pilot/lab-frontmatter-only.md": [
+      "Lab Service Endpoint"
+    ],
+    "soma-lab-pilot/lab-volatile-note.md": [
+      "Lab Service Endpoint"
+    ]
+  },
+  "questions": [
+    {
+      "id": "sem-a-01",
+      "project": "soma-pilot",
+      "lang": "en",
+      "direction": "en_note_en_query",
+      "q": "which number does the service listen on for incoming traffic",
+      "expect": "service-endpoint.md"
+    },
+    {
+      "id": "sem-a-02",
+      "project": "soma-pilot",
+      "lang": "en",
+      "direction": "en_note_en_query",
+      "q": "how many tasks are allowed to run together",
+      "expect": "worker-ceiling.md"
+    },
+    {
+      "id": "sem-a-03",
+      "project": "soma-pilot",
+      "lang": "fa",
+      "direction": "fa_note_fa_query",
+      "q": "سوابق تا چه مدتی نگه داشته می‌شوند",
+      "expect": "retention-policy.md"
+    },
+    {
+      "id": "sem-a-04",
+      "project": "soma-pilot",
+      "lang": "en",
+      "direction": "fa_note_en_query",
+      "q": "what should be done to restore service after a failure",
+      "expect": "recovery-runbook.md"
+    },
+    {
+      "id": "sem-a-05",
+      "project": "soma-pilot",
+      "lang": "fa",
+      "direction": "en_note_fa_query",
+      "q": "چگونه از درستی یک نسخه پشتیبان مطمئن شویم",
+      "expect": "backup-verification.md"
+    },
+    {
+      "id": "sem-a-06",
+      "project": "soma-pilot",
+      "lang": "en",
+      "direction": "en_note_en_query",
+      "q": "which note is set aside for file operations",
+      "expect": "volatile-note.md"
+    },
+    {
+      "id": "sem-b-01",
+      "project": "soma-lab-pilot",
+      "lang": "en",
+      "direction": "en_note_en_query",
+      "q": "which number does the service listen on for incoming traffic",
+      "expect": "lab-service-endpoint.md"
+    },
+    {
+      "id": "sem-b-02",
+      "project": "soma-lab-pilot",
+      "lang": "en",
+      "direction": "en_note_en_query",
+      "q": "how many tasks are allowed to run together",
+      "expect": "lab-worker-ceiling.md"
+    },
+    {
+      "id": "sem-b-03",
+      "project": "soma-lab-pilot",
+      "lang": "fa",
+      "direction": "fa_note_fa_query",
+      "q": "سوابق تا چه مدتی نگه داشته می‌شوند",
+      "expect": "lab-retention-policy.md"
+    }
+  ],
+  "nonsense_query": "zqxjvbkw plinth marmalade turbine gerund",
+  "volatile_note": "soma-pilot/volatile-note.md",
+  "file_hashes": {
+    "soma-pilot/service-endpoint.md": "ea8b067be86ce46ba3edea6134822562e0509d8ea8a8ed1a4ad713f560c25a61",
+    "soma-pilot/worker-ceiling.md": "798edcae5520ab99fe9325a2172e9e8b72524a51283373f8813b1c9df88b44e8",
+    "soma-pilot/retention-policy.md": "720867fce26c8500d8cb374cbc53718e003129440d40059c07096fec13051534",
+    "soma-pilot/recovery-runbook.md": "7bd1b49f9947a85e114c8a1c4a52f9de76a63da09c2e3ced212f4b54414ed06f",
+    "soma-pilot/backup-verification.md": "0c85a10fd2fdbe58888e105fd053ddb5fbbe3ac5ca356e4877d6ad0247680139",
+    "soma-pilot/frontmatter-only.md": "94f608a49b7c037a3153524bc7ea2c0248b645bffab40b1cd05423fdd4a2d720",
+    "soma-pilot/volatile-note.md": "658b0424684de5bf23a34b28dd3e6f867560cbe8c06dd5c2787c7c7c15d6e57c",
+    "soma-lab-pilot/lab-service-endpoint.md": "8ba118abbf6931f3a6fa52029003ca78f35a620c88f1ac6e7b7291d2ea62052b",
+    "soma-lab-pilot/lab-worker-ceiling.md": "914432b869ff2107d9930f23e115be0b9ca1a1ced85b265f8a1543ed09090243",
+    "soma-lab-pilot/lab-retention-policy.md": "fe3d7134bf35eeeb0874d2519c933a21b9974c884114f5a0ab1564197759c817",
+    "soma-lab-pilot/lab-recovery-runbook.md": "cf3a48032cc50f30cc3d5afeeba0d83b80eddc2a2f48ce7ce403cb53ec68583c",
+    "soma-lab-pilot/lab-backup-verification.md": "8b273d8b3be8844a999112f2f1387e73a1e298fe35ac160a1373ebb332a0cfc6",
+    "soma-lab-pilot/lab-frontmatter-only.md": "47925920abee9c7482baa708b43392b4441243b1a5b0e77122f31b5b80b8237b",
+    "soma-lab-pilot/lab-volatile-note.md": "89f71cdf5504f00b51d31cab2adb104338f4d712a675d97951cda0609ab8269a"
+  },
+  "corpus_hash": "053536d75d94a15925f7fc080176444e52624e657d0dfaa9a339eb93caf6aa58",
+  "questions_hash": "35d323e45b910cdab5c7147ca9a829fe621b6b3be06af5e60ecebf823d753e14",
+  "canaries_hash": "52cad677db36b8e288df54e8842c1e581571d543b1569dccba5bb0d09a245295"
+}
