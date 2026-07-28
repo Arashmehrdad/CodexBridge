@@ -137,15 +137,17 @@ Memory, Hermes and other external sessions, worktrees, credentials, other legacy
 
 ### PILOT-MEMORY-1B - Hardened Shadow Benchmark
 
-**Status:** closed on 2026-07-28 as an **overbuilt experimental detour**. The committed evidence is retained, but no Agent 2 correction, score expansion, two-day observation, or custom retrieval development is authorized. The only accepted finding is that literal lexical retrieval is insufficient for several paraphrased questions. `soma/pilot_memory_1b/` remains non-production experiment code and must not become a Soma memory engine.
+**Status:** closed on 2026-07-28 as an overbuilt experiment. Its committed evidence is retained, but no Agent 2 review, score expansion, observation period, custom retrieval development, or production use is authorized. The package under `soma/pilot_memory_1b/` is historical evidence only.
 
-### PILOT-BASIC-MEMORY-1 - Ready-Made Local Memory Provider
+### MEMORY-DECISION-1 - Ready-Made Memory Provider Selection
 
-**Status:** **active and owner-authorized.** The accepted decision and bounded no-code pilot are recorded in [`docs/MEMORY_ADOPTION_DECISION_AND_BASIC_MEMORY_PILOT_2026-07-28.md`](docs/MEMORY_ADOPTION_DECISION_AND_BASIC_MEMORY_PILOT_2026-07-28.md), with machine-readable boundaries in [`docs/memory-adoption-decision-and-basic-memory-pilot-2026-07-28.json`](docs/memory-adoption-decision-and-basic-memory-pilot-2026-07-28.json).
+**Status:** **accepted and documentation-closed.** The authoritative decision is [`docs/MEMORY_PROVIDER_DECISION_2026-07-28.md`](docs/MEMORY_PROVIDER_DECISION_2026-07-28.md), with machine-readable disposition in [`docs/memory-provider-decision-2026-07-28.json`](docs/memory-provider-decision-2026-07-28.json).
 
-Basic Memory Local `0.22.1` is the first ready-made provider candidate; Obsidian is the owner-facing editor over the same Markdown. Soma retains exact project identity, provider binding, provenance, routing, and acceptance authority. The provider runs pinned and locally in an isolated disposable configuration/project root, with local semantic search, cloud disabled, telemetry/promotions disabled, no automatic upgrade, and no production memory integration.
+The selected architecture is Markdown + Git as canonical content, Obsidian as the owner-facing workspace, Basic Memory Local as the first ready-made AI memory provider candidate, and Soma as the sole authority for project identity, provider binding, routing, provenance, continuity, and acceptance. Mem0 is not selected for canonical project memory; Cognee is deferred until a named graph-reasoning gap; a custom Soma retrieval engine is rejected.
 
-One controller executes a short pass/fail product-fit trial using official Basic Memory tools. No subagents, custom evaluator, retrieval code, provider source modification, live Soma/Hermes/MCP/ProjectScope change, owner-memory import, or push is allowed. Failure advances one different ready-made candidate; it does not authorize custom construction.
+A premature disposable Basic Memory probe was removed completely and is not acceptance evidence. No provider installation, persistent provider state, production memory, MCP integration, owner-memory import, subagent work, or push is active.
+
+**Next recommended lane:** `PILOT-BASIC-MEMORY-1`, a future single-controller official-tool compatibility trial. It is not active and requires a separate owner instruction.
 
 ## Prerequisites Before Autonomous Scheduled Agent Work
 
@@ -160,4 +162,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-BASIC-MEMORY-1` is the only active bridge lane. A generic `continue` may advance its bounded local product-fit trial but does not activate production memory, integrate a provider into Soma, revive a Roadmap V2 lane, or start Roadmap V3 feature work.
+No implementation lane is active after `MEMORY-DECISION-1`. The next recommended lane is `PILOT-BASIC-MEMORY-1`, but it does not begin without a separate owner instruction. A generic `continue` does not install a provider, activate production memory, integrate memory into Soma, revive a Roadmap V2 lane, or start Roadmap V3 feature work.

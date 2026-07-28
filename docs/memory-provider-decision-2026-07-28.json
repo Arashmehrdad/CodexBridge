@@ -1,0 +1,50 @@
+{
+  "schema_version": "memory_provider_decision.v1",
+  "date": "2026-07-28",
+  "status": "accepted_documentation_closed",
+  "implementation_lane_active": false,
+  "decision": {
+    "canonical_content": "markdown_plus_git",
+    "owner_ui": "Obsidian",
+    "selected_provider": "Basic Memory Local",
+    "provider_status": "selected_for_future_bounded_pilot_not_activated",
+    "soma_remains_authority": true,
+    "provider_index_disposable": true,
+    "default_project_fallback_trusted": false,
+    "provider_process_constraint_required": true
+  },
+  "candidates": {
+    "obsidian": {
+      "decision": "selected_as_owner_ui_not_provider",
+      "reason": "local_markdown_workspace_without_complete_cross_agent_mcp_memory_boundary"
+    },
+    "basic_memory_local": {
+      "decision": "selected_for_future_pilot",
+      "reason": "markdown_first_local_mcp_semantic_search_explicit_project_uuid_and_rebuildable_index"
+    },
+    "mem0": {
+      "decision": "not_selected_for_canonical_project_memory",
+      "reason": "application_memory_engine_requires_llm_embedding_and_vector_infrastructure"
+    },
+    "cognee": {
+      "decision": "deferred_until_named_graph_reasoning_gap",
+      "reason": "relational_vector_graph_and_llm_pipeline_is_heavier_than_current_need"
+    },
+    "custom_soma_retrieval": {
+      "decision": "rejected",
+      "reason": "duplicates_ready_made_provider_capabilities_and_creates_new_memory_engine"
+    }
+  },
+  "premature_probe": {
+    "status": "removed_not_acceptance_evidence",
+    "path_removed": "runs/pilots/basic-memory-1",
+    "production_state_created": false,
+    "remaining_provider_state": false
+  },
+  "next_recommended_lane": "PILOT-BASIC-MEMORY-1",
+  "next_lane_active": false,
+  "subagents_authorized": false,
+  "provider_installation_authorized": false,
+  "production_activation": false,
+  "push_allowed": false
+}
