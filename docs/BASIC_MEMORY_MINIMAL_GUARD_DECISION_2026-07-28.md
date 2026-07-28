@@ -1,7 +1,7 @@
 # BASIC-MEMORY-GUARD-1 — Minimal Soma Binding and Health Guard
 
 **Date:** 2026-07-28
-**Status:** accepted architecture decision; implementation has not started.
+**Status:** architecture accepted; guard implemented and unit-accepted; bounded live-provider production-readiness confirmation pending.
 **Decision level:** C — foundational durability and continuity boundary.
 **Evidence source:** [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md)
 **Machine-readable controls:** [`basic-memory-minimal-guard-decision-2026-07-28.json`](basic-memory-minimal-guard-decision-2026-07-28.json)

@@ -191,13 +191,17 @@ No production integration begins from the pilot result alone.
 
 ### BASIC-MEMORY-GUARD-1 - Minimal Soma Binding and Health Guard
 
-**Status:** **accepted architecture decision; implementation has not started.** The authoritative boundary is [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md), with machine-readable controls in [`docs/basic-memory-minimal-guard-decision-2026-07-28.json`](docs/basic-memory-minimal-guard-decision-2026-07-28.json).
+**Status:** **guard implemented and unit-accepted; bounded production-readiness confirmation against the live provider is pending.** The authoritative boundary is [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md), the implementation record is [`docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md`](docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md), and machine-readable controls remain in [`docs/basic-memory-minimal-guard-decision-2026-07-28.json`](docs/basic-memory-minimal-guard-decision-2026-07-28.json).
 
 **Goal:** integrate Basic Memory only as a disposable local semantic provider beneath Soma's exact ProjectScope, health, provenance and controller boundary.
 
 **Required outcome:** exact project-to-provider/process/root binding; rejection of omitted, unknown, inactive, mismatched and sibling identity before provider invocation; local-only operation with cloud routing unreachable; OS-manifest-versus-provider coverage health; semantic fail-closed when completeness is unproven; exact tool and path validation; bounded direct Markdown fallback; `bm reindex` rather than `bm status --wait`; and no second lifecycle authority.
 
 **Canonical integrity gate:** disable `ensure_frontmatter_on_sync`, or the exact supported equivalent, and prove initial indexing, repeated synchronization, full derived-state deletion and rebuild leave Markdown byte-identical before any production owner memory is imported. Continued provider mutation is a stop requiring explicit owner disposition.
+
+**Implemented boundary:** `soma/memory_guard/` now enforces mandatory exact identity, local-only provider configuration, the five-operation allowlist, coverage-based fail-closed health, path confinement, bounded literal Markdown fallback, and rebuild delegation to Soma's existing run authority. It is deliberately not wired into MCP or production controller surfaces yet.
+
+**Pending confirmation:** reinstall the frozen provider stack in disposable state and verify the real `bm project info --json` payload, byte-identical Markdown with `ensure_frontmatter_on_sync = false`, live two-sibling binding, unreachable cloud routing, rebuild/interruption accounting, bilingual retrieval, fallback and clean removal through the guard.
 
 **Non-goals:** no custom storage, embeddings, ranking, semantic search, graph traversal, provider repair, autonomous curation, personal inference, conversation-history import, cross-project sharing, cloud sync, MemAgent integration or code-intelligence activation.
 
@@ -238,4 +242,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1` and `PILOT-BASIC-MEMORY-2` are closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `BASIC-MEMORY-GUARD-1` is the only prepared memory implementation boundary and still requires explicit owner activation; a generic `continue` does not import production memory or authorize push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive but is no longer blocked by unfinished memory-provider documentation. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No provider alternative, code-intelligence pilot, MemAgent work or voice work begins automatically.
+`PILOT-OBSIDIAN-MCP-1` and `PILOT-BASIC-MEMORY-2` are closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `BASIC-MEMORY-GUARD-1` is implemented and unit-accepted but not production-confirmed or connected to controller surfaces; its bounded live-provider confirmation is the next memory step. A generic `continue` does not import production memory or authorize push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No provider alternative, production memory import, code-intelligence pilot, MemAgent work or voice work begins automatically.

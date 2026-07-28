@@ -2,7 +2,7 @@
   "schema_version": "basic_memory_minimal_guard_decision.v1",
   "date": "2026-07-28",
   "decision_id": "BASIC-MEMORY-GUARD-1",
-  "status": "accepted_architecture_decision_implementation_not_started",
+  "status": "guard_implemented_unit_accepted_live_provider_confirmation_pending",
   "decision_level": "C",
   "provider": {
     "name": "basic-memory",
@@ -75,7 +75,7 @@
     "requires_bilingual_regression": true,
     "requires_provider_free_cleanup_proof": true
   },
-  "next_permitted_lane": "implement_minimal_binding_and_health_guard_with_bounded_production_readiness_confirmation",
+  "next_permitted_lane": "run_bounded_live_provider_production_readiness_confirmation_against_the_implemented_guard",
   "not_authorized": [
     "another_provider_comparison",
     "production_owner_memory_import",
