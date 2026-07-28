@@ -383,13 +383,18 @@ def test_drift_is_reported_then_accepted_only_on_purpose(gateway):
             "knowledge_id": saved["memory_id"],
         },
     )
+    assert current["record"]["integrity_drift"] is True
+    assert current["record"]["actual_sha256"]
+    assert current["record"]["actual_sha256"] != current["record"]["content_sha256"]
     accepted = action(
         mcp,
         {
             "action": "memory_accept_drift",
             "scope": project_scope(),
             "knowledge_id": saved["memory_id"],
-            "accepted_sha256": _content_hash_on_disk(vault, path),
+            # The hash to adopt comes from the read itself; a caller must not
+            # have to recompute it out of band to repair anything.
+            "accepted_sha256": current["record"]["actual_sha256"],
             "reason": "owner reviewed the Obsidian edit",
         },
     )
@@ -400,14 +405,6 @@ def test_drift_is_reported_then_accepted_only_on_purpose(gateway):
     settled = query(mcp, {"operation": "memory_health", "scope": project_scope()})
     assert settled["canonical_health"] == "healthy"
     assert settled["drifted_count"] == 0
-
-
-def _content_hash_on_disk(vault: Path, path: Path) -> str:
-    """The hash of the record as the file currently stands."""
-    from soma.knowledge.vault import MarkdownVault, content_hash
-
-    root = MarkdownVault(vault / "projects" / PROJECT_ID)
-    return content_hash(root.read(path))
 
 
 def test_context_packet_is_stored_and_retrievable_exactly(gateway):

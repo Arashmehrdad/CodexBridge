@@ -422,6 +422,8 @@ class CanonicalMemoryService:
     @staticmethod
     def project_record(record: KnowledgeRecord) -> dict[str, Any]:
         """The controller-facing shape: evidence-backed, never a bare blob."""
+        actual = content_hash(record)
+        drifted = bool(record.content_sha256) and record.content_sha256 != actual
         return {
             "knowledge_id": record.knowledge_id,
             "title": record.title,
@@ -436,6 +438,11 @@ class CanonicalMemoryService:
             "excerpt": record.body[:600],
             "vault_path": record.vault_path,
             "content_sha256": record.content_sha256,
+            # A drifted record must carry the hash that would be adopted, or
+            # `memory_accept_drift` is unusable through the gateway alone and a
+            # caller has to recompute the hash out of band to repair anything.
+            "integrity_drift": drifted,
+            "actual_sha256": actual if drifted else "",
             "revision": record.revision,
             "supersedes_ids": list(record.supersedes_ids),
             "sources": [item.model_dump(mode="json") for item in record.sources],
