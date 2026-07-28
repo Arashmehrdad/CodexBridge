@@ -1,9 +1,10 @@
 # MEMORY-REAL-PROJECT-TRIAL-1 — Bounded Cross-Controller Trial Result
 
 **Date:** 2026-07-28
-**Status:** executed; real project memory is live and retrievable. Two defects
-found that only real use could expose. Cross-controller verification is
-**partial** — one controller proven, two pending.
+**Status:** executed; real project memory is live and retrievable. Three
+defects found that only real use could expose, the third only after the
+restart. Cross-controller verification is **partial** — one controller proven,
+two pending.
 **Authorising decision:** [`SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md`](SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md) §Next permitted lane
 **Foundation:** [`MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md`](MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md)
 **Branch:** `lane/memory-integration-foundation-1` — not pushed.
@@ -123,21 +124,78 @@ should be told to search with keywords.**
 
 The lane asks for all three. Two remain outstanding and are **not** claimed.
 
-## Blocked on an owner decision
+## After the restart — both fixes confirmed, and a third defect found
 
-Both fixes are committed but the **live server is still running the pre-fix
-build**. `system_action reload` reports `restart_required` for
-`soma.knowledge_tools_integration` and `soma.knowledge.catalog`.
+The owner restarted the service. Verified live on the restarted build:
 
-Until the Soma service is restarted:
+| Check | Result |
+|---|---|
+| `memory_search` `semantic retrieval disabled` | 1 record, correct, full provenance |
+| `memory_save` of a real ninth memory | `ok: true`, no validation error |
+| canonical health after the write | `healthy`, 9/9 |
 
-- every `memory_*` **write** through MCP fails output validation *after*
-  writing canonical Markdown;
-- multi-word searches return nothing.
+Writing that ninth memory then exposed **defect 3**, which only a real write
+followed by a real read could show.
 
-Reads were unaffected throughout, which is why this trial could proceed.
-Restarting the owner's running service was not authorised by this lane and was
-not done.
+## Defect 3 — the integrity hash proved nothing
+
+The write acknowledged `content_sha256: f71d50ef…`. Every subsequent read of
+the same record reported `8606ab5e…`. Two defects were stacked so that neither
+was visible on its own.
+
+**A body ending in a newline could never round-trip.** The vault writer
+terminates a body with a newline and the reader strips every trailing one, so
+the hash was computed over a string the file could not read back. The
+acknowledged hash is also the compare-and-swap token, so the caller was handed
+a precondition that could never be satisfied — corrections to that record were
+impossible.
+
+**`read()` recomputed the hash instead of comparing it.** That made the field
+self-fulfilling: any disagreement between the bytes on disk and the hash the
+writer recorded was overwritten on the way out, so a drifted record and an
+intact one were indistinguishable. The v2 hash exists specifically to protect
+lifecycle and provenance from out-of-band edits; recomputing silently undid it.
+An existing acceptance test asserted the recompute *as* external-edit
+detection — detection that changed the hash to match the edit and told nobody.
+
+Fixes: body normalisation moved to the model, where writer and reader are
+guaranteed to agree; `read()` leaves the stored hash alone; drift is reported
+through `rebuild` and `health` (`drifted_count`, `drifted_paths`, status
+`dirty`) and warned about in search results.
+
+Drift is **never repaired implicitly**. A stored hash that disagrees with its
+file can mean the writer was wrong or that the file was edited afterwards, and
+nothing in the record distinguishes the two. Restamping would absorb an
+out-of-band edit exactly as silently as it absorbed this bug.
+
+## Live vault state
+
+Measured against `D:\SomaMemory` with the fixed code:
+
+| | |
+|---|---|
+| indexed | 9 |
+| malformed | 0 |
+| unadopted | 0 |
+| **drifted** | **2** |
+| status | `dirty` |
+
+The two are `architecture/canonical-memory-authority.md` and
+`lessons/gateway-output-schema-must-cover-every-response.md`, both from defect
+1's trailing newline. The other seven round-trip exactly. Their content is
+intact and retrievable; what is unproven is that it is the content the writer
+recorded.
+
+**These two need an explicit owner-acknowledged restamp.** Repairing them is a
+deliberate act of saying "I accept this content as canonical", which is the
+owner's to make, not a rebuild's to perform.
+
+## Still open
+
+- **A second restart is required** for the defect-3 fix. `system_action reload`
+  reports `restart_required` for the knowledge modules; in-process reload is
+  refused for them.
+- **ChatGPT and Hermes remain unverified.** Only Claude Code is proven.
 
 ## Boundaries
 
