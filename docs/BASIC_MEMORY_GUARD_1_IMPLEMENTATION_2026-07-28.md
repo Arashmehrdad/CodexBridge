@@ -40,7 +40,7 @@ Each control below exists because the pilot measured a specific failure.
 | Unknown project fell back toward **cloud routing** | `BASIC_MEMORY_FORCE_LOCAL=1`, `BASIC_MEMORY_CLOUD_MODE=0`, blanked cloud key vars, `--cloud` refused, `cloud` subcommand refused, and any configured `cloud_api_key`/`default_workspace` refuses the whole profile. Absence of credentials is explicitly **not** accepted as the control. |
 | `bm status --wait` livelocked | `--wait` is a refused argument. `bm reindex` is the only synchronisation path. |
 | `bm doctor` passed while projects were 6-of-14 indexed | `doctor` is not in the allowlist at all. Health comes from OS-manifest reconciliation. |
-| First sync rewrote all 14 notes | `ensure_frontmatter_on_sync: false` is a required setting; `true` refuses the profile with `mutating_profile`. |
+| First sync rewrote all 14 notes | The confirmed profile requires `ensure_frontmatter_on_sync: false` plus `disable_permalinks: true`; the latter is the measured control that prevents `permalink:` insertion. |
 | Threshold mis-calibrated for the multilingual model | The measured `0.30` is recorded as `PILOT_SIMILARITY_THRESHOLD` and explicitly documented as corpus-specific, not a default. |
 | Provider reported `ok` from a partial index | Coverage is proven, never assumed. An unrecognised provider payload yields `provider_entities = None`, which is **unproven** — never zero, never complete. |
 
@@ -73,33 +73,24 @@ parses every module's imports and fails if the package imports `soma.memory`,
 `sqlite_vec`, `litellm` or `openai`. The fallback returns results in stable path
 order precisely so it cannot be mistaken for a ranking engine.
 
-## What is NOT yet proven — read this before integrating
+## Live confirmation closure
 
-The decision's implementation-acceptance list has items that **cannot** be closed
-without the live provider, which this lane deliberately did not reinstall.
-
-1. **`bm project info --json` output shape is unverified.** `_entity_count()`
-   accepts several plausible key names and otherwise reports unproven. Against
-   the real provider this may mean **health is always `DEGRADED` and semantic
-   retrieval never unlocks**. That is the safe direction, but it is not the
-   working state. Confirming the real payload shape is the first task of the
-   confirmation lane.
-2. **The no-mutation profile is unproven.** The pilot ran with
-   `ensure_frontmatter_on_sync: true` and the provider rewrote all 14 notes. That
-   the setting actually prevents rewriting — across initial index, repeated sync,
-   full deletion and rebuild — is required evidence and has not been produced. If
-   the provider still mutates, the decision says stop for owner disposition.
-3. **Not re-proven under the guard:** two-sibling ProjectScope binding against a
-   live provider, unreachable cloud routing observed empirically, full
-   rebuild/interruption accounting, the bilingual regression, and provider-free
-   cleanup. All were proven in `PILOT-BASIC-MEMORY-2`, none re-run through this
-   code path.
+The bounded live-provider confirmation is complete and authoritative in
+[`BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md).
+It confirmed the real `bm project info <name> --json` payload, corrected the
+positional project-info invocation, fixed ambient environment inheritance,
+proved 6/6 byte-identical Markdown with `disable_permalinks: true`, exercised
+live sibling binding, fail-closed degraded health, canonical fallback, path
+confinement, rebuild and clean removal. The only qualified limitation is that
+cloud unreachability is structurally enforced without introducing a real cloud
+credential; the full bilingual matrix remains inherited from the accepted
+provider pilot.
 
 ## Regression status
 
-- `tests/test_basic_memory_guard.py` — 39 passed.
+- `tests/test_basic_memory_guard.py` — 42 passed.
 - `tests/test_project_scope_foundation.py`, `tests/test_project_scope_quarantine_adjudication.py`, `tests/test_tool_owned_paths.py` — 60 passed.
-- Whole suite collects cleanly: 2208 tests, no import breakage.
+- Whole suite collects cleanly: 2211 tests, no import breakage.
 
 ## Boundaries
 

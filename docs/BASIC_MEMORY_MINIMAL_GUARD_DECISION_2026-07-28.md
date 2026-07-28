@@ -1,9 +1,10 @@
 # BASIC-MEMORY-GUARD-1 — Minimal Soma Binding and Health Guard
 
 **Date:** 2026-07-28
-**Status:** architecture accepted; guard implemented and unit-accepted; bounded live-provider production-readiness confirmation pending.
+**Status:** implemented, live-provider confirmed, and documentation-closed; controller-surface integration has not started.
 **Decision level:** C — foundational durability and continuity boundary.
 **Evidence source:** [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md)
+**Live confirmation:** [`BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md)
 **Machine-readable controls:** [`basic-memory-minimal-guard-decision-2026-07-28.json`](basic-memory-minimal-guard-decision-2026-07-28.json)
 
 ## Decision
@@ -43,9 +44,9 @@ Semantic retrieval is blocked whenever complete coverage cannot be proven. A pre
 
 ### Canonical Markdown integrity
 
-The production profile must disable `ensure_frontmatter_on_sync`, or the exact supported equivalent that prevents provider-authored permalink and formatting rewrites.
+The confirmed production profile must set both `ensure_frontmatter_on_sync = false` and `disable_permalinks = true`. The first setting alone did not prevent mutation; `disable_permalinks` is the measured control that stopped provider-authored `permalink:` insertion, while the first setting remains defence in depth.
 
-Before any production memory is imported, a bounded confirmation must prove that initial indexing, repeated synchronization, complete index deletion and full rebuild leave canonical Markdown byte-identical. If the tested release cannot operate without rewriting canonical files, integration stops for an explicit owner decision rather than silently accepting provider mutation.
+The bounded live confirmation proved that project registration, initial indexing, three repeated synchronizations, complete index deletion and full rebuild leave canonical Markdown byte-identical. The tested release can therefore operate without rewriting canonical files under the confirmed profile.
 
 Provider metadata may exist only where the owner has explicitly adopted it as part of the canonical Markdown contract.
 
@@ -122,4 +123,4 @@ Stop or reopen provider selection when:
 
 ## Next permitted lane
 
-The next permitted memory lane is implementation of this minimal binding and health guard plus its bounded production-readiness confirmation. It does not authorize another provider comparison, production owner-memory import, MemAgent integration, code-intelligence activation, voice work or push.
+The next permitted memory lane, only after explicit owner authorization, is a narrow controller-surface integration decision for exposing the confirmed guard through one existing Soma public contract. It does not authorize production owner-memory import, another provider comparison, MemAgent integration, code-intelligence activation, voice work or push.

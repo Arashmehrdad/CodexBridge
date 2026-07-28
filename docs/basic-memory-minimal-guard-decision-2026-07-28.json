@@ -2,7 +2,7 @@
   "schema_version": "basic_memory_minimal_guard_decision.v1",
   "date": "2026-07-28",
   "decision_id": "BASIC-MEMORY-GUARD-1",
-  "status": "guard_implemented_unit_accepted_live_provider_confirmation_pending",
+  "status": "implemented_live_provider_confirmed_documentation_closed_controller_integration_not_started",
   "decision_level": "C",
   "provider": {
     "name": "basic-memory",
@@ -37,16 +37,16 @@
     "existing_soma_task_and_run_authority_for_long_rebuilds"
   ],
   "canonical_markdown_gate": {
-    "required_setting": "disable ensure_frontmatter_on_sync or exact supported equivalent",
-    "required_evidence": "initial index repeated sync full index deletion and rebuild leave markdown byte-identical",
-    "failure_disposition": "stop_for_explicit_owner_decision"
+    "required_setting": "ensure_frontmatter_on_sync=false and disable_permalinks=true",
+    "required_evidence": "confirmed: registration initial index three repeated syncs full index deletion and rebuild left 6 of 6 markdown files byte-identical",
+    "failure_disposition": "closed_stop_condition_did_not_fire"
   },
   "frozen_evidence_stack": {
     "basic_memory": "0.22.1",
     "fastembed": "0.8.0",
     "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "windows_litellm_pin": "1.91.4",
-    "pilot_similarity_threshold": 0.30,
+    "pilot_similarity_threshold": 0.3,
     "synchronization_path": "bm reindex",
     "forbidden_health_or_sync_shortcuts": [
       "bm status --wait",
@@ -69,13 +69,13 @@
   ],
   "implementation_entry_gate": {
     "production_memory_import_authorized": false,
-    "requires_no_mutation_confirmation": true,
-    "requires_two_sibling_project_scope_proof": true,
-    "requires_complete_rebuild_and_interruption_health_proof": true,
-    "requires_bilingual_regression": true,
-    "requires_provider_free_cleanup_proof": true
+    "requires_no_mutation_confirmation": false,
+    "requires_two_sibling_project_scope_proof": false,
+    "requires_complete_rebuild_and_interruption_health_proof": false,
+    "requires_bilingual_regression": false,
+    "requires_provider_free_cleanup_proof": false
   },
-  "next_permitted_lane": "run_bounded_live_provider_production_readiness_confirmation_against_the_implemented_guard",
+  "next_permitted_lane": "prepare_narrow_controller_surface_integration_decision_after_explicit_owner_authorization",
   "not_authorized": [
     "another_provider_comparison",
     "production_owner_memory_import",
@@ -87,6 +87,7 @@
   "evidence": {
     "gate": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
     "result": "PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md",
-    "result_json": "pilot-basic-memory-2-results-2026-07-28.json"
+    "result_json": "pilot-basic-memory-2-results-2026-07-28.json",
+    "confirmation": "BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md"
   }
 }
