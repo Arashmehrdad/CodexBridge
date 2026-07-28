@@ -284,19 +284,65 @@ WIKI_REFRESH_COMPACT_OUTPUT = {
         "response_bytes",
     ],
 }
+#: Canonical memory mutation acknowledgement.
+#:
+#: `content_sha256` is required rather than optional: it is the token the next
+#: compare-and-swap correction needs, so a caller that cannot see it cannot
+#: safely correct what it just wrote.
+CANONICAL_MEMORY_ACTION_OUTPUT = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        **public_projection_schema_properties(),
+        "ok": {"type": "boolean"},
+        "project_id": {"type": "string"},
+        "repo_name": {"type": "string"},
+        "operation": {"type": "string"},
+        "memory_id": {"type": "string"},
+        "memory_type": {"type": "string"},
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "status": {"type": "string"},
+        "content_sha256": {"type": "string"},
+        "revision": {"type": "integer"},
+        "indexed_count": {"type": "integer"},
+        "malformed_count": {"type": "integer"},
+        "unadopted_count": {"type": "integer"},
+        "generation": {"type": "integer"},
+        "task_id": {"type": "string"},
+        "run_id": {"type": "string"},
+        "server_build_hash": {"type": "string"},
+        "schema_hash": {"type": "string"},
+        "capability_epoch": {"type": "string"},
+        "error": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "has_more": {"type": "boolean"},
+        "response_budget_bytes": {"type": "integer"},
+        "response_bytes": {"type": "integer"},
+    },
+    "required": ["ok", "project_id", "repo_name", "operation", "error"],
+}
+
 KNOWLEDGE_ACTION_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
         **WIKI_REFRESH_OUTPUT["properties"],
         **MEMORY_WRITE_OUTPUT["properties"],
+        **CANONICAL_MEMORY_ACTION_OUTPUT["properties"],
     },
     "required": ["ok", "repo_name", "error"],
-    "oneOf": [
+    # `anyOf`, not `oneOf`. Every variant shares the same minimal failure shape
+    # -- ok/project_id/repo_name/operation/error -- so a refusal legitimately
+    # satisfies more than one, and `oneOf` would reject a correct response for
+    # being *too* conformant. The constraint that matters is per-variant:
+    # `additionalProperties: False` plus each variant's own required keys.
+    "anyOf": [
         WIKI_REFRESH_OUTPUT,
         WIKI_REFRESH_COMPACT_OUTPUT,
         MEMORY_WRITE_OUTPUT,
         PROJECT_KNOWLEDGE_ACTION_OUTPUT,
+        CANONICAL_MEMORY_ACTION_OUTPUT,
     ],
 }
 KNOWLEDGE_QUERY_OUTPUT = {

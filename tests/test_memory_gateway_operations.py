@@ -13,6 +13,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import jsonschema
 import pytest
 from pydantic import TypeAdapter
 
@@ -100,9 +101,19 @@ def query(mcp, payload: dict) -> dict:
 
 
 def action(mcp, payload: dict) -> dict:
-    return mcp.tools["knowledge_action"]["function"](
+    """Invoke, then validate against the declared output schema.
+
+    Regression: the dispatch returned keys the published schema did not
+    declare. Calling the inner function directly hid it, while the live MCP
+    surface validates output and rejected the response *after* the canonical
+    write had already landed -- so the caller could not tell whether its write
+    had succeeded. Every action response is now schema-checked here.
+    """
+    result = mcp.tools["knowledge_action"]["function"](
         TypeAdapter(KnowledgeActionRequest).validate_python(payload)
     )
+    jsonschema.validate(result, mcp.tools["knowledge_action"]["output_schema"])
+    return result
 
 
 def project_scope(project_id: str = PROJECT_ID, repo_name: str = "soma") -> dict:
