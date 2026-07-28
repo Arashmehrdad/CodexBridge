@@ -30,7 +30,16 @@ ALLOWED_OPERATIONS: dict[str, tuple[str, ...]] = {
     "status": ("status",),
     "project_info": ("project", "info"),
     "reindex": ("reindex",),
+    # Read-only runtime identity. Required so the frozen evidence stack can be
+    # enforced at runtime instead of merely documented; takes no project.
+    "version": ("--version",),
 }
+
+#: Operations that take no `--project` binding at all.
+PROJECTLESS_OPERATIONS: frozenset[str] = frozenset({"version"})
+
+#: Operations that take the project as a positional argument rather than a flag.
+POSITIONAL_PROJECT_OPERATIONS: frozenset[str] = frozenset({"project_info"})
 
 #: Argument fragments that are never forwarded, whatever the operation.
 FORBIDDEN_ARGS: tuple[str, ...] = (
@@ -89,7 +98,7 @@ class BasicMemoryProvider:
         self,
         operation: str,
         *args: str,
-        provider_project: str,
+        provider_project: str = "",
         process_env: dict[str, str] | None = None,
         timeout: int | None = None,
     ) -> ProviderCall:
@@ -111,15 +120,17 @@ class BasicMemoryProvider:
             if text in FORBIDDEN_OPERATIONS:
                 raise ToolRefused(f"subcommand {text!r} is refused")
 
-        if not provider_project:
+        if not provider_project and operation not in PROJECTLESS_OPERATIONS:
             raise ToolRefused("provider_project is required for every call")
 
         # Identity is always explicit and always the guard's, never the caller's.
         # `project info` takes the project as a POSITIONAL argument and rejects
-        # `--project`; every other allowed operation takes the flag. Getting this
-        # wrong silently breaks coverage reconciliation, so it is encoded here
-        # rather than left to callers.
-        if operation == "project_info":
+        # `--project`; every other project-bound operation takes the flag.
+        # Getting this wrong silently breaks coverage reconciliation, so it is
+        # encoded here rather than left to callers.
+        if operation in PROJECTLESS_OPERATIONS:
+            argv = [*prefix, *[str(a) for a in args]]
+        elif operation in POSITIONAL_PROJECT_OPERATIONS:
             argv = [*prefix, provider_project, *[str(a) for a in args]]
         else:
             argv = [*prefix, *[str(a) for a in args], "--project", provider_project]
@@ -138,7 +149,15 @@ class BasicMemoryProvider:
     # ------------------------------------------------------------------
     @staticmethod
     def parse_json(call: ProviderCall) -> dict | None:
-        """Parse a JSON payload, tolerating the CLI's decorative output."""
+        """Parse a JSON payload, tolerating the CLI's decorative output.
+
+        A process that did not exit successfully has no usable output, even when
+        what it printed happens to parse. Accepting a partial payload from a
+        failed `project info` would feed an entity count straight into the
+        health decision that unlocks semantic retrieval.
+        """
+        if not call.ok:
+            return None
         text = (call.stdout or "").strip()
         if not text:
             return None

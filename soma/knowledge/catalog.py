@@ -47,8 +47,40 @@ class KnowledgeCatalog:
                     malformed_count INTEGER NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                -- Derived supersession links, rebuildable from the vault. This
+                -- is what makes effective lifecycle state link-derived rather
+                -- than dependent on every predecessor file being rewritten.
+                CREATE TABLE IF NOT EXISTS knowledge_supersessions (
+                    project_id TEXT NOT NULL,
+                    successor_id TEXT NOT NULL,
+                    superseded_id TEXT NOT NULL,
+                    PRIMARY KEY (project_id, successor_id, superseded_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_knowledge_superseded
+                ON knowledge_supersessions(project_id, superseded_id);
                 """
             )
+            self._add_missing_columns(connection)
+
+    @staticmethod
+    def _add_missing_columns(connection: sqlite3.Connection) -> None:
+        """Additive migration for catalogs created before generation tracking."""
+        existing = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(knowledge_rebuild_state)"
+            ).fetchall()
+        }
+        for column, ddl in (
+            ("unadopted_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("generation", "INTEGER NOT NULL DEFAULT 0"),
+            ("unadopted_paths_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("malformed_paths_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            if column not in existing:
+                connection.execute(
+                    f"ALTER TABLE knowledge_rebuild_state ADD COLUMN {column} {ddl}"
+                )
 
     def upsert(self, record: KnowledgeRecord) -> None:
         search_text = normalize_text(
@@ -91,10 +123,36 @@ class KnowledgeCatalog:
                     record.updated_at,
                 ),
             )
+            self._replace_links(connection, record)
             connection.execute(
                 "DELETE FROM knowledge_rebuild_state WHERE project_id = ?",
                 (record.project_id,),
             )
+
+    @staticmethod
+    def _replace_links(
+        connection: sqlite3.Connection, record: KnowledgeRecord
+    ) -> None:
+        connection.execute(
+            "DELETE FROM knowledge_supersessions "
+            "WHERE project_id = ? AND successor_id = ?",
+            (record.project_id, record.knowledge_id),
+        )
+        for superseded in record.supersedes_ids:
+            connection.execute(
+                "INSERT OR IGNORE INTO knowledge_supersessions VALUES (?, ?, ?)",
+                (record.project_id, record.knowledge_id, superseded),
+            )
+
+    def superseded_ids(self, project_id: str) -> set[str]:
+        """Every record this project's successors claim to supersede."""
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT superseded_id FROM knowledge_supersessions "
+                "WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+        return {row["superseded_id"] for row in rows}
 
     def get(self, project_id: str, knowledge_id: str) -> KnowledgeRecord:
         with self.connect() as connection:
@@ -152,10 +210,22 @@ class KnowledgeCatalog:
         canonical_count: int,
         malformed_count: int,
         updated_at: str,
+        unadopted_count: int = 0,
+        unadopted_paths: list[str] | None = None,
+        malformed_paths: list[str] | None = None,
     ) -> None:
         with self.connect() as connection:
+            previous = connection.execute(
+                "SELECT generation FROM knowledge_rebuild_state WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            generation = (int(previous["generation"]) if previous else 0) + 1
             connection.execute(
                 "DELETE FROM knowledge_records WHERE project_id = ?", (project_id,)
+            )
+            connection.execute(
+                "DELETE FROM knowledge_supersessions WHERE project_id = ?",
+                (project_id,),
             )
             for record in records:
                 search_text = normalize_text(
@@ -182,14 +252,23 @@ class KnowledgeCatalog:
                         record.updated_at,
                     ),
                 )
+                self._replace_links(connection, record)
             connection.execute(
                 """
-                INSERT INTO knowledge_rebuild_state VALUES (?, ?, ?, ?, ?)
+                INSERT INTO knowledge_rebuild_state (
+                    project_id, canonical_count, indexed_count, malformed_count,
+                    updated_at, unadopted_count, generation,
+                    unadopted_paths_json, malformed_paths_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id) DO UPDATE SET
                   canonical_count=excluded.canonical_count,
                   indexed_count=excluded.indexed_count,
                   malformed_count=excluded.malformed_count,
-                  updated_at=excluded.updated_at
+                  updated_at=excluded.updated_at,
+                  unadopted_count=excluded.unadopted_count,
+                  generation=excluded.generation,
+                  unadopted_paths_json=excluded.unadopted_paths_json,
+                  malformed_paths_json=excluded.malformed_paths_json
                 """,
                 (
                     project_id,
@@ -197,6 +276,10 @@ class KnowledgeCatalog:
                     len(records),
                     malformed_count,
                     updated_at,
+                    unadopted_count,
+                    generation,
+                    json.dumps(sorted(unadopted_paths or []), ensure_ascii=False),
+                    json.dumps(sorted(malformed_paths or []), ensure_ascii=False),
                 ),
             )
 

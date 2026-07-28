@@ -243,3 +243,118 @@ def test_malformed_markdown_is_excluded_and_health_is_degraded(
         knowledge.get(SOMA_PROJECT_ID, valid.knowledge_id).knowledge_id
         == valid.knowledge_id
     )
+
+
+# ----------------------------------------------------------------------
+# MEMORY-INTEGRATION-FOUNDATION-1 step 1 -- canonical lifecycle repairs
+
+
+def test_integrity_hash_covers_lifecycle_and_provenance(knowledge):
+    """Regression: the v1 hash covered only content, so lifecycle was unprotected."""
+    record = knowledge.save(_research_note(idempotency_key="integrity-1"))
+    baseline = record.content_sha256
+
+    from soma.knowledge.vault import content_hash
+
+    tampered = record.model_copy(update={"status": "rejected"})
+    assert content_hash(tampered) != baseline
+
+    relinked = record.model_copy(update={"supersedes_ids": ["kn_somethingelse"]})
+    assert content_hash(relinked) != baseline
+
+    reprovenanced = record.model_copy(
+        update={"sources": [SourceReference(source_id="src_injected", uri="x")]}
+    )
+    assert content_hash(reprovenanced) != baseline
+
+
+def test_owner_note_is_unadopted_not_malformed(knowledge, tmp_path):
+    """A hand-written Obsidian note must not report the vault as corrupt."""
+    knowledge.save(_research_note(idempotency_key="adopt-1"))
+    vault = Path(knowledge.vault_root)
+    (vault / "daily").mkdir(parents=True, exist_ok=True)
+    (vault / "daily" / "2026-07-28.md").write_text(
+        "# Thursday\n\nCalled the bank. Follow up on the invoice.\n",
+        encoding="utf-8",
+    )
+
+    health = knowledge.health(SOMA_PROJECT_ID)
+    assert health.malformed_count == 0
+    assert health.unadopted_count == 1
+    assert health.unadopted_paths == ["daily/2026-07-28.md"]
+    assert health.status == "healthy"
+
+
+def test_corrupt_soma_record_is_still_degraded(knowledge):
+    """An unparsable Soma-owned record remains corruption, not an owner note."""
+    knowledge.save(_research_note(idempotency_key="corrupt-1"))
+    vault = Path(knowledge.vault_root)
+    (vault / "broken.md").write_text(
+        "---\nknowledge_id: kn_broken\nproject_id: "
+        + SOMA_PROJECT_ID
+        + "\nkind: [unclosed\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+    health = knowledge.health(SOMA_PROJECT_ID)
+    assert health.malformed_count == 1
+    assert health.malformed_paths == ["broken.md"]
+    assert health.status == "degraded"
+
+
+def test_supersession_is_link_derived_and_survives_interruption(knowledge, monkeypatch):
+    """Regression: an interrupted predecessor rewrite left state reading current."""
+    original = knowledge.save(
+        _research_note(vault_path="a.md", idempotency_key="chain-1")
+    )
+
+    # The projection write fails exactly as a crash between the two writes would.
+    def explode(record):
+        raise OSError("interrupted before the predecessor was rewritten")
+
+    monkeypatch.setattr(knowledge, "_project_superseded", explode)
+    successor = knowledge.supersede(
+        _research_note(vault_path="b.md", idempotency_key="chain-2"),
+        [original.knowledge_id],
+    )
+
+    # The predecessor's own file still declares `current` ...
+    stale = knowledge.get(SOMA_PROJECT_ID, original.knowledge_id)
+    assert stale.status == "current"
+    # ... but the successor's link is what actually determines effective state.
+    assert knowledge.effective_status(stale) == "superseded"
+    assert successor.supersedes_ids == [original.knowledge_id]
+
+    # And a current-only search must not return it.
+    page = knowledge.search(SOMA_PROJECT_ID, "Compact projections", current_only=True)
+    assert original.knowledge_id not in {r.knowledge_id for r in page.records}
+
+
+def test_supersession_links_rebuild_from_markdown_alone(knowledge):
+    original = knowledge.save(
+        _research_note(vault_path="a.md", idempotency_key="rebuild-1")
+    )
+    knowledge.supersede(
+        _research_note(vault_path="b.md", idempotency_key="rebuild-2"),
+        [original.knowledge_id],
+    )
+    knowledge.catalog.replace_project(
+        SOMA_PROJECT_ID, [], canonical_count=0, malformed_count=0, updated_at="now"
+    )
+    knowledge.rebuild(SOMA_PROJECT_ID)
+    assert original.knowledge_id in knowledge.catalog.superseded_ids(SOMA_PROJECT_ID)
+
+
+def test_search_prefers_canonical_markdown_over_the_catalog(knowledge):
+    """Regression: search served a cached projection an owner edit had outdated."""
+    record = knowledge.save(
+        _research_note(body="Original body ZULUCANARY", idempotency_key="reread-1")
+    )
+    path = Path(knowledge.vault_root) / record.vault_path
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace("Original body ZULUCANARY", "Owner rewrote this by hand"),
+        encoding="utf-8",
+    )
+    page = knowledge.search(SOMA_PROJECT_ID, "ZULUCANARY")
+    assert page.records
+    assert page.records[0].body == "Owner rewrote this by hand"

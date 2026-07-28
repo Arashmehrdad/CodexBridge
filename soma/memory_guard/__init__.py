@@ -27,11 +27,15 @@ from .models import (
     PathRefused,
     ProfileRefused,
     ProviderBinding,
+    ProviderExecutionRefused,
     RefusalReason,
+    RuntimeIdentity,
+    RuntimeRefused,
     ToolRefused,
 )
 from .profile import ProviderProfile, load_profile, validate_env, validate_profile
 from .provider import ALLOWED_OPERATIONS, BasicMemoryProvider, ProviderCall
+from .runtime import probe_runtime, verify_runtime
 
 __all__ = [
     "ALLOWED_OPERATIONS",
@@ -53,9 +57,12 @@ __all__ = [
     "ProjectBindingResolver",
     "ProviderBinding",
     "ProviderCall",
+    "ProviderExecutionRefused",
     "ProviderProfile",
     "RebuildPlan",
     "RefusalReason",
+    "RuntimeIdentity",
+    "RuntimeRefused",
     "StaticBindingSource",
     "ToolRefused",
     "build_coverage",
@@ -63,8 +70,10 @@ __all__ = [
     "literal_search",
     "load_profile",
     "os_manifest",
+    "probe_runtime",
     "read_note",
     "resolve_within_root",
     "validate_env",
     "validate_profile",
+    "verify_runtime",
 ]

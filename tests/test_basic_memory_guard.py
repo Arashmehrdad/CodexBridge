@@ -35,7 +35,15 @@ from soma.memory_guard import (
     validate_profile,
 )
 from soma.memory_guard.health import build_coverage, disposition
+from soma.memory_guard.models import (
+    FROZEN_EVIDENCE_STACK,
+    PILOT_SIMILARITY_THRESHOLD,
+    RefusalReason,
+    RuntimeRefused,
+)
 from soma.memory_guard.profile import FORCED_ENV
+from soma.memory_guard.provider import ProviderCall
+from soma.memory_guard.runtime import probe_runtime
 
 PROJECT_A = "proj_a144f759-1619-4276-9292-28704b6611f4"
 PROJECT_B = "proj_0cf013d0-191b-57f4-a84b-7a43819a1578"
@@ -111,6 +119,10 @@ def profile(tmp_path: Path, roots: tuple[Path, Path]) -> ProviderProfile:
                 "logfire_send_to_logfire": False,
                 "cloud_api_key": None,
                 "default_workspace": None,
+                # The frozen stack is enforced at runtime, so the accepted model
+                # and calibrated threshold must be declared, not defaulted.
+                "embedding_model": FROZEN_EVIDENCE_STACK["embedding_model"],
+                "similarity_threshold": PILOT_SIMILARITY_THRESHOLD,
                 "projects": {
                     "soma-pilot": {"path": str(a)},
                     "soma-lab-pilot": {"path": str(b)},
@@ -119,7 +131,9 @@ def profile(tmp_path: Path, roots: tuple[Path, Path]) -> ProviderProfile:
         ),
         encoding="utf-8",
     )
-    return load_profile(config_dir)
+    executable = tmp_path / "bm.exe"
+    executable.write_bytes(b"stand-in provider binary")
+    return load_profile(config_dir, executable=executable)
 
 
 def make_guard(
@@ -141,11 +155,17 @@ def make_guard(
         lifecycles or {PROJECT_A: ("active", 1), PROJECT_B: ("active", 1)}
     )
     resolver = ProjectBindingResolver(source, scope_store=store)
+    # Tests that target coverage or refusal semantics should not have to restate
+    # the runtime probe. Runtime enforcement has its own dedicated tests below.
+    answers = {
+        "--version": (0, f"basic-memory {FROZEN_EVIDENCE_STACK['basic_memory']}"),
+        **responses,
+    }
 
     def runner(argv, env, timeout):
         if record is not None:
             record.append(list(argv))
-        for key, (code, out) in responses.items():
+        for key, (code, out) in answers.items():
             if key in " ".join(argv):
                 return code, out, ""
         return 0, "", ""
@@ -153,9 +173,33 @@ def make_guard(
     return BasicMemoryGuard(resolver, profile, BasicMemoryProvider(profile, runner))
 
 
-def healthy_responses(files: int, project: str = "soma-pilot") -> dict:
+#: The canonical files the `roots` fixture writes into project A.
+PROJECT_A_FILES: tuple[str, ...] = ("service-endpoint.md", "worker-ceiling.md")
+
+
+def healthy_responses(
+    files: int,
+    project: str = "soma-pilot",
+    paths: tuple[str, ...] | None = None,
+) -> dict:
+    """A provider that is complete *and* proves it.
+
+    Membership matters: a bare `entity_count` proves cardinality only, which is
+    no longer sufficient to report healthy. The payload therefore enumerates the
+    exact indexed paths, matching what the canonical root holds.
+    """
+    enumerated = PROJECT_A_FILES[:files] if paths is None else paths
     return {
-        "project info": (0, json.dumps({"entity_count": files})),
+        "--version": (0, f"basic-memory {FROZEN_EVIDENCE_STACK['basic_memory']}"),
+        "project info": (
+            0,
+            json.dumps(
+                {
+                    "entity_count": files,
+                    "entities": [{"file_path": name} for name in enumerated],
+                }
+            ),
+        ),
         "status": (0, json.dumps({"total": 0})),
     }
 
@@ -308,8 +352,10 @@ def test_environment_forces_local_and_refuses_cloud_overrides(profile):
 
 
 def test_allowlist_is_small_and_read_or_rebuild_only(profile, roots):
+    # `version` is read-only, takes no project and exists so the frozen evidence
+    # stack can be enforced at runtime rather than merely documented.
     assert set(ALLOWED_OPERATIONS) == {
-        "search", "read_note", "status", "project_info", "reindex"
+        "search", "read_note", "status", "project_info", "reindex", "version"
     }
 
 
@@ -535,3 +581,139 @@ def test_os_manifest_excludes_provider_and_vcs_state(tmp_path):
     write_note(root / ".obsidian", "ignored.md", "body")
     write_note(root / ".git", "ignored.md", "body")
     assert os_manifest(root) == ("keep.md",)
+
+
+# ----------------------------------------------------------------------
+# MEMORY-INTEGRATION-FOUNDATION-1 step 1 -- verified defect repairs
+
+
+def test_cardinality_alone_does_not_prove_coverage(profile, roots):
+    """Regression: equal counts used to report healthy.
+
+    Two different sets of the same size reconcile identically under a count
+    comparison, so a bare `entity_count` may not unlock semantic retrieval.
+    """
+    guard = make_guard(
+        profile,
+        roots,
+        {
+            "project info": (0, json.dumps({"entity_count": 2})),
+            "status": (0, json.dumps({"total": 0})),
+        },
+    )
+    health = guard.health(PROJECT_A)
+    assert health.state is HealthState.DEGRADED
+    assert not health.semantic_permitted
+    assert health.reason is RefusalReason.COVERAGE_MEMBERSHIP_UNAVAILABLE
+    assert not health.coverage.exact_membership_available
+    assert health.coverage.cardinality_agrees
+
+
+def test_stale_provider_entity_is_not_healthy(profile, roots):
+    """An entity with no canonical file is a wrong index, not a complete one."""
+    responses = healthy_responses(
+        3, paths=(*PROJECT_A_FILES, "deleted-yesterday.md")
+    )
+    guard = make_guard(profile, roots, responses)
+    health = guard.health(PROJECT_A)
+    assert health.state is HealthState.DEGRADED
+    assert health.reason is RefusalReason.COVERAGE_STALE_ENTITIES
+    assert health.coverage.extra_paths == ("deleted-yesterday.md",)
+    assert health.coverage.missing_paths == ()
+
+
+def test_substituted_file_of_equal_size_is_caught(profile, roots):
+    """The exact defect counts could not see: same total, different set."""
+    responses = healthy_responses(
+        2, paths=("service-endpoint.md", "something-else.md")
+    )
+    guard = make_guard(profile, roots, responses)
+    health = guard.health(PROJECT_A)
+    assert health.coverage.cardinality_agrees
+    assert health.state is HealthState.DEGRADED
+    assert health.reason is RefusalReason.COVERAGE_INCOMPLETE
+    assert health.coverage.missing_paths == ("worker-ceiling.md",)
+
+
+def test_exact_membership_is_healthy_and_names_no_gaps(profile, roots):
+    guard = make_guard(profile, roots, healthy_responses(2))
+    health = guard.health(PROJECT_A)
+    assert health.state is HealthState.HEALTHY
+    assert health.coverage.proven_complete
+    assert health.coverage.missing_paths == ()
+    assert health.coverage.extra_paths == ()
+
+
+def test_failed_provider_exit_is_never_parsed(profile, roots):
+    """Regression: parseable stdout from a failed process was accepted.
+
+    A nonzero `project info` that still prints JSON would otherwise feed an
+    entity count straight into the decision that unlocks semantic retrieval.
+    """
+    call = ProviderCall(
+        operation="project_info",
+        argv=("project", "info"),
+        exit_code=2,
+        stdout=json.dumps({"entity_count": 99}),
+        stderr="boom",
+    )
+    assert BasicMemoryProvider.parse_json(call) is None
+    assert BasicMemoryProvider.parse_results(call) is None
+
+
+def test_absent_scope_store_is_refused_not_assumed_active(profile, roots):
+    """Regression: an absent ProjectScope store used to resolve as ACTIVE."""
+    a, b = roots
+    resolver = ProjectBindingResolver(
+        StaticBindingSource(
+            {PROJECT_A: ("soma-pilot", str(a)), PROJECT_B: ("soma-lab-pilot", str(b))}
+        ),
+        scope_store=None,
+    )
+    with pytest.raises(IdentityRefused, match="project_unknown"):
+        resolver.resolve(PROJECT_A)
+
+
+def test_environment_is_a_named_allowlist_not_the_whole_process(profile, monkeypatch):
+    """Enough to start a Windows process, and nothing that carries a secret."""
+    monkeypatch.setenv("SOMA_TEST_SECRET_TOKEN", "must-not-propagate")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-propagate")
+    env = profile.env()
+    assert "PATH" in env
+    assert "SOMA_TEST_SECRET_TOKEN" not in env
+    assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert env["BASIC_MEMORY_CONFIG_DIR"] == str(profile.config_dir)
+    for key, value in FORCED_ENV.items():
+        assert env[key] == value
+
+
+def test_upgraded_provider_is_incompatible_not_healthy(profile, roots):
+    """A silently upgraded provider must not inherit the measured verdict."""
+    responses = healthy_responses(2)
+    responses["--version"] = (0, "basic-memory 0.29.0")
+    guard = make_guard(profile, roots, responses)
+    health = guard.health(PROJECT_A)
+    assert health.state is HealthState.INCOMPATIBLE
+    assert not health.semantic_permitted
+    assert "0.29.0" in health.detail
+
+
+def test_missing_embedding_model_refuses_rather_than_defaulting(profile, roots):
+    """The provider default is English-only; absence is not the accepted model."""
+    config = dict(profile.config)
+    config.pop("embedding_model")
+    stripped = ProviderProfile(
+        config_dir=profile.config_dir, config=config, executable=profile.executable
+    )
+    guard = make_guard(profile, roots, healthy_responses(2))
+    with pytest.raises(RuntimeRefused, match="embedding model"):
+        probe_runtime(stripped, guard._provider)
+
+
+def test_runtime_probe_requires_a_verifiable_executable(profile, roots):
+    unverifiable = ProviderProfile(
+        config_dir=profile.config_dir, config=profile.config, executable=""
+    )
+    guard = make_guard(profile, roots, healthy_responses(2))
+    with pytest.raises(RuntimeRefused, match="no provider executable"):
+        probe_runtime(unverifiable, guard._provider)

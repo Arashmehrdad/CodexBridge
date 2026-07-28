@@ -139,12 +139,20 @@ class ProjectBindingResolver:
 
     # ------------------------------------------------------------------
     def _lifecycle(self, project_id: str) -> tuple[ProjectLifecycle | None, int]:
-        """Read lifecycle from ProjectScope. Absent store means unverified."""
+        """Read lifecycle from ProjectScope, or refuse.
+
+        An absent scope store previously returned ACTIVE -- a fail-open default
+        inside a fail-closed guard, and the one branch the suite never covered
+        because every test injects a store. Unverifiable lifecycle is now a
+        refusal: the guard cannot prove the project is active, so it does not
+        proceed as though it had.
+        """
         if self._scope_store is None:
-            # No authority available: the guard cannot prove the project is
-            # active, so it declines to invent one. Callers wanting a store-free
-            # deployment must supply a source that is itself authoritative.
-            return ProjectLifecycle.ACTIVE, 0
+            raise IdentityRefused(
+                f"no ProjectScope store is configured, so the lifecycle of "
+                f"{project_id!r} cannot be established "
+                f"({RefusalReason.PROJECT_UNKNOWN.value})"
+            )
         connect = getattr(self._scope_store, "connect", None)
         if connect is None:
             raise IdentityRefused("scope_store does not expose connect()")

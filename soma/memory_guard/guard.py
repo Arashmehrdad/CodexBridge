@@ -19,9 +19,11 @@ from .models import (
     PathRefused,
     ProviderBinding,
     RefusalReason,
+    RuntimeRefused,
 )
 from .profile import ProviderProfile
 from .provider import BasicMemoryProvider
+from .runtime import probe_runtime, verify_runtime
 
 
 @dataclass(frozen=True)
@@ -56,10 +58,38 @@ class BasicMemoryGuard:
         resolver: ProjectBindingResolver,
         profile: ProviderProfile,
         provider: BasicMemoryProvider,
+        *,
+        enforce_runtime: bool = True,
+        expected_executable_sha256: str = "",
     ) -> None:
         self._resolver = resolver
         self._profile = profile
         self._provider = provider
+        self._enforce_runtime = enforce_runtime
+        self._expected_executable_sha256 = expected_executable_sha256
+        self._runtime_mismatch: str | None = None
+
+    # ------------------------------------------------------------------
+    def runtime_mismatch(self) -> str:
+        """Empty when the live stack is the frozen one; the reason otherwise.
+
+        Measured once per guard instance: a provider cannot change underneath a
+        single request, and re-probing on every call would add a subprocess to
+        every read.
+        """
+        if not self._enforce_runtime:
+            return ""
+        if self._runtime_mismatch is None:
+            try:
+                identity = probe_runtime(self._profile, self._provider)
+                verify_runtime(
+                    identity,
+                    expected_executable_sha256=self._expected_executable_sha256,
+                )
+                self._runtime_mismatch = ""
+            except RuntimeRefused as exc:
+                self._runtime_mismatch = str(exc)
+        return self._runtime_mismatch
 
     # ------------------------------------------------------------------
     def bind(
@@ -87,8 +117,18 @@ class BasicMemoryGuard:
             provider_project=binding.provider_project,
             process_env=env,
         )
-        coverage = build_coverage(binding, info_call=info, status_call=status)
-        return disposition(coverage)
+        coverage = build_coverage(
+            binding,
+            info_call=info,
+            status_call=status,
+            # Membership evidence comes from whichever accepted call is measured
+            # to enumerate indexed paths. `project info` is tried because it is
+            # the richest allowlisted payload; when it carries no enumeration the
+            # coverage report records membership as unproven rather than assuming
+            # the counts agree.
+            membership_call=info,
+        )
+        return disposition(coverage, runtime_mismatch=self.runtime_mismatch())
 
     # ------------------------------------------------------------------
     def search(

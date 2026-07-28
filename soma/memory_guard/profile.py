@@ -62,6 +62,35 @@ FORBIDDEN_ENV: tuple[str, ...] = (
     "BASIC_MEMORY_TENANT_ID",
 )
 
+#: The exact ambient variables a provider subprocess inherits, and nothing else.
+#:
+#: Both extremes here are defects, and both have been observed. Passing only the
+#: `BASIC_MEMORY_*` keys left the child with no PATH and no SystemRoot, so every
+#: real subprocess failed to start. Passing all of `os.environ` hands the
+#: provider every credential that happens to live in Soma's process. This named
+#: allowlist is the middle: enough for a Windows process to run, and nothing
+#: that carries a secret.
+INHERITED_ENV: tuple[str, ...] = (
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "SystemDrive",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramData",
+    "ProgramFiles",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+)
+
 
 @dataclass(frozen=True)
 class ProviderProfile:
@@ -69,20 +98,24 @@ class ProviderProfile:
 
     config_dir: Path
     config: dict[str, object]
+    executable: str = ""
 
     def env(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         """The complete environment for a guarded provider process.
 
-        This inherits the ambient environment on purpose: a provider subprocess
-        needs PATH, SystemRoot and friends to start at all. The guard's own keys
-        are applied last so they always win, and `validate_env` still refuses any
-        inherited variable that could re-enable a cloud path.
+        Built from the named `INHERITED_ENV` allowlist rather than from all of
+        `os.environ`: the child gets what a Windows process needs to start and
+        nothing that could carry a credential. The guard's own keys are applied
+        last so they always win, and `validate_env` still refuses any variable
+        that could re-enable a cloud path.
         """
-        env = {
-            **os.environ,
-            "BASIC_MEMORY_CONFIG_DIR": str(self.config_dir),
-            **FORCED_ENV,
-        }
+        env: dict[str, str] = {}
+        for key in INHERITED_ENV:
+            value = os.environ.get(key)
+            if value is not None:
+                env[key] = value
+        env["BASIC_MEMORY_CONFIG_DIR"] = str(self.config_dir)
+        env.update(FORCED_ENV)
         for key in FORBIDDEN_ENV:
             env.pop(key, None)
         if extra:
@@ -90,8 +123,15 @@ class ProviderProfile:
         return env
 
 
-def load_profile(config_dir: str | Path) -> ProviderProfile:
-    """Load and validate the provider config, or refuse."""
+def load_profile(
+    config_dir: str | Path, *, executable: str | Path = ""
+) -> ProviderProfile:
+    """Load and validate the provider config, or refuse.
+
+    `executable` is the provider binary the guard expects to be invoked. It is
+    recorded so `runtime.verify_runtime` can enforce the frozen stack; without
+    it the runtime identity cannot be checked and semantic use is refused.
+    """
     directory = Path(config_dir).expanduser()
     config_path = directory / "config.json"
     if not config_path.is_file():
@@ -103,7 +143,9 @@ def load_profile(config_dir: str | Path) -> ProviderProfile:
     if not isinstance(config, dict):
         raise ProfileRefused("provider config must be a JSON object")
     validate_profile(config)
-    return ProviderProfile(config_dir=directory, config=config)
+    return ProviderProfile(
+        config_dir=directory, config=config, executable=str(executable or "")
+    )
 
 
 def validate_profile(config: dict[str, object]) -> None:

@@ -54,6 +54,14 @@ class PathRefused(GuardError):
     """A returned or requested path escaped the bound canonical root."""
 
 
+class RuntimeRefused(GuardError):
+    """The live provider runtime is not the frozen, evidence-bound stack."""
+
+
+class ProviderExecutionRefused(GuardError):
+    """The provider process did not complete successfully, so output is unusable."""
+
+
 class HealthState(str, Enum):
     """Published honestly. Only HEALTHY permits semantic retrieval."""
 
@@ -61,6 +69,10 @@ class HealthState(str, Enum):
     REBUILDING = "rebuilding"
     DEGRADED = "degraded"
     UNAVAILABLE = "unavailable"
+    #: The runtime no longer matches the stack the evidence was measured
+    #: against. Distinct from DEGRADED: nothing is broken, but the accepted
+    #: health verdict does not transfer to an unverified stack.
+    INCOMPATIBLE = "incompatible"
 
 
 class RefusalReason(str, Enum):
@@ -77,8 +89,12 @@ class RefusalReason(str, Enum):
     FORBIDDEN_SYNC_PATH = "forbidden_sync_path"
     COVERAGE_UNPROVEN = "coverage_unproven"
     COVERAGE_INCOMPLETE = "coverage_incomplete"
+    COVERAGE_MEMBERSHIP_UNAVAILABLE = "coverage_membership_unavailable"
+    COVERAGE_STALE_ENTITIES = "coverage_stale_entities"
     TOOL_NOT_ALLOWED = "tool_not_allowed"
     PATH_OUTSIDE_ROOT = "path_outside_root"
+    PROVIDER_EXIT_FAILURE = "provider_exit_failure"
+    RUNTIME_MISMATCH = "runtime_mismatch"
 
 
 @dataclass(frozen=True)
@@ -113,12 +129,78 @@ class ProviderBinding:
 
 
 @dataclass(frozen=True)
+class RuntimeIdentity:
+    """The provider stack actually present, measured rather than assumed.
+
+    `FROZEN_EVIDENCE_STACK` records what the acceptance evidence was measured
+    against. Until this identity is verified against it at runtime, a silently
+    upgraded provider would inherit a health verdict that was never measured for
+    it -- so the constants are enforced here rather than merely documented.
+    """
+
+    executable: str
+    executable_sha256: str
+    provider_version: str
+    embedding_model: str
+    similarity_threshold: float | None
+    config_sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "executable": self.executable,
+            "executable_sha256": self.executable_sha256,
+            "provider_version": self.provider_version,
+            "embedding_model": self.embedding_model,
+            "similarity_threshold": self.similarity_threshold,
+            "config_sha256": self.config_sha256,
+        }
+
+    def mismatches(self) -> tuple[str, ...]:
+        """Every way this runtime departs from the frozen evidence stack."""
+        problems: list[str] = []
+        expected_version = FROZEN_EVIDENCE_STACK["basic_memory"]
+        if self.provider_version != expected_version:
+            problems.append(
+                f"provider version {self.provider_version!r} is not the accepted "
+                f"{expected_version!r}"
+            )
+        expected_model = FROZEN_EVIDENCE_STACK["embedding_model"]
+        if self.embedding_model != expected_model:
+            problems.append(
+                f"embedding model {self.embedding_model!r} is not the accepted "
+                f"{expected_model!r}"
+            )
+        if (
+            self.similarity_threshold is not None
+            and abs(self.similarity_threshold - PILOT_SIMILARITY_THRESHOLD) > 1e-9
+        ):
+            problems.append(
+                f"similarity threshold {self.similarity_threshold!r} is not the "
+                f"calibrated {PILOT_SIMILARITY_THRESHOLD!r}"
+            )
+        return tuple(problems)
+
+
+@dataclass(frozen=True)
 class CoverageReport:
     """OS manifest compared against provider-visible coverage.
 
-    `provider_entities` is None when the provider did not report a count in a
-    shape the guard understands. That is treated as unproven, never as zero and
-    never as complete.
+    Two levels of evidence are distinguished, and only the stronger one can
+    unlock semantic retrieval:
+
+    * **cardinality** -- the provider reported *how many* entities it holds.
+      This is what `bm project info --json` supplies. It proves nothing about
+      *which* files those entities correspond to: two different sets of equal
+      size reconcile identically, and a stale entity for a deleted file keeps
+      the count whole while the index is wrong.
+    * **exact membership** -- the provider enumerated the relative paths it has
+      indexed, so the guard can compare sets rather than totals.
+
+    `provider_paths is None` means the accepted provider interface did not
+    expose membership. That is *unproven*, never "assume the counts agree", so
+    `proven_complete` stays False and semantic retrieval stays blocked. See
+    `MEMORY-INTEGRATION-FOUNDATION-1` step 2: Soma may not publish a stronger
+    health claim than the provider evidence supports.
     """
 
     project_id: str
@@ -126,8 +208,35 @@ class CoverageReport:
     os_eligible_files: int
     provider_entities: int | None
     pending_changes: int | None
-    missing_paths: tuple[str, ...] = ()
+    os_paths: tuple[str, ...] = ()
+    provider_paths: tuple[str, ...] | None = None
     notes: tuple[str, ...] = ()
+
+    @property
+    def exact_membership_available(self) -> bool:
+        """Whether the provider enumerated membership rather than a bare count."""
+        return self.provider_paths is not None
+
+    @property
+    def missing_paths(self) -> tuple[str, ...]:
+        """Canonical files the provider did not account for."""
+        if self.provider_paths is None:
+            return ()
+        return tuple(sorted(set(self.os_paths) - set(self.provider_paths)))
+
+    @property
+    def extra_paths(self) -> tuple[str, ...]:
+        """Provider entities with no canonical file -- stale or foreign."""
+        if self.provider_paths is None:
+            return ()
+        return tuple(sorted(set(self.provider_paths) - set(self.os_paths)))
+
+    @property
+    def cardinality_agrees(self) -> bool:
+        """Counts match exactly. Necessary, never sufficient."""
+        if self.provider_entities is None:
+            return False
+        return self.provider_entities == self.os_eligible_files
 
     @property
     def proven_complete(self) -> bool:
@@ -135,9 +244,13 @@ class CoverageReport:
             return False
         if self.pending_changes is None or self.pending_changes > 0:
             return False
-        if self.missing_paths:
+        # Cardinality alone is not proof. Without membership evidence the guard
+        # reports unproven and semantic retrieval stays blocked.
+        if self.provider_paths is None:
             return False
-        return self.provider_entities >= self.os_eligible_files
+        if self.missing_paths or self.extra_paths:
+            return False
+        return self.cardinality_agrees
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -146,7 +259,10 @@ class CoverageReport:
             "os_eligible_files": self.os_eligible_files,
             "provider_entities": self.provider_entities,
             "pending_changes": self.pending_changes,
+            "exact_membership_available": self.exact_membership_available,
+            "cardinality_agrees": self.cardinality_agrees,
             "missing_paths": list(self.missing_paths),
+            "extra_paths": list(self.extra_paths),
             "proven_complete": self.proven_complete,
             "notes": list(self.notes),
         }

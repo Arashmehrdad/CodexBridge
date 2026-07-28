@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from .catalog import KnowledgeCatalog
 from .models import (
     KnowledgeHealth,
@@ -15,7 +17,7 @@ from .models import (
     KnowledgeSearchPage,
     RebuildResult,
 )
-from .vault import MarkdownVault, content_hash, validate_project_id
+from .vault import MarkdownVault, UnadoptedNote, content_hash, validate_project_id
 
 
 def _now() -> str:
@@ -83,7 +85,20 @@ class KnowledgeService:
         maximum = max(1, min(limit, 50))
         offset = self._decode_cursor(cursor, project_id, query, current_only)
         matches = self.catalog.search(project_id, query, current_only)
-        page = matches[offset : offset + maximum]
+        page = [
+            self._canonical(record)
+            for record in matches[offset : offset + maximum]
+        ]
+        if current_only:
+            # The catalog filters on the *declared* status, which can lag a
+            # successor that was written while a predecessor's own file had not
+            # yet been rewritten. The link is authoritative, so apply it here.
+            superseding = self.catalog.superseded_ids(project_id)
+            page = [
+                record
+                for record in page
+                if self.effective_status(record, superseding) in {"current", "proposed"}
+            ]
         next_offset = offset + len(page)
         has_more = next_offset < len(matches)
         return KnowledgeSearchPage(
@@ -100,79 +115,161 @@ class KnowledgeService:
     def supersede(
         self, note: KnowledgeInput, supersedes_ids: list[str]
     ) -> KnowledgeRecord:
+        """Replace one or more records, crash-safely.
+
+        The successor is written first and its `supersedes_ids` link is what
+        makes the predecessors superseded -- see `effective_status`. Rewriting
+        each predecessor afterwards is a *projection* that makes the state
+        visible in the file itself; correctness never depends on it completing.
+        Previously an interruption partway through that loop left some
+        predecessors still reading `current`, and a rebuild adopted that.
+        """
         validate_project_id(note.project_id)
         if not supersedes_ids:
             raise ValueError("supersedes_ids must not be empty")
         existing = self.catalog.by_idempotency(note.project_id, note.idempotency_key)
         if existing is not None:
             return existing
+        # Resolve every predecessor before writing anything: an unknown id must
+        # refuse the whole operation rather than leave a dangling successor.
         old_records = [
             self.catalog.get(note.project_id, knowledge_id)
             for knowledge_id in supersedes_ids
         ]
         payload = note.model_copy(update={"supersedes_ids": list(supersedes_ids)})
         current = self.save(payload)
+
         for old in old_records:
-            old.status = "superseded"
-            old.updated_at = _now()
-            old.revision += 1
-            old.content_sha256 = content_hash(old)
-            self.vault.write(old)
-            self.catalog.upsert(old)
+            try:
+                self._project_superseded(old)
+            except OSError:
+                # The link already carries the truth. A failed projection is
+                # reported by health as dirty, not treated as a lost write.
+                continue
         return current
 
+    def _canonical(self, record: KnowledgeRecord) -> KnowledgeRecord:
+        """Prefer the file over the index.
+
+        The catalog stores a projection that an out-of-band Obsidian edit can
+        outdate. Search used to return that projection directly, so a controller
+        could be handed a body the owner had already changed.
+        """
+        try:
+            fresh = self.vault.read(self.vault.resolve_path(record.vault_path))
+        except (OSError, UnicodeError, ValueError, UnadoptedNote, ValidationError):
+            # A record that no longer reads cleanly is reported through health;
+            # search returns the last known projection rather than dropping the
+            # hit silently, which would be indistinguishable from "no match".
+            return record
+        if (
+            fresh.knowledge_id != record.knowledge_id
+            or fresh.project_id != record.project_id
+        ):
+            return record
+        return fresh
+
+    def _project_superseded(self, record: KnowledgeRecord) -> None:
+        """Write the derived `superseded` status into the predecessor's file."""
+        record.status = "superseded"
+        record.updated_at = _now()
+        record.revision += 1
+        record.content_sha256 = content_hash(record)
+        self.vault.write(record)
+        self.catalog.upsert(record)
+
+    def effective_status(
+        self, record: KnowledgeRecord, superseding_ids: set[str] | None = None
+    ) -> str:
+        """The record's real lifecycle state, derived from links.
+
+        A declared status can be stale -- the successor may have been written
+        while the predecessor's own file had not yet been rewritten. An incoming
+        supersession link always wins over a declared `current`.
+        """
+        if superseding_ids is None:
+            superseding_ids = self.catalog.superseded_ids(record.project_id)
+        if record.knowledge_id in superseding_ids and record.status in {
+            "current",
+            "proposed",
+        }:
+            return "superseded"
+        return record.status
+
     def rebuild(self, project_id: str | None = None) -> RebuildResult:
+        """Reconstruct the catalog from canonical Markdown alone.
+
+        Three outcomes per file, never two: a valid Soma record, an owner note
+        Soma does not manage, or a Soma-owned record that will not parse. Only
+        the third is corruption.
+        """
         if project_id is None:
             raise ValueError("project_id is required for a fail-closed rebuild")
         validate_project_id(project_id)
         records: list[KnowledgeRecord] = []
-        malformed = 0
+        malformed: list[str] = []
+        unadopted: list[str] = []
         for path in self.vault.markdown_files():
+            relative = path.resolve().relative_to(self.vault.root).as_posix()
             try:
                 record = self.vault.read(path)
-            except (OSError, UnicodeError, ValueError):
-                malformed += 1
+            except UnadoptedNote:
+                unadopted.append(relative)
+                continue
+            except (OSError, UnicodeError, ValueError, ValidationError):
+                malformed.append(relative)
                 continue
             if record.project_id == project_id:
                 records.append(record)
         self.catalog.replace_project(
             project_id,
             records,
-            canonical_count=len(records) + malformed,
-            malformed_count=malformed,
+            canonical_count=len(records) + len(malformed),
+            malformed_count=len(malformed),
             updated_at=_now(),
+            unadopted_count=len(unadopted),
+            unadopted_paths=unadopted,
+            malformed_paths=malformed,
         )
         return RebuildResult(
             project_id=project_id,
             indexed_count=len(records),
-            malformed_count=malformed,
+            malformed_count=len(malformed),
+            unadopted_count=len(unadopted),
         )
 
     def health(self, project_id: str) -> KnowledgeHealth:
+        """Canonical-vault health. Never speaks for the semantic provider."""
         validate_project_id(project_id)
+        if self.catalog.state(project_id) is None:
+            self.rebuild(project_id)
         state = self.catalog.state(project_id)
-        if state is None:
-            result = self.rebuild(project_id)
-            canonical = result.indexed_count + result.malformed_count
-            malformed = result.malformed_count
-            indexed = result.indexed_count
+        canonical = int(state["canonical_count"])
+        indexed = int(state["indexed_count"])
+        malformed = int(state["malformed_count"])
+        unadopted = int(state["unadopted_count"])
+        unadopted_paths = json.loads(state["unadopted_paths_json"] or "[]")
+        malformed_paths = json.loads(state["malformed_paths_json"] or "[]")
+
+        if malformed or indexed != canonical:
+            status = "degraded"
+        elif not canonical:
+            # Unadopted owner notes mean the vault is not empty even when Soma
+            # manages nothing in it yet.
+            status = "dirty" if unadopted else "empty"
         else:
-            canonical = int(state["canonical_count"])
-            indexed = int(state["indexed_count"])
-            malformed = int(state["malformed_count"])
-        status = (
-            "degraded"
-            if malformed or indexed != canonical
-            else "healthy"
-            if canonical
-            else "empty"
-        )
+            status = "healthy"
+
         return KnowledgeHealth(
             project_id=project_id,
             status=status,
             canonical_count=canonical,
             indexed_count=indexed,
             malformed_count=malformed,
+            unadopted_count=unadopted,
+            unadopted_paths=list(unadopted_paths),
+            malformed_paths=list(malformed_paths),
+            generation=int(state["generation"]),
         )
 
     @staticmethod
