@@ -142,15 +142,34 @@ residue outside approved locations, both disposable vaults deleted after hashes 
 recorded, controller-created `obsidian.json` removed. The Obsidian application itself is
 left installed — the owner installed it and it is theirs to keep.
 
-## After this gate
+## Post-pilot interpretation and next gate
 
-Basic Memory reactivates **only** for the three named gaps: semantic index rebuild
-completeness, multilingual retrieval, and rename link integrity. It does not inherit the
-areas where MCP Connector passed — isolation, authentication, paraphrase retrieval and
-Markdown integrity are settled evidence and should not be re-litigated.
+The raw observations and outcome above remain unchanged. Subsequent solution discovery
+classified them more precisely:
+
+- incomplete rebuild and stale healthy success are the decisive blockers;
+- silent multilingual-model failure is a hard bilingual requirement failure;
+- the rename path is unsafe as observed, but the root cause is not proven because the
+  Obsidian **Automatically update internal links** setting was not recorded;
+- Core tool expansion is a manageable integration weakness on the owner's single-user,
+  loopback-only laptop and can be contained by a Soma allowlist; it is not independently
+  a provider-selection blocker.
+
+Basic Memory must focus on complete rebuild, fail-closed health, bilingual retrieval and
+filesystem freshness. However, MCP Connector's provider-specific authentication,
+isolation and Markdown results do not transfer to Basic Memory. The successor gate keeps
+small provider-specific project-constraint, sibling-isolation, Markdown-integrity and
+clean-removal checks without repeating the old broad benchmark.
+
+The accepted follow-up decision is
+[`MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md).
+The only executable memory gate is
+[`PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md).
+
+A materially changed MCP Connector release remains worth a later bounded re-test because
+its retrieval, isolation, authentication and canonical-file behavior were strong. That
+re-test must freeze the shipped artifact, verify index accounting and stale-success
+behavior first, and record the Obsidian automatic-link-update setting before rename.
 
 `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. No production memory
 integration begins without a separate acceptance decision.
-
-A re-test of MCP Connector is worth scheduling on a later release: four of the six
-failures are bugs rather than architecture, and the architecture is sound.

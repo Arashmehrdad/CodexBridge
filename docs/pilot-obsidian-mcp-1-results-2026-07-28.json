@@ -185,8 +185,42 @@
     "residue_outside_approved_locations": "none",
     "obsidian_application_left_installed": true
   },
+  "post_pilot_interpretation": {
+    "raw_observations_changed": false,
+    "decisive_blockers": [
+      "incomplete_index_rebuild",
+      "stale_healthy_success_from_incomplete_index",
+      "silent_multilingual_model_failure"
+    ],
+    "rename": {
+      "observed_operation_safe": false,
+      "root_cause_proven": false,
+      "missing_control": "obsidian_automatically_update_internal_links_setting_not_recorded",
+      "future_retest": "separate_obsidian_ui_provider_and_os_rename_paths"
+    },
+    "core_tool_expansion": {
+      "severity": "manageable_in_owner_single_user_loopback_threat_model",
+      "selection_blocker_by_itself": false,
+      "future_control": "soma_exact_tool_allowlist"
+    },
+    "provider_evidence_transfers_to_basic_memory": false,
+    "minimum_basic_memory_safety_retest": [
+      "exact_project_constraint",
+      "sibling_isolation",
+      "markdown_integrity",
+      "clean_removal"
+    ]
+  },
   "after_this_gate": {
-    "basic_memory_reactivation_scope": "only the named gaps: semantic index rebuild completeness, multilingual retrieval, and rename link integrity",
+    "solution_discovery": "MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md",
+    "active_memory_gate": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
+    "basic_memory_focus": [
+      "semantic_index_rebuild_completeness",
+      "fail_closed_health",
+      "english_persian_bilingual_retrieval",
+      "filesystem_freshness"
+    ],
+    "mcp_connector_retest": "later_materially_changed_release_only",
     "code_intelligence_pilot": "remains planned and inactive",
     "production_memory_integration": "not begun; requires a separate acceptance decision"
   }
