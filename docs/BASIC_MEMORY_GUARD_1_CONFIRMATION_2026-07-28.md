@@ -1,8 +1,7 @@
 # BASIC-MEMORY-GUARD-1 — Live-Provider Production-Readiness Confirmation
 
 **Date:** 2026-07-28
-**Status:** executed; **both open questions closed**; two implementation defects
-found and fixed.
+**Status:** executed; provider/no-mutation questions closed; later architecture review found additional production blockers before controller connection.
 **Decision:** [`BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md)
 **Implementation:** [`BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md)
 
@@ -14,6 +13,13 @@ provider — but only after two fixes that unit tests could not have found.**
 The decision's stop clause ("if the tested release cannot operate without
 rewriting canonical files, integration stops") does **not** fire. A supported
 setting does prevent the rewriting; it simply is not the one the decision named.
+
+
+## Post-confirmation qualification
+
+A later repo-grounded architecture review verified that the implementation's health conclusion proves matching cardinality, not exact indexed-file membership: `os_manifest()` computes paths, but `build_coverage()` publishes only their count and never populates `missing_paths`. The review also found provider exit handling, runtime-stack enforcement, absent-scope, environment, supersession, integrity-hash, vault-location and legacy-writer blockers.
+
+Accordingly, the measurements in this record remain valid, including byte-identical Markdown and the live synthetic retrieval checks, but this record no longer authorizes direct controller connection or a production `healthy` semantic claim. The successor boundary is [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md).
 
 ## Finding 1 — `ensure_frontmatter_on_sync` is the wrong control
 

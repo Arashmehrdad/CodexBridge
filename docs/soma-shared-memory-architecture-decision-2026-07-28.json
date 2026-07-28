@@ -1,0 +1,110 @@
+{
+  "schema_version": "soma_shared_memory_architecture_decision.v1",
+  "date": "2026-07-28",
+  "decision_id": "SOMA-SHARED-MEMORY-ARCH-1",
+  "status": "owner_approved_documentation_closed_next_lane_not_started",
+  "decision_level": "C",
+  "public_contract": {
+    "first_lane_gateways": [
+      "knowledge_query",
+      "knowledge_action"
+    ],
+    "query_operations": [
+      "memory_search",
+      "memory_get",
+      "memory_health",
+      "memory_context",
+      "memory_packet_get"
+    ],
+    "action_operations": [
+      "memory_save",
+      "memory_supersede",
+      "memory_mark_disputed",
+      "memory_archive",
+      "memory_rebuild_index",
+      "memory_sync_provider"
+    ],
+    "new_top_level_memory_gateways_authorized": false
+  },
+  "authority": {
+    "memory_service": "CanonicalMemoryService evolved_or_wrapped_from_soma_knowledge",
+    "canonical_content_and_lifecycle": "external_private_owner_visible_markdown_vault",
+    "owner_workspace": "obsidian",
+    "catalog": "disposable_sqlite_projection",
+    "semantic_provider": "basic_memory_disposable_adapter_beneath_canonical_service",
+    "task_and_run_lifecycle": "existing_TaskManager_and_RunStore",
+    "research": "separate_ResearchPlatformService_authority",
+    "legacy_soma_memory": "temporary_read_only_importer_and_compatibility"
+  },
+  "lifecycle": {
+    "states": [
+      "proposed",
+      "current",
+      "superseded",
+      "disputed",
+      "rejected",
+      "archived"
+    ],
+    "supersession": "immutable_replacement_link_derived_effective_state",
+    "hard_delete_normal": false,
+    "integrity_hash_covers": [
+      "body",
+      "scope",
+      "provenance",
+      "lifecycle_metadata"
+    ]
+  },
+  "scope": {
+    "first_lane": "project_only_via_ProjectScope",
+    "future": "discriminated_MemoryScope_with_personal_sibling_resolver",
+    "implicit_global_expansion": false,
+    "personal_memory_first_lane": false
+  },
+  "provider_gate": {
+    "current_count_only_health_accepted": false,
+    "exact_path_hash_measurement_required": true,
+    "semantic_if_exact_reconciliation_unavailable": "disabled_or_explicitly_non_authoritative",
+    "require_successful_exit_before_parse": true,
+    "require_runtime_stack_identity": true,
+    "environment_policy": "named_windows_allowlist_plus_forced_guard_keys"
+  },
+  "verified_blockers": [
+    "count_only_coverage_missing_paths_never_populated",
+    "provider_output_parsed_without_successful_exit",
+    "frozen_stack_not_runtime_enforced",
+    "absent_scope_store_treated_active",
+    "whole_ambient_environment_inherited",
+    "supersession_not_crash_safe",
+    "integrity_hash_excludes_lifecycle_and_provenance",
+    "canonical_vault_hidden_under_runs",
+    "owner_markdown_without_frontmatter_treated_corrupt",
+    "legacy_writers_create_competing_authority"
+  ],
+  "next_lane": {
+    "lane_id": "MEMORY-INTEGRATION-FOUNDATION-1",
+    "status": "accepted_not_started",
+    "goal": "repair authority integrity scope provider health supersession and legacy writer defects; establish one disposable canonical vault; prove exact semantic coverage before controller connection",
+    "production_owner_memory_import_authorized": false,
+    "push_authorized": false
+  },
+  "not_authorized": [
+    "real_owner_memory_import",
+    "personal_memory_activation",
+    "bulk_legacy_migration",
+    "physical_memory_guard_relocation",
+    "new_top_level_memory_gateways",
+    "memagent",
+    "temporal_graph_provider",
+    "code_intelligence_activation",
+    "research_redesign",
+    "voice_work",
+    "deployment",
+    "push"
+  ],
+  "evidence": {
+    "provider_pilot": "PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md",
+    "guard_decision": "BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md",
+    "guard_confirmation": "BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md",
+    "knowledge_layer": "SOMA_KNOWLEDGE_LAYER.md"
+  }
+}

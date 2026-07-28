@@ -191,19 +191,35 @@ No production integration begins from the pilot result alone.
 
 ### BASIC-MEMORY-GUARD-1 - Minimal Soma Binding and Health Guard
 
-**Status:** **implemented, live-provider confirmed, and documentation-closed; not yet connected to a controller surface.** The authoritative boundary is [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md), the implementation record is [`docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md`](docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md), the confirmation is [`docs/BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](docs/BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md), and machine-readable controls remain in [`docs/basic-memory-minimal-guard-decision-2026-07-28.json`](docs/basic-memory-minimal-guard-decision-2026-07-28.json).
+**Status:** **provider compatibility and no-mutation confirmation remain closed, but controller-production acceptance is superseded by the shared-memory architecture review.** The authoritative boundary remains [`docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md`](docs/BASIC_MEMORY_MINIMAL_GUARD_DECISION_2026-07-28.md), the implementation record is [`docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md`](docs/BASIC_MEMORY_GUARD_1_IMPLEMENTATION_2026-07-28.md), and the live confirmation is [`docs/BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](docs/BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md).
 
-**Goal:** integrate Basic Memory only as a disposable local semantic provider beneath Soma's exact ProjectScope, health, provenance and controller boundary.
+Basic Memory `0.22.1` remains accepted as a replaceable local retrieval provider. The confirmed profile still requires `ensure_frontmatter_on_sync = false` plus `disable_permalinks = true`, and the measured provider, bilingual, isolation, fallback and cleanup evidence remains valid.
 
-**Required outcome:** exact project-to-provider/process/root binding; rejection of omitted, unknown, inactive, mismatched and sibling identity before provider invocation; local-only operation with cloud routing unreachable; OS-manifest-versus-provider coverage health; semantic fail-closed when completeness is unproven; exact tool and path validation; bounded direct Markdown fallback; `bm reindex` rather than `bm status --wait`; and no second lifecycle authority.
+Post-confirmation repository review found that the current guard does not yet justify controller connection: health compares counts rather than exact indexed paths, failed provider output can be parsed, the frozen stack is not runtime-enforced, absent ProjectScope can be treated as active, the whole ambient environment is inherited, supersession is not crash-safe, integrity hashing excludes lifecycle/provenance, the canonical vault is hidden under `runs/`, owner notes are classified as malformed, and legacy writers still create a competing SQLite truth.
 
-**Canonical integrity result:** Basic Memory requires both `ensure_frontmatter_on_sync = false` and `disable_permalinks = true`. With that profile, registration, initial indexing, three repeated synchronizations, complete derived-state deletion and full rebuild left all 6/6 Markdown files byte-identical. The stop condition did not fire.
+The guard is therefore a **provider adapter foundation**, not a production-ready memory authority. Semantic retrieval may not report healthy until exact path/hash reconciliation is proven; when the provider cannot expose sufficient evidence, canonical lexical retrieval ships and semantic mode remains disabled or explicitly non-authoritative.
 
-**Implemented boundary:** `soma/memory_guard/` now enforces mandatory exact identity, local-only provider configuration, the five-operation allowlist, coverage-based fail-closed health, path confinement, bounded literal Markdown fallback, and rebuild delegation to Soma's existing run authority. It is deliberately not wired into MCP or production controller surfaces yet.
+### SOMA-SHARED-MEMORY-ARCH-1 - Canonical Shared Memory Architecture
 
-**Confirmation result:** the real provider contract is closed. `bm project info <name> --json` exposes `statistics.total_entities`; live two-sibling binding passed; omitted, unknown and mismatched identity were refused before provider invocation; 3/3 coverage with zero pending changes reported healthy; destroyed derived state reported degraded and blocked semantic retrieval while direct Markdown fallback answered; rebuild completed with 3 embedded, 0 skipped and 0 errors; paths remained confined; cleanup was complete. Cloud unreachability is structurally enforced rather than tested with a real credential, and the full bilingual matrix remains inherited from `PILOT-BASIC-MEMORY-2`.
+**Status:** **owner-approved and documentation-closed.** The authoritative decision is [`docs/SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](docs/SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md), with machine-readable controls in [`docs/soma-shared-memory-architecture-decision-2026-07-28.json`](docs/soma-shared-memory-architecture-decision-2026-07-28.json).
 
-**Non-goals:** no custom storage, embeddings, ranking, semantic search, graph traversal, provider repair, autonomous curation, personal inference, conversation-history import, cross-project sharing, cloud sync, MemAgent integration or code-intelligence activation.
+Soma owns one coherent memory authority across ChatGPT, Claude Code and Hermes. `soma/knowledge/` becomes the foundation of `CanonicalMemoryService`; owner-visible Markdown in an external private Obsidian vault is canonical; SQLite catalogs and Basic Memory indexes are disposable; `soma/memory_guard/` is logically subordinate as the Basic Memory adapter; the old `soma/memory/` store becomes read-only compatibility/import state; and research remains a separate authority plane.
+
+The first public contract uses named `memory_*` operations inside the existing `knowledge_query` and `knowledge_action` gateways. No new top-level memory gateways are added in the first lane. Supersession is immutable replacement-link-derived, complete context packets are persisted before bounded controller projection, project scope is exact through ProjectScope, and personal scope remains a later sibling authority.
+
+The production default vault is an owner-configured external private Obsidian vault. The first lane uses one disposable synthetic project and vault with the same structure; it does not import real owner memory.
+
+### MEMORY-INTEGRATION-FOUNDATION-1 - Canonical Authority and Guard Repair
+
+**Status:** **accepted as the next implementation lane; implementation has not started.**
+
+**Goal:** repair the verified authority, integrity, scope, provider-health, supersession and legacy-writer defects; establish one disposable canonical vault; and prove whether exact semantic-index coverage is achievable before controller connection.
+
+**Required sequence:** repair the ten documented blockers; measure exact provider path/hash coverage capability; establish one synthetic external-vault-shaped canonical root; evolve or wrap `KnowledgeService` as `CanonicalMemoryService`; add typed named memory operations to the existing knowledge gateways; redirect or freeze every legacy writer; execute provider rebuild through TaskManager and RunStore; persist exact context packets with continuation; and prove one synthetic end-to-end project flow.
+
+**Semantic stop rule:** when exact provider path/hash reconciliation cannot be established through the accepted provider interface, canonical lexical retrieval may ship but semantic mode must remain disabled or explicitly non-authoritative. Matching counts alone may never publish healthy semantic completeness.
+
+**Exclusions:** no real owner-memory import, personal-memory activation, bulk legacy migration, physical `memory_guard` package move, dedicated new gateway, MemAgent, temporal graph provider, code-intelligence activation, research redesign, voice work, deployment or push.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -242,4 +258,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`PILOT-OBSIDIAN-MCP-1`, `PILOT-BASIC-MEMORY-2`, and `BASIC-MEMORY-GUARD-1` are closed. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. The next memory step, only after explicit owner authorization, is a narrow decision for connecting the confirmed guard to one existing Soma controller surface; it does not authorize production owner-memory import or push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No provider alternative, MemAgent work, code-intelligence pilot or voice work begins automatically.
+`PILOT-OBSIDIAN-MCP-1` and `PILOT-BASIC-MEMORY-2` are closed. `BASIC-MEMORY-GUARD-1` remains closed as provider/no-mutation evidence but is not accepted as a production controller boundary. `SOMA-SHARED-MEMORY-ARCH-1` is accepted, and `MEMORY-INTEGRATION-FOUNDATION-1` is the next implementation lane. A generic `continue` does not import production owner memory or authorize push. `PILOT-BASIC-MEMORY-1` is historical and permanently inactive. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked. No personal-memory activation, provider alternative, MemAgent work, code-intelligence pilot or voice work begins automatically.

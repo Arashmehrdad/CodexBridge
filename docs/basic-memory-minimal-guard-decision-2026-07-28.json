@@ -2,7 +2,7 @@
   "schema_version": "basic_memory_minimal_guard_decision.v1",
   "date": "2026-07-28",
   "decision_id": "BASIC-MEMORY-GUARD-1",
-  "status": "implemented_live_provider_confirmed_documentation_closed_controller_integration_not_started",
+  "status": "provider_compatibility_confirmed_production_controller_acceptance_superseded_blocked",
   "decision_level": "C",
   "provider": {
     "name": "basic-memory",
@@ -20,10 +20,11 @@
     "clean_removal": true
   },
   "canonical_ownership": {
-    "content": "markdown_plus_git",
+    "content": "owner_visible_markdown",
     "owner_workspace": "obsidian",
     "identity_health_routing_lifecycle": "soma",
-    "semantic_index": "basic_memory_disposable"
+    "semantic_index": "basic_memory_disposable",
+    "optional_history_backup": "private_git_not_required_for_correctness"
   },
   "required_guard_roles": [
     "exact_project_provider_process_root_binding",
@@ -69,25 +70,45 @@
   ],
   "implementation_entry_gate": {
     "production_memory_import_authorized": false,
-    "requires_no_mutation_confirmation": false,
-    "requires_two_sibling_project_scope_proof": false,
-    "requires_complete_rebuild_and_interruption_health_proof": false,
-    "requires_bilingual_regression": false,
-    "requires_provider_free_cleanup_proof": false
+    "direct_controller_connection_authorized": false,
+    "requires_exact_path_hash_coverage_measurement": true,
+    "requires_guard_defect_repair": true,
+    "requires_canonical_lifecycle_repair": true,
+    "requires_legacy_writer_freeze": true
   },
-  "next_permitted_lane": "prepare_narrow_controller_surface_integration_decision_after_explicit_owner_authorization",
+  "next_permitted_lane": "MEMORY-INTEGRATION-FOUNDATION-1",
   "not_authorized": [
     "another_provider_comparison",
     "production_owner_memory_import",
     "memagent_integration",
     "code_intelligence_activation",
     "voice_work",
-    "push"
+    "push",
+    "direct_controller_connection_before_foundation_repair",
+    "personal_memory_activation"
   ],
   "evidence": {
     "gate": "PILOT_BASIC_MEMORY_2_GATE_2026-07-28.md",
     "result": "PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md",
     "result_json": "pilot-basic-memory-2-results-2026-07-28.json",
-    "confirmation": "BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md"
+    "confirmation": "BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md",
+    "successor_architecture": "SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md"
+  },
+  "post_confirmation_review": {
+    "successor_decision": "SOMA-SHARED-MEMORY-ARCH-1",
+    "current_count_only_health_accepted_for_production": false,
+    "semantic_disposition_if_exact_coverage_unavailable": "disabled_or_explicitly_non_authoritative",
+    "verified_blockers": [
+      "count_only_coverage_missing_paths_never_populated",
+      "provider_output_parsed_without_successful_exit",
+      "frozen_stack_not_runtime_enforced",
+      "absent_scope_store_treated_active",
+      "whole_ambient_environment_inherited",
+      "supersession_not_crash_safe",
+      "integrity_hash_excludes_lifecycle_and_provenance",
+      "canonical_vault_hidden_under_runs",
+      "owner_markdown_without_frontmatter_treated_corrupt",
+      "legacy_writers_create_competing_authority"
+    ]
   }
 }

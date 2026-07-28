@@ -1,7 +1,7 @@
 # BASIC-MEMORY-GUARD-1 — Minimal Soma Binding and Health Guard
 
 **Date:** 2026-07-28
-**Status:** implemented, live-provider confirmed, and documentation-closed; controller-surface integration has not started.
+**Status:** provider compatibility and no-mutation confirmation remain closed; production controller acceptance is superseded and blocked by [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md).
 **Decision level:** C — foundational durability and continuity boundary.
 **Evidence source:** [`PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md`](PILOT_BASIC_MEMORY_2_RESULT_2026-07-28.md)
 **Live confirmation:** [`BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md`](BASIC_MEMORY_GUARD_1_CONFIRMATION_2026-07-28.md)
@@ -15,10 +15,20 @@ The provider passed complete rebuild from Markdown, interrupted-rebuild fail-clo
 
 No production integration, owner-memory import or client configuration is authorized by this decision alone.
 
+
+## Post-confirmation architecture correction
+
+The later repo-grounded shared-memory review found that this guard is not yet a sufficient production controller boundary. The current health path compares canonical-file count with provider entity count rather than exact path/hash membership; provider stdout may be parsed without a successful exit; runtime provider identity is not enforced; absent ProjectScope can be treated as active; the full ambient environment is inherited; and the canonical service still has crash-safety, hashing, vault-location and legacy-writer defects.
+
+The live confirmation remains valid evidence for provider behaviour, no-mutation configuration, sibling isolation, bounded fallback and cleanup. Its `proven_complete` result must be understood as count reconciliation for that synthetic corpus, not exact manifest proof for production memory.
+
+The accepted successor decision is `SOMA-SHARED-MEMORY-ARCH-1`. Controller connection is blocked until `MEMORY-INTEGRATION-FOUNDATION-1` repairs the documented defects and either proves exact provider path/hash reconciliation or leaves semantic mode disabled/non-authoritative.
+
 ## Authority and ownership
 
-- Markdown + Git remain canonical for durable owner-authored project memory.
+- Owner-readable Markdown remains canonical for durable owner-authored memory and lifecycle metadata.
 - Obsidian remains the owner-facing workspace over the same files.
+- Optional private Git may preserve owner-visible history and backup, but canonical correctness does not depend on every mutation being committed.
 - Soma remains the sole authority for exact `project_id`, provider/project/root binding, routing, health acceptance, lifecycle, provenance and public controller access.
 - Basic Memory owns only disposable local parsing, embeddings and semantic retrieval.
 - Provider databases, indexes, caches and model state must remain reconstructable and removable without loss of canonical memory.
@@ -123,4 +133,4 @@ Stop or reopen provider selection when:
 
 ## Next permitted lane
 
-The next permitted memory lane, only after explicit owner authorization, is a narrow controller-surface integration decision for exposing the confirmed guard through one existing Soma public contract. It does not authorize production owner-memory import, another provider comparison, MemAgent integration, code-intelligence activation, voice work or push.
+The next permitted memory lane is `MEMORY-INTEGRATION-FOUNDATION-1` under [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md). Direct controller connection is not permitted before the documented guard, canonical-lifecycle, vault and legacy-authority defects are repaired. This does not authorize production owner-memory import, personal-memory activation, another provider comparison, MemAgent integration, code-intelligence activation, voice work or push.
