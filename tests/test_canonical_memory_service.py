@@ -258,3 +258,74 @@ def test_operational_recollection_is_not_frozen(tmp_path):
         MemoryRecord(memory_type=MemoryType.RUN, title="run 1", content="exit 0")
     )
     assert record.memory_id
+
+
+# ----------------------------------------------------------------------
+# MEMORY-REAL-PROJECT-TRIAL-1 -- lexical retrieval defects found live
+
+
+def test_multi_word_question_matches_terms_in_any_order(service):
+    """Regression: lexical search was a single LIKE over the whole phrase.
+
+    A controller asking "semantic retrieval disabled" got zero results while
+    "semantic" alone matched, and the empty answer reported nothing omitted.
+    With semantic retrieval disabled this is the production retrieval path.
+    """
+    service.save(
+        note(
+            vault_path="architecture/semantic.md",
+            title="Semantic retrieval is disabled",
+            body=(
+                "Membership cannot be proven, so retrieval falls back to the "
+                "canonical catalog."
+            ),
+            idempotency_key="k-semantic",
+        )
+    )
+
+    for query in (
+        "semantic",
+        "semantic retrieval",
+        "semantic retrieval disabled",
+        "disabled semantic",
+        "  retrieval   disabled  ",
+    ):
+        outcome = service.search(query)
+        assert [r.title for r in outcome.records] == [
+            "Semantic retrieval is disabled"
+        ], query
+
+
+def test_a_term_that_is_absent_still_excludes_the_record(service):
+    """Term-AND, not term-OR: every term must appear."""
+    service.save(
+        note(
+            vault_path="architecture/semantic.md",
+            title="Semantic retrieval is disabled",
+            body="Membership cannot be proven.",
+            idempotency_key="k-semantic",
+        )
+    )
+    assert service.search("semantic elephant").records == ()
+
+
+def test_whitespace_only_query_is_refused_not_treated_as_match_everything(service):
+    service.save(note(idempotency_key="k1"))
+    with pytest.raises(ValueError, match="must not be empty"):
+        service.search("   ")
+
+
+def test_zero_results_from_a_question_says_why_not_just_zero(service):
+    """Absence of a match must not read as absence of the memory."""
+    service.save(note(idempotency_key="k1"))
+    outcome = service.search("why is the listener configured that way")
+    assert outcome.records == ()
+    assert any("every query term" in warning for warning in outcome.warnings)
+
+
+def test_single_term_miss_does_not_add_the_phrasing_warning(service):
+    """One term that genuinely is not there is a real absence, not a phrasing hint."""
+    service.save(note(idempotency_key="k1"))
+    outcome = service.search("elephant")
+    assert outcome.records == ()
+    assert not any("every query term" in warning for warning in outcome.warnings)

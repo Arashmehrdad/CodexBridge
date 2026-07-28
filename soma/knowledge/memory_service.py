@@ -25,6 +25,7 @@ from typing import Any
 from .models import KnowledgeInput, KnowledgeRecord
 from .scope import MemoryScope
 from .service import KnowledgeService
+from .vault import content_hash
 
 
 def _now() -> str:
@@ -178,10 +179,18 @@ class CanonicalMemoryService:
         self._require_scope(note.project_id)
         payload = note.model_copy(
             update={
+                # When the fact became true, as distinct from when Soma learned
+                # it. Defaults to now only because a caller that does not state
+                # a start has no earlier claim to make.
                 "valid_from": note.valid_from or _now(),
             }
         )
         record = self._knowledge.save(payload)
+        if not record.recorded_at:
+            record.recorded_at = record.created_at
+            record.content_sha256 = content_hash(record)
+            self._knowledge.vault.write(record)
+            self._knowledge.catalog.upsert(record)
         return self._stamp(record)
 
     def supersede(
@@ -219,8 +228,6 @@ class CanonicalMemoryService:
             )
         updated = current.model_copy(update={**changes, "updated_at": _now()})
         updated.revision = current.revision + 1
-        from .vault import content_hash
-
         updated.content_sha256 = content_hash(updated)
         self._knowledge.vault.write(updated)
         self._knowledge.catalog.upsert(updated)
@@ -292,6 +299,19 @@ class CanonicalMemoryService:
             )
         if page.has_more:
             warnings.append("more matches exist than the requested limit returned")
+        if not kept and len(query.split()) > 1:
+            # Zero results from a multi-term query is ambiguous, and the
+            # ambiguity is dangerous: "no such memory exists" and "your phrasing
+            # did not match" look identical, and a controller will believe the
+            # first. Lexical retrieval requires every term to appear literally,
+            # so a natural-language question usually fails on its function words
+            # rather than its subject. Say so instead of returning a bare zero.
+            warnings.append(
+                "no record contains every query term; canonical lexical retrieval "
+                "matches literal terms, not natural-language questions, so retry "
+                "with fewer or more specific keywords before concluding that "
+                "nothing was recorded"
+            )
 
         return RetrievalOutcome(
             scope=self._scope,

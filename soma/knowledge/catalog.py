@@ -190,11 +190,30 @@ class KnowledgeCatalog:
     def search(
         self, project_id: str, query: str, current_only: bool
     ) -> list[KnowledgeRecord]:
+        """Match every term in the query, in any order and any position.
+
+        This used to be a single `LIKE %<whole phrase>%`, which meant a natural
+        multi-word question found nothing unless the words happened to appear
+        contiguously: "semantic" returned the right records while "semantic
+        retrieval disabled" returned none, reported as zero results with nothing
+        omitted. With semantic retrieval disabled, this is the *production*
+        retrieval path, so that behaviour made canonical memory unreachable by
+        the way controllers actually ask.
+
+        Term-AND substring matching is deliberately as far as this goes. There
+        is no scoring, no stemming, no proximity and no ranking: ordering stays
+        stable by recency, and building a retrieval engine here is an explicit
+        non-goal of the architecture.
+        """
+        terms = [term for term in normalize_text(query).split() if term]
+        if not terms:
+            return []
+        clauses = " AND ".join(["search_text LIKE ? ESCAPE '\\'"] * len(terms))
         sql = (
             "SELECT record_json FROM knowledge_records "
-            "WHERE project_id = ? AND search_text LIKE ? ESCAPE '\\'"
+            f"WHERE project_id = ? AND ({clauses})"
         )
-        parameters: list[object] = [project_id, _like(normalize_text(query))]
+        parameters: list[object] = [project_id, *(_like(term) for term in terms)]
         if current_only:
             sql += " AND status = 'current'"
         sql += " ORDER BY updated_at DESC, knowledge_id"
