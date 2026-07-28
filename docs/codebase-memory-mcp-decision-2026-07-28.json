@@ -1,0 +1,44 @@
+{
+  "schema_version": "codebase_memory_mcp_decision.v1",
+  "date": "2026-07-28",
+  "status": "accepted_planned_inactive",
+  "component": "DeusData/codebase-memory-mcp",
+  "role": "derived_repository_code_intelligence",
+  "implementation_lane_active": false,
+  "overlap": {
+    "with_project_memory": false,
+    "with_obsidian": false,
+    "with_basic_memory": false,
+    "with_soma_authority": false,
+    "reason": "codebase_memory_derives_structural_source_facts_while_memory_stack_holds_owner_authored_knowledge_and_soma_owns_identity_routing_and_evidence"
+  },
+  "authorities": {
+    "source": "repository_and_git",
+    "project_and_repository_binding": "Soma",
+    "task_run_evidence_lifecycle": "Soma",
+    "owner_authored_memory": "Markdown_Git_Obsidian_selected_memory_provider",
+    "repository_wiki": "Soma_RepoWikiService",
+    "derived_code_graph": "Codebase Memory MCP"
+  },
+  "future_lane": "PILOT-CODE-INTELLIGENCE-1",
+  "future_lane_active": false,
+  "pilot_controls": {
+    "pinned_release_required": true,
+    "checksum_required": true,
+    "automatic_agent_configuration_allowed": false,
+    "skip_config_required": true,
+    "allowed_root_required": true,
+    "cache_outside_repo_required": true,
+    "auto_index": false,
+    "auto_watch": false,
+    "commit_graph_artifact": false,
+    "subagents_authorized": false,
+    "push_allowed": false
+  },
+  "excluded_tools": [
+    "manage_adr",
+    "ingest_traces_initially"
+  ],
+  "graphify_parallel_pilot": false,
+  "production_activation": false
+}

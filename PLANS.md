@@ -149,6 +149,14 @@ A premature disposable Basic Memory probe was removed completely and is not acce
 
 **Next recommended lane:** `PILOT-BASIC-MEMORY-1`, a future single-controller official-tool compatibility trial. It is not active and requires a separate owner instruction.
 
+### CODE-INTELLIGENCE-DECISION-1 - Codebase Memory MCP
+
+**Status:** **accepted as planned but inactive.** The authoritative boundary is [`docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md`](docs/CODEBASE_MEMORY_MCP_DECISION_2026-07-28.md), with machine-readable controls in [`docs/codebase-memory-mcp-decision-2026-07-28.json`](docs/codebase-memory-mcp-decision-2026-07-28.json).
+
+`DeusData/codebase-memory-mcp` is the preferred ready-made candidate for derived repository structure: symbols, calls, routes, architecture, source snippets, and change impact. It does not overlap with Basic Memory/Obsidian, which cover owner-authored project knowledge and continuity. It does not replace the repository, Git, `RepoWikiService`, or Soma authority.
+
+A future `PILOT-CODE-INTELLIGENCE-1` may test a pinned, checksum-verified binary through an explicit Soma project/repository binding, with cache outside the repository, `CBM_ALLOWED_ROOT` enforced, auto-index and auto-watch disabled, no installer edits, no `manage_adr`, no committed graph artifact, no subagents, and no push. The pilot is not active.
+
 ## Prerequisites Before Autonomous Scheduled Agent Work
 
 These requirements do not block STABILIZE-1 or the early pilots, but autonomous scheduled agent work may not be enabled without both:
@@ -162,4 +170,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-No implementation lane is active after `MEMORY-DECISION-1`. The next recommended lane is `PILOT-BASIC-MEMORY-1`, but it does not begin without a separate owner instruction. A generic `continue` does not install a provider, activate production memory, integrate memory into Soma, revive a Roadmap V2 lane, or start Roadmap V3 feature work.
+No implementation lane is active after `MEMORY-DECISION-1` and `CODE-INTELLIGENCE-DECISION-1`. The recommended future lanes are `PILOT-BASIC-MEMORY-1` and `PILOT-CODE-INTELLIGENCE-1`; neither begins without a separate owner instruction, and they must not run in parallel. A generic `continue` does not install a provider, index a repository, activate production memory, integrate either provider into Soma, revive a Roadmap V2 lane, or start Roadmap V3 feature work.
