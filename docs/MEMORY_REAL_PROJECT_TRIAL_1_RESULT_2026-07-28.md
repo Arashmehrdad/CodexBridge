@@ -186,15 +186,52 @@ The two are `architecture/canonical-memory-authority.md` and
 intact and retrievable; what is unproven is that it is the content the writer
 recorded.
 
-**These two need an explicit owner-acknowledged restamp.** Repairing them is a
-deliberate act of saying "I accept this content as canonical", which is the
-owner's to make, not a rebuild's to perform.
+## Repair — `memory_accept_drift`, used on exactly those two
+
+The owner authorised the repair, so drift acceptance became a named public
+action rather than a manual restamp. It is the **only** path that rewrites a
+record's integrity hash, and it is narrow on purpose:
+
+- the record must actually be drifted, so it cannot double as a way to rewrite
+  an intact record's hash;
+- `accepted_sha256` must equal the hash of the content *as it stands*, so the
+  caller names the exact bytes it adopts. A file that changes between reading
+  and accepting is a refusal, not a race;
+- it is deliberately **not** part of `memory_rebuild_index`. A rebuild that
+  repaired drift on its own would launder an out-of-band edit into canon.
+
+Note the inverted precondition against the lifecycle actions: those name the
+hash they expect to still hold, this names the new hash being adopted — hence a
+separate request model rather than another `expected_sha256` branch.
+
+Using it exposed one more gap: nothing on the read path carried the recomputed
+hash, so repairing a record meant computing it out of band and the gateway was
+insufficient for the operation it had just gained. `memory_get` and
+`memory_search` now report `integrity_drift` and, when drifted, `actual_sha256`
+— the decision and the token it needs arrive together.
+
+**Acceptance was justified by evidence, not convenience.** For both records,
+hashing the body *with* its trailing newline reproduces the stored hash exactly,
+which proves the content was never edited and only the normalisation boundary
+moved. Had that not held, the correct response would have been to leave them
+drifted.
+
+| Record | Stored | Adopted |
+|---|---|---|
+| `architecture/canonical-memory-authority.md` | `589e94e5…` | `854e812f…` |
+| `lessons/gateway-output-schema-…md` | `f71d50ef…` | `8606ab5e…` |
+
+Both moved to revision 2 with content untouched. Verified live afterwards:
+
+| Check | Result |
+|---|---|
+| canonical health | `healthy`, 9/9, **0 drifted** |
+| independent recheck outside the gateway | 9 consistent, 0 drifted |
+| re-accepting an intact record | refused: "is not drifted; there is nothing to accept" |
+| record content after acceptance | unchanged, `revision: 2`, retrievable |
 
 ## Still open
 
-- **A second restart is required** for the defect-3 fix. `system_action reload`
-  reports `restart_required` for the knowledge modules; in-process reload is
-  refused for them.
 - **ChatGPT and Hermes remain unverified.** Only Claude Code is proven.
 
 ## Boundaries
