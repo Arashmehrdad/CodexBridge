@@ -1,8 +1,8 @@
 # MEMORY-PROVIDER-SOLUTION-DISCOVERY-2 — Trustworthy Local Project Memory
 
-**Date:** 2026-07-28  
-**Status:** accepted decision; implementation has not started.  
-**Decision level:** C — foundational durability and continuity boundary.  
+**Date:** 2026-07-28
+**Status:** accepted decision; implementation has not started.
+**Decision level:** C — foundational durability and continuity boundary.
 **Method:** `preimplementation-solution-discovery` plus the owner's evidence-first, reversible, lowest-complexity decision rules.
 
 ## Capability

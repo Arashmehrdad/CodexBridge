@@ -1,9 +1,9 @@
 # PILOT-BASIC-MEMORY-2 — Provider Health and Bilingual Compatibility Gate
 
-**Date:** 2026-07-28  
-**Status:** gate prepared; execution has not started.  
-**Decision source:** [`MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md)  
-**Supersedes before execution:** [`PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md)  
+**Date:** 2026-07-28
+**Status:** gate prepared; execution has not started.
+**Decision source:** [`MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md`](MEMORY_PROVIDER_SOLUTION_DISCOVERY_2026-07-28.md)
+**Supersedes before execution:** [`PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md`](PILOT_BASIC_MEMORY_1_GATE_2026-07-28.md)
 **Scope:** one focused disposable Basic Memory Local compatibility trial.
 
 ## Purpose
