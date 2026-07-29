@@ -211,7 +211,7 @@ The production external private Obsidian vault root is now owner-decided as `D:\
 
 ### MEMORY-INTEGRATION-FOUNDATION-1 - Canonical Authority and Guard Repair
 
-**Status:** **implemented, validated, and result-documented on `lane/memory-integration-foundation-1`; not pushed.** The authoritative result is [`docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md), with the decisive provider measurement in [`docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md).
+**Status:** **implemented, validated, documentation-closed, and pushed on `lane/memory-integration-foundation-1`.** The authoritative result is [`docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md), with the decisive provider measurement in [`docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md`](docs/MEMORY_INTEGRATION_FOUNDATION_1_COVERAGE_MEASUREMENT_2026-07-28.md).
 
 All ten reviewed defects are repaired. `CanonicalMemoryService` now owns scope-bound canonical Markdown, compare-and-swap correction, link-derived crash-safe supersession, lifecycle, health, and exact persisted context packets. Five query and seven action operations use the existing knowledge gateways. Every legacy canonical writer is frozen or redirected, and rebuild work remains under the existing task/run authority.
 
