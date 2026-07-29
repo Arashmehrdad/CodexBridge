@@ -468,3 +468,86 @@ def test_memory_and_research_remain_separate_authorities(gateway):
         },
     )
     assert research.get("records", []) == [] or research["ok"] is False
+
+
+# ----------------------------------------------------------------------
+# MEMORY-CONTROLLER-ERGONOMICS-1
+
+
+def test_a_controller_can_discover_its_scope_from_a_repository_name(gateway):
+    """A fresh controller knows a repo name, not an opaque project_id."""
+    mcp, _config, _vault = gateway
+
+    discovered = query(mcp, {"operation": "memory_scope", "repo_name": "soma"})
+
+    assert discovered["ok"] is True, discovered.get("error")
+    assert discovered["scope"] == {
+        "kind": "project",
+        "project_id": PROJECT_ID,
+        "repo_name": "soma",
+    }
+    assert discovered["canonical_health"]
+    assert discovered["vault_root"]
+
+
+def test_the_discovered_scope_is_accepted_verbatim_by_every_memory_call(gateway):
+    """Discovery is only useful if its output is directly usable."""
+    mcp, _config, _vault = gateway
+    scope = query(mcp, {"operation": "memory_scope", "repo_name": "soma"})["scope"]
+
+    saved = action(mcp, {**save_payload(), "scope": scope})
+    assert saved["ok"] is True, saved.get("error")
+
+    health = query(mcp, {"operation": "memory_health", "scope": scope})
+    assert health["ok"] is True, health.get("error")
+    assert health["canonical_count"] == 1
+
+
+def test_discovery_does_not_become_a_silent_default(gateway):
+    """Scope stays explicit on every call; discovery is a separate step.
+
+    Inferring the project at call time is what the architecture forbids: a
+    memory operation must never quietly decide which project it addressed.
+    """
+    mcp, _config, _vault = gateway
+    with pytest.raises(Exception):
+        query(mcp, {"operation": "memory_health"})
+
+
+def test_unknown_repository_is_refused_with_an_actionable_reason(gateway):
+    mcp, _config, _vault = gateway
+    refused = query(mcp, {"operation": "memory_scope", "repo_name": "not-a-repo"})
+    assert refused["ok"] is False
+    assert refused["error"]
+
+
+def test_vault_path_is_derived_from_kind_and_title_when_omitted(gateway):
+    """The one thing every caller previously had to invent per write."""
+    mcp, _config, vault = gateway
+    payload = save_payload()
+    payload.pop("vault_path")
+
+    saved = action(mcp, {**payload, "kind": "lesson", "title": "Counts are not membership"})
+
+    assert saved["ok"] is True, saved.get("error")
+    assert saved["vault_path"] == "lessons/counts-are-not-membership.md"
+    written = vault / "projects" / PROJECT_ID / "lessons" / "counts-are-not-membership.md"
+    assert written.is_file()
+
+
+def test_an_explicit_vault_path_still_wins(gateway):
+    """The owner's own filing of their vault outranks a generated name."""
+    mcp, _config, _vault = gateway
+    saved = action(
+        mcp, {**save_payload(), "vault_path": "architecture/chosen-by-hand.md"}
+    )
+    assert saved["vault_path"] == "architecture/chosen-by-hand.md"
+
+
+def test_a_title_with_no_usable_stem_is_refused_not_given_a_placeholder(gateway):
+    """A generated placeholder would put an unfindable record in the vault."""
+    mcp, _config, _vault = gateway
+    payload = save_payload()
+    payload.pop("vault_path")
+    with pytest.raises(Exception, match="vault_path"):
+        action(mcp, {**payload, "title": "،؟!"})

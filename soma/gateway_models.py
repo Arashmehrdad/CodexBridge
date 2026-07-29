@@ -2243,6 +2243,27 @@ class MemoryScopeInput(GatewayModel):
         return self.model_dump(mode="json")
 
 
+class MemoryScopeQuery(GatewayModel):
+    """Resolve a repository to the exact scope its memory calls must carry.
+
+    Every memory operation needs an opaque `project_id`, and until now the only
+    ways to obtain one were to already know it or to read it out of a decision
+    document. A fresh controller could reach the gateway and still be unable to
+    address its own project.
+
+    This resolves and *returns* the scope; it deliberately does not become an
+    inference path at call time. `MemoryScopeInput` still requires the scope to
+    be named exactly on every call, so discovery stays a separate, visible step
+    and a memory operation can never silently guess which project it addressed.
+    """
+
+    operation: Literal["memory_scope"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class MemorySearchQuery(GatewayModel):
     operation: Literal["memory_search"]
     scope: MemoryScopeInput
@@ -2293,6 +2314,7 @@ KnowledgeQueryRequest = Annotated[
     | ProjectKnowledgeSearchQuery
     | ProjectKnowledgeGetQuery
     | ProjectKnowledgeHealthQuery
+    | MemoryScopeQuery
     | MemorySearchQuery
     | MemoryGetQuery
     | MemoryHealthQuery
@@ -2437,9 +2459,19 @@ class ResearchRebuildIndexAction(GatewayModel):
 
 
 class MemorySaveAction(GatewayModel):
+    """Write one canonical record.
+
+    `vault_path` is optional: when omitted it is derived from `kind` and
+    `title`, which removes the one thing every caller previously had to invent
+    per write. The derivation is deterministic and the resolved path is always
+    echoed in the acknowledgement, so a caller never has to guess where its own
+    record landed. An explicit path still wins, because the owner's own filing
+    of their vault outranks a generated name.
+    """
+
     action: Literal["memory_save"]
     scope: MemoryScopeInput
-    vault_path: str = Field(min_length=3, max_length=512)
+    vault_path: str = Field(default="", max_length=512)
     kind: Literal[
         "fact", "decision", "document", "lesson", "question", "handoff", "preference"
     ]
@@ -2458,6 +2490,22 @@ class MemorySaveAction(GatewayModel):
     locators: list[KnowledgeLocatorInput] = Field(default_factory=list, max_length=100)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def resolve_vault_path(self) -> "MemorySaveAction":
+        if self.vault_path.strip():
+            return self
+        from .knowledge.vault import derive_vault_path
+
+        derived = derive_vault_path(self.kind, self.title)
+        if not derived:
+            raise ValueError(
+                "vault_path could not be derived from this title, so it must be "
+                "given explicitly; a generated placeholder would put an "
+                "unfindable record in the vault"
+            )
+        self.vault_path = derived
+        return self
 
 
 class MemorySupersedeAction(MemorySaveAction):

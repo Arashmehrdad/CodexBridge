@@ -303,6 +303,7 @@ CANONICAL_MEMORY_ACTION_OUTPUT = {
         "title": {"type": "string"},
         "summary": {"type": "string"},
         "status": {"type": "string"},
+        "vault_path": {"type": "string"},
         "content_sha256": {"type": "string"},
         "revision": {"type": "integer"},
         "indexed_count": {"type": "integer"},
@@ -499,6 +500,45 @@ def _canonical_memory_context(mcp: Any, project_id: str, repo_name: str):
         packet_store=PacketStore(runs_dir / "knowledge" / "packets"),
     )
     return service, binding, canonical_name
+
+
+def _memory_scope_discovery(mcp: Any, request: Any) -> dict:
+    """Answer "which scope do my memory calls need?" for one repository.
+
+    Returns the scope object ready to send back verbatim, so a controller that
+    knows only a repository name can address its own project. The scope is
+    still required explicitly on every subsequent call: discovery stays a
+    separate, visible step rather than becoming a silent default.
+    """
+    from .knowledge.scope import ScopeRefused
+
+    try:
+        service, _binding, canonical_name = _canonical_memory_context(
+            mcp, request.project_id, request.repo_name
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "project_id": request.project_id,
+            "repo_name": request.repo_name,
+            "operation": "memory_scope",
+            "error": str(exc)
+            if isinstance(exc, ScopeRefused)
+            else f"memory scope could not be resolved: {exc}",
+        }
+    health = service.knowledge.health(service.scope.project_id)
+    return {
+        "ok": True,
+        "project_id": service.scope.project_id,
+        "repo_name": canonical_name,
+        "operation": "memory_scope",
+        "error": "",
+        # Ready to send back verbatim as the `scope` argument.
+        "scope": service.scope.to_dict(),
+        "canonical_health": health.status,
+        "canonical_count": health.canonical_count,
+        "vault_root": str(service.knowledge.vault_root),
+    }
 
 
 def _project_research_context(mcp: Any, project_id: str, repo_name: str):
@@ -705,6 +745,12 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
             "operation",
             "content_sha256",
             "revision",
+            # A derived location the caller did not choose is not decoration;
+            # dropping it under budget would leave the record unfindable.
+            "vault_path",
+            "scope",
+            "vault_root",
+            "canonical_count",
             "indexed_count",
             "malformed_count",
             "unadopted_count",
@@ -1207,6 +1253,8 @@ def register_knowledge_tools(mcp: Any) -> None:
         authority by being returned here.
         """
         operation = request.operation
+        if operation == "memory_scope":
+            return _memory_scope_discovery(mcp, request)
         try:
             service, _binding, canonical_name = _canonical_memory_context(
                 mcp, request.scope.project_id, request.scope.repo_name
@@ -1273,6 +1321,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
         if request.operation in {
+            "memory_scope",
             "memory_search",
             "memory_get",
             "memory_health",
@@ -1502,6 +1551,9 @@ def register_knowledge_tools(mcp: Any) -> None:
                     "summary": record.summary,
                     "content_sha256": record.content_sha256,
                     "revision": record.revision,
+                    # Always echoed, because it may have been derived: a caller
+                    # must never have to guess where its own record landed.
+                    "vault_path": record.vault_path,
                 }
 
             if action == "memory_accept_drift":

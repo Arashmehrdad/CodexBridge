@@ -42,6 +42,62 @@ def validate_project_id(project_id: str) -> str:
     return project_id
 
 
+#: Where each kind of record lives when the caller does not choose a path.
+#: Plural directories match the vault layout the owner already reads in
+#: Obsidian, so a derived path lands where a hand-written one would.
+_KIND_DIRECTORIES: dict[str, str] = {
+    "fact": "facts",
+    "decision": "decisions",
+    "document": "documents",
+    "lesson": "lessons",
+    "question": "questions",
+    "handoff": "handoffs",
+    "preference": "preferences",
+    "research": "research",
+    "research_note": "research",
+}
+
+
+def slugify(title: str) -> str:
+    """A stable, readable file stem for a title.
+
+    ASCII-folded so a Persian or accented title still produces a path an owner
+    can type and a shell can handle, and truncated on a word boundary so the
+    stem stays legible rather than cut mid-word.
+    """
+    folded = unicodedata.normalize("NFKD", title)
+    ascii_only = folded.encode("ascii", "ignore").decode("ascii").lower()
+    words = [word for word in re.split(r"[^a-z0-9]+", ascii_only) if word]
+    if not words:
+        return ""
+    stem = ""
+    for word in words:
+        candidate = f"{stem}-{word}" if stem else word
+        if len(candidate) > 80:
+            break
+        stem = candidate
+    return stem or words[0][:80]
+
+
+def derive_vault_path(kind: str, title: str) -> str:
+    """Where a record goes when the caller did not say.
+
+    Deriving rather than demanding removes the single biggest thing a caller had
+    to invent per write, and the result is deterministic so the same note always
+    resolves to the same path. It is always echoed back in the acknowledgement:
+    a caller must never have to guess where its own record landed.
+
+    Returns an empty string when no usable stem exists, which the caller turns
+    into a refusal. Inventing a placeholder name would put an unfindable record
+    in the owner's vault.
+    """
+    stem = slugify(title)
+    if not stem:
+        return ""
+    directory = _KIND_DIRECTORIES.get(kind, "notes")
+    return f"{directory}/{stem}.md"
+
+
 class MarkdownVault:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()

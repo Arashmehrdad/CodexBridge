@@ -1501,6 +1501,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "knowledge_query",
         (
+            "memory_scope",
             "memory_search",
             "memory_get",
             "memory_health",
