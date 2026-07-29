@@ -60,8 +60,10 @@ Four properties, each deliberate:
   the projection keep-list, so a budget squeeze can never drop the one field
   telling a caller where its own record landed.
 
-The slug is ASCII-folded, so a Persian or accented title still yields a path an
-owner can type, and truncates on a word boundary rather than mid-word.
+The slug ASCII-folds accented Latin titles and truncates on a word boundary
+rather than mid-word. A title with no usable ASCII stem—including a
+Persian-only title—is refused unless the caller supplies `vault_path`
+explicitly.
 
 ## Verified live
 
@@ -85,11 +87,22 @@ legacy import, no semantic activation, no change to how the vault root is
 configured. Existing callers that pass `vault_path` and a full `scope` are
 unaffected.
 
+## Operational connector note
+
+The restarted Soma server and fresh MCP discovery exposed `memory_scope`, but
+the already-open ChatGPT connector session still advertised the previous
+`knowledge_query` schema and rejected `memory_scope` before runtime validation.
+That is a connector/schema-refresh verification gap, not evidence that the
+server implementation failed. A refreshed ChatGPT connection must prove the new
+operation before this lane claims fresh-controller coverage on that surface.
+
+The earlier cross-controller trial remains closed: Claude Code, ChatGPT, and
+Hermes were already verified end to end for the pre-existing memory flow. This
+lane does not reopen either of those completed controller results.
+
 ## Still open
 
-Unchanged by this lane, carried from the closed trial:
-
-- **ChatGPT is unverified.**
-- **A full Hermes LLM session is unverified**; the transport is proven.
+- Refresh and re-prove the ChatGPT connector's advertised schema for
+  `memory_scope`.
 - Semantic retrieval stays disabled until index membership can be proven.
 - Natural-language retrieval remains out of reach by design.

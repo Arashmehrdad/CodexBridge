@@ -235,6 +235,14 @@ Nine reviewed Soma project memories are live under `D:\SomaMemory`. Canonical he
 
 The closed trial does not authorise personal memory, bulk legacy import, unprovable semantic retrieval, automatic conversation ingestion, Git/cloud backup, or deployment.
 
+### MEMORY-CONTROLLER-ERGONOMICS-1 - Scope Discovery and Save Ergonomics
+
+**Status:** **implementation complete and pushed in `da5ef52`; documentation-correction follow-up required.** The result is [`docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md`](docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md).
+
+Unlike the earlier memory lanes, this lane had no owner-authored decision document before execution. Its scope was selected at start time and bounded to two additive changes: `memory_scope` lets a controller discover the exact explicit project scope from a repository name, while every memory operation still refuses missing scope; and `memory_save` may derive a deterministic `vault_path` from kind and title, while an explicit path still wins and titles with no usable ASCII stem require an explicit path. Retrieval behavior, semantic activation, personal scope, legacy import, and automatic ingestion remain untouched.
+
+The implementation passed 2252 tests with 35 skipped and live vault health remained `healthy` at 10/10 with zero drift. Fresh MCP discovery exposed the new operation, but the already-open ChatGPT connector session still advertised the previous `knowledge_query` schema and rejected `memory_scope` before runtime. A refreshed connector proof remains required before claiming that this new operation is usable from ChatGPT's connected surface.
+
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
 **Status:** **executed and documentation-closed** with outcome `reject_mcp_connector_activate_basic_memory_comparison`. The gate remains in [`docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_GATE_2026-07-28.md); the authoritative result is [`docs/PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md`](docs/PILOT_OBSIDIAN_MCP_1_RESULT_2026-07-28.md) with machine-readable evidence in [`docs/pilot-obsidian-mcp-1-results-2026-07-28.json`](docs/pilot-obsidian-mcp-1-results-2026-07-28.json).
