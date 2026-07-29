@@ -24,6 +24,7 @@ and no parallel copy of the request models.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Final
 
 from fastmcp.exceptions import ToolError, ValidationError
@@ -33,8 +34,10 @@ from pydantic import ValidationError as PydanticValidationError
 __all__ = [
     "REQUEST_ENVELOPE_PROPERTY",
     "FlatGatewayTool",
+    "decode_json_encoded_arguments",
     "flatten_request_input_schema",
     "normalize_gateway_arguments",
+    "structured_argument_names",
 ]
 
 REQUEST_ENVELOPE_PROPERTY: Final[str] = "request"
@@ -316,6 +319,111 @@ def normalize_gateway_arguments(
     return wrapped
 
 
+def _declared_shapes(node: Any, root: dict[str, Any], depth: int = 0) -> set[str]:
+    """Classify one property schema as ``structured``, ``scalar`` or neither."""
+    if depth > 8 or not isinstance(node, dict):
+        return set()
+    resolved = _resolve_local_ref(node, root)
+    if not isinstance(resolved, dict):
+        return set()
+
+    shapes: set[str] = set()
+    declared = resolved.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    for entry in types:
+        if entry in {"object", "array"}:
+            shapes.add("structured")
+        elif isinstance(entry, str) and entry != "null":
+            shapes.add("scalar")
+    if not shapes and isinstance(resolved.get("properties"), dict):
+        shapes.add("structured")
+
+    for keyword in ("anyOf", "oneOf", "allOf"):
+        members = resolved.get(keyword)
+        if isinstance(members, list):
+            for member in members:
+                shapes |= _declared_shapes(member, root, depth + 1)
+    return shapes
+
+
+def structured_argument_names(schema: dict[str, Any]) -> frozenset[str]:
+    """Top-level argument names that are objects or arrays in *every* variant.
+
+    A name is excluded the moment any operation variant declares it as a scalar.
+    That exclusion is the whole point: `decode_json_encoded_arguments` must never
+    parse a field that is legitimately a string, and public payloads carry plenty
+    of strings whose content is JSON — a memory `body`, a `content_text`, a
+    `query`. Decoding one of those would silently replace what the caller wrote
+    with a parsed structure, which is far worse than the refusal it replaces.
+    """
+    if not isinstance(schema, dict):
+        return frozenset()
+    structured: set[str] = set()
+    scalar: set[str] = set()
+
+    def collect(node: Any, depth: int = 0) -> None:
+        if depth > 8 or not isinstance(node, dict):
+            return
+        resolved = _resolve_local_ref(node, schema)
+        if not isinstance(resolved, dict):
+            return
+        properties = resolved.get("properties")
+        if isinstance(properties, dict):
+            for name, declaration in properties.items():
+                shapes = _declared_shapes(declaration, schema)
+                if "scalar" in shapes:
+                    scalar.add(name)
+                elif "structured" in shapes:
+                    structured.add(name)
+        for keyword in ("anyOf", "oneOf", "allOf"):
+            members = resolved.get(keyword)
+            if isinstance(members, list):
+                for member in members:
+                    collect(member, depth + 1)
+
+    collect(schema)
+    return frozenset(structured - scalar)
+
+
+def decode_json_encoded_arguments(
+    arguments: dict[str, Any], structured_names: frozenset[str]
+) -> dict[str, Any]:
+    """Decode object-valued arguments that arrived as JSON text.
+
+    Some MCP clients serialise a nested argument as a JSON string rather than a
+    native object -- Hermes forwards its model's tool call verbatim, so
+    ``knowledge_query`` received ``scope='{"kind": "project", ...}'`` and every
+    scoped memory call failed validation. The advertised schema says ``scope`` is
+    an object, so a string there is unambiguously an encoding artefact and not a
+    payload a caller could have meant.
+
+    Deliberately narrow: only names the schema declares structured in every
+    variant, only top-level arguments, and only when the text actually parses
+    into the declared shape. Anything else is left exactly as it arrived so the
+    normal validation error still reports what was really sent, rather than this
+    layer inventing a second, less accurate failure.
+    """
+    if not structured_names or not isinstance(arguments, dict):
+        return arguments
+
+    decoded: dict[str, Any] = {}
+    changed = False
+    for name, value in arguments.items():
+        if name in structured_names and isinstance(value, str):
+            candidate = value.strip()
+            if candidate[:1] in {"{", "["}:
+                try:
+                    parsed = json.loads(candidate)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, (dict, list)):
+                    decoded[name] = parsed
+                    changed = True
+                    continue
+        decoded[name] = value
+    return decoded if changed else arguments
+
+
 class FlatGatewayTool(FunctionTool):
     """A gateway tool that advertises flat arguments and re-wraps on the way in.
 
@@ -325,8 +433,23 @@ class FlatGatewayTool(FunctionTool):
     what a payload may contain. Result projection is inherited untouched.
     """
 
+    def _structured_argument_names(self) -> frozenset[str]:
+        """Derive the structured names from the schema actually advertised.
+
+        Reading ``self.parameters`` rather than keeping a hand-written list means
+        the set cannot drift from the published contract as operations are added.
+        """
+        cached = getattr(self, "_structured_names_cache", None)
+        if cached is None:
+            cached = structured_argument_names(self.parameters)
+            object.__setattr__(self, "_structured_names_cache", cached)
+        return cached
+
     async def run(self, arguments: dict[str, Any]) -> Any:
         normalized = normalize_gateway_arguments(arguments, tool_name=self.name)
+        normalized = decode_json_encoded_arguments(
+            normalized, self._structured_argument_names()
+        )
         try:
             return await super().run({REQUEST_ENVELOPE_PROPERTY: normalized})
         except (ValidationError, PydanticValidationError) as exc:

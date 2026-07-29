@@ -22,8 +22,10 @@ from soma.gateway_models import RepoPreviewedChangeApply
 from soma.knowledge_tools_integration import register_knowledge_tools
 from soma.mcp_flat_input import (
     FlatGatewayTool,
+    decode_json_encoded_arguments,
     flatten_request_input_schema,
     normalize_gateway_arguments,
+    structured_argument_names,
 )
 from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 
@@ -559,3 +561,94 @@ def test_discovered_schema_is_the_loaded_tool_schema_object() -> None:
     actions = _discovered_actions()
     for name in PUBLIC_GATEWAY_NAMES:
         assert actions[name]["inputSchema"] == tools[name].parameters, name
+
+
+# ----------------------------------------------------------------------
+# JSON-encoded nested arguments (Hermes)
+
+
+def _knowledge_query_tool() -> FlatGatewayTool:
+    async def _tools() -> dict[str, Any]:
+        register_knowledge_tools(server.mcp)
+        return {tool.name: tool for tool in await server.mcp.list_tools()}
+
+    return asyncio.run(_tools())["knowledge_query"]
+
+
+def test_scope_is_advertised_as_an_object_in_every_variant() -> None:
+    """The premise of the decode: a string in `scope` cannot be intended."""
+    names = structured_argument_names(_knowledge_query_tool().parameters)
+    assert "scope" in names
+
+
+def test_json_encoded_scope_is_decoded_to_a_native_object() -> None:
+    """Regression: Hermes sent `scope` as JSON text and every scoped call failed.
+
+    Hermes forwards its model's tool call verbatim, so `knowledge_query` received
+    scope='{"kind": "project", ...}' and pydantic refused it with "Input should
+    be a valid dictionary or instance of MemoryScopeInput". The advertised schema
+    says scope is an object, so the string is an encoding artefact.
+    """
+    tool = _knowledge_query_tool()
+    scope = {
+        "kind": "project",
+        "project_id": "proj_a144f759-1619-4276-9292-28704b6611f4",
+        "repo_name": "soma",
+    }
+    decoded = decode_json_encoded_arguments(
+        {"operation": "memory_health", "scope": json.dumps(scope)},
+        tool._structured_argument_names(),
+    )
+    assert decoded["scope"] == scope
+    assert decoded["operation"] == "memory_health"
+
+
+def test_a_string_field_whose_content_is_json_is_never_decoded() -> None:
+    """The hazard the schema check exists to prevent.
+
+    A memory body, a content_text or a query may legitimately contain JSON.
+    Decoding one would silently replace what the caller wrote with a parsed
+    structure -- a corrupted write, which is far worse than a refusal.
+    """
+    tool = _knowledge_query_tool()
+    literal = '{"kind": "project", "note": "this is prose the caller typed"}'
+    decoded = decode_json_encoded_arguments(
+        {"operation": "search_knowledge", "query": literal},
+        tool._structured_argument_names(),
+    )
+    assert decoded["query"] == literal
+    assert isinstance(decoded["query"], str)
+
+
+def test_unparseable_or_wrongly_shaped_text_is_left_for_normal_validation() -> None:
+    """This layer never invents a failure the caller cannot act on."""
+    names = frozenset({"scope"})
+    for value in ('{"kind": "project"', "[1, 2", '"just a string"', "17", ""):
+        decoded = decode_json_encoded_arguments({"scope": value}, names)
+        assert decoded["scope"] == value, value
+
+
+def test_native_objects_pass_through_untouched() -> None:
+    scope = {"kind": "project", "project_id": "p", "repo_name": "soma"}
+    arguments = {"operation": "memory_health", "scope": scope}
+    assert decode_json_encoded_arguments(arguments, frozenset({"scope"})) is arguments
+
+
+def test_decoded_scope_validates_through_the_real_tool_call_path() -> None:
+    """End to end: the exact Hermes payload must reach the operation model."""
+    tool = _knowledge_query_tool()
+    payload = {
+        "operation": "memory_health",
+        "scope": json.dumps(
+            {"kind": "project", "project_id": "proj_missing", "repo_name": "soma"}
+        ),
+    }
+
+    result = asyncio.run(tool.run(payload))
+
+    # The scope resolved and the call reached the operation. It refuses on the
+    # unknown project, which is a ProjectScope decision -- not the pydantic
+    # "Input should be a valid dictionary or instance of MemoryScopeInput"
+    # that the encoding artefact used to produce.
+    rendered = json.dumps(result.structured_content or {})
+    assert "MemoryScopeInput" not in rendered
