@@ -1,7 +1,7 @@
 # MCP-OPERATION-USAGE-INSTRUMENTATION-1 — Bounded Aggregate Operation Counters
 
 **Date:** 2026-07-29
-**Status:** prepared for owner review; not authorised or executed.
+**Status:** owner-authorised and amended to an exact 8-hour window; implementation validated; production window not yet activated.
 **Decision level:** temporary runtime instrumentation and bounded public-operation usage evidence only.
 **Follows:** [`EXTERNAL_CONSUMER_MEASUREMENT_1_RESULT_2026-07-29.md`](EXTERNAL_CONSUMER_MEASUREMENT_1_RESULT_2026-07-29.md).
 
@@ -90,17 +90,19 @@ The file is an aggregate snapshot. It contains no per-request record and no info
 
 ## Measurement window
 
-The production window is exactly **48 consecutive hours** beginning only after validation counters are reset and the first production snapshot is written.
+**Owner amendment — 2026-07-29:** Arash reduced the production window from 48 hours to 8 hours because Soma runs on a personal laptop that cannot reasonably remain continuously available for two days. The minimum traffic threshold is reduced proportionally from 500 to 100 counted public-operation calls. No privacy, mapping, recovery, expiry, cleanup, contract, or interpretation rule is weakened by this amendment.
+
+The production window is exactly **8 consecutive hours** beginning only after validation counters are reset and the first production snapshot is written.
 
 A valid window requires:
 
-- the full 48 hours to elapse;
-- at least 500 counted public operation calls;
+- the full 8 hours to elapse;
+- at least 100 counted public operation calls;
 - `unmapped_or_rejected_count == 0` for the production window;
 - no unexplained counter loss across restart or crash;
 - the public tunnel and localhost endpoint to advertise the same contract throughout.
 
-If fewer than 500 calls occur, the lane closes `measurement-insufficient` unless the owner explicitly authorises one new bounded window. The executing controller may not silently extend the deadline.
+If fewer than 100 calls occur, the lane closes `measurement-insufficient` unless the owner explicitly authorises one new bounded window. The executing controller may not silently extend the deadline.
 
 The counter must stop automatically at `window_ends_at`. Restarting Soma must preserve the original deadline and accumulated aggregate counts; restart must not open a new window or reset evidence.
 
@@ -111,7 +113,7 @@ When started, the lane may:
 1. record the clean baseline commit, build hash, public schema hash, operation inventory version and public operation count;
 2. add the minimum temporary counter implementation and focused tests on the current lane branch;
 3. run a separate disposable validation window and positive controls;
-4. reset the artifact, activate the 48-hour production window and restart the local Soma service;
+4. reset the artifact, activate the 8-hour production window and restart the local Soma service;
 5. collect and hash the final aggregate artifact;
 6. disable the counter, remove the temporary implementation and temporary activation configuration;
 7. restart Soma on the restored product tree;
@@ -187,8 +189,8 @@ Because generic knowledge writes target a different vault root while sharing the
 
 The authorised closure files are:
 
-- `docs/MCP_OPERATION_USAGE_INSTRUMENTATION_1_RESULT_2026-07-31.md`;
-- `docs/mcp-operation-usage-instrumentation-1-counts-2026-07-31.json`;
+- `docs/MCP_OPERATION_USAGE_INSTRUMENTATION_1_RESULT_2026-07-29.md`;
+- `docs/mcp-operation-usage-instrumentation-1-counts-2026-07-29.json`;
 - the corresponding `PLANS.md` status update.
 
 The committed JSON is a reviewed projection of the aggregate artifact. It may contain the closed artifact fields, per-operation counts, interpretation and artifact SHA-256. It must not add client identity or request-level material.
@@ -260,4 +262,4 @@ Stop, restore the baseline tree and publish the failure if:
 
 A sufficient start instruction is:
 
-> Start MCP-OPERATION-USAGE-INSTRUMENTATION-1 exactly as prepared. Add only temporary aggregate counters keyed by Soma's authoritative gateway.operation inventory, activate one 48-hour production window, and record no request content, per-call event, timestamp, client, address, session, project or repository identity. Validate mapping, privacy, concurrency, restart recovery and automatic expiry before the window. Do not write memory, change any public contract, migrate or deprecate anything. After the window, hash the aggregate artifact, remove all instrumentation and activation, restore and validate the original product tree, and close only with the authorised result, counts JSON and PLANS.md update.
+> Start MCP-OPERATION-USAGE-INSTRUMENTATION-1 exactly as amended. Add only temporary aggregate counters keyed by Soma's authoritative gateway.operation inventory, activate one exact 8-hour production window, and record no request content, per-call event, timestamp, client, address, session, project or repository identity. Validate mapping, privacy, concurrency, restart recovery and automatic expiry before the window. Do not write memory, change any public contract, migrate or deprecate anything. After the window, hash the aggregate artifact, remove all instrumentation and activation, restore and validate the original product tree, and close only with the authorised result, counts JSON and PLANS.md update.
