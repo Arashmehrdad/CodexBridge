@@ -186,12 +186,98 @@ _PROCESS_CAPABILITY_METADATA = capability_metadata(PATCH_OPERATION_SCHEMA)
 _original_mcp_tool = mcp.tool
 
 
+#: Advertised input schemas, captured as each public tool registers.
+#:
+#: Every accessor on the tool registry is async, so a response cannot ask
+#: discovery what the live contract is without either driving an event loop from
+#: inside one or paying a full two-pass discovery per call. Recording the schema
+#: object at registration gives the same objects discovery serves, synchronously
+#: and once. A test asserts this agrees with the discovery-derived
+#: `public_schema_hash`, so the two can never drift apart unnoticed.
+_PUBLIC_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {}
+_PUBLIC_CONTRACT_HASH_CACHE: str = ""
+
+
+def _record_public_input_schema(tool: Any) -> None:
+    """Invalidate the memo when the advertised surface gains a tool.
+
+    The schema itself is deliberately not captured here. FastMCP inlines
+    ``$defs`` and dereferences the union branches when it *advertises* a tool,
+    so neither ``tool.parameters`` nor a registration-time ``to_mcp_tool()``
+    reproduces what a connector actually caches. Hashing either would yield an
+    identity no client could reproduce -- authoritative-looking and wrong.
+    """
+    global _PUBLIC_CONTRACT_HASH_CACHE
+    if getattr(tool, "name", ""):
+        _PUBLIC_CONTRACT_HASH_CACHE = ""
+
+
+def refresh_public_contract_hash() -> str:
+    """Compute the effective public contract identity from served discovery.
+
+    Called once at startup, after every tool has registered, so responses can
+    stamp the identity synchronously without driving discovery per call. Safe
+    to call again; it is idempotent for an unchanged surface.
+    """
+    global _PUBLIC_CONTRACT_HASH_CACHE
+    try:
+        from .knowledge_tools_integration import register_knowledge_tools
+
+        register_knowledge_tools(mcp)
+        tools = asyncio.run(mcp.list_tools())
+    except Exception:
+        # Never let identity computation break startup or a response: an absent
+        # field is honest, a wrong one is not.
+        return _PUBLIC_CONTRACT_HASH_CACHE
+    _PUBLIC_INPUT_SCHEMAS.clear()
+    for tool in tools:
+        action = tool.to_mcp_tool().model_dump(mode="json")
+        name = str(action.get("name", "") or "")
+        served = action.get("inputSchema")
+        if name and isinstance(served, dict):
+            _PUBLIC_INPUT_SCHEMAS[name] = served
+    _PUBLIC_CONTRACT_HASH_CACHE = _input_schema_hash_from_actions(
+        [
+            {"name": name, "inputSchema": schema}
+            for name, schema in _PUBLIC_INPUT_SCHEMAS.items()
+        ]
+    )
+    return _PUBLIC_CONTRACT_HASH_CACHE
+
+
+def public_contract_hash() -> str:
+    """Identity of the effective public input contract.
+
+    Derived only from the advertised input schemas, so adding or changing a
+    public operation moves it while an implementation-only edit does not. This
+    is the field to compare when asking "did the contract change?"; the legacy
+    `schema_hash` cannot answer that question -- see
+    `docs/PUBLIC_CAPABILITY_METADATA_1_RESULT_2026-07-29.md`.
+
+    Returns an empty string when discovery has not run yet and cannot be driven
+    from the current context, and the field is then omitted rather than guessed.
+    """
+    if _PUBLIC_CONTRACT_HASH_CACHE:
+        return _PUBLIC_CONTRACT_HASH_CACHE
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return refresh_public_contract_hash()
+    return ""
+
+
 def _with_process_capability_metadata(result: Any) -> Any:
     if not isinstance(result, dict):
         return result
     enriched = dict(result)
     for key, value in _PROCESS_CAPABILITY_METADATA.items():
         enriched.setdefault(key, value)
+    # Additive and never a redefinition: `schema_hash` keeps the value and
+    # meaning it has always had, and this is the field that actually tracks the
+    # public contract.
+    contract = public_contract_hash()
+    if contract:
+        enriched.setdefault("public_schema_hash", contract)
     return enriched
 
 
@@ -270,9 +356,11 @@ def _register_public_tool(function, tool_args: tuple, tool_kwargs: dict) -> None
             candidate.parameters = flat_schema
             flat_tool = candidate
     if flat_tool is None:
-        _original_mcp_tool(*tool_args, **tool_kwargs)(function)
+        registered = _original_mcp_tool(*tool_args, **tool_kwargs)(function)
+        _record_public_input_schema(registered)
         return
     mcp.add_tool(flat_tool)
+    _record_public_input_schema(flat_tool)
 
 
 def _tool_with_capability_metadata(*tool_args, **tool_kwargs):
@@ -6548,6 +6636,10 @@ def run_server(args: argparse.Namespace) -> None:
             runs_dir, reconciliation_status.PATH_TASKS, process_id=process_id
         ):
             get_task_manager().reconcile_startup()
+        # Every registry accessor is async, so the effective contract identity
+        # is computed once here -- after all registration, before serving --
+        # and stamped synchronously on responses thereafter.
+        refresh_public_contract_hash()
         if args.transport == "stdio":
             mcp.run(transport="stdio")
             return

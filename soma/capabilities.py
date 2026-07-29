@@ -56,6 +56,23 @@ def schema_hash(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+#: Transport metadata stamped on every dict response. It describes the contract
+#: a response was produced under, never authoritative result content, so an
+#: evidence comparison must strip exactly this set.
+#:
+#: Named here rather than restated per caller: a field added to the envelope but
+#: missing from someone's local copy of the list silently leaks into an evidence
+#: payload, which is the silent-omission hazard in a new place.
+PUBLIC_CAPABILITY_METADATA_KEYS: frozenset[str] = frozenset(
+    {
+        "server_build_hash",
+        "schema_hash",
+        "capability_epoch",
+        "public_schema_hash",
+    }
+)
+
+
 def capability_metadata(schema_payload: Any | None = None) -> dict[str, str]:
     build = server_build_hash()
     schema = schema_hash(

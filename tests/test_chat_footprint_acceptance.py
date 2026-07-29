@@ -24,6 +24,7 @@ from pydantic import TypeAdapter
 
 import soma.job_manager as job_manager_module
 import soma.server as server
+from soma.capabilities import PUBLIC_CAPABILITY_METADATA_KEYS
 from soma.cf1_fixture_footprint import build_representative_fixture_payload
 from soma.cf1_fixture_matrix import (
     CF1_FIXTURE_MATRIX,
@@ -56,9 +57,9 @@ FIXTURE_NAMES = tuple(fixture.name for fixture in CF1_FIXTURE_MATRIX)
 DETAIL_BYTES = 4096
 # Transport capability tags added by the gateway wrapper on top of every dict
 # response; they are metadata, never authoritative result content.
-CAPABILITY_KEYS = frozenset(
-    {"server_build_hash", "schema_hash", "capability_epoch"}
-)
+# Sourced from the server so a newly added envelope field cannot silently
+# leak into an authoritative evidence comparison.
+CAPABILITY_KEYS = PUBLIC_CAPABILITY_METADATA_KEYS
 # Durable terminal status per fixture outcome. `active_run` never transitions.
 _DB_STATUS = {
     "success": "completed",

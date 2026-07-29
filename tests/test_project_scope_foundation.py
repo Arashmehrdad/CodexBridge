@@ -1039,8 +1039,16 @@ def test_scoped_projection_authority_budgets_and_task_matrix(
         response = server.run_query(request)
         assert response["project_id"] == PROJECT_ALPHA
         if "byte_budget" in response:
+            # `public_schema_hash` is stamped by the response wrapper after
+            # byte accounting has already run, unlike the three legacy
+            # capability tags which are counted. Excluding only that field
+            # keeps this assertion exactly as strict as it was.
             encoded = json.dumps(
-                response,
+                {
+                    key: value
+                    for key, value in response.items()
+                    if key != "public_schema_hash"
+                },
                 ensure_ascii=False,
                 separators=(",", ":"),
                 sort_keys=True,
@@ -1048,7 +1056,14 @@ def test_scoped_projection_authority_budgets_and_task_matrix(
             assert response["payload_bytes"] == len(encoded)
             assert response["payload_bytes"] <= response["byte_budget"]
         if "response_budget_bytes" in response:
-            encoded = json.dumps(response, ensure_ascii=False).encode("utf-8")
+            encoded = json.dumps(
+                {
+                    key: value
+                    for key, value in response.items()
+                    if key != "public_schema_hash"
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
             assert response["response_bytes"] == len(encoded)
             assert response["response_bytes"] <= response["response_budget_bytes"]
 

@@ -51,6 +51,7 @@ WIKI_REFRESH_OUTPUT = {
         "refresh_operation_id": {"type": "string"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "truncated": {"type": "boolean"},
@@ -97,6 +98,7 @@ WIKI_PAGE_OUTPUT = {
         "indexed_source_generation": {"type": "integer"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
     },
@@ -163,6 +165,7 @@ KNOWLEDGE_SEARCH_OUTPUT = {
         "indexed_source_generation": {"type": "integer"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "response_bytes": {"type": "integer"},
@@ -185,6 +188,7 @@ MEMORY_WRITE_OUTPUT = {
         "summary": {"type": "string"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "truncated": {"type": "boolean"},
@@ -260,6 +264,7 @@ WIKI_REFRESH_COMPACT_OUTPUT = {
         "refresh_operation_id": {"type": "string"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "truncated": {"type": "boolean"},
@@ -315,6 +320,7 @@ CANONICAL_MEMORY_ACTION_OUTPUT = {
         "run_id": {"type": "string"},
         "server_build_hash": {"type": "string"},
         "schema_hash": {"type": "string"},
+        "public_schema_hash": {"type": "string"},
         "capability_epoch": {"type": "string"},
         "error": {"type": "string"},
         "truncated": {"type": "boolean"},
@@ -761,6 +767,10 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
             "error",
             "server_build_hash",
             "schema_hash",
+            # Contract identity survives a budget squeeze: a caller must still
+            # be able to tell whether a truncated response came from the
+            # contract it discovered.
+            "public_schema_hash",
             "capability_epoch",
         )
         if key in result

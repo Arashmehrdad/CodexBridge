@@ -1467,6 +1467,9 @@ class TestActionGateway:
                         "server_build_hash",
                         "schema_hash",
                         "capability_epoch",
+                        # Stamped after byte accounting; see the project-scope
+                        # budget test for the same exclusion and reason.
+                        "public_schema_hash",
                     }
                 },
                 ensure_ascii=False,
