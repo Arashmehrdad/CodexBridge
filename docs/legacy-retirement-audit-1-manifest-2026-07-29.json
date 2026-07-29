@@ -1,0 +1,336 @@
+{
+  "audit_id": "LEGACY-RETIREMENT-AUDIT-1",
+  "date": "2026-07-29",
+  "branch": "lane/memory-integration-foundation-1",
+  "gate": "docs/LEGACY_RETIREMENT_AUDIT_1_GATE_2026-07-29.md",
+  "outcome": "audit-complete",
+  "authoritative_for": "item-level classification",
+  "evidence_mode": "static inspection plus bounded in-process dynamic checks; no product state modified",
+  "dynamic_checks": {
+    "public_tool_enumeration": {
+      "method": "fresh process, asyncio.run(mcp.list_tools())",
+      "served_before_knowledge_registration": 30,
+      "served_after_refresh_public_contract_hash": 32,
+      "inventory_declared": 32,
+      "public_schema_hash": "b99de44a86524625",
+      "result": "agrees; the 30/32 gap is call ordering, not missing coverage"
+    },
+    "frozen_pilot_benchmark_reproduction": {
+      "method": "recompute contract_hash, corpus_spec_hash, questions_hash from current source",
+      "result": "all three match docs/pilot-memory-1b-frozen-benchmark-2026-07-28.json"
+    },
+    "repository_cleanliness": {
+      "before": "clean",
+      "after": "clean apart from the two audit outputs and the PLANS.md status line"
+    }
+  },
+  "items": [
+    {
+      "id": "pilot-memory-1b-package",
+      "path": "soma/pilot_memory_1b/",
+      "subsystem": "memory evaluation",
+      "responsibility": "frozen benchmark contract, corpus spec, question set and runner for the memory provider evaluation",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["tests/test_pilot_memory_1b.py"],
+      "public_exposure": "none",
+      "durable_state": ["runs/pilots/"],
+      "startup_packaging_config": "ships under setuptools include=[\"soma*\"]; no entry point, no config, not imported at startup",
+      "tests": "tests/test_pilot_memory_1b.py protects historical evidence, not live behaviour",
+      "external_consumers": "none known",
+      "classification": "keep_compatibility_read",
+      "confidence": "high",
+      "blockers": [
+        "docs/pilot-memory-1b-frozen-benchmark-2026-07-28.json publishes contract_hash, corpus_spec_hash and questions_hash that are computed from these modules; all three were verified to still reproduce exactly. Deleting the package strands three published hashes with no way to verify them, and that benchmark fed MEMORY_PROVIDER_DECISION_2026-07-28."
+      ],
+      "successor_lane": "none; revisit only if the owner accepts unverifiable historical evidence"
+    },
+    {
+      "id": "local-agent-orchestrator",
+      "path": "soma/local_agent/orchestrator.py",
+      "subsystem": "local agent",
+      "responsibility": "keyword task classification and routing skeleton",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": [
+        "tests/test_local_agent_orchestrator.py",
+        "tests/test_local_agent_runner.py",
+        "tests/test_local_agent_local_model.py",
+        "tests/test_jobs_orchestrator.py",
+        "tests/test_dashboard_local_agent.py",
+        "tests/test_external_coder_local_agent.py",
+        "tests/test_local_coding_local_agent.py",
+        "tests/test_memory_repository_orchestrator.py",
+        "tests/test_policy_local_agent.py",
+        "tests/test_supervisor_upgrade_local_agent.py"
+      ],
+      "public_exposure": "not an MCP gateway operation, but a public Python package surface: LocalAgentOrchestrator is listed in soma/local_agent/__init__.py __all__ and resolved by the package-level PEP 562 __getattr__, so `from soma.local_agent import LocalAgentOrchestrator` is a supported import for any out-of-repository caller",
+      "durable_state": "none of its own; runs/local_agent/commands is written by the shared DurableProjectCommandRunner",
+      "startup_packaging_config": "not loaded at startup because the __getattr__ is lazy, but it ships under setuptools include=[\"soma*\"] and is importable by name",
+      "tests": "ten test files reference it. Seven are orchestrator-only routing tests: test_local_agent_orchestrator.py, test_local_agent_runner.py, test_jobs_orchestrator.py, test_dashboard_local_agent.py, test_external_coder_local_agent.py, test_local_coding_local_agent.py, test_supervisor_upgrade_local_agent.py. Three are mixed files whose non-orchestrator coverage must remain: test_local_agent_local_model.py (7 of 10 tests cover live local-model adapter behaviour that server.py local_model_health depends on, plus a safety invariant that local-model modules execute no commands), test_memory_repository_orchestrator.py (legacy-memory decision validation, repo profile memory and latest-job-run coverage, plus a memory-module safety invariant), test_policy_local_agent.py (a live invariant that policy modules call no forbidden systems)",
+      "external_consumers": "unknown. It is an exported package symbol, so external consumption cannot be excluded by repository evidence alone",
+      "classification": "unknown_blocked",
+      "confidence": "medium",
+      "blockers": [
+        "exported through soma.local_agent.__all__ and the package-level __getattr__, making it a public Python package surface; unknown external consumption is a blocker, not permission to guess",
+        "it is the only in-repo consumer of soma/local_coding and of soma.memory.importers.import_runs, so any future retirement must be sequenced with those",
+        "three of the ten referencing test files are mixed and may not be deleted wholesale"
+      ],
+      "successor_lane": "none until external Python-import consumption is measured or the owner accepts the package-surface risk"
+    },
+    {
+      "id": "local-coding-package",
+      "path": "soma/local_coding/",
+      "subsystem": "local coding",
+      "responsibility": "patch preview, validation, apply, rollback and redaction for local edits",
+      "creates_new_state": true,
+      "in_repo_producers": ["soma/local_agent/orchestrator.py"],
+      "in_repo_consumers": ["soma/dashboard/data_sources.py", "soma/config.py"],
+      "public_exposure": "none",
+      "durable_state": ["runs/local_coding/*/proposal.json, read by the dashboard"],
+      "startup_packaging_config": "18 LocalCodingConfig fields; disabled by default (local_coding_enabled=False, apply disabled, approval required)",
+      "tests": "tests/test_local_coding_manager.py and tests/test_local_coding_local_agent.py protect live behaviour of the manager",
+      "external_consumers": "none known",
+      "classification": "migrate_then_retire",
+      "confidence": "high",
+      "blockers": [
+        "the dashboard reads runs/local_coding/*/proposal.json; retirement must either drop that dashboard panel or keep a reader for historical proposals",
+        "18 configuration fields would have to be removed together, and config removal is a compatibility event for any existing soma config file"
+      ],
+      "successor_lane": "a bounded lane that removes the dashboard panel and the config block in one step"
+    },
+    {
+      "id": "policy-approval-store",
+      "path": "soma/policy/approval_store.py",
+      "subsystem": "policy",
+      "responsibility": "durable approval requests and decisions",
+      "creates_new_state": true,
+      "in_repo_producers": ["soma/policy/policy_engine.py"],
+      "in_repo_consumers": [
+        "soma/local_coding/local_coding_manager.py",
+        "soma/local_agent/orchestrator.py",
+        "soma/supervisor_service.py"
+      ],
+      "public_exposure": "indirect, through supervisor approval flows",
+      "durable_state": ["runs/approvals/ exists on disk"],
+      "startup_packaging_config": "AppConfig.resolve_approval_store_path, autonomy_approval_store_path",
+      "tests": "tests/test_config.py and tests/test_local_coding_manager.py protect live behaviour",
+      "external_consumers": "supervisor approval workflow is owner-facing",
+      "classification": "keep_live",
+      "confidence": "high",
+      "blockers": [],
+      "successor_lane": null
+    },
+    {
+      "id": "legacy-memory-canonical-writers",
+      "path": "soma/memory/repository.py CANONICAL_WRITE_METHODS",
+      "subsystem": "legacy memory",
+      "responsibility": "remember_project_fact, remember_decision, remember_validation_recipe(_model)",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["bounded read-only importer and tests, via allow_canonical_writes=True"],
+      "public_exposure": "none; the public remember_decision alias writes canonical Markdown instead",
+      "durable_state": ["existing rows in project_memory.sqlite3 remain readable"],
+      "startup_packaging_config": "MemoryConfig",
+      "tests": "tests/test_canonical_memory_service.py pins the frozen behaviour",
+      "external_consumers": "none known",
+      "classification": "freeze_no_new_use",
+      "confidence": "high",
+      "blockers": ["the freeze is already enforced in code; no further action is needed before V3"],
+      "successor_lane": null
+    },
+    {
+      "id": "legacy-memory-operational",
+      "path": "soma/memory/ (store, search, repository reads, importers, redaction)",
+      "subsystem": "legacy memory",
+      "responsibility": "operational run, job and artifact recollection plus read access for migration",
+      "creates_new_state": true,
+      "in_repo_producers": ["soma/memory/store.py"],
+      "in_repo_consumers": [
+        "soma/knowledge_tools_integration.py search_repo_knowledge",
+        "soma/dashboard/data_sources.py",
+        "soma/external_coder/context_builder.py",
+        "soma/external_coder/redaction.py"
+      ],
+      "public_exposure": "knowledge_query search returns memory_hits from this store",
+      "durable_state": ["project_memory.sqlite3"],
+      "startup_packaging_config": "MemoryConfig, resolve_memory_db_path",
+      "tests": "multiple, protecting live behaviour",
+      "external_consumers": "any controller calling knowledge_query search",
+      "classification": "keep_live",
+      "confidence": "high",
+      "blockers": ["it is on a live public read path; it is not a retirement candidate before V3"],
+      "successor_lane": null
+    },
+    {
+      "id": "public-remember-decision-alias",
+      "path": "soma/knowledge_tools_integration.py remember_repo_decision",
+      "subsystem": "knowledge gateway",
+      "responsibility": "compatibility alias; unchanged request and response shape, destination redirected to canonical Markdown",
+      "creates_new_state": true,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["knowledge_action operation remember_decision"],
+      "public_exposure": "public operation on knowledge_action",
+      "durable_state": ["canonical vault records under decisions/"],
+      "startup_packaging_config": "registered by register_knowledge_tools",
+      "tests": "covered by knowledge gateway tests",
+      "external_consumers": "ChatGPT, Claude Code and Hermes may call it",
+      "classification": "keep_live",
+      "confidence": "high",
+      "blockers": [
+        "checked specifically because ProjectMemoryRepository.remember_decision is frozen and raises; the public operation does not call it, so there is no broken public path"
+      ],
+      "successor_lane": null
+    },
+    {
+      "id": "legacy-generic-knowledge-operations",
+      "path": "save_knowledge, supersede_knowledge, rebuild_knowledge, get_knowledge, search_knowledge, knowledge_health",
+      "subsystem": "knowledge gateway",
+      "responsibility": "generic project-agnostic knowledge operations that predate the canonical memory_* family",
+      "creates_new_state": true,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["registered public operations"],
+      "public_exposure": "public; six operations across knowledge_query and knowledge_action",
+      "durable_state": ["canonical vault and catalog"],
+      "startup_packaging_config": "register_knowledge_tools",
+      "tests": "knowledge gateway tests protect live behaviour",
+      "external_consumers": "unknown; no external consumer inventory exists outside this repository",
+      "classification": "unknown_blocked",
+      "confidence": "medium",
+      "blockers": [
+        "these overlap the canonical memory_* family in intent, but removal is a public contract change",
+        "no measured evidence of which controllers still call the generic operations; the same missing-consumer-inventory gap that blocked schema_hash deprecation in PUBLIC-CAPABILITY-METADATA-1"
+      ],
+      "successor_lane": "measure real controller usage before proposing any deprecation"
+    },
+    {
+      "id": "legacy-read-only-tools",
+      "path": "soma/run_store.py LEGACY_READ_ONLY_TOOLS",
+      "subsystem": "run store",
+      "responsibility": "frozenset of historical tool names codex_plan_task and codex_implement_task",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["soma/job_manager.py lines 922 and 2137"],
+      "public_exposure": "affects how historical runs are reported",
+      "durable_state": ["existing run records under runs/ still carry these tool names"],
+      "startup_packaging_config": "none",
+      "tests": "job manager tests",
+      "external_consumers": "none known",
+      "classification": "keep_compatibility_read",
+      "confidence": "high",
+      "blockers": ["historical run directories still carry these tool names; the guard is what keeps them readable"],
+      "successor_lane": null
+    },
+    {
+      "id": "repo-wiki-exclusions-parameter",
+      "path": "soma/repo_wiki.py RepoWikiService.wiki_exclusions",
+      "subsystem": "repo wiki",
+      "responsibility": "optional constructor parameter excluding paths from wiki indexing",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["tests/test_repo_wiki.py only; all four production call sites use the two-argument form"],
+      "public_exposure": "the value is serialised into the wiki manifest at repo_wiki.py:944",
+      "durable_state": ["existing wiki manifests contain a wiki_exclusions key"],
+      "startup_packaging_config": "none",
+      "tests": "one test passes it; that test protects only the parameter itself",
+      "external_consumers": "unknown; anything reading a wiki manifest",
+      "classification": "migrate_then_retire",
+      "confidence": "high",
+      "blockers": [
+        "the lifecycle inventory recorded this as a dead constructor path, which is true of the constructor but not of the field: it is emitted into the persisted wiki manifest, so removing it changes a durable document shape"
+      ],
+      "successor_lane": "retire the constructor parameter while keeping the manifest key, or migrate manifest readers first"
+    },
+    {
+      "id": "codex-router-pycache",
+      "path": "soma/codex_router/",
+      "subsystem": "build artifact",
+      "responsibility": "none; the directory contains only __pycache__ from deleted source",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": [],
+      "public_exposure": "none",
+      "durable_state": "none",
+      "startup_packaging_config": "untracked by git; contains no .py source, so setuptools finds no package",
+      "tests": "none",
+      "external_consumers": "none",
+      "classification": "remove_candidate",
+      "confidence": "high",
+      "blockers": ["none; it is untracked, so deleting it is not a repository change at all"],
+      "successor_lane": "housekeeping, not a lane"
+    },
+    {
+      "id": "codex-config-rejection-guard",
+      "path": "soma/config.py reject_removed_runner_sections",
+      "subsystem": "configuration",
+      "responsibility": "raises if an obsolete codex or codex_router config section is present",
+      "creates_new_state": false,
+      "in_repo_producers": [],
+      "in_repo_consumers": ["AppConfig validation"],
+      "public_exposure": "none",
+      "durable_state": "none",
+      "startup_packaging_config": "runs on every config load",
+      "tests": "tests/test_config.py:717",
+      "external_consumers": "any owner config file",
+      "classification": "keep_live",
+      "confidence": "high",
+      "blockers": [
+        "this is the guard that prevents a retired subsystem from being silently reintroduced; it looks like legacy residue but is active protection"
+      ],
+      "successor_lane": null
+    },
+    {
+      "id": "workflows-supervisors-jobs",
+      "path": "soma/workflows/, soma/supervisor*, soma/jobs/, soma/job_manager.py, soma/tasks/",
+      "subsystem": "execution planes",
+      "responsibility": "overlapping orchestration, long-run and task planes",
+      "creates_new_state": true,
+      "in_repo_producers": ["many"],
+      "in_repo_consumers": ["many, including public gateways"],
+      "public_exposure": "workflow_query, workflow_action, supervisor_query, supervisor_action, task_query, task_action, run_start, run_query, cancel_run",
+      "durable_state": ["run directories, supervisor store, task store"],
+      "startup_packaging_config": "registered at startup",
+      "tests": "extensive, protecting live behaviour",
+      "external_consumers": "all controllers",
+      "classification": "defer_v3_consolidation",
+      "confidence": "high",
+      "blockers": [
+        "the overlap is real but consolidating it means changing lifecycle ownership and public contracts, which this gate and the standing constraints both exclude"
+      ],
+      "successor_lane": "Roadmap V3"
+    },
+    {
+      "id": "legacy-schema-hash",
+      "path": "soma/capabilities.py schema_hash over PATCH_OPERATION_SCHEMA",
+      "subsystem": "capability metadata",
+      "responsibility": "legacy response field that never moves with the contract",
+      "creates_new_state": false,
+      "in_repo_producers": ["capability_metadata"],
+      "in_repo_consumers": ["every dict response"],
+      "public_exposure": "on every public response",
+      "durable_state": ["stored in historical evidence records"],
+      "startup_packaging_config": "none",
+      "tests": "pinned by a compatibility test added in PUBLIC-CAPABILITY-METADATA-1",
+      "external_consumers": "unknown; no external consumer inventory exists",
+      "classification": "keep_live",
+      "confidence": "high",
+      "classification_note": "Initially recorded as keep_compatibility_read on the reasoning that the field is legacy and informational. Corrected on owner review: keep_compatibility_read means no new writes or activation, whereas schema_hash is actively emitted on every response and is therefore an active dependency under the gate's literal category definition. Legacy in meaning is not the same as inactive in behaviour. Both dispositions forbid removal and share the same measurement prerequisite, so the correction changes the label, not the outcome.",
+      "blockers": [
+        "PUBLIC_CAPABILITY_METADATA_1 already recorded that removal needs measured consumer evidence and explicit owner acceptance; this audit found no new evidence and does not change that"
+      ],
+      "successor_lane": "a measurement lane, not a removal lane"
+    }
+  ],
+  "proposed_first_removal_batch": [
+    "codex-router-pycache"
+  ],
+  "first_removal_batch_note": "The orchestrator was removed from this batch on owner correction: it is an exported package symbol, so it is a public Python surface and unknown external consumption blocks remove_candidate. The batch is therefore one untracked cache directory, which is not a tracked-repository change at all.",
+  "do_not_remove": [
+    "soma/pilot_memory_1b/ while its published hashes are the only attestation for the frozen benchmark",
+    "soma/memory/ operational recollection and read paths",
+    "soma/policy/approval_store.py",
+    "LEGACY_READ_ONLY_TOOLS",
+    "the codex config rejection guard",
+    "schema_hash"
+  ]
+}
