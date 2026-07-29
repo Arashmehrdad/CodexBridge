@@ -229,11 +229,11 @@ The path is outside code repositories, outside `runs/`, and outside cloud-synchr
 
 ### MEMORY-REAL-PROJECT-TRIAL-1 - Bounded Cross-Controller Trial
 
-**Status:** **permitted after explicit owner authorisation; not active.**
+**Status:** **executed, accepted, pushed, and documentation-closed.** The authoritative result is [`docs/MEMORY_REAL_PROJECT_TRIAL_1_RESULT_2026-07-28.md`](docs/MEMORY_REAL_PROJECT_TRIAL_1_RESULT_2026-07-28.md).
 
-A future trial may seed a small reviewed set of real Soma project memories into `D:\SomaMemory`, then verify exact retrieval and continuity through fresh ChatGPT, Claude Code, and Hermes sessions. It must use canonical lexical retrieval, preserve source/provenance and packet identity, and keep research authority separate.
+Nine reviewed Soma project memories are live under `D:\SomaMemory`. Canonical health is `healthy` at 9/9 with zero malformed, unadopted, or drifted records; provider health remains honestly `degraded`; production retrieval remains `catalog_lexical`. Fresh Claude Code, ChatGPT, and Hermes paths all completed the memory flow, including packet identity and hash-stable retrieval.
 
-The trial does not authorise personal memory, bulk legacy import, unprovable semantic retrieval, automatic conversation ingestion, Git/cloud backup, deployment, or push.
+The closed trial does not authorise personal memory, bulk legacy import, unprovable semantic retrieval, automatic conversation ingestion, Git/cloud backup, or deployment.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -272,4 +272,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`MEMORY-INTEGRATION-FOUNDATION-1` is implemented and validated on its local lane. `SOMA-CANONICAL-MEMORY-VAULT-1` selects and locally configures `D:\SomaMemory` as the production external private Obsidian vault. Semantic retrieval remains disabled because Basic Memory cannot enumerate exact indexed membership; canonical lexical retrieval is the accepted production mode. `MEMORY-REAL-PROJECT-TRIAL-1` is permitted only after explicit owner authorisation. A generic `continue` does not import owner memory, activate personal scope, initialise Git/cloud sync, deploy, or push. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked.
+`MEMORY-INTEGRATION-FOUNDATION-1` is implemented and validated. `SOMA-CANONICAL-MEMORY-VAULT-1` selects and locally configures `D:\SomaMemory` as the production external private Obsidian vault. `MEMORY-REAL-PROJECT-TRIAL-1` is executed, accepted, pushed, and documentation-closed with Claude Code, ChatGPT, and Hermes verification complete. Semantic retrieval remains disabled because Basic Memory cannot enumerate exact indexed membership; canonical lexical retrieval is the accepted production mode. A generic `continue` does not import owner memory, activate personal scope, initialise Git/cloud sync, deploy, or start another implementation lane. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked.

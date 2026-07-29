@@ -3,9 +3,8 @@
 **Date:** 2026-07-28 (closed 2026-07-29)
 **Status:** **closed.** Real project memory is live and retrievable. Four
 defects found that only real use could expose — the third only after a restart,
-the fourth only by trying a second controller. Cross-controller verification is
-**partial**: Claude Code proven end to end, Hermes proven at the MCP boundary,
-**ChatGPT never exercised**.
+the fourth only by trying a second controller. Final cross-controller
+verification **passed** through fresh Claude Code, ChatGPT, and Hermes paths.
 **Authorising decision:** [`SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md`](SOMA_CANONICAL_MEMORY_VAULT_DECISION_2026-07-28.md) §Next permitted lane
 **Foundation:** [`MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md`](MEMORY_INTEGRATION_FOUNDATION_1_RESULT_2026-07-28.md)
 **Branch:** `lane/memory-integration-foundation-1` — pushed on owner instruction
@@ -13,13 +12,13 @@ at closure.
 
 ## Result
 
-Eight reviewed Soma project memories are canonical in `D:\SomaMemory`, and the
+Nine reviewed Soma project memories are canonical in `D:\SomaMemory`, and the
 live MCP server retrieves them with full provenance. Canonical health is
-`healthy` (8/8, zero malformed, zero unadopted); provider health is `degraded`
-and retrieval mode is `catalog_lexical`, exactly as designed.
+`healthy` (9/9, zero malformed, zero unadopted, zero drifted); provider health
+is `degraded` and retrieval mode is `catalog_lexical`, exactly as designed.
 
-The trial found two defects that the synthetic suite could not, both of which
-would have shipped.
+The trial ultimately found four defects that the synthetic suite could not,
+all of which would have shipped.
 
 ## Seeded set
 
@@ -36,6 +35,7 @@ each carrying `sources` and `locators` pointing at the committed decision docs.
 | `architecture/single-task-authority.md` | fact |
 | `architecture/research-authority-is-separate.md` | fact |
 | `lessons/counts-are-not-membership.md` | lesson |
+| `lessons/gateway-output-schema-must-cover-every-response.md` | lesson |
 
 No personal memory, no legacy import, no conversation ingestion.
 
@@ -230,8 +230,10 @@ Both moved to revision 2 with content untouched. Verified live afterwards:
 
 ## Cross-controller verification — final
 
-Attempting Hermes did not confirm a working path. It found **defect 4**, and
-that is the whole value of having tried a second controller.
+Hermes first exposed **defect 4**, then completed the full memory flow after the
+compatibility fix. The original closure draft was written before the later
+ChatGPT and Hermes results were delivered to the repository-closing controller;
+this section records the final evidence and supersedes that stale partial claim.
 
 ### Defect 4 — every scoped memory call from Hermes was refused
 
@@ -268,33 +270,30 @@ arrived so the real validation error still reports what was sent.
 
 | Controller | Status | Evidence |
 |---|---|---|
-| Claude Code | **verified** | read the seeded memories through the live MCP server, a separate process that never performed the writes |
-| Hermes | **verified at the MCP boundary** | called `memory_health` over MCP HTTP from the Hermes controller's own venv, `scope` sent as JSON text and as a native object: both `healthy`, 9/9 |
-| ChatGPT | **not verified** | cannot be driven from here |
+| Claude Code | **verified end to end** | read the seeded memories through the live MCP server from a separate controller process |
+| ChatGPT | **verified end to end** | `memory_health` returned `healthy`, 9/9, `catalog_lexical`; `memory_context` returned `kn_36cb4a66fe11fa6d327b93d1f409a5ba`; packet `pkt_84ca729a14c88027bb4f555a40c96315` was retrieved again with identical SHA-256 `aa743ec3240e24a9b7ee6901a096173d6b73862a1a9621119345c1f63a63b242` |
+| Hermes | **verified end to end** | completed health, context, and packet retrieval; packet `pkt_4bde9f78f4eb577d321f5fb7a4c699ff` remained retrievable with identical SHA-256 `9602b50e9fc3a5a60513d543eda3f8c4a05d3a523bbdb21d53763647a1c4641e` |
 
-**The Hermes claim is deliberately narrow.** What was exercised is the client
-transport and argument path — the layer that was broken — from Hermes's own
-environment against the live server. A full Hermes LLM session was **not** run,
-so "a fresh Hermes session retrieves project memory end to end" is *not*
-claimed here.
+The matrix therefore proves the intended shared-memory path across all three
+controllers without promoting provider health or semantic retrieval beyond the
+measured production mode.
 
 ## Closure
 
 `MEMORY-REAL-PROJECT-TRIAL-1` is **closed**. Its purpose was to find what only
-real use exposes, and it did: four defects, none of which the 2,227-test suite
+real use exposes, and it did: four defects, none of which the synthetic suite
 could see, three of them reachable only through a live gateway and the fourth
 only through a second controller.
 
-Closed with one requirement of the lane unmet: it asked for fresh ChatGPT,
-Claude Code and Hermes sessions, and **ChatGPT was never exercised**. That is
-recorded as an open gap rather than quietly satisfied by the two that were.
+The lane's fresh-controller requirement is satisfied: Claude Code, ChatGPT, and
+Hermes each proved the live shared-memory path, including packet identity and
+hash-stable retrieval where applicable.
 
 ## Still open
 
-- **ChatGPT is unverified.** The lane asked for it; it was not done.
-- **A full Hermes LLM session is unverified.** The transport is proven, the
-  agent loop is not.
 - Semantic retrieval stays disabled until index membership can be proven.
+- Personal memory, bulk legacy import, automatic conversation ingestion, and
+  vault backup policy remain separate owner decisions.
 
 ## Boundaries
 
