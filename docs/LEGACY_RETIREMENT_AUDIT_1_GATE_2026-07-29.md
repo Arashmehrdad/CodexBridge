@@ -1,8 +1,8 @@
 # LEGACY-RETIREMENT-AUDIT-1 — Pre-V3 Compatibility and Retirement Map
 
-**Date:** 2026-07-29  
-**Status:** prepared for owner review; not authorised or executed.  
-**Decision level:** repository-wide audit and retirement classification only.  
+**Date:** 2026-07-29
+**Status:** prepared for owner review; not authorised or executed.
+**Decision level:** repository-wide audit and retirement classification only.
 **Follows:** [`PUBLIC_CAPABILITY_METADATA_1_RESULT_2026-07-29.md`](PUBLIC_CAPABILITY_METADATA_1_RESULT_2026-07-29.md) and [`lifecycle-authority-inventory-2026-07-26.md`](lifecycle-authority-inventory-2026-07-26.md).
 
 ## Purpose
