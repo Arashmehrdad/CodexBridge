@@ -237,11 +237,19 @@ The closed trial does not authorise personal memory, bulk legacy import, unprova
 
 ### MEMORY-CONTROLLER-ERGONOMICS-1 - Scope Discovery and Save Ergonomics
 
-**Status:** **implementation complete and pushed in `da5ef52`; documentation-correction follow-up required.** The result is [`docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md`](docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md).
+**Status:** **implemented, validated, documentation-corrected, and pushed.** The result is [`docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md`](docs/MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md).
 
 Unlike the earlier memory lanes, this lane had no owner-authored decision document before execution. Its scope was selected at start time and bounded to two additive changes: `memory_scope` lets a controller discover the exact explicit project scope from a repository name, while every memory operation still refuses missing scope; and `memory_save` may derive a deterministic `vault_path` from kind and title, while an explicit path still wins and titles with no usable ASCII stem require an explicit path. Retrieval behavior, semantic activation, personal scope, legacy import, and automatic ingestion remain untouched.
 
-The implementation passed 2252 tests with 35 skipped and live vault health remained `healthy` at 10/10 with zero drift. Fresh MCP discovery exposed the new operation, but the already-open ChatGPT connector session still advertised the previous `knowledge_query` schema and rejected `memory_scope` before runtime. A refreshed connector proof remains required before claiming that this new operation is usable from ChatGPT's connected surface.
+The implementation passed 2252 tests with 35 skipped and live vault health remained `healthy` at 10/10 with zero drift. Fresh MCP discovery exposed the new operation, but the already-open ChatGPT connector session still advertised the previous `knowledge_query` schema and rejected `memory_scope` before runtime. That isolated connector-refresh question is now governed by the separate verification-only gate below.
+
+### MEMORY-CONNECTOR-REFRESH-VERIFY-1 - Refreshed ChatGPT Connector Gate
+
+**Status:** **owner-authorised gate prepared and ready; not executed.** The authoritative gate is [`docs/MEMORY_CONNECTOR_REFRESH_VERIFY_1_GATE_2026-07-29.md`](docs/MEMORY_CONNECTOR_REFRESH_VERIFY_1_GATE_2026-07-29.md).
+
+This gate permits one supported refresh or reconnect of the existing ChatGPT Soma connector, fresh tool discovery, a read-only `memory_scope` call, verbatim reuse of the returned scope in `memory_health`, and one expected missing-scope refusal check. It must record either a pass, a bounded stale-discovery failure, or a bounded runtime-contract failure.
+
+The gate grants no implementation authority and permits no memory write, source/configuration/credential change, provider or retrieval change, personal scope, import, unrelated restart, or repeated recovery attempt. Any failure that requires a fix must stop and produce a separate owner-authored implementation proposal.
 
 ### PILOT-OBSIDIAN-MCP-1 - Obsidian-Native Compatibility Gate
 
@@ -280,4 +288,4 @@ Roadmap V3 is written only after the bridge evidence is reviewed. It should conv
 
 Roadmap V3 should remain an outcome-led engineering roadmap. It may define exact public contracts and invariants where compatibility requires precision, but it should not become a giant collection of pre-written coding instructions for agents.
 
-`MEMORY-INTEGRATION-FOUNDATION-1` is implemented and validated. `SOMA-CANONICAL-MEMORY-VAULT-1` selects and locally configures `D:\SomaMemory` as the production external private Obsidian vault. `MEMORY-REAL-PROJECT-TRIAL-1` is executed, accepted, pushed, and documentation-closed with Claude Code, ChatGPT, and Hermes verification complete. Semantic retrieval remains disabled because Basic Memory cannot enumerate exact indexed membership; canonical lexical retrieval is the accepted production mode. A generic `continue` does not import owner memory, activate personal scope, initialise Git/cloud sync, deploy, or start another implementation lane. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked.
+`MEMORY-INTEGRATION-FOUNDATION-1` is implemented and validated. `SOMA-CANONICAL-MEMORY-VAULT-1` selects and locally configures `D:\SomaMemory` as the production external private Obsidian vault. `MEMORY-REAL-PROJECT-TRIAL-1` is executed, accepted, pushed, and documentation-closed with Claude Code, ChatGPT, and Hermes verification complete. `MEMORY-CONTROLLER-ERGONOMICS-1` is implemented and documentation-closed; `MEMORY-CONNECTOR-REFRESH-VERIFY-1` is the prepared verification-only next gate and remains inactive until explicitly started. Semantic retrieval remains disabled because Basic Memory cannot enumerate exact indexed membership; canonical lexical retrieval is the accepted production mode. A generic `continue` does not execute the connector gate, import owner memory, activate personal scope, initialise Git/cloud sync, deploy, or start another implementation lane. `PILOT-CODE-INTELLIGENCE-1` remains planned and inactive. `FUTURE-CORTANA-PRESENCE-AGENT-RESEARCH` remains parked.
