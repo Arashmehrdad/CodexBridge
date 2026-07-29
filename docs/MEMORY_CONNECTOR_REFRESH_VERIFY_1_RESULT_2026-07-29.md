@@ -1,9 +1,10 @@
 # MEMORY-CONNECTOR-REFRESH-VERIFY-1 — Result
 
 **Date:** 2026-07-29
-**Status:** server side **verified**; ChatGPT connector side **not verified**
-and cannot be from here. No code change was required.
-**Authorisation:** owner instruction in session; no prior decision document.
+**Status:** **passed and closed.** The local server, public tunnel, and refreshed
+ChatGPT connector all expose and execute the same contract. No code change was
+required.
+**Authorisation:** [`MEMORY_CONNECTOR_REFRESH_VERIFY_1_GATE_2026-07-29.md`](MEMORY_CONNECTOR_REFRESH_VERIFY_1_GATE_2026-07-29.md)
 **Follows:** [`MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md`](MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md) §Operational connector note
 **Branch:** `lane/memory-integration-foundation-1`
 
@@ -92,40 +93,56 @@ Not fixed here: `schema_hash` is stamped on all 32 public gateways, so changing
 its meaning is a public-contract change well outside a memory verification lane,
 and the correct values are already exposed. Recommended as its own lane.
 
-## What remains, and who can do it
+## Refreshed ChatGPT connector verification — passed
 
-Verifying the ChatGPT connector requires refreshing that connector and calling
-it, which cannot be driven from this session. The server-side precondition is
-now proven, so any remaining failure is client-side.
+After the connector refresh, ChatGPT completed the gate through its connected
+Soma surface:
 
-Procedure for the owner, after refreshing the Soma connector in ChatGPT:
+1. `system_query(operation="capability_identity")` returned `ok: true`,
+   `converged: true`, and `mismatches: []`. The effective contract identity was
+   `public_schema_hash: b99de44a…`,
+   `discovery_cache_generation: 17b66e9b…`, and
+   `knowledge_query.memory_scope: 3b7902e9…`.
+2. `knowledge_query(operation="memory_scope", repo_name="soma")` returned
+   `ok: true` and the exact reusable scope
+   `{"kind":"project","project_id":"proj_a144f759-1619-4276-9292-28704b6611f4","repo_name":"soma"}`,
+   with `canonical_health: healthy`, `canonical_count: 10`, and the configured
+   project vault root.
+3. Passing that returned scope verbatim to `memory_health` returned
+   `canonical_count: 10`, `indexed_count: 10`, zero malformed, zero unadopted,
+   and `drifted_count: 0`; provider health remained honestly `degraded` and
+   retrieval remained `catalog_lexical`.
+4. Omitting `scope` from `memory_health` was rejected by the connected public
+   input schema before execution. Discovery therefore did not become an
+   inference path.
 
-1. `system_query(operation="capability_identity")` — expect `ok: true`,
-   `converged: true`, `mismatches: []`.
-2. `knowledge_query(operation="memory_scope", repo_name="soma")` — expect the
-   scope object, `canonical_health: healthy`.
-3. `knowledge_query(operation="memory_health", scope=<the scope from step 2>)` —
-   expect `canonical_count: 10`, `drifted_count: 0`.
+This closes the fresh-controller requirement for the newly added operation.
+No memory record, packet, provider state, configuration, or repository source
+was changed.
 
-Step 3 passing is what would make a fresh-controller claim on ChatGPT true.
+## Historical evidence reconciliation
 
-## Correction needed in a sibling document
-
-[`MEMORY_CONTROLLER_ERGONOMICS_1_RESULT`](MEMORY_CONTROLLER_ERGONOMICS_1_RESULT_2026-07-29.md)
-§Operational connector note states that Claude Code, ChatGPT and Hermes "were
-already verified end to end" in the closed trial. That conflicts with
+There is no conflict in the current authoritative repository. The final
 [`MEMORY_REAL_PROJECT_TRIAL_1_RESULT`](MEMORY_REAL_PROJECT_TRIAL_1_RESULT_2026-07-28.md)
-§Cross-controller verification — final, which records ChatGPT as never
-exercised and Hermes as verified at the MCP boundary rather than through a full
-agent session.
+records exact end-to-end evidence for all three controllers: ChatGPT packet
+`pkt_84ca729a14c88027bb4f555a40c96315` with SHA-256
+`aa743ec3240e24a9b7ee6901a096173d6b73862a1a9621119345c1f63a63b242`, and
+Hermes packet `pkt_4bde9f78f4eb577d321f5fb7a4c699ff` with SHA-256
+`9602b50e9fc3a5a60513d543eda3f8c4a05d3a523bbdb21d53763647a1c4641e`.
 
-The two cannot both be right. This session cannot verify ChatGPT either way, so
-the conflict is recorded rather than resolved: if the owner exercised ChatGPT
-outside these sessions, the trial document should be updated with that evidence;
-otherwise the ergonomics note should be corrected.
+The contrary statement came from the trial's superseded partial closure state,
+which existed before the later ChatGPT and Hermes evidence was delivered and
+was corrected in commit `2821ee6`. This result now follows the current
+repository authority rather than that stale view.
+
+## Closure
+
+`MEMORY-CONNECTOR-REFRESH-VERIFY-1` is closed with outcome **pass — stale
+connector discovery resolved**. The public server contract was already correct;
+a refreshed ChatGPT connector discovered and exercised it successfully.
 
 ## Boundaries
 
-Read-only verification. No code, schema, configuration or connector change. Two
-outbound requests to the owner's own public MCP endpoint, which is the subject
-of the verification.
+Read-only verification. No code, schema, configuration, credential, connector,
+or memory change. The only expected failure was the deliberate missing-scope
+request, rejected before runtime execution.

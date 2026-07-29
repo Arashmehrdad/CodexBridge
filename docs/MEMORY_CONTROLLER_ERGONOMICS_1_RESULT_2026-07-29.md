@@ -89,20 +89,19 @@ unaffected.
 
 ## Operational connector note
 
-The restarted Soma server and fresh MCP discovery exposed `memory_scope`, but
-the already-open ChatGPT connector session still advertised the previous
-`knowledge_query` schema and rejected `memory_scope` before runtime validation.
-That is a connector/schema-refresh verification gap, not evidence that the
-server implementation failed. A refreshed ChatGPT connection must prove the new
-operation before this lane claims fresh-controller coverage on that surface.
+The restarted Soma server and fresh MCP discovery exposed `memory_scope`, while
+an already-open ChatGPT connector session initially retained the previous
+`knowledge_query` schema. The separate
+[`MEMORY-CONNECTOR-REFRESH-VERIFY-1`](MEMORY_CONNECTOR_REFRESH_VERIFY_1_RESULT_2026-07-29.md)
+gate proved this was stale client discovery: after refresh, ChatGPT discovered
+`memory_scope`, returned the exact explicit scope, reused it successfully for
+healthy 10/10 memory, and still refused an unscoped call.
 
 The earlier cross-controller trial remains closed: Claude Code, ChatGPT, and
 Hermes were already verified end to end for the pre-existing memory flow. This
-lane does not reopen either of those completed controller results.
+lane and its successor verification do not reopen those completed results.
 
 ## Still open
 
-- Refresh and re-prove the ChatGPT connector's advertised schema for
-  `memory_scope`.
 - Semantic retrieval stays disabled until index membership can be proven.
 - Natural-language retrieval remains out of reach by design.
