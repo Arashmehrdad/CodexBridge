@@ -1,0 +1,448 @@
+{
+  "lane_id": "EXTERNAL-CONSUMER-MEASUREMENT-1",
+  "date": "2026-07-29",
+  "branch": "lane/memory-integration-foundation-1",
+  "soma_commit": "5f672db8c501f4fae428df5cc77c7aced66df8c5",
+  "gate": "docs/EXTERNAL_CONSUMER_MEASUREMENT_1_GATE_2026-07-29.md",
+  "outcome": "measurement-complete",
+  "outcome_meaning": "Complete for the declared universe, not complete for the world. Every expected source carries an explicit inspection status; every claim of absence is bounded by the universe below.",
+
+  "measurement_universe": [
+    {
+      "id": "soma-repository",
+      "label": "Soma repository (producer and in-repo consumers)",
+      "root": "D:/Github/Soma",
+      "fingerprint": "git 5f672db",
+      "status": "inspected",
+      "note": "Producer of all three surfaces. Working tree clean at lane start."
+    },
+    {
+      "id": "repo-trading-lab",
+      "label": "trading-lab (registered)",
+      "root": "D:/Github/TradingLab",
+      "fingerprint": "git 7c0de23",
+      "status": "inspected"
+    },
+    {
+      "id": "repo-seedmind",
+      "label": "seedmind (registered)",
+      "root": "D:/Github/SeedMind",
+      "fingerprint": "git cad5349",
+      "status": "inspected"
+    },
+    {
+      "id": "repo-wan22",
+      "label": "wan2_2 (registered)",
+      "root": "D:/Github/Wan2.2",
+      "fingerprint": "git 8a5a490",
+      "status": "inspected",
+      "note": "Includes the registered wan2gp subtree at runpod/wan2gp, which shares this checkout."
+    },
+    {
+      "id": "repo-stream-alpha",
+      "label": "stream_alpha (registered)",
+      "root": "D:/Github/Stream_Alpha",
+      "fingerprint": "git 86ebe12",
+      "status": "inspected"
+    },
+    {
+      "id": "repo-quotefollow",
+      "label": "quotefollow (registered)",
+      "root": "D:/Github/Quotefollow",
+      "fingerprint": "git 3892137",
+      "status": "inspected"
+    },
+    {
+      "id": "repo-ai-voice-lead-agent",
+      "label": "ai_voice_lead_agent (registered)",
+      "root": "D:/Github/AI-Voice-Lead-Agent",
+      "fingerprint": "git 1877007",
+      "status": "inspected"
+    },
+    {
+      "id": "repo-andia-beauty",
+      "label": "andia_beauty (registered)",
+      "root": "D:/Github/Andia_Beauty",
+      "fingerprint": "git 613cc58",
+      "status": "inspected"
+    },
+    {
+      "id": "hermes-checkout",
+      "label": "Hermes checkout named by live config hermes_service.checkout",
+      "root": "D:/Github/Soma/runs/hermes-pinned-validation",
+      "fingerprint": "git 862b1b3",
+      "status": "inspected"
+    },
+    {
+      "id": "codexbridge-checkout",
+      "label": "CodexBridge checkout",
+      "root": "none",
+      "status": "not_present",
+      "note": "No CodexBridge checkout exists. The only trace is stale build residue `codexbridge.egg-info` in the Soma repository root, distribution name `codexbridge` 0.1.0, summary 'Local Windows MCP bridge between ChatGPT and Codex CLI'. CodexBridge is this repository's former identity, not a separate client. Recorded so that its absence is not later mistaken for an uninspected consumer."
+    },
+    {
+      "id": "trading-lab-installed-package",
+      "label": "Installed trading-lab 0.4.0 distribution",
+      "root": "D:/Github/Soma/.venv/Lib/site-packages/trading_lab",
+      "status": "inspected"
+    },
+    {
+      "id": "trading-lab-scheduled-tasks",
+      "label": "Trading Lab active scheduled-task configuration",
+      "status": "not_present",
+      "note": "The scheduled-task registry reports no tasks, and no Windows scheduled task name matches soma, trading or codex."
+    },
+    {
+      "id": "python-environments",
+      "label": "Python environments that could hold an installed Soma",
+      "status": "inspected",
+      "note": "Six virtual environments enumerated under D:/Github. Exactly one Soma installation exists: soma 0.1.0 in D:/Github/Soma/.venv, direct_url.json editable=true pointing at file:///D:/Github/Soma. There is therefore no second copy of the exported package on this machine that could be imported independently of the repository."
+    },
+    {
+      "id": "claude-code-config",
+      "label": "Claude Code configuration, plugins, skills and MCP config",
+      "root": "C:/Users/arash/.claude.json, C:/Users/arash/.claude/{settings.json,plugins,tasks}",
+      "status": "inspected"
+    },
+    {
+      "id": "claude-code-transcripts",
+      "label": "Claude Code conversation transcripts",
+      "root": "C:/Users/arash/.claude/projects",
+      "status": "owner_excluded",
+      "note": "Stored conversation history. The gate forbids scanning chat history, so this was deliberately not searched. It is the one place on this machine that would record which operations controllers actually selected, so excluding it is a real and named coverage cost, not a formality."
+    },
+    {
+      "id": "chatgpt-connector",
+      "label": "ChatGPT connector live behaviour through https://mcp.spaceshipgames.win/mcp",
+      "status": "not_observable",
+      "note": "See dynamic_evidence.request_logging_absent. Operation names are carried in the JSON-RPC body and are never logged."
+    },
+    {
+      "id": "llm-council",
+      "label": "D:/Github/llm-council",
+      "root": "D:/Github/llm-council",
+      "status": "owner_excluded",
+      "note": "Discovered during the environment sweep because it holds a virtual environment. It is not registered with Soma and was not named by the gate, so it was not scanned. New roots require explicit owner approval. It is recorded as a named blind spot for surface B rather than silently omitted."
+    }
+  ],
+
+  "search_method": {
+    "tool": "ripgrep 14.1.1",
+    "flags": "--no-ignore --hidden, excluding .git, .venv, node_modules, .pytest_cache",
+    "completeness": "No search was truncated. Counts are files-with-matches over whole roots; no head/limit truncation was applied to any counted search.",
+    "positive_control": "The identical patterns were run against Soma's own tracked source and returned 9 (surface A), 28 (surface B) and 32 (surface C) matching files. A search returning zero everywhere is only meaningful once it is shown to return non-zero where matches are known to exist.",
+    "corrections_during_measurement": [
+      {
+        "defect": "gitignore filtering",
+        "detail": "The first pass used ripgrep defaults, which honour .gitignore. Re-running with --no-ignore --hidden surfaced a match the first pass had silently skipped. All recorded results come from the unfiltered pass."
+      },
+      {
+        "defect": "substring false positive",
+        "detail": "Pattern `search_knowledge` matched `re-search_knowledge-store` inside SeedMind's test node ids. All patterns were re-run with word boundaries. This also reduced the surface C control count from 49 to 32, because `public_schema_hash` no longer matched as bare `schema_hash`."
+      }
+    ]
+  },
+
+  "dynamic_evidence": {
+    "controlled_probes": [
+      {
+        "probe_id": "probe-generic-knowledge-health",
+        "client": "Claude Code (this controller) via the soma-agent MCP plugin",
+        "operation": "knowledge_query.knowledge_health",
+        "mutation": "none",
+        "observed": "ok=true, canonical_count=10, indexed_count=10, generation=1"
+      },
+      {
+        "probe_id": "probe-generic-knowledge-search",
+        "client": "Claude Code (this controller)",
+        "operation": "knowledge_query.search_knowledge",
+        "mutation": "none",
+        "observed": "Returned canonical memory records (kn_36cb4a66..., kn_9ec857ec..., kn_0c9c4de1...) identical in identity and vault_path to those served by the canonical memory family."
+      },
+      {
+        "probe_id": "probe-canonical-memory-health",
+        "client": "Claude Code (this controller)",
+        "operation": "knowledge_query.memory_health",
+        "mutation": "none",
+        "observed": "Same canonical_count=10 and generation=1, plus canonical_health, provider_health=degraded and retrieval_mode=catalog_lexical, which the generic operation does not return."
+      },
+      {
+        "probe_id": "probe-schema-hash-assert-mismatch",
+        "client": "Claude Code (this controller)",
+        "operation": "system_query.capability_identity with expected_schema_hash set to 64 zeros",
+        "mutation": "none",
+        "observed": "ok=false, converged=false, mismatches=[\"connector_schema_hash\"], error='capability identities do not converge'"
+      },
+      {
+        "probe_id": "probe-schema-hash-assert-match",
+        "client": "Claude Code (this controller)",
+        "operation": "system_query.capability_identity with the true schema_hash 42bdb69d96fb...",
+        "mutation": "none",
+        "observed": "ok=true, converged=true, mismatches=[]"
+      },
+      {
+        "probe_id": "probe-schema-hash-assert-rejected-on-self-check",
+        "client": "Claude Code (this controller)",
+        "operation": "system_query.self_check with expected_schema_hash",
+        "mutation": "none",
+        "observed": "Rejected with extra_forbidden. The assertion input exists only on capability_identity, not on self_check."
+      }
+    ],
+    "probe_limitation": "Every probe above was issued by this controller. A probe in which the controller chooses its own operation cannot be evidence of independent client preference. These probes establish that the surfaces are reachable and how they behave; they do not establish which operation any other client selects.",
+    "request_logging_absent": {
+      "finding": "Soma's service log records HTTP lines only, in the form 'POST /mcp HTTP/1.1 200 OK'. Every MCP operation is a POST to the same path, and the operation name is carried in the JSON-RPC body, which is not logged.",
+      "consequence": "Exact MCP operation use cannot be measured from existing authorised evidence. Measuring it would require new persistent request logging, which this gate explicitly forbids.",
+      "log_path": "runs/service_logs/soma-server.out.log"
+    },
+    "external_traffic_observed": {
+      "window": "current soma-server.out.log, server started 2026-07-29 09:20",
+      "total_post_mcp": 270,
+      "loopback_post_mcp": 6,
+      "non_loopback_post_mcp": 264,
+      "distinct_non_loopback_sources": 48,
+      "interpretation": "Roughly 98 percent of MCP traffic in the current window arrives from outside this machine through the public tunnel. Source addresses were counted and not recorded, per the gate's privacy rules. The 48 distinct sources are likely tunnel edge nodes rather than 48 clients, so they must not be read as a client count. What this does establish is that external clients are actively and heavily using the server while their operation selection is entirely opaque.",
+      "significance": "This is the reason no MCP-operation surface in this matrix can be upgraded to proven non-use."
+    },
+    "durable_state_inspected": {
+      "knowledge_db": "runs/knowledge/knowledge.sqlite3 opened read-only: knowledge_records=10, knowledge_supersessions=0, knowledge_rebuild_state=1",
+      "canonical_vault": "D:/SomaMemory contains 10 markdown files, matching the 10 catalog rows",
+      "generic_vault": "runs/knowledge/projects/proj_a144f759-1619-4276-9292-28704b6611f4/vault exists and contains zero files; directory mtime 2026-07-29T03:04:25 local, recorded before any probe in this lane"
+    }
+  },
+
+  "surfaces": [
+    {
+      "surface_id": "A-generic-knowledge-operations",
+      "surface_kind": "public_mcp_operations",
+      "members": [
+        "knowledge_action.save_knowledge",
+        "knowledge_action.supersede_knowledge",
+        "knowledge_action.rebuild_knowledge",
+        "knowledge_query.get_knowledge",
+        "knowledge_query.search_knowledge",
+        "knowledge_query.knowledge_health"
+      ],
+      "producer": "soma/knowledge_tools_integration.py, registered on the knowledge_action and knowledge_query gateways",
+      "verified_replacement": "partial, not a one-to-one alias",
+      "replacement_analysis": {
+        "reads": "search_knowledge, get_knowledge and knowledge_health resolve through _project_knowledge_context and read the same knowledge.sqlite3 catalog and the same 10 canonical records that memory_search, memory_get and memory_health return. Verified by probe, not assumed. The generic reads are therefore a live second read surface over canonical content, not an orphaned path.",
+        "health_difference": "memory_health returns canonical_health, provider_health and retrieval_mode; knowledge_health does not. memory_health is a superset, so it is a replacement for the reads but not a rename of them.",
+        "writes": "This is where the families genuinely diverge. save_knowledge and supersede_knowledge write into runs/knowledge/projects/<project_id>/vault inside the repository runs directory, while memory_save writes into the canonical external vault at D:/SomaMemory. Both share knowledge.sqlite3 and both bind the same project_id.",
+        "scope_authority": "The generic operations take project_id and repo_name directly. The canonical family takes an explicit MemoryScope. The generic write path therefore has no scope authority object at all.",
+        "divergence_hazard": "Because the two write paths share one catalog but two vault roots, a generic write would register a canonical-looking record in the shared catalog whose file lives outside the canonical vault. That is a second memory location under one index. Migration is consequently a data question, not a routing rename. This was established by reading the two context builders and was deliberately not tested, because testing it would require a write into memory."
+      },
+      "in_repo_consumers": "None beyond definition. Complete word-boundary search of soma/ returns exactly three files: knowledge_tools_integration.py (handlers), cf1_gateway_operation_inventory.py (public inventory) and gateway_models.py (request models).",
+      "external_consumers": [
+        {
+          "consumer": "all eight registered non-Soma repositories",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "search_completeness": "complete, untruncated, word-boundary, gitignore filtering disabled",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Hermes checkout",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Trading Lab checkout and installed package",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Claude Code configuration, plugins and MCP config",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found",
+          "note": "Expected. Client configuration names the MCP server, not individual operations, so absence here carries almost no weight."
+        },
+        {
+          "consumer": "ChatGPT connector and any other live external client",
+          "evidence_level": "5_not_observable",
+          "result": "not_observable",
+          "note": "264 external POST /mcp requests observed in the current log window with no operation-level visibility."
+        }
+      ],
+      "runtime_trace": {
+        "observation": "runs/knowledge/projects/<project_id>/vault exists and is empty, with a directory mtime of 2026-07-29T03:04:25 recorded before any probe in this lane.",
+        "attribution": "MarkdownVault.__init__ creates its root directory unconditionally, and _project_knowledge_context is called from exactly three places, all of which are the six generic operations (save/supersede at line 1031, rebuild at line 1088, search/get/health at line 1432). No other code path can create that directory.",
+        "what_it_proves": "At least one of the six generic operations was invoked at least once on this machine.",
+        "what_it_does_not_prove": "It does not identify which operation, which controller, or when beyond the directory timestamp. The directory being empty means no generic write ever landed a file, which is consistent with a read operation or with a save that failed before writing. It may also have been created by an owner or Soma lane session on 2026-07-29 rather than by an external client.",
+        "evidence_level": "1_observed_runtime_use, unattributed"
+      },
+      "result": "not_observable",
+      "confidence": "high for the contract analysis, low for consumer identity",
+      "residual_blind_spots": [
+        "Operation-level use by any MCP client is structurally unobservable without new request logging.",
+        "Claude Code transcripts, which are the one local record of controller operation choices, are owner-excluded by the gate's privacy rule."
+      ],
+      "migration_requirement": "If the family is ever retired, the reads can be replaced by the canonical memory reads, but the writes require a decision about the empty repository-internal vault root and the shared catalog, not merely a routing change.",
+      "recommendation": "remain_unknown_blocked",
+      "owner_acceptance_required": "Not applicable while the surface is unobservable. A deprecation decision needs the instrumentation gate proposed below, or an explicit owner statement that no controller uses these six operations."
+    },
+
+    {
+      "surface_id": "B-exported-python-symbols",
+      "surface_kind": "public_python_package_symbols",
+      "members": [
+        "soma.local_agent.LocalAgentOrchestrator",
+        "soma.local_agent.classify_task",
+        "soma.local_agent.orchestrator direct module import"
+      ],
+      "producer": "soma/local_agent/__init__.py __all__ plus the package-level PEP 562 __getattr__, shipped under the setuptools include rule include = [\"soma*\"]",
+      "verified_replacement": "none",
+      "in_repo_consumers": {
+        "production": "none. Every production import from this package targets a sibling module, never the orchestrator: soma/jobs/models.py, soma/jobs/job_profiles.py and soma/jobs/long_run_manager.py import PermissionTier from .models; soma/memory/store.py and soma/jobs/long_run_manager.py import create_audit_event from .audit; soma/supervisor/supervisor_flow.py and soma/local_coding/local_coding_manager.py import from .durable_command_runner. None resolve through the package __getattr__, so none load orchestrator.py.",
+        "tests": "ten files, as corrected in LEGACY-RETIREMENT-AUDIT-1; three of them are mixed files whose non-orchestrator coverage must remain",
+        "docs": "the retirement audit result, its manifest, this lane's gate, and one legacy V2 achievement record"
+      },
+      "external_consumers": [
+        {
+          "consumer": "all eight registered non-Soma repositories",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "search_completeness": "complete, untruncated, word-boundary, gitignore filtering disabled, patterns covered both the bare symbols and the soma.local_agent module path",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Hermes checkout",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Trading Lab checkout and installed package",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found"
+        },
+        {
+          "consumer": "Python environments on this machine",
+          "evidence_level": "2_direct_static_use_absent_by_installation_topology",
+          "result": "no_use_found",
+          "note": "Only one Soma installation exists on this machine and it is an editable install pointing at the repository itself. There is no independent installed copy of the package for an out-of-repository program to import."
+        }
+      ],
+      "result": "no_use_found",
+      "confidence": "medium-high within the measured universe",
+      "residual_blind_spots": [
+        "D:/Github/llm-council was discovered but is not registered with Soma and was not scanned; scanning it requires owner approval.",
+        "Any repository, script or notebook outside D:/Github.",
+        "Any other machine. The package ships under include = [\"soma*\"], so nothing about this machine constrains what a copy elsewhere imports.",
+        "Dynamic import forms were searched as literal text; a caller constructing the symbol name at runtime from fragments would not match."
+      ],
+      "migration_requirement": "none identified",
+      "recommendation": "prepare_deprecation_gate",
+      "owner_acceptance_required": "Yes. This is the only surface of the three whose searches actually reach evidence level 4 across the whole declared universe. Level 4 is still not proof of global non-use, so removing the export requires the owner to accept the residual external-import risk explicitly, in writing, in the successor gate.",
+      "note": "This is a strict improvement on the audit's position. LEGACY-RETIREMENT-AUDIT-1 classified the orchestrator unknown_blocked because external Python consumption had never been measured. It has now been measured across a declared universe and none was found. The classification moves from unmeasured to measured-and-empty, which is a decision the owner can act on, rather than one that must stay blocked."
+    },
+
+    {
+      "surface_id": "C-legacy-schema-hash",
+      "surface_kind": "public_response_field",
+      "members": ["schema_hash"],
+      "producer": "soma/capabilities.py schema_hash() over PATCH_OPERATION_SCHEMA, emitted through capability_metadata() on every gateway response",
+      "current_value": "42bdb69d96fb0a4cd66c3d023ce95decfbaa9b4907781041e49f0495248f9888",
+      "verified_replacement": "public_schema_hash for contract identity, discovery_cache_generation for cache staleness, and per-operation hashes from capability_identity",
+      "emission_vs_consumption": "Every probe in this lane received schema_hash. Emission was never in question and is not evidence of consumption.",
+      "consumption_contract_found": {
+        "finding": "schema_hash is not merely emitted. system_query.capability_identity accepts expected_schema_hash as a public input and compares it against the running value, appending the mismatch label 'connector_schema_hash' when they differ.",
+        "verified_by": ["probe-schema-hash-assert-mismatch", "probe-schema-hash-assert-match"],
+        "reachability": "The assertion input exists on capability_identity only. The same parameter is rejected on self_check with extra_forbidden, so the comparison surface is narrower than the source-level search suggested.",
+        "significance": "The mismatch label names the connector explicitly. The field has a designed comparison contract offered to external controllers, whether or not any controller currently uses it."
+      },
+      "in_repo_consumers": [
+        {
+          "location": "soma/server.py:4254",
+          "behaviour": "compares source schema against the running process value and reports source_running_schema_hash drift",
+          "evidence_level": "3_derived_compatibility_dependency",
+          "result": "compatibility_dependency"
+        },
+        {
+          "location": "soma/server.py:4258",
+          "behaviour": "compares a caller-supplied expected_schema_hash and reports connector_schema_hash drift",
+          "evidence_level": "1_observed_runtime_use",
+          "result": "active"
+        },
+        {
+          "location": "soma/knowledge_tools_integration.py, six strict output-schema declarations",
+          "behaviour": "declares schema_hash as a required response property, so removing it is a schema change",
+          "evidence_level": "3_derived_compatibility_dependency",
+          "result": "compatibility_dependency"
+        }
+      ],
+      "name_collision_excluded": {
+        "finding": "soma/hermes_companion_client.py, hermes_companion.py and hermes_companion_protocol.py all carry fields named schema_hash and expected_schema_hash, and HermesServiceStart requires expected_schema_hash with min_length=64.",
+        "resolution": "These are a different field. They are computed by effective_schema_hash() in hermes_companion_protocol.py over Hermes tool definitions, not by capabilities.schema_hash() over PATCH_OPERATION_SCHEMA.",
+        "why_recorded": "Counted naively, Hermes looks like a mandatory live consumer of the legacy capability field. It is not. Reporting that would have been a false active consumer, and it would have made schema_hash look permanently unretirable for the wrong reason.",
+        "result": "not_applicable"
+      },
+      "external_consumers": [
+        {
+          "consumer": "all eight registered non-Soma repositories, Hermes checkout, Trading Lab, Claude Code configuration",
+          "evidence_level": "4_no_use_found_in_measured_universe",
+          "result": "no_use_found",
+          "note": "One match in the Hermes checkout was a third-party skills reference document containing the unrelated Python signature 'def get_generator(model_name: str, schema_hash: int)'. Documentation-only, not a Soma consumer."
+        },
+        {
+          "consumer": "ChatGPT connector and any other live external client",
+          "evidence_level": "5_not_observable",
+          "result": "not_observable",
+          "note": "A server can see that it emitted the field. It cannot see whether the client compared it. Nothing in the request path records a supplied expected_schema_hash."
+        }
+      ],
+      "result": "compatibility_dependency",
+      "confidence": "high",
+      "residual_blind_spots": [
+        "Whether any external controller supplies expected_schema_hash is unobservable without request logging.",
+        "A client could persist and compare the value entirely on its own side, leaving no server-visible trace at all."
+      ],
+      "migration_requirement": "Any deprecation must remove a declared response property from six strict output schemas and remove a public assertion input from capability_identity. That is a public contract change requiring its own gate, independent of consumer evidence.",
+      "recommendation": "keep_active",
+      "owner_acceptance_required": "Not applicable. The recommendation is retention, which requires no acceptance of residual risk.",
+      "note": "This confirms the correction made at the close of LEGACY-RETIREMENT-AUDIT-1. schema_hash is keep_live rather than keep_compatibility_read, and the reason is now measured rather than argued: it has a live comparison path that returns a different result depending on what the caller supplies."
+    }
+  ],
+
+  "privacy_confirmation": {
+    "no_persistent_instrumentation_added": true,
+    "no_request_arguments_or_response_bodies_logged": true,
+    "no_ip_addresses_user_agents_or_session_identifiers_recorded": "Traffic was counted; addresses were not recorded in this matrix or the result.",
+    "no_credentials_or_secrets_read_or_stored": true,
+    "no_raw_external_source_content_copied": "Only relative locators, line numbers and paraphrased findings.",
+    "chat_history_and_private_vault_content_not_scanned": "Claude Code transcripts were excluded by rule. D:/SomaMemory was inspected only as a file count and as record identity and vault_path metadata already served through the public read path.",
+    "canonical_state_unchanged": "All probes were read-only. knowledge_records remains 10 and generation remains 1 after the lane.",
+    "side_effect_acknowledged": "The read-only generic probes construct MarkdownVault, which creates its root directory if absent. The generic vault directory already existed and was already empty before the lane, and its pre-probe state was recorded before any probe was issued. No file was created."
+  },
+
+  "bridge_status": {
+    "question": "Does the Pre-Roadmap V3 bridge now have enough evidence to close?",
+    "answer": "partially",
+    "detail": "One of the three blocked questions is now answerable and two are not. Surface B moved from unmeasured to measured-and-empty and can proceed to an owner decision. Surfaces A and C cannot, but for different reasons: A is blocked on observability, while C is no longer blocked on evidence at all and is simply a retention decision."
+  },
+
+  "successor_decisions": [
+    {
+      "id": "successor-orchestrator-deprecation-gate",
+      "scope": "A bounded gate to remove soma/local_agent/orchestrator.py, its export from __all__ and __getattr__, its seven orchestrator-only test files, and to sequence soma/local_coding and soma.memory.importers.import_runs, whose only in-repo consumer it is.",
+      "precondition": "Explicit written owner acceptance of the residual external-import risk, since the evidence is level 4 within a declared universe rather than proof of global non-use.",
+      "blocked_on": "owner decision only"
+    },
+    {
+      "id": "successor-operation-usage-instrumentation-gate",
+      "scope": "A separate, owner-reviewed gate to decide whether Soma should record MCP operation names, and nothing else, for a bounded window. Operation name only: no arguments, no response bodies, no prompts, no addresses, no session identifiers.",
+      "rationale": "This is the single missing capability behind surface A. This lane is explicitly forbidden from adding it, and did not.",
+      "blocked_on": "owner decision"
+    },
+    {
+      "id": "successor-llm-council-approval",
+      "scope": "Owner approval to scan D:/Github/llm-council, which would close the last local blind spot for surface B.",
+      "blocked_on": "owner approval",
+      "cost": "small"
+    }
+  ],
+
+  "not_done": [
+    "No surface was removed, renamed, hidden, deprecated or redirected.",
+    "No telemetry, warning, callback or logging was added.",
+    "No write probe was performed and no canonical memory was written.",
+    "No unapproved root was scanned.",
+    "No product source, test, schema or configuration was modified."
+  ]
+}
