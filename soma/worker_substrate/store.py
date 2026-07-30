@@ -3,20 +3,23 @@
 Authority boundary, enforced by construction rather than by convention: this
 store issues no ``INSERT`` or ``UPDATE`` against ``tasks``, ``runs``,
 ``task_commands``, ``task_checkpoints``, or any ProjectScope table. It reads
-``tasks`` in exactly one place -- to refuse an acknowledgement that would
-contradict a terminal task -- and writes only the six substrate tables.
+canonical task, run, checkpoint, and ProjectScope identity only to fail closed
+before writing subordinate evidence, and writes only the six substrate tables.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterator
+from uuid import uuid4
 
 from ..tasks.models import TERMINAL_TASK_STATES
 from ..tasks.schema import apply_task_migrations
@@ -49,6 +52,7 @@ from .schema import (
 
 
 PAYLOAD_REFERENCE_PREFIX = "worker_payload:"
+_SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 _TERMINAL_TASK_STATE_VALUES = frozenset(state.value for state in TERMINAL_TASK_STATES)
 
@@ -68,18 +72,40 @@ class SessionBindingConflict(ValueError):
         self.submitted = dict(submitted)
 
 
-class InteractionConflict(ValueError):
-    """Same caller idempotency identity replayed with different content."""
+class CanonicalBindingMismatch(ValueError):
+    """Submitted subordinate identity does not match canonical Task -> Run scope."""
 
-    def __init__(self, existing: InteractionRecord, submitted_hash: str) -> None:
+
+class EvidenceConflict(ValueError):
+    """One immutable or idempotent evidence identity was replayed differently."""
+
+    def __init__(self, record_kind: str, identity: str, detail: str) -> None:
+        super().__init__(
+            f"{record_kind} {identity!r} conflicts with durable evidence: {detail}"
+        )
+        self.record_kind = record_kind
+        self.identity = identity
+        self.detail = detail
+
+
+class InteractionConflict(ValueError):
+    """Same caller idempotency identity replayed with a different command contract."""
+
+    def __init__(
+        self,
+        existing: InteractionRecord,
+        submitted_hash: str,
+        mismatched_fields: tuple[str, ...] = (),
+    ) -> None:
+        detail = ", ".join(mismatched_fields) or "payload_hash"
         super().__init__(
             f"idempotency_key {existing.idempotency_key!r} on task "
             f"{existing.task_id} is already bound to interaction "
-            f"{existing.interaction_id} with payload hash "
-            f"{existing.payload_hash}, not {submitted_hash}"
+            f"{existing.interaction_id}; conflicting fields: {detail}"
         )
         self.existing = existing
         self.submitted_hash = submitted_hash
+        self.mismatched_fields = tuple(mismatched_fields)
 
 
 @dataclass(frozen=True)
@@ -165,37 +191,80 @@ class WorkerSubstrateStore:
     # payload storage
     # ------------------------------------------------------------------
 
-    def put_payload(self, payload: bytes | str) -> PayloadReference:
-        """Store interaction bytes content-addressed, outside the database.
+    @staticmethod
+    def _require_sha256(value: str, field: str) -> str:
+        if not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None:
+            raise ValueError(f"{field} must be a lowercase sha256 hex digest")
+        return value
 
-        Keeping the payload out of both the row and any argv is what satisfies
-        the rule that prompts and secrets never reach a command line. Identical
-        content written twice is the same file, so a replay costs nothing.
-        """
+    @staticmethod
+    def _parse_timestamp(value: str, field: str) -> datetime:
+        if not value:
+            raise ValueError(f"{field} is required")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"{field} must be an ISO-8601 timestamp") from exc
+        if parsed.tzinfo is None:
+            raise ValueError(f"{field} must include a timezone")
+        return parsed.astimezone(timezone.utc)
+
+    def _validate_payload_reference(
+        self, ref: str, payload_hash: str, payload_bytes: int
+    ) -> Path:
+        self._require_sha256(payload_hash, "payload_hash")
+        expected_ref = f"{PAYLOAD_REFERENCE_PREFIX}{payload_hash}"
+        if ref != expected_ref:
+            raise ValueError(
+                "payload_ref must be the content-addressed reference for payload_hash"
+            )
+        path = self.payload_path(ref)
+        if not path.is_file():
+            raise ValueError(f"payload_ref does not exist: {ref}")
+        data = path.read_bytes()
+        if len(data) != int(payload_bytes):
+            raise ValueError("payload_bytes does not match the referenced payload")
+        if content_hash(data) != payload_hash:
+            raise ValueError("referenced payload content does not match payload_hash")
+        return path
+
+    def put_payload(self, payload: bytes | str) -> PayloadReference:
+        """Store interaction bytes content-addressed, outside the database."""
         data = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
         digest = content_hash(data)
         target = self.payload_root / digest[:2] / digest
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(".tmp")
-            tmp.write_bytes(data)
-            os.replace(tmp, target)
+            tmp = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            try:
+                tmp.write_bytes(data)
+                os.replace(tmp, target)
+            finally:
+                if tmp.exists():
+                    tmp.unlink()
         return PayloadReference(
             ref=f"{PAYLOAD_REFERENCE_PREFIX}{digest}",
             payload_hash=digest,
             payload_bytes=len(data),
         )
 
+
     def payload_path(self, ref: str) -> Path:
         if not ref.startswith(PAYLOAD_REFERENCE_PREFIX):
             raise ValueError(f"Not a worker payload reference: {ref!r}")
         digest = ref[len(PAYLOAD_REFERENCE_PREFIX) :]
-        if len(digest) != 64:
-            raise ValueError(f"Malformed worker payload reference: {ref!r}")
+        self._require_sha256(digest, "payload reference digest")
         return self.payload_root / digest[:2] / digest
 
+
     def read_payload(self, ref: str) -> bytes:
-        return self.payload_path(ref).read_bytes()
+        path = self.payload_path(ref)
+        data = path.read_bytes()
+        digest = ref[len(PAYLOAD_REFERENCE_PREFIX) :]
+        if content_hash(data) != digest:
+            raise ValueError(f"worker payload integrity mismatch: {ref}")
+        return data
+
 
     # ------------------------------------------------------------------
     # row mapping
@@ -216,6 +285,141 @@ class WorkerSubstrateStore:
         return UsageEvent.model_validate(data)
 
     # ------------------------------------------------------------------
+    # canonical identity guards (read-only)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _require_canonical_task_run_scope(
+        conn: sqlite3.Connection,
+        *,
+        project_id: str,
+        resource_id: str,
+        task_id: str,
+        run_id: str,
+    ) -> None:
+        required_tables = {
+            "runs",
+            "project_task_reservations",
+            "project_run_attempts",
+            "project_repository_bindings",
+        }
+        present = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        missing = sorted(required_tables - present)
+        if missing:
+            raise CanonicalBindingMismatch(
+                f"canonical identity tables are unavailable: {missing}"
+            )
+
+        task = conn.execute(
+            "SELECT backend_ref FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        if task is None:
+            raise CanonicalBindingMismatch(f"canonical task not found: {task_id}")
+        if str(task["backend_ref"] or "") != run_id:
+            raise CanonicalBindingMismatch(
+                f"task {task_id} is not attached to canonical run {run_id}"
+            )
+
+        run = conn.execute(
+            "SELECT repo_name FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise CanonicalBindingMismatch(f"canonical run not found: {run_id}")
+
+        scope = conn.execute(
+            """
+            SELECT repository.repo_name
+            FROM project_run_attempts attempt
+            JOIN project_task_reservations reservation
+              ON reservation.project_id = attempt.project_id
+             AND reservation.task_id = attempt.task_id
+            JOIN project_repository_bindings repository
+              ON repository.project_id = attempt.project_id
+             AND repository.resource_id = attempt.resource_id
+            WHERE attempt.project_id = ?
+              AND attempt.task_id = ?
+              AND attempt.run_id = ?
+              AND attempt.resource_id = ?
+              AND attempt.status != 'quarantined'
+              AND reservation.status != 'quarantined'
+            """,
+            (project_id, task_id, run_id, resource_id),
+        ).fetchone()
+        if scope is None:
+            raise CanonicalBindingMismatch(
+                "project/task/run/resource identity does not match ProjectScope"
+            )
+        if str(scope["repo_name"]) != str(run["repo_name"]):
+            raise CanonicalBindingMismatch(
+                "canonical run repository does not match its ProjectScope resource"
+            )
+
+    @staticmethod
+    def _require_binding_identity(
+        conn: sqlite3.Connection,
+        session_binding_id: str,
+        *,
+        task_id: str = "",
+        run_id: str = "",
+        provider: str = "",
+        native_session_id: str = "",
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM worker_provider_sessions WHERE session_binding_id = ?",
+            (session_binding_id,),
+        ).fetchone()
+        if row is None:
+            raise CanonicalBindingMismatch(
+                f"provider-session binding not found: {session_binding_id}"
+            )
+        expected = {
+            "task_id": task_id,
+            "run_id": run_id,
+            "provider": provider,
+            "native_session_id": native_session_id,
+        }
+        mismatches = [
+            field for field, value in expected.items()
+            if value and str(row[field]) != value
+        ]
+        if mismatches:
+            raise CanonicalBindingMismatch(
+                "provider-session binding mismatch for " + ", ".join(mismatches)
+            )
+        return row
+
+    @staticmethod
+    def _require_checkpoint_identity(
+        conn: sqlite3.Connection,
+        *,
+        checkpoint_id: str,
+        task_id: str,
+        session_binding_id: str = "",
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM task_checkpoints WHERE checkpoint_id = ?",
+            (checkpoint_id,),
+        ).fetchone()
+        if row is None:
+            raise CanonicalBindingMismatch(
+                f"canonical checkpoint not found: {checkpoint_id}"
+            )
+        if str(row["task_id"]) != task_id:
+            raise CanonicalBindingMismatch(
+                "checkpoint does not belong to the submitted task"
+            )
+        if session_binding_id:
+            WorkerSubstrateStore._require_binding_identity(
+                conn, session_binding_id, task_id=task_id
+            )
+        return row
+
+    # ------------------------------------------------------------------
     # provider-session binding
     # ------------------------------------------------------------------
 
@@ -234,21 +438,15 @@ class WorkerSubstrateStore:
         protocol_version: str = "",
         resume_cursor: str = "",
     ) -> tuple[ProviderSessionBinding, bool]:
-        """Bind one canonical run to one exact provider-native session.
-
-        Returns ``(binding, created)``. An identical replay returns the existing
-        binding. A replay carrying a different provider, native session, adapter,
-        or protocol identity raises :class:`SessionBindingConflict` rather than
-        silently rebinding the run to a different conversation.
-        """
+        """Bind one exact canonical task/run/scope to one provider-native session."""
         require_opaque(provider, "provider")
         require_opaque(native_session_id, "native_session_id")
         require_opaque(adapter_id, "adapter_id")
         require_opaque(protocol_id, "protocol_id")
         require_opaque(run_id, "run_id")
+        require_opaque(task_id, "task_id")
         require_opaque(project_id, "project_id")
         require_opaque(resource_id, "resource_id")
-
         submitted = {
             "provider": provider,
             "native_session_id": native_session_id,
@@ -262,6 +460,13 @@ class WorkerSubstrateStore:
         }
         now = utc_now()
         with self._transaction() as conn:
+            self._require_canonical_task_run_scope(
+                conn,
+                project_id=project_id,
+                resource_id=resource_id,
+                task_id=task_id,
+                run_id=run_id,
+            )
             row = conn.execute(
                 "SELECT * FROM worker_provider_sessions WHERE run_id = ?",
                 (run_id,),
@@ -272,7 +477,6 @@ class WorkerSubstrateStore:
                     if getattr(existing, field) != value:
                         raise SessionBindingConflict(existing, submitted)
                 return existing, False
-
             binding_id = make_session_binding_id()
             conn.execute(
                 """
@@ -284,21 +488,11 @@ class WorkerSubstrateStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
                 """,
                 (
-                    binding_id,
-                    project_id,
-                    resource_id,
-                    task_id,
-                    run_id,
-                    provider,
-                    native_session_id,
-                    adapter_id,
-                    adapter_version,
-                    protocol_id,
-                    protocol_version,
+                    binding_id, project_id, resource_id, task_id, run_id,
+                    provider, native_session_id, adapter_id, adapter_version,
+                    protocol_id, protocol_version,
                     SessionBindingDisposition.BOUND.value,
-                    resume_cursor,
-                    now,
-                    now,
+                    resume_cursor, now, now,
                 ),
             )
             created = conn.execute(
@@ -306,6 +500,7 @@ class WorkerSubstrateStore:
                 (binding_id,),
             ).fetchone()
         return self._row_to_binding(created), True
+
 
     def get_binding(self, session_binding_id: str) -> ProviderSessionBinding:
         with self._read() as conn:
@@ -381,38 +576,58 @@ class WorkerSubstrateStore:
         expected_checkpoint_id: str = "",
         requested_state_version: int = 0,
     ) -> tuple[InteractionRecord, bool]:
-        """Persist a message before it is delivered.
-
-        Returns ``(record, created)``. A replay with identical content returns
-        the committed record so a crash between commit and send can retry
-        without producing a second message. A replay with different content
-        raises :class:`InteractionConflict`: the caller reused an identity for a
-        new intent, and guessing which one it meant would be a delivery bug.
-        """
+        """Persist one complete interaction command contract before delivery."""
         require_opaque(idempotency_key, "idempotency_key")
+        if int(requested_state_version) < 0:
+            raise ValueError("requested_state_version must be non-negative")
         if payload is not None:
             reference = self.put_payload(payload)
             payload_ref = reference.ref
             payload_hash = reference.payload_hash
             payload_bytes = reference.payload_bytes
-        if len(payload_hash) != 64:
-            raise ValueError("payload_hash must be a sha256 hex digest")
-        if not payload_ref:
-            raise ValueError("payload_ref is required when payload is not supplied")
-
+        self._validate_payload_reference(payload_ref, payload_hash, int(payload_bytes))
         now = utc_now()
         with self._transaction() as conn:
+            self._require_binding_identity(conn, session_binding_id, task_id=task_id)
+            if expected_checkpoint_id:
+                self._require_checkpoint_identity(
+                    conn,
+                    checkpoint_id=expected_checkpoint_id,
+                    task_id=task_id,
+                    session_binding_id=session_binding_id,
+                )
             row = conn.execute(
                 "SELECT * FROM worker_interactions "
                 "WHERE task_id = ? AND idempotency_key = ?",
                 (task_id, idempotency_key),
             ).fetchone()
+            submitted_contract = {
+                "session_binding_id": session_binding_id,
+                "interaction_kind": interaction_kind.value,
+                "payload_ref": payload_ref,
+                "payload_hash": payload_hash,
+                "payload_bytes": int(payload_bytes),
+                "expected_checkpoint_id": expected_checkpoint_id,
+                "requested_state_version": int(requested_state_version),
+            }
             if row is not None:
                 existing = self._row_to_interaction(row)
-                if existing.payload_hash != payload_hash:
-                    raise InteractionConflict(existing, payload_hash)
+                existing_contract = {
+                    "session_binding_id": existing.session_binding_id,
+                    "interaction_kind": existing.interaction_kind.value,
+                    "payload_ref": existing.payload_ref,
+                    "payload_hash": existing.payload_hash,
+                    "payload_bytes": existing.payload_bytes,
+                    "expected_checkpoint_id": existing.expected_checkpoint_id,
+                    "requested_state_version": existing.requested_state_version,
+                }
+                mismatches = tuple(
+                    field for field, value in submitted_contract.items()
+                    if existing_contract[field] != value
+                )
+                if mismatches:
+                    raise InteractionConflict(existing, payload_hash, mismatches)
                 return existing, False
-
             interaction_id = make_interaction_id()
             conn.execute(
                 """
@@ -425,19 +640,11 @@ class WorkerSubstrateStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, NULL)
                 """,
                 (
-                    interaction_id,
-                    session_binding_id,
-                    task_id,
-                    interaction_kind.value,
-                    idempotency_key,
-                    payload_ref,
-                    payload_hash,
-                    int(payload_bytes),
-                    expected_checkpoint_id,
-                    int(requested_state_version),
-                    InteractionDelivery.PENDING.value,
-                    now,
-                    now,
+                    interaction_id, session_binding_id, task_id,
+                    interaction_kind.value, idempotency_key, payload_ref,
+                    payload_hash, int(payload_bytes), expected_checkpoint_id,
+                    int(requested_state_version), InteractionDelivery.PENDING.value,
+                    now, now,
                 ),
             )
             created = conn.execute(
@@ -445,6 +652,7 @@ class WorkerSubstrateStore:
                 (interaction_id,),
             ).fetchone()
         return self._row_to_interaction(created), True
+
 
     def get_interaction(self, interaction_id: str) -> InteractionRecord:
         with self._read() as conn:
@@ -483,14 +691,7 @@ class WorkerSubstrateStore:
         reason: str = "",
         evidence_ref: str = "",
     ) -> InteractionRecord:
-        """Record the durable delivery disposition for one interaction.
-
-        A late acknowledgement cannot resurrect work: if the canonical task is
-        already terminal, or has been superseded by another task, the
-        acknowledgement is downgraded to ``rejected`` with the reason preserved.
-        The task row itself is read, never written -- refusing here is a
-        persistence-boundary guarantee, not a lifecycle decision.
-        """
+        """Record monotonic delivery evidence without overriding task state."""
         now = utc_now()
         with self._transaction() as conn:
             row = conn.execute(
@@ -500,7 +701,6 @@ class WorkerSubstrateStore:
             if row is None:
                 raise KeyError(f"Interaction not found: {interaction_id}")
             record = self._row_to_interaction(row)
-
             effective = delivery
             effective_reason = reason
             if delivery is InteractionDelivery.ACKNOWLEDGED:
@@ -508,28 +708,34 @@ class WorkerSubstrateStore:
                 if blocker:
                     effective = InteractionDelivery.REJECTED
                     effective_reason = blocker if not reason else f"{blocker}: {reason}"
-
-            delivered_at = (
-                now
-                if effective
-                in {
-                    InteractionDelivery.ACKNOWLEDGED,
-                    InteractionDelivery.REJECTED,
-                }
-                else None
-            )
+            terminal = {
+                InteractionDelivery.ACKNOWLEDGED,
+                InteractionDelivery.REJECTED,
+            }
+            if record.delivery in terminal:
+                if effective is not record.delivery:
+                    raise EvidenceConflict(
+                        "interaction_delivery",
+                        interaction_id,
+                        f"terminal {record.delivery.value} cannot become {effective.value}",
+                    )
+                return record
+            if effective is InteractionDelivery.PENDING:
+                if record.delivery is InteractionDelivery.PENDING:
+                    return record
+                raise EvidenceConflict(
+                    "interaction_delivery",
+                    interaction_id,
+                    f"{record.delivery.value} cannot return to pending",
+                )
+            delivered_at = now if effective in terminal else None
             conn.execute(
                 "UPDATE worker_interactions "
                 "SET delivery = ?, delivery_reason = ?, delivery_evidence_ref = ?, "
-                "    updated_at = ?, delivered_at = ? "
-                "WHERE interaction_id = ?",
+                "updated_at = ?, delivered_at = ? WHERE interaction_id = ?",
                 (
-                    effective.value,
-                    effective_reason,
-                    evidence_ref,
-                    now,
-                    delivered_at,
-                    interaction_id,
+                    effective.value, effective_reason, evidence_ref,
+                    now, delivered_at, interaction_id,
                 ),
             )
             updated = conn.execute(
@@ -537,6 +743,7 @@ class WorkerSubstrateStore:
                 (interaction_id,),
             ).fetchone()
         return self._row_to_interaction(updated)
+
 
     @staticmethod
     def _terminal_blocker(conn: sqlite3.Connection, task_id: str) -> str:
@@ -573,37 +780,60 @@ class WorkerSubstrateStore:
         policy_owner: str = "",
         session_binding_id: str = "",
     ) -> CheckpointDeadline:
-        """Attach a durable deadline to an existing canonical task checkpoint.
-
-        The checkpoint row itself is untouched, so every existing checkpoint read
-        returns exactly what it returned before, and a checkpoint with no row
-        here is honestly deadline-less.
-        """
+        """Attach one immutable deadline policy to an exact checkpoint."""
+        if deadline_policy is CheckpointDeadlinePolicy.BOUNDED:
+            self._parse_timestamp(deadline_at, "deadline_at")
+        elif deadline_at:
+            raise ValueError("explicit_none deadline policy cannot carry deadline_at")
+        if deadline_policy is CheckpointDeadlinePolicy.EXPLICIT_NONE and not policy_owner:
+            raise ValueError("explicit_none deadline policy requires policy_owner")
+        submitted = {
+            "checkpoint_id": checkpoint_id,
+            "task_id": task_id,
+            "session_binding_id": session_binding_id,
+            "deadline_policy": deadline_policy.value,
+            "deadline_at": deadline_at,
+            "policy_owner": policy_owner,
+        }
         now = utc_now()
         with self._transaction() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO worker_checkpoint_deadlines "
-                "(checkpoint_id, task_id, session_binding_id, deadline_policy, "
-                " deadline_at, policy_owner, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, "
-                "        COALESCE((SELECT created_at FROM worker_checkpoint_deadlines "
-                "                  WHERE checkpoint_id = ?), ?))",
-                (
-                    checkpoint_id,
-                    task_id,
-                    session_binding_id,
-                    deadline_policy.value,
-                    deadline_at,
-                    policy_owner,
-                    checkpoint_id,
-                    now,
-                ),
+            self._require_checkpoint_identity(
+                conn,
+                checkpoint_id=checkpoint_id,
+                task_id=task_id,
+                session_binding_id=session_binding_id,
             )
             row = conn.execute(
                 "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
                 (checkpoint_id,),
             ).fetchone()
-        return CheckpointDeadline.model_validate(dict(row))
+            if row is not None:
+                existing = dict(row)
+                mismatches = [
+                    field for field, value in submitted.items()
+                    if str(existing[field]) != str(value)
+                ]
+                if mismatches:
+                    raise EvidenceConflict(
+                        "checkpoint_deadline", checkpoint_id,
+                        "conflicting fields: " + ", ".join(mismatches),
+                    )
+                return CheckpointDeadline.model_validate(existing)
+            conn.execute(
+                "INSERT INTO worker_checkpoint_deadlines "
+                "(checkpoint_id, task_id, session_binding_id, deadline_policy, "
+                "deadline_at, policy_owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    checkpoint_id, task_id, session_binding_id,
+                    deadline_policy.value, deadline_at, policy_owner, now,
+                ),
+            )
+            created = conn.execute(
+                "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+        return CheckpointDeadline.model_validate(dict(created))
+
 
     def get_checkpoint_deadline(self, checkpoint_id: str) -> CheckpointDeadline | None:
         with self._read() as conn:
@@ -625,14 +855,12 @@ class WorkerSubstrateStore:
         quiescence_proof_ref: str = "",
         reason: str = "",
     ) -> tuple[CheckpointExpiryEvent, bool]:
-        """Record immutable expiry evidence, idempotently.
-
-        ``QUIESCENT_CONFIRMED`` is refused without a quiescence proof reference.
-        That is the persistence half of the accepted rule: ownership may be
-        released only once the worker is confirmed quiescent or terminated, and
-        anything else is uncertainty that keeps ownership.
-        """
+        """Record exact immutable expiry evidence, idempotently and conflict-safe."""
         require_opaque(idempotency_key, "idempotency_key")
+        observed = self._parse_timestamp(observed_at, "observed_at")
+        deadline = self._parse_timestamp(deadline_at, "deadline_at")
+        if observed < deadline:
+            raise ValueError("observed_at cannot precede deadline_at")
         if (
             disposition is CheckpointExpiryDisposition.QUIESCENT_CONFIRMED
             and not quiescence_proof_ref
@@ -655,31 +883,44 @@ class WorkerSubstrateStore:
         expiry_id = f"wexp_{evidence_hash[:24]}"
         now = utc_now()
         with self._transaction() as conn:
+            self._require_checkpoint_identity(
+                conn, checkpoint_id=checkpoint_id, task_id=task_id
+            )
+            deadline_row = conn.execute(
+                "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if deadline_row is None:
+                raise CanonicalBindingMismatch(
+                    "checkpoint expiry cannot exist without a durable deadline policy"
+                )
+            if str(deadline_row["deadline_at"]) != deadline_at:
+                raise CanonicalBindingMismatch(
+                    "expiry deadline_at does not match the canonical deadline"
+                )
             row = conn.execute(
                 "SELECT * FROM worker_checkpoint_expiries "
                 "WHERE checkpoint_id = ? AND idempotency_key = ?",
                 (checkpoint_id, idempotency_key),
             ).fetchone()
             if row is not None:
-                return CheckpointExpiryEvent.model_validate(dict(row)), False
+                existing = CheckpointExpiryEvent.model_validate(dict(row))
+                if existing.evidence_hash != evidence_hash:
+                    raise EvidenceConflict(
+                        "checkpoint_expiry",
+                        f"{checkpoint_id}:{idempotency_key}",
+                        "same idempotency identity carries different evidence",
+                    )
+                return existing, False
             conn.execute(
                 "INSERT INTO worker_checkpoint_expiries "
                 "(expiry_id, checkpoint_id, task_id, idempotency_key, deadline_at, "
-                " observed_at, disposition, quiescence_proof_ref, reason, "
-                " evidence_hash, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "observed_at, disposition, quiescence_proof_ref, reason, "
+                "evidence_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    expiry_id,
-                    checkpoint_id,
-                    task_id,
-                    idempotency_key,
-                    deadline_at,
-                    observed_at,
-                    disposition.value,
-                    quiescence_proof_ref,
-                    reason,
-                    evidence_hash,
-                    now,
+                    expiry_id, checkpoint_id, task_id, idempotency_key,
+                    deadline_at, observed_at, disposition.value,
+                    quiescence_proof_ref, reason, evidence_hash, now,
                 ),
             )
             created = conn.execute(
@@ -687,6 +928,7 @@ class WorkerSubstrateStore:
                 (expiry_id,),
             ).fetchone()
         return CheckpointExpiryEvent.model_validate(dict(created)), True
+
 
     def list_checkpoint_expiries(self, checkpoint_id: str) -> list[CheckpointExpiryEvent]:
         with self._read() as conn:
@@ -727,6 +969,17 @@ class WorkerSubstrateStore:
         with cost left ``None`` until a pricing authority with a reproducible
         conversion exists.
         """
+        require_opaque(event_kind, "event_kind")
+        if int(sequence) < 0:
+            raise ValueError("sequence must be non-negative")
+        for field, value in (
+            ("input_tokens", input_tokens),
+            ("cached_input_tokens", cached_input_tokens),
+            ("output_tokens", output_tokens),
+            ("total_tokens", total_tokens),
+        ):
+            if value is not None and int(value) < 0:
+                raise ValueError(f"{field} must be non-negative when reported")
         raw_json = canonical_json(raw_event)
         raw_event_hash = content_hash(raw_json.encode("utf-8"))
         dedupe = usage_dedupe_key(
@@ -738,13 +991,47 @@ class WorkerSubstrateStore:
         )
         now = utc_now()
         with self._transaction() as conn:
+            self._require_binding_identity(
+                conn,
+                session_binding_id,
+                task_id=task_id,
+                run_id=run_id,
+                provider=provider,
+                native_session_id=native_session_id,
+            )
             row = conn.execute(
                 "SELECT * FROM worker_usage_events "
                 "WHERE session_binding_id = ? AND dedupe_key = ?",
                 (session_binding_id, dedupe),
             ).fetchone()
             if row is not None:
-                return self._row_to_usage(row), False
+                existing = self._row_to_usage(row)
+                submitted = {
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "provider": provider,
+                    "native_session_id": native_session_id,
+                    "event_kind": event_kind,
+                    "provider_event_id": provider_event_id,
+                    "sequence": int(sequence),
+                    "input_tokens": input_tokens,
+                    "cached_input_tokens": cached_input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens,
+                    "provider_reported_cost_usd": provider_reported_cost_usd,
+                    "raw_event_hash": raw_event_hash,
+                }
+                mismatches = [
+                    field for field, value in submitted.items()
+                    if getattr(existing, field) != value
+                ]
+                if mismatches:
+                    raise EvidenceConflict(
+                        "usage_event",
+                        dedupe,
+                        "conflicting fields: " + ", ".join(mismatches),
+                    )
+                return existing, False
             cursor = conn.execute(
                 """
                 INSERT INTO worker_usage_events (
@@ -841,7 +1128,10 @@ class WorkerSubstrateStore:
         unparsed: list[str] = []
         for value in cost_values:
             try:
-                total += Decimal(value)
+                parsed = Decimal(value)
+                if not parsed.is_finite():
+                    raise InvalidOperation
+                total += parsed
             except (InvalidOperation, ValueError):
                 unparsed.append(value)
         summary["provider_reported_cost_usd"] = (
@@ -880,8 +1170,14 @@ class WorkerSubstrateStore:
         require_opaque(process_start_identity, "process_start_identity")
         if int(pid) <= 0:
             raise ValueError("pid must be positive")
+        if parent_pid is not None and int(parent_pid) <= 0:
+            raise ValueError("parent_pid must be positive when supplied")
         observed = observed_at or utc_now()
+        self._parse_timestamp(observed, "observed_at")
         with self._transaction() as conn:
+            self._require_binding_identity(
+                conn, session_binding_id, task_id=task_id, run_id=run_id
+            )
             row = conn.execute(
                 "SELECT * FROM worker_child_processes "
                 "WHERE session_binding_id = ? AND pid = ? "
@@ -889,7 +1185,26 @@ class WorkerSubstrateStore:
                 (session_binding_id, int(pid), process_start_identity),
             ).fetchone()
             if row is not None:
-                return ProviderChildProcessRecord.model_validate(dict(row)), False
+                existing = ProviderChildProcessRecord.model_validate(dict(row))
+                submitted = {
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "role": role,
+                    "parent_pid": parent_pid,
+                    "image_name": image_name,
+                    "observation_source": observation_source,
+                }
+                mismatches = [
+                    field for field, value in submitted.items()
+                    if getattr(existing, field) != value
+                ]
+                if mismatches:
+                    raise EvidenceConflict(
+                        "provider_child_process",
+                        f"{session_binding_id}:{pid}:{process_start_identity}",
+                        "conflicting fields: " + ", ".join(mismatches),
+                    )
+                return existing, False
             cursor = conn.execute(
                 "INSERT INTO worker_child_processes "
                 "(session_binding_id, task_id, run_id, role, pid, "

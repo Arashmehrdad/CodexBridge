@@ -8,13 +8,16 @@ store refuse to do.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
+from soma.project_scope.store import ProjectScopeStore
 from soma.run_store import RunStore
 from soma.tasks.models import (
     BackendKind,
@@ -28,8 +31,10 @@ from soma.tasks.models import (
 )
 from soma.tasks.store import TaskStore
 from soma.worker_substrate import (
+    CanonicalBindingMismatch,
     CheckpointDeadlinePolicy,
     CheckpointExpiryDisposition,
+    EvidenceConflict,
     InteractionConflict,
     InteractionDelivery,
     InteractionKind,
@@ -46,6 +51,7 @@ from soma.worker_substrate import store as substrate_store_module
 
 PROJECT_ID = "proj_11111111-1111-1111-1111-111111111111"
 RESOURCE_ID = "res_22222222-2222-2222-2222-222222222222"
+DEFAULT_RUN_ID = "20260730T101010Z_worker_aabbccdd"
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +59,27 @@ RESOURCE_ID = "res_22222222-2222-2222-2222-222222222222"
 # ---------------------------------------------------------------------------
 
 
-def _make_task(task_store: TaskStore, *, controller_request_id: str) -> str:
+def _make_task(
+    task_store: TaskStore,
+    *,
+    controller_request_id: str,
+    run_id: str | None = None,
+) -> str:
     task_id = make_task_id()
+    effective_run_id = run_id or (
+        "20260730T101010Z_worker_"
+        + hashlib.sha256(controller_request_id.encode("utf-8")).hexdigest()[:8]
+    )
     normalized = normalize_durable_command_request(
         repo_name="soma", profile_id="pytest", argv=["python", "-m", "pytest", "-q"]
+    )
+    run_store = RunStore(task_store.runs_dir)
+    run_store.create_run(
+        run_id=effective_run_id,
+        repo_name="soma",
+        tool="executable_profile",
+        run_dir=task_store.runs_dir / effective_run_id,
+        input_data=normalized,
     )
     task_store.reserve_task(
         task_id=task_id,
@@ -65,9 +88,50 @@ def _make_task(task_store: TaskStore, *, controller_request_id: str) -> str:
         request_hash=normalized_request_hash(normalized),
         backend_kind=BackendKind.SOMA_DURABLE_RUN.value,
         backend_executor="executable_profile",
-        backend_ref="",
-        backend_identity={},
+        backend_ref=effective_run_id,
+        backend_identity={"run_id": effective_run_id},
     )
+    scope_store = ProjectScopeStore(task_store.runs_dir)
+    scope_store.init_db()
+    now = "2026-07-30T00:00:00+00:00"
+    with scope_store.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO projects "
+            "(project_id, project_key, lifecycle_state, scope_generation, created_at, updated_at) "
+            "VALUES (?, 'soma-test', 'active', 1, ?, ?)",
+            (PROJECT_ID, now, now),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO project_resources "
+            "(resource_id, resource_kind, opaque_ref, identity_hash, created_at) "
+            "VALUES (?, 'repository', 'd:/github/soma', 'soma-test-resource', ?)",
+            (RESOURCE_ID, now),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO project_resource_bindings "
+            "(project_id, resource_id, access_mode, created_at) "
+            "VALUES (?, ?, 'exclusive', ?)",
+            (PROJECT_ID, RESOURCE_ID, now),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO project_repository_bindings "
+            "(project_id, resource_id, repo_name, repository_root, identity_hash, created_at) "
+            "VALUES (?, ?, 'soma', 'd:/github/soma', 'soma-test-resource', ?)",
+            (PROJECT_ID, RESOURCE_ID, now),
+        )
+        conn.execute(
+            "INSERT INTO project_task_reservations "
+            "(task_id, project_id, scope_generation, status, created_at, updated_at) "
+            "VALUES (?, ?, 1, 'attached', ?, ?)",
+            (task_id, PROJECT_ID, now, now),
+        )
+        conn.execute(
+            "INSERT INTO project_run_attempts "
+            "(run_id, project_id, task_id, resource_id, scope_generation, status, "
+            "recovery_reason, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 1, 'attached', '', ?, ?)",
+            (effective_run_id, PROJECT_ID, task_id, RESOURCE_ID, now, now),
+        )
     return task_id
 
 
@@ -76,7 +140,11 @@ def substrate(tmp_path: Path):
     runs_dir = tmp_path / "runs"
     task_store = TaskStore(runs_dir)
     store = WorkerSubstrateStore(runs_dir)
-    task_id = _make_task(task_store, controller_request_id="req-primary")
+    task_id = _make_task(
+        task_store,
+        controller_request_id="req-primary",
+        run_id=DEFAULT_RUN_ID,
+    )
     return store, task_store, task_id
 
 
@@ -85,7 +153,7 @@ def _bind(store: WorkerSubstrateStore, task_id: str, **overrides):
         "project_id": PROJECT_ID,
         "resource_id": RESOURCE_ID,
         "task_id": task_id,
-        "run_id": "20260730T101010Z_worker_aabbccdd",
+        "run_id": DEFAULT_RUN_ID,
         "provider": "claude_code",
         "native_session_id": "91F5d23f-AAAA-4bbb-8ccc-DDDDDDDDDDDD",
         "adapter_id": "soma.adapter.claude_code",
@@ -165,12 +233,17 @@ def test_binding_rejects_a_different_adapter_or_protocol_identity(substrate):
 def test_one_native_session_cannot_be_claimed_by_two_runs(substrate):
     store, task_store, task_id = substrate
     _bind(store, task_id)
-    other_task = _make_task(task_store, controller_request_id="req-second")
+    other_run_id = "20260730T111111Z_worker_11223344"
+    other_task = _make_task(
+        task_store,
+        controller_request_id="req-second",
+        run_id=other_run_id,
+    )
     with pytest.raises(sqlite3.IntegrityError):
         _bind(
             store,
             other_task,
-            run_id="20260730T111111Z_worker_11223344",
+            run_id=other_run_id,
         )
 
 
@@ -426,7 +499,7 @@ def test_unbounded_deadline_requires_a_named_policy_owner(substrate):
     checkpoint = task_store.create_checkpoint(
         task_id, kind="controller_input", required_state_version=0
     )
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(ValueError, match="policy_owner"):
         store.set_checkpoint_deadline(
             checkpoint_id=checkpoint.checkpoint_id,
             task_id=task_id,
@@ -446,13 +519,7 @@ def test_expiry_evidence_is_idempotent(substrate):
     checkpoint = task_store.create_checkpoint(
         task_id, kind="controller_input", required_state_version=0
     )
-    store.set_checkpoint_deadline(
-        checkpoint_id=checkpoint.checkpoint_id,
-        task_id=task_id,
-        deadline_policy=CheckpointDeadlinePolicy.BOUNDED,
-        deadline_at="2026-07-30T12:00:00+00:00",
-    )
-    first, created = store.record_checkpoint_expiry(
+    kwargs = dict(
         checkpoint_id=checkpoint.checkpoint_id,
         task_id=task_id,
         idempotency_key="expiry-1",
@@ -460,26 +527,38 @@ def test_expiry_evidence_is_idempotent(substrate):
         observed_at="2026-07-30T12:00:05+00:00",
         disposition=CheckpointExpiryDisposition.RECORDED,
     )
-    assert created is True
-    replay, created_again = store.record_checkpoint_expiry(
+    store.set_checkpoint_deadline(
         checkpoint_id=checkpoint.checkpoint_id,
         task_id=task_id,
-        idempotency_key="expiry-1",
-        deadline_at="2026-07-30T12:00:00+00:00",
-        observed_at="2026-07-30T12:09:99+00:00",
-        disposition=CheckpointExpiryDisposition.UNCERTAIN,
+        deadline_policy=CheckpointDeadlinePolicy.BOUNDED,
+        deadline_at=kwargs["deadline_at"],
     )
+    first, created = store.record_checkpoint_expiry(**kwargs)
+    assert created is True
+    replay, created_again = store.record_checkpoint_expiry(**kwargs)
     assert created_again is False
-    # The first evidence is immutable: a replay never rewrites the disposition.
     assert replay.expiry_id == first.expiry_id
-    assert replay.disposition is CheckpointExpiryDisposition.RECORDED
-    assert len(store.list_checkpoint_expiries(checkpoint.checkpoint_id)) == 1
+    with pytest.raises(EvidenceConflict):
+        store.record_checkpoint_expiry(
+            **{
+                **kwargs,
+                "observed_at": "2026-07-30T12:09:59+00:00",
+                "disposition": CheckpointExpiryDisposition.UNCERTAIN,
+            }
+        )
+
 
 
 def test_release_disposition_requires_a_quiescence_proof(substrate):
     store, task_store, task_id = substrate
     checkpoint = task_store.create_checkpoint(
         task_id, kind="controller_input", required_state_version=0
+    )
+    store.set_checkpoint_deadline(
+        checkpoint_id=checkpoint.checkpoint_id,
+        task_id=task_id,
+        deadline_policy=CheckpointDeadlinePolicy.BOUNDED,
+        deadline_at="2026-07-30T12:00:00+00:00",
     )
     with pytest.raises(ValueError, match="quiescence_proof_ref"):
         store.record_checkpoint_expiry(
@@ -572,26 +651,40 @@ def test_replayed_usage_events_are_deduplicated(substrate):
 
 
 def test_raw_units_and_optional_cost_are_preserved_separately(substrate):
-    store, _task_store, task_id = substrate
-    binding, _ = _bind(store, task_id)
-
+    store, task_store, task_id = substrate
+    claude_binding, _ = _bind(store, task_id)
+    codex_run_id = "20260730T130000Z_worker_c0dec0de"
+    codex_task_id = _make_task(
+        task_store,
+        controller_request_id="req-codex-usage",
+        run_id=codex_run_id,
+    )
+    codex_binding, _ = _bind(
+        store,
+        codex_task_id,
+        run_id=codex_run_id,
+        provider="codex",
+        native_session_id="codex-session-usage",
+        adapter_id="soma.adapter.codex",
+        protocol_id="codex.exec_json",
+    )
     claude, _ = store.record_usage_event(
-        session_binding_id=binding.session_binding_id,
+        session_binding_id=claude_binding.session_binding_id,
         task_id=task_id,
-        run_id=binding.run_id,
-        provider="claude_code",
-        native_session_id=binding.native_session_id,
+        run_id=claude_binding.run_id,
+        provider=claude_binding.provider,
+        native_session_id=claude_binding.native_session_id,
         event_kind="result",
         sequence=1,
         raw_event=CLAUDE_RESULT_EVENT,
         provider_reported_cost_usd="0.1094",
     )
     codex, _ = store.record_usage_event(
-        session_binding_id=binding.session_binding_id,
-        task_id=task_id,
-        run_id=binding.run_id,
-        provider="codex",
-        native_session_id=binding.native_session_id,
+        session_binding_id=codex_binding.session_binding_id,
+        task_id=codex_task_id,
+        run_id=codex_binding.run_id,
+        provider=codex_binding.provider,
+        native_session_id=codex_binding.native_session_id,
         event_kind="turn.completed",
         sequence=2,
         raw_event=CODEX_TURN_EVENT,
@@ -599,9 +692,6 @@ def test_raw_units_and_optional_cost_are_preserved_separately(substrate):
         cached_input_tokens=800,
         output_tokens=340,
     )
-
-    # Claude reports money and no token breakdown; Codex the reverse. Neither
-    # gap is filled in, and the raw event survives byte-for-byte in meaning.
     assert claude.provider_reported_cost_usd == "0.1094"
     assert claude.input_tokens is None
     assert claude.raw_event == CLAUDE_RESULT_EVENT
@@ -610,49 +700,60 @@ def test_raw_units_and_optional_cost_are_preserved_separately(substrate):
     assert codex.raw_event == CODEX_TURN_EVENT
 
 
+
 def test_aggregation_reports_missing_figures_rather_than_zeros(substrate):
-    store, _task_store, task_id = substrate
-    binding, _ = _bind(store, task_id)
+    store, task_store, task_id = substrate
+    claude_binding, _ = _bind(store, task_id)
+    codex_run_id = "20260730T130100Z_worker_c0dec0df"
+    codex_task_id = _make_task(
+        task_store,
+        controller_request_id="req-codex-aggregate",
+        run_id=codex_run_id,
+    )
+    codex_binding, _ = _bind(
+        store,
+        codex_task_id,
+        run_id=codex_run_id,
+        provider="codex",
+        native_session_id="codex-session-aggregate",
+        adapter_id="soma.adapter.codex",
+        protocol_id="codex.exec_json",
+    )
     store.record_usage_event(
-        session_binding_id=binding.session_binding_id,
+        session_binding_id=claude_binding.session_binding_id,
         task_id=task_id,
-        run_id=binding.run_id,
-        provider="claude_code",
-        native_session_id=binding.native_session_id,
+        run_id=claude_binding.run_id,
+        provider=claude_binding.provider,
+        native_session_id=claude_binding.native_session_id,
         event_kind="result",
         sequence=1,
         raw_event=CLAUDE_RESULT_EVENT,
         provider_reported_cost_usd="0.1094",
     )
     store.record_usage_event(
-        session_binding_id=binding.session_binding_id,
-        task_id=task_id,
-        run_id=binding.run_id,
-        provider="codex",
-        native_session_id=binding.native_session_id,
+        session_binding_id=codex_binding.session_binding_id,
+        task_id=codex_task_id,
+        run_id=codex_binding.run_id,
+        provider=codex_binding.provider,
+        native_session_id=codex_binding.native_session_id,
         event_kind="turn.completed",
         sequence=2,
         raw_event=CODEX_TURN_EVENT,
         input_tokens=1200,
         output_tokens=340,
     )
+    combined = store.aggregate_usage()
+    assert combined["event_count"] == 2
+    assert combined["input_tokens"] == 1200
+    assert combined["input_tokens_missing_events"] == 1
+    assert combined["provider_reported_cost_usd"] == "0.1094"
+    assert combined["provider_reported_cost_missing_events"] == 1
+    assert combined["total_tokens"] is None
+    assert store.aggregate_usage(task_id=task_id)["event_count"] == 1
+    assert store.aggregate_usage(task_id=codex_task_id)["event_count"] == 1
+    assert store.aggregate_usage(run_id=claude_binding.run_id)["event_count"] == 1
+    assert store.aggregate_usage(run_id=codex_binding.run_id)["event_count"] == 1
 
-    by_task = store.aggregate_usage(task_id=task_id)
-    assert by_task["event_count"] == 2
-    assert by_task["input_tokens"] == 1200
-    assert by_task["input_tokens_missing_events"] == 1
-    assert by_task["provider_reported_cost_usd"] == "0.1094"
-    assert by_task["provider_reported_cost_missing_events"] == 1
-    # A figure no event reported stays None, never a misleading 0.
-    assert by_task["total_tokens"] is None
-
-    assert store.aggregate_usage(run_id=binding.run_id)["event_count"] == 2
-    assert (
-        store.aggregate_usage(session_binding_id=binding.session_binding_id)[
-            "event_count"
-        ]
-        == 2
-    )
 
 
 def test_dedupe_key_is_stable_and_content_sensitive():
@@ -698,6 +799,8 @@ def test_child_pid_and_start_identity_persist_and_compare(substrate):
         role=ProviderChildRole.PROVIDER_ROOT,
         pid=15436,
         process_start_identity="15436:windows:133671234567890000",
+        image_name="claude.exe",
+        observation_source="launch",
     )
     assert created_again is False
 
@@ -840,6 +943,166 @@ def test_migration_does_not_alter_existing_table_definitions(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# independent acceptance-audit regressions
+# ---------------------------------------------------------------------------
+
+
+def test_binding_fails_closed_on_canonical_task_run_scope_mismatch(substrate):
+    store, _task_store, task_id = substrate
+    with pytest.raises(CanonicalBindingMismatch):
+        _bind(store, task_id, project_id="proj_wrong")
+    with pytest.raises(CanonicalBindingMismatch):
+        _bind(store, task_id, run_id="20260730T150000Z_worker_deadbeef")
+
+
+def test_interaction_idempotency_covers_complete_command_contract(substrate):
+    store, _task_store, task_id = substrate
+    binding, _ = _bind(store, task_id)
+    first, created = store.commit_interaction(
+        session_binding_id=binding.session_binding_id,
+        task_id=task_id,
+        interaction_kind=InteractionKind.STEER,
+        idempotency_key="complete-command-contract",
+        payload="same bytes",
+        requested_state_version=2,
+    )
+    assert created is True
+    with pytest.raises(InteractionConflict) as exc:
+        store.commit_interaction(
+            session_binding_id=binding.session_binding_id,
+            task_id=task_id,
+            interaction_kind=InteractionKind.SUPPLY_INPUT,
+            idempotency_key="complete-command-contract",
+            payload="same bytes",
+            requested_state_version=3,
+        )
+    assert "interaction_kind" in exc.value.mismatched_fields
+    assert "requested_state_version" in exc.value.mismatched_fields
+    assert store.get_interaction(first.interaction_id) == first
+
+
+def test_payload_reference_is_hash_safe_and_tamper_evident(substrate):
+    store, _task_store, task_id = substrate
+    binding, _ = _bind(store, task_id)
+    reference = store.put_payload("canonical payload")
+    with pytest.raises(ValueError, match="content-addressed"):
+        store.commit_interaction(
+            session_binding_id=binding.session_binding_id,
+            task_id=task_id,
+            interaction_kind=InteractionKind.STEER,
+            idempotency_key="bad-ref",
+            payload_ref=reference.ref,
+            payload_hash="0" * 64,
+            payload_bytes=reference.payload_bytes,
+        )
+    store.payload_path(reference.ref).write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="integrity mismatch"):
+        store.read_payload(reference.ref)
+
+
+def test_checkpoint_deadline_replay_is_immutable_and_task_bound(substrate):
+    store, task_store, task_id = substrate
+    checkpoint = task_store.create_checkpoint(
+        task_id, kind="controller_input", required_state_version=0
+    )
+    kwargs = dict(
+        checkpoint_id=checkpoint.checkpoint_id,
+        task_id=task_id,
+        deadline_policy=CheckpointDeadlinePolicy.BOUNDED,
+        deadline_at="2026-07-30T16:00:00+00:00",
+    )
+    first = store.set_checkpoint_deadline(**kwargs)
+    assert store.set_checkpoint_deadline(**kwargs) == first
+    with pytest.raises(EvidenceConflict):
+        store.set_checkpoint_deadline(
+            **{**kwargs, "deadline_at": "2026-07-30T16:01:00+00:00"}
+        )
+    other_task = _make_task(task_store, controller_request_id="deadline-other-task")
+    with pytest.raises(CanonicalBindingMismatch):
+        store.set_checkpoint_deadline(**{**kwargs, "task_id": other_task})
+
+
+def test_usage_evidence_cannot_cross_binding_or_change_on_replay(substrate):
+    store, _task_store, task_id = substrate
+    binding, _ = _bind(store, task_id)
+    base = dict(
+        session_binding_id=binding.session_binding_id,
+        task_id=task_id,
+        run_id=binding.run_id,
+        provider=binding.provider,
+        native_session_id=binding.native_session_id,
+        event_kind="result",
+        sequence=7,
+        raw_event={"type": "result", "usage": {"input": 10}},
+        input_tokens=10,
+    )
+    store.record_usage_event(**base)
+    with pytest.raises(EvidenceConflict):
+        store.record_usage_event(**{**base, "input_tokens": 11})
+    with pytest.raises(CanonicalBindingMismatch):
+        store.record_usage_event(**{**base, "provider": "codex"})
+
+
+def test_child_process_evidence_is_binding_scoped_and_immutable(substrate):
+    store, _task_store, task_id = substrate
+    binding, _ = _bind(store, task_id)
+    base = dict(
+        session_binding_id=binding.session_binding_id,
+        task_id=task_id,
+        run_id=binding.run_id,
+        role=ProviderChildRole.PROVIDER_ROOT,
+        pid=43210,
+        process_start_identity="43210:windows:123456789",
+        image_name="claude.exe",
+        observation_source="launch",
+    )
+    store.record_child_process(**base)
+    with pytest.raises(EvidenceConflict):
+        store.record_child_process(**{**base, "image_name": "different.exe"})
+    with pytest.raises(CanonicalBindingMismatch):
+        store.record_child_process(
+            **{**base, "run_id": "20260730T150000Z_worker_deadbeef", "pid": 43211}
+        )
+
+
+def test_terminal_delivery_evidence_cannot_move_backwards(substrate):
+    store, _task_store, task_id = substrate
+    binding, _ = _bind(store, task_id)
+    interaction, _ = store.commit_interaction(
+        session_binding_id=binding.session_binding_id,
+        task_id=task_id,
+        interaction_kind=InteractionKind.STEER,
+        idempotency_key="terminal-delivery",
+        payload="hello",
+    )
+    acknowledged = store.record_delivery(
+        interaction.interaction_id,
+        delivery=InteractionDelivery.ACKNOWLEDGED,
+        evidence_ref="provider-ack:1",
+    )
+    assert acknowledged.delivery is InteractionDelivery.ACKNOWLEDGED
+    with pytest.raises(EvidenceConflict):
+        store.record_delivery(
+            interaction.interaction_id,
+            delivery=InteractionDelivery.UNCERTAIN,
+        )
+
+
+def test_concurrent_initializers_apply_worker_migration_once(tmp_path: Path):
+    runs_dir = tmp_path / "runs"
+    TaskStore(runs_dir)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        stores = list(pool.map(lambda _i: WorkerSubstrateStore(runs_dir), range(4)))
+    assert all(store.schema_version() == WORKER_SUBSTRATE_SCHEMA_VERSION for store in stores)
+    with sqlite3.connect(runs_dir / "soma.sqlite3") as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM soma_schema_migrations "
+            "WHERE component = 'interactive_worker_substrate' AND version = 1"
+        ).fetchone()[0]
+    assert count == 1
+
+
+# ---------------------------------------------------------------------------
 # authority audit
 # ---------------------------------------------------------------------------
 
@@ -919,12 +1182,21 @@ def test_substrate_store_writes_only_to_substrate_tables():
     )
 
 
-def test_substrate_reads_tasks_only_for_the_terminal_guard():
+def test_substrate_reads_only_substrate_and_canonical_identity_tables():
     source = Path(substrate_store_module.__file__).read_text(encoding="utf-8")
     # Case-sensitive: SQL in this module is uppercase, Python imports are not,
     # so a lowercase ``from x import y`` is not mistaken for a table read.
     read_targets = {match.lower() for match in re.findall(r"\bFROM\s+(\w+)", source)}
-    allowed = set(WORKER_SUBSTRATE_TABLE_NAMES) | {"tasks", "task_links"}
+    allowed = set(WORKER_SUBSTRATE_TABLE_NAMES) | {
+        "tasks",
+        "task_links",
+        "runs",
+        "task_checkpoints",
+        "project_run_attempts",
+        "project_task_reservations",
+        "project_repository_bindings",
+        "sqlite_master",
+    }
     assert read_targets <= allowed, (
         f"substrate store reads unexpected tables: {sorted(read_targets - allowed)}"
     )

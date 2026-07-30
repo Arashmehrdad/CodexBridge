@@ -291,23 +291,22 @@ def current_schema_version(conn: sqlite3.Connection) -> int:
 def apply_worker_substrate_migrations(
     connect: Callable[[], sqlite3.Connection],
 ) -> list[int]:
-    """Apply pending versions, each in its own transaction, attempted once."""
+    """Apply each version once, rechecking after the write lock is acquired."""
     applied: list[int] = []
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(MIGRATION_TABLE_SQL)
-        pending = _applied_versions(conn)
-    finally:
-        conn.close()
-
     for version, name, statements in WORKER_SUBSTRATE_MIGRATIONS:
-        if version in pending:
-            continue
         conn = connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                conn.execute(MIGRATION_TABLE_SQL)
+                row = conn.execute(
+                    "SELECT 1 FROM soma_schema_migrations "
+                    "WHERE component = ? AND version = ?",
+                    (WORKER_SUBSTRATE_SCHEMA_COMPONENT, version),
+                ).fetchone()
+                if row is not None:
+                    conn.commit()
+                    continue
                 for statement in statements:
                     conn.execute(statement)
                 conn.execute(
@@ -323,6 +322,7 @@ def apply_worker_substrate_migrations(
             conn.close()
         applied.append(version)
     return applied
+
 
 
 def schema_state(conn: sqlite3.Connection) -> dict[str, object]:

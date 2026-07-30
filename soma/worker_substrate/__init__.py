@@ -37,6 +37,8 @@ from .models import (
 )
 from .schema import WORKER_SUBSTRATE_TABLE_NAMES
 from .store import (
+    CanonicalBindingMismatch,
+    EvidenceConflict,
     InteractionConflict,
     PayloadReference,
     SessionBindingConflict,
@@ -44,10 +46,12 @@ from .store import (
 )
 
 __all__ = [
+    "CanonicalBindingMismatch",
     "CheckpointDeadline",
     "CheckpointDeadlinePolicy",
     "CheckpointExpiryDisposition",
     "CheckpointExpiryEvent",
+    "EvidenceConflict",
     "InteractionConflict",
     "InteractionDelivery",
     "InteractionKind",
