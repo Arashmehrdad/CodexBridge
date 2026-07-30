@@ -995,135 +995,180 @@ No production worker changes its own weights, authority or permanent instruction
 
 ## 23. Recommended Roadmap V3 outcome sequence
 
-This architecture is an end-state design. The final Roadmap V3 should remain a smaller outcome-led implementation sequence.
+This architecture is an end-state design. The implementation sequence begins with the interactive substrate the original draft assumed but did not schedule.
 
-### V3-0 — Architecture acceptance
+### V3-0 — Architecture reconciliation
 
-- Claude Opus red-teams this document.
-- Codex performs repository-grounded feasibility mapping.
-- ChatGPT reconciles both reviews without silently changing the north star.
-- Arash accepts the final architecture and implementation sequence.
+- Claude Opus architectural red-team is complete.
+- Codex repository-grounded feasibility review is complete.
+- The owner-approved destination remains unchanged.
+- Review corrections and progressive lifecycle convergence are recorded in [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
+- No implementation begins until the owner explicitly activates the first lane.
 
-### V3-1 — Company Kernel spike
+### V3-1a — Interactive worker substrate
 
-Prove the central question on one disposable or bounded project:
+Extend the canonical Task → Run authority with one bounded provider-native interactive worker path.
 
-> Can one owner objective produce a coherent temporary organisation that collaborates, makes bounded decisions and survives interruption without competing plans or repeated wrong-tool selection?
+Required outcomes:
 
-No CRM, Buzz, Higgsfield, Tavus or production customer interaction is required.
+- provider-session binding with exact native identity;
+- explicit resume by identity after Soma and adapter restart;
+- crash-safe steering and supplied-input delivery;
+- real non-terminal `AWAITING_CONTROLLER` continuation;
+- provider-child process identity and zero-orphan cancellation evidence;
+- raw, deduplicated provider usage events;
+- fixed sanitised launch environment;
+- provider protocol fixtures and fail-closed drift handling;
+- no worker access to Soma MCP.
 
-### V3-2 — Canonical Company Kernel foundation
+This lane performs progressive convergence for worker waiting, interaction, cancellation and recovery. It may not create a second worker lifecycle manager.
 
-Establish Company, Mission, Organisation, Role, Assignment, Charter, PlanRevision, WorkPackage, Decision, Commitment, authority and budget foundations while preserving ProjectScope and the existing task/run authorities.
+### V3-1b — Kernel of one
 
-### V3-3 — Interactive executive loop and collaboration
+Prove the smallest useful company kernel with one executive role before creating departments.
 
-Implement bounded work-package assignment, worker communication, result review, structured proposals, challenges, dependencies, deliberation and owner escalation.
+Minimum additive authority:
 
-### V3-4 — Organisation reconciliation and worker cells
+- Company reference;
+- Mission bound to one exact ProjectScope;
+- immutable accepted PlanRevision with one-current CAS;
+- bounded WorkPackage contract;
+- WorkPackageAttempt links to route-specific canonical tasks;
+- route-independent outcome identity;
+- one AcceptanceCommit selecting an exact published result hash.
 
-Add desired-versus-observed organisation state, disposable worker reconstruction, narrow capability manifests, routing policy and loop prevention.
+This lane performs progressive convergence for outcome adjudication. WorkPackage execution state is projected from canonical tasks and runs; it does not copy their lifecycle.
 
-### V3-5 — Cortana and company dashboard
+### V3-2 — Role-scoped capability broker
 
-Deliver the owner-facing company experience over canonical projections. Begin with text and live status; voice and richer presence remain replaceable presentation capabilities.
+Before any worker receives Soma capabilities, add a separate worker-facing positive-allowlist boundary that binds an unforgeable principal to project, task, session, role and exact intent/operation identity. The current owner/executive MCP surface remains unchanged.
 
-### V3-6 — Business-system binding and safe mutations
+Discovery filtering is not authorisation. Workers receive no direct current Soma MCP connection before this outcome closes.
 
-Add generic external-system bindings, policy-governed MutationProposals, outbox execution, idempotency, confirmation and manual-remedy semantics.
+### V3-3 — Interactive executive loop and bounded collaboration
 
-### V3-7 — Bounded provider pilots
+Add package-completion-driven executive advancement, structured proposals, challenges, dependency requests, deliberation, dissent and owner escalation over the kernel-of-one. Reuse research and knowledge records where they fit; do not grant them task or result-acceptance authority.
 
-Research and pilot the best current options only when a real company workflow needs them:
+### V3-4 — Temporary organisation formation
 
-- CRM;
-- finance/accounting;
-- billing;
-- workspace;
-- creative production;
-- live customer interaction;
-- analytics and support.
+Add the smallest-sufficient-organisation gate, temporary Roles and Assignments, organisation revision and bounded cross-role collaboration. A one-executive configuration remains valid and may outperform a larger team.
 
-### V3-8 — Autonomous company trial
+### V3-5 — Organisation observation and reconciliation
 
-Give the system one bounded real objective—preferably a small SaaS—and prove that it can form, plan, build, review, launch preparation, customer-operation preparation and outcome measurement with limited owner intervention.
+Add only the desired-versus-observed organisation behaviours justified by measured worker reconstruction, provider health and collaboration needs. The organisation reconciler selects bounded transitions and invokes canonical owners; it does not own PIDs, leases, cancellation or result publication.
 
-### V3-9 — Organisational optimisation and learning
+### V3-6 — Cortana and company dashboard
 
-Promote measured playbooks, routing improvements, skills and later parameter updates through explicit evaluation gates.
+Deliver the owner-facing company experience over canonical projections. Begin with text, owner decisions and live status. Voice and richer presence remain replaceable presentation capabilities.
 
-## 24. COMPANY-KERNEL-SPIKE-1
+### V3-7 — Business-system binding and safe mutations
 
-### Objective
+Add generic external-system references and policy-governed mutation execution only after the worker capability boundary exists. Reuse domain-specific mutation authorities where present; do not duplicate Trading Lab or other domain journals.
 
-Prove the company architecture before constructing the broader business platform.
+### V3-8 — Bounded provider pilots
 
-### Input
+Research and pilot CRM, finance/accounting, billing, workspace, creative production, live customer interaction, analytics and support only when a real company workflow requires them.
 
-One bounded objective such as:
+### V3-9 — Autonomous company trial
 
-> Define and produce a working vertical slice of a small SaaS product, with an accepted product brief, implementation, validation and launch-preparation package.
+Give the system one bounded real objective and prove that it can plan, execute, review, prepare launch and measure outcomes with limited owner intervention. Scheduled autonomous advancement remains gated by cost ceilings and the fixed golden-task evaluation set.
 
-### Compared organisational configurations
+### V3-10 — Organisational optimisation and genuine learning
+
+Compare the kernel-of-one against larger organisational configurations, promote measured playbooks and routing improvements, and later admit skill or parameter updates through explicit evaluation gates.
+
+## 24. First implementation evidence boundary
+
+The original `COMPANY-KERNEL-SPIKE-1` mixed an unbuilt interactive worker substrate, a company kernel, multiple departments, capability enforcement, external mutation and dashboard reconstruction. It is replaced by two sequential proofs.
+
+### 24.1 V3-1a — Interactive worker substrate proof
+
+#### Objective
+
+Prove that Soma can supervise one bounded interactive provider session through the canonical task/run plane without relying on a long-running conversation or creating another execution authority.
+
+#### Required proof
+
+1. Soma launches one interactive worker through a canonical task and run.
+2. The run binds an exact provider-native session identity durably.
+3. One steering message and one supplied answer are persisted before delivery and applied idempotently.
+4. A controller wait remains non-terminal and survives restart.
+5. Soma, the adapter and provider child are terminated; explicit-ID resume restores provider context without replaying worker conversation history.
+6. Cancellation leaves no owned descendant process for Claude and Codex.
+7. Raw usage events are deduplicated and queryable by session, run and task.
+8. The launch environment excludes provider-recursion markers, inherited MCP configuration and unrelated credentials.
+9. Protocol drift or unprovable interaction delivery fails closed as durable uncertainty.
+10. The worker cannot discover or invoke any Soma MCP operation.
+
+#### Stop conditions
+
+- provider context cannot be resumed by exact identity;
+- waiting requires a terminal run or a new lifecycle manager;
+- duplicate input or steering can be delivered after replay;
+- cancellation can publish success while an owned worker continues mutating;
+- usage evidence cannot be preserved in provider-native units;
+- implementation requires broad unrelated lifecycle consolidation.
+
+### 24.2 V3-1b — Kernel-of-one proof
+
+#### Objective
+
+Prove one continuous company mission executed through discontinuous, bounded worker sessions and exact executive acceptance.
+
+#### Required proof
+
+1. one Company reference, Mission and current immutable PlanRevision exist;
+2. the Mission binds exactly one active ProjectScope;
+3. every WorkPackage has a route-independent outcome identity;
+4. changed provider, profile or argv creates a controlled superseding task attempt under the same outcome;
+5. only one exact published result hash can receive the AcceptanceCommit;
+6. a crash after result publication but before acceptance does not rerun accepted work or fabricate acceptance;
+7. a package requiring an owner decision suspends, survives restart and resumes without replaying worker conversation;
+8. deliberation references preserve alternatives and dissent without becoming execution authority;
+9. deleting and rebuilding projections changes no canonical record;
+10. owner-turn and package-completion events can each drive one bounded `reconcile_one` transition.
+
+#### Measurements
 
 ```text
-A. One executive worker with narrow tools
-
-B. Executive + Product + Engineering
-
-C. Executive + Product + Engineering + Design + Go-to-Market
-```
-
-Each receives the same objective, budget, source material, environment and acceptance criteria.
-
-### Required proof
-
-1. one CompanyCharter and one current PlanRevision exist;
-2. the smallest sufficient team is selected rather than assumed;
-3. every role receives a narrow capability manifest;
-4. Product and Engineering produce one real disagreement;
-5. a bounded challenge occurs and the executive records one decision with preserved dissent;
-6. one genuine owner decision reaches Cortana;
-7. execution uses existing canonical tasks and runs;
-8. every work item is chunked and reviewed; no long-running agent owns the mission;
-9. Soma and all workers are stopped after accepted partial progress;
-10. the organisation is reconstructed without worker conversation history;
-11. accepted work is not repeated;
-12. a deliberately tempting wrong provider route is not retried equivalently;
-13. one mock external publication or CRM mutation uses proposal, approval, outbox, scoped execution and replay-safe confirmation;
-14. optional providers remain disconnected;
-15. the dashboard or test projection reconstructs the same company state.
-
-### Measurements
-
-```text
-final outcome quality
-repeat reliability
-total cost
-time to first useful work
-worker/model call count
+time to first useful result
+package authoring burden
+worker/session count
+interaction count
+resume fidelity
+orphan process count
+raw provider usage
 wrong-route attempts
-duplicated canonical work
-contradictory commitments
-cross-deliverable inconsistencies
-unnecessary owner escalations
-policy violations
+duplicate outcome attempts
+duplicate acceptance attempts
+owner interventions
 recovery correctness
 ```
 
-### Acceptance rule
+#### Stop conditions
 
-The multi-agent organisation is promoted only when it creates measurable value over the simpler configuration. A visually impressive office full of agents is not sufficient evidence.
-
-### Stop conditions
-
-- a second task, run, plan, memory or decision authority appears;
+- a new durable authority appears for task admission, run execution, plan currency, result publication, decision acceptance or memory writes beyond the declared baseline;
+- WorkPackage copies task/run lifecycle state;
+- one route change duplicates accepted work;
+- acceptance cannot be made crash-safe and unique;
 - recovery requires replaying a lost worker conversation;
-- workers need the full public operation inventory;
-- optional-provider absence blocks the spike;
-- external side effects cannot be made replay-safe or honestly recoverable;
-- the team cannot outperform or justify itself against the simpler baseline;
-- implementation requires broad unrelated consolidation before the central proof.
+- an optional provider or direct worker MCP connection is required.
+
+### 24.3 Deferred organisational comparison
+
+The original A/B/C comparison is deferred until V3-1a, V3-1b, cost evidence and the golden-task evaluation set exist. A one-executive company is a valid outcome, not a failed organisation. Larger teams must later earn their coordination cost on an objective that genuinely requires authority separation, independent judgment or useful parallelism.
+
+### 24.4 Progressive-convergence lane gate
+
+Every V3 implementation lane must close with an authority delta:
+
+1. lifecycle authorities touched;
+2. generic responsibilities moved or projected into the canonical task/run plane;
+3. domain states intentionally retained and why;
+4. temporary compatibility bridges and exact retirement conditions;
+5. net canonical-authority count: decreased, unchanged, or explicitly temporary.
+
+A lane cannot claim completion while leaving a new unexplained generic lifecycle authority behind.
 
 ## 25. Explicit non-goals and rejected approaches
 
