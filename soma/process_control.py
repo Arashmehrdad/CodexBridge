@@ -111,6 +111,112 @@ def process_matches_identity(pid: int | None, expected_identity: str | None) -> 
     return bool(expected and process_identity(pid) == expected)
 
 
+def recorded_process_is_absent(pid: int | None, expected_identity: str) -> bool:
+    """True when the exact recorded process is provably gone.
+
+    A PID that is running again under a *different* start identity is a
+    different process, so the recorded one is absent. This is the check that
+    makes zero-descendant proof meaningful under PID reuse: presence of the
+    number is not presence of the process.
+    """
+    normalized = int(pid or 0)
+    if normalized <= 0:
+        return True
+    if not process_is_running(normalized):
+        return True
+    if not expected_identity:
+        # Without a recorded identity nothing can be proven either way, so the
+        # conservative answer is "not provably absent".
+        return False
+    return process_identity(normalized) != expected_identity
+
+
+def _windows_parent_table() -> dict[int, int]:
+    completed = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process | "
+            "Select-Object ProcessId,ParentProcessId | "
+            "ConvertTo-Csv -NoTypeInformation",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise OSError(
+            f"process enumeration failed: {(completed.stderr or '').strip()[:200]}"
+        )
+    table: dict[int, int] = {}
+    for line in (completed.stdout or "").splitlines()[1:]:
+        parts = [item.strip().strip('"') for item in line.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            table[int(parts[0])] = int(parts[1])
+        except ValueError:
+            continue
+    return table
+
+
+def _posix_parent_table() -> dict[int, int]:
+    table: dict[int, int] = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat_text = (entry / "stat").read_text(encoding="utf-8")
+            fields = stat_text.rsplit(") ", 1)[1].split()
+            table[int(entry.name)] = int(fields[1])
+        except Exception:
+            continue
+    return table
+
+
+def process_parent_table() -> dict[int, int]:
+    """Return a ``{pid: parent_pid}`` snapshot of every visible process."""
+    if _is_windows():
+        return _windows_parent_table()
+    return _posix_parent_table()
+
+
+def list_descendants(
+    root_pid: int | None, *, parent_table: dict[int, int] | None = None
+) -> list[int]:
+    """Return every live descendant of ``root_pid``, nearest first.
+
+    The snapshot is taken from one parent table so the walk cannot see a tree
+    mutating underneath it. A cycle in reported parentage -- which a PID-reuse
+    race can produce -- is broken by the visited set rather than hanging.
+    """
+    root = int(root_pid or 0)
+    if root <= 0:
+        return []
+    table = process_parent_table() if parent_table is None else parent_table
+    children: dict[int, list[int]] = {}
+    for pid, parent in table.items():
+        if pid != parent:
+            children.setdefault(parent, []).append(pid)
+    ordered: list[int] = []
+    visited: set[int] = {root}
+    frontier = [root]
+    while frontier:
+        nxt: list[int] = []
+        for pid in frontier:
+            for child in sorted(children.get(pid, ())):
+                if child in visited:
+                    continue
+                visited.add(child)
+                ordered.append(child)
+                nxt.append(child)
+        frontier = nxt
+    return ordered
+
+
 def _wait_until_stopped(pid: int, timeout_seconds: float) -> bool:
     deadline = time.monotonic() + max(0.0, float(timeout_seconds))
     while process_is_running(pid) and time.monotonic() < deadline:
