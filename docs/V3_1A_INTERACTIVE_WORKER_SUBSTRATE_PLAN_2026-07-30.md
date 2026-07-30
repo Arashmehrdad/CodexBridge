@@ -1,7 +1,7 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; foundation and adapter contract accepted; process-identity package implemented but unaccepted; cancellation-authority corrective gate active; no production activation or push authorised.
+**Status:** active implementation lane; foundation and adapter contract accepted; process-identity and cancellation-authority packages implemented but unaccepted; cancellation-closure final corrective gate active; no production activation or push authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
@@ -244,8 +244,12 @@ The accepted adapter remains inert. It launches no provider, applies no environm
 
 The stand-in process package was implemented at `bd007ec72ca7b2e24ffe7b4587570f0173a111d8` but failed independent acceptance. The audit is [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md).
 
-### V3-1A-CANCELLATION-AUTHORITY-1 — active corrective subgate
+### V3-1A-CANCELLATION-AUTHORITY-1 — implemented, not accepted
 
-The active corrective package is [`V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md). It must add identity-proven canonical launcher/child cancellation, fail-closed environment additions, contained attachment failures, kernel-backed Windows containment, deterministic cancellation-baseline repair, and publication-retry evidence. It remains inside the process-identity gate and adds no lifecycle authority.
+The corrective package was implemented at `c1c5b535e9bb95b14b701546ce716653faf6688d` but failed independent acceptance. The audit is [`V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md).
+
+### V3-1A-CANCELLATION-CLOSURE-1 — active final corrective subgate
+
+The active final correction is [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md). It must close contradictory empty-row proof, complete every canonical launcher/child identity path, make inherited environment extras positive-policy, prove honest publication failure and exact retry, and configure Windows Job Objects with `KILL_ON_JOB_CLOSE` so a Soma crash cannot leave an uncontrolled worker tree. It remains inside the process-identity gate and adds no lifecycle authority.
 
 Real Claude/Codex launch, provider accounts, live provider prompts/streams, operational steering/input, and non-terminal controller continuation remain later and inactive.

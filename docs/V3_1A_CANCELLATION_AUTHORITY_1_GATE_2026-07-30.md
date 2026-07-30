@@ -1,11 +1,16 @@
 # V3-1A-CANCELLATION-AUTHORITY-1 — Identity-Proven Canonical Cancellation
 
 **Date:** 2026-07-30
-**Status:** active corrective subgate inside `V3-1A-PROCESS-IDENTITY-1`.
+**Status:** implementation submitted at `c1c5b535e9bb95b14b701546ce716653faf6688d`; independent acceptance failed; final closure subgate active.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** failed acceptance audit [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **Repository baseline:** `99bb7631d38cf8e6391d7a5d7d0168fd46faf96d`
 **Push:** not authorised.
+
+**Audit:** [`V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
+**Final corrective gate:** [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md)
+
+This corrective package remains unaccepted. Its final closure work is governed by the linked gate; no interaction-command or later V3 package is active.
 
 ## 1. Objective
 
