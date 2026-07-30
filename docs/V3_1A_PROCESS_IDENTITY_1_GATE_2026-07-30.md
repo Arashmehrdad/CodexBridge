@@ -1,11 +1,16 @@
 # V3-1A-PROCESS-IDENTITY-1 — Sanitised Launch and Owned-Tree Cancellation
 
 **Date:** 2026-07-30
-**Status:** active bounded implementation gate; stand-in Windows subprocesses only.
+**Status:** implementation submitted at `bd007ec72ca7b2e24ffe7b4587570f0173a111d8`; independent acceptance failed; corrective subgate active.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** accepted [`V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **Repository baseline:** `7d629c5bdd0ade1d3d0da262bcd8509f50744041`
 **Push:** not authorised.
+
+**Audit:** [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
+**Corrective gate:** [`V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md)
+
+The original gate remains unaccepted. Its corrective work is governed by the linked cancellation-authority gate; no later V3-1A package is active.
 
 ## 1. Objective
 
