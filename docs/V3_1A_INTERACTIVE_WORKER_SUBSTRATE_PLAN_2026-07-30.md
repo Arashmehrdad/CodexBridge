@@ -1,7 +1,7 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; owner-approved; no production activation or push authorised.
+**Status:** active implementation lane; foundation accepted; adapter-contract fixture gate active; no production activation or push authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
@@ -224,4 +224,18 @@ Report:
 - task/run authority delta;
 - compatibility bridges and retirement conditions;
 - known limitations;
-- exact next decision for V3-1B.
+- exact next V3-1A package or, only after lane closure, the decision for V3-1B.
+
+## 15. Current package status
+
+### V3-1A-FOUNDATION-1 — accepted and closed
+
+The shared contracts and additive persistence package is accepted after independent audit and corrective commit `c11919e7410faef7c351b318de396000845e8e5a`. Its evidence is [`V3_1A_FOUNDATION_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_FOUNDATION_1_ACCEPTANCE_AUDIT_2026-07-30.md).
+
+The accepted foundation remains inert: no provider process launch, public worker operation, task-command expansion, or production substrate row exists.
+
+### V3-1A-ADAPTER-CONTRACT-1 — active
+
+The next bounded package is [`V3_1A_ADAPTER_CONTRACT_1_GATE_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_GATE_2026-07-30.md). It may implement provider-neutral internal adapter contracts and versioned recorded Claude/Codex protocol fixtures only.
+
+Real process launch, environment sanitisation execution, PID capture, cancellation, operational steering/input, and non-terminal controller continuation remain later and inactive.
