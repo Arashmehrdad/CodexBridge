@@ -2,13 +2,14 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane. It no longer launches, supervises, routes to, or exposes Codex or any other coding agent.
+Soma is a local engineering control plane. The production runtime does not yet launch or supervise coding-agent sessions. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` is the active implementation lane that may add one bounded provider-native interactive worker path beneath the existing canonical Task → Run authority.
 
 Target operating model:
-- ChatGPT decides strategy and normal engineering actions.
-- Soma MCP receives requests and owns durable execution state.
-- The local agent handles cheap, repetitive, operational, and long-running work.
-- Real coding/editing tasks are handed off manually: Soma generates a provider-neutral external-coder handoff and the user supplies it to Claude Code, Codex, Gemini CLI, or another coding agent.
+- ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
+- Soma MCP receives requests and owns durable project, task, run, evidence, recovery, and later outcome-acceptance state.
+- Provider-native coding workers are short-lived, interactive, replaceable execution sessions; they never become a second task, plan, result, or recovery authority.
+- Until V3-1A is implemented and accepted, real coding/editing tasks continue through manual external-coder handoff.
+- V3-1A workers receive no direct Soma MCP access. A later role-scoped positive-allowlist broker is required before worker tool access.
 - PulseSender remains separate and returns prepared reports to the ChatGPT conversation.
 - The human only approves genuinely risky boundaries.
 
@@ -32,24 +33,22 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: CF1 Chat Footprint and Progressive Disclosure
+## Immediate Priority: V3-1A Interactive Worker Substrate
 
-The durability foundation, unrestricted and parallel local PowerShell, permissive-only cleanup, managed transfer, durable remote ownership, optional remote PowerShell, H1 Hermes gateway, and the isolated H2 persistent-worker foundation are complete. H2.1 and H2.2 are preserved through current HEAD `e0e2132`.
+CF1 and the Pre-Roadmap V3 bridge are complete. `PLANS.md` is the sole concise source of active plan truth. The autonomous-company architecture, Claude red-team, Codex repository feasibility audit, owner reconciliation, and final consistency audit are complete.
 
-All roadmap implementation is now intentionally paused except CF1. CF1 is a presentation-and-retrieval-plane repair over the existing durable execution core. It must not change worker ownership, leases, repository locks, cancellation, restart reconciliation, terminal publication, protected evidence, H2 concurrency, or Trading Lab execution semantics.
+Only `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` is active. It must extend the existing canonical Task → Run authority with one bounded provider-native interactive worker path. It may add subordinate session bindings, interaction delivery records, checkpoints, provider-child identity, and raw usage evidence. It may not create a second worker lifecycle manager, expose the current broad Soma MCP surface to workers, implement the Company Kernel, create departments, enable scheduled autonomy, or add generic external mutations.
 
-The active sequence is:
+The lane uses progressive lifecycle convergence:
 
-1. define and benchmark the end-to-end CF1 contract before changing public behavior;
-2. add scalar SQL-backed run summaries and compact control polling;
-3. materialize bounded terminal projections without changing authoritative results;
-4. add manifest-secured exact evidence retrieval;
-5. add repository progressive disclosure and stable continuation;
-6. bring every remaining public gateway under the unsolicited-response budget;
-7. complete connector-visible and cross-project acceptance;
-8. review the evidence and explicitly decide which paused roadmap lane resumes next.
+1. task admission, running, waiting, cancellation, recovery, and result publication remain canonical Task → Run responsibilities;
+2. provider-native session IDs and protocol cursors remain subordinate binding facts, not lifecycle authority;
+3. workflows and supervisors are legacy generic lifecycle managers, not business domains; V3 must project or retire their overlapping generic responsibilities when later lanes touch them;
+4. SSH activation, Trading Lab, memory, research, and future business systems retain irreducible domain facts while work execution converges on canonical tasks and runs;
+5. every compatibility bridge must name its canonical side, retirement condition, and owning future lane;
+6. the lane must close with no unexplained increase in canonical authority.
 
-Do not resume H2, TL5, SSH expansion, reliability/autonomy work, or any other roadmap batch until CF1 is complete and the active `PLANS.md` explicitly reactivates that lane.
+Do not implement V3-1B, the capability broker, collaboration, temporary organisations, dashboard product work, provider subscriptions, or unrelated cleanup until V3-1A is accepted and `PLANS.md` explicitly advances the sequence.
 
 Remote PowerShell remains available for registered hosts that already provide `pwsh` or `powershell`. Soma does not require installing or staging PowerShell on Linux hosts merely to satisfy acceptance.
 
@@ -143,7 +142,7 @@ The local agent must not perform risky writes, commits, pushes, deployments, or 
 
 ## External-Coder Handoff Rules
 
-Soma never executes a coding agent. An external-coder handoff should usually not be generated for:
+The accepted production runtime does not yet execute a coding agent. Manual external-coder handoff remains the incumbent path while V3-1A is under construction. The unfinished V3-1A path must never be used for production repository work or treated as accepted merely because a provider process can be launched. An external-coder handoff should usually not be generated for:
 - inspecting files
 - listing tests
 - running tests
@@ -272,13 +271,14 @@ Avoid relying only on human-readable logs.
 
 This list is directional, not proof that a feature exists:
 
-0. CF1 Chat Footprint and Progressive Disclosure
-1. Explicit post-CF1 roadmap review and lane reactivation
-2. Paused H2 shared Hermes service work
-3. Paused TL5 Trading Lab durable supervisor work
-4. Remaining reliability, autonomy, SSH, local-agent, workflow, PulseSender, optional-coding, dashboard, and UI work
+0. V3-0 Architecture reconciliation — complete
+1. V3-1A Interactive Worker Substrate — active
+2. V3-1B Kernel of One — planned, inactive
+3. V3-2 Role-Scoped Capability Broker — planned, inactive
+4. Interactive collaboration and temporary organisation — planned, inactive
+5. Cortana/dashboard, business bindings, autonomous company trial, and genuine learning — later outcomes
 
-Only item 0 is active. Do not implement or validate later roadmap items until CF1 has passed its connector-visible size, evidence-recoverability, correctness, and performance gates and the user explicitly resumes another lane.
+Only V3-1A is active. Do not implement or validate later roadmap outcomes until V3-1A passes its session identity, interaction delivery, non-terminal waiting, explicit recovery, zero-orphan cancellation, raw usage, protocol-drift, compatibility, and authority-delta gates and the owner explicitly advances the plan.
 
 ## Roadmap Documentation Discipline
 
