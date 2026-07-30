@@ -21,12 +21,19 @@ mention it.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from enum import Enum
+from hashlib import sha256
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Final, Mapping, Sequence
 
 
 MAX_RAW_EXCERPT_CHARS: Final[int] = 512
+PAYLOAD_REFERENCE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^worker_payload:[a-f0-9]{64}$"
+)
 
 
 class ProtocolDriftError(ValueError):
@@ -216,20 +223,24 @@ class ProviderCommandSpec:
         self.validate()
 
     def validate(self) -> None:
-        if not self.executable_path:
+        executable = self.executable_path
+        if not isinstance(executable, str) or not executable.strip():
             raise ValueError("executable_path is required and must be fully resolved")
-        if self.spec_kind is SpecKind.RESUME and not self.native_session_id:
+        windows_path = PureWindowsPath(executable)
+        posix_path = PurePosixPath(executable)
+        is_absolute = windows_path.is_absolute() or posix_path.is_absolute()
+        path_parts = windows_path.parts if windows_path.is_absolute() else posix_path.parts
+        if "\x00" in executable or not is_absolute or ".." in path_parts:
+            raise ValueError(
+                "executable_path must be an absolute resolved path, not a PATH lookup"
+            )
+        if self.spec_kind is SpecKind.RESUME and (
+            not isinstance(self.native_session_id, str)
+            or not self.native_session_id.strip()
+        ):
             raise ValueError(
                 "a resume specification requires an exact native session id; "
                 "resume-last is forbidden"
-            )
-        if self.stdin_mode is StdinMode.NONE and self.prompt_payload_ref:
-            raise ValueError("a prompt payload reference requires a stdin mode")
-        if self.prompt_payload_ref and not self.prompt_payload_ref.startswith(
-            "worker_payload:"
-        ):
-            raise ValueError(
-                "prompt_payload_ref must be a worker-substrate payload reference"
             )
         for index, item in enumerate(self.argv):
             if item.startswith("worker_payload:"):
@@ -237,6 +248,16 @@ class ProviderCommandSpec:
                     f"argv[{index}] carries a payload reference; prompt content "
                     "must travel on stdin"
                 )
+        if not self.prompt_payload_ref:
+            raise ValueError("a content-addressed prompt_payload_ref is required")
+        if self.stdin_mode is StdinMode.NONE and self.prompt_payload_ref:
+            raise ValueError("a prompt payload reference requires a stdin mode")
+        if self.prompt_payload_ref and PAYLOAD_REFERENCE_PATTERN.fullmatch(
+            self.prompt_payload_ref
+        ) is None:
+            raise ValueError(
+                "prompt_payload_ref must be worker_payload:<lowercase sha256>"
+            )
 
     def contains_in_argv(self, needle: str) -> bool:
         """Test helper: does any argv element carry this text?"""
@@ -277,6 +298,28 @@ class UsageExtraction:
     total_tokens: int | None = None
     provider_reported_cost_usd: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.sequence, bool) or not isinstance(self.sequence, int) or self.sequence < 0:
+            raise ValueError("usage sequence must be a non-negative integer")
+        for field_name in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "total_tokens",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{field_name} must be a non-negative integer or None")
+        if self.provider_reported_cost_usd is not None and (
+            coerce_optional_cost(self.provider_reported_cost_usd)
+            != self.provider_reported_cost_usd
+        ):
+            raise ValueError(
+                "provider_reported_cost_usd must be finite, non-negative provider text"
+            )
+
     def to_record_kwargs(self) -> dict[str, Any]:
         return {
             "event_kind": self.event_kind,
@@ -300,6 +343,8 @@ class ParsedEvent:
     usage: UsageExtraction | None = None
     raw: Mapping[str, Any] | None = None
     raw_excerpt: str = ""
+    raw_sha256: str = ""
+    raw_bytes: int = 0
     detail: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -310,6 +355,8 @@ class ParsedEvent:
             "native_session_id": self.native_session_id,
             "usage": None if self.usage is None else self.usage.to_record_kwargs(),
             "raw_excerpt": self.raw_excerpt,
+            "raw_sha256": self.raw_sha256,
+            "raw_bytes": self.raw_bytes,
             "detail": self.detail,
         }
 
@@ -332,26 +379,76 @@ class StreamParseResult:
         return sum(1 for e in self.events if e.event_class is EventClass.MALFORMED)
 
     @property
-    def usage_extractions(self) -> tuple[UsageExtraction, ...]:
+    def raw_usage_extractions(self) -> tuple[UsageExtraction, ...]:
+        """Every syntactically extracted usage claim, including uncertain streams."""
         return tuple(e.usage for e in self.events if e.usage is not None)
 
     @property
-    def provider_reported_completion(self) -> bool:
-        """Did the provider *assert* completion?
-
-        This is deliberately not called ``succeeded``. A stream that stops early,
-        drifts, or contains only unknown events returns ``False`` -- absence of a
-        completion marker is never completion.
-        """
+    def provider_claimed_completion(self) -> bool:
+        """Whether any parsed event carried a recognised completion claim."""
         return any(
             e.event_class is EventClass.PROVIDER_REPORTED_COMPLETION
             for e in self.events
         )
 
     @property
-    def provider_reported_failure(self) -> bool:
+    def provider_claimed_failure(self) -> bool:
+        """Whether any parsed event carried a recognised failure claim."""
         return any(
             e.event_class is EventClass.PROVIDER_REPORTED_FAILURE for e in self.events
+        )
+
+    @property
+    def protocol_uncertain(self) -> bool:
+        """True when the whole stream is unsafe for trusted outcome or usage projection.
+
+        One unknown or malformed line may hide a changed outcome, identity, or
+        usage contract. A missing/conflicting identity or competing terminal
+        claims is equally unsafe. The parsed events remain available as evidence,
+        but trusted completion/failure and usage projections fail closed.
+        """
+        terminal_claims = sum(
+            1
+            for event in self.events
+            if event.event_class
+            in {
+                EventClass.PROVIDER_REPORTED_COMPLETION,
+                EventClass.PROVIDER_REPORTED_FAILURE,
+            }
+        )
+        return (
+            self.identity_outcome is not SessionIdentityOutcome.RESOLVED
+            or self.unknown_event_count > 0
+            or self.malformed_line_count > 0
+            or terminal_claims > 1
+        )
+
+    @property
+    def usage_extractions(self) -> tuple[UsageExtraction, ...]:
+        """Usage safe to persist; uncertain streams expose none."""
+        return () if self.protocol_uncertain else self.raw_usage_extractions
+
+    @property
+    def provider_reported_completion(self) -> bool:
+        """A recognised completion claim from a protocol-trusted stream.
+
+        This remains only a provider claim, never canonical task success. Unknown,
+        malformed, identity-uncertain, or competing-terminal streams return False
+        even when one line resembles a known completion marker.
+        """
+        return (
+            not self.protocol_uncertain
+            and self.provider_claimed_completion
+            and not self.provider_claimed_failure
+        )
+
+    @property
+    def provider_reported_failure(self) -> bool:
+        """A recognised failure claim from a protocol-trusted stream."""
+        return (
+            not self.protocol_uncertain
+            and self.provider_claimed_failure
+            and not self.provider_claimed_completion
         )
 
     def require_native_session_id(self) -> str:
@@ -376,6 +473,9 @@ class StreamParseResult:
             "event_classes": [e.event_class.value for e in self.events],
             "unknown_event_count": self.unknown_event_count,
             "malformed_line_count": self.malformed_line_count,
+            "protocol_uncertain": self.protocol_uncertain,
+            "provider_claimed_completion": self.provider_claimed_completion,
+            "provider_claimed_failure": self.provider_claimed_failure,
             "provider_reported_completion": self.provider_reported_completion,
             "provider_reported_failure": self.provider_reported_failure,
         }
@@ -441,25 +541,36 @@ class WorkerAdapter:
             try:
                 decoded = json.loads(text)
             except json.JSONDecodeError as exc:
-                # Bounded raw evidence. A line Soma cannot read is preserved and
-                # classified as unreadable; it never becomes a parsed event.
+                # Do not copy malformed provider bytes into ordinary evidence: a
+                # truncated line may contain credentials or private prompt text.
+                # Preserve an exact fingerprint and byte count plus a bounded
+                # non-secret marker. A later protected-evidence layer may retain
+                # the original bytes under its own policy.
+                raw_bytes = text.encode("utf-8")
+                digest = sha256(raw_bytes).hexdigest()
                 events.append(
                     ParsedEvent(
                         index=index,
                         event_class=EventClass.MALFORMED,
                         provider_event_type="",
-                        raw_excerpt=text[:MAX_RAW_EXCERPT_CHARS],
+                        raw_excerpt=f"[malformed provider line withheld sha256={digest}]",
+                        raw_sha256=digest,
+                        raw_bytes=len(raw_bytes),
                         detail=f"json decode error: {exc.msg}",
                     )
                 )
                 continue
             if not isinstance(decoded, dict):
+                raw_bytes = text.encode("utf-8")
+                digest = sha256(raw_bytes).hexdigest()
                 events.append(
                     ParsedEvent(
                         index=index,
                         event_class=EventClass.MALFORMED,
                         provider_event_type="",
-                        raw_excerpt=text[:MAX_RAW_EXCERPT_CHARS],
+                        raw_excerpt=f"[non-object provider line withheld sha256={digest}]",
+                        raw_sha256=digest,
+                        raw_bytes=len(raw_bytes),
                         detail="top-level event is not an object",
                     )
                 )
@@ -509,7 +620,7 @@ def coerce_optional_int(value: Any) -> int | None:
     rather than a coerced number, because a guessed count is worse than a
     missing one.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
 
@@ -523,8 +634,20 @@ def coerce_optional_cost(value: Any) -> str | None:
     """
     if isinstance(value, bool) or value is None:
         return None
-    if isinstance(value, (int, float)):
-        return repr(value)
-    if isinstance(value, str) and value.strip():
-        return value
-    return None
+    if isinstance(value, str):
+        if not value.strip():
+            return None
+        candidate = value.strip()
+        preserved = value
+    elif isinstance(value, (int, float)):
+        candidate = repr(value)
+        preserved = candidate
+    else:
+        return None
+    try:
+        parsed = Decimal(candidate)
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite() or parsed < 0:
+        return None
+    return preserved

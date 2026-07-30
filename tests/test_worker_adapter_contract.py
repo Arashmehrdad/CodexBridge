@@ -44,6 +44,7 @@ from soma.worker_adapters import (
     SessionIdentityUnavailable,
     SpecKind,
     StdinMode,
+    UsageExtraction,
     fixture_hash,
     fixtures_for,
     get_adapter,
@@ -191,6 +192,11 @@ def test_fixture_parses_exactly_as_the_manifest_declares(name):
     assert result.provider_reported_failure is expected["provider_reported_failure"]
     assert result.unknown_event_count == expected["unknown_event_count"]
     assert result.malformed_line_count == expected["malformed_line_count"]
+    assert result.protocol_uncertain is expected["protocol_uncertain"]
+    assert result.provider_claimed_completion is expected[
+        "provider_claimed_completion"
+    ]
+    assert result.provider_claimed_failure is expected["provider_claimed_failure"]
     assert _usage_summary(result) == expected["usage"]
     if "observed_identities" in expected:
         assert list(result.observed_identities) == expected["observed_identities"]
@@ -236,9 +242,12 @@ def test_missing_identity_refuses_binding(name):
     with pytest.raises(SessionIdentityUnavailable) as excinfo:
         result.require_native_session_id()
     assert excinfo.value.outcome is SessionIdentityOutcome.MISSING
-    # The stream still reported completion. Refusal is about identity, and a
-    # reported completion must not smuggle an unbindable session through.
-    assert result.provider_reported_completion is True
+    # The raw event carried a completion marker, but identity uncertainty gates
+    # the whole stream: no trusted completion or usage may escape it.
+    assert result.provider_claimed_completion is True
+    assert result.protocol_uncertain is True
+    assert result.provider_reported_completion is False
+    assert result.usage_extractions == ()
 
 
 @pytest.mark.parametrize(
@@ -304,9 +313,19 @@ def test_malformed_lines_are_contained_as_bounded_evidence(name):
         assert event.raw_excerpt
         assert len(event.raw_excerpt) <= contract_module.MAX_RAW_EXCERPT_CHARS
         assert event.detail
-    # Readable events on either side still parse; one bad line is not fatal.
+    # Readable events on either side still parse as evidence, but one unreadable
+    # line makes the whole stream unsafe for trusted completion or usage.
     assert result.events[0].event_class is EventClass.SESSION_STARTED
-    assert result.provider_reported_completion is True
+    assert result.provider_claimed_completion is True
+    assert result.protocol_uncertain is True
+    assert result.provider_reported_completion is False
+    assert result.usage_extractions == ()
+    assert result.raw_usage_extractions
+    for event in malformed:
+        assert len(event.raw_sha256) == 64
+        assert event.raw_sha256 in event.raw_excerpt
+        assert event.raw_bytes > 0
+        assert "{\"" not in event.raw_excerpt
 
 
 @pytest.mark.parametrize("provider", ["claude_code", "codex"])
@@ -331,6 +350,41 @@ def test_a_top_level_non_object_line_is_malformed():
     result = adapter.parse_stream(["[1, 2, 3]"])
     assert result.events[0].event_class is EventClass.MALFORMED
     assert "not an object" in result.events[0].detail
+    assert result.events[0].raw is None
+    assert result.events[0].raw_sha256
+    assert result.protocol_uncertain is True
+
+
+@pytest.mark.parametrize("provider", ["claude_code", "codex"])
+def test_an_unknown_event_taints_a_later_completion_claim(provider):
+    if provider == "claude_code":
+        lines = [
+            '{"type":"system","subtype":"init","session_id":"s1"}',
+            '{"type":"future.event","session_id":"s1"}',
+            '{"type":"result","subtype":"success","is_error":false,'
+            '"session_id":"s1","total_cost_usd":1.0}',
+        ]
+    else:
+        lines = [
+            '{"type":"thread.started","thread_id":"t1"}',
+            '{"type":"future.event","thread_id":"t1"}',
+            '{"type":"turn.completed","usage":{"input_tokens":1,'
+            '"output_tokens":1}}',
+        ]
+    result = get_adapter(provider).parse_stream(lines)
+    assert result.provider_claimed_completion is True
+    assert result.protocol_uncertain is True
+    assert result.provider_reported_completion is False
+    assert result.usage_extractions == ()
+    assert len(result.raw_usage_extractions) == 1
+
+
+def test_unmeasured_codex_failure_shape_is_protocol_uncertainty():
+    _adapter, result = _parse(load_manifest()["codex/turn_failed"])
+    assert result.events[-1].event_class is EventClass.UNKNOWN
+    assert result.protocol_uncertain is True
+    assert result.provider_claimed_failure is False
+    assert result.provider_reported_failure is False
 
 
 # ---------------------------------------------------------------------------
@@ -371,10 +425,32 @@ def test_non_numeric_or_absent_figures_become_none_not_guesses():
     assert contract_module.coerce_optional_int(True) is None
     assert contract_module.coerce_optional_int(None) is None
     assert contract_module.coerce_optional_int(0) == 0
+    assert contract_module.coerce_optional_int(-1) is None
     assert contract_module.coerce_optional_cost(None) is None
     assert contract_module.coerce_optional_cost(True) is None
     assert contract_module.coerce_optional_cost({"usd": 1}) is None
+    assert contract_module.coerce_optional_cost(-1) is None
+    assert contract_module.coerce_optional_cost(float("nan")) is None
+    assert contract_module.coerce_optional_cost(float("inf")) is None
+    assert contract_module.coerce_optional_cost("-0.01") is None
+    assert contract_module.coerce_optional_cost("NaN") is None
     assert contract_module.coerce_optional_cost("0.1094") == "0.1094"
+
+
+def test_usage_extraction_refuses_invalid_values_even_without_coercion():
+    with pytest.raises(ValueError, match="sequence"):
+        UsageExtraction(event_kind="turn", sequence=-1, raw_event={})
+    with pytest.raises(ValueError, match="input_tokens"):
+        UsageExtraction(
+            event_kind="turn", sequence=0, raw_event={}, input_tokens=-1
+        )
+    with pytest.raises(ValueError, match="provider_reported_cost_usd"):
+        UsageExtraction(
+            event_kind="turn",
+            sequence=0,
+            raw_event={},
+            provider_reported_cost_usd="Infinity",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +506,7 @@ def test_claude_resume_uses_explicit_id_and_never_continue_last():
 
 def test_codex_resume_uses_exec_resume_with_the_thread_id():
     spec = CodexAdapter().build_resume_spec(
-        executable_path="codex.exe",
+        executable_path=EXE,
         native_session_id="thread-9",
         prompt_payload_ref=PROMPT_REF,
     )
@@ -439,10 +515,31 @@ def test_codex_resume_uses_exec_resume_with_the_thread_id():
 
 @pytest.mark.parametrize("provider", ["claude_code", "codex"])
 def test_spec_requires_a_fully_resolved_executable(provider):
+    for invalid in ("", "codex.exe", ".\\codex.exe", "C:codex.exe", "../codex"):
+        with pytest.raises(ValueError, match="executable_path"):
+            get_adapter(provider).build_start_spec(
+                executable_path=invalid, prompt_payload_ref=PROMPT_REF
+            )
     with pytest.raises(ValueError, match="executable_path"):
         get_adapter(provider).build_start_spec(
-            executable_path="", prompt_payload_ref=PROMPT_REF
+            executable_path=r"C:\tools\..\codex.exe",
+            prompt_payload_ref=PROMPT_REF,
         )
+
+
+@pytest.mark.parametrize("provider", ["claude_code", "codex"])
+def test_spec_requires_an_exact_content_addressed_prompt_reference(provider):
+    for invalid in (
+        "",
+        "worker_payload:",
+        "worker_payload:" + "a" * 63,
+        "worker_payload:" + "A" * 64,
+        "payload:" + "a" * 64,
+    ):
+        with pytest.raises(ValueError, match="prompt_payload_ref"):
+            get_adapter(provider).build_start_spec(
+                executable_path=EXE, prompt_payload_ref=invalid
+            )
 
 
 @pytest.mark.parametrize("provider", ["claude_code", "codex"])

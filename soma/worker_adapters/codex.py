@@ -191,13 +191,16 @@ class CodexAdapter(WorkerAdapter):
         if event_type == "turn.completed":
             return self._classify_turn_completed(index, event, thread_id)
         if event_type == "turn.failed":
+            # This shape was never observed in the accepted pilot. Preserve the
+            # event as protocol uncertainty until a genuine capture is reviewed;
+            # documentation alone cannot authorise a trusted failure mapping.
             return ParsedEvent(
                 index=index,
-                event_class=EventClass.PROVIDER_REPORTED_FAILURE,
+                event_class=EventClass.UNKNOWN,
                 provider_event_type=event_type,
                 native_session_id=thread_id,
                 raw=event,
-                detail="mapped from documentation; capability declared unmeasured",
+                detail="unverified turn.failed shape; failure mapping is unmeasured",
             )
 
         return ParsedEvent(
