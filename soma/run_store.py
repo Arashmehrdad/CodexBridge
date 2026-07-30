@@ -44,6 +44,8 @@ _CONDITIONAL_UPDATE_FIELDS = frozenset(
         "worker_lease_token",
         "lease_generation",
         "worker_identity",
+        "launcher_identity",
+        "child_identity",
         "worker_claimed_at",
         "launch_attempts",
         "started_at",
@@ -211,6 +213,8 @@ class RunStore:
                     lease_generation INTEGER NOT NULL DEFAULT 1,
                     state_version INTEGER NOT NULL DEFAULT 0,
                     worker_identity TEXT NOT NULL DEFAULT '',
+                    launcher_identity TEXT NOT NULL DEFAULT '',
+                    child_identity TEXT NOT NULL DEFAULT '',
                     worker_claimed_at TEXT,
                     launch_attempts INTEGER NOT NULL DEFAULT 0,
                     recovery_reason TEXT NOT NULL DEFAULT '',
@@ -288,6 +292,15 @@ class RunStore:
             )
             self._ensure_column(
                 conn, "runs", "worker_identity", "TEXT NOT NULL DEFAULT ''"
+            )
+            # V3-1A-CANCELLATION-AUTHORITY-1. Additive and never backfilled: a
+            # historical run keeps an empty identity, which cancellation treats
+            # as unproven ownership rather than retroactively trusting its PID.
+            self._ensure_column(
+                conn, "runs", "launcher_identity", "TEXT NOT NULL DEFAULT ''"
+            )
+            self._ensure_column(
+                conn, "runs", "child_identity", "TEXT NOT NULL DEFAULT ''"
             )
             self._ensure_column(conn, "runs", "worker_claimed_at", "TEXT")
             self._ensure_column(
@@ -1427,6 +1440,7 @@ class RunStore:
         run_id: str,
         launcher_pid: int,
         *,
+        launcher_identity: str = "",
         expected_state_version: int | None = None,
         expected_lease_token: str | None = None,
         expected_lease_generation: int | None = None,
@@ -1452,6 +1466,7 @@ class RunStore:
             "status": "queued",
             "current_phase": "queued",
             "launcher_pid": int(launcher_pid),
+            "launcher_identity": launcher_identity,
             "heartbeat_at": utc_now(),
             "recovery_reason": "",
         }
@@ -1575,11 +1590,16 @@ class RunStore:
         child_pid: int,
         lease_token: str,
         lease_generation: int,
+        child_identity: str = "",
     ) -> bool:
         return (
             self.conditional_update(
                 run_id,
-                fields={"pid": int(child_pid), "heartbeat_at": utc_now()},
+                fields={
+                    "pid": int(child_pid),
+                    "child_identity": child_identity,
+                    "heartbeat_at": utc_now(),
+                },
                 expected_statuses=("running",),
                 expected_lease_token=lease_token,
                 expected_lease_generation=lease_generation,

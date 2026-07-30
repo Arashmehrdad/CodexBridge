@@ -23,6 +23,11 @@ RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "lease_generation",
     "state_version",
     "worker_identity",
+    # V3-1A-CANCELLATION-AUTHORITY-1. Classified beside worker_identity: these
+    # are process-start identities used to prove ownership before termination,
+    # never controller-facing summary fields.
+    "launcher_identity",
+    "child_identity",
     "worker_claimed_at",
     "launch_attempts",
     "recovery_reason",

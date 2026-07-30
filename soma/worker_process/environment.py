@@ -98,6 +98,41 @@ class EnvironmentEvidence:
         }
 
 
+class EnvironmentPolicyViolation(ValueError):
+    """A deliberate addition or extra tried to reintroduce a forbidden name.
+
+    Raised *before* process creation. The acceptance audit reproduced
+    ``CLAUDECODE`` and ``MCP_SERVER_TOKEN`` reaching a constructed child through
+    ``allowlist_extra``/``environment_additions``, so these are no longer an
+    unrestricted escape hatch around the allowlist.
+    """
+
+
+#: Deliberate additions live in one reserved internal namespace. Anything else
+#: is refused, so an addition can never impersonate a provider, tool, or
+#: credential variable.
+INTERNAL_ADDITION_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^SOMA_WORKER_[A-Z0-9_]+$"
+)
+
+#: Value shapes that are credentials regardless of the variable's name.
+SECRET_VALUE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(^sk-[A-Za-z0-9_\-]{16,}|^ghp_[A-Za-z0-9]{20,}|^gho_|^github_pat_"
+    r"|^xox[abposr]-|^AKIA[0-9A-Z]{16}|^ey[A-Za-z0-9_\-]{10,}\."
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|^Bearer\s)",
+)
+
+
+def _forbidden_reason(name: str, declared: frozenset[str]) -> str:
+    if name.upper() in declared:
+        return "provider recursion marker"
+    if SOMA_CONFIGURATION_PATTERN.search(name):
+        return "Soma/MCP/controller configuration"
+    if SECRET_NAME_PATTERN.search(name):
+        return "secret-shaped name"
+    return ""
+
+
 @dataclass(frozen=True)
 class SanitisedEnvironment:
     environment: Mapping[str, str] = field(default_factory=dict)
@@ -139,10 +174,36 @@ def build_child_environment(
     """
     source = dict(os.environ if parent_environment is None else parent_environment)
     declared = frozenset(name.upper() for name in declared_removals)
-    extra = tuple(dict.fromkeys(allowlist_extra))
+    effective_extra = tuple(dict.fromkeys(allowlist_extra))
 
-    # A declared recursion marker can never be allowlisted back in.
-    effective_extra = tuple(name for name in extra if name.upper() not in declared)
+    # Extras are checked before anything is created. Silently dropping a
+    # forbidden extra would let a caller believe it had been honoured.
+    for name in effective_extra:
+        reason = _forbidden_reason(name, declared)
+        if reason:
+            raise EnvironmentPolicyViolation(
+                f"allowlist_extra {name!r} is refused: {reason}"
+            )
+
+    # Deliberate additions live in one reserved namespace and are never read
+    # from the parent, so they cannot smuggle an inherited value through.
+    for name, value in (additions or {}).items():
+        if not INTERNAL_ADDITION_PATTERN.match(name):
+            raise EnvironmentPolicyViolation(
+                f"environment addition {name!r} is refused: deliberate additions "
+                "must match SOMA_WORKER_[A-Z0-9_]+"
+            )
+        if SECRET_NAME_PATTERN.search(name):
+            raise EnvironmentPolicyViolation(
+                f"environment addition {name!r} is refused: secret-shaped name"
+            )
+        if SECRET_VALUE_PATTERN.search(str(value)):
+            # The name is reported; the value never is.
+            raise EnvironmentPolicyViolation(
+                f"environment addition {name!r} is refused: value has a "
+                "credential shape"
+            )
+
     allowed_names = BASE_ALLOWLIST | set(effective_extra)
 
     environment: dict[str, str] = {}

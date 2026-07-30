@@ -4,6 +4,9 @@ import copy
 import json
 import threading
 from hashlib import sha256
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,12 +21,30 @@ from soma.config import (
     SSHDeploymentProfileConfig,
     SSHHostConfig,
 )
+from soma.process_control import process_identity
 from soma.job_manager import JobManager
 from soma.parallel_groups import ParallelGroupStore
 
 
+def _exited_pid() -> int:
+    """A PID that really existed and really exited.
+
+    The fake launcher previously used the literal 12345. On a host where 12345
+    happens to be a live process, Soma recorded a stranger's identity as its own
+    launcher and cancellation targeted it for taskkill /T /F. Using a PID Soma
+    genuinely created keeps the fixture's ownership provable and makes these
+    tests deterministic on every host.
+    """
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait(timeout=60)
+    return process.pid
+
+
+_FAKE_LAUNCHER_PID = _exited_pid()
+
+
 class FakeProcess:
-    pid = 12345
+    pid = _FAKE_LAUNCHER_PID
 
 
 class InlineSummaryStore:
@@ -1312,7 +1333,7 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     internal = manager.store.get_run(response["run_id"])
     assert internal["status"] == "queued"
     assert internal["launch_attempts"] == 2
-    assert internal["launcher_pid"] == 12345
+    assert internal["launcher_pid"] == _FAKE_LAUNCHER_PID
     assert internal["lease_generation"] == 2
 
 
@@ -1512,6 +1533,14 @@ def test_cancel_run_is_fail_closed_when_termination_is_unconfirmed(
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_git_readonly("sample", "status")
+    # Provable fixture ownership: a genuinely live process whose recorded
+    # identity matches, so identity-scoped cancellation really attempts
+    # termination and the fail-closed path is exercised rather than skipped.
+    manager.store.update_run(
+        response["run_id"],
+        pid=os.getpid(),
+        child_identity=process_identity(os.getpid()),
+    )
     monkeypatch.setattr(
         "soma.job_manager.terminate_process_tree",
         lambda pid: {
@@ -1562,7 +1591,20 @@ def test_cancel_run_terminates_child_then_worker_and_releases_lock(
 
     cancelled = manager.cancel_run(response["run_id"])
 
-    assert terminated == [222, 111, 12345]
+    # V3-1A-CANCELLATION-AUTHORITY-1: targets are still considered in
+    # child -> worker -> launcher order, but a PID that is not running is not
+    # terminated, and one without proven ownership is never terminated at all.
+    # Nothing is killed here because none of these processes is alive.
+    assert terminated == []
+    assert [report["role"] for report in cancelled["termination_reports"]] == [
+        "child",
+        "worker",
+        "launcher",
+    ]
+    assert all(
+        report["method"] == "already_stopped"
+        for report in cancelled["termination_reports"]
+    )
     assert cancelled["ok"] is True
     assert cancelled["cancelled"] is True
     assert cancelled["termination_confirmed"] is True
@@ -1630,7 +1672,7 @@ def test_cancel_monitored_run_persists_remote_completion_before_local_terminal(
     manager.store.update_run(
         run_id,
         status="running",
-        launcher_pid=12345,
+        launcher_pid=_FAKE_LAUNCHER_PID,
         worker_pid=None,
         pid=None,
         progress_json=progress,
@@ -1693,7 +1735,7 @@ def test_cancel_monitored_run_natural_completion_race_publishes_winner_once(
     manager.store.update_run(
         run_id,
         status="running",
-        launcher_pid=12345,
+        launcher_pid=_FAKE_LAUNCHER_PID,
         worker_pid=None,
         pid=None,
         progress_json=progress,
@@ -1905,7 +1947,7 @@ def test_get_control_status_reports_process_and_lock_state(
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_git_readonly("sample", "status")
     monkeypatch.setattr(
-        "soma.job_manager.process_is_running", lambda pid: pid == 12345
+        "soma.job_manager.process_is_running", lambda pid: pid == _FAKE_LAUNCHER_PID
     )
     monkeypatch.setattr(
         "soma.job_manager.process_matches_identity",
@@ -1915,7 +1957,7 @@ def test_get_control_status_reports_process_and_lock_state(
     control = manager.get_control_status(response["run_id"])
 
     assert control["ok"] is True
-    assert control["launcher_pid"] == 12345
+    assert control["launcher_pid"] == _FAKE_LAUNCHER_PID
     assert control["launcher_running"] is True
     assert control["worker_pid"] == 0
     assert control["worker_running"] is False

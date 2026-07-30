@@ -26,7 +26,8 @@ from ..process_control import (
     process_is_running,
 )
 from ..worker_substrate import ProviderChildRole, SessionBindingDisposition
-from .cancellation import contain_tree
+from . import containment
+from .cancellation import contain_tree, job_name_for_binding
 from .environment import EnvironmentEvidence, build_child_environment
 from .executable import ExecutableIdentity, require_unchanged, verify_executable
 
@@ -52,6 +53,7 @@ class AttachmentResult:
     environment_evidence: EnvironmentEvidence | None = None
     executable_identity: ExecutableIdentity | None = None
     containment: Mapping[str, Any] | None = None
+    job_name: str = ""
     detail: str = ""
 
     @property
@@ -75,6 +77,7 @@ class AttachmentResult:
                 else self.executable_identity.to_dict()
             ),
             "containment": dict(self.containment or {}) or None,
+            "job_name": self.job_name,
             "detail": self.detail,
         }
 
@@ -121,16 +124,45 @@ def launch_stand_in(
     #    check is the case this closes.
     identity = require_unchanged(identity)
 
-    # 3. Create the process in its own group so the whole tree is terminable.
+    # 3. Create the process already inside a kernel job. It is started
+    #    suspended and assigned before its first instruction, so there is no
+    #    window in which it can spawn a child outside containment.
+    job = None
     try:
-        process = popen(
-            [identity.path, *request.argv],
-            cwd=request.working_directory or None,
-            env=dict(sanitised.environment),
-            stdin=subprocess.PIPE if request.stdin_text is not None else subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            **process_group_popen_kwargs(),
+        if containment.IS_WINDOWS:
+            process, job = containment.launch_contained(
+                [identity.path, *request.argv],
+                job_name=job_name_for_binding(request.session_binding_id),
+                cwd=request.working_directory or None,
+                env=dict(sanitised.environment),
+                stdin=(
+                    subprocess.PIPE
+                    if request.stdin_text is not None
+                    else subprocess.DEVNULL
+                ),
+                popen=popen,
+            )
+        else:
+            process = popen(
+                [identity.path, *request.argv],
+                cwd=request.working_directory or None,
+                env=dict(sanitised.environment),
+                stdin=(
+                    subprocess.PIPE
+                    if request.stdin_text is not None
+                    else subprocess.DEVNULL
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **process_group_popen_kwargs(),
+            )
+    except containment.ContainmentUnavailable as exc:
+        # Fail closed: launch_contained already killed anything it created.
+        return AttachmentResult(
+            disposition=AttachmentDisposition.LAUNCH_FAILED,
+            environment_evidence=sanitised.evidence,
+            executable_identity=identity,
+            detail=f"kernel containment unavailable: {exc}",
         )
     except OSError as exc:
         # Nothing was created, so there is nothing to contain. The canonical run
@@ -154,12 +186,8 @@ def launch_stand_in(
     #    exists, so every exit path below contains the tree.
     root_identity = process_identity(root_pid)
     if not root_identity:
-        containment = contain_tree(
-            root_pid=root_pid,
-            root_identity="",
-            recorded=(),
-            reason="provider root start identity could not be captured",
-        )
+        contained = _contain(job, root_pid, "",
+            "provider root start identity could not be captured")
         _mark_unverified(
             store,
             request.session_binding_id,
@@ -170,7 +198,7 @@ def launch_stand_in(
             root_pid=root_pid,
             environment_evidence=sanitised.evidence,
             executable_identity=identity,
-            containment=containment,
+            containment=contained,
             detail="root start identity unavailable; tree contained",
         )
 
@@ -184,15 +212,15 @@ def launch_stand_in(
             pid=root_pid,
             process_start_identity=root_identity,
             image_name=identity.path,
-            observation_source="stand_in_launch",
+            observation_source=(
+                f"stand_in_launch:job={job_name_for_binding(request.session_binding_id)}"
+                if job is not None
+                else "stand_in_launch"
+            ),
         )
     except Exception as exc:
-        containment = contain_tree(
-            root_pid=root_pid,
-            root_identity=root_identity,
-            recorded=(),
-            reason="provider root observation could not be persisted",
-        )
+        contained = _contain(job, root_pid, root_identity,
+            "provider root observation could not be persisted")
         _mark_unverified(
             store,
             request.session_binding_id,
@@ -204,7 +232,7 @@ def launch_stand_in(
             root_identity=root_identity,
             environment_evidence=sanitised.evidence,
             executable_identity=identity,
-            containment=containment,
+            containment=contained,
             detail=f"root observation not persisted: {exc}",
         )
 
@@ -213,14 +241,40 @@ def launch_stand_in(
     #    snapshot is evidence, not the authoritative owned set.
     if request.descendant_settle_seconds > 0:
         time.sleep(request.descendant_settle_seconds)
-    descendants = record_descendants(
-        store,
-        session_binding_id=request.session_binding_id,
-        task_id=request.task_id,
-        run_id=request.run_id,
-        root_pid=root_pid,
-    )
+    try:
+        descendants = record_descendants(
+            store,
+            session_binding_id=request.session_binding_id,
+            task_id=request.task_id,
+            run_id=request.run_id,
+            root_pid=root_pid,
+        )
+    except Exception as exc:
+        # Enumeration, identity capture, or persistence failed after the root
+        # was recorded. Attachment must not report healthy while a tree Soma
+        # cannot fully name is still running.
+        contained = _contain(
+            job, root_pid, root_identity, f"descendant attachment failed: {exc}"
+        )
+        _mark_unverified(
+            store, request.session_binding_id, f"descendant attachment failed: {exc}"
+        )
+        if job is not None:
+            job.close()
+        return AttachmentResult(
+            disposition=AttachmentDisposition.CONTAINED_UNVERIFIED,
+            root_pid=root_pid,
+            root_identity=root_identity,
+            environment_evidence=sanitised.evidence,
+            executable_identity=identity,
+            containment=contained,
+            detail=f"descendant attachment failed: {exc}",
+        )
 
+    if job is not None:
+        # Hold the handle: a named job stops being openable the moment its last
+        # handle closes, so releasing it here would discard containment.
+        containment.register_job(job)
     return AttachmentResult(
         disposition=AttachmentDisposition.ATTACHED,
         root_pid=root_pid,
@@ -228,6 +282,7 @@ def launch_stand_in(
         descendant_count=len(descendants),
         environment_evidence=sanitised.evidence,
         executable_identity=identity,
+        job_name=job_name_for_binding(request.session_binding_id) if job else "",
     )
 
 
@@ -261,6 +316,35 @@ def record_descendants(
         )
         recorded.append((pid, child_identity))
     return recorded
+
+
+def _contain(job, root_pid: int, root_identity: str, reason: str) -> dict:
+    """Contain everything created, preferring the kernel job over PID walking."""
+    result: dict = {"reason": reason}
+    if job is not None:
+        try:
+            job.terminate()
+            remaining = job.assigned_pids()
+            result.update(
+                {
+                    "mechanism": "job_object",
+                    "contained": not remaining,
+                    "job_assigned_pids": list(remaining),
+                }
+            )
+        except containment.ContainmentUnavailable as exc:
+            result.update({"mechanism": "job_object", "contained": False,
+                           "error": str(exc)})
+        finally:
+            job.close()
+        if result.get("contained"):
+            return result
+    fallback = contain_tree(
+        root_pid=root_pid, root_identity=root_identity, recorded=(), reason=reason
+    )
+    fallback["mechanism"] = "process_tree_fallback"
+    fallback["job"] = result
+    return fallback
 
 
 def _mark_unverified(store, session_binding_id: str, reason: str) -> None:

@@ -131,6 +131,90 @@ def recorded_process_is_absent(pid: int | None, expected_identity: str) -> bool:
     return process_identity(normalized) != expected_identity
 
 
+def identity_scoped_termination(
+    pid: int | None,
+    recorded_identity: str,
+    *,
+    terminate=None,
+    grace_seconds: float = 3.0,
+) -> dict[str, Any]:
+    """Terminate a PID only when its recorded start identity proves ownership.
+
+    Owner-approved contract (2026-07-30): a live PID without an exact matching
+    recorded identity is never terminated. The four outcomes are
+
+    - not running -> the recorded process is absent, ``terminated`` true;
+    - identity matches -> terminate, and re-verify absence afterwards;
+    - identity differs -> PID reuse. Refuse to touch the new occupant; the
+      recorded process is provably gone, so ``terminated`` is true;
+    - no recorded identity, or it cannot be read -> ownership is unproven.
+      Refuse, and report ``terminated`` false so the caller keeps the run
+      pending and retains its lock.
+
+    ``terminate`` is injectable so a caller can pass its own already-patched
+    primitive; it defaults to :func:`terminate_process_tree`.
+    """
+    terminator = terminate_process_tree if terminate is None else terminate
+    normalized = int(pid or 0)
+    base: dict[str, Any] = {
+        "pid": normalized,
+        "identity_mismatch": False,
+        "ownership_proven": False,
+    }
+    if normalized <= 0:
+        return {
+            **base,
+            "method": "none",
+            "termination_attempted": False,
+            "terminated": True,
+            "error": "",
+        }
+    if not process_is_running(normalized):
+        return {
+            **base,
+            "method": "already_stopped",
+            "termination_attempted": False,
+            "terminated": True,
+            "error": "",
+        }
+    if not recorded_identity:
+        return {
+            **base,
+            "method": "refused_no_recorded_identity",
+            "termination_attempted": False,
+            "terminated": False,
+            "error": "live pid has no recorded start identity; ownership unproven",
+        }
+    live = process_identity(normalized)
+    if not live:
+        return {
+            **base,
+            "method": "refused_unreadable_identity",
+            "termination_attempted": False,
+            "terminated": False,
+            "error": "live start identity could not be read; ownership unproven",
+        }
+    if live != recorded_identity:
+        return {
+            **base,
+            "identity_mismatch": True,
+            "method": "refused_pid_reuse",
+            "termination_attempted": False,
+            "terminated": True,
+            "error": "live start identity differs from the recorded identity",
+        }
+    report = dict(terminator(normalized))
+    report.update(
+        {
+            "identity_mismatch": False,
+            "ownership_proven": True,
+            # The verdict re-checks reality rather than trusting the tool.
+            "terminated": recorded_process_is_absent(normalized, recorded_identity),
+        }
+    )
+    return report
+
+
 def _windows_parent_table() -> dict[int, int]:
     completed = subprocess.run(
         [

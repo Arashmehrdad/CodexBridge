@@ -1149,6 +1149,7 @@ class JobWorker:
         if not self.store.attach_child_pid(
             self.run_id,
             child_pid=process.pid,
+            child_identity=process_identity(process.pid),
             lease_token=self.worker_lease_token,
             lease_generation=self.worker_lease_generation,
         ):

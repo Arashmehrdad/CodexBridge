@@ -14,13 +14,20 @@ from __future__ import annotations
 
 from .cancellation import (
     CancellationDisposition,
+    job_name_for_binding,
     CancellationProof,
     TerminationRecord,
     cancel_owned_tree,
     contain_tree,
 )
+from .containment import (
+    ContainmentUnavailable,
+    JobContainment,
+    launch_contained,
+)
 from .environment import (
     BASE_ALLOWLIST,
+    EnvironmentPolicyViolation,
     EnvironmentEvidence,
     RemovalReason,
     SanitisedEnvironment,
@@ -47,7 +54,11 @@ __all__ = [
     "BASE_ALLOWLIST",
     "CancellationDisposition",
     "CancellationProof",
+    "ContainmentUnavailable",
     "EnvironmentEvidence",
+    "EnvironmentPolicyViolation",
+    "JobContainment",
+    "launch_contained",
     "ExecutableIdentity",
     "ExecutableRejected",
     "RemovalReason",
@@ -56,6 +67,7 @@ __all__ = [
     "TerminationRecord",
     "build_child_environment",
     "cancel_owned_tree",
+    "job_name_for_binding",
     "contain_tree",
     "find_secret_shaped_names",
     "launch_stand_in",

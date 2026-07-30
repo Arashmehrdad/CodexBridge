@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Iterable, Sequence
+from typing import Any, Final, Iterable, Sequence
 
 from ..process_control import (
     list_descendants,
@@ -24,6 +24,7 @@ from ..process_control import (
     recorded_process_is_absent,
     terminate_process_tree,
 )
+from . import containment
 
 
 class CancellationDisposition(str, Enum):
@@ -70,25 +71,36 @@ class CancellationProof:
     surviving_pids: tuple[int, ...] = ()
     late_descendant_pids: tuple[int, ...] = ()
     detail: str = ""
+    #: Kernel job membership after termination. ``None`` means no job was
+    #: available, which is weaker evidence and is reported as such.
+    job_assigned_pids: tuple[int, ...] | None = None
+    job_proof_available: bool = False
+    #: Set only when the canonical run plane proved no process could have been
+    #: created. An empty subordinate table can never establish this by itself.
+    canonical_pre_launch_proven: bool = False
 
     @property
     def zero_owned_descendants(self) -> bool:
         """True only when every recorded process is provably gone."""
-        return (
-            self.disposition is not CancellationDisposition.UNCERTAIN
-            and not self.surviving_pids
-            and not self.late_descendant_pids
-        )
+        if self.disposition is CancellationDisposition.UNCERTAIN:
+            return False
+        if self.job_proof_available and self.job_assigned_pids:
+            return False
+        return not self.surviving_pids and not self.late_descendant_pids
 
     @property
     def may_publish_terminal_cancellation(self) -> bool:
-        """The single question a caller should ask before a terminal transition."""
+        """The single question a caller asks before a terminal transition.
+
+        ``NOTHING_RECORDED`` no longer authorises publication on its own. An
+        empty subordinate table can mean no process existed -- or that launch
+        crossed a crash window and left one Soma never recorded. Only the
+        canonical run plane can tell those apart, so it must say so explicitly.
+        """
+        if self.disposition is CancellationDisposition.NOTHING_RECORDED:
+            return self.canonical_pre_launch_proven
         return (
-            self.disposition
-            in {
-                CancellationDisposition.CONFIRMED,
-                CancellationDisposition.NOTHING_RECORDED,
-            }
+            self.disposition is CancellationDisposition.CONFIRMED
             and self.zero_owned_descendants
         )
 
@@ -122,8 +134,40 @@ def _terminate_one(
             absent_after=True,
         )
 
+    if not recorded_identity:
+        # Owner-approved contract, 2026-07-30: a live PID without an exact
+        # matching recorded start identity is never terminated. Soma cannot
+        # prove it owns this process, so the run stays pending and the lock
+        # stays held rather than Soma killing something that may not be its own.
+        return TerminationRecord(
+            pid=pid,
+            recorded_identity=recorded_identity,
+            role=role,
+            was_running=True,
+            identity_mismatch=False,
+            termination_attempted=False,
+            method="refused_no_recorded_identity",
+            absent_after=False,
+            error="live pid has no recorded start identity; ownership unproven",
+        )
+
     live_identity = process_identity(pid)
-    if recorded_identity and live_identity and live_identity != recorded_identity:
+    if not live_identity:
+        # The process is alive but its identity cannot be read, so ownership is
+        # unverifiable in the direction that matters. Refuse and stay uncertain.
+        return TerminationRecord(
+            pid=pid,
+            recorded_identity=recorded_identity,
+            role=role,
+            was_running=True,
+            identity_mismatch=False,
+            termination_attempted=False,
+            method="refused_unreadable_identity",
+            absent_after=False,
+            error="live start identity could not be read; ownership unproven",
+        )
+
+    if live_identity != recorded_identity:
         # PID reuse. The number is alive but the *process* Soma recorded is
         # gone, and the current occupant belongs to someone else. Terminating it
         # would be Soma killing a stranger, so this fails closed by refusing to
@@ -163,11 +207,53 @@ def _terminate_one(
     )
 
 
+#: Marker written into ``observation_source`` when a launch established kernel
+#: containment, so cancellation knows whether to expect a job at all.
+JOB_MARKER: Final[str] = "job=" 
+
+
+def job_name_for_binding(session_binding_id: str) -> str:
+    """Deterministic job name, so containment survives a Soma restart.
+
+    Derived from the binding rather than stored in a new column: the name must
+    be recoverable by a process that has lost every handle, and the binding id
+    is already durable.
+    """
+    return f"Local\\soma-worker-{session_binding_id}"
+
+
+def _terminate_job(session_binding_id: str) -> tuple[bool, tuple[int, ...] | None, str]:
+    """Terminate the kernel job for a binding and query what remains.
+
+    Returns ``(proof_available, assigned_pids_after, detail)``. A job that
+    cannot be opened is not a failure: it means no contained launch happened,
+    or the job was already destroyed because every member exited.
+    """
+    if not containment.IS_WINDOWS:
+        return False, None, "kernel containment is unavailable off Windows"
+    name = job_name_for_binding(session_binding_id)
+    # A named job cannot be reopened after its last handle closes, so the live
+    # handle in the process-local registry is the only way to reach it.
+    job = containment.active_job(name)
+    if job is None:
+        return False, None, "no live kernel job handle for this binding"
+    try:
+        job.terminate()
+    except containment.ContainmentUnavailable as exc:
+        return False, None, f"job termination failed: {exc}"
+    try:
+        remaining = job.assigned_pids()
+    except containment.ContainmentUnavailable as exc:
+        return False, None, f"job membership query failed: {exc}"
+    return True, remaining, ""
+
+
 def cancel_owned_tree(
     store,
     session_binding_id: str,
     *,
     grace_seconds: float = 3.0,
+    canonical_pre_launch_proven: bool = False,
 ) -> CancellationProof:
     """Terminate one provider session's recorded tree and prove it is gone.
 
@@ -177,31 +263,65 @@ def cancel_owned_tree(
     """
     recorded = list(store.list_child_processes(session_binding_id))
     if not recorded:
+        # Terminate the job anyway: an empty table with a live job is exactly
+        # the crash window where a process was created but never recorded.
+        job_available, job_remaining, _detail = _terminate_job(session_binding_id)
         return CancellationProof(
             disposition=CancellationDisposition.NOTHING_RECORDED,
-            detail="no provider process was ever recorded for this binding",
+            detail=(
+                "no provider process was recorded; publication requires "
+                "canonical pre-launch proof"
+            ),
+            job_assigned_pids=job_remaining,
+            job_proof_available=job_available,
+            canonical_pre_launch_proven=canonical_pre_launch_proven,
         )
 
     roots = [item for item in recorded if item.role.value == "provider_root"]
+    # A launch that established kernel containment says so in its observation
+    # source. If containment was expected but is no longer reachable -- a Soma
+    # restart -- parent-table evidence alone may not confirm cancellation.
+    job_was_expected = any(
+        JOB_MARKER in (item.observation_source or "") for item in recorded
+    )
     descendants = [item for item in recorded if item.role.value != "provider_root"]
 
-    # Prove the owned set *before* terminating. A descendant spawned since
-    # attachment is still ours, so live enumeration is unioned with the
-    # recorded rows rather than trusted alone or ignored.
+    # Prove the ROOT IDENTITY before looking at the tree at all. Enumerating
+    # descendants of a live PID whose identity has not been matched can inspect
+    # -- and then target -- an unrelated process tree under PID reuse.
     live_before: list[int] = []
     for root in roots:
-        if process_is_running(root.pid):
-            try:
-                live_before.extend(list_descendants(root.pid))
-            except OSError:
-                # Enumeration failure is uncertainty, not an empty owned set.
-                return CancellationProof(
-                    disposition=CancellationDisposition.UNCERTAIN,
-                    detail=(
-                        "owned descendant set could not be enumerated before "
-                        "termination"
-                    ),
-                )
+        if not process_is_running(root.pid):
+            continue
+        if not root.process_start_identity:
+            return CancellationProof(
+                disposition=CancellationDisposition.UNCERTAIN,
+                detail=(
+                    "recorded provider root has no start identity; refusing to "
+                    "enumerate or terminate an unproven tree"
+                ),
+            )
+        live_root_identity = process_identity(root.pid)
+        if not live_root_identity:
+            return CancellationProof(
+                disposition=CancellationDisposition.UNCERTAIN,
+                detail="live root start identity could not be read",
+            )
+        if live_root_identity != root.process_start_identity:
+            # The recorded root is provably absent. The current occupant of the
+            # number belongs to someone else, so its tree is not enumerated.
+            continue
+        try:
+            live_before.extend(list_descendants(root.pid))
+        except OSError:
+            # Enumeration failure is uncertainty, not an empty owned set.
+            return CancellationProof(
+                disposition=CancellationDisposition.UNCERTAIN,
+                detail=(
+                    "owned descendant set could not be enumerated before "
+                    "termination"
+                ),
+            )
 
     ordered: list[tuple[int, str, str]] = []
     seen: set[int] = set()
@@ -229,33 +349,62 @@ def cancel_owned_tree(
         record.pid for record in records if not record.absent_after
     )
 
-    # Final sweep: a descendant that appeared during termination, or one the
-    # tree kill missed, must disprove the claim even if every record looks good.
+    # Kernel-backed proof. Job membership survives reparenting and root exit,
+    # so it answers the question a parent-table sweep cannot: is anything Soma
+    # started still alive, wherever it has been reparented to?
+    job_available, job_remaining, job_detail = _terminate_job(session_binding_id)
+
+    # Parent-link sweep is retained as supporting evidence only. It is skipped
+    # for a root whose identity did not match, since that tree is not ours.
     late: list[int] = []
     for root in roots:
         if not process_is_running(root.pid):
+            continue
+        if process_identity(root.pid) != root.process_start_identity:
             continue
         try:
             late.extend(list_descendants(root.pid))
         except OSError:
             late.append(root.pid)
 
-    if surviving or late:
+    if job_was_expected and not job_available:
         return CancellationProof(
             disposition=CancellationDisposition.UNCERTAIN,
             records=records,
             surviving_pids=surviving,
             late_descendant_pids=tuple(sorted(set(late))),
+            job_proof_available=False,
             detail=(
-                "cancellation is unproven: recorded or descendant processes "
-                "remain after termination"
+                "kernel containment was established at launch but is no longer "
+                f"reachable ({job_detail}); parent-table evidence alone cannot "
+                "prove zero owned descendants"
+            ),
+        )
+
+    if surviving or late or (job_available and job_remaining):
+        return CancellationProof(
+            disposition=CancellationDisposition.UNCERTAIN,
+            records=records,
+            surviving_pids=surviving,
+            late_descendant_pids=tuple(sorted(set(late))),
+            job_assigned_pids=job_remaining,
+            job_proof_available=job_available,
+            detail=(
+                "cancellation is unproven: recorded, descendant, or "
+                "kernel-owned processes remain after termination"
             ),
         )
 
     return CancellationProof(
         disposition=CancellationDisposition.CONFIRMED,
         records=records,
-        detail="every recorded process is provably absent",
+        job_assigned_pids=job_remaining,
+        job_proof_available=job_available,
+        detail=(
+            "kernel job is empty and every recorded process is absent"
+            if job_available
+            else f"every recorded process is absent ({job_detail})"
+        ),
     )
 
 

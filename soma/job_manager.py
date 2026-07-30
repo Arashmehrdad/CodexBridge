@@ -60,6 +60,8 @@ from .process_control import (
     process_is_running,
     process_matches_identity,
     terminate_process_tree,
+    process_identity,
+    identity_scoped_termination,
 )
 from .run_query_chunks import (
     RUN_REFERENCE_PREFIX,
@@ -963,6 +965,7 @@ class JobManager:
                     launched = self.store.record_worker_launch(
                         run_id,
                         process.pid,
+                        launcher_identity=process_identity(process.pid),
                         expected_state_version=int(reservation["state_version"]),
                         expected_lease_token=new_lease_token,
                         expected_lease_generation=int(
@@ -2293,6 +2296,7 @@ class JobManager:
             launched = self.store.record_worker_launch(
                 run_id,
                 process.pid,
+                launcher_identity=process_identity(process.pid),
                 expected_state_version=int(launch_intent["state_version"]),
                 expected_lease_token=lease_token,
                 expected_lease_generation=int(launch_intent["lease_generation"]),
@@ -3192,20 +3196,29 @@ class JobManager:
                 message="Monitored SSH run cancelled after verified remote termination",
             )
 
-        pids: list[tuple[str, int]] = []
+        # V3-1A-CANCELLATION-AUTHORITY-1, owner-approved 2026-07-30: a live PID
+        # without an exact matching recorded start identity is never terminated.
+        # Soma cannot prove it owns that process, so the run stays
+        # cancellation_pending and the repository lock stays held rather than
+        # Soma force-killing a process that may belong to someone else.
+        pids: list[tuple[str, int, str]] = []
         if child_pid > 0:
-            pids.append(("child", child_pid))
+            pids.append(("child", child_pid, str(run.get("child_identity") or "")))
         if worker_pid > 0 and worker_pid != child_pid:
-            pids.append(("worker", worker_pid))
+            pids.append(("worker", worker_pid, str(run.get("worker_identity") or "")))
         if (
             launcher_pid > 0
             and launcher_pid != child_pid
             and launcher_pid != worker_pid
         ):
-            pids.append(("launcher", launcher_pid))
+            pids.append(
+                ("launcher", launcher_pid, str(run.get("launcher_identity") or ""))
+            )
         reports: list[dict] = []
-        for role, pid in pids:
-            report = terminate_process_tree(pid)
+        for role, pid, recorded_identity in pids:
+            report = identity_scoped_termination(
+                pid, recorded_identity, terminate=terminate_process_tree
+            )
             report["role"] = role
             reports.append(report)
         termination_confirmed = (

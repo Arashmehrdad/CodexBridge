@@ -36,6 +36,7 @@ from soma.tasks.store import TaskStore
 from soma.worker_adapters import get_adapter
 from soma.worker_process import (
     AttachmentDisposition,
+    EnvironmentPolicyViolation,
     CancellationDisposition,
     ExecutableRejected,
     RemovalReason,
@@ -232,16 +233,37 @@ def test_environment_evidence_never_contains_a_value():
 
 
 def test_a_declared_recursion_marker_cannot_be_allowlisted_back_in():
-    """Finding 8 makes this a launch failure, not an operator preference."""
+    """Finding 8 makes this a launch failure, not an operator preference.
+
+    Refused loudly rather than dropped silently: the audit reproduced
+    CLAUDECODE reaching a constructed child through this exact parameter, and a
+    silent drop would let a caller believe its extra had been honoured.
+    """
+    with pytest.raises(EnvironmentPolicyViolation, match="recursion marker"):
+        build_child_environment(
+            parent_environment=PARENT_ENV,
+            declared_removals=_claude_removals(),
+            allowlist_extra=("CLAUDECODE", "MY_HARMLESS_SETTING"),
+        )
+    # An ordinary extra on its own is still honoured, so the refusal is targeted.
     result = build_child_environment(
         parent_environment=PARENT_ENV,
         declared_removals=_claude_removals(),
-        allowlist_extra=("CLAUDECODE", "MY_HARMLESS_SETTING"),
+        allowlist_extra=("MY_HARMLESS_SETTING",),
     )
-    assert "CLAUDECODE" not in result.environment
-    assert "CLAUDECODE" not in result.evidence.allowlist_extra
-    # An ordinary extra is still honoured, so this is a targeted refusal.
     assert result.environment["MY_HARMLESS_SETTING"] == "1"
+
+
+@pytest.mark.parametrize(
+    "name", ["MCP_SERVER_TOKEN", "SOMA_MCP_URL", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"]
+)
+def test_extras_cannot_reintroduce_configuration_or_secrets(name):
+    with pytest.raises(EnvironmentPolicyViolation):
+        build_child_environment(
+            parent_environment=PARENT_ENV,
+            declared_removals=_claude_removals(),
+            allowlist_extra=(name,),
+        )
 
 
 def test_deliberate_additions_are_kept_and_not_treated_as_inherited():
@@ -251,6 +273,37 @@ def test_deliberate_additions_are_kept_and_not_treated_as_inherited():
         additions={"SOMA_WORKER_WORKSPACE": "C:/wt/a"},
     )
     assert result.environment["SOMA_WORKER_WORKSPACE"] == "C:/wt/a"
+
+
+@pytest.mark.parametrize(
+    "name", ["CLAUDECODE", "MCP_SERVER_TOKEN", "PATH", "SOMA_WORKER_API_KEY"]
+)
+def test_additions_outside_the_reserved_namespace_are_refused(name):
+    with pytest.raises(EnvironmentPolicyViolation):
+        build_child_environment(
+            parent_environment=PARENT_ENV,
+            declared_removals=_claude_removals(),
+            additions={name: "x"},
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "sk-abcdefghijklmnopqrstuvwxyz",
+        "ghp_abcdefghijklmnopqrstuvwxyz01",
+        "Bearer abc.def",
+        "-----BEGIN RSA PRIVATE KEY-----",
+    ],
+)
+def test_addition_values_with_a_credential_shape_are_refused(value):
+    """A well-named variable can still carry a secret."""
+    with pytest.raises(EnvironmentPolicyViolation, match="credential shape"):
+        build_child_environment(
+            parent_environment=PARENT_ENV,
+            declared_removals=_claude_removals(),
+            additions={"SOMA_WORKER_SETTING": value},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -471,13 +524,19 @@ def test_cancellation_is_idempotent_when_replayed(bound, tmp_path):
             process.kill()
 
 
-def test_nothing_recorded_is_not_a_cancellation_claim(bound):
+def test_empty_evidence_alone_cannot_authorise_terminal_cancellation(bound):
+    """An empty table can also mean launch crossed a crash window."""
     store, binding, _task_id, _run_id = bound
     proof = cancel_owned_tree(store, binding.session_binding_id)
     assert proof.disposition is CancellationDisposition.NOTHING_RECORDED
-    # Nothing owned means nothing can be running, so publication is allowed.
-    assert proof.may_publish_terminal_cancellation is True
+    assert proof.may_publish_terminal_cancellation is False
     assert proof.records == ()
+
+    # Only the canonical run plane can prove no process could have been created.
+    proven = cancel_owned_tree(
+        store, binding.session_binding_id, canonical_pre_launch_proven=True
+    )
+    assert proven.may_publish_terminal_cancellation is True
 
 
 def test_a_surviving_descendant_disproves_a_successful_termination_report(
