@@ -39,7 +39,7 @@ CF1 and the Pre-Roadmap V3 bridge are complete. `PLANS.md` is the sole concise s
 
 Only `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` is active. It must extend the existing canonical Task → Run authority with one bounded provider-native interactive worker path. It may add subordinate session bindings, interaction delivery records, checkpoints, provider-child identity, and raw usage evidence. It may not create a second worker lifecycle manager, expose the current broad Soma MCP surface to workers, implement the Company Kernel, create departments, enable scheduled autonomy, or add generic external mutations.
 
-`V3-1A-FOUNDATION-1` is accepted and closed after independent audit. The current bounded subgate is `V3-1A-ADAPTER-CONTRACT-1`: internal provider-neutral adapter contracts and versioned recorded Claude/Codex protocol fixtures only. It may construct inert command specifications and parse fixtures; it may not launch a provider process, mutate provider environment, add public worker gateways or task commands, expose Soma MCP to workers, or activate production behavior.
+`V3-1A-FOUNDATION-1` and `V3-1A-ADAPTER-CONTRACT-1` are accepted and closed after independent audits. The current bounded subgate is `V3-1A-PROCESS-IDENTITY-1`: controlled local stand-in Windows process trees for sanitised environment, exact executable/process identity, provider-child attachment evidence, complete owned-tree cancellation, and zero-descendant proof. It may not launch Claude Code or Codex, use provider accounts, send live provider prompts, add public worker gateways or task commands, expose Soma MCP to workers, or activate production behavior.
 
 The lane uses progressive lifecycle convergence:
 

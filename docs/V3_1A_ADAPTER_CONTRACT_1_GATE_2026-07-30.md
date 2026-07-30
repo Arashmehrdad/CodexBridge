@@ -1,11 +1,12 @@
 # V3-1A-ADAPTER-CONTRACT-1 — Provider Adapter Contract and Protocol Fixtures
 
 **Date:** 2026-07-30
-**Status:** active bounded implementation gate; no provider process launch authorised.
+**Status:** accepted and closed after independent audit corrections; no provider process was launched.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** accepted [`V3_1A_FOUNDATION_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_FOUNDATION_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **Repository baseline:** `c11919e7410faef7c351b318de396000845e8e5a`
-**Push:** not authorised.
+**Acceptance:** [`V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md)
+**Push:** none; not authorised.
 
 ## 1. Objective
 

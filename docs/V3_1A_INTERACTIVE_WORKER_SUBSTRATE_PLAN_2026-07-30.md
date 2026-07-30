@@ -1,7 +1,7 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; foundation accepted; adapter-contract fixture gate active; no production activation or push authorised.
+**Status:** active implementation lane; foundation and adapter contract accepted; process-identity stand-in gate active; no production activation or push authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
@@ -234,8 +234,14 @@ The shared contracts and additive persistence package is accepted after independ
 
 The accepted foundation remains inert: no provider process launch, public worker operation, task-command expansion, or production substrate row exists.
 
-### V3-1A-ADAPTER-CONTRACT-1 — active
+### V3-1A-ADAPTER-CONTRACT-1 — accepted and closed
 
-The next bounded package is [`V3_1A_ADAPTER_CONTRACT_1_GATE_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_GATE_2026-07-30.md). It may implement provider-neutral internal adapter contracts and versioned recorded Claude/Codex protocol fixtures only.
+The provider-neutral adapter and fixture package is accepted after independent audit and corrective commit `7d629c5bdd0ade1d3d0da262bcd8509f50744041`. Its evidence is [`V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md).
 
-Real process launch, environment sanitisation execution, PID capture, cancellation, operational steering/input, and non-terminal controller continuation remain later and inactive.
+The accepted adapter remains inert. It launches no provider, applies no environment, publishes no task outcome, and exposes no public operation.
+
+### V3-1A-PROCESS-IDENTITY-1 — active
+
+The next bounded package is [`V3_1A_PROCESS_IDENTITY_1_GATE_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_GATE_2026-07-30.md). It may launch controlled local stand-in Windows process trees to prove sanitised environment, exact executable and process identity, attachment evidence, complete owned-tree cancellation, and zero-descendant proof.
+
+Real Claude/Codex launch, provider accounts, live provider prompts/streams, operational steering/input, and non-terminal controller continuation remain later and inactive.
