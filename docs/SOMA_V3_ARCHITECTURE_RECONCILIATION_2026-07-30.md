@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-RECONCILIATION-1 — Architecture Review Reconciliation
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted architecture reconciliation; documentation-only; no implementation lane active.  
+**Status:** owner-accepted final reconciliation; final consistency-audit corrections incorporated; V3-1A activated separately through `PLANS.md`.  
 **Decision level:** C — V3 sequencing, lifecycle authority and implementation-boundary decision.  
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)  
 **Repository basis:** branch `lane/memory-integration-foundation-1`; architecture commit `510b9fa0e17c2ff4c188e3d4b7c32159833f4081`.
@@ -143,6 +143,7 @@ This is progressive convergence, not mandatory deletion. Existing public or dura
 - a preliminary lane that attempts to unify every lifecycle authority;
 - treating research, knowledge, SSH or Trading Lab analogues as already-complete Company Kernel authorities;
 - preserving all current lifecycle fragmentation indefinitely;
+- classifying workflows or supervisors as protected business domains; they are generic lifecycle managers that must project or retire overlapping responsibility when later V3 lanes touch it;
 - changing the autonomous-company destination because its first implementation slice is a kernel of one.
 
 ## 7. Route-independent outcome authority
@@ -194,7 +195,18 @@ Proves one Mission, one current PlanRevision, bounded WorkPackages, route-indepe
 
 The original department comparison is deferred until the substrate, kernel, cost evidence and golden-task evaluation set exist.
 
-## 10. Deferred owner decisions
+## 10. Final consistency-audit refinements
+
+The final independent consistency audit produced four accepted refinements:
+
+1. **Terminology:** distinguish TaskAdmission, ResultPublication, OutcomeAcceptance, and CharterRatification. Existing `TaskState.ACCEPTED` means admission only.
+2. **Checkpoint expiry:** every controller-wait checkpoint has a durable deadline. Expiry may release locks only after the provider worker is confirmed quiescent or terminated; otherwise the task becomes uncertain and ownership is retained.
+3. **Provider-session invalidation:** a missing, invalid, or corrupt native session becomes durable uncertainty. Soma does not automatically launch a clean replacement attempt without executive adjudication.
+4. **Outcome concurrency:** V3-1B permits one non-terminal route attempt per outcome by default. Any later deliberately parallel candidate topology must be declared before launch and cannot create competing authoritative acceptances.
+
+The audit also confirmed that workflows and supervisors are generic lifecycle managers rather than irreducible domains.
+
+## 11. Deferred owner decisions
 
 The following remain lane-specific decisions rather than implied activation:
 
@@ -206,10 +218,8 @@ The following remain lane-specific decisions rather than implied activation:
 - company-global memory and third-party personal-data authority;
 - timing and objective for the later A/B/C organisation comparison.
 
-## 11. Implementation authority
+## 12. Implementation authority
 
-No V3 implementation lane is active.
+Arash explicitly activated `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`. Its authoritative lane contract is [`V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md).
 
-The next recommended lane is `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`. Activating it requires an explicit owner instruction and a lane-specific plan that respects existing repository governance, compatibility and no-push rules.
-
-A generic `continue` does not activate V3, amend `AGENTS.md`, launch a provider worker, expose Soma tools to workers, install a provider, deploy, contact a customer or push a commit.
+Activation authorises bounded product implementation and proportionate validation for V3-1A only. It does not authorise production use of an unfinished worker path, V3-1B, direct worker Soma MCP access, provider subscriptions, deployment, customer contact, scheduled autonomy, unrelated cleanup, or push.

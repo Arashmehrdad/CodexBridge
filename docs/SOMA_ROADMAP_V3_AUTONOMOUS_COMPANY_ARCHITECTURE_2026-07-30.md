@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-1 — Autonomous Company Architecture
 
 **Date:** 2026-07-30  
-**Status:** architecture red-team and repository-feasibility review complete; owner-reconciled design candidate; no implementation lane is activated by this document.  
+**Status:** owner-accepted final architecture after red-team, repository-feasibility review, reconciliation, and consistency audit; V3-1A is activated separately through `PLANS.md`.  
 **Decision level:** C — foundational company authority, autonomy, safety and product-direction boundary.  
 **Owner:** Arash.  
 **Executive design authority:** ChatGPT/Cortana, subject to owner approval and the review process below.  
@@ -102,7 +102,14 @@ A department exists only when a distinct authority boundary, specialist capabili
 
 ### 4.5 Agent output is proposed state
 
-Conversation, analysis, generated documents and worker claims do not become company truth automatically. An authorised acceptance transition creates a canonical decision, commitment, deliverable or mutation.
+Conversation, analysis, generated documents and worker claims do not become company truth automatically. Terminology remains explicit:
+
+- **TaskAdmission** means a controller request was durably admitted to the canonical task plane; the existing `TaskState.ACCEPTED` is this admission state, not deliverable approval.
+- **ResultPublication** means an execution authority published an exact result and hash.
+- **OutcomeAcceptance** means the executive selected one exact published result for a WorkPackage outcome through an immutable AcceptanceCommit.
+- **CharterRatification** means the owner or delegated constitutional authority accepted a CompanyCharter or revision.
+
+Only an authorised transition in the correct authority creates a canonical decision, commitment, deliverable, mutation, or accepted outcome.
 
 ### 4.6 Narrow capabilities, internal routing
 
@@ -453,15 +460,18 @@ V3 adds interactive provider sessions as bindings beneath the existing Task → 
 
 The first implementation outcome must add crash-safe session binding, steering and supplied input, non-terminal controller waiting, explicit-ID recovery, child-process identity, cancellation evidence and raw provider usage while preserving the canonical task/run owners.
 
-### Progressive convergence with domain authorities
+### Progressive convergence with existing authorities
 
-Workflows, supervisors, SSH activation, Trading Lab and other existing domains remain readable and operational unless a V3 lane directly touches their generic lifecycle responsibilities. When touched, the lane consolidates only the relevant generic semantics into the task/run plane and leaves domain facts where they belong.
+Workflows and supervisors are legacy **generic lifecycle managers**, not business domains. They remain readable and operational for compatibility, but their overlapping planning, step execution, waiting, cancellation, retry, recovery, result, and publication responsibilities must be projected into canonical tasks/runs or retired when V3-1B, V3-3, or another lane first touches that territory. Compatibility does not grant permanent authority.
+
+SSH activation, Trading Lab, memory, research, and future business systems contain irreducible domain facts. When a V3 lane touches them, it consolidates only generic work semantics into the task/run plane and leaves domain facts where they belong.
 
 Examples:
 
 - task state owns whether broker reconciliation work is waiting, running or complete; Trading Lab owns order submission and broker-confirmation facts;
 - task state owns whether SSH work is running or failed; SSH activation owns activation and rollback facts;
-- task state owns worker waiting, cancellation and recovery; a provider-session binding owns only native session identity and interaction delivery evidence.
+- task state owns worker waiting, cancellation and recovery; a provider-session binding owns only native session identity and interaction-delivery evidence;
+- workflow and supervisor records may remain compatibility projections, but they may not launch new V3 work through an independent generic lifecycle once the corresponding V3 territory is active.
 
 No V3 lane may introduce a new lifecycle manager merely to wrap an existing one.
 
@@ -1014,7 +1024,9 @@ Required outcomes:
 - provider-session binding with exact native identity;
 - explicit resume by identity after Soma and adapter restart;
 - crash-safe steering and supplied-input delivery;
-- real non-terminal `AWAITING_CONTROLLER` continuation;
+- real non-terminal `AWAITING_CONTROLLER` continuation with a durable checkpoint deadline;
+- bounded checkpoint-expiry handling that never releases ownership while a worker may still mutate;
+- provider-session invalidation recovery that becomes durable uncertainty and requires adjudication before a fresh attempt;
 - provider-child process identity and zero-orphan cancellation evidence;
 - raw, deduplicated provider usage events;
 - fixed sanitised launch environment;
@@ -1092,18 +1104,22 @@ Prove that Soma can supervise one bounded interactive provider session through t
 1. Soma launches one interactive worker through a canonical task and run.
 2. The run binds an exact provider-native session identity durably.
 3. One steering message and one supplied answer are persisted before delivery and applied idempotently.
-4. A controller wait remains non-terminal and survives restart.
+4. A controller wait remains non-terminal, has a durable deadline, and survives restart. On expiry, Soma attempts a bounded safe pause or cancellation. It may transition to `PAUSED` and release locks only after the provider worker is confirmed quiescent or terminated with a resumable session binding; otherwise it enters `UNCERTAIN` and retains ownership until adjudicated.
 5. Soma, the adapter and provider child are terminated; explicit-ID resume restores provider context without replaying worker conversation history.
-6. Cancellation leaves no owned descendant process for Claude and Codex.
-7. Raw usage events are deduplicated and queryable by session, run and task.
-8. The launch environment excludes provider-recursion markers, inherited MCP configuration and unrelated credentials.
-9. Protocol drift or unprovable interaction delivery fails closed as durable uncertainty.
-10. The worker cannot discover or invoke any Soma MCP operation.
+6. If explicit-ID provider reattachment fails because the session is missing, invalid, or corrupt, Soma records durable uncertainty with exact evidence. It must not automatically launch a clean replacement attempt; an executive recovery decision may later adopt evidence, supersede with a fresh attempt, or stop.
+7. Cancellation leaves no owned descendant process for Claude and Codex.
+8. Raw usage events are deduplicated and queryable by session, run and task.
+9. The launch environment excludes provider-recursion markers, inherited MCP configuration and unrelated credentials.
+10. Protocol drift or unprovable interaction delivery fails closed as durable uncertainty.
+11. The worker cannot discover or invoke any Soma MCP operation.
 
 #### Stop conditions
 
 - provider context cannot be resumed by exact identity;
 - waiting requires a terminal run or a new lifecycle manager;
+- a checkpoint can wait indefinitely without a durable deadline and bounded expiry disposition;
+- timeout can release a repository/resource lock while a provider worker may still mutate;
+- invalid provider-session recovery silently launches a fresh attempt;
 - duplicate input or steering can be delivered after replay;
 - cancellation can publish success while an owned worker continues mutating;
 - usage evidence cannot be preserved in provider-native units;
@@ -1121,12 +1137,13 @@ Prove one continuous company mission executed through discontinuous, bounded wor
 2. the Mission binds exactly one active ProjectScope;
 3. every WorkPackage has a route-independent outcome identity;
 4. changed provider, profile or argv creates a controlled superseding task attempt under the same outcome;
-5. only one exact published result hash can receive the AcceptanceCommit;
-6. a crash after result publication but before acceptance does not rerun accepted work or fabricate acceptance;
-7. a package requiring an owner decision suspends, survives restart and resumes without replaying worker conversation;
-8. deliberation references preserve alternatives and dissent without becoming execution authority;
-9. deleting and rebuilding projections changes no canonical record;
-10. owner-turn and package-completion events can each drive one bounded `reconcile_one` transition.
+5. by default, one outcome permits at most one non-terminal route attempt. A superseding route requires the prior attempt to be terminal or explicitly contained. Later evaluation contracts may deliberately permit parallel candidate attempts, but they must declare that topology before launch and still enforce one authoritative OutcomeAcceptance unless multiple accepted deliverables are part of the contract;
+6. only one exact published result hash can receive the AcceptanceCommit;
+7. a crash after result publication but before OutcomeAcceptance does not rerun accepted work or fabricate acceptance;
+8. a package requiring an owner decision suspends, survives restart and resumes without replaying worker conversation;
+9. deliberation references preserve alternatives and dissent without becoming execution authority;
+10. deleting and rebuilding projections changes no canonical record;
+11. owner-turn and package-completion events can each drive one bounded `reconcile_one` transition.
 
 #### Measurements
 
@@ -1265,7 +1282,7 @@ Codex should produce a feasibility map and implementation options, not commit co
 3. ChatGPT reconciled both reports without changing the owner-approved destination.
 4. Arash accepted progressive lifecycle convergence: consolidate the generic lifecycle territory each V3 lane touches, without a broad preliminary cleanup and without permanent duplicate authority.
 5. The reconciliation is recorded in [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
-6. The first implementation lane remains inactive until explicit owner activation and a lane-specific plan are recorded.
+6. Arash explicitly activated `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`; its lane-specific plan is recorded in [`V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md). Later V3 outcomes remain inactive.
 
 A generic `continue` does not authorise implementation, provider installation, subscription purchase, customer contact, external publication, deployment or push.
 
