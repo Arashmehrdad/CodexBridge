@@ -1,11 +1,11 @@
 # SOMA-V3-ARCH-1 — Autonomous Company Architecture
 
 **Date:** 2026-07-30  
-**Status:** owner-directed first architecture design; ready for Claude Opus architectural red-team and Codex repository-feasibility review; no implementation lane is activated by this document.  
+**Status:** architecture red-team and repository-feasibility review complete; owner-reconciled design candidate; no implementation lane is activated by this document.  
 **Decision level:** C — foundational company authority, autonomy, safety and product-direction boundary.  
 **Owner:** Arash.  
 **Executive design authority:** ChatGPT/Cortana, subject to owner approval and the review process below.  
-**Related accepted foundations:** [`Soma_Architecture_Reevaluation_Findings_2026-07-26.md`](Soma_Architecture_Reevaluation_Findings_2026-07-26.md), [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md), [`SCOPE_FOUNDATION_1_PRODUCTION_LANE_PROPOSAL_2026-07-27.md`](SCOPE_FOUNDATION_1_PRODUCTION_LANE_PROPOSAL_2026-07-27.md), [`task1-canonical-task-plane-evidence.md`](task1-canonical-task-plane-evidence.md).  
+**Related accepted foundations:** [`Soma_Architecture_Reevaluation_Findings_2026-07-26.md`](Soma_Architecture_Reevaluation_Findings_2026-07-26.md), [`SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md`](SOMA_SHARED_MEMORY_ARCHITECTURE_DECISION_2026-07-28.md), [`SCOPE_FOUNDATION_1_PRODUCTION_LANE_PROPOSAL_2026-07-27.md`](SCOPE_FOUNDATION_1_PRODUCTION_LANE_PROPOSAL_2026-07-27.md), [`task1-canonical-task-plane-evidence.md`](task1-canonical-task-plane-evidence.md), [`pilot-acp-1-decision-2026-07-26.md`](pilot-acp-1-decision-2026-07-26.md), [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).  
 **Research basis:** five iterative reference-design rounds covering multi-agent companies, dynamic teams, long-horizon benchmarks, live autonomous-company projects, and mature coordination systems.
 
 ## 1. Decision
@@ -123,6 +123,29 @@ Every multi-agent configuration is compared with a simpler executive-plus-tools 
 ### 4.10 Company learning is promoted, not improvised
 
 Production experience may propose a new skill, policy, routing rule, adapter, model or workflow. Changed behaviour becomes active only after evaluation and authorised promotion. Live agents do not rewrite their own authority or permanent behaviour.
+
+### 4.11 Progressive lifecycle convergence
+
+V3 does not pause for a wholesale consolidation of every existing lifecycle authority, and it does not preserve generic lifecycle duplication indefinitely.
+
+Whenever a V3 lane touches an existing lifecycle surface, that lane must:
+
+1. identify every authority involved;
+2. distinguish generic execution state from irreducible domain state;
+3. move or project generic work ownership, waiting, cancellation, retry, recovery, result and adjudication semantics into the canonical task/run authority;
+4. preserve domain-specific facts in their existing domain authority;
+5. name any temporary compatibility bridge, its canonical side and its retirement condition;
+6. close with no unexplained increase in canonical lifecycle authority.
+
+The intended direction is:
+
+```text
+generic lifecycle authorities decrease
+canonical task/run coverage increases
+domain-specific records remain explicit
+```
+
+A broad abstract cleanup lane is rejected. So is using compatibility as a reason to make duplicate generic authorities permanent.
 
 ## 5. Evidence classes
 
@@ -421,6 +444,26 @@ The task plane remains the sole canonical execution lifecycle. Company WorkPacka
 ### RunStore and execution providers
 
 Run attempts, process identity, cancellation, recovery, results and evidence remain with existing Soma execution authorities.
+
+### Interactive worker execution boundary
+
+The accepted provider pilot demonstrated stable native provider session identities, explicit resume and context retention, structured usage evidence, and native steering for Claude. It selected thin Soma-owned adapters over provider-native protocols; it did not implement the production boundary.
+
+V3 adds interactive provider sessions as bindings beneath the existing Task → Run authority. Provider sessions may own opaque native session identity and protocol cursors. They must not own a second queued/running/waiting/cancelled/terminal lifecycle, leases, result publication or recovery authority.
+
+The first implementation outcome must add crash-safe session binding, steering and supplied input, non-terminal controller waiting, explicit-ID recovery, child-process identity, cancellation evidence and raw provider usage while preserving the canonical task/run owners.
+
+### Progressive convergence with domain authorities
+
+Workflows, supervisors, SSH activation, Trading Lab and other existing domains remain readable and operational unless a V3 lane directly touches their generic lifecycle responsibilities. When touched, the lane consolidates only the relevant generic semantics into the task/run plane and leaves domain facts where they belong.
+
+Examples:
+
+- task state owns whether broker reconciliation work is waiting, running or complete; Trading Lab owns order submission and broker-confirmation facts;
+- task state owns whether SSH work is running or failed; SSH activation owns activation and rollback facts;
+- task state owns worker waiting, cancellation and recovery; a provider-session binding owns only native session identity and interaction delivery evidence.
+
+No V3 lane may introduce a new lifecycle manager merely to wrap an existing one.
 
 ### Memory and research
 
@@ -1092,6 +1135,8 @@ This architecture rejects:
 - majority consensus as acceptance;
 - CrewAI, LangGraph, AutoGen, OpenFang, Kortix, AgentTeams, Buzz or another framework as Soma's canonical control plane;
 - a second execution lifecycle beneath the Company Kernel;
+- a wholesale lifecycle-consolidation programme before the first V3 proof;
+- leaving duplicate generic lifecycle authority permanent merely because it predates V3;
 - copying CRM, accounting or billing databases into Soma;
 - making Higgsfield, Tavus or another subscription mandatory;
 - exposing every Soma operation to every worker;
@@ -1170,15 +1215,15 @@ Codex should produce a feasibility map and implementation options, not commit co
 
 ## 29. Review and promotion process
 
-1. This document becomes the shared architecture candidate.
-2. Claude Opus performs the architectural red-team.
-3. Codex performs the repository-grounded feasibility review.
-4. ChatGPT reconciles both reports, preserving the owner-approved destination and identifying every material change.
-5. Arash accepts, rejects or changes the reconciled architecture.
-6. Only then is the final outcome-led Roadmap V3 written and its first implementation lane activated.
+1. Claude Opus completed the architectural red-team.
+2. Codex completed the independent repository-grounded feasibility review.
+3. ChatGPT reconciled both reports without changing the owner-approved destination.
+4. Arash accepted progressive lifecycle convergence: consolidate the generic lifecycle territory each V3 lane touches, without a broad preliminary cleanup and without permanent duplicate authority.
+5. The reconciliation is recorded in [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
+6. The first implementation lane remains inactive until explicit owner activation and a lane-specific plan are recorded.
 
 A generic `continue` does not authorise implementation, provider installation, subscription purchase, customer contact, external publication, deployment or push.
 
 ## 30. Final architecture statement
 
-> **Soma V3 is the operating system of an owner-governed autonomous company. Cortana is its human face and executive interface. Soma preserves the constitution, organisation, plans, authority, work, decisions, commitments, evidence and recovery. Temporary departments collaborate through bounded structured interactions. Short-lived workers execute one inspectable chunk at a time. External business, creative and interaction providers remain replaceable. The company may operate continuously; its agents may not become the company.**
+> **Soma V3 is the operating system of an owner-governed autonomous company. Cortana is its human face and executive interface. Soma preserves the constitution, organisation, plans, authority, work, decisions, commitments, evidence and recovery. Temporary departments collaborate through bounded structured interactions. Short-lived workers execute one inspectable chunk at a time. Generic lifecycle authority progressively converges into the canonical task/run plane as V3 touches it, while irreducible domain facts remain with their domains. External business, creative and interaction providers remain replaceable. The company may operate continuously; its agents may not become the company.**
