@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-RECONCILIATION-1 — Architecture Review Reconciliation
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted final reconciliation; final consistency-audit corrections incorporated; V3-1A activated separately through `PLANS.md`.  
+**Status:** owner-accepted final reconciliation; final consistency-audit corrections incorporated; V3-1A activated separately through `PLANS.md`.
 **Decision level:** C — V3 sequencing, lifecycle authority and implementation-boundary decision.  
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)  
 **Repository basis:** branch `lane/memory-integration-foundation-1`; architecture commit `510b9fa0e17c2ff4c188e3d4b7c32159833f4081`.

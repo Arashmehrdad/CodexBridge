@@ -1,9 +1,9 @@
 # V3-1A — Interactive Worker Substrate
 
-**Date:** 2026-07-30  
-**Status:** active implementation lane; owner-approved; no production activation or push authorised.  
-**Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.  
-**Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)  
+**Date:** 2026-07-30
+**Status:** active implementation lane; owner-approved; no production activation or push authorised.
+**Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
+**Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
 
 ## 1. Goal

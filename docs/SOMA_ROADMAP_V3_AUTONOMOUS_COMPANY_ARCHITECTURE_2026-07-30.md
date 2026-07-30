@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-1 — Autonomous Company Architecture
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted final architecture after red-team, repository-feasibility review, reconciliation, and consistency audit; V3-1A is activated separately through `PLANS.md`.  
+**Status:** owner-accepted final architecture after red-team, repository-feasibility review, reconciliation, and consistency audit; V3-1A is activated separately through `PLANS.md`.
 **Decision level:** C — foundational company authority, autonomy, safety and product-direction boundary.  
 **Owner:** Arash.  
 **Executive design authority:** ChatGPT/Cortana, subject to owner approval and the review process below.  
