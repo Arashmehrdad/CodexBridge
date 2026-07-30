@@ -1,0 +1,5 @@
+{"type": "thread.started", "thread_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7"}
+{"type": "turn.started"}
+{"type": "item.started", "item": {"id": "item_1", "type": "command_execution", "command": "python -m pytest -q"}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "command_execution", "exit_code": 0}}
+{"type": "turn.completed", "usage": {"input_tokens": 1200, "cached_input_tokens": 800, "output_tokens": 340}}

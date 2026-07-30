@@ -1,0 +1,621 @@
+{
+  "manifest_version": 1,
+  "gate": "V3-1A-ADAPTER-CONTRACT-1",
+  "authored": "2026-07-30",
+  "oracle_note": "Every 'expected' block is hand-authored from the fixture bytes and is independent of the parser implementation. A parser change that alters these outcomes must fail these tests, not redefine them.",
+  "capture_kinds": {
+    "reconstructed_from_pilot_record": "Event shapes and values transcribed from the measured observations recorded in docs/pilot-acp-1-evidence-2026-07-26.md. Not a byte capture: no raw provider stream survives in this repository. Identifier suffixes are synthesised because the pilot recorded only identifier prefixes.",
+    "inferred_unverified": "Event shape taken from provider documentation and never observed by Soma. The corresponding capability is declared UNMEASURED so no code may trust this mapping.",
+    "synthetic_drift_probe": "Deliberately constructed to exercise a fail-closed path (unknown event, missing marker, conflicting identity, missing identity, malformed line, case variance). Not a claim about any provider's real output."
+  },
+  "redaction_policy": "No credential, bearer token, API key, account identifier, personal data, private prompt, or unrelated repository content. Prompts and file contents are neutral placeholders written for this gate.",
+  "fixtures": [
+    {
+      "name": "claude_code/session_success",
+      "path": "claude_code/session_success.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Findings 2 and 3: system/assistant/user/result stream, stable session_id, real edits applied, total_cost_usd 0.1094 on a 3-turn edit",
+      "redaction_review": "clean: placeholder repo path, placeholder calc.py content, no credentials",
+      "sha256": "22a2520a8fad9702b885e62597b19db14d2eb123e58ea77881e78392686c34f6",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "assistant_message",
+          "tool_activity",
+          "tool_activity",
+          "tool_activity",
+          "tool_activity",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 6,
+            "provider_event_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": "0.1094"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/steering_turn",
+      "path": "claude_code/steering_turn.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Finding 10: a mid-turn steering message halted the count and produced STEER.txt; result num_turns 5. Cost 0.0774 from pilot Finding 9.",
+      "redaction_review": "clean: placeholder file names only",
+      "sha256": "9fc84ea75a9f2199dc10b525e86c094cf3c4f4d8853baeb3f51a8ecf3a930379",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "tool_activity",
+          "assistant_message",
+          "tool_activity",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 4,
+            "provider_event_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": "0.0774"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/error_not_logged_in",
+      "path": "claude_code/error_not_logged_in.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Finding 2: a not-logged-in run still returned a session_id together with is_error true",
+      "redaction_review": "clean: no account identifier or auth detail retained",
+      "sha256": "db5117ab0f94ee80bbd032ea9abba704bdcdc55154da0d3d2bdcac17ef808a7a",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "7d1e4b90-33aa-4c6e-8f21-0ac59b7e4d13",
+        "event_classes": [
+          "session_started",
+          "provider_reported_failure"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": true,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.error_during_execution",
+            "sequence": 1,
+            "provider_event_id": "7d1e4b90-33aa-4c6e-8f21-0ac59b7e4d13",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/rate_limit",
+      "path": "claude_code/rate_limit.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Finding 2 lists rate_limit_event among the emitted event types",
+      "redaction_review": "clean",
+      "sha256": "f10abb05cf2f2d4db49d97d4f14d19c97bbee24889968e686a853c2a8d1ff9ca",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "rate_limit",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 2,
+            "provider_event_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": "0.0031"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/drift_unknown_event",
+      "path": "claude_code/drift_unknown_event.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: two event types Soma has never seen, to prove a future protocol addition cannot fabricate progress or success",
+      "redaction_review": "clean",
+      "sha256": "50e38460eafacfdafce375c6ab8fb3844e042ad6d6bfc7c41c69e0e3f5ab774b",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "unknown",
+          "unknown"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": false,
+        "unknown_event_count": 2,
+        "malformed_line_count": 0,
+        "usage": []
+      }
+    },
+    {
+      "name": "claude_code/drift_result_without_marker",
+      "path": "claude_code/drift_result_without_marker.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a result event whose is_error marker has been dropped, the single most dangerous drift shape because subtype still says success",
+      "redaction_review": "clean",
+      "sha256": "3fd5a27eaa94d016e7741e7f00775c22f5a77304cdcfaeda5f9e14b565801748",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "unknown"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": false,
+        "unknown_event_count": 1,
+        "malformed_line_count": 0,
+        "usage": []
+      }
+    },
+    {
+      "name": "claude_code/conflicting_identity",
+      "path": "claude_code/conflicting_identity.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: one stream reporting two session identities must become protocol uncertainty, never a choice between them",
+      "redaction_review": "clean",
+      "sha256": "63ffc24e42ec1aa0d74a5130408223261dda4ff62e99062ff59b6c3f19885ab4",
+      "expected": {
+        "identity_outcome": "conflicting",
+        "native_session_id": "",
+        "observed_identities": [
+          "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+          "7d1e4b90-33aa-4c6e-8f21-0ac59b7e4d13"
+        ],
+        "event_classes": [
+          "session_started",
+          "assistant_message",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 2,
+            "provider_event_id": "7d1e4b90-33aa-4c6e-8f21-0ac59b7e4d13",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/missing_identity",
+      "path": "claude_code/missing_identity.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a stream with no session identity must refuse binding even though it reports completion",
+      "redaction_review": "clean",
+      "sha256": "4a6eadfa765e95726d2e0940347cffb7f46d38cf3d711b5215356bda803bc106",
+      "expected": {
+        "identity_outcome": "missing",
+        "native_session_id": "",
+        "event_classes": [
+          "assistant_message",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 1,
+            "provider_event_id": "",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/malformed_line",
+      "path": "claude_code/malformed_line.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a truncated JSON line and a valid-JSON non-object line, to prove unreadable input is contained rather than fatal",
+      "redaction_review": "clean",
+      "sha256": "cf734bdcbea54d87c6159562ac5c0aefa6db0318722b6a8736d0d2403051b580",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+        "event_classes": [
+          "session_started",
+          "malformed",
+          "malformed",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 2,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 3,
+            "provider_event_id": "91f5d23f-2c4a-4d1e-9b8f-5a7c3e1d0b62",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": "0.0055"
+          }
+        ]
+      }
+    },
+    {
+      "name": "claude_code/identity_case_variant",
+      "path": "claude_code/identity_case_variant.jsonl",
+      "provider": "claude_code",
+      "protocol_id": "claude_code.stream_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: the upper-case spelling of session_success's identity, to prove the parser resolves a different identity rather than normalising case",
+      "redaction_review": "clean",
+      "sha256": "b51faec078d0eb5944dc6ca6bc019a7dedb291bcc765d7f44cc08fab2c94846a",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "91F5D23F-2C4A-4D1E-9B8F-5A7C3E1D0B62",
+        "event_classes": [
+          "session_started",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "result.success",
+            "sequence": 1,
+            "provider_event_id": "91F5D23F-2C4A-4D1E-9B8F-5A7C3E1D0B62",
+            "input_tokens": null,
+            "cached_input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null,
+            "provider_reported_cost_usd": "0.01"
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex/turn_success",
+      "path": "codex/turn_success.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Finding 2: thread.started/turn.started/item.started/item.completed/turn.completed with turn.completed.usage carrying input, cached input and output token counts",
+      "redaction_review": "clean: placeholder command only",
+      "sha256": "05d074c5a89aba430f4499a5f4eba1d9794f65ced7b3c43bf1e9dd7c80563e1d",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+        "event_classes": [
+          "session_started",
+          "progress",
+          "tool_activity",
+          "tool_activity",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "turn.completed",
+            "sequence": 4,
+            "provider_event_id": "",
+            "input_tokens": 1200,
+            "cached_input_tokens": 800,
+            "output_tokens": 340,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex/resume_replay",
+      "path": "codex/resume_replay.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "reconstructed_from_pilot_record",
+      "provenance": "pilot Finding 3: exec resume <SESSION_ID> returned a matching thread_id. Byte-identical to turn_success on purpose, so a resume that replays the same events proves the substrate's deterministic dedupe rather than double counting.",
+      "redaction_review": "clean",
+      "sha256": "05d074c5a89aba430f4499a5f4eba1d9794f65ced7b3c43bf1e9dd7c80563e1d",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+        "event_classes": [
+          "session_started",
+          "progress",
+          "tool_activity",
+          "tool_activity",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "turn.completed",
+            "sequence": 4,
+            "provider_event_id": "",
+            "input_tokens": 1200,
+            "cached_input_tokens": 800,
+            "output_tokens": 340,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex/turn_failed",
+      "path": "codex/turn_failed.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "inferred_unverified",
+      "provenance": "NOT OBSERVED. The pilot never captured a Codex failure stream, so turn.failed is taken from provider documentation. Capability.FAILURE_EVENT_MAPPING is declared UNMEASURED for Codex precisely because of this fixture.",
+      "redaction_review": "clean: generic error text, no account or model entitlement detail",
+      "sha256": "aa7dc3a0cadf239b9bb17bacdfc86dab6b36880d7c6bbb70e3b39c4738c4e510",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "02ab77c1-4d5e-7f80-9a12-3b4c5d6e7f80",
+        "event_classes": [
+          "session_started",
+          "progress",
+          "provider_reported_failure"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": true,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": []
+      }
+    },
+    {
+      "name": "codex/truncated_no_completion",
+      "path": "codex/truncated_no_completion.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a stream cut off mid-tool-call, the exact shape produced by the orphaning kill measured in pilot Finding 4. Absence of a completion marker must never read as completion.",
+      "redaction_review": "clean",
+      "sha256": "190520444531aa74032653e0b7cffd72954f3ba353531bb83c58c01603289455",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+        "event_classes": [
+          "session_started",
+          "progress",
+          "tool_activity"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": []
+      }
+    },
+    {
+      "name": "codex/drift_unknown_event",
+      "path": "codex/drift_unknown_event.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: two plausible future Codex event types Soma has never seen",
+      "redaction_review": "clean",
+      "sha256": "22c9e3a884a065fea5e4fe474f8070f33abaf4b171b0b43ee41c95ea8c63098c",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+        "event_classes": [
+          "session_started",
+          "unknown",
+          "unknown"
+        ],
+        "provider_reported_completion": false,
+        "provider_reported_failure": false,
+        "unknown_event_count": 2,
+        "malformed_line_count": 0,
+        "usage": []
+      }
+    },
+    {
+      "name": "codex/conflicting_identity",
+      "path": "codex/conflicting_identity.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: two thread.started events with different thread ids in one stream",
+      "redaction_review": "clean",
+      "sha256": "4a3e3de4dcdf5c3ca77a55e022da4cb5a7aa4aae998b81784876fcacfc354b87",
+      "expected": {
+        "identity_outcome": "conflicting",
+        "native_session_id": "",
+        "observed_identities": [
+          "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+          "02ab77c1-4d5e-7f80-9a12-3b4c5d6e7f80"
+        ],
+        "event_classes": [
+          "session_started",
+          "session_started",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "turn.completed",
+            "sequence": 2,
+            "provider_event_id": "",
+            "input_tokens": 10,
+            "cached_input_tokens": null,
+            "output_tokens": 5,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex/missing_identity",
+      "path": "codex/missing_identity.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a Codex stream with no thread.started event",
+      "redaction_review": "clean",
+      "sha256": "a39f6e52d4b2c319d921eb00deeee4d2b3fe25a86ec967f2c581a3690133074d",
+      "expected": {
+        "identity_outcome": "missing",
+        "native_session_id": "",
+        "event_classes": [
+          "progress",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 0,
+        "usage": [
+          {
+            "event_kind": "turn.completed",
+            "sequence": 1,
+            "provider_event_id": "",
+            "input_tokens": 10,
+            "cached_input_tokens": null,
+            "output_tokens": 5,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "codex/malformed_line",
+      "path": "codex/malformed_line.jsonl",
+      "provider": "codex",
+      "protocol_id": "codex.exec_json",
+      "protocol_version": "2026-07-26",
+      "capture_kind": "synthetic_drift_probe",
+      "provenance": "constructed for this gate: a truncated JSON line between two readable events",
+      "redaction_review": "clean",
+      "sha256": "46ccb38fb8e9f4c068433c52902187e6e419ad0863cef122ab62bd0bc6110722",
+      "expected": {
+        "identity_outcome": "resolved",
+        "native_session_id": "019fa061-8c3d-7a41-9e52-6b1f4d8a20c7",
+        "event_classes": [
+          "session_started",
+          "malformed",
+          "provider_reported_completion"
+        ],
+        "provider_reported_completion": true,
+        "provider_reported_failure": false,
+        "unknown_event_count": 0,
+        "malformed_line_count": 1,
+        "usage": [
+          {
+            "event_kind": "turn.completed",
+            "sequence": 2,
+            "provider_event_id": "",
+            "input_tokens": 42,
+            "cached_input_tokens": null,
+            "output_tokens": 7,
+            "total_tokens": null,
+            "provider_reported_cost_usd": null
+          }
+        ]
+      }
+    }
+  ]
+}
