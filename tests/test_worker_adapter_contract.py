@@ -110,6 +110,17 @@ def test_fixture_hash_is_pinned(name):
 
 
 @pytest.mark.parametrize("name", ALL_FIXTURES)
+def test_fixture_bytes_are_not_line_ending_rewritten(name):
+    """A checkout that rewrites these bytes invalidates every pinned hash.
+
+    This repository runs with ``core.autocrlf=true``, so the fixture directory is
+    marked ``-text`` in ``.gitattributes``. This test fails if that protection is
+    ever removed, which is a far clearer signal than eighteen hash mismatches.
+    """
+    assert b"\r" not in load_manifest()[name].full_path.read_bytes()
+
+
+@pytest.mark.parametrize("name", ALL_FIXTURES)
 def test_fixture_declares_provenance_and_redaction(name):
     record = load_manifest()[name]
     manifest = json.loads(fixtures_module.MANIFEST_PATH.read_text(encoding="utf-8"))

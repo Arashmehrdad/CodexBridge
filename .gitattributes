@@ -1,0 +1,11 @@
+# Content-addressed data must never be rewritten by Git.
+#
+# The V3-1A protocol fixtures are pinned by sha256 in
+# soma/worker_adapters/fixtures/manifest.json. This repository is used with
+# core.autocrlf=true, so without this rule a fresh checkout would rewrite every
+# fixture's line endings and invalidate every pinned hash.
+#
+# "-text" disables end-of-line conversion entirely for these paths. It is
+# deliberately scoped to the fixture directory so no existing file changes
+# behaviour.
+soma/worker_adapters/fixtures/** -text
