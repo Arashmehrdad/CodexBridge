@@ -6,7 +6,7 @@ Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The P
 
 The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains the only active lane, but product implementation is paused at `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`. No later V3 outcome is active.
 
-The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md).
+The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
 Historical records:
 
@@ -46,6 +46,13 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Validation should be proportional to risk: focused evidence first, adjacent regression coverage next, and broader gates when the change can affect the whole runtime.
 - Only the explicitly active V3 lane may change product behavior. Later V3 outcomes remain out of scope until separately activated.
 - V3 uses progressive lifecycle convergence: generic execution responsibilities converge into canonical Task → Run as each lane touches them; irreducible domain facts remain with their domains.
+- V3 uses hierarchical intelligence with delegated judgment: parents define purpose, authority, constraints, success, escalation, and reporting boundaries; capable children choose methods and escalate exceptions.
+- Role, Agent identity, Assignment, Session, and Execution are distinct identities. Providers, models, accounts, conversations, and processes remain replaceable.
+- Authority, collaboration, execution ownership, and resource capability are four linked but non-interchangeable graphs.
+- Every active work item has exactly one accountable owner, and ownership transfer is atomic.
+- Mandates are immutable, content-addressed, versioned, lineage-bound, and cannot grant authority or concrete capability the issuer does not possess.
+- Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
+- Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
 
 ## Completed Lane: STABILIZE-1
 
