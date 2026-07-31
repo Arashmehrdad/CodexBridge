@@ -1966,40 +1966,23 @@ def test_preview_supports_line_range_replacement(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     write_file(repo / "ranges.py", "one\nold\nthree\n")
     sha = sha256_file(repo / "ranges.py")
+    operation = {
+        "path": "ranges.py",
+        "expected_sha256": sha,
+        "type": "replace_lines",
+        "start_line": 2,
+        "end_line": 2,
+        "expected_old_text": "old\n",
+        "new_text": "new\n",
+    }
 
-    preview = preview_repo_patch(
-        repo,
-        [
-            {
-                "path": "ranges.py",
-                "expected_sha256": sha,
-                "type": "replace_lines",
-                "start_line": 2,
-                "end_line": 2,
-                "new_text": "new\n",
-            }
-        ],
-        runs,
-    )
+    preview = preview_repo_patch(repo, [operation], runs)
 
     assert preview["ok"] is True
-    applied = apply_repo_patch(
-        repo,
-        [
-            {
-                "path": "ranges.py",
-                "expected_sha256": sha,
-                "type": "replace_lines",
-                "start_line": 2,
-                "end_line": 2,
-                "new_text": "new\n",
-            }
-        ],
-        preview["patch_id"],
-        runs,
-    )
+    applied = apply_repo_patch(repo, [operation], preview["patch_id"], runs)
     assert applied["ok"] is True
     assert (repo / "ranges.py").read_text(encoding="utf-8") == "one\nnew\nthree\n"
+
 
 
 def test_preview_supports_exact_text_lf_anchor_against_crlf_file(
