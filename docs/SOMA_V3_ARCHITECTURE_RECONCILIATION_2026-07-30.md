@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-RECONCILIATION-1 — Architecture Review Reconciliation
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted final reconciliation; final consistency-audit corrections incorporated; V3-1A activated separately through `PLANS.md`.
+**Status:** owner-accepted reconciliation amended by the 2026-07-31 organisational contract and interaction-foundation architecture hold; sequencing remains controlled through `PLANS.md`.
 **Decision level:** C — V3 sequencing, lifecycle authority and implementation-boundary decision.  
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)  
 **Repository basis:** branch `lane/memory-integration-foundation-1`; architecture commit `510b9fa0e17c2ff4c188e3d4b7c32159833f4081`.
@@ -51,7 +51,11 @@ The accepted provider pilot is evidence that native provider capabilities exist.
 Therefore the roadmap begins with:
 
 ```text
-V3-1a interactive worker substrate
+hierarchical-intelligence organisational contract
+        ↓
+adversarial interaction-foundation review
+        ↓
+smallest durable interactive worker substrate
         ↓
 V3-1b kernel of one
         ↓
@@ -59,6 +63,8 @@ role-scoped worker capability broker
         ↓
 collaboration and temporary organisation
 ```
+
+The owner-accepted authority is [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md).
 
 ## 4. Owner decision — progressive lifecycle convergence
 
@@ -222,4 +228,4 @@ The following remain lane-specific decisions rather than implied activation:
 
 Arash explicitly activated `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`. Its authoritative lane contract is [`V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md).
 
-Activation authorises bounded product implementation and proportionate validation for V3-1A only. It does not authorise production use of an unfinished worker path, V3-1B, direct worker Soma MCP access, provider subscriptions, deployment, customer contact, scheduled autonomy, unrelated cleanup, or push.
+The active package is the documentation-only [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md). Interaction product implementation is paused until independent acceptance and explicit reactivation through `PLANS.md`.
