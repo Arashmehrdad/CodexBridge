@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `REPO-DOCUMENT-EDITING-1` is accepted and closed. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` returns to the documentation-only `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`; product implementation remains paused and no later V3 outcome is active.
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `REPO-DOCUMENT-EDITING-1` first batch is accepted; its bounded history-hygiene second batch is active by owner instruction. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains paused at the documentation-only `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`, and no later V3 outcome is active.
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
@@ -54,9 +54,9 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
 - Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
 
-## Completed Corrective Lane: REPO-DOCUMENT-EDITING-1
+## Active Corrective Lane: REPO-DOCUMENT-EDITING-1 — History Hygiene
 
-**Status:** accepted and closed on 2026-07-31. The authoritative result is [`docs/REPO_DOCUMENT_EDITING_1_RESULT_2026-07-31.md`](docs/REPO_DOCUMENT_EDITING_1_RESULT_2026-07-31.md). V3-1A product implementation remains paused, and the documentation-only interaction-foundation architecture review is active again.
+**Status:** first batch accepted on 2026-07-31; bounded second batch active by explicit owner instruction. The first-batch result remains [`docs/REPO_DOCUMENT_EDITING_1_RESULT_2026-07-31.md`](docs/REPO_DOCUMENT_EDITING_1_RESULT_2026-07-31.md). V3-1A product implementation and its architecture review remain paused until this second batch closes.
 
 **Goal:** make the existing repository write surface safe and practical for coherent documentation changes, and close the proven browser-pulse handoff deadlock without broadening into the autonomous-company implementation.
 
@@ -74,9 +74,19 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Do not resume V3-1A interaction implementation, launch provider agents, or change unrelated runtime authority.
 - Preserve unrelated work and do not push.
 
-### Acceptance
+### First-batch acceptance
 
-The batch is accepted: 109 focused tests and 77 adjacent server/payload tests passed; unsafe line-range cases reject deterministically; hash-bound whole-file replacement preserves explicit newline policy; the worktree closed clean; and all changes were locally committed with no push.
+The first batch is accepted: 109 focused tests and 77 adjacent server/payload tests passed; unsafe line-range cases reject deterministically; hash-bound whole-file replacement preserves explicit newline policy; the worktree closed clean; and all changes were locally committed with no push.
+
+### Active second batch
+
+1. Add an explicit `commit_mode` to managed apply, revert, cleanup, and move operations while preserving `auto` as the compatibility default.
+2. In `manual` mode, apply safely to the worktree, release the run and repository lease, report the exact files still pending commit, and leave history unchanged until `repo_commit.commit_selected` is invoked.
+3. A manual apply followed by a manual revert must return to a clean tree with no commit required and no history changes.
+4. Allow create/remove previews and revert/cleanup/move applies to carry validated commit titles and descriptions for callers that retain automatic commit mode.
+5. Preserve all hash, preview, rollback, idempotency, containment, selected-file commit, and unrelated-dirty-work protections.
+
+The second batch closes only after focused schema, worker, writer, server, discovery, and transaction tests pass, including an exact zero-commit apply/revert shakedown.
 
 ## Completed Lane: STABILIZE-1
 
