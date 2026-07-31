@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane and the future durable organisation around intelligent agents. The production runtime does not yet launch or supervise coding-agent sessions. `REPO-DOCUMENT-EDITING-1` first batch is accepted; its bounded history-hygiene second batch is active. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains paused at the documentation-only interaction-foundation architecture review. Any later reference in this file to interaction commands as an active implementation package is historical and superseded.
+Soma is a local engineering control plane and the future durable organisation around intelligent agents. The production runtime does not yet launch or supervise coding-agent sessions. Both `REPO-DOCUMENT-EDITING-1` corrective batches are accepted and closed. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains paused at the active documentation-only interaction-foundation architecture review. Any later reference in this file to interaction commands as an active implementation package is historical and superseded.
 
 Target operating model:
 - ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
@@ -33,11 +33,11 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: REPO-DOCUMENT-EDITING-1 History Hygiene
+## Immediate Priority: V3-1A Interaction Foundation Architecture Review
 
-`PLANS.md` is the sole concise source of active plan truth. The active package is limited to an additive manual-commit transaction mode, accurate pending-commit reporting, and commit metadata for creation and reversal paths. Automatic commit remains the compatibility default.
+`PLANS.md` is the sole concise source of active plan truth. The active package is the documentation-only `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`; product implementation remains paused pending independent review and explicit reactivation.
 
-Do not broaden this batch into Markdown section intelligence, typed operation unions, scratch-branch orchestration, history rewriting, or V3-1A implementation. After acceptance and explicit closure, active plan truth returns to the documentation-only interaction-foundation architecture review.
+Repository editing now supports corrected handoff states, anchored line ranges, hash-bound whole-file replacement, explicit manual commit mode, exact pending-file reporting, and commit metadata for creation and reversal paths. Markdown section intelligence, typed operation unions, scratch branches, and broader editing ergonomics remain future work and are not active.
 
 `V3-1A-FOUNDATION-1`, `V3-1A-ADAPTER-CONTRACT-1`, and the complete `V3-1A-PROCESS-IDENTITY-1` corrective chain are accepted and closed after independent audits. The accepted process boundary forbids raw-PID ownership inference, distinguishes root exit from owned-tree absence, retains ownership on uncertainty, requires zero-descendant proof before terminal publication, and preserves `KILL_ON_JOB_CLOSE`, environment, publication, cancellation-ordering, and public-projection protections. The historical bounded subgate was `V3-1A-INTERACTION-COMMANDS-1`: canonical `STEER` and `SUPPLY_INPUT` task commands, persisted-before-send interaction evidence, genuinely non-terminal `AWAITING_CONTROLLER`, exact checkpoint/session identity, bounded deadlines, cancellation-wins race handling, and fail-closed delivery uncertainty through deterministic stand-in transport only. It may not launch Claude Code or Codex, use provider accounts, send live provider prompts or streams, expose Soma MCP to workers, begin V3-1B, or activate production behavior.
 
