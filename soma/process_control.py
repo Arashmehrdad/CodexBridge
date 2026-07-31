@@ -135,7 +135,8 @@ class LaunchContainmentDisposition(str, Enum):
     """What Soma can prove about a freshly created process it could not name."""
 
     IDENTITY_CAPTURED = "identity_captured"
-    STOP_CONFIRMED = "stop_confirmed"
+    ROOT_EXIT_CONFIRMED = "root_exit_confirmed"
+    TREE_EMPTY_CONFIRMED = "tree_empty_confirmed"
     STOP_UNCONFIRMED = "stop_unconfirmed"
     CLEANUP_ERROR = "cleanup_error"
 
@@ -153,7 +154,8 @@ class LaunchContainment:
     pid: int
     identity: str = ""
     kill_attempted: bool = False
-    exit_confirmed: bool = False
+    root_exit_confirmed: bool = False
+    owned_tree_empty: bool = False
     method: str = ""
     error: str = ""
 
@@ -162,11 +164,11 @@ class LaunchContainment:
         return self.disposition is LaunchContainmentDisposition.IDENTITY_CAPTURED
 
     @property
-    def stop_confirmed(self) -> bool:
-        """True only when the exact creator handle proved the root exited."""
+    def terminal_containment_proven(self) -> bool:
+        """True only when an ownership primitive proved the launch tree empty."""
         return (
-            self.disposition is LaunchContainmentDisposition.STOP_CONFIRMED
-            and self.exit_confirmed
+            self.disposition is LaunchContainmentDisposition.TREE_EMPTY_CONFIRMED
+            and self.owned_tree_empty
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -175,7 +177,9 @@ class LaunchContainment:
             "pid": self.pid,
             "identity_present": bool(self.identity),
             "kill_attempted": self.kill_attempted,
-            "exit_confirmed": self.exit_confirmed,
+            "root_exit_confirmed": self.root_exit_confirmed,
+            "owned_tree_empty": self.owned_tree_empty,
+            "terminal_containment_proven": self.terminal_containment_proven,
             "method": self.method,
             "error": self.error[:500],
         }
@@ -255,29 +259,38 @@ def contain_fresh_launch(
         except Exception as poll_exc:
             errors.append(f"poll: {poll_exc}")
 
-    if not exit_confirmed and job is not None:
+    if job is not None:
         # A Job Object established before the process ran is ownership, not
-        # inference, so it may act where a bare PID may not.
+        # inference, so it may act where a bare PID may not. Root exit does not
+        # skip this check: descendants can outlive their creator.
         try:
             job.terminate()
-            if job.is_empty():
-                return LaunchContainment(
-                    disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
-                    pid=pid,
-                    kill_attempted=kill_attempted,
-                    exit_confirmed=True,
-                    method="job_object",
-                    error="; ".join(errors)[:500],
-                )
+            deadline = time.monotonic() + max(0.0, timeout_seconds)
+            while True:
+                if job.is_empty():
+                    return LaunchContainment(
+                        disposition=LaunchContainmentDisposition.TREE_EMPTY_CONFIRMED,
+                        pid=pid,
+                        kill_attempted=kill_attempted,
+                        root_exit_confirmed=True,
+                        owned_tree_empty=True,
+                        method="job_object",
+                        error="; ".join(errors)[:500],
+                    )
+                if time.monotonic() >= deadline:
+                    errors.append("job: owned tree did not become empty before timeout")
+                    break
+                time.sleep(0.01)
         except Exception as exc:
             errors.append(f"job: {exc}")
 
     if exit_confirmed:
         return LaunchContainment(
-            disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
+            disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
             pid=pid,
             kill_attempted=kill_attempted,
-            exit_confirmed=True,
+            root_exit_confirmed=True,
+            owned_tree_empty=False,
             method="creator_handle",
             error="; ".join(errors)[:500],
         )
@@ -289,7 +302,8 @@ def contain_fresh_launch(
         ),
         pid=pid,
         kill_attempted=kill_attempted,
-        exit_confirmed=False,
+        root_exit_confirmed=False,
+        owned_tree_empty=False,
         method="creator_handle",
         error="; ".join(errors)[:500] or "exact-handle stop could not be confirmed",
     )
@@ -326,7 +340,7 @@ def identity_scoped_cleanup(
         if process is not None:
             containment = contain_fresh_launch(process, timeout_seconds=grace_seconds)
             report = containment.to_dict()
-            report["terminated"] = containment.stop_confirmed
+            report["terminated"] = containment.terminal_containment_proven
             report["ownership_proven"] = False
             return report
         return {

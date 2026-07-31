@@ -945,7 +945,7 @@ class JobWorker:
             result = self._error_result(started_at, ended_at, exc)
             containment_uncertain = (
                 isinstance(exc, LaunchIdentityUnavailable)
-                and not exc.containment.stop_confirmed
+                and not exc.containment.terminal_containment_proven
             ) or isinstance(exc, ProcessContainmentUncertain)
             progress = dict(self.store.get_run(self.run_id).get("progress") or {})
             remote_process = dict(progress.get("remote_process") or {})

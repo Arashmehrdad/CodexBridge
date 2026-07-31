@@ -564,7 +564,7 @@ def _launch_claimed_child(
         reason = f"Parallel child worker launch failed: {exc}"
         containment_uncertain = (
             isinstance(exc, LaunchIdentityUnavailable)
-            and not exc.containment.stop_confirmed
+            and not exc.containment.terminal_containment_proven
         ) or isinstance(exc, ProcessContainmentUncertain)
         if containment_uncertain:
             containment = (
@@ -818,7 +818,7 @@ def launch_powershell_group(
             reason = f"Parallel child worker launch failed: {exc}"
             containment_uncertain = (
                 isinstance(exc, LaunchIdentityUnavailable)
-                and not exc.containment.stop_confirmed
+                and not exc.containment.terminal_containment_proven
             ) or isinstance(exc, ProcessContainmentUncertain)
             if containment_uncertain:
                 containment = (

@@ -230,12 +230,13 @@ def test_parallel_initial_launch_uncertainty_remains_active(
     def refuse(process, **_kwargs):
         raise LaunchIdentityUnavailable(
             LaunchContainment(
-                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
                 pid=process.pid,
                 kill_attempted=True,
-                exit_confirmed=False,
+                root_exit_confirmed=True,
+                owned_tree_empty=False,
                 method="creator_handle",
-                error="simulated parallel wait timeout",
+                error="simulated root exit without tree proof",
             )
         )
 
@@ -431,12 +432,13 @@ def test_refill_persists_identity_and_retains_uncertain_child(
     def refuse(process, **_kwargs):
         raise LaunchIdentityUnavailable(
             LaunchContainment(
-                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
                 pid=process.pid,
                 kill_attempted=True,
-                exit_confirmed=False,
+                root_exit_confirmed=True,
+                owned_tree_empty=False,
                 method="creator_handle",
-                error="simulated refill uncertainty",
+                error="simulated refill root exit without tree proof",
             )
         )
 

@@ -10,7 +10,12 @@ import pytest
 from soma.config import AppConfig, ExecutableProfileConfig, RepoConfig
 from soma.executable_profiles import build_local_executable_run_request
 from soma.job_worker import JobWorker
-from soma.process_control import ProcessContainmentUncertain
+from soma.process_control import (
+    LaunchContainment,
+    LaunchContainmentDisposition,
+    LaunchIdentityUnavailable,
+    ProcessContainmentUncertain,
+)
 from soma.run_store import RunStore, utc_now
 
 
@@ -276,6 +281,46 @@ def test_executable_worker_propagates_unconfirmed_attachment_cleanup(
 
     with pytest.raises(ProcessContainmentUncertain):
         worker._execute_executable_profile(utc_now(), input_data)
+
+
+def test_executable_child_root_exit_without_tree_proof_remains_recovery_pending(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worker, store, _input_data, _run_dir = _make_worker(
+        tmp_path,
+        argv=["-c", "print('unused')"],
+    )
+    worker.repository_lock_required = False
+
+    class FakeProcess:
+        pid = 43213
+        stdin = None
+        stdout = None
+        stderr = None
+
+    monkeypatch.setattr(
+        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+    )
+
+    def refuse(process, **_kwargs):
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                root_exit_confirmed=True,
+                owned_tree_empty=False,
+                method="creator_handle",
+            )
+        )
+
+    monkeypatch.setattr("soma.job_worker.capture_launch_identity", refuse)
+
+    assert worker.execute() == 1
+    run = store.get_run(worker.run_id)
+    assert run["status"] == "recovery_pending"
+    assert run["result"] == {}
+    assert run["result_publication_status"] != "published"
 
 
 def test_executable_worker_marks_verified_timeout_termination(

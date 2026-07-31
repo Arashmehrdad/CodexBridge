@@ -7,6 +7,7 @@ KILL_ON_JOB_CLOSE crash policy, deterministic ordering, and public projections.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -33,6 +34,8 @@ from soma.worker_process import containment as containment_module
 
 from test_job_manager import make_manager
 from test_worker_process_identity import IS_WINDOWS, bound as _bound_fixture  # noqa: F401
+
+_REAL_POPEN = subprocess.Popen
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +118,52 @@ class _FakeHandle:
         return 1
 
 
+def _escaped_descendant_command(tmp_path: Path) -> tuple[list[str], Path]:
+    marker = tmp_path / "escaped-child.pid"
+    child_script = tmp_path / "escaped_child.py"
+    child_script.write_text(
+        "import os, pathlib, sys, time\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding='utf-8')\n"
+        "time.sleep(4)\n",
+        encoding="utf-8",
+    )
+    root_script = tmp_path / "escaped_root.py"
+    root_script.write_text(
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    return [sys.executable, str(root_script), str(child_script), str(marker)], marker
+
+
+def _spawn_root_with_short_lived_descendant(
+    tmp_path: Path,
+) -> tuple[subprocess.Popen, Path]:
+    command, marker = _escaped_descendant_command(tmp_path)
+    return _REAL_POPEN(command), marker
+
+
+def _wait_for_marker_then_refuse_identity(marker: Path):
+    def refuse(_pid: int | None) -> str:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "escaped descendant did not report readiness"
+        return ""
+
+    return refuse
+
+
+def _wait_for_natural_exit(pid: int, timeout_seconds: float = 15) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while process_is_running(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not process_is_running(pid), (
+        "short-lived escaped child did not exit naturally"
+    )
+
+
 def test_capture_launch_identity_contains_a_process_it_cannot_name(monkeypatch):
     import soma.process_control as pc
 
@@ -125,7 +174,76 @@ def test_capture_launch_identity_contains_a_process_it_cannot_name(monkeypatch):
     # Stopped through the exact handle, not by PID inference.
     assert handle.killed == 1
     assert handle.waited == 1
-    assert raised.value.containment.stop_confirmed is True
+    assert raised.value.containment.root_exit_confirmed is True
+    assert raised.value.containment.owned_tree_empty is False
+    assert raised.value.containment.terminal_containment_proven is False
+
+
+def test_root_exit_does_not_prove_an_escaped_descendant_absent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import soma.process_control as pc
+
+    process, marker = _spawn_root_with_short_lived_descendant(tmp_path)
+    raw_pid_terminations: list[int] = []
+    monkeypatch.setattr(
+        pc, "process_identity", _wait_for_marker_then_refuse_identity(marker)
+    )
+    monkeypatch.setattr(
+        pc,
+        "terminate_process_tree",
+        lambda pid, **_kwargs: raw_pid_terminations.append(int(pid)),
+    )
+    child_pid = 0
+    try:
+        with pytest.raises(LaunchIdentityUnavailable) as raised:
+            pc.capture_launch_identity(process)
+        child_pid = int(marker.read_text(encoding="utf-8"))
+        containment = raised.value.containment
+        assert containment.root_exit_confirmed is True
+        assert containment.owned_tree_empty is False
+        assert containment.terminal_containment_proven is False
+        assert process.poll() is not None
+        assert process_is_running(child_pid)
+        assert raw_pid_terminations == []
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=30)
+        if child_pid:
+            _wait_for_natural_exit(child_pid)
+
+
+@pytest.mark.skipif(not IS_WINDOWS, reason="kernel job membership")
+def test_preestablished_job_empty_proof_is_terminal_safe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import soma.process_control as pc
+
+    command, marker = _escaped_descendant_command(tmp_path)
+    process, job = containment_module.launch_contained(
+        command,
+        job_name=f"Local\\soma-descendant-proof-{time.time_ns()}",
+    )
+    monkeypatch.setattr(
+        pc, "process_identity", _wait_for_marker_then_refuse_identity(marker)
+    )
+    try:
+        with pytest.raises(LaunchIdentityUnavailable) as raised:
+            pc.capture_launch_identity(process, job=job)
+        child_pid = int(marker.read_text(encoding="utf-8"))
+        containment = raised.value.containment
+        assert containment.root_exit_confirmed is True
+        assert containment.owned_tree_empty is True
+        assert containment.terminal_containment_proven is True
+        assert containment.method == "job_object"
+        assert job.is_empty()
+        assert not process_is_running(child_pid)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=30)
+        job.close()
 
 
 def test_identity_capture_failure_never_acts_on_reused_pid(monkeypatch):
@@ -170,7 +288,8 @@ def test_identity_capture_failure_never_acts_on_reused_pid(monkeypatch):
     evidence = contain_fresh_launch(handle, timeout_seconds=0)
 
     assert evidence.disposition is LaunchContainmentDisposition.CLEANUP_ERROR
-    assert evidence.stop_confirmed is False
+    assert evidence.root_exit_confirmed is False
+    assert evidence.terminal_containment_proven is False
     assert handle.killed == 1
     assert handle.waited == 1
     assert raw_pid_calls == []
@@ -217,7 +336,8 @@ def test_launcher_identity_failure_leaves_no_healthy_attachment(
                 disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
                 pid=process.pid,
                 kill_attempted=True,
-                exit_confirmed=False,
+                root_exit_confirmed=False,
+                owned_tree_empty=False,
                 method="creator_handle",
                 error="simulated wait timeout",
             )
@@ -234,7 +354,7 @@ def test_launcher_identity_failure_leaves_no_healthy_attachment(
     assert manager.locks.find_lock("sample", response["run_id"]) is not None
 
 
-def test_confirmed_identity_capture_failure_remains_terminal_and_releases_lock(
+def test_root_only_identity_capture_failure_retains_lock_and_awaits_recovery(
     tmp_path: Path, monkeypatch
 ):
     manager = make_manager(tmp_path, monkeypatch)
@@ -242,10 +362,11 @@ def test_confirmed_identity_capture_failure_remains_terminal_and_releases_lock(
     def refuse(process, **_kwargs):
         raise LaunchIdentityUnavailable(
             LaunchContainment(
-                disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
+                disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
                 pid=process.pid,
                 kill_attempted=True,
-                exit_confirmed=True,
+                root_exit_confirmed=True,
+                owned_tree_empty=False,
                 method="creator_handle",
             )
         )
@@ -254,9 +375,56 @@ def test_confirmed_identity_capture_failure_remains_terminal_and_releases_lock(
     response = manager.start_git_readonly("sample", "status")
     run = manager.store.get_run(response["run_id"])
 
-    assert response["status"] == "failed"
-    assert run["status"] == "failed"
-    assert manager.locks.find_lock("sample", response["run_id"]) is None
+    assert response["status"] == "recovery_pending"
+    assert run["status"] == "recovery_pending"
+    assert run["result"] == {}
+    assert run["result_publication_status"] != "published"
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+
+
+def test_job_manager_root_exit_with_live_descendant_stays_recovery_pending(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import soma.process_control as pc
+
+    manager = make_manager(tmp_path, monkeypatch)
+    marker = tmp_path / "escaped-child.pid"
+
+    def spawn_worker(_run_id: str, _lease_token: str):
+        return _spawn_root_with_short_lived_descendant(tmp_path)[0]
+
+    monkeypatch.setattr(manager, "_spawn_worker", spawn_worker)
+    monkeypatch.setattr(
+        pc,
+        "process_identity",
+        _wait_for_marker_then_refuse_identity(marker),
+    )
+    monkeypatch.setattr(
+        job_manager_module, "capture_launch_identity", capture_launch_identity
+    )
+    raw_pid_terminations: list[int] = []
+    monkeypatch.setattr(
+        pc,
+        "terminate_process_tree",
+        lambda pid, **_kwargs: raw_pid_terminations.append(int(pid)),
+    )
+
+    child_pid = 0
+    try:
+        response = manager.start_git_readonly("sample", "status")
+        run = manager.store.get_run(response["run_id"])
+        assert marker.exists(), str(run.get("error") or response)
+        child_pid = int(marker.read_text(encoding="utf-8"))
+        assert response["status"] == "recovery_pending"
+        assert run["status"] == "recovery_pending"
+        assert run["result"] == {}
+        assert run["result_publication_status"] != "published"
+        assert manager.locks.find_lock("sample", response["run_id"]) is not None
+        assert process_is_running(child_pid)
+        assert raw_pid_terminations == []
+    finally:
+        if child_pid:
+            _wait_for_natural_exit(child_pid)
 
 
 def test_recovery_relaunch_uncertainty_retains_lease_and_lock(
@@ -272,12 +440,13 @@ def test_recovery_relaunch_uncertainty_retains_lease_and_lock(
     def refuse(process, **_kwargs):
         raise LaunchIdentityUnavailable(
             LaunchContainment(
-                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                disposition=LaunchContainmentDisposition.ROOT_EXIT_CONFIRMED,
                 pid=process.pid,
                 kill_attempted=True,
-                exit_confirmed=False,
+                root_exit_confirmed=True,
+                owned_tree_empty=False,
                 method="creator_handle",
-                error="simulated recovery wait timeout",
+                error="simulated recovery root exit without tree proof",
             )
         )
 
@@ -348,6 +517,74 @@ def test_publication_failure_after_termination_is_reported_honestly(
     again = manager.cancel_run(run_id)
     assert again["ok"] is True
     assert manager.get_status(run_id)["status"] == "cancelled"
+
+
+def test_zero_process_cancellation_retries_real_atomic_publication_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_git_readonly("sample", "status")
+    run_id = response["run_id"]
+    manager.store.update_run(
+        run_id,
+        pid=0,
+        child_identity="",
+        worker_pid=0,
+        worker_identity="",
+        launcher_pid=0,
+        launcher_identity="",
+    )
+
+    from soma import run_publication
+
+    real_atomic_write_json = run_publication.atomic_write_json
+    write_attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts == 1:
+            raise OSError("simulated integrated publication failure")
+        return real_atomic_write_json(*args, **kwargs)
+
+    monkeypatch.setattr(run_publication, "atomic_write_json", fail_once)
+    terminations: list[int] = []
+    monkeypatch.setattr(
+        job_manager_module,
+        "terminate_process_tree",
+        lambda pid, **_kwargs: terminations.append(int(pid)),
+    )
+
+    first = manager.cancel_run(run_id)
+    failed = manager.store.get_run(run_id)
+    authoritative_result = json.loads(json.dumps(failed["result"], sort_keys=True))
+    source_hash = failed["public_result_source_sha256"]
+
+    assert first["cancelled"] is True
+    assert first["termination_confirmed"] is True
+    assert first["publication_ok"] is False
+    assert failed["status"] == "cancelled"
+    assert failed["result_publication_status"] == "failed"
+    assert manager.locks.find_lock("sample", run_id) is None
+    assert terminations == []
+
+    second = manager.cancel_run(run_id)
+    published = manager.store.get_run(run_id)
+    third = manager.cancel_run(run_id)
+
+    assert second["publication_ok"] is True
+    assert second["ok"] is True
+    assert third["ok"] is True
+    assert published["result"] == authoritative_result
+    assert published["public_result_source_sha256"] == source_hash
+    assert (
+        json.loads(
+            (Path(published["run_dir"]) / "result.json").read_text(encoding="utf-8")
+        )
+        == authoritative_result
+    )
+    assert terminations == []
+    assert write_attempts == 2
 
 
 # ---------------------------------------------------------------------------

@@ -1038,7 +1038,7 @@ class JobManager:
                         )
                         if (
                             isinstance(exc, LaunchIdentityUnavailable)
-                            and exc.containment.stop_confirmed
+                            and exc.containment.terminal_containment_proven
                         ):
                             self._fail_recovery(
                                 current,
@@ -2409,7 +2409,7 @@ class JobManager:
             reason = f"Worker launch failed after durable acceptance: {exc}"
             containment_uncertain = (
                 isinstance(exc, LaunchIdentityUnavailable)
-                and not exc.containment.stop_confirmed
+                and not exc.containment.terminal_containment_proven
             ) or isinstance(exc, ProcessContainmentUncertain)
             if run_created:
                 current = self.store.get_run(run_id)
