@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-1 — Autonomous Company Architecture
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted final architecture after red-team, repository-feasibility review, reconciliation, and consistency audit; V3-1A is activated separately through `PLANS.md`.
+**Status:** owner-accepted architecture amended by the 2026-07-31 hierarchical-intelligence organisational contract; sequencing remains controlled through `PLANS.md`.
 **Decision level:** C — foundational company authority, autonomy, safety and product-direction boundary.  
 **Owner:** Arash.  
 **Executive design authority:** ChatGPT/Cortana, subject to owner approval and the review process below.  
@@ -34,6 +34,8 @@ CRM, finance, billing, analytics, workspace, creative and live interaction
 ```
 
 Soma remains the canonical authority. External systems retain authority only for their specialist records. Workers reason, propose and execute bounded assignments; they do not become the durable company.
+
+[`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md) is authoritative for organisational identity, delegated judgment, accountable ownership, mandates, message semantics, resource capability, technical supervision, revocation, and substantive acceptance.
 
 ## 2. North star
 
@@ -153,6 +155,26 @@ domain-specific records remain explicit
 ```
 
 A broad abstract cleanup lane is rejected. So is using compatibility as a reason to make duplicate generic authorities permanent.
+
+### 4.12 Hierarchical intelligence
+
+Authorities define purpose, scope, constraints, delegated authority, success, escalation, and reporting boundaries. Capable child agents choose methods and escalate exceptions.
+
+### 4.13 Stable authority and adaptive collaboration
+
+Authority remains durable and typed while collaboration may form task-specific peer, specialist, and temporary-subagent relationships. Single-agent execution remains the default.
+
+### 4.14 Distinct identities and authorities
+
+Role, Agent identity, Assignment, Session, and Execution remain separate. Logical direction, substantive acceptance, technical supervision, and concrete resource capability are linked but non-interchangeable.
+
+### 4.15 Accountable ownership and mandates
+
+Every active work item has exactly one accountable owner; transfer is atomic. Delegation uses immutable, content-addressed, versioned mandates constrained by the issuer’s delegable authority and concrete grants.
+
+### 4.16 Revocation and acceptance
+
+Revocation and cancellation stop new authorised actions from one durable transition without pretending existing activity has stopped. Soma proves procedural and operational prerequisites; named acceptance authorities judge substantive correctness.
 
 ## 5. Evidence classes
 
