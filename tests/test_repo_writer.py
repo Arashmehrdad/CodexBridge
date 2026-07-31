@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from soma import repo_writer as rw
+from soma.job_worker import JobWorker
 from soma.repo_writer import (
     preview_repo_patch,
     preview_repo_file_creation,
@@ -1284,6 +1285,117 @@ def test_apply_previewed_repo_change_rejects_changed_git_head_for_modify(
 
     with pytest.raises(ValueError, match="Git HEAD has changed since preview"):
         apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_create_and_remove_previews_bind_commit_metadata(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    created = preview_repo_file_creation(
+        repo,
+        "created.md",
+        "hello\n",
+        runs,
+        commit_title="Create research note",
+        commit_description="Reviewed creation",
+    )
+    write_file(repo / "removed.md", "old\n")
+    removed = preview_repo_file_removal(
+        repo,
+        "removed.md",
+        sha256_file(repo / "removed.md"),
+        runs,
+        commit_title="Remove obsolete note",
+        commit_description="Reviewed removal",
+    )
+
+    assert created["commit_title"] == "Create research note"
+    assert "Reviewed creation" in created["commit_description"]
+    assert f"Preview-ID: {created['patch_id']}" in created["commit_description"]
+    assert removed["commit_title"] == "Remove obsolete note"
+    assert "Reviewed removal" in removed["commit_description"]
+    assert f"Preview-ID: {removed['patch_id']}" in removed["commit_description"]
+
+    created_manifest = json.loads(
+        (
+            runs
+            / "managed_patches"
+            / created["patch_id"]
+            / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    removed_manifest = json.loads(
+        (
+            runs
+            / "managed_patches"
+            / removed["patch_id"]
+            / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert created_manifest["commit_title"] == "Create research note"
+    assert removed_manifest["commit_title"] == "Remove obsolete note"
+
+
+def test_manual_apply_then_revert_preserves_head_and_clean_tree(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    init_git_repo(repo)
+    write_file(repo / "baseline.txt", "baseline\n")
+    commit_all(repo, "baseline")
+    runs = tmp_path / "runs"
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    preview = preview_repo_file_creation(
+        repo,
+        "probe.md",
+        "سلام — disposable ✓\n",
+        runs,
+        commit_title="Disposable probe",
+    )
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    pending = JobWorker._manual_commit_data(
+        repo, applied["changed_files"], operation="previewed_change"
+    )
+
+    assert pending["commit_required"] is True
+    assert pending["pending_commit_files"] == ["probe.md"]
+    assert subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == head_before
+
+    reverted = revert_managed_patch(repo, preview["patch_id"], runs)
+    clean = JobWorker._manual_commit_data(
+        repo, reverted["changed_files"], operation="revert"
+    )
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    status_after = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert clean["commit_required"] is False
+    assert clean["pending_commit_files"] == []
+    assert head_after == head_before
+    assert status_after == ""
+    assert not (repo / "probe.md").exists()
 
 
 def test_preview_and_apply_creation_then_revert(tmp_path: Path) -> None:

@@ -359,7 +359,12 @@ def test_flat_repo_apply_previewed_change_model_validation() -> None:
     """Validate the apply payload shape without performing a mutation."""
     schema = _discovered_actions()["repo_apply"]["inputSchema"]
     previewed = _branch(schema, "previewed_change")
-    assert set(previewed["properties"]) == {"operation", "repo_name", "patch_id"}
+    assert set(previewed["properties"]) == {
+        "operation",
+        "repo_name",
+        "patch_id",
+        "commit_mode",
+    }
     assert set(previewed["required"]) == {"operation", "repo_name", "patch_id"}
 
     flat = {"operation": "previewed_change", "repo_name": "soma", "patch_id": "patch_1"}
@@ -368,6 +373,11 @@ def test_flat_repo_apply_previewed_change_model_validation() -> None:
         normalize_gateway_arguments(flat)
     )
     assert model.patch_id == "patch_1"
+    assert model.commit_mode == "auto"
+
+    manual = {**flat, "commit_mode": "manual"}
+    Draft202012Validator(previewed).validate(manual)
+    assert RepoPreviewedChangeApply.model_validate(manual).commit_mode == "manual"
 
 
 def test_flat_knowledge_query_read_wiki(live_tools) -> None:

@@ -1194,9 +1194,19 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
     assert adapters["preview"].validate_python(
         {"operation": "remove_file", "repo_name": "repo", "path": "x.py", "expected_sha256": "a" * 64}
     ).path == "x.py"
-    assert adapters["apply"].validate_python(
+    default_apply = adapters["apply"].validate_python(
         {"operation": "previewed_change", "repo_name": "repo", "patch_id": "patch_1"}
-    ).patch_id == "patch_1"
+    )
+    assert default_apply.patch_id == "patch_1"
+    assert default_apply.commit_mode == "auto"
+    assert adapters["apply"].validate_python(
+        {
+            "operation": "previewed_change",
+            "repo_name": "repo",
+            "patch_id": "patch_1",
+            "commit_mode": "manual",
+        }
+    ).commit_mode == "manual"
     assert adapters["commit"].validate_python(
         {"operation": "commit_selected", "repo_name": "repo", "files": ["x.py"], "title": "fix: x"}
     ).title == "fix: x"

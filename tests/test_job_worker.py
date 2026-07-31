@@ -303,7 +303,68 @@ def test_repo_apply_worker_persists_successful_commit_as_completed(
     assert result["process_success"] is True
     assert result["classification"] == "success"
     assert result["commit_hash"] == "a" * 40
+    assert result["commit_mode"] == "auto"
     assert persisted["safety_failure"] is False
+
+
+def test_repo_apply_worker_manual_mode_defers_commit(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260731T000000Z_repo_apply_manual0"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="repo_apply",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "operation": "previewed_change",
+            "patch_id": "20260731T000000Z_patch_manual00",
+            "commit_mode": "manual",
+        },
+    )
+    monkeypatch.setattr(
+        "soma.job_worker.repo_writer.apply_previewed_repo_change",
+        lambda _repo_root, patch_id, _runs_dir: {
+            "ok": True,
+            "patch_id": patch_id,
+            "changed_files": ["updated.py"],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        "soma.job_worker.git_tools.changed_files",
+        lambda _repo_root: ["updated.py"],
+    )
+    monkeypatch.setattr(
+        JobWorker,
+        "_finalize_commit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("manual mode must not commit")
+        ),
+    )
+    monkeypatch.setattr(
+        "soma.job_worker.mark_repo_wiki_stale",
+        lambda *_args, **_kwargs: {"ok": True, "stale": True},
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 0
+    result = store.get_run(run_id)["result"]
+    assert result["status"] == "completed"
+    assert result["commit_mode"] == "manual"
+    assert result["commit_required"] is True
+    assert result["commit_attempted"] is False
+    assert result["pending_commit_files"] == ["updated.py"]
+    assert result["commit_result"]["status"] == "deferred"
 
 
 def test_terminal_database_record_is_not_stranded_by_legacy_artifact_writer_failure(

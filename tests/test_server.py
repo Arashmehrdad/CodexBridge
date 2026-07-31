@@ -1693,12 +1693,43 @@ def test_repo_apply_returns_durable_compact_ack(monkeypatch) -> None:
 
     assert result["accepted"] is True
     assert result["transaction_id"] == "run_apply_1"
+    assert result["commit_mode"] == "auto"
     assert result["polling"]["request"] == {
         "operation": "control",
         "run_id": "run_apply_1",
     }
     assert result["evidence"]["request"]["operation"] == "terminal"
     assert result["response_bytes"] <= 4 * 1024
+
+
+def test_repo_apply_forwards_manual_commit_mode(monkeypatch) -> None:
+    class Manager:
+        def start_repo_apply(self, repo_name, operation, payload):
+            assert repo_name == "repo"
+            assert operation == "previewed_change"
+            assert payload == {"patch_id": "patch_1", "commit_mode": "manual"}
+            return {
+                "accepted": True,
+                "status": "queued",
+                "run_id": "run_apply_manual",
+                "repo_name": "repo",
+            }
+
+    monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
+    request = TypeAdapter(RepoApplyRequest).validate_python(
+        {
+            "operation": "previewed_change",
+            "repo_name": "repo",
+            "patch_id": "patch_1",
+            "commit_mode": "manual",
+        }
+    )
+
+    result = server.repo_apply(request)
+
+    assert result["accepted"] is True
+    assert result["commit_mode"] == "manual"
+    assert result["transaction_id"] == "run_apply_manual"
 
 
 def test_server_ssh_probe_tools_delegate_to_structured_collectors(monkeypatch) -> None:

@@ -1412,8 +1412,14 @@ def test_repo_apply_previewed_change_schema_is_opaque() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
     schema = actions["repo_apply"]["inputSchema"]
     previewed = next(item for item in schema["oneOf"] if item["properties"]["operation"].get("const") == "previewed_change")
-    assert set(previewed["properties"]) == {"operation", "repo_name", "patch_id"}
+    assert set(previewed["properties"]) == {
+        "operation",
+        "repo_name",
+        "patch_id",
+        "commit_mode",
+    }
     assert set(previewed.get("required", [])) == {"operation", "repo_name", "patch_id"}
+    assert previewed["properties"]["commit_mode"]["default"] == "auto"
 
 
 def test_currently_exposed_batch_actions_are_discoverable() -> None:
