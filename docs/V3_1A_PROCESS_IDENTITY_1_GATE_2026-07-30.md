@@ -9,9 +9,10 @@
 
 **Audit:** [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **First corrective gate:** [`V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md) — implemented but unaccepted.
-**Active final corrective gate:** [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md)
+**Second corrective gate:** [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md) — implemented but unaccepted.
+**Active bounded corrective gate:** [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md)
 
-The original gate remains unaccepted. Its final corrective work is governed by the linked cancellation-closure gate; no interaction-command or later V3-1A package is active.
+The original gate remains unaccepted. Its remaining corrective work is governed by the linked launch-failure-containment gate; no interaction-command or later V3-1A package is active.
 
 ## 1. Objective
 

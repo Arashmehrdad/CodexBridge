@@ -1,11 +1,16 @@
 # V3-1A-CANCELLATION-CLOSURE-1 — Publication, Identity Capture, and Crash Containment
 
 **Date:** 2026-07-30
-**Status:** active final corrective subgate inside `V3-1A-PROCESS-IDENTITY-1`.
+**Status:** implementation submitted at `89fb199c4a1a62fc464eed38d6b2836b3094941b`; independent acceptance failed; bounded launch-failure-containment correction active.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** failed audit [`V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **Repository baseline:** `123ca40294fa5bd35061e47eb7b88b0f221e83e6`
 **Push:** not authorised.
+
+**Audit:** [`V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md)
+**Active corrective gate:** [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md)
+
+This closure package remains unaccepted. Its retained corrections must not regress while the linked launch-failure-containment gate closes the remaining identity-less raw-PID and lock-release uncertainty boundary. No interaction-command or later V3 package is active.
 
 ## 1. Objective
 
