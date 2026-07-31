@@ -198,7 +198,11 @@ class JobContainment:
 
     @classmethod
     def open_existing(cls, name: str) -> "JobContainment":
-        """Reopen a job by name, so containment survives a Soma restart."""
+        """Open a still-existing named job while another handle keeps it alive.
+
+        This does not provide restart adoption after the last handle closes;
+        KILL_ON_JOB_CLOSE deliberately terminates the owned tree at that point.
+        """
         kernel32 = _kernel32()
         kernel32.OpenJobObjectW.restype = wintypes.HANDLE
         handle = kernel32.OpenJobObjectW(JOB_OBJECT_ALL_ACCESS, False, name)

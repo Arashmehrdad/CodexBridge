@@ -1,19 +1,17 @@
 # V3-1A-PROCESS-IDENTITY-1 — Sanitised Launch and Owned-Tree Cancellation
 
 **Date:** 2026-07-30
-**Status:** implementation submitted at `bd007ec72ca7b2e24ffe7b4587570f0173a111d8`; independent acceptance failed; corrective subgate active.
+**Status:** accepted and closed after iterative corrective packages; accepted runtime at `7cc66c50675a91ff958d39a3c53e6246a88268d6`.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** accepted [`V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_ADAPTER_CONTRACT_1_ACCEPTANCE_AUDIT_2026-07-30.md)
 **Repository baseline:** `7d629c5bdd0ade1d3d0da262bcd8509f50744041`
 **Push:** not authorised.
 
-**Audit:** [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
-**First corrective gate:** [`V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md) — implemented but unaccepted.
-**Second corrective gate:** [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md) — implemented but unaccepted.
-**Third corrective gate:** [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md) — implemented but unaccepted.
-**Active bounded corrective gate:** [`V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md)
+**Original failed audit:** [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md)
+**Final acceptance audit:** [`V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md)
+**Corrective evidence chain:** [`V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_GATE_2026-07-30.md), [`V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md`](V3_1A_CANCELLATION_CLOSURE_1_GATE_2026-07-30.md), [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md), and accepted [`V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md).
 
-The original gate remains unaccepted. Its remaining corrective work is governed by the linked descendant-containment gate; no interaction-command or later V3-1A package is active.
+The process-identity chain is closed. The next bounded package is `V3-1A-INTERACTION-COMMANDS-1`; real provider launch and later V3 work remain inactive.
 
 ## 1. Objective
 

@@ -1,9 +1,11 @@
 # V3-1A-DESCENDANT-CONTAINMENT-1 — Root Exit Is Not Tree Exit
 
 **Date:** 2026-07-31
-**Status:** active bounded corrective subgate inside `V3-1A-PROCESS-IDENTITY-1`.
+**Status:** accepted and closed as the final corrective package inside `V3-1A-PROCESS-IDENTITY-1`.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** failed audit [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md)
+**Accepted implementation:** `7cc66c50675a91ff958d39a3c53e6246a88268d6`
+**Final audit:** [`V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md)
 **Repository baseline:** `acaf9b289ec683a93f469fc523184637c51ec5dc`
 **Push:** not authorised.
 
