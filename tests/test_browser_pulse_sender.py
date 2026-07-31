@@ -90,6 +90,32 @@ def test_run_once_dry_run_logs_safe_fields_only(tmp_path: Path) -> None:
     assert "Browser pulse smoke test" not in logged
 
 
+@pytest.mark.parametrize(
+    "status",
+    ["needs_external_coder", "approval_required", "needs_input", "blocked"],
+)
+def test_run_once_accepts_parked_handoff_statuses(
+    tmp_path: Path, status: str
+) -> None:
+    store = SupervisorStore(tmp_path)
+    supervisor = store.create_supervisor(
+        repo_name="sample", objective="Test", status=status
+    )
+
+    result = browser_pulse_sender.run_once(
+        store=store,
+        runs_dir=tmp_path,
+        supervisor_id=supervisor["supervisor_id"],
+        chat_url="https://chatgpt.com/c/abc123",
+        dry_run=True,
+    )
+
+    assert result["success"] is True
+    assert result["dry_run"] is True
+    assert result["sent"] is False
+    assert result["status"] == status
+
+
 def test_run_once_refuses_non_handoff_status(tmp_path: Path) -> None:
     store = SupervisorStore(tmp_path)
     supervisor = store.create_supervisor(

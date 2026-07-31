@@ -13,7 +13,15 @@ from soma.events import redact_and_truncate
 from soma.supervisor_store import SupervisorStore, validate_supervisor_id
 
 
-HANDOFF_STATUSES = {"needs_input", "completed", "failed", "cancelled"}
+HANDOFF_STATUSES = {
+    "needs_external_coder",
+    "approval_required",
+    "needs_input",
+    "blocked",
+    "completed",
+    "failed",
+    "cancelled",
+}
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 DEFAULT_PROMPT_LIMIT = 12000
 

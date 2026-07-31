@@ -494,6 +494,7 @@ def test_line_range_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> 
         "expected_sha256": sha,
         "start_line": 2,
         "end_line": 2,
+        "expected_old_text": "old\n",
         "new_text": "new\n",
     }
 
@@ -503,6 +504,161 @@ def test_line_range_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> 
     applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
     assert applied["ok"] is True
     assert target.read_bytes() == b"alpha\r\nnew\nomega\r\n"
+
+
+
+def test_line_range_requires_anchor_and_strict_bounds(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "guarded_range.md", "alpha\nbeta\ngamma\n")
+    sha = sha256_file(target)
+
+    missing_anchor = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "line_range",
+                "path": "guarded_range.md",
+                "expected_sha256": sha,
+                "start_line": 2,
+                "end_line": 2,
+                "new_text": "BETA\n",
+            }
+        ],
+        runs,
+    )
+    out_of_bounds = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "line_range",
+                "path": "guarded_range.md",
+                "expected_sha256": sha,
+                "start_line": 2,
+                "end_line": 99,
+                "expected_old_text": "beta\n",
+                "new_text": "BETA\n",
+            }
+        ],
+        runs,
+    )
+
+    assert missing_anchor["ok"] is False
+    assert "requires expected_old_text" in missing_anchor["error"]
+    assert out_of_bounds["ok"] is False
+    assert "with 3 lines" in out_of_bounds["error"]
+    assert target.read_text(encoding="utf-8") == "alpha\nbeta\ngamma\n"
+
+
+def test_line_range_rejects_same_file_composition(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "shifted.md", "first\nsecond\nthird\n")
+    sha = sha256_file(target)
+
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "exact_text",
+                "path": "shifted.md",
+                "expected_sha256": sha,
+                "old_text": "first\n",
+                "new_text": "inserted\nfirst\n",
+            },
+            {
+                "type": "line_range",
+                "path": "shifted.md",
+                "expected_sha256": sha,
+                "start_line": 2,
+                "end_line": 2,
+                "expected_old_text": "second\n",
+                "new_text": "SECOND\n",
+            },
+        ],
+        runs,
+    )
+
+    assert preview["ok"] is False
+    assert "must be the only operation" in preview["error"]
+    assert target.read_text(encoding="utf-8") == "first\nsecond\nthird\n"
+
+
+def test_replace_file_is_hash_bound_atomic_and_newline_explicit(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = repo / "roadmap.md"
+    target.write_bytes(b"# Old\r\n\r\nBody\r\n")
+    sha = sha256_file(target)
+
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "replace_file",
+                "path": "roadmap.md",
+                "expected_sha256": sha,
+                "new_text": "# New\n\nRewritten body\n",
+                "newline_policy": "preserve_current",
+            }
+        ],
+        runs,
+    )
+
+    assert preview["ok"] is True
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    assert applied["ok"] is True
+    assert target.read_bytes() == b"# New\r\n\r\nRewritten body\r\n"
+
+
+def test_replace_file_rejects_same_file_composition_and_bad_policy(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "document.md", "old\n")
+    sha = sha256_file(target)
+
+    composed = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "replace_file",
+                "path": "document.md",
+                "expected_sha256": sha,
+                "new_text": "new\n",
+            },
+            {
+                "type": "exact_text",
+                "path": "document.md",
+                "expected_sha256": sha,
+                "old_text": "new",
+                "new_text": "newer",
+            },
+        ],
+        runs,
+    )
+    bad_policy = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "replace_file",
+                "path": "document.md",
+                "expected_sha256": sha,
+                "new_text": "new\n",
+                "newline_policy": "mystery",
+            }
+        ],
+        runs,
+    )
+
+    assert composed["ok"] is False
+    assert "already has exclusive replace_file edit" in composed["error"]
+    assert bad_policy["ok"] is False
+    assert "unsupported newline_policy" in bad_policy["error"]
+    assert target.read_text(encoding="utf-8") == "old\n"
 
 
 def test_unified_diff_preserves_mixed_newline_bytes_by_default(tmp_path: Path) -> None:
@@ -565,6 +721,7 @@ def test_line_range_can_explicitly_use_legacy_newline_normalization(
         "expected_sha256": sha,
         "start_line": 2,
         "end_line": 2,
+        "expected_old_text": "old\n",
         "new_text": "new\n",
         "preserve_newlines": False,
     }
@@ -575,6 +732,7 @@ def test_line_range_can_explicitly_use_legacy_newline_normalization(
     applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
     assert applied["ok"] is True
     assert target.read_bytes() == b"alpha\r\nnew\r\nomega\r\n"
+
 
 
 def test_preview_rejects_mixed_newline_edit_modes(tmp_path: Path) -> None:

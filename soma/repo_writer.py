@@ -583,22 +583,95 @@ def _apply_exact_text_preserving_newlines(
     return content.replace(candidate, replacement, 1)
 
 
+def _replace_file_content(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    new_text = op.get("new_text")
+    if not isinstance(new_text, str):
+        raise ValueError(f"op[{idx}]: new_text is required and must be a string")
+    newline_policy = str(op.get("newline_policy") or "preserve_current").strip()
+    if newline_policy == "preserve_current":
+        return _restore_newlines(new_text, _dominant_newline(content))
+    if newline_policy == "lf":
+        return _normalize_newlines(new_text)
+    if newline_policy == "crlf":
+        return _restore_newlines(new_text, "\r\n")
+    if newline_policy == "exact":
+        return new_text
+    raise ValueError(
+        f"op[{idx}]: unsupported newline_policy '{newline_policy}' for '{path_str}'"
+    )
+
+
+def _apply_replace_file_operation(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> str:
+    return _replace_file_content(content, op, path_str, idx)
+
+
+def _line_range_selection(
+    content: str, op: dict[str, Any], path_str: str, idx: int
+) -> tuple[list[str], int, int, str]:
+    start_line = int(op.get("start_line", 0))
+    end_line = int(op.get("end_line", 0))
+    lines = content.splitlines(keepends=True)
+    line_count = len(lines)
+    if (
+        start_line < 1
+        or end_line < start_line
+        or start_line > line_count
+        or end_line > line_count
+    ):
+        raise ValueError(
+            f"op[{idx}]: invalid line range {start_line}-{end_line} for "
+            f"'{path_str}' with {line_count} lines"
+        )
+
+    start_index = start_line - 1
+    end_index = end_line
+    selected = "".join(lines[start_index:end_index])
+    expected_old_text = op.get("expected_old_text")
+    expected_range_sha256 = str(op.get("expected_range_sha256") or "").lower()
+    if expected_old_text is None and not expected_range_sha256:
+        raise ValueError(
+            f"op[{idx}]: line_range for '{path_str}' requires expected_old_text "
+            "or expected_range_sha256"
+        )
+    normalized_selected = _normalize_newlines(selected)
+    if expected_old_text is not None:
+        if not isinstance(expected_old_text, str):
+            raise ValueError(
+                f"op[{idx}]: expected_old_text must be a string for '{path_str}'"
+            )
+        if normalized_selected != _normalize_newlines(expected_old_text):
+            raise ValueError(
+                f"op[{idx}]: line_range expected_old_text mismatch in '{path_str}'"
+            )
+    if expected_range_sha256:
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_range_sha256):
+            raise ValueError(
+                f"op[{idx}]: expected_range_sha256 must be 64 hexadecimal characters"
+            )
+        actual_range_sha256 = _sha256_text(normalized_selected)
+        if actual_range_sha256 != expected_range_sha256:
+            raise ValueError(
+                f"op[{idx}]: line_range hash mismatch in '{path_str}'"
+            )
+    return lines, start_index, end_index, selected
+
+
 def _apply_line_range_operation(
     content: str, op: dict[str, Any], path_str: str, idx: int
 ) -> str:
-    start_line = int(op.get("start_line", 0))
-    end_line = int(op.get("end_line", 0))
     new_text = op.get("new_text")
-    if start_line < 1 or end_line < start_line:
-        raise ValueError(f"op[{idx}]: invalid line range for '{path_str}'")
     if not isinstance(new_text, str):
         raise ValueError(f"op[{idx}]: new_text is required and must be a string")
-    lines = content.splitlines(keepends=True)
+    lines, start_index, end_index, _ = _line_range_selection(
+        content, op, path_str, idx
+    )
     replacement = _normalize_newlines(new_text)
     replacement_lines = replacement.splitlines(keepends=True)
-    if replacement and not replacement.endswith("\n"):
-        replacement_lines[-1] = replacement_lines[-1]
-    return "".join(lines[: start_line - 1] + replacement_lines + lines[end_line:])
+    return "".join(lines[:start_index] + replacement_lines + lines[end_index:])
 
 
 def _line_ending(line: str) -> str:
@@ -633,17 +706,13 @@ def _line_range_replacement_newline(
 def _apply_line_range_preserving_newlines(
     content: str, op: dict[str, Any], path_str: str, idx: int
 ) -> str:
-    start_line = int(op.get("start_line", 0))
-    end_line = int(op.get("end_line", 0))
     new_text = op.get("new_text")
-    if start_line < 1 or end_line < start_line:
-        raise ValueError(f"op[{idx}]: invalid line range for '{path_str}'")
     if not isinstance(new_text, str):
         raise ValueError(f"op[{idx}]: new_text is required and must be a string")
 
-    lines = content.splitlines(keepends=True)
-    start_index = start_line - 1
-    end_index = end_line
+    lines, start_index, end_index, _ = _line_range_selection(
+        content, op, path_str, idx
+    )
     newline = _line_range_replacement_newline(
         content,
         lines,
@@ -883,6 +952,8 @@ def _apply_operation_to_content(
     operation_type = str(op.get("type") or op.get("operation") or "exact_text").strip()
     if operation_type in {"exact_text", "replace_exact", "modify", ""}:
         return _apply_exact_text_operation(content, op, path_str, idx)
+    if operation_type in {"replace_file", "whole_file"}:
+        return _apply_replace_file_operation(content, op, path_str, idx)
     if operation_type in {"replace_lines", "line_range"}:
         return _apply_line_range_operation(content, op, path_str, idx)
     if operation_type in {"unified_diff", "apply_unified_diff"}:
@@ -981,6 +1052,7 @@ def _validate_operations(
                 "current_sha256": hashlib.sha256(current_bytes).hexdigest(),
                 "validation_results": [],
                 "applied_exact_old_texts": {},
+                "exclusive_operation": "",
             }
             states[path_str] = state
             path_order.append(path_str)
@@ -1001,6 +1073,7 @@ def _validate_operations(
             "modify",
             "",
         }
+        replace_file_operation = operation_type in {"replace_file", "whole_file"}
         line_range_operation = operation_type in {"replace_lines", "line_range"}
         unified_diff_operation = operation_type in {
             "unified_diff",
@@ -1009,6 +1082,7 @@ def _validate_operations(
         python_ast_operation = operation_type in {"python_ast", "ast_python"}
         byte_preserving_operation = (
             exact_text_operation
+            or replace_file_operation
             or line_range_operation
             or unified_diff_operation
             or python_ast_operation
@@ -1020,7 +1094,22 @@ def _validate_operations(
             else bool(preserve_newlines_value)
         )
         requested_newline_mode = "preserved" if preserve_newlines else "normalized"
+        if replace_file_operation:
+            requested_newline_mode = "preserved"
         try:
+            existing_exclusive_operation = state["exclusive_operation"]
+            if existing_exclusive_operation:
+                raise ValueError(
+                    f"op[{idx}]: '{path_str}' already has exclusive "
+                    f"{existing_exclusive_operation} edit"
+                )
+            if (replace_file_operation or line_range_operation) and state[
+                "validation_results"
+            ]:
+                raise ValueError(
+                    f"op[{idx}]: {operation_type} must be the only operation "
+                    f"for '{path_str}'"
+                )
             existing_newline_mode = state["newline_mode"]
             if existing_newline_mode and existing_newline_mode != requested_newline_mode:
                 raise ValueError(
@@ -1033,6 +1122,10 @@ def _validate_operations(
                         _apply_exact_text_preserving_newlines(
                             state["working_content_preserved"], op, path_str, idx
                         )
+                    )
+                elif replace_file_operation:
+                    state["working_content_preserved"] = _apply_replace_file_operation(
+                        state["working_content_preserved"], op, path_str, idx
                     )
                 elif line_range_operation:
                     state["working_content_preserved"] = (
@@ -1055,7 +1148,7 @@ def _validate_operations(
                 else:
                     raise ValueError(
                         f"op[{idx}]: preserve_newlines is supported only for "
-                        f"exact_text, line_range, unified_diff, and python_ast edits "
+                        f"exact_text, replace_file, line_range, unified_diff, and python_ast edits "
                         f"in '{path_str}'"
                     )
             else:
@@ -1063,6 +1156,8 @@ def _validate_operations(
                     state["working_content"], op, path_str, idx
                 )
             state["newline_mode"] = requested_newline_mode
+            if replace_file_operation or line_range_operation:
+                state["exclusive_operation"] = operation_type
             if operation_type in {"exact_text", "replace_exact", "modify", ""}:
                 old_text = _normalize_newlines(str(op.get("old_text", "")))
                 state["applied_exact_old_texts"][old_text] = idx
