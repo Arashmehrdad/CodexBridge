@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains the only active lane, but product implementation is paused at `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`. No later V3 outcome is active.
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains paused at `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`. The owner has temporarily activated the bounded corrective lane `REPO-DOCUMENT-EDITING-1`; no later V3 outcome is active.
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
@@ -53,6 +53,30 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Mandates are immutable, content-addressed, versioned, lineage-bound, and cannot grant authority or concrete capability the issuer does not possess.
 - Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
 - Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
+
+## Active Corrective Lane: REPO-DOCUMENT-EDITING-1
+
+**Status:** active by explicit owner instruction on 2026-07-31. V3-1A implementation and architecture review remain paused while this correction is completed.
+
+**Goal:** make the existing repository write surface safe and practical for coherent documentation changes, and close the proven browser-pulse handoff deadlock without broadening into the autonomous-company implementation.
+
+### First corrective batch
+
+1. Recognise every supervisor state that deliberately hands control back to ChatGPT or the owner, including `needs_external_coder` and `approval_required`, so the browser pulse cannot poll forever on a parked handoff.
+2. Make line-range edits fail closed on missing anchors, invalid bounds, and same-file composition that could shift coordinates.
+3. Add one hash-bound whole-file replacement operation for existing text files so a coherent document rewrite can be previewed, atomically applied, and committed once.
+4. Add focused regression tests for the exact defects and preserve all current hash, preview, rollback, newline, and commit protections.
+
+### Boundaries
+
+- Do not add Markdown section intelligence, typed public edit unions, multi-commit drafting sessions, or unrelated repository tooling in this first batch.
+- Do not weaken all-or-nothing preview validation, stale-hash checks, base-HEAD checks, rollback, or isolated commits.
+- Do not resume V3-1A interaction implementation, launch provider agents, or change unrelated runtime authority.
+- Preserve unrelated work and do not push.
+
+### Acceptance
+
+The batch closes only when focused browser-pulse and repository-writer tests pass, unsafe line-range cases are rejected deterministically, whole-file replacement preserves the chosen newline policy, the worktree is clean, and the result is locally committed with no push.
 
 ## Completed Lane: STABILIZE-1
 
