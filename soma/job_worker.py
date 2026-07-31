@@ -745,6 +745,41 @@ class JobWorker:
             )
         )
 
+    @staticmethod
+    def _manual_commit_data(
+        repo_root: Path,
+        changed_files: list[str],
+        *,
+        operation: str,
+    ) -> dict[str, object]:
+        normalized_changed = list(
+            dict.fromkeys(Path(path).as_posix() for path in changed_files)
+        )
+        dirty_paths = {
+            Path(path).as_posix() for path in git_tools.changed_files(repo_root)
+        }
+        if operation == "move_file" and any(
+            path in dirty_paths for path in normalized_changed
+        ):
+            pending_files = normalized_changed
+        else:
+            pending_files = [
+                path for path in normalized_changed if path in dirty_paths
+            ]
+        return {
+            "commit_mode": "manual",
+            "commit_required": bool(pending_files),
+            "commit_attempted": False,
+            "commit_hash": "",
+            "commit_error": "",
+            "pending_commit_files": pending_files,
+            "commit_result": {
+                "ok": True,
+                "status": "deferred" if pending_files else "not_required",
+                "files": pending_files,
+            },
+        }
+
     def execute(self) -> int:
         current_before_start = self.store.get_run(self.run_id)
         if current_before_start["status"] == "cancelled":
@@ -2564,6 +2599,7 @@ class JobWorker:
         input_data: dict,
     ) -> dict:
         operation = str(input_data["operation"])
+        commit_mode = str(input_data.get("commit_mode") or "auto")
         runs_dir = self.config.resolve_runs_dir()
         if operation == "previewed_change":
             result = repo_writer.apply_previewed_repo_change(
@@ -2588,14 +2624,38 @@ class JobWorker:
         result = dict(result)
         result["run_id"] = self.run_id
         result["operation"] = operation
+        result["commit_mode"] = commit_mode
         result["started_at"] = started_at
-        if result.get("ok") and result.get("changed_files"):
+        changed_files = list(
+            result.get("changed_files") or result.get("removed_files") or []
+        )
+        commit_title = str(
+            input_data.get("commit_title") or result.get("commit_title") or ""
+        )
+        commit_description = str(
+            input_data.get("commit_description")
+            or result.get("commit_description")
+            or ""
+        )
+        if result.get("ok") and commit_mode == "manual":
+            result.update(
+                self._manual_commit_data(
+                    repo_root,
+                    changed_files,
+                    operation=operation,
+                )
+            )
+            if changed_files:
+                result["wiki_freshness"] = self._mark_wiki_stale_with_evidence(
+                    repo_root, repo_name, reason="repo_apply_manual"
+                )
+        elif result.get("ok") and result.get("changed_files"):
             commit_data = self._finalize_commit(
                 repo_root,
                 list(result["changed_files"]),
                 tool_name="repo_apply",
-                commit_title=str(result.get("commit_title") or ""),
-                commit_description=str(result.get("commit_description") or ""),
+                commit_title=commit_title,
+                commit_description=commit_description,
             )
             result.update(commit_data)
             if commit_data.get("commit_attempted") and commit_data.get("commit_error"):

@@ -1370,10 +1370,28 @@ def preview_repo_patch(
 
 
 def preview_repo_file_creation(
-    repo_root: Path, path: str, content: str, runs_dir: Path
+    repo_root: Path,
+    path: str,
+    content: str,
+    runs_dir: Path,
+    *,
+    commit_title: str = "",
+    commit_description: str = "",
 ) -> dict:
     patch_id = _make_patch_id()
     head = _git_head(repo_root)
+    bound_commit_description = commit_description
+    if commit_title or commit_description:
+        bound_commit_description = "\n".join(
+            item
+            for item in (commit_description, f"Preview-ID: {patch_id}")
+            if item
+        )
+        _validate_commit_metadata(
+            commit_title or "Soma: repo_apply",
+            bound_commit_description,
+            files_validated=True,
+        )
 
     changed_files = [path]
     validation_errors: list[str] = []
@@ -1407,6 +1425,8 @@ def preview_repo_file_creation(
         diff_text,
         git_head=head,
         errors=validation_errors,
+        commit_title=commit_title,
+        commit_description=bound_commit_description,
     )
 
     return {
@@ -1420,14 +1440,34 @@ def preview_repo_file_creation(
         "git_head": head,
         "validation_errors": validation_errors,
         "error": "; ".join(validation_errors) if validation_errors else "",
+        "commit_title": commit_title,
+        "commit_description": bound_commit_description,
     }
 
 
 def preview_repo_file_removal(
-    repo_root: Path, path: str, expected_sha256: str, runs_dir: Path
+    repo_root: Path,
+    path: str,
+    expected_sha256: str,
+    runs_dir: Path,
+    *,
+    commit_title: str = "",
+    commit_description: str = "",
 ) -> dict:
     patch_id = _make_patch_id()
     head = _git_head(repo_root)
+    bound_commit_description = commit_description
+    if commit_title or commit_description:
+        bound_commit_description = "\n".join(
+            item
+            for item in (commit_description, f"Preview-ID: {patch_id}")
+            if item
+        )
+        _validate_commit_metadata(
+            commit_title or "Soma: repo_apply",
+            bound_commit_description,
+            files_validated=True,
+        )
 
     diff_text = ""
     validation_errors: list[str] = []
@@ -1471,6 +1511,8 @@ def preview_repo_file_removal(
         diff_text,
         git_head=head,
         errors=validation_errors,
+        commit_title=commit_title,
+        commit_description=bound_commit_description,
     )
 
     return {
@@ -1484,6 +1526,8 @@ def preview_repo_file_removal(
         "git_head": head,
         "validation_errors": validation_errors,
         "error": "; ".join(validation_errors) if validation_errors else "",
+        "commit_title": commit_title,
+        "commit_description": bound_commit_description,
     }
 
 

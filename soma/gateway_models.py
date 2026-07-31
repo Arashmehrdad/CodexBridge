@@ -1113,6 +1113,8 @@ class RepoCreateFilePreview(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
     content: str = Field(min_length=1, max_length=2_000_000)
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -1122,6 +1124,8 @@ class RepoRemoveFilePreview(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
     expected_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
@@ -1147,18 +1151,25 @@ class RepoPreviewedChangeApply(GatewayModel):
     operation: Literal["previewed_change"]
     repo_name: str = Field(min_length=1, max_length=128)
     patch_id: str = Field(min_length=1, max_length=128)
+    commit_mode: Literal["auto", "manual"] = "auto"
 
 
 class RepoCleanupApply(GatewayModel):
     operation: Literal["cleanup"]
     repo_name: str = Field(min_length=1, max_length=128)
     cleanup_id: str = Field(min_length=1, max_length=128)
+    commit_mode: Literal["auto", "manual"] = "auto"
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
 
 
 class RepoRevertApply(GatewayModel):
     operation: Literal["revert"]
     repo_name: str = Field(min_length=1, max_length=128)
     patch_id: str = Field(min_length=1, max_length=128)
+    commit_mode: Literal["auto", "manual"] = "auto"
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
 
 
 class RepoMoveFileApply(GatewayModel):
@@ -1167,6 +1178,9 @@ class RepoMoveFileApply(GatewayModel):
     source_path: str = Field(min_length=1, max_length=1024)
     destination_path: str = Field(min_length=1, max_length=1024)
     expected_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
+    commit_mode: Literal["auto", "manual"] = "auto"
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
 
 
 RepoApplyRequest = Annotated[

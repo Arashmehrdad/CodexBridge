@@ -5963,11 +5963,22 @@ def preview_repo_patch(
 
 
 @_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
+def preview_repo_file_creation(
+    repo_name: str,
+    path: str,
+    content: str,
+    commit_title: str = "",
+    commit_description: str = "",
+) -> dict:
     """Read-only: validate a repo file creation, persist an opaque local payload, and return a patch_id with preview diff."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.preview_repo_file_creation(
-        repo_root, path, content, _get_runs_dir()
+        repo_root,
+        path,
+        content,
+        _get_runs_dir(),
+        commit_title=commit_title,
+        commit_description=commit_description,
     )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
@@ -5976,11 +5987,22 @@ def preview_repo_file_creation(repo_name: str, path: str, content: str) -> dict:
 
 
 @_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
-def preview_repo_file_removal(repo_name: str, path: str, expected_sha256: str) -> dict:
+def preview_repo_file_removal(
+    repo_name: str,
+    path: str,
+    expected_sha256: str,
+    commit_title: str = "",
+    commit_description: str = "",
+) -> dict:
     """Read-only: validate a repo file removal and return a patch_id with preview diff. Stores no source payload."""
     canonical_name, repo_root, requested_name = _repo_context(repo_name)
     result = _repo_writer.preview_repo_file_removal(
-        repo_root, path, expected_sha256, _get_runs_dir()
+        repo_root,
+        path,
+        expected_sha256,
+        _get_runs_dir(),
+        commit_title=commit_title,
+        commit_description=commit_description,
     )
     result["repo_name"] = canonical_name
     if requested_name != canonical_name:
@@ -6416,10 +6438,20 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
             request.commit_description,
         )
     elif request.operation == "create_file":
-        result = preview_repo_file_creation(request.repo_name, request.path, request.content)
+        result = preview_repo_file_creation(
+            request.repo_name,
+            request.path,
+            request.content,
+            request.commit_title,
+            request.commit_description,
+        )
     elif request.operation == "remove_file":
         result = preview_repo_file_removal(
-            request.repo_name, request.path, request.expected_sha256
+            request.repo_name,
+            request.path,
+            request.expected_sha256,
+            request.commit_title,
+            request.commit_description,
         )
     else:
         result = preview_managed_artifact_cleanup(request.repo_name, request.roots)
@@ -6431,7 +6463,9 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def repo_apply(request: RepoApplyRequest) -> dict:
     """Write gateway for hash-verified preview application, cleanup, rollback, and moves."""
-    payload = request.model_dump(exclude={"operation", "repo_name"})
+    payload = request.model_dump(
+        exclude={"operation", "repo_name"}, exclude_defaults=True
+    )
     response = get_job_manager().start_repo_apply(
         request.repo_name, request.operation, payload
     )
@@ -6445,6 +6479,7 @@ def repo_apply(request: RepoApplyRequest) -> dict:
         "run_id": response.get("run_id", ""),
         "patch_id": getattr(request, "patch_id", ""),
         "cleanup_id": getattr(request, "cleanup_id", ""),
+        "commit_mode": getattr(request, "commit_mode", "auto"),
         "polling": {
             "tool": "run_query",
             "request": {
