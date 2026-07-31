@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane and the future durable organisation around intelligent agents. The production runtime does not yet launch or supervise coding-agent sessions. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains the active lane, but product implementation is paused while `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1` freezes the interaction authority contract beneath the existing canonical Task → Run authority.
+Soma is a local engineering control plane and the future durable organisation around intelligent agents. The production runtime does not yet launch or supervise coding-agent sessions. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains the active lane, but product implementation is paused while `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1` freezes the interaction authority contract beneath the existing canonical Task → Run authority. Any later reference in this file to interaction commands as an active implementation package is historical and superseded.
 
 Target operating model:
 - ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
