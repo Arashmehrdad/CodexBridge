@@ -60,9 +60,11 @@ from .process_control import (
     process_is_running,
     process_matches_identity,
     terminate_process_tree,
-    process_identity,
     identity_scoped_termination,
     capture_launch_identity,
+    LaunchIdentityUnavailable,
+    ProcessContainmentUncertain,
+    require_identity_scoped_cleanup,
 )
 from .run_query_chunks import (
     RUN_REFERENCE_PREFIX,
@@ -254,7 +256,9 @@ def _project_run_summary(
     text_limits: dict[str, int],
     divisor: int = 1,
 ) -> dict:
-    projected = {field: run[field] for field in RUN_PUBLIC_SUMMARY_FIELDS if field in run}
+    projected = {
+        field: run[field] for field in RUN_PUBLIC_SUMMARY_FIELDS if field in run
+    }
     truncated_fields: dict[str, dict[str, object]] = {}
     for field, maximum_bytes in text_limits.items():
         value = projected.get(field)
@@ -279,7 +283,9 @@ def _finalize_compact_projection(payload: dict, byte_budget: int) -> dict:
     result.pop("payload_bytes", None)
     result["payload_bytes"] = len(_canonical_public_json_bytes(result))
     if len(_canonical_public_json_bytes(result)) > byte_budget:
-        raise ValueError("Compact run response exceeds its serialized UTF-8 byte budget")
+        raise ValueError(
+            "Compact run response exceeds its serialized UTF-8 byte budget"
+        )
     return result
 
 
@@ -602,7 +608,10 @@ class JobManager:
                     current = self.store.get_run(run_id)
                     if current["status"] in TERMINAL_STATUSES:
                         return
-                    if current["tool"] not in {"ssh_monitored_command", "remote_powershell"}:
+                    if current["tool"] not in {
+                        "ssh_monitored_command",
+                        "remote_powershell",
+                    }:
                         return
                     contract = current.get("input", {}).get("remote_controller_state")
                     if not isinstance(contract, dict):
@@ -731,9 +740,7 @@ class JobManager:
             ):
                 return
             lock_claimed = True
-            if repository_lock_required_for_run(
-                run, self.config.resolve_runs_dir()
-            ):
+            if repository_lock_required_for_run(run, self.config.resolve_runs_dir()):
                 lock_claimed = self.locks.claim_owner(
                     run["repo_name"],
                     run_id,
@@ -776,7 +783,9 @@ class JobManager:
                 if isinstance(observed, dict) and isinstance(probe.get("result"), dict):
                     observed = dict(observed)
                     observed["result"] = dict(probe["result"])
-                reconciled_remote = reconcile_remote_controller_state(contract, observed)
+                reconciled_remote = reconcile_remote_controller_state(
+                    contract, observed
+                )
                 progress = dict(run.get("progress") or {})
                 progress.update(
                     {
@@ -797,7 +806,10 @@ class JobManager:
                         if authoritative_state in TERMINAL_STATUSES
                         else "failed"
                     )
-                    ended_at = str(remote_result.get("ended_at") or datetime.now(timezone.utc).isoformat())
+                    ended_at = str(
+                        remote_result.get("ended_at")
+                        or datetime.now(timezone.utc).isoformat()
+                    )
                     exit_code = int(remote_result.get("returncode", 1))
                     result = {
                         "run_id": run_id,
@@ -807,11 +819,15 @@ class JobManager:
                         "command_id": str(run["input"]["command_id"]),
                         "status": terminal_status,
                         "exit_code": exit_code,
-                        "started_at": str(run.get("started_at") or run.get("created_at") or ended_at),
+                        "started_at": str(
+                            run.get("started_at") or run.get("created_at") or ended_at
+                        ),
                         "ended_at": ended_at,
                         "duration_seconds": float(run.get("elapsed_seconds") or 0.0),
                         "summary": f"Remote controller reported {authoritative_state}",
-                        "error": "" if exit_code == 0 else f"Remote command exited with code {exit_code}",
+                        "error": ""
+                        if exit_code == 0
+                        else f"Remote command exited with code {exit_code}",
                         "safety_failure": False,
                         "remote_process": remote_process,
                         "remote_controller_result": remote_result,
@@ -877,11 +893,17 @@ class JobManager:
                 if pending is not None:
                     self._append_recovery_event(
                         run,
-                        level="info" if reconciled_remote.get("adoptable") else "warning",
+                        level="info"
+                        if reconciled_remote.get("adoptable")
+                        else "warning",
                         message=reason,
                         data={
-                            "reconciliation_state": reconciled_remote.get("reconciliation_state"),
-                            "uncertainty_state": reconciled_remote.get("uncertainty_state"),
+                            "reconciliation_state": reconciled_remote.get(
+                                "reconciliation_state"
+                            ),
+                            "uncertainty_state": reconciled_remote.get(
+                                "uncertainty_state"
+                            ),
                         },
                     )
                     if reconciled_remote.get("adoptable"):
@@ -902,7 +924,9 @@ class JobManager:
             return
 
         if child_running:
-            reason = "Worker ownership is unavailable while a child process remains active"
+            reason = (
+                "Worker ownership is unavailable while a child process remains active"
+            )
             recovered = self.store.mark_recovery_pending(
                 run_id,
                 reason,
@@ -963,15 +987,14 @@ class JobManager:
                     return
                 try:
                     process = self._spawn_worker(run_id, new_lease_token)
+                    launcher_identity = capture_launch_identity(process)
                     launched = self.store.record_worker_launch(
                         run_id,
                         process.pid,
-                        launcher_identity=capture_launch_identity(process),
+                        launcher_identity=launcher_identity,
                         expected_state_version=int(reservation["state_version"]),
                         expected_lease_token=new_lease_token,
-                        expected_lease_generation=int(
-                            reservation["lease_generation"]
-                        ),
+                        expected_lease_generation=int(reservation["lease_generation"]),
                         increment_attempt=False,
                     )
                     self.locks.heartbeat(
@@ -982,12 +1005,15 @@ class JobManager:
                     )
                     current = launched or self.store.get_run(run_id)
                     if not (
-                        str(current.get("worker_lease_token") or "")
-                        == new_lease_token
+                        str(current.get("worker_lease_token") or "") == new_lease_token
                         and int(current.get("lease_generation") or 1)
                         == int(reservation["lease_generation"])
                     ):
-                        terminate_process_tree(process.pid)
+                        # Identity was captured above, so the PID is meaningful
+                        # and cleanup is identity-scoped and re-verified.
+                        require_identity_scoped_cleanup(
+                            process.pid, launcher_identity, process=process
+                        )
                         return
                     self._append_recovery_event(
                         run,
@@ -995,19 +1021,60 @@ class JobManager:
                         message="Stranded queued worker relaunched once",
                         data={
                             "launcher_pid": process.pid,
-                            "lease_generation": int(
-                                reservation["lease_generation"]
-                            ),
+                            "lease_generation": int(reservation["lease_generation"]),
                         },
                     )
+                except (LaunchIdentityUnavailable, ProcessContainmentUncertain) as exc:
+                    current = self.store.get_run(run_id)
+                    if str(
+                        current.get("worker_lease_token") or ""
+                    ) == new_lease_token and int(
+                        current.get("lease_generation") or 1
+                    ) == int(reservation["lease_generation"]):
+                        containment = (
+                            exc.containment.to_dict()
+                            if isinstance(exc, LaunchIdentityUnavailable)
+                            else exc.report
+                        )
+                        if (
+                            isinstance(exc, LaunchIdentityUnavailable)
+                            and exc.containment.stop_confirmed
+                        ):
+                            self._fail_recovery(
+                                current,
+                                f"Worker relaunch failed during startup recovery: {exc}",
+                            )
+                        else:
+                            reason = (
+                                "Worker relaunch containment is uncertain; "
+                                "mutation ownership retained"
+                            )
+                            pending = self.store.mark_recovery_pending(
+                                run_id,
+                                reason,
+                                expected_statuses=(str(current["status"]),),
+                                expected_state_version=int(current["state_version"]),
+                                expected_lease_token=new_lease_token,
+                                expected_lease_generation=int(
+                                    reservation["lease_generation"]
+                                ),
+                                expected_heartbeat_at=current.get("heartbeat_at"),
+                            )
+                            if pending is not None:
+                                self._append_recovery_event(
+                                    current,
+                                    level="error",
+                                    message=reason,
+                                    data={"containment": containment},
+                                )
+                    return
                 except Exception as exc:
                     current = self.store.get_run(run_id)
-                    if (
-                        str(current.get("worker_lease_token") or "")
-                        == new_lease_token
-                        and int(current.get("lease_generation") or 1)
-                        == int(reservation["lease_generation"])
-                    ):
+                    if str(
+                        current.get("worker_lease_token") or ""
+                    ) == new_lease_token and int(
+                        current.get("lease_generation") or 1
+                    ) == int(reservation["lease_generation"]):
                         self._fail_recovery(
                             current,
                             f"Worker relaunch failed during startup recovery: {exc}",
@@ -1116,7 +1183,10 @@ class JobManager:
         )
         response.setdefault(
             "evidence",
-            {"tool": "run_query", "request": {"operation": "terminal", "run_id": run_id}},
+            {
+                "tool": "run_query",
+                "request": {"operation": "terminal", "run_id": run_id},
+            },
         )
         if not response.get("accepted") or not run_id:
             response["inline_completion"] = False
@@ -1140,7 +1210,9 @@ class JobManager:
             if remaining <= 0:
                 response["inline_completion"] = False
                 response["wait_timed_out"] = True
-                response["status"] = str(snapshot.get("status") or response.get("status") or "queued")
+                response["status"] = str(
+                    snapshot.get("status") or response.get("status") or "queued"
+                )
                 response["state_version"] = int(snapshot.get("state_version") or 0)
                 return response
             time.sleep(min(0.05, remaining))
@@ -1165,7 +1237,9 @@ class JobManager:
         )
 
     def get_powershell_group(self, group_id: str) -> dict:
-        return ParallelGroupStore(self.config.resolve_runs_dir()).refresh_group(group_id)
+        return ParallelGroupStore(self.config.resolve_runs_dir()).refresh_group(
+            group_id
+        )
 
     def cancel_powershell_group(self, group_id: str) -> dict:
         store = ParallelGroupStore(self.config.resolve_runs_dir())
@@ -1191,7 +1265,9 @@ class JobManager:
         )
         refreshed = store.refresh_group(group_id)
         return {
-            "ok": all(bool(item.get("termination_confirmed")) for item in cancellations),
+            "ok": all(
+                bool(item.get("termination_confirmed")) for item in cancellations
+            ),
             "group_id": group_id,
             "status": refreshed["status"],
             "cancelled": refreshed["status"] == "cancelled",
@@ -1205,7 +1281,10 @@ class JobManager:
             group = store.get_group_for_child(run_id)
         except KeyError:
             return None
-        if str(group.get("failure_policy") or "continue_all") != "cancel_remaining_on_failure":
+        if (
+            str(group.get("failure_policy") or "continue_all")
+            != "cancel_remaining_on_failure"
+        ):
             return None
         failed_child = store.store.get_run(run_id)
         if str(failed_child.get("status") or "") not in {"failed", "timed_out"}:
@@ -1610,9 +1689,7 @@ class JobManager:
             stdin_bytes=stdin_bytes,
             timeout_seconds=timeout_seconds,
         )
-        resolve_ssh_connection(
-            resolve_ssh_host(self.config, host_id), self.config.ssh
-        )
+        resolve_ssh_connection(resolve_ssh_host(self.config, host_id), self.config.ssh)
         estimated_minutes = max(1, ((timeout_seconds or 60) + 59) // 60)
         decision = PolicyDecision(
             accepted=True,
@@ -1995,9 +2072,7 @@ class JobManager:
             "action": str(status.get("action") or ""),
             "host_id": str(status.get("host_id") or ""),
             "activation_intent": str(status.get("activation_intent") or ""),
-            "candidate_config_sha256": str(
-                status.get("candidate_config_sha256") or ""
-            ),
+            "candidate_config_sha256": str(status.get("candidate_config_sha256") or ""),
         }
         response = self._create_and_launch(
             "ssh_profile_activation",
@@ -2192,7 +2267,9 @@ class JobManager:
                 tool=tool,
                 run_id=run_id,
                 lease_generation=1,
-                script=str(input_data.get("script") or "") if tool == "ssh_reviewed_script" else None,
+                script=str(input_data.get("script") or "")
+                if tool == "ssh_reviewed_script"
+                else None,
             )
             if tool == "ssh_monitored_command":
                 _, monitored_profile = validate_monitored_command_start(
@@ -2256,11 +2333,16 @@ class JobManager:
             elif tool in {"ssh_reviewed_script", "ssh_monitored_command"}:
                 stage_ssh_inputs(
                     run_dir,
-                    script=str(input_data.get("script") or "") if tool == "ssh_reviewed_script" else None,
+                    script=str(input_data.get("script") or "")
+                    if tool == "ssh_reviewed_script"
+                    else None,
                     manifest=dict(input_data["staging_manifest"]),
                 )
             artifact_input = dict(input_data)
-            if tool in {"ssh_reviewed_script", "ssh_root_shell"} and "script" in artifact_input:
+            if (
+                tool in {"ssh_reviewed_script", "ssh_root_shell"}
+                and "script" in artifact_input
+            ):
                 artifact_input["script"] = "[REDACTED]"
             artifacts.write_json("input.json", artifact_input)
             self.store.create_run(
@@ -2294,10 +2376,11 @@ class JobManager:
             artifacts.append_event(event)
             launch_intent = self.store.get_run(run_id)
             process = self._spawn_worker(run_id, lease_token)
+            launcher_identity = capture_launch_identity(process)
             launched = self.store.record_worker_launch(
                 run_id,
                 process.pid,
-                launcher_identity=capture_launch_identity(process),
+                launcher_identity=launcher_identity,
                 expected_state_version=int(launch_intent["state_version"]),
                 expected_lease_token=lease_token,
                 expected_lease_generation=int(launch_intent["lease_generation"]),
@@ -2308,7 +2391,9 @@ class JobManager:
                 and int(current.get("lease_generation") or 1) == 1
                 and current["status"] in {"queued", "running"}
             ):
-                terminate_process_tree(process.pid)
+                require_identity_scoped_cleanup(
+                    process.pid, launcher_identity, process=process
+                )
                 raise RuntimeError("Initial worker launch lost durable lease ownership")
             if repository_lock_required:
                 self.locks.heartbeat(repo_name, run_id, lease_token, 1)
@@ -2322,17 +2407,58 @@ class JobManager:
             artifacts.append_event(event)
         except Exception as exc:
             reason = f"Worker launch failed after durable acceptance: {exc}"
+            containment_uncertain = (
+                isinstance(exc, LaunchIdentityUnavailable)
+                and not exc.containment.stop_confirmed
+            ) or isinstance(exc, ProcessContainmentUncertain)
             if run_created:
                 current = self.store.get_run(run_id)
+                if containment_uncertain:
+                    containment = (
+                        exc.containment.to_dict()
+                        if isinstance(exc, LaunchIdentityUnavailable)
+                        else exc.report
+                    )
+                    pending = self.store.mark_recovery_pending(
+                        run_id,
+                        reason,
+                        expected_statuses=(str(current["status"]),),
+                        expected_state_version=int(current["state_version"]),
+                        expected_lease_token=str(
+                            current.get("worker_lease_token") or ""
+                        ),
+                        expected_lease_generation=int(
+                            current.get("lease_generation") or 1
+                        ),
+                        expected_heartbeat_at=current.get("heartbeat_at"),
+                    )
+                    if pending is not None:
+                        event = self.store.append_event(
+                            run_id,
+                            level="error",
+                            stage="recovery_pending",
+                            message=reason,
+                            data={"containment": containment},
+                            update_run_metadata=False,
+                        )
+                        ArtifactWriter(run_dir).append_event(event)
+                    return {
+                        "run_id": run_id,
+                        "accepted": False,
+                        "status": "recovery_pending",
+                        "estimated_duration_minutes": 0,
+                        "recommended_check_after_minutes": 0,
+                        "risk_level": decision.risk_level,
+                        "requires_human": False,
+                        "reason": reason,
+                    }
                 failed = self.store.fail_infrastructure(
                     run_id,
                     reason,
                     expected_statuses=(str(current["status"]),),
                     expected_state_version=int(current["state_version"]),
                     expected_lease_token=str(current.get("worker_lease_token") or ""),
-                    expected_lease_generation=int(
-                        current.get("lease_generation") or 1
-                    ),
+                    expected_lease_generation=int(current.get("lease_generation") or 1),
                     expected_heartbeat_at=current.get("heartbeat_at"),
                 )
                 if failed is not None:
@@ -2568,7 +2694,9 @@ class JobManager:
         if view not in {"compact", "full"}:
             raise ValueError("input view must be compact or full")
         if response_budget_bytes < 1024 or response_budget_bytes > 12 * 1024:
-            raise ValueError("input response_budget_bytes must be between 1024 and 12288")
+            raise ValueError(
+                "input response_budget_bytes must be between 1024 and 12288"
+            )
         try:
             snapshot = self.store.get_run_input_snapshot(run_id)
         except (ValueError, KeyError) as exc:
@@ -2621,7 +2749,10 @@ class JobManager:
             },
             "response_budget_bytes": response_budget_bytes,
         }
-        while len(_canonical_public_json_bytes(compact)) > response_budget_bytes and compact["fields"]:
+        while (
+            len(_canonical_public_json_bytes(compact)) > response_budget_bytes
+            and compact["fields"]
+        ):
             compact["fields"].pop(next(reversed(compact["fields"])))
             compact["truncated"] = True
         compact["response_bytes"] = len(_canonical_public_json_bytes(compact))
@@ -2664,7 +2795,6 @@ class JobManager:
         if response_budget_bytes is not None:
             _fit_output_response(response, response_budget_bytes)
         return response
-
 
     def list_operation_locks(
         self, repo_name: str | None = None, *, include_stale: bool = True
@@ -2912,9 +3042,7 @@ class JobManager:
         if reference:
             transported = chunk_payload(
                 "list",
-                list_resource_id(
-                    actual_repo_name or "", status or "", limit
-                ),
+                list_resource_id(actual_repo_name or "", status or "", limit),
                 lambda: self.list_runs_payload(
                     repo_name=actual_repo_name or None,
                     status=status,
@@ -3103,9 +3231,7 @@ class JobManager:
             # processes is proven nothing can still mutate the repository, so the
             # lock is released even when publication fails. The response below
             # must then be honest that the cancellation is only partial.
-            self.locks.release(
-                run["repo_name"], run_id, lease_token, lease_generation
-            )
+            self.locks.release(run["repo_name"], run_id, lease_token, lease_generation)
             event = self.store.append_event(
                 run_id,
                 level="warning",
@@ -3194,7 +3320,9 @@ class JobManager:
                 grace_seconds=int(progress.get("termination_grace_seconds") or 5),
             )
             progress["remote_termination"] = termination
-            if not termination.get("terminated") or not termination.get("completion_persisted"):
+            if not termination.get("terminated") or not termination.get(
+                "completion_persisted"
+            ):
                 persist_progress()
                 return {
                     "ok": False,
@@ -3262,8 +3390,7 @@ class JobManager:
             and run["status"]
             in {"pending", "launch_pending", "queued", "recovery_pending"}
         ) or (
-            bool(reports)
-            and all(bool(report.get("terminated")) for report in reports)
+            bool(reports) and all(bool(report.get("terminated")) for report in reports)
         )
         progress["termination_reports"] = reports
 

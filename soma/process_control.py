@@ -4,6 +4,8 @@ import os
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +18,7 @@ def process_group_popen_kwargs() -> dict[str, Any]:
     """Return platform-specific Popen options for an independently terminable tree."""
     if _is_windows():
         return {
-            "creationflags": int(
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            )
+            "creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         }
     return {"start_new_session": True}
 
@@ -131,41 +131,233 @@ def recorded_process_is_absent(pid: int | None, expected_identity: str) -> bool:
     return process_identity(normalized) != expected_identity
 
 
+class LaunchContainmentDisposition(str, Enum):
+    """What Soma can prove about a freshly created process it could not name."""
+
+    IDENTITY_CAPTURED = "identity_captured"
+    STOP_CONFIRMED = "stop_confirmed"
+    STOP_UNCONFIRMED = "stop_unconfirmed"
+    CLEANUP_ERROR = "cleanup_error"
+
+
+@dataclass(frozen=True)
+class LaunchContainment:
+    """Structured evidence about one fresh-launch containment attempt.
+
+    Deliberately narrow: it reports only what an exact creator-held handle can
+    establish about the root process, and it never claims descendants are gone.
+    Proving that needs a Job Object established before the process ran.
+    """
+
+    disposition: LaunchContainmentDisposition
+    pid: int
+    identity: str = ""
+    kill_attempted: bool = False
+    exit_confirmed: bool = False
+    method: str = ""
+    error: str = ""
+
+    @property
+    def identity_captured(self) -> bool:
+        return self.disposition is LaunchContainmentDisposition.IDENTITY_CAPTURED
+
+    @property
+    def stop_confirmed(self) -> bool:
+        """True only when the exact creator handle proved the root exited."""
+        return (
+            self.disposition is LaunchContainmentDisposition.STOP_CONFIRMED
+            and self.exit_confirmed
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "disposition": self.disposition.value,
+            "pid": self.pid,
+            "identity_present": bool(self.identity),
+            "kill_attempted": self.kill_attempted,
+            "exit_confirmed": self.exit_confirmed,
+            "method": self.method,
+            "error": self.error[:500],
+        }
+
+
 class LaunchIdentityUnavailable(RuntimeError):
     """A freshly created process could not be given a start identity.
 
-    Raised only after the process has been stopped through its creator-held
-    handle, so a caller seeing this knows nothing was left running.
+    The attached :attr:`containment` carries the evidence. A caller must read it
+    rather than infer containment from the exception type: this is raised both
+    when the exact handle proved the process exited and when it could not.
     """
 
+    def __init__(self, containment: "LaunchContainment") -> None:
+        super().__init__(
+            f"process {containment.pid} started but no start identity could be "
+            f"captured; containment is {containment.disposition.value}"
+        )
+        self.containment = containment
 
-def capture_launch_identity(process: Any, *, timeout_seconds: float = 10.0) -> str:
-    """Capture a just-created process's start identity, or contain it.
 
-    A launcher attached with an empty identity is permanently unterminable
-    under the no-raw-PID rule, so it must never reach a healthy durable
-    attachment. Containment here uses the exact ``Popen`` handle the caller
-    created -- creator-held ownership, not PID inference -- and falls back to
-    owned-tree termination for descendants.
+class ProcessContainmentUncertain(RuntimeError):
+    """A process cleanup attempt could not prove the recorded process absent."""
+
+    def __init__(self, report: dict[str, Any]) -> None:
+        super().__init__(
+            f"process {int(report.get('pid') or 0)} containment is unconfirmed: "
+            f"{str(report.get('error') or report.get('method') or 'unknown')[:500]}"
+        )
+        self.report = dict(report)
+
+
+def contain_fresh_launch(
+    process: Any, *, timeout_seconds: float = 10.0, job: Any = None
+) -> LaunchContainment:
+    """Capture a just-created process's identity, or contain it without its PID.
+
+    The rule this enforces: **when identity capture fails, the numeric PID is
+    meaningless.** It may already belong to somebody else, so nothing here calls
+    ``terminate_process_tree``, enumerates descendants, or hands an empty
+    identity to identity-scoped termination. The only permitted actions are
+    through the exact creator-held handle, or through a Job Object established
+    before the process ran.
+
+    When the handle cannot prove the process exited the result is
+    ``STOP_UNCONFIRMED``: durable uncertainty that no caller may upgrade to
+    containment success.
     """
     pid = int(getattr(process, "pid", 0) or 0)
     identity = process_identity(pid)
     if identity:
-        return identity
+        return LaunchContainment(
+            disposition=LaunchContainmentDisposition.IDENTITY_CAPTURED,
+            pid=pid,
+            identity=identity,
+            method="identity_captured",
+        )
+
+    kill_attempted = False
+    errors: list[str] = []
     try:
         process.kill()
-    except Exception:
-        pass
+        kill_attempted = True
+    except Exception as exc:
+        errors.append(f"kill: {exc}")
+
+    exit_confirmed = False
     try:
+        # Exact-handle wait: the only assertion about the root that does not
+        # depend on the PID number still meaning what it meant at creation.
         process.wait(timeout=timeout_seconds)
-    except Exception:
-        pass
-    if pid > 0 and process_is_running(pid):
-        terminate_process_tree(pid, grace_seconds=timeout_seconds)
-    raise LaunchIdentityUnavailable(
-        f"process {pid} started but no start identity could be captured; "
-        "the process was stopped rather than attached without ownership proof"
+        exit_confirmed = True
+    except Exception as exc:
+        errors.append(f"wait: {exc}")
+        try:
+            exit_confirmed = process.poll() is not None
+        except Exception as poll_exc:
+            errors.append(f"poll: {poll_exc}")
+
+    if not exit_confirmed and job is not None:
+        # A Job Object established before the process ran is ownership, not
+        # inference, so it may act where a bare PID may not.
+        try:
+            job.terminate()
+            if job.is_empty():
+                return LaunchContainment(
+                    disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
+                    pid=pid,
+                    kill_attempted=kill_attempted,
+                    exit_confirmed=True,
+                    method="job_object",
+                    error="; ".join(errors)[:500],
+                )
+        except Exception as exc:
+            errors.append(f"job: {exc}")
+
+    if exit_confirmed:
+        return LaunchContainment(
+            disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
+            pid=pid,
+            kill_attempted=kill_attempted,
+            exit_confirmed=True,
+            method="creator_handle",
+            error="; ".join(errors)[:500],
+        )
+    return LaunchContainment(
+        disposition=(
+            LaunchContainmentDisposition.CLEANUP_ERROR
+            if errors
+            else LaunchContainmentDisposition.STOP_UNCONFIRMED
+        ),
+        pid=pid,
+        kill_attempted=kill_attempted,
+        exit_confirmed=False,
+        method="creator_handle",
+        error="; ".join(errors)[:500] or "exact-handle stop could not be confirmed",
     )
+
+
+def capture_launch_identity(
+    process: Any, *, timeout_seconds: float = 10.0, job: Any = None
+) -> str:
+    """Return a fresh process's start identity, or raise with containment evidence."""
+    containment = contain_fresh_launch(
+        process, timeout_seconds=timeout_seconds, job=job
+    )
+    if containment.identity_captured:
+        return containment.identity
+    raise LaunchIdentityUnavailable(containment)
+
+
+def identity_scoped_cleanup(
+    pid: int | None,
+    recorded_identity: str,
+    *,
+    process: Any = None,
+    grace_seconds: float = 3.0,
+) -> dict[str, Any]:
+    """Clean up a process Soma *can* name, and re-verify its absence.
+
+    Used on the post-identity failure paths -- lease loss, attachment failure,
+    timeout -- that previously called ``terminate_process_tree(process.pid)``
+    directly. With a captured identity the PID is meaningful again, so
+    identity-scoped termination applies; without one, only the creator handle
+    may act.
+    """
+    if not recorded_identity:
+        if process is not None:
+            containment = contain_fresh_launch(process, timeout_seconds=grace_seconds)
+            report = containment.to_dict()
+            report["terminated"] = containment.stop_confirmed
+            report["ownership_proven"] = False
+            return report
+        return {
+            "pid": int(pid or 0),
+            "method": "refused_no_recorded_identity",
+            "terminated": False,
+            "ownership_proven": False,
+            "error": "no recorded identity and no creator handle; ownership unproven",
+        }
+    return identity_scoped_termination(
+        pid, recorded_identity, grace_seconds=grace_seconds
+    )
+
+
+def require_identity_scoped_cleanup(
+    pid: int | None,
+    recorded_identity: str,
+    *,
+    process: Any = None,
+    grace_seconds: float = 3.0,
+) -> dict[str, Any]:
+    """Return cleanup evidence only when absence is proven; otherwise raise."""
+    report = identity_scoped_cleanup(
+        pid,
+        recorded_identity,
+        process=process,
+        grace_seconds=grace_seconds,
+    )
+    if not bool(report.get("terminated")):
+        raise ProcessContainmentUncertain(report)
+    return report
 
 
 def identity_scoped_termination(
@@ -356,7 +548,9 @@ def _terminate_windows(pid: int, grace_seconds: float) -> dict[str, Any]:
     stopped = _wait_until_stopped(pid, grace_seconds)
     error = ""
     if not stopped:
-        detail = (result.stderr or result.stdout or "taskkill did not stop the process").strip()
+        detail = (
+            result.stderr or result.stdout or "taskkill did not stop the process"
+        ).strip()
         error = detail[-1000:]
     return {
         "pid": pid,
@@ -393,7 +587,9 @@ def _terminate_posix(pid: int, grace_seconds: float) -> dict[str, Any]:
         "forced": forced,
         "exit_code": 0 if stopped else 1,
         "terminated": stopped,
-        "error": "" if stopped else "Process remained active after termination attempts",
+        "error": ""
+        if stopped
+        else "Process remained active after termination attempts",
     }
 
 

@@ -7,7 +7,6 @@ KILL_ON_JOB_CLOSE crash policy, deterministic ordering, and public projections.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
@@ -17,9 +16,11 @@ import pytest
 
 import soma.job_manager as job_manager_module
 from soma.process_control import (
+    LaunchContainment,
+    LaunchContainmentDisposition,
     LaunchIdentityUnavailable,
     capture_launch_identity,
-    identity_scoped_termination,
+    contain_fresh_launch,
     process_is_running,
 )
 from soma.run_store import (
@@ -31,7 +32,7 @@ from soma.worker_process import CancellationDisposition, CancellationProof
 from soma.worker_process import containment as containment_module
 
 from test_job_manager import make_manager
-from test_worker_process_identity import IS_WINDOWS, bound  # noqa: F401
+from test_worker_process_identity import IS_WINDOWS, bound as _bound_fixture  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -76,9 +77,12 @@ def test_empty_rows_with_an_empty_job_and_canonical_proof_may_publish():
 
 
 @pytest.mark.skipif(not IS_WINDOWS, reason="kernel job membership")
-def test_empty_rows_with_a_live_job_become_uncertain(bound, monkeypatch):
+def test_empty_rows_with_a_live_job_become_uncertain(
+    _bound_fixture,  # noqa: F811
+    monkeypatch,
+):
     """End-to-end: no recorded rows, but the kernel says processes exist."""
-    store, binding, _task_id, _run_id = bound
+    store, binding, _task_id, _run_id = _bound_fixture
     from soma.worker_process import cancellation as cm
 
     monkeypatch.setattr(cm, "_terminate_job", lambda _b: (True, (1234,), ""))
@@ -116,12 +120,60 @@ def test_capture_launch_identity_contains_a_process_it_cannot_name(monkeypatch):
 
     handle = _FakeHandle(4242)
     monkeypatch.setattr(pc, "process_identity", lambda pid: "")
-    monkeypatch.setattr(pc, "process_is_running", lambda pid: False)
-    with pytest.raises(LaunchIdentityUnavailable):
+    with pytest.raises(LaunchIdentityUnavailable) as raised:
         pc.capture_launch_identity(handle)
     # Stopped through the exact handle, not by PID inference.
     assert handle.killed == 1
     assert handle.waited == 1
+    assert raised.value.containment.stop_confirmed is True
+
+
+def test_identity_capture_failure_never_acts_on_reused_pid(monkeypatch):
+    import soma.process_control as pc
+
+    class UncertainHandle:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.killed = 0
+            self.waited = 0
+
+        def kill(self) -> None:
+            self.killed += 1
+            raise OSError("creator handle kill failed")
+
+        def wait(self, timeout=None) -> int:
+            self.waited += 1
+            raise subprocess.TimeoutExpired(cmd="owned-handle", timeout=timeout)
+
+        def poll(self):
+            raise OSError("creator handle query failed")
+
+    handle = UncertainHandle()
+    raw_pid_calls: list[int] = []
+    monkeypatch.setattr(pc, "process_identity", lambda pid: "")
+    monkeypatch.setattr(
+        pc,
+        "terminate_process_tree",
+        lambda pid, **_kwargs: raw_pid_calls.append(int(pid)),
+    )
+    monkeypatch.setattr(
+        pc,
+        "process_is_running",
+        lambda _pid: (_ for _ in ()).throw(
+            AssertionError(
+                "numeric PID must not be queried after identity capture fails"
+            )
+        ),
+    )
+
+    evidence = contain_fresh_launch(handle, timeout_seconds=0)
+
+    assert evidence.disposition is LaunchContainmentDisposition.CLEANUP_ERROR
+    assert evidence.stop_confirmed is False
+    assert handle.killed == 1
+    assert handle.waited == 1
+    assert raw_pid_calls == []
 
 
 def test_capture_launch_identity_returns_a_real_identity():
@@ -160,33 +212,82 @@ def test_launcher_identity_failure_leaves_no_healthy_attachment(
     manager = make_manager(tmp_path, monkeypatch)
 
     def refuse(process, **_kwargs):
-        raise LaunchIdentityUnavailable("identity unavailable; process stopped")
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                exit_confirmed=False,
+                method="creator_handle",
+                error="simulated wait timeout",
+            )
+        )
 
     monkeypatch.setattr(job_manager_module, "capture_launch_identity", refuse)
-    try:
-        manager.start_git_readonly("sample", "status")
-    except Exception:
-        pass  # Either surface is acceptable; the durable state is what matters.
+    response = manager.start_git_readonly("sample", "status")
+    run = manager.store.get_run(response["run_id"])
 
-    for run in manager.store.list_runs(limit=50):
-        # No run may sit in a healthy queued/running state without identity.
-        if run["status"] in {"queued", "running"}:
-            assert run.get("launcher_identity"), (
-                "a healthy attachment was persisted with no launcher identity"
+    assert response["accepted"] is False
+    assert response["status"] == "recovery_pending"
+    assert run["status"] == "recovery_pending"
+    assert run["result"] == {}
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
+
+
+def test_confirmed_identity_capture_failure_remains_terminal_and_releases_lock(
+    tmp_path: Path, monkeypatch
+):
+    manager = make_manager(tmp_path, monkeypatch)
+
+    def refuse(process, **_kwargs):
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.STOP_CONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                exit_confirmed=True,
+                method="creator_handle",
             )
+        )
+
+    monkeypatch.setattr(job_manager_module, "capture_launch_identity", refuse)
+    response = manager.start_git_readonly("sample", "status")
+    run = manager.store.get_run(response["run_id"])
+
+    assert response["status"] == "failed"
+    assert run["status"] == "failed"
+    assert manager.locks.find_lock("sample", response["run_id"]) is None
 
 
-def test_child_identity_capture_failure_stops_the_child(monkeypatch):
-    """job_worker must not attach an executable child with an empty identity."""
-    import soma.job_worker as job_worker_module
+def test_recovery_relaunch_uncertainty_retains_lease_and_lock(
+    tmp_path: Path, monkeypatch
+):
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_git_readonly("sample", "status")
+    manager.store.update_run(
+        response["run_id"], launcher_pid=None, launcher_identity=""
+    )
+    monkeypatch.setattr(job_manager_module, "process_is_running", lambda _pid: False)
 
-    assert "capture_launch_identity" in Path(
-        job_worker_module.__file__
-    ).read_text(encoding="utf-8")
-    source = Path(job_worker_module.__file__).read_text(encoding="utf-8")
-    # Persistence failure after Popen stops the exact process before re-raising.
-    assert "process.kill()" in source
-    assert "child_identity=child_identity" in source
+    def refuse(process, **_kwargs):
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                exit_confirmed=False,
+                method="creator_handle",
+                error="simulated recovery wait timeout",
+            )
+        )
+
+    monkeypatch.setattr(job_manager_module, "capture_launch_identity", refuse)
+
+    assert manager.reconcile_startup() == 1
+    run = manager.store.get_run(response["run_id"])
+    assert run["status"] == "recovery_pending"
+    assert run["ended_at"] is None
+    assert manager.locks.find_lock("sample", response["run_id"]) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +313,10 @@ def test_publication_failure_after_termination_is_reported_honestly(
     monkeypatch.setattr(
         job_manager_module,
         "terminate_process_tree",
-        lambda pid, **_k: terminations.append(pid)
-        or {"pid": pid, "terminated": True, "method": "spy", "error": ""},
+        lambda pid, **_k: (
+            terminations.append(pid)
+            or {"pid": pid, "terminated": True, "method": "spy", "error": ""}
+        ),
     )
 
     cancelled = manager.cancel_run(run_id)
@@ -262,7 +365,9 @@ def test_a_controller_crash_kills_the_whole_contained_tree(tmp_path: Path):
     """
     workspace = tmp_path / "crash"
     workspace.mkdir()
-    (workspace / "grand.py").write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+    (workspace / "grand.py").write_text(
+        "import time\ntime.sleep(120)\n", encoding="utf-8"
+    )
     (workspace / "child.py").write_text(
         "import subprocess, sys, pathlib, time\n"
         "h = pathlib.Path(__file__).parent\n"
@@ -311,8 +416,6 @@ def test_a_controller_crash_kills_the_whole_contained_tree(tmp_path: Path):
 
 @pytest.mark.skipif(not IS_WINDOWS, reason="KILL_ON_JOB_CLOSE is a Windows job limit")
 def test_releasing_an_already_empty_job_is_safe():
-    from soma.worker_process import launch_contained
-
     process, job = containment_module.launch_contained(
         [sys.executable, "-c", "pass"], job_name="Local\\soma-closure-empty"
     )
@@ -356,15 +459,15 @@ def test_cancellation_considers_child_then_worker_then_launcher(
     synthetic = {901: "901:synthetic:1", 902: "902:synthetic:1", 903: "903:synthetic:1"}
     monkeypatch.setattr(pc, "process_is_running", lambda pid: int(pid) in synthetic)
     monkeypatch.setattr(pc, "process_identity", lambda pid: synthetic.get(int(pid), ""))
-    monkeypatch.setattr(
-        pc, "recorded_process_is_absent", lambda pid, identity: True
-    )
+    monkeypatch.setattr(pc, "recorded_process_is_absent", lambda pid, identity: True)
     terminated: list[int] = []
     monkeypatch.setattr(
         job_manager_module,
         "terminate_process_tree",
-        lambda pid, **_k: terminated.append(int(pid))
-        or {"pid": pid, "terminated": True, "method": "spy", "error": ""},
+        lambda pid, **_k: (
+            terminated.append(int(pid))
+            or {"pid": pid, "terminated": True, "method": "spy", "error": ""}
+        ),
     )
 
     cancelled = manager.cancel_run(run_id)
@@ -407,8 +510,10 @@ def test_an_unproven_target_is_skipped_while_proven_ones_are_terminated(
     monkeypatch.setattr(
         job_manager_module,
         "terminate_process_tree",
-        lambda pid, **_k: terminated.append(int(pid))
-        or {"pid": pid, "terminated": True, "method": "spy", "error": ""},
+        lambda pid, **_k: (
+            terminated.append(int(pid))
+            or {"pid": pid, "terminated": True, "method": "spy", "error": ""}
+        ),
     )
 
     cancelled = manager.cancel_run(run_id)
@@ -428,7 +533,9 @@ def test_an_unproven_target_is_skipped_while_proven_ones_are_terminated(
 IDENTITY_COLUMNS = ("worker_identity", "launcher_identity", "child_identity")
 
 
-def test_identity_values_are_absent_from_public_projections(tmp_path: Path, monkeypatch):
+def test_identity_values_are_absent_from_public_projections(
+    tmp_path: Path, monkeypatch
+):
     manager = make_manager(tmp_path, monkeypatch)
     response = manager.start_git_readonly("sample", "status")
     run_id = response["run_id"]
@@ -446,8 +553,11 @@ def test_identity_values_are_absent_from_public_projections(tmp_path: Path, monk
 
     control = manager.get_control_status(run_id)
     rendered = repr(control)
-    for marker in ("LAUNCHER-IDENTITY-SECRET", "CHILD-IDENTITY-SECRET",
-                   "WORKER-IDENTITY-SECRET"):
+    for marker in (
+        "LAUNCHER-IDENTITY-SECRET",
+        "CHILD-IDENTITY-SECRET",
+        "WORKER-IDENTITY-SECRET",
+    ):
         assert marker not in rendered, f"{marker} leaked through get_control_status"
 
 

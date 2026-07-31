@@ -11,7 +11,16 @@ from soma.config import (
     ParallelExecutionConfig,
     RepoConfig,
 )
-from soma.parallel_groups import ParallelGroupStore, launch_powershell_group
+from soma.parallel_groups import (
+    ParallelGroupStore,
+    launch_powershell_group,
+    refill_powershell_groups,
+)
+from soma.process_control import (
+    LaunchContainment,
+    LaunchContainmentDisposition,
+    LaunchIdentityUnavailable,
+)
 
 
 def child_spec(runs_dir: Path, suffix: str) -> dict:
@@ -208,6 +217,50 @@ def test_launch_group_reserves_and_materializes_every_child_before_first_spawn(
         "queued",
         "queued",
     ]
+    assert all(store.store.get_run(run_id)["launcher_identity"] for run_id in run_ids)
+
+
+def test_parallel_initial_launch_uncertainty_remains_active(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = parallel_config(tmp_path)
+    run_id = "20260716T050050Z_executable_profile_a1b2c3d4"
+    group_id = "20260716T050050Z_powershell_group_c3d4e5f6"
+
+    def refuse(process, **_kwargs):
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                exit_confirmed=False,
+                method="creator_handle",
+                error="simulated parallel wait timeout",
+            )
+        )
+
+    monkeypatch.setattr("soma.parallel_groups.capture_launch_identity", refuse)
+    result = launch_powershell_group(
+        config=config,
+        repo_name="sample",
+        group_id=group_id,
+        children=[
+            {
+                "run_id": run_id,
+                "idempotency_key": "uncertain",
+                "argv": ["-NoProfile", "-Command", "Write-Output uncertain"],
+            }
+        ],
+        spawn_worker=lambda *_args: FakeProcess(4242),
+    )
+
+    store = ParallelGroupStore(config.resolve_runs_dir())
+    run = store.store.get_run(run_id)
+    group = store.refresh_group(group_id)
+    assert result["accepted"] is True
+    assert run["status"] == "recovery_pending"
+    assert group["status"] == "running"
+    assert group["result"]["terminal_child_count"] == 0
 
 
 def test_launch_group_respects_global_powershell_concurrency_limit(
@@ -239,9 +292,7 @@ def test_launch_group_respects_global_powershell_concurrency_limit(
     store = ParallelGroupStore(config.resolve_runs_dir())
     assert store.store.get_run(run_ids[0])["status"] == "queued"
     assert store.store.get_run(run_ids[1])["status"] == "pending"
-    recoverable_ids = {
-        run["run_id"] for run in store.store.list_recoverable_runs()
-    }
+    recoverable_ids = {run["run_id"] for run in store.store.list_recoverable_runs()}
     assert run_ids[1] not in recoverable_ids
 
 
@@ -278,9 +329,13 @@ def test_claim_pending_launches_respects_global_and_group_limits(
         first_children[0]["run_id"],
         second_children[0]["run_id"],
     ]
-    assert store.store.get_run(first_children[0]["run_id"])["status"] == "launch_pending"
+    assert (
+        store.store.get_run(first_children[0]["run_id"])["status"] == "launch_pending"
+    )
     assert store.store.get_run(first_children[1]["run_id"])["status"] == "pending"
-    assert store.store.get_run(second_children[0]["run_id"])["status"] == "launch_pending"
+    assert (
+        store.store.get_run(second_children[0]["run_id"])["status"] == "launch_pending"
+    )
     assert store.claim_pending_launches(max_concurrent_powershell=2) == []
 
 
@@ -316,7 +371,90 @@ def test_claim_pending_launches_refills_one_terminal_slot_exactly_once(
     assert store.claim_pending_launches(max_concurrent_powershell=1) == []
 
 
-def test_group_child_repository_lock_policy_defaults_to_required(tmp_path: Path) -> None:
+def test_refill_persists_identity_and_retains_uncertain_child(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = parallel_config(tmp_path, max_concurrent=1)
+    run_ids = [
+        "20260716T051150Z_executable_profile_a1b2c3d4",
+        "20260716T051150Z_executable_profile_b2c3d4e5",
+    ]
+    group_id = "20260716T051150Z_powershell_group_c3d4e5f6"
+    launch_powershell_group(
+        config=config,
+        repo_name="sample",
+        group_id=group_id,
+        children=[
+            {"run_id": run_ids[0], "idempotency_key": "first", "argv": ["one"]},
+            {"run_id": run_ids[1], "idempotency_key": "second", "argv": ["two"]},
+        ],
+        spawn_worker=lambda *_args: FakeProcess(13001),
+    )
+    store = ParallelGroupStore(config.resolve_runs_dir())
+    first = store.store.get_run(run_ids[0])
+    store.store.transition_terminal(
+        run_ids[0],
+        status="completed",
+        result={"run_id": run_ids[0], "status": "completed"},
+        expected_statuses=("queued",),
+        expected_state_version=int(first["state_version"]),
+        expected_lease_token=first["worker_lease_token"],
+        expected_lease_generation=int(first["lease_generation"]),
+    )
+
+    assert refill_powershell_groups(
+        config=config,
+        spawn_worker=lambda *_args: FakeProcess(13002),
+    ) == [run_ids[1]]
+    assert store.store.get_run(run_ids[1])["launcher_identity"] == "13002:synthetic:1"
+
+    third = child_spec(config.resolve_runs_dir(), "c3d4e5f6")
+    third["initial_status"] = "pending"
+    second_group = "20260716T051151Z_powershell_group_d4e5f6a7"
+    store.reserve_group(
+        group_id=second_group,
+        repo_name="sample",
+        children=[third],
+        requested_concurrency=1,
+    )
+    second = store.store.get_run(run_ids[1])
+    store.store.transition_terminal(
+        run_ids[1],
+        status="completed",
+        result={"run_id": run_ids[1], "status": "completed"},
+        expected_statuses=("queued",),
+        expected_state_version=int(second["state_version"]),
+        expected_lease_token=second["worker_lease_token"],
+        expected_lease_generation=int(second["lease_generation"]),
+    )
+
+    def refuse(process, **_kwargs):
+        raise LaunchIdentityUnavailable(
+            LaunchContainment(
+                disposition=LaunchContainmentDisposition.STOP_UNCONFIRMED,
+                pid=process.pid,
+                kill_attempted=True,
+                exit_confirmed=False,
+                method="creator_handle",
+                error="simulated refill uncertainty",
+            )
+        )
+
+    monkeypatch.setattr("soma.parallel_groups.capture_launch_identity", refuse)
+    assert (
+        refill_powershell_groups(
+            config=config,
+            spawn_worker=lambda *_args: FakeProcess(13003),
+        )
+        == []
+    )
+    assert store.store.get_run(third["run_id"])["status"] == "recovery_pending"
+    assert store.refresh_group(second_group)["status"] == "running"
+
+
+def test_group_child_repository_lock_policy_defaults_to_required(
+    tmp_path: Path,
+) -> None:
     runs_dir = tmp_path / "runs"
     store = ParallelGroupStore(runs_dir)
     child = child_spec(runs_dir, "a6b7c8d9")

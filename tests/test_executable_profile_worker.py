@@ -10,6 +10,7 @@ import pytest
 from soma.config import AppConfig, ExecutableProfileConfig, RepoConfig
 from soma.executable_profiles import build_local_executable_run_request
 from soma.job_worker import JobWorker
+from soma.process_control import ProcessContainmentUncertain
 from soma.run_store import RunStore, utc_now
 
 
@@ -123,7 +124,10 @@ def test_executable_worker_preserves_quoting_and_binary_streams(
     assert result["exit_code"] == 0
     assert result["argv"] == ["-c", script, *sensitive_args]
     assert (run_dir / "stdout.bin").read_bytes() == payload
-    assert json.loads((run_dir / "stderr.bin").read_text(encoding="utf-8")) == sensitive_args
+    assert (
+        json.loads((run_dir / "stderr.bin").read_text(encoding="utf-8"))
+        == sensitive_args
+    )
     assert result["stdout_bytes"] == len(payload)
     assert result["stderr_bytes"] == len((run_dir / "stderr.bin").read_bytes())
     assert result["output_truncated"] is False
@@ -187,13 +191,91 @@ def test_executable_worker_terminates_child_when_attachment_fails(
     )
     monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: False)
     monkeypatch.setattr(
-        "soma.job_worker.terminate_process_tree",
-        lambda pid: terminated.append(pid) or {"terminated": True},
+        "soma.job_worker.require_identity_scoped_cleanup",
+        lambda pid, identity, **_kwargs: (
+            terminated.append(pid)
+            or {
+                "pid": pid,
+                "terminated": True,
+                "ownership_proven": bool(identity),
+            }
+        ),
     )
 
     with pytest.raises(RuntimeError, match="lease was lost"):
         worker._execute_executable_profile(utc_now(), input_data)
     assert terminated == [43210]
+
+
+def test_executable_worker_cleans_up_after_attachment_exception(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worker, _store, input_data, _run_dir = _make_worker(
+        tmp_path,
+        argv=["-c", "print('unused')"],
+    )
+
+    class FakeProcess:
+        pid = 43211
+        stdin = None
+        stdout = None
+        stderr = None
+
+    cleaned: list[tuple[int, str]] = []
+    monkeypatch.setattr(
+        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+    )
+    monkeypatch.setattr(
+        worker.store,
+        "attach_child_pid",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        "soma.job_worker.require_identity_scoped_cleanup",
+        lambda pid, identity, **_kwargs: (
+            cleaned.append((pid, identity)) or {"terminated": True}
+        ),
+    )
+
+    with pytest.raises(OSError, match="database unavailable"):
+        worker._execute_executable_profile(utc_now(), input_data)
+    assert cleaned == [(43211, "43211:synthetic:1")]
+
+
+def test_executable_worker_propagates_unconfirmed_attachment_cleanup(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worker, _store, input_data, _run_dir = _make_worker(
+        tmp_path,
+        argv=["-c", "print('unused')"],
+    )
+
+    class FakeProcess:
+        pid = 43212
+        stdin = None
+        stdout = None
+        stderr = None
+
+    monkeypatch.setattr(
+        "soma.job_worker.subprocess.Popen", lambda *args, **kwargs: FakeProcess()
+    )
+    monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        "soma.job_worker.require_identity_scoped_cleanup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ProcessContainmentUncertain(
+                {
+                    "pid": 43212,
+                    "method": "refused_unreadable_identity",
+                    "terminated": False,
+                    "error": "identity unreadable",
+                }
+            )
+        ),
+    )
+
+    with pytest.raises(ProcessContainmentUncertain):
+        worker._execute_executable_profile(utc_now(), input_data)
 
 
 def test_executable_worker_marks_verified_timeout_termination(
@@ -227,8 +309,12 @@ def test_executable_worker_marks_verified_timeout_termination(
     )
     monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "soma.job_worker.terminate_process_tree",
-        lambda pid: {"terminated": True, "pid": pid},
+        "soma.job_worker.require_identity_scoped_cleanup",
+        lambda pid, identity, **_kwargs: {
+            "terminated": True,
+            "pid": pid,
+            "ownership_proven": bool(identity),
+        },
     )
 
     result = worker._execute_executable_profile(utc_now(), input_data)
@@ -236,6 +322,10 @@ def test_executable_worker_marks_verified_timeout_termination(
     assert result["status"] == "timed_out"
     assert result["exit_code"] == 124
     assert result["timed_out"] is True
-    assert result["termination"] == {"terminated": True, "pid": 54321}
+    assert result["termination"] == {
+        "terminated": True,
+        "pid": 54321,
+        "ownership_proven": True,
+    }
     assert (run_dir / "stdout.bin").read_bytes() == b""
     assert (run_dir / "stderr.bin").read_bytes() == b""

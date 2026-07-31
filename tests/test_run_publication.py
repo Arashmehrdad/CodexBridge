@@ -67,3 +67,40 @@ def test_publication_failure_preserves_terminal_database_result(
     assert current["result"] == winner
     assert current["result_publication_status"] == "failed"
     assert "disk full" in current["result_publication_error"]
+
+
+def test_real_publication_retry_preserves_authoritative_source_and_is_idempotent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    winner = {"run_id": "winner", "status": "completed", "summary": "database"}
+    store, run_id, run_dir = _terminal_run(tmp_path, winner)
+    from soma import run_publication
+
+    real_atomic_write_json = run_publication.atomic_write_json
+    write_attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal write_attempts
+        write_attempts += 1
+        if write_attempts == 1:
+            raise OSError("simulated publication failure")
+        return real_atomic_write_json(*args, **kwargs)
+
+    monkeypatch.setattr(run_publication, "atomic_write_json", fail_once)
+    first = publish_run_result(store, run_id)
+    failed = store.get_run(run_id)
+    authoritative_result = failed["result"]
+    source_hash = failed["public_result_source_sha256"]
+
+    second = publish_run_result(store, run_id)
+    published = store.get_run(run_id)
+    third = publish_run_result(store, run_id)
+
+    assert first["ok"] is False
+    assert failed["result_publication_status"] == "failed"
+    assert second["ok"] is True
+    assert third["ok"] is True
+    assert published["result"] == authoritative_result == winner
+    assert published["public_result_source_sha256"] == source_hash
+    assert json.loads((run_dir / "result.json").read_text(encoding="utf-8")) == winner
+    assert write_attempts == 2

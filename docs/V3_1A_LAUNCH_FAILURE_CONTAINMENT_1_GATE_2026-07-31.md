@@ -1,7 +1,7 @@
 # V3-1A-LAUNCH-FAILURE-CONTAINMENT-1 — Identity-Safe Fresh-Launch Cleanup
 
 **Date:** 2026-07-31
-**Status:** active bounded corrective subgate inside `V3-1A-PROCESS-IDENTITY-1`.
+**Status:** implemented locally; awaiting independent acceptance inside `V3-1A-PROCESS-IDENTITY-1`.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** failed audit [`V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md)
 **Repository baseline:** `46cab50b09dd1443a144911a18539ded221e3685`

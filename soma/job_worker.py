@@ -55,8 +55,10 @@ from .parallel_groups import refill_powershell_groups, repository_lock_required_
 from .process_control import (
     process_group_popen_kwargs,
     process_identity,
-    terminate_process_tree,
     capture_launch_identity,
+    LaunchIdentityUnavailable,
+    ProcessContainmentUncertain,
+    require_identity_scoped_cleanup,
 )
 from .run_store import TERMINAL_STATUSES, RunStore
 from .transfer_manifests import build_upload_transfer_manifest
@@ -159,9 +161,7 @@ def _validate_persisted_ssh_policy_metadata(
     policy,
 ) -> dict[str, object]:
     metadata = _ssh_policy_metadata(policy)
-    persisted = {
-        field: input_data.get(field) for field in _SSH_POLICY_METADATA_FIELDS
-    }
+    persisted = {field: input_data.get(field) for field in _SSH_POLICY_METADATA_FIELDS}
     canonical = {field: metadata[field] for field in _SSH_POLICY_METADATA_FIELDS}
     if persisted != canonical:
         raise ValueError(
@@ -284,8 +284,7 @@ def _validate_ssh_reviewed_script_worker_input(
     unexpected = sorted(set(input_data) - _REVIEWED_SCRIPT_PERSISTED_FIELDS)
     if unexpected:
         raise ValueError(
-            "Unexpected persisted reviewed SSH script metadata fields: "
-            f"{unexpected}"
+            f"Unexpected persisted reviewed SSH script metadata fields: {unexpected}"
         )
 
     request_payload = {
@@ -398,9 +397,7 @@ def _validate_ssh_transfer_worker_input(
         if local.is_dir() and not recursive:
             raise ValueError("Directory upload requires recursive=true")
         if _is_secret_path(local.as_posix()):
-            raise ValueError(
-                "Secret-like local files cannot be uploaded through Soma"
-            )
+            raise ValueError("Secret-like local files cannot be uploaded through Soma")
         expected_kind = "file" if local.is_file() else "directory"
         if manifest is not None:
             if manifest.get("source_kind") != expected_kind:
@@ -411,11 +408,13 @@ def _validate_ssh_transfer_worker_input(
                     if manifest.get("source_size_bytes") != current_manifest.get(
                         "source_size_bytes"
                     ):
-                        raise ValueError("SSH upload source size changed after acceptance")
-                    raise ValueError("SSH upload source SHA-256 changed after acceptance")
-                raise ValueError(
-                    "SSH recursive upload source changed after acceptance"
-                )
+                        raise ValueError(
+                            "SSH upload source size changed after acceptance"
+                        )
+                    raise ValueError(
+                        "SSH upload source SHA-256 changed after acceptance"
+                    )
+                raise ValueError("SSH recursive upload source changed after acceptance")
     else:
         requested_name = (
             Path(local_path).name if local_path else PurePosixPath(remote_path).name
@@ -429,9 +428,7 @@ def _validate_ssh_transfer_worker_input(
         ):
             raise ValueError("Persisted SSH download staging path does not match")
         if destination.exists() and not overwrite:
-            raise ValueError(
-                f"Download destination already exists: {destination.name}"
-            )
+            raise ValueError(f"Download destination already exists: {destination.name}")
 
     return direction, repo_root, direction == "upload", overwrite
 
@@ -445,9 +442,7 @@ def _validate_ssh_deployment_worker_input(
         raise ValueError("SSH deployment capability is disabled by allow_deploy")
     confirmation = str(input_data.get("confirmation", ""))
     if confirmation != config.ssh.confirmation_token:
-        raise ValueError(
-            "SSH deployment requires the configured confirmation token"
-        )
+        raise ValueError("SSH deployment requires the configured confirmation token")
 
     host_id = str(input_data["host_id"])
     deployment_id = str(input_data["deployment_id"])
@@ -547,9 +542,7 @@ def _stream_binary_pipe(
 
 
 class JobWorker:
-    def __init__(
-        self, config_path: Path, run_id: str, lease_token: str | None = None
-    ):
+    def __init__(self, config_path: Path, run_id: str, lease_token: str | None = None):
         self.config_path = config_path
         self.config = load_config(config_path)
         self.store = RunStore(self.config.resolve_runs_dir())
@@ -950,6 +943,10 @@ class JobWorker:
         except Exception as exc:
             ended_at = _utc_now()
             result = self._error_result(started_at, ended_at, exc)
+            containment_uncertain = (
+                isinstance(exc, LaunchIdentityUnavailable)
+                and not exc.containment.stop_confirmed
+            ) or isinstance(exc, ProcessContainmentUncertain)
             progress = dict(self.store.get_run(self.run_id).get("progress") or {})
             remote_process = dict(progress.get("remote_process") or {})
             remote_identity_known = bool(
@@ -959,8 +956,29 @@ class JobWorker:
                 and remote_process.get("start_time_ticks")
             )
             failure_status = (
-                "cancellation_pending" if remote_identity_known else "failed"
+                "recovery_pending"
+                if containment_uncertain
+                else "cancellation_pending"
+                if remote_identity_known
+                else "failed"
             )
+            if containment_uncertain:
+                containment = (
+                    exc.containment.to_dict()
+                    if isinstance(exc, LaunchIdentityUnavailable)
+                    else exc.report
+                )
+                result.update(
+                    {
+                        "status": "recovery_pending",
+                        "error": (
+                            "Local process containment is unconfirmed; "
+                            "mutation ownership retained: " + str(exc)
+                        ),
+                        "safety_failure": True,
+                        "containment": containment,
+                    }
+                )
             if remote_identity_known:
                 result.update(
                     {
@@ -974,7 +992,17 @@ class JobWorker:
                     }
                 )
             current = self.store.get_run(self.run_id)
-            if remote_identity_known:
+            if containment_uncertain:
+                persisted = self.store.mark_recovery_pending(
+                    self.run_id,
+                    result["error"],
+                    expected_statuses=("running",),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=self.worker_lease_token,
+                    expected_lease_generation=self.worker_lease_generation,
+                    expected_heartbeat_at=current.get("heartbeat_at"),
+                )
+            elif remote_identity_known:
                 persisted = self.store.conditional_update(
                     self.run_id,
                     fields={
@@ -1026,14 +1054,27 @@ class JobWorker:
                     self.run_id,
                     level="error",
                     stage=(
-                        "cancellation_pending" if remote_identity_known else "result"
+                        "recovery_pending"
+                        if containment_uncertain
+                        else "cancellation_pending"
+                        if remote_identity_known
+                        else "result"
                     ),
                     message=(
-                        "Run requires remote recovery"
+                        "Run requires local containment recovery"
+                        if containment_uncertain
+                        else "Run requires remote recovery"
                         if remote_identity_known
                         else "Run failed"
                     ),
-                    data={"error": str(exc)},
+                    data={
+                        "error": str(exc),
+                        **(
+                            {"containment": result["containment"]}
+                            if containment_uncertain
+                            else {}
+                        ),
+                    },
                     update_run_metadata=False,
                 )
                 self.artifacts.append_event(event)
@@ -1047,7 +1088,10 @@ class JobWorker:
             if self._heartbeat_thread is not None:
                 self._heartbeat_thread.join(timeout=2)
             final_status = str(self.store.get_run(self.run_id).get("status") or "")
-            if self.repository_lock_required and final_status != "cancellation_pending":
+            if self.repository_lock_required and final_status not in {
+                "cancellation_pending",
+                "recovery_pending",
+            }:
                 self.locks.release(
                     self.run["repo_name"],
                     self.run_id,
@@ -1065,12 +1109,16 @@ class JobWorker:
                 "Persisted executable identity does not match worker revalidation"
             )
         if str(input_data.get("autonomy_profile", "")) != profile.autonomy_profile:
-            raise ValueError("Persisted executable autonomy profile does not match config")
+            raise ValueError(
+                "Persisted executable autonomy profile does not match config"
+            )
         if str(input_data.get("target", "")) != "local":
             raise ValueError("Executable worker only supports local targets")
 
         argv = input_data.get("argv")
-        if not isinstance(argv, list) or any(not isinstance(item, str) for item in argv):
+        if not isinstance(argv, list) or any(
+            not isinstance(item, str) for item in argv
+        ):
             raise ValueError("Persisted executable argv must be a list of strings")
         command = [str(executable_identity["executable_path"]), *argv]
         working_directory = str(input_data.get("working_directory") or "")
@@ -1115,7 +1163,9 @@ class JobWorker:
                         str(input_data.get("stdin_base64") or ""), validate=True
                     )
                 except Exception as exc:
-                    raise ValueError("Persisted executable binary stdin is invalid") from exc
+                    raise ValueError(
+                        "Persisted executable binary stdin is invalid"
+                    ) from exc
             elif stdin_mode == "none":
                 stdin_payload = None
             else:
@@ -1162,14 +1212,16 @@ class JobWorker:
         except Exception:
             # Persistence failed after creation. Stop the exact process through
             # creator-held ownership before surfacing the failure.
-            try:
-                process.kill()
-            except Exception:
-                pass
-            terminate_process_tree(process.pid)
+            # Identity was captured above, so cleanup is identity-scoped and
+            # absence is re-verified rather than assumed from the primitive.
+            require_identity_scoped_cleanup(
+                process.pid, child_identity, process=process
+            )
             raise
         if not attached:
-            terminate_process_tree(process.pid)
+            require_identity_scoped_cleanup(
+                process.pid, child_identity, process=process
+            )
             raise RuntimeError("Worker lease was lost before child process attachment")
         self.event(
             "info",
@@ -1182,11 +1234,23 @@ class JobWorker:
         stderr_buffer = bytearray()
         stdout_thread = threading.Thread(
             target=_stream_binary_pipe,
-            args=(process.stdout, stdout_path, stdout_buffer, public_limit, self._note_output),
+            args=(
+                process.stdout,
+                stdout_path,
+                stdout_buffer,
+                public_limit,
+                self._note_output,
+            ),
         )
         stderr_thread = threading.Thread(
             target=_stream_binary_pipe,
-            args=(process.stderr, stderr_path, stderr_buffer, public_limit, self._note_output),
+            args=(
+                process.stderr,
+                stderr_path,
+                stderr_buffer,
+                public_limit,
+                self._note_output,
+            ),
         )
         stdout_thread.start()
         stderr_thread.start()
@@ -1203,7 +1267,9 @@ class JobWorker:
             exit_code = process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
-            termination = terminate_process_tree(process.pid)
+            termination = require_identity_scoped_cleanup(
+                process.pid, child_identity, process=process
+            )
             exit_code = 124
             self.event(
                 "error",
@@ -1308,7 +1374,9 @@ class JobWorker:
         repo_root = resolve_repo(self.config, repo_name)
 
         if tool == "repo_apply":
-            return self._execute_repo_apply(started_at, repo_name, repo_root, input_data)
+            return self._execute_repo_apply(
+                started_at, repo_name, repo_root, input_data
+            )
         if tool == "project_command":
             return self._execute_project_command(
                 started_at, repo_name, repo_root, input_data
@@ -1348,12 +1416,21 @@ class JobWorker:
                 run_id=self.run_id,
                 lease_generation=self.worker_lease_generation,
             )
-            if staged_script is None or sha256(staged_script.encode("utf-8")).hexdigest() != request.script_sha256:
-                raise ValueError("Reviewed-script staged input does not match the approved hash")
+            if (
+                staged_script is None
+                or sha256(staged_script.encode("utf-8")).hexdigest()
+                != request.script_sha256
+            ):
+                raise ValueError(
+                    "Reviewed-script staged input does not match the approved hash"
+                )
             execution_script = staged_script
         else:
             execution_script = request.script
-            output_paths = {"stdout": run_dir / "stdout.txt", "stderr": run_dir / "stderr.txt"}
+            output_paths = {
+                "stdout": run_dir / "stdout.txt",
+                "stderr": run_dir / "stderr.txt",
+            }
             output_entries = []
         self.event(
             "info",
@@ -1434,7 +1511,9 @@ class JobWorker:
             "diff_stat": "",
             "tests_run": [],
             "test_results": output_summary,
-            "summary": output_summary[-4000:] if output_summary else "Reviewed SSH script finished",
+            "summary": output_summary[-4000:]
+            if output_summary
+            else "Reviewed SSH script finished",
             "remaining_risks": [
                 "Soma cannot independently verify the resulting remote state"
             ]
@@ -1525,7 +1604,9 @@ class JobWorker:
             "diff_stat": "",
             "tests_run": [],
             "test_results": output_summary,
-            "summary": output_summary[-4000:] if output_summary else "SSH root shell finished",
+            "summary": output_summary[-4000:]
+            if output_summary
+            else "SSH root shell finished",
             "remaining_risks": [
                 "Soma cannot independently verify the resulting remote state"
             ],
@@ -1563,9 +1644,7 @@ class JobWorker:
         if command_result.get("timed_out"):
             risks.append("SSH command timed out; inspect saved output before retrying")
         if command_result.get("writes_remote"):
-            risks.append(
-                "Soma cannot independently verify the resulting remote state"
-            )
+            risks.append("Soma cannot independently verify the resulting remote state")
         output_summary = (stdout or stderr).strip()
         summary = (
             output_summary[-4000:]
@@ -1751,9 +1830,7 @@ class JobWorker:
     def _execute_ssh_monitored_command(self, started_at: str, input_data: dict) -> dict:
         host_id = str(input_data["host_id"])
         command_id = str(input_data["command_id"])
-        _, profile = validate_monitored_command_start(
-            self.config, host_id, command_id
-        )
+        _, profile = validate_monitored_command_start(self.config, host_id, command_id)
         policy_metadata = _authorize_persisted_ssh_policy(
             input_data,
             writes_remote=profile.writes_remote,
@@ -1762,7 +1839,9 @@ class JobWorker:
         remote_controller_state = input_data.get("remote_controller_state")
         if remote_controller_state is not None:
             if not isinstance(remote_controller_state, dict):
-                raise ValueError("Persisted remote-controller state contract is invalid")
+                raise ValueError(
+                    "Persisted remote-controller state contract is invalid"
+                )
             validate_remote_controller_state_contract(
                 remote_controller_state,
                 run_id=self.run_id,
@@ -2134,9 +2213,7 @@ class JobWorker:
             {
                 "change_id": change_id,
                 "host_id": str(input_data.get("host_id") or ""),
-                "activation_intent": str(
-                    input_data.get("activation_intent") or ""
-                ),
+                "activation_intent": str(input_data.get("activation_intent") or ""),
             },
         )
         activation_result = run_ssh_profile_activation(
@@ -2176,9 +2253,7 @@ class JobWorker:
             "tool": "ssh_profile_activation",
             "change_id": change_id,
             "host_id": str(input_data.get("host_id") or ""),
-            "activation_intent": str(
-                input_data.get("activation_intent") or ""
-            ),
+            "activation_intent": str(input_data.get("activation_intent") or ""),
             "status": "completed" if ok else "failed",
             "exit_code": 0 if ok else 1,
             "started_at": started_at,
@@ -2546,8 +2621,7 @@ class JobWorker:
         )
         result.setdefault(
             "summary",
-            result.get("error")
-            or f"Repository apply {operation} {result['status']}",
+            result.get("error") or f"Repository apply {operation} {result['status']}",
         )
         result.setdefault("remaining_risks", [])
         result.setdefault("safety_failure", False)
@@ -2593,7 +2667,9 @@ class JobWorker:
         if requested_timeout is not None:
             timeout_value = int(requested_timeout)
             if timeout_value < 1 or timeout_value > 604_800:
-                raise ValueError("validator timeout_seconds must be between 1 and 604800")
+                raise ValueError(
+                    "validator timeout_seconds must be between 1 and 604800"
+                )
             profile.timeout_seconds = timeout_value
         run_dir = Path(self.run["run_dir"])
         temp_root = run_dir / "tmp"
@@ -2812,9 +2888,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     config_path = Path(args.config).resolve()
-    worker = JobWorker(
-        config_path, args.run_id, lease_token=args.lease_token
-    )
+    worker = JobWorker(config_path, args.run_id, lease_token=args.lease_token)
     exit_code = worker.execute()
     try:
         config = load_config(config_path)

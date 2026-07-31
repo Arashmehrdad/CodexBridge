@@ -8,8 +8,20 @@ from uuid import uuid4
 from .config import AppConfig, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter
 from .executable_profiles import build_local_executable_run_request
-from .process_control import capture_launch_identity, terminate_process_tree
-from .run_store import TERMINAL_STATUSES, RunStore, dumps, loads, utc_now, validate_run_id
+from .process_control import (
+    capture_launch_identity,
+    LaunchIdentityUnavailable,
+    ProcessContainmentUncertain,
+    require_identity_scoped_cleanup,
+)
+from .run_store import (
+    TERMINAL_STATUSES,
+    RunStore,
+    dumps,
+    loads,
+    utc_now,
+    validate_run_id,
+)
 
 
 def _make_group_run_id(tool: str) -> str:
@@ -137,9 +149,7 @@ class ParallelGroupStore:
             if run_id in seen_run_ids:
                 raise ValueError(f"Duplicate child run_id: {run_id}")
             if idempotency_key in seen_keys:
-                raise ValueError(
-                    f"Duplicate child idempotency_key: {idempotency_key}"
-                )
+                raise ValueError(f"Duplicate child idempotency_key: {idempotency_key}")
             seen_run_ids.add(run_id)
             seen_keys.add(idempotency_key)
             lease_token = str(child.get("worker_lease_token") or "")
@@ -272,7 +282,9 @@ class ParallelGroupStore:
                 (run_id,),
             ).fetchone()
         if row is None:
-            raise KeyError(f"Parallel child is not attached to a command group: {run_id}")
+            raise KeyError(
+                f"Parallel child is not attached to a command group: {run_id}"
+            )
         return self.get_group(str(row["group_id"]))
 
     def repository_lock_required_for_child(self, run_id: str) -> bool:
@@ -319,7 +331,9 @@ class ParallelGroupStore:
             ).fetchall()
             child_payloads = [self._child_payload(child) for child in children]
             statuses = [str(child["status"]) for child in child_payloads]
-            counts = {status: statuses.count(status) for status in sorted(set(statuses))}
+            counts = {
+                status: statuses.count(status) for status in sorted(set(statuses))
+            }
             terminal_count = sum(status in terminal_statuses for status in statuses)
             total = len(statuses)
             if total and terminal_count == total:
@@ -331,12 +345,16 @@ class ParallelGroupStore:
                     aggregate_status = "failed"
                 else:
                     aggregate_status = "partial"
-                ended_at = max(
-                    (str(child.get("ended_at") or "") for child in child_payloads),
-                    default=now,
-                ) or now
+                ended_at = (
+                    max(
+                        (str(child.get("ended_at") or "") for child in child_payloads),
+                        default=now,
+                    )
+                    or now
+                )
             elif any(
-                status in {
+                status
+                in {
                     "queued",
                     "running",
                     "cancellation_pending",
@@ -450,9 +468,7 @@ class ParallelGroupStore:
                     ).fetchone()[0]
                 )
                 group_slots = (
-                    None
-                    if requested is None
-                    else max(0, int(requested) - active_group)
+                    None if requested is None else max(0, int(requested) - active_group)
                 )
                 slots = group_slots
                 if global_slots is not None:
@@ -530,7 +546,9 @@ def _launch_claimed_child(
             str(current.get("worker_lease_token") or "") == lease_token
             and current["status"] in {"queued", "running"}
         ):
-            terminate_process_tree(process.pid)
+            require_identity_scoped_cleanup(
+                process.pid, launcher_identity, process=process
+            )
             raise RuntimeError("Parallel child launch lost durable lease ownership")
         event = store.store.append_event(
             run_id,
@@ -544,6 +562,36 @@ def _launch_claimed_child(
     except Exception as exc:
         current = store.store.get_run(run_id)
         reason = f"Parallel child worker launch failed: {exc}"
+        containment_uncertain = (
+            isinstance(exc, LaunchIdentityUnavailable)
+            and not exc.containment.stop_confirmed
+        ) or isinstance(exc, ProcessContainmentUncertain)
+        if containment_uncertain:
+            containment = (
+                exc.containment.to_dict()
+                if isinstance(exc, LaunchIdentityUnavailable)
+                else exc.report
+            )
+            pending = store.store.mark_recovery_pending(
+                run_id,
+                reason,
+                expected_statuses=(str(current["status"]),),
+                expected_state_version=int(current["state_version"]),
+                expected_lease_token=str(current.get("worker_lease_token") or ""),
+                expected_lease_generation=int(current.get("lease_generation") or 1),
+                expected_heartbeat_at=current.get("heartbeat_at"),
+            )
+            if pending is not None:
+                event = store.store.append_event(
+                    run_id,
+                    level="error",
+                    stage="recovery_pending",
+                    message=reason,
+                    data={"group_id": group_id, "containment": containment},
+                    update_run_metadata=False,
+                )
+                ArtifactWriter(run_dir).append_event(event)
+            return False
         failed = store.store.fail_infrastructure(
             run_id,
             reason,
@@ -642,9 +690,7 @@ def launch_powershell_group(
         if requested_concurrency < 1:
             raise ValueError("requested_concurrency must be positive or null")
         if configured_limit is not None and requested_concurrency > configured_limit:
-            raise ValueError(
-                "requested_concurrency exceeds max_concurrent_powershell"
-            )
+            raise ValueError("requested_concurrency exceeds max_concurrent_powershell")
     effective_limit = requested_concurrency
     if effective_limit is None:
         effective_limit = configured_limit
@@ -678,9 +724,7 @@ def launch_powershell_group(
         reserved_children.append(
             {
                 "run_id": run_id,
-                "idempotency_key": str(
-                    child.get("idempotency_key") or uuid4().hex
-                ),
+                "idempotency_key": str(child.get("idempotency_key") or uuid4().hex),
                 "run_dir": runs_dir / run_id,
                 "worker_lease_token": lease_token,
                 "input_data": input_data,
@@ -729,7 +773,9 @@ def launch_powershell_group(
 
     launched_run_ids: list[str] = []
     pending_run_ids: list[str] = []
-    eligible_count = len(reserved_children) if effective_limit is None else effective_limit
+    eligible_count = (
+        len(reserved_children) if effective_limit is None else effective_limit
+    )
     for index, child in enumerate(reserved_children):
         run_id = child["run_id"]
         if index >= eligible_count:
@@ -754,7 +800,9 @@ def launch_powershell_group(
                 == child["worker_lease_token"]
                 and current["status"] in {"queued", "running"}
             ):
-                terminate_process_tree(process.pid)
+                require_identity_scoped_cleanup(
+                    process.pid, launcher_identity, process=process
+                )
                 raise RuntimeError("Parallel child launch lost durable lease ownership")
             event = store.store.append_event(
                 run_id,
@@ -768,6 +816,39 @@ def launch_powershell_group(
         except Exception as exc:
             current = store.store.get_run(run_id)
             reason = f"Parallel child worker launch failed: {exc}"
+            containment_uncertain = (
+                isinstance(exc, LaunchIdentityUnavailable)
+                and not exc.containment.stop_confirmed
+            ) or isinstance(exc, ProcessContainmentUncertain)
+            if containment_uncertain:
+                containment = (
+                    exc.containment.to_dict()
+                    if isinstance(exc, LaunchIdentityUnavailable)
+                    else exc.report
+                )
+                pending = store.store.mark_recovery_pending(
+                    run_id,
+                    reason,
+                    expected_statuses=(str(current["status"]),),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=str(current.get("worker_lease_token") or ""),
+                    expected_lease_generation=int(current.get("lease_generation") or 1),
+                    expected_heartbeat_at=current.get("heartbeat_at"),
+                )
+                if pending is not None:
+                    event = store.store.append_event(
+                        run_id,
+                        level="error",
+                        stage="recovery_pending",
+                        message=reason,
+                        data={
+                            "group_id": selected_group_id,
+                            "containment": containment,
+                        },
+                        update_run_metadata=False,
+                    )
+                    ArtifactWriter(run_dir).append_event(event)
+                continue
             failed = store.store.fail_infrastructure(
                 run_id,
                 reason,
