@@ -1,7 +1,7 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; foundation and adapter contract accepted; process-identity, cancellation-authority, and cancellation-closure packages implemented but unaccepted; launch-failure-containment bounded corrective gate active; no production activation or push authorised.
+**Status:** active implementation lane; foundation and adapter contract accepted; process-identity, cancellation-authority, cancellation-closure, and launch-failure-containment packages implemented but unaccepted; descendant-containment bounded corrective gate active; no production activation or push authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
@@ -252,8 +252,12 @@ The corrective package was implemented at `c1c5b535e9bb95b14b701546ce716653faf66
 
 The closure package was implemented at `89fb199c4a1a62fc464eed38d6b2836b3094941b` but failed independent acceptance. The audit is [`V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md). Its empty-row, environment, publication, KILL_ON_JOB_CLOSE, cancellation-ordering, migration, and launcher/child projection results are retained.
 
-### V3-1A-LAUNCH-FAILURE-CONTAINMENT-1 — active bounded corrective subgate
+### V3-1A-LAUNCH-FAILURE-CONTAINMENT-1 — implemented, not accepted
 
-The active correction is [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_GATE_2026-07-31.md). It must remove identity-less raw-PID action from fresh-launch failure cleanup, distinguish confirmed containment from durable uncertainty, retain or quarantine mutation ownership when stop is unproven, make touched post-identity cleanup identity-scoped, and pin behavioral launcher/child and real-publication regressions. It remains inside the process-identity gate and adds no lifecycle authority.
+The launch-failure package was implemented at `b6adcae3267607e26d471163153b2cbec92b41b5` but failed independent acceptance. The audit is [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md). Its zero-raw-PID, structured uncertainty, lock-retention, identity-scoped cleanup, parallel-accounting, and CF1 corrections are retained.
+
+### V3-1A-DESCENDANT-CONTAINMENT-1 — active bounded corrective subgate
+
+The active correction is [`V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md). It must separate root-exit confirmation from owned-tree absence proof, keep creator-handle-only cleanup non-terminal, retain locks and active parallel slots while descendant absence is unproven, and permit terminal failure only after a pre-established Job Object or equivalent ownership primitive proves the launch tree empty. It remains inside the process-identity gate and adds no lifecycle authority.
 
 Real Claude/Codex launch, provider accounts, live provider prompts/streams, operational steering/input, and non-terminal controller continuation remain later and inactive.

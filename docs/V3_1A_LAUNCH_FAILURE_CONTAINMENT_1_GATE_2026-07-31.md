@@ -1,11 +1,16 @@
 # V3-1A-LAUNCH-FAILURE-CONTAINMENT-1 — Identity-Safe Fresh-Launch Cleanup
 
 **Date:** 2026-07-31
-**Status:** implemented locally; awaiting independent acceptance inside `V3-1A-PROCESS-IDENTITY-1`.
+**Status:** implementation submitted at `b6adcae3267607e26d471163153b2cbec92b41b5`; independent acceptance failed; bounded descendant-containment correction active.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** failed audit [`V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md)
 **Repository baseline:** `46cab50b09dd1443a144911a18539ded221e3685`
 **Push:** not authorised.
+
+**Audit:** [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md)
+**Active corrective gate:** [`V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md)
+
+This package remains unaccepted. Its retained corrections must not regress while the linked descendant-containment gate closes the root-exit versus tree-exit contradiction. No interaction-command or later V3 package is active.
 
 ## 1. Objective
 
