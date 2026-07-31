@@ -1,7 +1,7 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; foundation and adapter contract accepted; process-identity, cancellation-authority, cancellation-closure, and launch-failure-containment packages implemented but unaccepted; descendant-containment bounded corrective gate active; no production activation or push authorised.
+**Status:** active implementation lane; foundation, adapter contract, and the complete process-identity corrective chain accepted; interaction-command and non-terminal-waiting gate active; no real provider execution, production activation, or push authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
@@ -240,24 +240,14 @@ The provider-neutral adapter and fixture package is accepted after independent a
 
 The accepted adapter remains inert. It launches no provider, applies no environment, publishes no task outcome, and exposes no public operation.
 
-### V3-1A-PROCESS-IDENTITY-1 — implemented, not accepted
+### V3-1A-PROCESS-IDENTITY-1 — accepted and closed
 
-The stand-in process package was implemented at `bd007ec72ca7b2e24ffe7b4587570f0173a111d8` but failed independent acceptance. The audit is [`V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_PROCESS_IDENTITY_1_ACCEPTANCE_AUDIT_2026-07-30.md).
+The cumulative process-identity chain is accepted at runtime commit `7cc66c50675a91ff958d39a3c53e6246a88268d6`. The original submissions and failed audits are retained as evidence of the corrective path; the final verdict is [`V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md).
 
-### V3-1A-CANCELLATION-AUTHORITY-1 — implemented, not accepted
+The accepted boundary includes sanitised stand-in launch, exact launcher/child identities, identity-proven cancellation, positive environment policy, `KILL_ON_JOB_CLOSE`, root-exit/tree-exit separation, zero-descendant proof, lock retention on uncertainty, honest publication retry, deterministic cancellation ordering, additive migration, compatibility preservation, and zero generic lifecycle-authority increase.
 
-The corrective package was implemented at `c1c5b535e9bb95b14b701546ce716653faf6688d` but failed independent acceptance. The audit is [`V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md`](V3_1A_CANCELLATION_AUTHORITY_1_ACCEPTANCE_AUDIT_2026-07-30.md).
+### V3-1A-INTERACTION-COMMANDS-1 — active bounded implementation gate
 
-### V3-1A-CANCELLATION-CLOSURE-1 — implemented, not accepted
+The active package is [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It must add canonical version-guarded `STEER` and `SUPPLY_INPUT` commands, persist interaction intent before deterministic stand-in transport, make `AWAITING_CONTROLLER` genuinely non-terminal, bind input to exact task/run/session/checkpoint identity, enforce bounded deadlines and fail-closed expiry, and prove cancellation wins delivery and acknowledgement races.
 
-The closure package was implemented at `89fb199c4a1a62fc464eed38d6b2836b3094941b` but failed independent acceptance. The audit is [`V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_CANCELLATION_CLOSURE_1_ACCEPTANCE_AUDIT_2026-07-31.md). Its empty-row, environment, publication, KILL_ON_JOB_CLOSE, cancellation-ordering, migration, and launcher/child projection results are retained.
-
-### V3-1A-LAUNCH-FAILURE-CONTAINMENT-1 — implemented, not accepted
-
-The launch-failure package was implemented at `b6adcae3267607e26d471163153b2cbec92b41b5` but failed independent acceptance. The audit is [`V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_LAUNCH_FAILURE_CONTAINMENT_1_ACCEPTANCE_AUDIT_2026-07-31.md). Its zero-raw-PID, structured uncertainty, lock-retention, identity-scoped cleanup, parallel-accounting, and CF1 corrections are retained.
-
-### V3-1A-DESCENDANT-CONTAINMENT-1 — active bounded corrective subgate
-
-The active correction is [`V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md`](V3_1A_DESCENDANT_CONTAINMENT_1_GATE_2026-07-31.md). It must separate root-exit confirmation from owned-tree absence proof, keep creator-handle-only cleanup non-terminal, retain locks and active parallel slots while descendant absence is unproven, and permit terminal failure only after a pre-established Job Object or equivalent ownership primitive proves the launch tree empty. It remains inside the process-identity gate and adds no lifecycle authority.
-
-Real Claude/Codex launch, provider accounts, live provider prompts/streams, operational steering/input, and non-terminal controller continuation remain later and inactive.
+Real Claude/Codex launch, provider accounts, live provider prompts/streams, direct worker MCP access, V3-1B work, and production activation remain later and inactive.
