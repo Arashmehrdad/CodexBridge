@@ -1,10 +1,12 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active implementation lane; foundation, adapter contract, and the complete process-identity corrective chain accepted; interaction-command and non-terminal-waiting gate active; no real provider execution, production activation, or push authorised.
+**Status:** active lane with product implementation paused; the interaction-foundation architecture review is active; no interaction product code, real provider execution, production activation, or push is authorised.
 **Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
+**Organisational contract:** [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md)
+**Active review:** [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md)
 
 ## 1. Goal
 
@@ -246,8 +248,16 @@ The cumulative process-identity chain is accepted at runtime commit `7cc66c50675
 
 The accepted boundary includes sanitised stand-in launch, exact launcher/child identities, identity-proven cancellation, positive environment policy, `KILL_ON_JOB_CLOSE`, root-exit/tree-exit separation, zero-descendant proof, lock retention on uncertainty, honest publication retry, deterministic cancellation ordering, additive migration, compatibility preservation, and zero generic lifecycle-authority increase.
 
-### V3-1A-INTERACTION-COMMANDS-1 — active bounded implementation gate
+### SOMA-V3-ORG-CONTRACT-1 — owner-accepted
 
-The active package is [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It must add canonical version-guarded `STEER` and `SUPPLY_INPUT` commands, persist interaction intent before deterministic stand-in transport, make `AWAITING_CONTROLLER` genuinely non-terminal, bind input to exact task/run/session/checkpoint identity, enforce bounded deadlines and fail-closed expiry, and prove cancellation wins delivery and acknowledgement races.
+The authoritative organisational model is [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md).
 
-Real Claude/Codex launch, provider accounts, live provider prompts/streams, direct worker MCP access, V3-1B work, and production activation remain later and inactive.
+### V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1 — active documentation gate
+
+The active package is [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md). It must prove the transaction, delivery-attempt, wait/resume, message-class, identity, and precedence contracts.
+
+### V3-1A-INTERACTION-COMMANDS-1 — paused
+
+The previous implementation gate remains at [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It cannot resume until the review is independently accepted, the scope is rewritten around the smallest durable communication substrate, and `PLANS.md` explicitly reactivates it.
+
+Real providers, permanent teams, broad capability delegation, V3-1B work, and production activation remain later and inactive.
