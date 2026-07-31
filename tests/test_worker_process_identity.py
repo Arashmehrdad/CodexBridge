@@ -245,13 +245,49 @@ def test_a_declared_recursion_marker_cannot_be_allowlisted_back_in():
             declared_removals=_claude_removals(),
             allowlist_extra=("CLAUDECODE", "MY_HARMLESS_SETTING"),
         )
-    # An ordinary extra on its own is still honoured, so the refusal is targeted.
+
+
+def test_extras_use_a_positive_policy_not_a_denylist():
+    """An ordinary-looking inherited name is refused because it is unreviewed.
+
+    Free-form extras were a denylist wearing an allowlist's name: PYTHONPATH,
+    NODE_OPTIONS and GIT_CONFIG all look harmless and all redirect a worker.
+    """
+    from soma.worker_process.environment import REVIEWED_INHERITED_EXTRAS
+
+    assert REVIEWED_INHERITED_EXTRAS == frozenset()
+    for name in ("MY_HARMLESS_SETTING", "PYTHONPATH", "NODE_OPTIONS", "GIT_CONFIG"):
+        with pytest.raises(EnvironmentPolicyViolation, match="reviewed"):
+            build_child_environment(
+                parent_environment={**PARENT_ENV, name: "x"},
+                declared_removals=_claude_removals(),
+                allowlist_extra=(name,),
+            )
+
+
+def test_a_reviewed_extra_is_admitted_deliberately(monkeypatch):
+    """When a name is reviewed, it is admitted -- and its value still checked."""
+    from soma.worker_process import environment as env_module
+
+    monkeypatch.setattr(
+        env_module, "REVIEWED_INHERITED_EXTRAS", frozenset({"MY_HARMLESS_SETTING"})
+    )
     result = build_child_environment(
         parent_environment=PARENT_ENV,
         declared_removals=_claude_removals(),
         allowlist_extra=("MY_HARMLESS_SETTING",),
     )
     assert result.environment["MY_HARMLESS_SETTING"] == "1"
+
+    with pytest.raises(EnvironmentPolicyViolation, match="credential shape"):
+        build_child_environment(
+            parent_environment={
+                **PARENT_ENV,
+                "MY_HARMLESS_SETTING": "sk-abcdefghijklmnopqrstuvwx",
+            },
+            declared_removals=_claude_removals(),
+            allowlist_extra=("MY_HARMLESS_SETTING",),
+        )
 
 
 @pytest.mark.parametrize(

@@ -62,6 +62,7 @@ from .process_control import (
     terminate_process_tree,
     process_identity,
     identity_scoped_termination,
+    capture_launch_identity,
 )
 from .run_query_chunks import (
     RUN_REFERENCE_PREFIX,
@@ -965,7 +966,7 @@ class JobManager:
                     launched = self.store.record_worker_launch(
                         run_id,
                         process.pid,
-                        launcher_identity=process_identity(process.pid),
+                        launcher_identity=capture_launch_identity(process),
                         expected_state_version=int(reservation["state_version"]),
                         expected_lease_token=new_lease_token,
                         expected_lease_generation=int(
@@ -2296,7 +2297,7 @@ class JobManager:
             launched = self.store.record_worker_launch(
                 run_id,
                 process.pid,
-                launcher_identity=process_identity(process.pid),
+                launcher_identity=capture_launch_identity(process),
                 expected_state_version=int(launch_intent["state_version"]),
                 expected_lease_token=lease_token,
                 expected_lease_generation=int(launch_intent["lease_generation"]),
@@ -2419,6 +2420,11 @@ class JobManager:
     def _public_run(run: dict) -> dict:
         public = dict(run)
         public.pop("worker_lease_token", None)
+        # V3-1A-CANCELLATION-CLOSURE-1 3.8: process-start identities are
+        # ownership proofs, not controller-facing state. Presence is already
+        # exposed through the control projection's worker_identity_present.
+        public.pop("launcher_identity", None)
+        public.pop("child_identity", None)
         if public.get("tool") in {"ssh_reviewed_script", "ssh_root_shell"}:
             input_data = dict(public.get("input") or {})
             if "script" in input_data:
@@ -2952,12 +2958,17 @@ class JobManager:
                     str(run.get("worker_lease_token") or ""),
                     int(run.get("lease_generation") or 1),
                 )
+            # Retry path. The terminal transition already happened, so this
+            # republishes the exact same canonical result and never re-runs
+            # termination.
             return {
-                "ok": True,
+                "ok": bool(publication["ok"]),
                 "run_id": run_id,
                 "status": run["status"],
                 "cancelled": False,
                 "termination_confirmed": True,
+                "publication_ok": bool(publication["ok"]),
+                "publication_error": str(publication.get("error") or ""),
                 "reason": "Run is already terminal",
             }
         if run["status"] == "cancellation_pending":
@@ -2998,13 +3009,18 @@ class JobManager:
                     self.locks.release(
                         run["repo_name"], run_id, lease_token, lease_generation
                     )
+            published = bool(publication["ok"]) if winner_terminal else False
             return {
-                "ok": winner_terminal,
+                "ok": winner_terminal and published,
                 "run_id": run_id,
                 "status": winner["status"],
                 "cancelled": winner["status"] == "cancelled",
                 "terminated": False,
                 "termination_confirmed": winner_terminal,
+                "publication_ok": published,
+                "publication_error": (
+                    str(publication.get("error") or "") if winner_terminal else ""
+                ),
                 "reason": "Cancellation lost a concurrent state transition",
             }
 
@@ -3060,14 +3076,19 @@ class JobManager:
                         self.locks.release(
                             run["repo_name"], run_id, lease_token, lease_generation
                         )
+                published = bool(publication["ok"]) if winner_terminal else False
                 return {
-                    "ok": winner_terminal,
+                    "ok": winner_terminal and published,
                     "run_id": run_id,
                     "status": winner["status"],
                     "cancelled": winner["status"] == "cancelled",
                     "terminated": terminated,
                     "termination_confirmed": winner_terminal,
                     "termination_reports": reports,
+                    "publication_ok": published,
+                    "publication_error": (
+                        str(publication.get("error") or "") if winner_terminal else ""
+                    ),
                     "reason": "Final cancellation lost a concurrent state transition",
                 }
             publication = publish_run_result(self.store, run_id)
@@ -3078,6 +3099,10 @@ class JobManager:
                     message="Canonical terminal result publication failed",
                     data={"error": publication["error"]},
                 )
+            # Lock policy for V3-1A-CANCELLATION-CLOSURE-1: once zero owned
+            # processes is proven nothing can still mutate the repository, so the
+            # lock is released even when publication fails. The response below
+            # must then be honest that the cancellation is only partial.
             self.locks.release(
                 run["repo_name"], run_id, lease_token, lease_generation
             )
@@ -3095,14 +3120,25 @@ class JobManager:
                     config=self.config,
                     spawn_worker=self._spawn_worker,
                 )
+            # Termination and publication are reported separately. A caller must
+            # not be able to read a publication failure as complete success, so
+            # ok follows publication while the proven facts stay visible.
             return {
-                "ok": True,
+                "ok": bool(publication["ok"]),
                 "run_id": run_id,
                 "status": "cancelled",
                 "cancelled": True,
                 "terminated": terminated,
                 "termination_confirmed": True,
                 "termination_reports": reports,
+                "publication_ok": bool(publication["ok"]),
+                "publication_error": str(publication.get("error") or ""),
+                "retry_hint": (
+                    ""
+                    if publication["ok"]
+                    else "Terminal state is durable; retry cancel_run to republish "
+                    "the same result without repeating termination."
+                ),
             }
 
         if run["tool"] in {"ssh_monitored_command", "remote_powershell"}:

@@ -153,6 +153,19 @@ def test_executable_worker_rejects_identity_change_before_launch(
     assert launched is False
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_child_identity(monkeypatch):
+    """Deterministic identity for the synthetic child handles in this module.
+
+    These fakes are not live processes, so a real capture correctly refuses to
+    attach them. Real handles keep the real path.
+    """
+    monkeypatch.setattr(
+        "soma.job_worker.capture_launch_identity",
+        lambda process, **_kwargs: f"{process.pid}:synthetic:1",
+    )
+
+
 def test_executable_worker_terminates_child_when_attachment_fails(
     monkeypatch, tmp_path: Path
 ) -> None:

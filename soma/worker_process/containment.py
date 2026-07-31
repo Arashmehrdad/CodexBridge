@@ -16,15 +16,21 @@ Two design points worth stating:
   instruction runs, so there is no window in which it can spawn an uncontained
   child. If assignment or resume fails, the process is killed rather than
   released.
-- ``KILL_ON_JOB_CLOSE`` is deliberately **not** set. It would make a Soma crash
-  kill live workers, which conflicts with restart adoption.
+- ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`` is set before the suspended root is
+  resumed. This is the owner-approved crash policy: if Soma dies, the last job
+  handle closes and the kernel stops the whole worker tree. Company, task, run,
+  session and interaction state are durable, worker processes are disposable,
+  and exact provider-native session resume is the recovery mechanism. An
+  uncontrolled orphan mutating a workspace with no controller is the outcome
+  this forbids.
 
-**Measured limitation, not an assumption.** A named job cannot be reopened once
-its last handle is closed, even while members are still running: reopening
-returns ``ERROR_FILE_NOT_FOUND``. Naming therefore does *not* buy restart
-survival, so the handle is held open in a process-local registry for the
-session's lifetime. After a Soma restart the job is gone, and cancellation must
-report reduced proof rather than pretend the kernel still answers for it.
+A consequence worth stating plainly: **closing the job handle kills the tree.**
+``release_job`` is therefore a termination, not a cleanup.
+
+Restart adoption of a still-running local worker is deliberately out of scope.
+A named job also cannot be reopened once its last handle closes -- measured,
+returning ``ERROR_FILE_NOT_FOUND`` -- so naming buys no restart survival either
+way. The handle is held in a process-local registry for the session's lifetime.
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ IS_WINDOWS: Final[bool] = os.name == "nt"
 
 JOB_OBJECT_ALL_ACCESS: Final[int] = 0x1F001F
 JOB_OBJECT_BASIC_PROCESS_ID_LIST: Final[int] = 3
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: Final[int] = 9
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Final[int] = 0x00002000
 PROCESS_SET_QUOTA: Final[int] = 0x0100
 PROCESS_TERMINATE: Final[int] = 0x0001
 CREATE_SUSPENDED: Final[int] = 0x00000004
@@ -60,6 +68,39 @@ if IS_WINDOWS:  # pragma: no branch - platform guard
             ("NumberOfAssignedProcesses", wintypes.DWORD),
             ("NumberOfProcessIdsInList", wintypes.DWORD),
             ("ProcessIdList", ctypes.c_size_t * MAX_TRACKED_PROCESSES),
+        ]
+
+    class _IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", _IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
     class _THREADENTRY32(ctypes.Structure):
@@ -131,7 +172,29 @@ class JobContainment:
             raise ContainmentUnavailable(
                 f"CreateJobObject failed: {ctypes.get_last_error()}"
             )
-        return cls(name=name, _handle=int(handle))
+        job = cls(name=name, _handle=int(handle))
+        job.set_kill_on_close()
+        return job
+
+    def set_kill_on_close(self) -> None:
+        """Make a lost controller fatal to the worker tree, not to correctness.
+
+        Applied at creation, before the suspended root is resumed, so there is
+        no interval in which a crash could strand a running descendant.
+        """
+        kernel32 = _kernel32()
+        limits = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            wintypes.HANDLE(self._handle),
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ):
+            raise ContainmentUnavailable(
+                "could not set KILL_ON_JOB_CLOSE: "
+                f"{ctypes.get_last_error()}"
+            )
 
     @classmethod
     def open_existing(cls, name: str) -> "JobContainment":

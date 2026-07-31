@@ -108,6 +108,15 @@ class EnvironmentPolicyViolation(ValueError):
     """
 
 
+#: The only inherited names an operator may request beyond BASE_ALLOWLIST.
+#:
+#: Deliberately empty. A free-form extras parameter is a denylist wearing an
+#: allowlist's name: it admits PYTHONPATH, NODE_OPTIONS, GIT_CONFIG, provider
+#: base URLs and proxy settings by default, any of which redirects a coding
+#: agent with a shell. Names are added here only when a provider fixture proves
+#: one is required, with the justification recorded beside it.
+REVIEWED_INHERITED_EXTRAS: Final[frozenset[str]] = frozenset()
+
 #: Deliberate additions live in one reserved internal namespace. Anything else
 #: is refused, so an addition can never impersonate a provider, tool, or
 #: credential variable.
@@ -176,13 +185,26 @@ def build_child_environment(
     declared = frozenset(name.upper() for name in declared_removals)
     effective_extra = tuple(dict.fromkeys(allowlist_extra))
 
-    # Extras are checked before anything is created. Silently dropping a
-    # forbidden extra would let a caller believe it had been honoured.
+    # Positive policy: an extra must be on the reviewed list. Checked before
+    # anything is created, and refused loudly -- silently dropping it would let
+    # a caller believe a forbidden request had been honoured.
     for name in effective_extra:
         reason = _forbidden_reason(name, declared)
         if reason:
             raise EnvironmentPolicyViolation(
                 f"allowlist_extra {name!r} is refused: {reason}"
+            )
+        if name not in REVIEWED_INHERITED_EXTRAS:
+            raise EnvironmentPolicyViolation(
+                f"allowlist_extra {name!r} is refused: not on the reviewed "
+                "inherited-name list. Arbitrary inherited configuration can "
+                "redirect a worker's interpreter, tooling or network path."
+            )
+        # A reviewed name can still carry an unreviewed value.
+        if SECRET_VALUE_PATTERN.search(str(source.get(name, ""))):
+            raise EnvironmentPolicyViolation(
+                f"allowlist_extra {name!r} is refused: inherited value has a "
+                "credential shape"
             )
 
     # Deliberate additions live in one reserved namespace and are never read

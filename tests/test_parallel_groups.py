@@ -136,6 +136,21 @@ def parallel_config(tmp_path: Path, *, max_concurrent: int | None = None) -> App
     )
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_launch_identity(monkeypatch):
+    """Deterministic identity reader for the synthetic launcher handles.
+
+    These fakes are not live processes, so a real capture would correctly refuse
+    to attach them. A synthetic reader keeps the fixture's ownership provable
+    without spawning real processes or letting host PID allocation decide a
+    verdict.
+    """
+    monkeypatch.setattr(
+        "soma.parallel_groups.capture_launch_identity",
+        lambda process, **_kwargs: f"{process.pid}:synthetic:1",
+    )
+
+
 class FakeProcess:
     def __init__(self, pid: int):
         self.pid = pid

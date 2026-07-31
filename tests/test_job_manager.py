@@ -163,6 +163,19 @@ def make_manager(tmp_path: Path, monkeypatch) -> JobManager:
         "soma.job_manager.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
+    # Deterministic synthetic identity reader. The fake launcher is not a live
+    # process, so a real capture would (correctly) refuse to attach it. Supplying
+    # a synthetic identity keeps ownership provable in the fixture without
+    # spawning hundreds of real sleepers, and keeps host PID allocation out of
+    # every cancellation verdict.
+    monkeypatch.setattr(
+        "soma.job_manager.capture_launch_identity",
+        lambda process, **_kwargs: f"{process.pid}:synthetic:1",
+    )
+    monkeypatch.setattr(
+        "soma.parallel_groups.capture_launch_identity",
+        lambda process, **_kwargs: f"{process.pid}:synthetic:1",
+    )
     return JobManager(config, config_path)
 
 

@@ -98,6 +98,13 @@ class CancellationProof:
         canonical run plane can tell those apart, so it must say so explicitly.
         """
         if self.disposition is CancellationDisposition.NOTHING_RECORDED:
+            # Canonical pre-launch proof plus live kernel membership is a
+            # contradiction, not a permission: something exists that the run
+            # plane believes was never created. A non-empty job always blocks.
+            if self.job_proof_available and self.job_assigned_pids:
+                return False
+            if self.surviving_pids or self.late_descendant_pids:
+                return False
             return self.canonical_pre_launch_proven
         return (
             self.disposition is CancellationDisposition.CONFIRMED
@@ -266,6 +273,19 @@ def cancel_owned_tree(
         # Terminate the job anyway: an empty table with a live job is exactly
         # the crash window where a process was created but never recorded.
         job_available, job_remaining, _detail = _terminate_job(session_binding_id)
+        if job_available and job_remaining:
+            # The kernel says processes exist for a binding with no recorded
+            # rows. That is the launch crash window, and it is uncertainty.
+            return CancellationProof(
+                disposition=CancellationDisposition.UNCERTAIN,
+                detail=(
+                    "no subordinate process rows exist but the kernel job still "
+                    "reports assigned processes; launch evidence is contradictory"
+                ),
+                job_assigned_pids=job_remaining,
+                job_proof_available=True,
+                canonical_pre_launch_proven=canonical_pre_launch_proven,
+            )
         return CancellationProof(
             disposition=CancellationDisposition.NOTHING_RECORDED,
             detail=(

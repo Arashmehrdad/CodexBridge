@@ -49,6 +49,24 @@ class FakeProcess:
     pid = 4242
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_launch_identity(monkeypatch):
+    """Give the synthetic launcher handle a deterministic start identity.
+
+    FakeProcess is not a live process, so a real capture correctly refuses to
+    attach it. Real Popen handles still take the real path, so the Windows
+    end-to-end case keeps exercising genuine identity capture.
+    """
+    from soma.process_control import capture_launch_identity as real_capture
+
+    def capture(process, **kwargs):
+        if isinstance(process, FakeProcess):
+            return f"{process.pid}:synthetic:1"
+        return real_capture(process, **kwargs)
+
+    monkeypatch.setattr("soma.job_manager.capture_launch_identity", capture)
+
+
 def _make_config(tmp_path: Path, *, executable: Path | None = None) -> tuple[AppConfig, Path]:
     """Write a real config file so an out-of-process worker sees the same config."""
     repo = tmp_path / "repo"

@@ -56,6 +56,7 @@ from .process_control import (
     process_group_popen_kwargs,
     process_identity,
     terminate_process_tree,
+    capture_launch_identity,
 )
 from .run_store import TERMINAL_STATUSES, RunStore
 from .transfer_manifests import build_upload_transfer_manifest
@@ -1146,13 +1147,28 @@ class JobWorker:
             shell=False,
             **process_group_popen_kwargs(),
         )
-        if not self.store.attach_child_pid(
-            self.run_id,
-            child_pid=process.pid,
-            child_identity=process_identity(process.pid),
-            lease_token=self.worker_lease_token,
-            lease_generation=self.worker_lease_generation,
-        ):
+        # Capture or contain: an executable child attached with an empty
+        # identity is unterminable under the no-raw-PID rule, so it must not
+        # reach a healthy attachment.
+        child_identity = capture_launch_identity(process)
+        try:
+            attached = self.store.attach_child_pid(
+                self.run_id,
+                child_pid=process.pid,
+                child_identity=child_identity,
+                lease_token=self.worker_lease_token,
+                lease_generation=self.worker_lease_generation,
+            )
+        except Exception:
+            # Persistence failed after creation. Stop the exact process through
+            # creator-held ownership before surfacing the failure.
+            try:
+                process.kill()
+            except Exception:
+                pass
+            terminate_process_tree(process.pid)
+            raise
+        if not attached:
             terminate_process_tree(process.pid)
             raise RuntimeError("Worker lease was lost before child process attachment")
         self.event(

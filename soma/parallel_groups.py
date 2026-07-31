@@ -8,7 +8,7 @@ from uuid import uuid4
 from .config import AppConfig, resolve_repo, resolve_repo_config
 from .events import ArtifactWriter
 from .executable_profiles import build_local_executable_run_request
-from .process_control import terminate_process_tree
+from .process_control import capture_launch_identity, terminate_process_tree
 from .run_store import TERMINAL_STATUSES, RunStore, dumps, loads, utc_now, validate_run_id
 
 
@@ -514,9 +514,13 @@ def _launch_claimed_child(
     run_dir = Path(run["run_dir"])
     try:
         process = spawn_worker(run_id, lease_token)
+        # A launcher attached without a start identity could never be
+        # terminated under the no-raw-PID rule, so capture it or contain.
+        launcher_identity = capture_launch_identity(process)
         launched = store.store.record_worker_launch(
             run_id,
             process.pid,
+            launcher_identity=launcher_identity,
             expected_state_version=int(run["state_version"]),
             expected_lease_token=lease_token,
             expected_lease_generation=int(run["lease_generation"]),
@@ -735,9 +739,11 @@ def launch_powershell_group(
         try:
             launch_intent = store.store.get_run(run_id)
             process = spawn_worker(run_id, child["worker_lease_token"])
+            launcher_identity = capture_launch_identity(process)
             launched = store.store.record_worker_launch(
                 run_id,
                 process.pid,
+                launcher_identity=launcher_identity,
                 expected_state_version=int(launch_intent["state_version"]),
                 expected_lease_token=child["worker_lease_token"],
                 expected_lease_generation=int(launch_intent["lease_generation"]),

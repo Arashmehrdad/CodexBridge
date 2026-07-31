@@ -131,6 +131,43 @@ def recorded_process_is_absent(pid: int | None, expected_identity: str) -> bool:
     return process_identity(normalized) != expected_identity
 
 
+class LaunchIdentityUnavailable(RuntimeError):
+    """A freshly created process could not be given a start identity.
+
+    Raised only after the process has been stopped through its creator-held
+    handle, so a caller seeing this knows nothing was left running.
+    """
+
+
+def capture_launch_identity(process: Any, *, timeout_seconds: float = 10.0) -> str:
+    """Capture a just-created process's start identity, or contain it.
+
+    A launcher attached with an empty identity is permanently unterminable
+    under the no-raw-PID rule, so it must never reach a healthy durable
+    attachment. Containment here uses the exact ``Popen`` handle the caller
+    created -- creator-held ownership, not PID inference -- and falls back to
+    owned-tree termination for descendants.
+    """
+    pid = int(getattr(process, "pid", 0) or 0)
+    identity = process_identity(pid)
+    if identity:
+        return identity
+    try:
+        process.kill()
+    except Exception:
+        pass
+    try:
+        process.wait(timeout=timeout_seconds)
+    except Exception:
+        pass
+    if pid > 0 and process_is_running(pid):
+        terminate_process_tree(pid, grace_seconds=timeout_seconds)
+    raise LaunchIdentityUnavailable(
+        f"process {pid} started but no start identity could be captured; "
+        "the process was stopped rather than attached without ownership proof"
+    )
+
+
 def identity_scoped_termination(
     pid: int | None,
     recorded_identity: str,
