@@ -1,9 +1,9 @@
 # V3-1A-INTERACTION-COMMANDS-1 — Canonical Controller Interaction and Non-Terminal Waiting
 
 **Date:** 2026-07-31
-**Status:** active bounded implementation gate.
+**Status:** product implementation paused pending the interaction-foundation architecture review.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
-**Depends on:** accepted [`V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md`](V3_1A_PROCESS_IDENTITY_1_FINAL_ACCEPTANCE_AUDIT_2026-07-31.md)
+**Depends on:** accepted process-identity foundation, the owner-accepted hierarchical-intelligence contract, and independent acceptance of [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md)
 **Repository baseline:** `3960aec266df3f8ee653bf54137d2ab00c990cb2`
 **Push:** not authorised.
 
@@ -21,6 +21,10 @@ This package must prove that Soma can:
 - fail closed on crash windows, replay conflicts, delivery ambiguity, cancellation races, and deadline expiry.
 
 The package is an interaction and lifecycle-semantics gate. It is not a provider-launch gate.
+
+## 1.1 Architecture hold
+
+Do not implement this package from the current text. The active review must first freeze the atomic reservation, transport-attempt, wait/resume, message-class, identity, and precedence contracts. After independent acceptance, this gate must be re-scoped to the smallest durable communication substrate and explicitly reactivated through `PLANS.md`.
 
 ## 2. Existing authorities that remain canonical
 
@@ -303,4 +307,4 @@ Report:
 15. local commit hashes;
 16. exact next gate recommendation.
 
-Stop after this package. Do not start real-provider execution or another V3 lane in the same implementation run.
+Stop at architecture review. Do not begin this product package until the review dependency is accepted and `PLANS.md` explicitly reactivates it.
