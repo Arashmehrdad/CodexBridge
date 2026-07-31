@@ -316,7 +316,7 @@ def test_repo_apply_worker_manual_mode_defers_commit(
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     write_config(config_path, repo, runs_dir)
-    run_id = "20260731T000000Z_repo_apply_manual0"
+    run_id = "20260731T000000Z_repo_apply_deadbeef"
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True)
     store = RunStore(runs_dir)
