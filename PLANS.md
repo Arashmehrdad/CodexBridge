@@ -334,7 +334,7 @@ These requirements do not block STABILIZE-1 or the early pilots, but autonomous 
 
 Roadmap V3 remains outcome-led. It defines exact contracts and invariants only where identity, compatibility, durability, authority, or recovery require precision.
 
-**Architecture status:** accepted. The autonomous-company architecture is [docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), and the accepted review reconciliation is [docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
+**Architecture status:** accepted and amended. The architecture, reconciliation, and hierarchical-intelligence contract are respectively [docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), [docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and [docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). Research is closed.
 
 **Lifecycle policy:** progressive lifecycle convergence. No broad preliminary consolidation lane is required, and no duplicate generic lifecycle authority may be preserved indefinitely. Workflows and supervisors are generic lifecycle managers, not protected business domains. Their overlapping responsibilities must be projected or retired when later V3 lanes touch them. SSH activation, Trading Lab, memory, research, and business systems retain irreducible domain facts while their work execution converges on canonical tasks and runs.
 
