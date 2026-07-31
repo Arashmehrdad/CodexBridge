@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after Claude Opus red-team, Codex repository-feasibility review, owner reconciliation, and final consistency audit. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` is now the only active implementation lane. No later V3 outcome is active.
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` remains the only active lane, but product implementation is paused at `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`. No later V3 outcome is active.
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md).
 
