@@ -521,6 +521,12 @@ def test_same_controller_request_and_hash_returns_the_existing_task(
     assert second["task_id"] == first["task_id"]
     assert second["created"] is False
     assert second["idempotent_replay"] is True
+    assert second["backend_launch_attempted_on_replay"] is False
+    assert second["backend_launch_accepted"] is True
+    assert second["backend_launch_accepted_semantics"] == (
+        "durable_backend_record_present_on_replay"
+    )
+    assert second["backend_launch_error"] == ""
     assert backend.started == [first["backend_reference"]]
 
 
@@ -780,6 +786,18 @@ def test_crash_after_reservation_before_backend_attachment_is_recovery_pending(
     assert task.recovery_reason == "backend_launch_incomplete"
     # No success is invented and no second backend reference is allocated.
     assert task.backend_ref == backend.reserved[0]
+
+    replay = _started(manager, "req-crash-reserve")
+    assert replay["created"] is False
+    assert replay["idempotent_replay"] is True
+    assert replay["backend_present"] is False
+    assert replay["backend_launch_attempted_on_replay"] is False
+    assert replay["backend_launch_accepted"] is False
+    assert replay["backend_launch_accepted_semantics"] == (
+        "durable_backend_record_present_on_replay"
+    )
+    assert replay["backend_launch_error"] == "backend_run_record_missing"
+    assert backend.started == [task.backend_ref]
 
 
 def test_crash_after_backend_start_before_task_link_publication_is_repaired(

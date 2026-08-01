@@ -1493,6 +1493,7 @@ class TaskManager:
     def _replay_response(self, task: TaskRecord, *, budget: int) -> dict[str, Any]:
         if not task.is_terminal:
             task = self.reconcile_task(task.task_id, stage="idempotent_replay")
+        observation = self.backend.query(task.backend_ref)
         scope = self.scope_store.scope_for_task(task.task_id).to_dict()
         project_id = str(scope.get("project_id") or "")
         polling_request: dict[str, Any] = {
@@ -1503,7 +1504,7 @@ class TaskManager:
             polling_request["project_id"] = project_id
         return compact_task_status(
             task,
-            observation=self.backend.query(task.backend_ref),
+            observation=observation,
             open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
             link_counts=self._link_counts(task.task_id),
             operation="start",
@@ -1513,8 +1514,18 @@ class TaskManager:
                 "created": False,
                 "idempotent_replay": True,
                 "request_hash": task.request_hash,
-                "backend_launch_accepted": bool(task.backend_ref),
-                "backend_launch_error": "",
+                "backend_launch_attempted_on_replay": False,
+                "backend_launch_accepted": bool(observation.exists),
+                "backend_launch_accepted_semantics": (
+                    "durable_backend_record_present_on_replay"
+                ),
+                "backend_launch_error": (
+                    ""
+                    if observation.exists
+                    else task.recovery_reason
+                    or observation.error_code
+                    or "backend_run_not_found"
+                ),
                 "polling": {
                     "tool": "task_query",
                     "request": polling_request,
