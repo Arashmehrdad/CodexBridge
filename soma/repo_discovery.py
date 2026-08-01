@@ -99,31 +99,72 @@ def discover_repository(
     require_git: bool = True,
     exclude_names: Iterable[str] = (),
 ) -> DiscoveredRepo | None:
-    """Resolve an exact folder name first, then its canonical repository name."""
+    """Resolve one unambiguous trusted repository, preferring exact names."""
     requested_folder = requested_name.strip().casefold()
     requested_canonical = canonical_repo_name(requested_name)
     requested_separator_insensitive = _separator_insensitive_repo_name(requested_name)
-    canonical_match: DiscoveredRepo | None = None
-    separator_insensitive_match: DiscoveredRepo | None = None
+    repositories = list(
+        iter_discovered_repositories(
+            roots=roots,
+            max_depth=max_depth,
+            require_git=require_git,
+            exclude_names=exclude_names,
+        )
+    )
 
-    for repository in iter_discovered_repositories(
-        roots=roots,
-        max_depth=max_depth,
-        require_git=require_git,
-        exclude_names=exclude_names,
-    ):
-        if repository.folder_name.casefold() == requested_folder:
-            return repository
-        if canonical_match is None and repository.repo_name == requested_canonical:
-            canonical_match = repository
-        if (
-            separator_insensitive_match is None
-            and _separator_insensitive_repo_name(repository.folder_name)
+    def unique_match(
+        matches: list[DiscoveredRepo], match_kind: str
+    ) -> DiscoveredRepo | None:
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+        candidates = ", ".join(
+            repr(repository.folder_name)
+            for repository in sorted(
+                matches,
+                key=lambda repository: (
+                    repository.folder_name.casefold(),
+                    repository.folder_name,
+                ),
+            )
+        )
+        raise ValueError(
+            f"Ambiguous repo_name {requested_name!r}: {match_kind} matches "
+            f"multiple trusted repositories: {candidates}. Use an exact folder name."
+        )
+
+    exact_match = unique_match(
+        [
+            repository
+            for repository in repositories
+            if repository.folder_name.casefold() == requested_folder
+        ],
+        "exact folder name",
+    )
+    if exact_match is not None:
+        return exact_match
+
+    canonical_match = unique_match(
+        [
+            repository
+            for repository in repositories
+            if repository.repo_name == requested_canonical
+        ],
+        "canonical alias",
+    )
+    if canonical_match is not None:
+        return canonical_match
+
+    return unique_match(
+        [
+            repository
+            for repository in repositories
+            if _separator_insensitive_repo_name(repository.folder_name)
             == requested_separator_insensitive
-        ):
-            separator_insensitive_match = repository
-
-    return canonical_match or separator_insensitive_match
+        ],
+        "separator-insensitive alias",
+    )
 
 
 def discover_repositories(

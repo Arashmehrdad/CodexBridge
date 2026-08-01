@@ -96,22 +96,42 @@ def test_andia_beauty_folder_and_canonical_names_resolve_same_repo(
     assert config.repos["andia_beauty"].path == str(repo.resolve())
 
 
-def test_exact_folder_match_precedes_canonical_fallback(tmp_path: Path) -> None:
+def test_exact_folder_match_disambiguates_canonical_collision(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "Github"
-    canonical_first = make_git_repo(root / "Andia-Beauty")
+    first = make_git_repo(root / "Andia-Beauty")
     exact = make_git_repo(root / "Andia.Beauty")
 
     exact_match = discover_repository(
         roots=[root], requested_name="Andia.Beauty", require_git=True
     )
-    canonical_match = discover_repository(
-        roots=[root], requested_name="andia_beauty", require_git=True
-    )
 
     assert exact_match is not None
     assert exact_match.path == exact.resolve()
-    assert canonical_match is not None
-    assert canonical_match.path == canonical_first.resolve()
+    assert discover_repository(
+        roots=[root], requested_name=first.name, require_git=True
+    ).path == first.resolve()
+
+    with pytest.raises(
+        ValueError,
+        match=r"Ambiguous repo_name 'andia_beauty'.*Andia-Beauty.*Andia\.Beauty",
+    ):
+        discover_repository(
+            roots=[root], requested_name="andia_beauty", require_git=True
+        )
+
+
+def test_ambiguous_alias_never_enters_dynamic_repo_config(tmp_path: Path) -> None:
+    root = tmp_path / "Github"
+    config = config_with_known_repo(root, tmp_path)
+    make_git_repo(root / "Alpha-Beta")
+    make_git_repo(root / "Alpha.Beta")
+
+    with pytest.raises(ValueError, match="Ambiguous repo_name"):
+        resolve_repo(config, "alpha_beta")
+
+    assert "alpha_beta" not in config.repos
 
 
 def test_folder_name_is_accepted_as_alias(tmp_path: Path) -> None:
