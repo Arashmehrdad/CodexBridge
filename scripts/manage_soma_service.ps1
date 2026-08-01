@@ -441,17 +441,31 @@ function Stop-SomaTunnel {
 function Show-ServerStatus {
     $verified = @(Get-VerifiedServerProcesses)
     $listener = Get-ListenerOwner
+    $listenerIsServer = $listener -and (Test-ServerProcessIdentity -Process $listener)
     $probe = Test-EndpointReadiness -Url $LocalMcpUrl
     Write-Host "Soma server"
     Write-Host "  URL:       $LocalMcpUrl"
     Write-Host "  Ready:     $($probe.Ready) (HTTP $($probe.StatusCode); 406 means route ready only)"
-    if ($verified.Count -gt 0) {
+    if ($listenerIsServer) {
+        Write-Host "  PID:       $($listener.ProcessId)"
+        Write-Host "  PID role:  listener"
+        Write-Host "  Process:   $($listener.Name)"
+    } elseif ($verified.Count -gt 0) {
         Write-Host "  PID:       $($verified[0].ProcessId)"
+        Write-Host "  PID role:  verified process; listener absent"
         Write-Host "  Process:   $($verified[0].Name)"
     } else {
         Write-Host "  PID:       not found"
     }
-    if ($listener -and -not (Test-ServerProcessIdentity -Process $listener)) {
+    if ($verified.Count -gt 0) {
+        $verifiedProcessIds = @(
+            $verified |
+                ForEach-Object { [int]$_.ProcessId } |
+                Sort-Object -Unique
+        )
+        Write-Host "  Verified PIDs: $($verifiedProcessIds -join ', ')"
+    }
+    if ($listener -and -not $listenerIsServer) {
         Write-WarningMessage "Port $Port conflict: PID $($listener.ProcessId) $($listener.Name) is unrelated and will not be killed."
         Write-Host "  Command:   $($listener.CommandLine)"
     }

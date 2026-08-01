@@ -13,6 +13,8 @@ pwsh -NoProfile -File .\scripts\manage_soma_service.ps1 status
 pwsh -NoProfile -File .\scripts\manage_soma_service.ps1 validate-config
 ```
 
+The status command reports the verified process that owns the configured listening port as the primary PID and labels it `listener`. It also lists every related verified Soma PID used by the coordinated stop path. Use the listener PID for port and request-path correlation; preserve the full verified set when investigating process ownership.
+
 Then use Soma's public checks:
 
 1. `repo_query(status, repo_name="Soma")` — require the expected branch and understood worktree state.

@@ -175,6 +175,9 @@ def test_manager_verifies_identity_and_protects_unrelated_port_owner() -> None:
     assert "Test-ServerProcessIdentity" in text
     assert "Test-TunnelProcessIdentity" in text
     assert "Get-NetTCPConnection" in text
+    assert "$listenerIsServer" in text
+    assert "PID role:  listener" in text
+    assert "Verified PIDs:" in text
     assert "unrelated process" in text
     assert "will not be killed" in text
 
@@ -243,6 +246,8 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
         )
         reported_pid = int(pid_line.split(":", 1)[1].strip())
         assert reported_pid != first_pid
+        assert "PID role:  listener" in status.stdout
+        assert "Verified PIDs:" in status.stdout
     finally:
         stopped = _run_manager(
             engine, "stop", tmp_path, config, port, capture_output=False
