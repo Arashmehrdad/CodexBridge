@@ -1520,6 +1520,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "knowledge_action",
         (
+            "memory_bind_repository",
             "memory_save",
             "memory_supersede",
             "memory_mark_disputed",
