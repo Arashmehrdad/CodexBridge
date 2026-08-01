@@ -2574,6 +2574,28 @@ def test_system_capabilities_resolves_live_async_discovery(monkeypatch) -> None:
     assert full["runtime_input_schema_hash"] == full["public_schema_hash"]
 
 
+def test_capability_identity_reports_restart_for_source_runtime_drift(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(server, "server_build_hash", lambda: "f" * 64)
+    result = server.system_query(
+        TypeAdapter(SystemQueryRequest).validate_python(
+            {"operation": "capability_identity", "view": "full"}
+        )
+    )
+
+    assert result["converged"] is False
+    assert result["mismatches"] == ["source_running_server_build_hash"]
+    assert result["restart_required"] is True
+    assert result["connector_refresh_required"] is False
+    assert result["operation_contract_repair_required"] is False
+    assert result["recommended_actions"] == ["restart_soma"]
+    assert result["recommended_action"] == (
+        "restart Soma, then retry capability_identity"
+    )
+    assert result["refresh_guidance"] == result["recommended_action"]
+
+
 def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
     request = TypeAdapter(SystemQueryRequest).validate_python(
         {
@@ -2592,6 +2614,10 @@ def test_capability_identity_reports_connector_convergence(monkeypatch) -> None:
     assert "connector_schema_hash" in result["mismatches"]
     assert "connector_operation_inventory_hash" in result["mismatches"]
     assert "connector_live_input_schema_hash" in result["mismatches"]
+    assert result["restart_required"] is False
+    assert result["connector_refresh_required"] is True
+    assert result["operation_contract_repair_required"] is False
+    assert "refresh connector schema" in result["recommended_action"]
     assert result["operation_inventory_gateway_count"] > 0
     assert result["response_bytes"] <= 4096
 
@@ -2662,6 +2688,9 @@ def test_capability_identity_reports_operation_schema_drift() -> None:
     )
     assert result["operation_schema_key_format"] == "gateway.operation"
     assert result["operation_schema_count"] == len(operation_hashes)
+    assert result["restart_required"] is False
+    assert result["connector_refresh_required"] is True
+    assert result["operation_contract_repair_required"] is False
     assert "refresh connector schema" in result["refresh_guidance"]
     assert result["discovery_pass_count"] == 2
     assert result["discovery_passes_converged"] is True

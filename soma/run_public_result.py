@@ -16,6 +16,7 @@ from .safety import redact_secret_values
 
 
 PUBLIC_RESULT_SCHEMA_VERSION: Final[str] = "cf1.public-result.v1"
+PUBLIC_QUERY_OK_SEMANTICS: Final[str] = "query_success"
 PUBLIC_RESULT_STATUS_NOT_MATERIALIZED: Final[str] = "not_materialized"
 PUBLIC_RESULT_STATUS_READY: Final[str] = "ready"
 PUBLIC_RESULT_STATUS_FALLBACK: Final[str] = "fallback"
@@ -414,12 +415,19 @@ def _candidate(
     if collection_truncation:
         compact_result["truncated_collections"] = collection_truncation
 
+    run_ok = outcome in {NormalizedOutcome.SUCCESS, NormalizedOutcome.PARTIAL}
     return {
-        "ok": outcome in {NormalizedOutcome.SUCCESS, NormalizedOutcome.PARTIAL},
+        "ok": True,
+        "query_succeeded": True,
+        "ok_semantics": PUBLIC_QUERY_OK_SEMANTICS,
         "operation": "terminal",
         "run_id": run["run_id"],
         "repo_name": run["repo_name"],
         "tool": run["tool"],
+        "terminal": True,
+        "result_available": True,
+        "run_ok": run_ok,
+        "run_outcome": outcome.value,
         "result": compact_result,
         "projection_status": PUBLIC_RESULT_STATUS_READY,
         "source_result_sha256": source_sha256,
@@ -472,13 +480,18 @@ def build_pending_public_result(run: dict[str, Any]) -> dict[str, Any]:
         compact_result["truncated_fields"] = truncation
     return _finalize(
         {
-            "ok": False,
+            "ok": True,
+            "query_succeeded": True,
+            "ok_semantics": PUBLIC_QUERY_OK_SEMANTICS,
             "operation": "terminal",
             "run_id": run["run_id"],
             "repo_name": run["repo_name"],
             "tool": run["tool"],
-            "result": compact_result,
+            "terminal": False,
             "result_available": False,
+            "run_ok": None,
+            "run_outcome": NormalizedOutcome.PENDING.value,
+            "result": compact_result,
             "projection_status": "pending",
             "source_result_sha256": "",
             "evidence": {
@@ -500,15 +513,23 @@ def build_public_result_fallback(
     run: dict[str, Any], source_sha256: str, error: str
 ) -> dict[str, Any]:
     bounded_error, metadata = _bounded_text(error, 1024)
+    outcome = normalized_outcome(run, dict(run.get("result") or {}))
     payload: dict[str, Any] = {
-        "ok": False,
+        "ok": True,
+        "query_succeeded": True,
+        "ok_semantics": PUBLIC_QUERY_OK_SEMANTICS,
         "operation": "terminal",
         "run_id": run["run_id"],
         "repo_name": run["repo_name"],
         "tool": run["tool"],
+        "terminal": True,
+        "result_available": True,
+        "run_ok": outcome in {NormalizedOutcome.SUCCESS, NormalizedOutcome.PARTIAL},
+        "run_outcome": outcome.value,
+        "projection_degraded": True,
         "result": {
             "status": run.get("status"),
-            "outcome": normalized_outcome(run, {}).value,
+            "outcome": outcome.value,
             "summary": _bounded_text(run.get("summary") or "", 512)[0],
             "error": _bounded_text(run.get("error") or "", 512)[0],
             "safety_failure": bool(run.get("safety_failure")),

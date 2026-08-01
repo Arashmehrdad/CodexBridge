@@ -76,8 +76,14 @@ def test_nonterminal_gateway_returns_bounded_pending_envelope(tmp_path: Path) ->
 
     response = manager.get_terminal_result(run_id)
 
+    assert response["ok"] is True
+    assert response["query_succeeded"] is True
+    assert response["ok_semantics"] == "query_success"
     assert response["operation"] == "terminal"
+    assert response["terminal"] is False
     assert response["result_available"] is False
+    assert response["run_ok"] is None
+    assert response["run_outcome"] == "pending"
     assert response["projection_status"] == "pending"
     assert response["result"]["outcome"] == "pending"
     assert response["evidence"]["authoritative_operation"] == "control"

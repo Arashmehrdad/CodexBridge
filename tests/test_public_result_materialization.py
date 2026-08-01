@@ -118,6 +118,13 @@ def test_publication_materializes_source_bound_bounded_redacted_projection(
         raw_result_json
     )
     assert projection["source_result_sha256"] == current["public_result_source_sha256"]
+    assert projection["ok"] is True
+    assert projection["query_succeeded"] is True
+    assert projection["ok_semantics"] == "query_success"
+    assert projection["terminal"] is True
+    assert projection["result_available"] is True
+    assert projection["run_ok"] is True
+    assert projection["run_outcome"] == "success"
     assert projection["payload_bytes"] == len(serialized_projection)
     assert len(serialized_projection) <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
     assert b"topsecret" not in serialized_projection
@@ -132,6 +139,29 @@ def test_publication_materializes_source_bound_bounded_redacted_projection(
     ).encode("utf-8")
     assert (run_dir / "result.json").read_bytes() == expected_artifact
     assert published["hash"] == hashlib.sha256(expected_artifact).hexdigest()
+
+
+def test_terminal_failure_is_a_successful_query_with_explicit_run_outcome(
+    tmp_path: Path,
+) -> None:
+    result = {
+        "status": "failed",
+        "classification": "validation_failure",
+        "process_success": False,
+        "summary": "tests failed",
+    }
+    store, run_id, _run_dir = _terminal_run(tmp_path, result, status="failed")
+
+    projection = materialize_public_result(store, run_id)
+
+    assert projection["ok"] is True
+    assert projection["query_succeeded"] is True
+    assert projection["terminal"] is True
+    assert projection["result_available"] is True
+    assert projection["run_ok"] is False
+    assert projection["run_outcome"] == "validation_failure"
+    assert projection["result"]["outcome"] == "validation_failure"
+    assert projection["error"] == ""
 
 
 def test_large_projection_is_deterministic_and_prefix_bounded() -> None:
@@ -290,6 +320,11 @@ def test_projector_failure_publishes_bounded_fallback(
     assert current["public_result_status"] == PUBLIC_RESULT_STATUS_FALLBACK
     assert "projector boom" in current["public_result_error"]
     assert projection["projection_status"] == PUBLIC_RESULT_STATUS_FALLBACK
+    assert projection["ok"] is True
+    assert projection["query_succeeded"] is True
+    assert projection["terminal"] is True
+    assert projection["result_available"] is True
+    assert projection["projection_degraded"] is True
     assert projection["payload_bytes"] == len(canonical_public_json_bytes(projection))
     assert projection["payload_bytes"] <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
 
@@ -317,6 +352,11 @@ def test_fallback_failure_still_publishes_emergency_projection(
     assert current["public_result_status"] == PUBLIC_RESULT_STATUS_FALLBACK
     assert "primary boom" in current["public_result_error"]
     assert "fallback boom" in current["public_result_error"]
+    assert projection["ok"] is True
+    assert projection["query_succeeded"] is True
+    assert projection["terminal"] is True
+    assert projection["result_available"] is True
+    assert projection["projection_degraded"] is True
     assert projection["payload_bytes"] == len(canonical_public_json_bytes(projection))
     assert projection["payload_bytes"] <= DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result
 

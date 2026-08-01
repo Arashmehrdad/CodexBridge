@@ -403,6 +403,7 @@ def inspect_status(repo_root: Path) -> dict:
             "source": "live_git",
             "truncated": False,
             "error": "",
+            "recommended_action": "",
         }
     except subprocess.TimeoutExpired as exc:
         return failure("timed_out", f"Git status timed out: {exc}")
@@ -637,6 +638,7 @@ def inspect_status_compact(repo_root: Path) -> dict[str, Any]:
         "fresh": True,
         "source": "live_git",
         "error": "",
+        "recommended_action": "",
         "complete_status_scan": True,
         "total_status_entry_count": total_status_entry_count,
         "returned_entry_count": len(returned_entries),

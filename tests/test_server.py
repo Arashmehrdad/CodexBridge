@@ -1493,7 +1493,6 @@ def test_repo_status_has_bounded_compact_and_explicit_full_views(monkeypatch) ->
             "diff_stat": "stat " + ("z" * 2000),
             "git_status": "status " + ("q" * 2000),
             "error": "",
-            "recommended_action": "",
             "total_changed_file_count": len(changed),
         },
     )
@@ -1505,9 +1504,11 @@ def test_repo_status_has_bounded_compact_and_explicit_full_views(monkeypatch) ->
     assert compact["has_more"] is True
     assert compact["response_bytes"] <= 4096
     assert compact["total_changed_file_count"] == 40
+    assert compact["recommended_action"] == ""
 
     full = server.inspect_repo_status("repo", view="full")
     assert full["changed_files"] == changed
+    assert full["recommended_action"] == ""
     assert "response_bytes" not in full
 
 

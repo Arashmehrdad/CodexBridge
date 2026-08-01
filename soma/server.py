@@ -1459,7 +1459,9 @@ def inspect_repo_status(
     result.setdefault("truncated", False)
     result.setdefault(
         "recommended_action",
-        "Retry the live repository-status check; do not use a cached snapshot.",
+        ""
+        if result.get("ok") is True and result.get("fresh") is True
+        else "Retry the live repository-status check; do not use a cached snapshot.",
     )
     result["recent_commits"] = _normalize_text_lines(result.get("recent_commits"))
     changed_files = result.get("changed_files")
@@ -4302,6 +4304,40 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
                 mismatches.append(f"connector_operation_missing:{operation_name}")
             elif actual_hash != expected_hash:
                 mismatches.append(f"connector_operation_schema:{operation_name}")
+    restart_mismatches = {
+        "source_running_server_build_hash",
+        "source_running_schema_hash",
+    }
+    restart_required = any(item in restart_mismatches for item in mismatches)
+    connector_refresh_required = any(
+        item.startswith("connector_") for item in mismatches
+    )
+    operation_contract_repair_required = any(
+        item in {
+            "live_operation_schema_discovery",
+            "live_operation_schema_discovery_pass_mismatch",
+        }
+        or item.startswith("operation_missing:")
+        or item.startswith("operation_extra:")
+        for item in mismatches
+    )
+    recommended_actions: list[str] = []
+    if restart_required:
+        recommended_actions.append("restart_soma")
+    if connector_refresh_required:
+        recommended_actions.append("refresh_connector")
+    if operation_contract_repair_required:
+        recommended_actions.append("repair_operation_contract")
+    guidance_parts: list[str] = []
+    if restart_required:
+        guidance_parts.append("restart Soma")
+    if connector_refresh_required:
+        guidance_parts.append("refresh connector schema and discovery cache")
+    if operation_contract_repair_required:
+        guidance_parts.append("inspect and repair live operation discovery/inventory drift")
+    recommended_action = ""
+    if guidance_parts:
+        recommended_action = ", then ".join(guidance_parts) + ", then retry capability_identity"
     return {
         "ok": not mismatches,
         "converged": not mismatches,
@@ -4324,12 +4360,13 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "operation_inventory_hash": operation_inventory_hash,
         "operation_inventory_gateway_count": len(operation_names_by_gateway()),
         "mismatches": mismatches,
+        "restart_required": restart_required,
+        "connector_refresh_required": connector_refresh_required,
+        "operation_contract_repair_required": operation_contract_repair_required,
+        "recommended_actions": recommended_actions,
+        "recommended_action": recommended_action,
         "error": "capability identities do not converge" if mismatches else "",
-        "refresh_guidance": (
-            "refresh connector schema and discovery cache, then retry capability_identity"
-            if mismatches
-            else ""
-        ),
+        "refresh_guidance": recommended_action,
     }
 
 

@@ -15,6 +15,7 @@ from .public_projection_contract import (
 )
 from .return_loop.atomic_writer import atomic_write_json
 from .run_public_result import (
+    PUBLIC_QUERY_OK_SEMANTICS,
     PUBLIC_RESULT_SCHEMA_VERSION,
     PUBLIC_RESULT_STATUS_FALLBACK,
     PUBLIC_RESULT_STATUS_READY,
@@ -22,6 +23,7 @@ from .run_public_result import (
     build_public_result_fallback,
     build_public_result_projection,
     canonical_public_json_bytes,
+    normalized_outcome,
 )
 from .run_store import TERMINAL_STATUSES, RunStore
 
@@ -55,15 +57,23 @@ def _emergency_projection(
     run: dict[str, Any], source_sha256: str, error: str
 ) -> dict[str, Any]:
     """Build a tiny serialization-safe fallback without invoking the projector."""
+    outcome = normalized_outcome(run, dict(run.get("result") or {}))
     payload: dict[str, Any] = {
-        "ok": False,
+        "ok": True,
+        "query_succeeded": True,
+        "ok_semantics": PUBLIC_QUERY_OK_SEMANTICS,
         "operation": "terminal",
         "run_id": str(run.get("run_id") or ""),
         "repo_name": str(run.get("repo_name") or ""),
         "tool": str(run.get("tool") or ""),
+        "terminal": True,
+        "result_available": True,
+        "run_ok": outcome.value in {"success", "partial"},
+        "run_outcome": outcome.value,
+        "projection_degraded": True,
         "result": {
             "status": str(run.get("status") or ""),
-            "outcome": "unknown_failure",
+            "outcome": outcome.value,
             "summary": str(run.get("summary") or "")[:256],
             "error": str(run.get("error") or "")[:256],
             "safety_failure": bool(run.get("safety_failure")),

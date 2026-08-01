@@ -68,6 +68,7 @@ def test_inspect_status_has_explicit_freshness_metadata(repo: Path) -> None:
     assert status["fresh"] is True
     assert status["source"] == "live_git"
     assert status["status"] == "available"
+    assert status["recommended_action"] == ""
     assert status["head_commit"]
     assert isinstance(status["generated_at"], float)
     assert isinstance(status["duration_ms"], float)
@@ -630,6 +631,7 @@ def test_inspect_status_compact_preserves_non_tool_owned_and_summarizes_tool_own
     assert result["fresh"] is True
     assert result["source"] == "live_git"
     assert result["error"] == ""
+    assert result["recommended_action"] == ""
     assert result["generated_at"] > 0
     assert result["duration_ms"] >= 0
     assert result["complete_status_scan"] is True
