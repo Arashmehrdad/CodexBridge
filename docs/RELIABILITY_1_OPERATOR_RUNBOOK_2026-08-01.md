@@ -123,6 +123,8 @@ Do not edit `runs/soma.sqlite3` manually. Repair through the owning store/public
 
 Startup now selects incomplete terminal publication identities in SQL and performs a full artifact check only for the newest 100 terminal runs. A comprehensive historical artifact audit is an explicit maintenance action, not part of the availability-critical startup path.
 
+Canonical-memory catalog rebuild and semantic-provider index rebuild are different operations. The canonical catalog can be reconstructed from Markdown and must preserve identity, hashes, drift reporting, malformed-content exclusion, and tool-owned-path exclusion. `memory_rebuild_index` concerns the optional semantic provider; when semantic retrieval is disabled or provider coverage cannot be proven, it must refuse before launching work. Do not treat that refusal as canonical-memory unavailability, and do not repeatedly retry it.
+
 ## 9. Current restart activation checklist
 
 At the next owner-approved quiet restart, verify in one batch:
