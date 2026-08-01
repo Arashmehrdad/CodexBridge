@@ -127,6 +127,8 @@ Canonical-memory catalog rebuild and semantic-provider index rebuild are differe
 
 ## 9. Current restart activation checklist
 
+The source sequence has already passed against an isolated backup of the live store; see [`RELIABILITY_1_ISOLATED_PRE_RESTART_REHEARSAL_2026-08-01.md`](RELIABILITY_1_ISOLATED_PRE_RESTART_REHEARSAL_2026-08-01.md). That rehearsal predicts the historical outcomes and proves idempotency, but it does not replace live activation.
+
 At the next owner-approved quiet restart, verify in one batch:
 
 1. `REL-012` ambiguous repository aliases fail closed live;
