@@ -69,6 +69,9 @@ class HermesRegistryIdentity:
     generation: int
     effective_schema_hash: str
     active_toolsets: tuple[str, ...] = ()
+    catalog_toolsets: tuple[str, ...] = ()
+    catalog_tool_count: int = 0
+    toolset_selection_mode: str = ""
     hermes_revision: str = PINNED_HERMES_REVISION
     protocol_version: str = HERMES_COMPANION_PROTOCOL_VERSION
 
@@ -92,15 +95,49 @@ class HermesRegistryIdentity:
             raise HermesInterfaceDriftError("Hermes revision drift")
         if self.protocol_version != HERMES_COMPANION_PROTOCOL_VERSION:
             raise HermesInterfaceDriftError("Hermes service protocol drift")
-        normalized_toolsets = tuple(
+        normalized_selected = tuple(
             sorted(
                 {
-                    _opaque_id(str(toolset), "active_toolset")
+                    _opaque_id(str(toolset), "selected_toolset")
                     for toolset in self.active_toolsets
                 }
             )
         )
-        object.__setattr__(self, "active_toolsets", normalized_toolsets)
+        normalized_catalog = tuple(
+            sorted(
+                {
+                    _opaque_id(str(toolset), "catalog_toolset")
+                    for toolset in self.catalog_toolsets
+                }
+            )
+        )
+        if not normalized_catalog and normalized_selected:
+            normalized_catalog = normalized_selected
+        normalized_count = int(self.catalog_tool_count)
+        if normalized_count < 0:
+            raise HermesCompanionProtocolError(
+                "catalog_tool_count must be non-negative"
+            )
+        normalized_count = max(normalized_count, len(normalized_catalog))
+        mode = str(self.toolset_selection_mode or "").strip().lower()
+        if not mode:
+            mode = "restricted" if normalized_selected else "unrestricted"
+        if mode not in {"restricted", "unrestricted"}:
+            raise HermesCompanionProtocolError(
+                "toolset_selection_mode must be restricted or unrestricted"
+            )
+        if mode == "unrestricted" and normalized_selected:
+            raise HermesCompanionProtocolError(
+                "unrestricted toolset selection cannot name selected toolsets"
+            )
+        if mode == "restricted" and not normalized_selected:
+            raise HermesCompanionProtocolError(
+                "restricted toolset selection requires selected toolsets"
+            )
+        object.__setattr__(self, "active_toolsets", normalized_selected)
+        object.__setattr__(self, "catalog_toolsets", normalized_catalog)
+        object.__setattr__(self, "catalog_tool_count", normalized_count)
+        object.__setattr__(self, "toolset_selection_mode", mode)
 
     @classmethod
     def from_handshake(
@@ -110,28 +147,62 @@ class HermesRegistryIdentity:
             raise HermesCompanionProtocolError(
                 "model runtime initialization evidence is invalid"
             )
-        toolsets = handshake.get("active_toolsets", ())
-        if not isinstance(toolsets, (list, tuple, set, frozenset)):
+        legacy_toolsets = handshake.get("active_toolsets", ())
+        selected_toolsets = handshake.get(
+            "selected_toolsets", legacy_toolsets
+        )
+        catalog_toolsets = handshake.get(
+            "catalog_toolsets", selected_toolsets
+        )
+        for field_name, value in (
+            ("active_toolsets", legacy_toolsets),
+            ("selected_toolsets", selected_toolsets),
+            ("catalog_toolsets", catalog_toolsets),
+        ):
+            if not isinstance(value, (list, tuple, set, frozenset)):
+                raise HermesCompanionProtocolError(
+                    f"{field_name} must be a sequence"
+                )
+        normalized_legacy = tuple(str(value) for value in legacy_toolsets)
+        normalized_selected = tuple(str(value) for value in selected_toolsets)
+        if normalized_legacy != normalized_selected:
             raise HermesCompanionProtocolError(
-                "active_toolsets must be a sequence"
+                "active_toolsets and selected_toolsets disagree"
             )
         return cls(
             generation=handshake.get("registry_generation"),
             effective_schema_hash=str(
                 handshake.get("effective_schema_hash") or ""
             ),
-            active_toolsets=tuple(str(value) for value in toolsets),
+            active_toolsets=normalized_selected,
+            catalog_toolsets=tuple(str(value) for value in catalog_toolsets),
+            catalog_tool_count=int(handshake.get("catalog_tool_count", 0)),
+            toolset_selection_mode=str(
+                handshake.get("toolset_selection_mode", "")
+            ),
             hermes_revision=str(handshake.get("hermes_revision") or ""),
             protocol_version=str(handshake.get("protocol_version") or ""),
         )
 
     def as_dict(self) -> dict[str, Any]:
+        selected = list(self.active_toolsets)
+        catalog = list(self.catalog_toolsets)
         return {
             "hermes_revision": self.hermes_revision,
             "protocol_version": self.protocol_version,
             "registry_generation": self.generation,
             "effective_schema_hash": self.effective_schema_hash,
-            "active_toolsets": list(self.active_toolsets),
+            "catalog_tool_count": self.catalog_tool_count,
+            "catalog_toolset_count": len(catalog),
+            "catalog_toolsets": catalog,
+            "toolset_selection_mode": self.toolset_selection_mode,
+            "selected_toolsets": selected,
+            "active_toolsets": selected,
+            "active_toolsets_semantics": (
+                "legacy alias for selected_toolsets; an empty list means "
+                "unrestricted access to the published catalog, not an "
+                "empty catalog"
+            ),
         }
 
 

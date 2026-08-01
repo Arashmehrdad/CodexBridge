@@ -382,3 +382,68 @@ def test_pinned_loader_includes_plugin_and_mcp_registered_tools(monkeypatch, tmp
     assert snapshot.executor("fixture_mcp.ping", {}) == '{"pong": true}'
     assert calls[0]["function_name"] == "fixture_mcp.ping"
     assert "fixture_mcp" in calls[0]["enabled_toolsets"]
+    companion = HermesCompanion(snapshot)
+    assert companion.handshake["catalog_tool_count"] == 3
+    assert companion.handshake["catalog_toolsets"] == [
+        "filesystem",
+        "fixture_mcp",
+        "plugin_tools",
+    ]
+
+
+def test_pinned_loader_passes_none_for_unrestricted_toolset_selection(
+    monkeypatch, tmp_path
+) -> None:
+    class Registry:
+        generation = 1
+        active_toolsets = []
+        _tools = {
+            "filesystem.read_text": SimpleNamespace(
+                schema=dict(DEFINITIONS[0]), toolset="filesystem"
+            )
+        }
+
+        def get_all_tool_names(self):
+            return set(self._tools)
+
+    registry = Registry()
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=PINNED_HERMES_REVISION + "\n",
+            stderr="",
+        )
+
+    def fake_handle_function_call(**kwargs):
+        calls.append(kwargs)
+        return json.dumps({"ok": True})
+
+    def fake_import(name: str):
+        if name == "tools.registry":
+            return SimpleNamespace(
+                registry=registry,
+                discover_builtin_tools=lambda: ["tools.filesystem"],
+            )
+        if name == "hermes_cli.plugins":
+            return SimpleNamespace(discover_plugins=lambda: None)
+        if name == "tools.mcp_tool":
+            return SimpleNamespace(discover_mcp_tools=lambda: [])
+        if name == "model_tools":
+            return SimpleNamespace(handle_function_call=fake_handle_function_call)
+        raise AssertionError(name)
+
+    monkeypatch.setattr("soma.hermes_companion.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "soma.hermes_companion.importlib.import_module", fake_import
+    )
+
+    snapshot = load_pinned_registry(tmp_path)
+    assert snapshot.active_toolsets == ()
+    companion = HermesCompanion(snapshot)
+    assert companion.handshake["toolset_selection_mode"] == "unrestricted"
+    assert companion.handshake["catalog_toolsets"] == ["filesystem"]
+
+    assert snapshot.executor("filesystem.read_text", {}) == '{"ok": true}'
+    assert calls[0]["enabled_toolsets"] is None

@@ -154,6 +154,9 @@ def registry(
         generation=generation,
         effective_schema_hash=hash_character * 64,
         active_toolsets=("mcp-searchconsole", "filesystem"),
+        catalog_toolsets=("mcp-searchconsole", "filesystem"),
+        catalog_tool_count=12,
+        toolset_selection_mode="restricted",
     )
 
 
@@ -215,8 +218,36 @@ def test_health_exposes_service_and_registry_identity_without_model_runtime() ->
         "filesystem",
         "mcp-searchconsole",
     ]
+    assert health["toolset_selection_mode"] == "restricted"
+    assert health["catalog_toolsets"] == [
+        "filesystem",
+        "mcp-searchconsole",
+    ]
+    assert health["catalog_tool_count"] == 12
     assert health["worker_count"] == 2
     assert health["model_runtime_initialized"] is False
+
+
+def test_unrestricted_registry_identity_cannot_be_read_as_empty_catalog() -> None:
+    identity = HermesRegistryIdentity(
+        generation=85,
+        effective_schema_hash="f" * 64,
+        active_toolsets=(),
+        catalog_toolsets=("mcp-searchconsole", "filesystem"),
+        catalog_tool_count=27,
+        toolset_selection_mode="unrestricted",
+    )
+
+    payload = identity.as_dict()
+    assert payload["active_toolsets"] == []
+    assert payload["selected_toolsets"] == []
+    assert payload["toolset_selection_mode"] == "unrestricted"
+    assert payload["catalog_toolsets"] == [
+        "filesystem",
+        "mcp-searchconsole",
+    ]
+    assert payload["catalog_tool_count"] == 27
+    assert "not an empty catalog" in payload["active_toolsets_semantics"]
 
 
 def test_five_sessions_overlap_without_global_execution_serialization() -> None:

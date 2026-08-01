@@ -34,6 +34,9 @@ def identity() -> HermesRegistryIdentity:
         generation=GENERATION,
         effective_schema_hash=SCHEMA_HASH,
         active_toolsets=("fixture",),
+        catalog_toolsets=("fixture", "mcp-searchconsole"),
+        catalog_tool_count=6,
+        toolset_selection_mode="restricted",
     )
 
 
@@ -239,6 +242,13 @@ def test_shared_execution_creates_isolated_durable_run(tmp_path: Path) -> None:
         assert response["ok"] is True
         assert response["status"] == "completed"
         assert response["execution_mode"] == SHARED_EXECUTION_MODE
+        assert response["selected_toolsets"] == ["fixture"]
+        assert response["toolset_selection_mode"] == "restricted"
+        assert response["catalog_toolsets"] == [
+            "fixture",
+            "mcp-searchconsole",
+        ]
+        assert response["catalog_tool_count"] == 6
         assert response["run_id"].startswith("2")
         assert response["request_id"].startswith("hsr-")
 

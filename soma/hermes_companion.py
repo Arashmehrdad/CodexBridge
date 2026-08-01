@@ -243,10 +243,11 @@ def load_pinned_registry(checkout: Path) -> HermesRegistrySnapshot:
     )
 
     def execute_bound_tool(name: str, arguments: Mapping[str, Any]) -> str:
+        selected_toolsets = list(handshake["selected_toolsets"])
         return handle_function_call(
             function_name=name,
             function_args=dict(arguments),
-            enabled_toolsets=list(handshake["active_toolsets"]),
+            enabled_toolsets=selected_toolsets or None,
             disabled_toolsets=[],
         )
 

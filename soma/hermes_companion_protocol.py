@@ -8,6 +8,10 @@ HERMES_COMPANION_PROTOCOL_VERSION = "1.0"
 PINNED_HERMES_REVISION = "862b1b37bf0aadba3a98b3756c7d71779379b53b"
 DEFAULT_PUBLIC_OUTPUT_MAX_BYTES = 64 * 1024
 MAX_SEARCH_LIMIT = 100
+ACTIVE_TOOLSETS_SEMANTICS = (
+    "legacy alias for selected_toolsets; an empty list means unrestricted "
+    "access to the published catalog, not an empty catalog"
+)
 
 _FORBIDDEN_MODEL_MODULE_PREFIXES = (
     "hermes_agent",
@@ -56,6 +60,32 @@ def effective_schema_hash(tool_definitions: Sequence[Mapping[str, Any]]) -> str:
     return sha256(_canonical_json(normalized).encode("utf-8")).hexdigest()
 
 
+def _catalog_toolsets(
+    tool_definitions: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    return sorted(
+        {
+            str(definition.get("toolset", "")).strip()
+            for definition in tool_definitions
+            if str(definition.get("toolset", "")).strip()
+        }
+    )
+
+
+def _catalog_identity_fields(handshake: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "catalog_tool_count": int(handshake.get("catalog_tool_count", 0)),
+        "catalog_toolset_count": int(
+            handshake.get("catalog_toolset_count", 0)
+        ),
+        "catalog_toolsets": list(handshake.get("catalog_toolsets", ())),
+        "toolset_selection_mode": str(
+            handshake.get("toolset_selection_mode", "")
+        ),
+        "selected_toolsets": list(handshake.get("selected_toolsets", ())),
+    }
+
+
 def assert_no_model_runtime_initialized(imported_modules: Iterable[str]) -> None:
     observed = sorted({str(name).strip() for name in imported_modules if str(name).strip()})
     forbidden = [
@@ -95,6 +125,10 @@ def build_handshake(
     if not isinstance(registry_generation, int) or registry_generation < 0:
         raise HermesCompanionProtocolError("registry_generation must be non-negative")
     assert_no_model_runtime_initialized(imported_modules)
+    selected_toolsets = sorted(
+        {str(value).strip() for value in active_toolsets if str(value).strip()}
+    )
+    catalog_toolsets = _catalog_toolsets(tool_definitions)
     payload = {
         "ok": True,
         "operation": "handshake",
@@ -102,7 +136,15 @@ def build_handshake(
         "hermes_revision": hermes_revision,
         "registry_generation": registry_generation,
         "effective_schema_hash": effective_schema_hash(tool_definitions),
-        "active_toolsets": sorted({str(value) for value in active_toolsets}),
+        "catalog_tool_count": len(tool_definitions),
+        "catalog_toolset_count": len(catalog_toolsets),
+        "catalog_toolsets": catalog_toolsets,
+        "toolset_selection_mode": (
+            "restricted" if selected_toolsets else "unrestricted"
+        ),
+        "selected_toolsets": selected_toolsets,
+        "active_toolsets": selected_toolsets,
+        "active_toolsets_semantics": ACTIVE_TOOLSETS_SEMANTICS,
         "python_identity": dict(python_identity),
         "model_runtime_initialized": False,
         "initialization_warnings": [str(value) for value in initialization_warnings],
@@ -174,6 +216,7 @@ def tool_search(
             "operation": "tool_search",
             "registry_generation": expected_registry_generation,
             "effective_schema_hash": expected_schema_hash,
+            **_catalog_identity_fields(handshake),
             "query": str(query),
             "results": matches,
             "result_count": len(matches),
@@ -216,6 +259,7 @@ def tool_call(
             "operation": "tool_call",
             "registry_generation": expected_registry_generation,
             "effective_schema_hash": expected_schema_hash,
+            **_catalog_identity_fields(handshake),
             "tool_name": exact_name,
             "tool_schema_hash": sha256(_canonical_json(definition).encode("utf-8")).hexdigest(),
             "arguments": dict(arguments),
@@ -254,6 +298,7 @@ def tool_describe(
             "operation": "tool_describe",
             "registry_generation": expected_registry_generation,
             "effective_schema_hash": expected_schema_hash,
+            **_catalog_identity_fields(handshake),
             "tool_name": exact_name,
             "tool_schema_hash": sha256(_canonical_json(definition).encode("utf-8")).hexdigest(),
             "definition": definition,

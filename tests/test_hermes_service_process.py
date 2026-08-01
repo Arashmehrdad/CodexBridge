@@ -37,6 +37,11 @@ FAKE_COMPANION = textwrap.dedent(
         "hermes_revision": {PINNED_HERMES_REVISION!r},
         "registry_generation": 17,
         "effective_schema_hash": {SCHEMA_HASH!r},
+        "catalog_tool_count": 3,
+        "catalog_toolset_count": 1,
+        "catalog_toolsets": ["fixture"],
+        "toolset_selection_mode": "restricted",
+        "selected_toolsets": ["fixture"],
         "active_toolsets": ["fixture"],
         "python_identity": {{"executable": sys.executable, "pid": os.getpid()}},
         "model_runtime_initialized": False,
@@ -156,6 +161,9 @@ def test_one_verified_process_serves_multiple_bound_requests(tmp_path: Path) -> 
         assert worker.registry_identity.generation == 17
         assert worker.registry_identity.effective_schema_hash == SCHEMA_HASH
         assert worker.registry_identity.active_toolsets == ("fixture",)
+        assert worker.registry_identity.catalog_toolsets == ("fixture",)
+        assert worker.registry_identity.catalog_tool_count == 3
+        assert worker.registry_identity.toolset_selection_mode == "restricted"
         assert worker.ready is True
     finally:
         pid = worker.pid

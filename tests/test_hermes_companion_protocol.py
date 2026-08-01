@@ -59,8 +59,31 @@ def test_handshake_binds_pinned_revision_registry_and_schema_without_model_runti
         list(reversed(TOOL_DEFINITIONS))
     )
     assert handshake["active_toolsets"] == ["filesystem", "github"]
+    assert handshake["selected_toolsets"] == ["filesystem", "github"]
+    assert handshake["toolset_selection_mode"] == "restricted"
+    assert handshake["catalog_toolsets"] == ["filesystem", "github"]
+    assert handshake["catalog_toolset_count"] == 2
+    assert handshake["catalog_tool_count"] == 2
+    assert "empty list means unrestricted" in handshake[
+        "active_toolsets_semantics"
+    ]
     assert handshake["model_runtime_initialized"] is False
     assert handshake["encoded_bytes"] > 0
+
+
+def test_empty_toolset_selection_explicitly_means_unrestricted_catalog() -> None:
+    handshake = build_handshake(
+        registry_generation=8,
+        tool_definitions=TOOL_DEFINITIONS,
+        active_toolsets=[],
+        python_identity={},
+    )
+
+    assert handshake["active_toolsets"] == []
+    assert handshake["selected_toolsets"] == []
+    assert handshake["toolset_selection_mode"] == "unrestricted"
+    assert handshake["catalog_toolsets"] == ["filesystem", "github"]
+    assert handshake["catalog_tool_count"] == 2
 
 
 def test_handshake_rejects_revision_protocol_and_model_runtime_drift() -> None:
@@ -104,6 +127,10 @@ def test_search_is_bounded_deterministic_and_schema_bound() -> None:
     )
 
     assert result["operation"] == "tool_search"
+    assert result["catalog_tool_count"] == 2
+    assert result["catalog_toolsets"] == ["filesystem", "github"]
+    assert result["toolset_selection_mode"] == "restricted"
+    assert result["selected_toolsets"] == ["filesystem", "github"]
     assert result["result_count"] == 1
     assert result["results"][0]["name"] == "github.issue_search"
     assert len(result["results"][0]["schema_hash"]) == 64
