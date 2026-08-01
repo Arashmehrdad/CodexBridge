@@ -55,6 +55,8 @@ pwsh -NoProfile -File .\scripts\manage_soma_service.ps1 follow-logs
 
 Preserve exact run, task, workflow, supervisor, project, repository, and request IDs in incident notes. Never replace an opaque identifier with a guessed name.
 
+After `REL-021` activation, new Uvicorn default and HTTP access lines begin with a local ISO timestamp and UTC offset. Historical untimestamped access lines are not rewritten and cannot support exact wall-clock correlation. Cloudflared may label an ordinary client-aborted MCP stream as `ERR ... canceled by remote with error code 0`; do not infer a tunnel outage from that line alone. Compare its rate with adjacent minutes and require connection-loss, reconnect, registration, or HA-connection evidence before assigning the tunnel as the cause.
+
 ## 4. Repository changes
 
 Use the bounded transaction sequence:
@@ -140,6 +142,7 @@ At the next owner-approved quiet restart, verify in one batch:
 7. `REL-018` the five currently pending Hermes terminal results are repaired, and new shared-service runs publish immediately;
 8. `REL-019` `job_runs` startup reconciliation completes near the measured bounded path rather than the prior 46–101 second range;
 9. `REL-020` an actual filesystem-only Codex run is readable through exact status/input/output/result/terminal operations with no SQLite insertion, while the four empty directories remain unavailable;
-10. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
+10. `REL-021` new Uvicorn default and access log lines carry an ISO timestamp with UTC offset, while stdio operation remains unchanged;
+11. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
 
 Do not perform this activation while shared users are active.

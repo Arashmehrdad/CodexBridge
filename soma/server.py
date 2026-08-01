@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from copy import deepcopy
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,6 +24,7 @@ from typing import Sequence
 
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
+from uvicorn.config import LOGGING_CONFIG
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
 from .mcp_flat_input import FlatGatewayTool, flatten_request_input_schema
@@ -6685,6 +6687,19 @@ def _ssh_activation_coordinator_loop(
         stop_event.wait(0.25)
 
 
+def _build_uvicorn_log_config() -> dict[str, Any]:
+    """Return an isolated Uvicorn config with timestamped server and access logs."""
+
+    config = deepcopy(LOGGING_CONFIG)
+    for formatter_name in ("default", "access"):
+        formatter = config["formatters"][formatter_name]
+        current_format = str(formatter.get("fmt") or "")
+        if "%(asctime)s" not in current_format:
+            formatter["fmt"] = f"%(asctime)s {current_format}"
+        formatter["datefmt"] = "%Y-%m-%dT%H:%M:%S%z"
+    return config
+
+
 def run_server(args: argparse.Namespace) -> None:
     config_path = Path(args.config).resolve()
     set_config(load_config(config_path), config_path)
@@ -6738,7 +6753,13 @@ def run_server(args: argparse.Namespace) -> None:
         if args.transport == "stdio":
             mcp.run(transport="stdio")
             return
-        mcp.run(transport=args.transport, host=args.host, port=args.port, path=args.path)
+        mcp.run(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            path=args.path,
+            uvicorn_config={"log_config": _build_uvicorn_log_config()},
+        )
     finally:
         coordinator_stop.set()
         coordinator.join(timeout=2.0)

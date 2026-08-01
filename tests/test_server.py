@@ -57,6 +57,19 @@ def test_server_cli_preserves_stdio_mode() -> None:
     assert args.transport == "stdio"
 
 
+def test_server_http_log_config_timestamps_default_and_access_logs() -> None:
+    first = server._build_uvicorn_log_config()
+    second = server._build_uvicorn_log_config()
+
+    for formatter_name in ("default", "access"):
+        formatter = first["formatters"][formatter_name]
+        assert formatter["fmt"].startswith("%(asctime)s ")
+        assert formatter["datefmt"] == "%Y-%m-%dT%H:%M:%S%z"
+
+    first["formatters"]["access"]["fmt"] = "mutated"
+    assert second["formatters"]["access"]["fmt"].startswith("%(asctime)s ")
+
+
 def test_capability_metadata_uses_process_start_identity(monkeypatch) -> None:
     disk_metadata = {
         "server_build_hash": "d" * 64,
