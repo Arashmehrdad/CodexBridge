@@ -365,6 +365,43 @@ def test_completed_historical_implementation_marks_supervisor_completed(
     assert completed["metadata"]["implementation_lock"] is None
 
 
+def test_blocked_historical_plan_moves_to_needs_input(tmp_path: Path) -> None:
+    engine, store, jobs = make_engine(tmp_path)
+    supervisor = create_supervisor(engine)
+    _attached, job = attach_historical_child(store, jobs, supervisor, kind="plan")
+    job.status = "failed"
+    job.summary = "additional evidence required"
+    job.error = "Codex reported PLAN_STATUS: blocked"
+    job.result = {
+        "blocked": True,
+        "blockers": ["missing source-run evidence"],
+    }
+
+    blocked = engine.tick(supervisor["supervisor_id"])
+
+    assert blocked["status"] == "needs_input"
+    assert blocked["ended_at"] is None
+    assert blocked["summary"] == "additional evidence required"
+    assert blocked["metadata"]["active_child"] is None
+    assert blocked["metadata"]["plan_result"]["blocked"] is True
+    assert blocked["metadata"]["blocked"]["reason"] == "plan_child_blocked"
+    assert blocked["metadata"]["blocked"]["blockers"] == [
+        "missing source-run evidence"
+    ]
+    assert resume_prompt(store, blocked["supervisor_id"]).is_file()
+    events = store.get_events(blocked["supervisor_id"], 50)
+    assert sum(event["stage"] == "needs_input" for event in events) == 1
+    notifications = store.list_notifications(
+        blocked["supervisor_id"], delivery_status=None, limit=50
+    )
+    assert sum(note["kind"] == "plan_child_blocked" for note in notifications) == 1
+
+    again = engine.tick(supervisor["supervisor_id"])
+    assert again["status"] == "needs_input"
+    assert again["state_version"] == blocked["state_version"]
+    assert store.get_events(blocked["supervisor_id"], 50) == events
+
+
 def test_historical_plan_failure_marks_supervisor_failed(tmp_path: Path) -> None:
     engine, store, jobs = make_engine(tmp_path)
     supervisor = create_supervisor(engine)

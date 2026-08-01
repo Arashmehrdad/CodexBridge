@@ -52,6 +52,51 @@ class SupervisorService:
             )
         return self.enrich_supervisor(engine.tick(supervisor["supervisor_id"]))
 
+    def reconcile_startup(self) -> list[dict[str, Any]]:
+        """Advance historical active supervisors from durable child evidence.
+
+        Startup may observe and reconcile existing children, but it never
+        launches a child. Each transition is compare-and-swap guarded by the
+        engine, and a repeated startup is therefore idempotent.
+        """
+        reconciled: list[dict[str, Any]] = []
+        failures: list[str] = []
+        for status in ("planning", "implementing"):
+            for supervisor in self.store.list_supervisors(status=status, limit=100):
+                supervisor_id = str(supervisor["supervisor_id"])
+                before_status = str(supervisor["status"])
+                before_version = int(supervisor["state_version"])
+                try:
+                    updated = self._engine_from_supervisor(supervisor).tick(
+                        supervisor_id
+                    )
+                except Exception as exc:
+                    failures.append(
+                        f"{supervisor_id}: {type(exc).__name__}: {exc}"
+                    )
+                    continue
+                after_status = str(updated["status"])
+                after_version = int(updated["state_version"])
+                if (
+                    after_status != before_status
+                    or after_version != before_version
+                ):
+                    reconciled.append(
+                        {
+                            "supervisor_id": supervisor_id,
+                            "from_status": before_status,
+                            "to_status": after_status,
+                            "from_state_version": before_version,
+                            "to_state_version": after_version,
+                        }
+                    )
+        if failures:
+            raise RuntimeError(
+                "Supervisor startup reconciliation failed: "
+                + "; ".join(failures)
+            )
+        return reconciled
+
     def get_status(self, supervisor_id: str) -> dict[str, Any]:
         return self.enrich_supervisor(self._get(supervisor_id))
 

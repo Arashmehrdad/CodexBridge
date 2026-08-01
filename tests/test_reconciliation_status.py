@@ -9,6 +9,7 @@ from soma import reconciliation_status
 from soma.reconciliation_status import (
     PATH_JOB_RUNS,
     PATH_TASKS,
+    PATH_SUPERVISORS,
     PATH_WORKFLOWS,
     PATH_SSH_ACTIVATION,
     STARTUP_PATHS,
@@ -49,6 +50,7 @@ def test_partial_record_is_unhealthy(tmp_path: Path) -> None:
     assert status["ok"] is False
     assert status["state"] == "recorded"
     assert PATH_TASKS in status["missing"]
+    assert PATH_SUPERVISORS in status["missing"]
     assert PATH_WORKFLOWS in status["missing"]
 
 

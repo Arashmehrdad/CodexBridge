@@ -481,6 +481,13 @@ class SupervisorEngine:
             return supervisor
         if status == "failed":
             result = self.jobs.get_result(run_id)
+            if result.get("blocked") or result.get("blockers"):
+                return self._needs_input_from_blocked_plan(
+                    supervisor,
+                    metadata,
+                    run_id=run_id,
+                    result=result,
+                )
             return self._fail(
                 supervisor,
                 result.get("error") or result.get("summary") or "Plan child run failed",
@@ -513,6 +520,65 @@ class SupervisorEngine:
             stage="needs_input",
             message="Plan completed; approval required",
             data={"run_id": run_id},
+        )
+        return updated
+
+    def _needs_input_from_blocked_plan(
+        self,
+        supervisor: dict[str, Any],
+        metadata: dict[str, Any],
+        *,
+        run_id: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata["plan_result"] = result
+        metadata["active_child"] = None
+        metadata["blocked"] = {
+            "reason": "plan_child_blocked",
+            "run_id": run_id,
+            "blockers": list(result.get("blockers") or []),
+            "at": utc_now(),
+        }
+        summary = (
+            result.get("summary")
+            or result.get("error")
+            or "Plan child requires additional input"
+        )
+        updated = self.store.conditional_update_supervisor(
+            supervisor["supervisor_id"],
+            fields={
+                "status": "needs_input",
+                "summary": summary,
+                "metadata_json": metadata,
+            },
+            expected_statuses=("planning",),
+            expected_state_version=int(supervisor["state_version"]),
+        )
+        if updated is None:
+            return self.store.get_supervisor(supervisor["supervisor_id"])
+        self._attach_links_and_write_prompt(updated)
+        self.store.append_event(
+            supervisor["supervisor_id"],
+            level="warning",
+            stage="needs_input",
+            message="Plan child blocked; input required",
+            data={
+                "run_id": run_id,
+                "blockers": list(result.get("blockers") or []),
+            },
+        )
+        self._notify(
+            updated,
+            event_stage="needs_input",
+            event_level="warning",
+            kind="plan_child_blocked",
+            title="Soma supervisor needs input",
+            message=summary,
+            payload={
+                "run_id": run_id,
+                "blockers": list(result.get("blockers") or []),
+            },
+            dedupe_key=f"plan_child_blocked:{run_id}",
         )
         return updated
 

@@ -1238,6 +1238,12 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
             }
 
     monkeypatch.setattr(server, "_repo_context", lambda _repo_name: None)
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "resolve_repo_identity",
+        lambda _config, repo_name: (repo_name, None, None),
+    )
     monkeypatch.setattr(server, "get_job_manager", lambda: FakeJobs())
     monkeypatch.setattr(server, "search_repo_text", lambda *args: {"operation": "search", "args": args})
     monkeypatch.setattr(server, "read_repo_files", lambda *args: {"operation": "read", "args": args})

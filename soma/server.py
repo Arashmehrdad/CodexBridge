@@ -6725,6 +6725,12 @@ def run_server(args: argparse.Namespace) -> None:
             runs_dir, reconciliation_status.PATH_TASKS, process_id=process_id
         ):
             get_task_manager().reconcile_startup()
+        with reconciliation_status.ReconciliationRecorder(
+            runs_dir,
+            reconciliation_status.PATH_SUPERVISORS,
+            process_id=process_id,
+        ):
+            get_supervisor_service().reconcile_startup()
         # Every registry accessor is async, so the effective contract identity
         # is computed once here -- after all registration, before serving --
         # and stamped synchronously on responses thereafter.

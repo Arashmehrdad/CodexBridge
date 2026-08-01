@@ -230,6 +230,93 @@ def test_resume_advances_queued_to_needs_external_coder(tmp_path: Path) -> None:
     assert jobs.jobs == {}
 
 
+def test_startup_reconciliation_advances_terminal_historical_children(
+    tmp_path: Path,
+) -> None:
+    service, jobs, config = make_service(tmp_path)
+
+    failed_parent = service.store.create_supervisor(
+        repo_name="soma", objective="failed", metadata=supervisor_metadata()
+    )
+    _failed_attached, failed_child = attach_historical_child(
+        service, jobs, failed_parent, kind="plan"
+    )
+    jobs.fail(failed_child.run_id, error="plan failed")
+
+    blocked_parent = service.store.create_supervisor(
+        repo_name="soma", objective="blocked", metadata=supervisor_metadata()
+    )
+    _blocked_attached, blocked_child = attach_historical_child(
+        service, jobs, blocked_parent, kind="plan"
+    )
+    blocked_child.status = "failed"
+    blocked_child.summary = "provide evidence"
+    blocked_child.error = "PLAN_STATUS: blocked"
+    blocked_child.result = {
+        "blocked": True,
+        "blockers": ["missing evidence"],
+    }
+
+    cancelled_parent = service.store.create_supervisor(
+        repo_name="soma", objective="cancelled", metadata=supervisor_metadata()
+    )
+    _cancelled_attached, cancelled_child = attach_historical_child(
+        service, jobs, cancelled_parent, kind="implementation"
+    )
+    jobs.cancel(cancelled_child.run_id)
+
+    active_parent = service.store.create_supervisor(
+        repo_name="soma", objective="active", metadata=supervisor_metadata()
+    )
+    active_attached, _active_child = attach_historical_child(
+        service, jobs, active_parent, kind="plan"
+    )
+
+    recreated = StubSupervisorService(config, service.config_path, jobs)
+    reconciled = recreated.reconcile_startup()
+
+    assert {
+        item["supervisor_id"]: item["to_status"] for item in reconciled
+    } == {
+        failed_parent["supervisor_id"]: "failed",
+        blocked_parent["supervisor_id"]: "needs_input",
+        cancelled_parent["supervisor_id"]: "cancelled",
+    }
+    assert recreated.get_status(failed_parent["supervisor_id"])["status"] == "failed"
+    blocked = recreated.get_status(blocked_parent["supervisor_id"])
+    assert blocked["status"] == "needs_input"
+    assert blocked["resume_prompt_exists"] is True
+    assert recreated.get_status(cancelled_parent["supervisor_id"])["status"] == (
+        "cancelled"
+    )
+    active = recreated.get_status(active_parent["supervisor_id"])
+    assert active["status"] == "planning"
+    assert active["state_version"] == active_attached["state_version"]
+
+    assert recreated.reconcile_startup() == []
+
+
+def test_startup_reconciliation_reports_missing_historical_child(
+    tmp_path: Path,
+) -> None:
+    service, jobs, config = make_service(tmp_path)
+    parent = service.store.create_supervisor(
+        repo_name="soma", objective="missing", metadata=supervisor_metadata()
+    )
+    attach_historical_child(
+        service, jobs, parent, kind="plan", seed_job=False
+    )
+
+    recreated = StubSupervisorService(config, service.config_path, jobs)
+    reconciled = recreated.reconcile_startup()
+
+    assert reconciled[0]["supervisor_id"] == parent["supervisor_id"]
+    assert reconciled[0]["to_status"] == "failed"
+    failed = recreated.get_status(parent["supervisor_id"])
+    assert failed["status"] == "failed"
+    assert "Codex execution" in failed["error"]
+
+
 def test_restart_resumes_queued_supervisor_without_launching_anything(
     tmp_path: Path,
 ) -> None:

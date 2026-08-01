@@ -31,6 +31,7 @@ PATH_JOB_RUNS = "job_runs"
 PATH_WORKFLOWS = "workflows"
 PATH_PROJECT_SCOPE = "project_scope"
 PATH_TASKS = "tasks"
+PATH_SUPERVISORS = "supervisors"
 PATH_SSH_ACTIVATION = "ssh_activation"
 PATH_SSH_ACTIVATION_COORDINATOR = "ssh_activation_coordinator"
 
@@ -40,6 +41,7 @@ STARTUP_PATHS = (
     PATH_WORKFLOWS,
     PATH_PROJECT_SCOPE,
     PATH_TASKS,
+    PATH_SUPERVISORS,
     PATH_SSH_ACTIVATION,
 )
 
