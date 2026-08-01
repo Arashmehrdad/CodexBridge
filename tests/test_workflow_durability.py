@@ -9,7 +9,7 @@ from soma.config import AppConfig, RepoConfig
 from soma.return_loop.report_manifest import file_sha256
 from soma.workflows.manager import WorkflowManager
 from soma.workflows.models import WorkflowStatus, WorkflowStepStatus
-from soma.workflows.publication import publish_workflow
+from soma.workflows.publication import publish_workflow, workflow_publication_hash
 from soma.workflows.reporter import generate_workflow_report, write_workflow_snapshot
 from soma.workflows.store import WorkflowStore
 
@@ -308,6 +308,150 @@ def test_repeated_startup_does_not_duplicate_replacement_or_durable_child(
     assert final.active_child_run_id == "child-1"
     assert final.steps[0].child_run_id == "child-1"
     assert final.steps[0].child_launch_attempts == 1
+
+
+def test_startup_repairs_reported_failed_workflow_with_open_steps(
+    durable_tmp_path: Path,
+) -> None:
+    config, config_path = _config(durable_tmp_path)
+    manager = WorkflowManager(
+        config,
+        config_path,
+        worker_launcher=lambda *_args: 1,
+        process_checker=lambda _pid: False,
+    )
+    workflow = manager.store.create_workflow(
+        workflow_id="workflow",
+        repo_name="repo",
+        objective="repair stale terminal steps",
+        worker_lease_token="lease-1",
+        lease_generation=1,
+        launch_attempts=2,
+        steps=[
+            {
+                "id": "running",
+                "order_index": 0,
+                "type": "project_command",
+                "parameters": {"command_id": "ok"},
+                "depends_on": [],
+                "on_failure": "stop",
+            },
+            {
+                "id": "pending",
+                "order_index": 1,
+                "type": "local_summary",
+                "parameters": {},
+                "depends_on": ["running"],
+                "on_failure": "stop",
+            },
+        ],
+    )
+    manager.store.update_step(
+        "workflow",
+        "running",
+        status=WorkflowStepStatus.RUNNING,
+        started_at="then",
+        summary="Step running",
+    )
+    terminal = manager.store.conditional_update_workflow(
+        "workflow",
+        fields={
+            "status": WorkflowStatus.FAILED,
+            "terminal_status": WorkflowStatus.FAILED,
+            "ended_at": "then",
+            "failure_summary": "worker launch attempts exhausted",
+        },
+        expected_statuses=(WorkflowStatus.QUEUED,),
+        expected_state_version=workflow.state_version,
+        expected_lease_token="lease-1",
+        expected_lease_generation=1,
+    )
+    assert terminal is not None
+    stale_hash = workflow_publication_hash(terminal)
+    claimed = manager.store.begin_publication(
+        "workflow",
+        expected_status=WorkflowStatus.FAILED,
+        expected_state_version=terminal.state_version,
+        publication_hash=stale_hash,
+    )
+    assert claimed is not None
+    write_workflow_snapshot(config.resolve_runs_dir(), claimed, [])
+    report = generate_workflow_report(config.resolve_runs_dir(), claimed)
+    reported = manager.store.mark_publication_complete(
+        "workflow",
+        expected_status=WorkflowStatus.FAILED,
+        expected_state_version=claimed.state_version,
+        publication_hash=stale_hash,
+        terminal_status=WorkflowStatus.FAILED,
+        artifact_paths=[
+            str(report.report_path),
+            str(report.resume_prompt_path),
+            str(report.manifest_path),
+        ],
+    )
+    assert reported is not None
+    assert [step.status for step in reported.steps] == [
+        WorkflowStepStatus.RUNNING,
+        WorkflowStepStatus.PENDING,
+    ]
+
+    assert manager.reconcile_startup() == 0
+    repaired = manager.store.get_workflow("workflow")
+    assert repaired.status == WorkflowStatus.REPORTED
+    assert repaired.terminal_status == WorkflowStatus.FAILED
+    assert [step.status for step in repaired.steps] == [
+        WorkflowStepStatus.FAILED,
+        WorkflowStepStatus.SKIPPED,
+    ]
+    assert all(step.ended_at for step in repaired.steps)
+    assert repaired.publication_hash != stale_hash
+    assert repaired.publication_hash == workflow_publication_hash(repaired)
+    events = manager.store.get_events("workflow", 100)
+    assert any(
+        event.stage == "terminal_step_reconciliation" for event in events
+    )
+
+
+def test_terminal_publication_refuses_open_step_with_child_ownership(
+    durable_tmp_path: Path,
+) -> None:
+    config, _config_path = _config(durable_tmp_path)
+    store = WorkflowStore(config.resolve_runs_dir())
+    _create(store)
+    # Construct the historical contradiction directly. Current guarded APIs
+    # correctly refuse to terminalise a parent while it still owns a child.
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE workflow_steps SET status = ?, child_run_id = ? "
+            "WHERE workflow_id = ? AND step_id = ?",
+            (
+                WorkflowStepStatus.RUNNING.value,
+                "child-still-owned",
+                "workflow",
+                "one",
+            ),
+        )
+        conn.execute(
+            "UPDATE workflows SET status = ?, terminal_status = ?, ended_at = ?, "
+            "failure_summary = ?, state_version = state_version + 1 "
+            "WHERE workflow_id = ?",
+            (
+                WorkflowStatus.FAILED.value,
+                WorkflowStatus.FAILED.value,
+                "now",
+                "parent failed",
+                "workflow",
+            ),
+        )
+    terminal = store.get_workflow("workflow")
+    assert terminal.status == WorkflowStatus.FAILED
+
+    with pytest.raises(RuntimeError, match="open child ownership"):
+        publish_workflow(store, config.resolve_runs_dir(), "workflow")
+    current = store.get_workflow("workflow")
+    assert current.steps[0].status == WorkflowStepStatus.RUNNING
+    assert current.steps[0].child_run_id == "child-still-owned"
+    assert current.publication_status == "pending"
 
 
 def test_startup_repairs_terminal_publication_crash_windows_and_corruption(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from soma.return_loop.report_manifest import file_sha256
 
-from .models import WorkflowRecord, WorkflowStatus
+from .models import WorkflowRecord, WorkflowStatus, WorkflowStepStatus
 from .reporter import generate_workflow_report, write_workflow_snapshot
 from .store import WorkflowStore
 
@@ -42,7 +42,25 @@ def publish_workflow(
     workflow_id: str,
 ) -> WorkflowRecord:
     """Publish the terminal state selected by SQLite, using an idempotent CAS."""
-    winner = store.get_workflow(workflow_id)
+    before = store.get_workflow(workflow_id)
+    open_before = sum(
+        step.status in {WorkflowStepStatus.PENDING, WorkflowStepStatus.RUNNING}
+        for step in before.steps
+    )
+    winner = store.reconcile_terminal_steps(workflow_id)
+    if winner.state_version != before.state_version:
+        store.append_event(
+            workflow_id,
+            level="warning",
+            stage="terminal_step_reconciliation",
+            message="Closed nonterminal workflow steps before terminal publication",
+            data={
+                "open_step_count": open_before,
+                "terminal_status": (winner.terminal_status or winner.status).value,
+            },
+            update_workflow_metadata=False,
+        )
+        winner = store.get_workflow(workflow_id)
     source_status = winner.terminal_status or winner.status
     if (
         winner.publication_status == "published"
@@ -139,7 +157,8 @@ def _publication_artifacts_match(runs_dir: Path, workflow: WorkflowRecord) -> bo
     if any(str(manifest.get(key) or "") != value for key, value in actual_hashes.items()):
         return False
     return (
-        str(manifest.get("artifact_id") or "") == workflow.workflow_id
+        workflow.publication_hash == workflow_publication_hash(workflow)
+        and str(manifest.get("artifact_id") or "") == workflow.workflow_id
         and str(manifest.get("source_kind") or "") == "workflow"
         and str(manifest.get("source_status") or "") == source_status
         and Path(str(manifest.get("result_json_path") or "")) == result_path

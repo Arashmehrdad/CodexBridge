@@ -850,6 +850,124 @@ class WorkflowStore:
             reject_terminal=True,
         )
 
+    def reconcile_terminal_steps(self, workflow_id: str) -> WorkflowRecord:
+        """Close orphaned open steps before failed/cancelled publication.
+
+        A terminal parent cannot truthfully expose running or pending children.
+        This repair is deliberately limited to steps without a child run ID;
+        a terminal parent that still names a child requires ownership recovery,
+        not cosmetic terminalisation.
+        """
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            workflow = conn.execute(
+                "SELECT status, terminal_status, failure_summary "
+                "FROM workflows WHERE workflow_id = ?",
+                (workflow_id,),
+            ).fetchone()
+            if workflow is None:
+                conn.rollback()
+                raise KeyError(f"Unknown workflow_id: {workflow_id}")
+            source_status = str(workflow["terminal_status"] or workflow["status"])
+            if source_status not in {
+                WorkflowStatus.FAILED.value,
+                WorkflowStatus.CANCELLED.value,
+            }:
+                conn.commit()
+                return self.get_workflow(workflow_id)
+            owned_child = conn.execute(
+                "SELECT step_id, child_run_id FROM workflow_steps "
+                "WHERE workflow_id = ? AND status IN (?, ?) "
+                "AND child_run_id IS NOT NULL",
+                (
+                    workflow_id,
+                    WorkflowStepStatus.PENDING.value,
+                    WorkflowStepStatus.RUNNING.value,
+                ),
+            ).fetchall()
+            if owned_child:
+                conn.rollback()
+                detail = ", ".join(
+                    f"{row['step_id']}={row['child_run_id']}" for row in owned_child
+                )
+                raise RuntimeError(
+                    "Terminal workflow still has open child ownership: " + detail
+                )
+            changed = 0
+            reason = str(workflow["failure_summary"] or "Workflow failed")[:4000]
+            if source_status == WorkflowStatus.CANCELLED.value:
+                cursor = conn.execute(
+                    """
+                    UPDATE workflow_steps
+                    SET status = ?, ended_at = ?,
+                        summary = CASE
+                            WHEN status = ? THEN 'Cancelled after starting'
+                            ELSE 'Cancelled before execution'
+                        END,
+                        error = 'Workflow cancelled',
+                        state_version = state_version + 1
+                    WHERE workflow_id = ? AND status IN (?, ?)
+                    """,
+                    (
+                        WorkflowStepStatus.CANCELLED.value,
+                        now,
+                        WorkflowStepStatus.RUNNING.value,
+                        workflow_id,
+                        WorkflowStepStatus.PENDING.value,
+                        WorkflowStepStatus.RUNNING.value,
+                    ),
+                )
+                changed = int(cursor.rowcount)
+            else:
+                running = conn.execute(
+                    """
+                    UPDATE workflow_steps
+                    SET status = ?, ended_at = ?,
+                        summary = 'Workflow failed before step completion',
+                        error = ?, state_version = state_version + 1
+                    WHERE workflow_id = ? AND status = ?
+                    """,
+                    (
+                        WorkflowStepStatus.FAILED.value,
+                        now,
+                        reason,
+                        workflow_id,
+                        WorkflowStepStatus.RUNNING.value,
+                    ),
+                )
+                pending = conn.execute(
+                    """
+                    UPDATE workflow_steps
+                    SET status = ?, ended_at = ?,
+                        summary = 'Skipped because workflow failed',
+                        error = ?, state_version = state_version + 1
+                    WHERE workflow_id = ? AND status = ?
+                    """,
+                    (
+                        WorkflowStepStatus.SKIPPED.value,
+                        now,
+                        reason,
+                        workflow_id,
+                        WorkflowStepStatus.PENDING.value,
+                    ),
+                )
+                changed = int(running.rowcount) + int(pending.rowcount)
+            if changed:
+                conn.execute(
+                    "UPDATE workflows SET updated_at = ?, "
+                    "state_version = state_version + 1 WHERE workflow_id = ?",
+                    (now, workflow_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return self.get_workflow(workflow_id)
+
     def begin_publication(
         self,
         workflow_id: str,

@@ -463,7 +463,7 @@ def test_workflow_worker_stops_on_failure_and_skips_remaining_steps(
 
     workflow = manager.get_result(started["workflow_id"])
     assert workflow["terminal_status"] == "failed"
-    assert [step["status"] for step in workflow["steps"]] == ["failed", "pending"]
+    assert [step["status"] for step in workflow["steps"]] == ["failed", "skipped"]
 
 
 def test_workflow_cancel_requests_active_child_cancellation(tmp_path: Path) -> None:

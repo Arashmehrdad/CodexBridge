@@ -49,10 +49,15 @@ The baseline is healthy, but recent real-use failures prove that integration sea
 
 ### R1-0 — Contract and observability baseline
 
-- Freeze this gate and bug ledger.
-- Capture source/runtime/public-schema/operation-inventory convergence.
-- Capture startup self-check, configuration validation, database integrity, active runs, locks, and reconciliation state.
-- Inventory every supported public gateway and its owning authority.
+**Initial capture:** complete on 2026-08-01; deeper anomaly investigation continues through the later passes.
+
+- Gate and bug ledger frozen at commit `51ede5239f0c0be3b62e9e17a5b49709affda927`.
+- Source, running build, public input schema, discovery cache, and authoritative operation inventory converged with zero mismatches; 246 operation schemas across 32 public gateways were visible.
+- Lightweight self-check, configuration validation, startup reconciliation, and supervisor-store checks passed.
+- SQLite `integrity_check` returned `ok`; foreign-key violations were zero; WAL was active; freelist count was zero.
+- Public preflight reported a clean worktree, zero active/queued/launch-pending runs, and zero repository locks.
+- Canonical memory was healthy and drift-free for both Soma (19 records) and `axon_modelling` (1 record). The optional provider remained explicitly degraded, so retrieval correctly reported `catalog_lexical` rather than claiming semantic coverage.
+- The database census exposed `REL-005`: two published terminal workflows retained nonterminal child-step rows despite successful startup reconciliation.
 
 ### R1-1 — Fresh-project onboarding and project isolation
 
@@ -113,8 +118,17 @@ Critical and high defects block lane acceptance. Medium defects require correcti
 | REL-002 | High | closed before activation | Sequential line-range edits could target shifted content without source anchoring. | Anchors, strict bounds, and same-file exclusivity added; regression-tested. |
 | REL-003 | Medium | closed before activation | Every exploratory apply/revert committed immediately, creating history confetti. | `commit_mode="manual"` plus explicit selected-file commit and zero-commit apply/revert proof. |
 | REL-004 | High | closed before activation | Dynamic repository discovery and ProjectScope onboarding could diverge, making canonical memory impossible for new projects. | `memory_bind_repository` added; real `axon_modelling` binding/save/read-back verified. |
+| REL-005 | High | fix validated; live activation pending restart | A workflow parent could be terminal `reported / failed` and publication-complete while child-step rows remained `running` or `pending`. Valid old artifacts caused future startup reconciliation to preserve the contradiction indefinitely. | Reproduced publicly on `20260711T204946Z_workflow_8a0f35b2` and `20260711T205044Z_workflow_3b1b2847`. Terminal publication now atomically reconciles orphaned open steps, republishes under the repaired hash, emits a durable event, and refuses to hide any still-owned child run. Validation: 26 focused plus 83 adjacent tests passed. |
 
-New defects receive the next sequential identifier. Investigation findings that do not reproduce as defects must be recorded separately and must not be presented as bugs.
+## Investigation observations
+
+These are not classified as defects without a failing behavioral reproduction:
+
+- **OBS-001:** optional canonical-memory provider health is degraded for the checked projects; canonical storage and integrity are healthy, and retrieval honestly reports lexical mode.
+- **OBS-002:** the latest startup `job_runs` reconciliation recorded approximately 101 seconds while succeeding. R1-4/R1-6 must determine whether this is expected historical volume cost or an operational performance defect.
+- **OBS-003:** historical supervisor rows remain in planning/needs-input states. R1-5 must distinguish intentionally parked handoffs from abandoned or misleading state before assigning a bug ID.
+
+New defects receive the next sequential identifier. Investigation findings that do not reproduce as defects must remain observations and must not be presented as bugs.
 
 ## Acceptance gate
 
