@@ -285,6 +285,101 @@ def test_bootstrap_resolution_is_explicit_exact_and_ambiguity_fails_closed(
     assert beta.project_id == PROJECT_BETA
 
 
+def test_empty_repository_binding_archives_idempotently_without_deleting_rows(
+    tmp_path: Path,
+) -> None:
+    config, _config_path, repo = _make_config(tmp_path)
+    TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    _bootstrap(scope, repo)
+    before = scope.table_counts()
+
+    archived = scope.archive_empty_repository_binding(
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        repository_root=repo,
+        expected_scope_generation=1,
+    )
+
+    assert archived["binding_archived"] is True
+    assert archived["previous_lifecycle_state"] == "active"
+    assert archived["lifecycle_state"] == "archived"
+    assert archived["previous_scope_generation"] == 1
+    assert archived["scope_generation"] == 2
+    assert archived["task_reservation_count"] == 0
+    assert archived["run_attempt_count"] == 0
+    assert scope.table_counts() == before
+    with pytest.raises(ProjectScopeError, match="No active repository binding"):
+        scope.resolve_repository(
+            project_id=PROJECT_ALPHA,
+            repo_name="sample",
+            repository_root=repo,
+        )
+
+    replay = scope.archive_empty_repository_binding(
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        repository_root=repo,
+        expected_scope_generation=1,
+    )
+    assert replay["binding_archived"] is False
+    assert replay["idempotent"] is True
+    assert replay["scope_generation"] == 2
+
+    with pytest.raises(ProjectScopeError, match="generation mismatch"):
+        scope.archive_empty_repository_binding(
+            project_id=PROJECT_ALPHA,
+            repo_name="sample",
+            repository_root=repo,
+            expected_scope_generation=2,
+        )
+    with pytest.raises(ProjectScopeError, match="project_lifecycle_archived"):
+        scope.apply_bootstrap(
+            project_id=PROJECT_ALPHA,
+            project_key="alpha",
+            resource_id=RESOURCE_REPOSITORY,
+            repo_name="sample",
+            repository_root=repo,
+            access_mode="exclusive",
+        )
+
+
+def test_repository_archive_refuses_any_task_or_run_scope_history(
+    tmp_path: Path,
+) -> None:
+    config, _config_path, repo = _make_config(tmp_path)
+    TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    _bootstrap(scope, repo)
+    binding = scope.resolve_repository(
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        repository_root=repo,
+    )
+    with scope.transaction() as conn:
+        scope.reserve_task_attempt(
+            conn,
+            binding=binding,
+            task_id="task_archive_history",
+            run_id="run_archive_history",
+        )
+
+    with pytest.raises(ProjectScopeError, match=r"tasks=1, runs=1"):
+        scope.archive_empty_repository_binding(
+            project_id=PROJECT_ALPHA,
+            repo_name="sample",
+            repository_root=repo,
+            expected_scope_generation=1,
+        )
+    assert scope.resolve_repository(
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        repository_root=repo,
+    ).scope_generation == 1
+
+
 def test_exclusive_repository_binding_cannot_be_shared_implicitly(
     tmp_path: Path,
 ) -> None:

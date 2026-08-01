@@ -214,6 +214,63 @@ def test_unbound_repository_can_be_bound_then_saved(gateway):
     assert repeated["scope"] == bound["scope"]
 
 
+def test_empty_repository_binding_can_be_archived_through_public_gateway(gateway):
+    mcp, _config, _vault = gateway
+    bound = action(
+        mcp,
+        {
+            "action": "memory_bind_repository",
+            "repo_name": "new_project",
+            "project_key": "archive-project",
+        },
+    )
+
+    archived = action(
+        mcp,
+        {
+            "action": "memory_archive_repository",
+            "repo_name": "new_project",
+            "project_id": bound["project_id"],
+            "expected_scope_generation": bound["scope_generation"],
+        },
+    )
+
+    assert archived["ok"] is True, archived.get("error")
+    assert archived["binding_archived"] is True
+    assert archived["lifecycle_state"] == "archived"
+    assert archived["previous_scope_generation"] == 1
+    assert archived["scope_generation"] == 2
+    assert archived["task_reservation_count"] == 0
+    assert archived["run_attempt_count"] == 0
+
+    unresolved = query(
+        mcp,
+        {"operation": "memory_scope", "repo_name": "new_project"},
+    )
+    assert unresolved["ok"] is False
+    assert "No active repository binding" in unresolved["error"]
+
+    replay = action(
+        mcp,
+        {
+            "action": "memory_archive_repository",
+            "repo_name": "new_project",
+            "project_id": bound["project_id"],
+            "expected_scope_generation": 1,
+        },
+    )
+    assert replay["ok"] is True
+    assert replay["binding_archived"] is False
+    assert replay["idempotent"] is True
+
+    rebind = action(
+        mcp,
+        {"action": "memory_bind_repository", "repo_name": "new_project"},
+    )
+    assert rebind["ok"] is False
+    assert "project_lifecycle_archived" in rebind["error"]
+
+
 # ----------------------------------------------------------------------
 # end-to-end flow
 

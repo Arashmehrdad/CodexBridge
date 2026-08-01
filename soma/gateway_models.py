@@ -2490,6 +2490,22 @@ class MemoryBindRepositoryAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class MemoryArchiveRepositoryAction(GatewayModel):
+    """Archive one empty exact ProjectScope repository binding.
+
+    The operation preserves every identity and binding row, increments scope
+    generation, and refuses projects with task/run scope history. It is not a
+    delete or a general project lifecycle control.
+    """
+
+    action: Literal["memory_archive_repository"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=128)
+    expected_scope_generation: int = Field(ge=1)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class MemorySaveAction(GatewayModel):
     """Write one canonical record.
 
@@ -2608,6 +2624,7 @@ KnowledgeActionRequest = Annotated[
     | KnowledgeSupersedeAction
     | KnowledgeRebuildAction
     | MemoryBindRepositoryAction
+    | MemoryArchiveRepositoryAction
     | MemorySaveAction
     | MemorySupersedeAction
     | MemoryLifecycleAction

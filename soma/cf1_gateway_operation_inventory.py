@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v17"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v18"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1521,6 +1521,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "knowledge_action",
         (
             "memory_bind_repository",
+            "memory_archive_repository",
             "memory_save",
             "memory_supersede",
             "memory_mark_disputed",
@@ -1536,7 +1537,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes="Canonical memory mutations return stable identity, lifecycle and the integrity hash the next compare-and-swap needs; canonical Markdown remains exact evidence. Lifecycle transitions require the expected hash, and superseded is derived from a successor link rather than settable. Integrity drift is reported by rebuild and health but never repaired by them: memory_accept_drift is the only path that restamps a record, and it names the new hash being adopted so an out-of-band edit cannot be laundered into canon by a rebuild.",
+        notes="Canonical memory mutations return stable identity, lifecycle and the integrity hash the next compare-and-swap needs; canonical Markdown remains exact evidence. Repository archival is generation-bound, preserves all binding rows, and refuses any project with task/run scope history. Record lifecycle transitions require the expected hash, and superseded is derived from a successor link rather than settable. Integrity drift is reported by rebuild and health but never repaired by them: memory_accept_drift is the only path that restamps a record, and it names the new hash being adopted so an out-of-band edit cannot be laundered into canon by a rebuild.",
     ),
     _entry(
         "knowledge_action",

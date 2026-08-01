@@ -309,7 +309,13 @@ CANONICAL_MEMORY_ACTION_OUTPUT = {
         "access_mode": {"type": "string"},
         "scope_generation": {"type": "integer"},
         "binding_applied": {"type": "boolean"},
+        "binding_archived": {"type": "boolean"},
         "idempotent": {"type": "boolean"},
+        "lifecycle_state": {"type": "string"},
+        "previous_lifecycle_state": {"type": "string"},
+        "previous_scope_generation": {"type": "integer"},
+        "task_reservation_count": {"type": "integer"},
+        "run_attempt_count": {"type": "integer"},
         "evidence_event_id": {"type": "string"},
         "outcome_hash": {"type": "string"},
         "memory_id": {"type": "string"},
@@ -763,7 +769,13 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
             "access_mode",
             "scope_generation",
             "binding_applied",
+            "binding_archived",
             "idempotent",
+            "lifecycle_state",
+            "previous_lifecycle_state",
+            "previous_scope_generation",
+            "task_reservation_count",
+            "run_attempt_count",
             "evidence_event_id",
             "outcome_hash",
             "content_sha256",
@@ -1626,11 +1638,62 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "error": str(exc),
             }
 
+    def memory_archive_repository_operation(request: Any) -> dict:
+        """Archive one exact empty ProjectScope binding without deleting it."""
+        from .project_scope import ProjectScopeStore
+
+        try:
+            config, repo_root, canonical_name = _runtime_context(
+                mcp, request.repo_name
+            )
+            result = ProjectScopeStore(
+                config.resolve_runs_dir()
+            ).archive_empty_repository_binding(
+                project_id=request.project_id,
+                repo_name=canonical_name,
+                repository_root=repo_root,
+                expected_scope_generation=request.expected_scope_generation,
+            )
+            return {
+                **result,
+                "operation": "memory_archive_repository",
+                "status": str(result["lifecycle_state"]),
+                "scope": {
+                    "kind": "project",
+                    "project_id": str(result["project_id"]),
+                    "repo_name": canonical_name,
+                },
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "project_key": "",
+                "resource_id": "",
+                "repo_name": request.repo_name,
+                "operation": "memory_archive_repository",
+                "status": "",
+                "scope": {},
+                "access_mode": "",
+                "scope_generation": 0,
+                "previous_scope_generation": 0,
+                "lifecycle_state": "",
+                "previous_lifecycle_state": "",
+                "binding_archived": False,
+                "idempotent": False,
+                "task_reservation_count": 0,
+                "run_attempt_count": 0,
+                "error": str(exc),
+            }
+
     def memory_action_operation(request: Any) -> dict:
         """Canonical memory writes. One authority, one write path."""
         action = request.action
         if action == "memory_bind_repository":
             return memory_bind_repository_operation(request)
+        if action == "memory_archive_repository":
+            return memory_archive_repository_operation(request)
         try:
             service, binding, canonical_name = _canonical_memory_context(
                 mcp, request.scope.project_id, request.scope.repo_name
@@ -1758,6 +1821,7 @@ def register_knowledge_tools(mcp: Any) -> None:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action in {
             "memory_bind_repository",
+            "memory_archive_repository",
             "memory_save",
             "memory_supersede",
             "memory_mark_disputed",

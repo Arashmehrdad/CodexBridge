@@ -178,6 +178,9 @@ class ProjectScopeStore:
                     or str(row["project_key"]) != project_key
                 ):
                     conflicts.append("project_identity_conflict")
+                lifecycle_state = str(row["lifecycle_state"])
+                if lifecycle_state != "active":
+                    conflicts.append(f"project_lifecycle_{lifecycle_state}")
             resource = conn.execute(
                 "SELECT * FROM project_resources "
                 "WHERE resource_id = ? OR "
@@ -312,6 +315,158 @@ class ProjectScopeStore:
             "idempotent": True,
             "outcome_hash": outcome_hash,
             "evidence_event_id": event_id,
+        }
+
+    def archive_empty_repository_binding(
+        self,
+        *,
+        project_id: str,
+        repo_name: str,
+        repository_root: str | Path,
+        expected_scope_generation: int,
+    ) -> dict[str, Any]:
+        """Archive one exact project binding without deleting authority history.
+
+        This is deliberately a narrow disposable-project teardown. Projects
+        that ever reserved a task or run remain active until a separately
+        reviewed lifecycle policy exists; silently hiding execution history
+        behind a generic archive action would weaken recovery authority.
+        """
+        self._require_installed()
+        validate_opaque_id(project_id, "project_id")
+        if not repo_name or len(repo_name) > 128:
+            raise ProjectScopeError("repo_name must be a non-empty string")
+        if (
+            isinstance(expected_scope_generation, bool)
+            or not isinstance(expected_scope_generation, int)
+            or expected_scope_generation < 1
+        ):
+            raise ProjectScopeError(
+                "expected_scope_generation must be a positive integer"
+            )
+        root = canonical_repository_root(repository_root)
+        identity_hash = repository_identity_hash(root)
+
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT project.project_id, project.project_key, "
+                "project.lifecycle_state, project.scope_generation, "
+                "binding.resource_id, resource_binding.access_mode "
+                "FROM projects project "
+                "JOIN project_repository_bindings binding "
+                "ON binding.project_id = project.project_id "
+                "JOIN project_resource_bindings resource_binding "
+                "ON resource_binding.project_id = binding.project_id "
+                "AND resource_binding.resource_id = binding.resource_id "
+                "WHERE project.project_id = ? "
+                "AND binding.repo_name = ? COLLATE NOCASE "
+                "AND binding.identity_hash = ?",
+                (project_id, repo_name, identity_hash),
+            ).fetchall()
+            if not rows:
+                raise ProjectScopeError(
+                    f"No repository binding for project {project_id!r} "
+                    f"matches {repo_name!r}"
+                )
+            if len(rows) != 1:
+                raise ProjectScopeError(
+                    f"Repository binding for project {project_id!r} is ambiguous"
+                )
+            row = rows[0]
+            task_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_task_reservations "
+                    "WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()[0]
+            )
+            run_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM project_run_attempts "
+                    "WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()[0]
+            )
+            if task_count or run_count:
+                raise ProjectScopeError(
+                    "Repository binding cannot be archived after task or run "
+                    f"scope history exists (tasks={task_count}, runs={run_count})"
+                )
+
+            current_state = str(row["lifecycle_state"])
+            current_generation = int(row["scope_generation"])
+            if current_state == "archived":
+                if current_generation != expected_scope_generation + 1:
+                    raise ProjectScopeError(
+                        "Archived repository binding scope generation mismatch"
+                    )
+                return {
+                    "ok": True,
+                    "project_id": str(row["project_id"]),
+                    "project_key": str(row["project_key"]),
+                    "resource_id": str(row["resource_id"]),
+                    "repo_name": repo_name,
+                    "access_mode": str(row["access_mode"]),
+                    "previous_lifecycle_state": "archived",
+                    "lifecycle_state": "archived",
+                    "previous_scope_generation": current_generation,
+                    "scope_generation": current_generation,
+                    "binding_archived": False,
+                    "idempotent": True,
+                    "task_reservation_count": task_count,
+                    "run_attempt_count": run_count,
+                }
+            if current_state != "active":
+                raise ProjectScopeError(
+                    f"Repository binding lifecycle is {current_state!r}, not active"
+                )
+            if current_generation != expected_scope_generation:
+                raise ProjectScopeError(
+                    "Repository binding scope generation mismatch: "
+                    f"expected {expected_scope_generation}, got {current_generation}"
+                )
+
+            updated = conn.execute(
+                "UPDATE projects SET lifecycle_state = 'archived', "
+                "scope_generation = scope_generation + 1, updated_at = ? "
+                "WHERE project_id = ? AND lifecycle_state = 'active' "
+                "AND scope_generation = ?",
+                (_utc_now(), project_id, expected_scope_generation),
+            )
+            if updated.rowcount != 1:
+                raise ProjectScopeError(
+                    "Repository binding changed before archival could commit"
+                )
+            final = conn.execute(
+                "SELECT lifecycle_state, scope_generation FROM projects "
+                "WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if (
+                final is None
+                or str(final["lifecycle_state"]) != "archived"
+                or int(final["scope_generation"])
+                != expected_scope_generation + 1
+            ):
+                raise ProjectScopeError(
+                    "Repository binding archival postcondition failed"
+                )
+
+        return {
+            "ok": True,
+            "project_id": str(row["project_id"]),
+            "project_key": str(row["project_key"]),
+            "resource_id": str(row["resource_id"]),
+            "repo_name": repo_name,
+            "access_mode": str(row["access_mode"]),
+            "previous_lifecycle_state": "active",
+            "lifecycle_state": "archived",
+            "previous_scope_generation": expected_scope_generation,
+            "scope_generation": expected_scope_generation + 1,
+            "binding_archived": True,
+            "idempotent": True,
+            "task_reservation_count": task_count,
+            "run_attempt_count": run_count,
         }
 
     def set_scoped_writes_enabled(self, enabled: bool) -> dict[str, Any]:
