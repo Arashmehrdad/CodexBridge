@@ -6506,18 +6506,23 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def repo_apply(request: RepoApplyRequest) -> dict:
     """Write gateway for hash-verified preview application, cleanup, rollback, and moves."""
+    requested_repo_name = request.repo_name
+    canonical_repo_name, _repo_root, _repo_config = resolve_repo_identity(
+        get_config(), requested_repo_name
+    )
     payload = request.model_dump(
         exclude={"operation", "repo_name"}, exclude_defaults=True
     )
     response = get_job_manager().start_repo_apply(
-        request.repo_name, request.operation, payload
+        canonical_repo_name, request.operation, payload
     )
     ack = {
         "ok": bool(response.get("accepted")),
         "accepted": bool(response.get("accepted")),
         "status": response.get("status", "refused"),
         "operation": request.operation,
-        "repo_name": response.get("repo_name", request.repo_name),
+        "repo_name": response.get("repo_name", canonical_repo_name),
+        "requested_repo_name": requested_repo_name,
         "transaction_id": response.get("run_id", ""),
         "run_id": response.get("run_id", ""),
         "patch_id": getattr(request, "patch_id", ""),

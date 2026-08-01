@@ -367,6 +367,55 @@ def test_repo_apply_worker_manual_mode_defers_commit(
     assert result["commit_result"]["status"] == "deferred"
 
 
+def test_repo_apply_validation_refusal_is_not_infrastructure_failure(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    runs_dir = tmp_path / "runs"
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, repo, runs_dir)
+    run_id = "20260801T000000Z_repo_apply_c0ffee12"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    store = RunStore(runs_dir)
+    store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="repo_apply",
+        run_dir=run_dir,
+        input_data={
+            "repo_name": "sample",
+            "operation": "cleanup",
+            "cleanup_id": "20260801T000000Z_cleanup_stalehash",
+            "commit_mode": "manual",
+        },
+    )
+    monkeypatch.setattr(
+        "soma.job_worker.apply_managed_artifact_cleanup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("Managed artifact changed since preview: .ruff_cache/probe")
+        ),
+    )
+
+    assert JobWorker(config_path, run_id).execute() == 1
+    persisted = store.get_run(run_id)
+    result = persisted["result"]
+    assert persisted["status"] == "failed"
+    assert persisted["safety_failure"] is True
+    assert result["classification"] == "validation_failure"
+    assert result["process_success"] is False
+    assert result["safety_failure"] is True
+    assert result["remaining_risks"] == []
+    assert result["validation"] == {
+        "ok": False,
+        "reason": "Managed artifact changed since preview: .ruff_cache/probe",
+    }
+    assert result["error"] == result["summary"]
+    assert "Async worker failed" not in result["summary"]
+
+
 def test_terminal_database_record_is_not_stranded_by_legacy_artifact_writer_failure(
     monkeypatch, tmp_path: Path
 ) -> None:

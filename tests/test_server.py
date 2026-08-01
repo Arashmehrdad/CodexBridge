@@ -1681,18 +1681,32 @@ def test_repo_apply_returns_durable_compact_ack(monkeypatch) -> None:
                 "reason": "recorded",
             }
 
+    resolved_requests: list[str] = []
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "resolve_repo_identity",
+        lambda _config, repo_name: (
+            resolved_requests.append(repo_name) or "repo",
+            None,
+            None,
+        ),
+    )
     monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
     request = TypeAdapter(RepoApplyRequest).validate_python(
         {
             "operation": "previewed_change",
-            "repo_name": "repo",
+            "repo_name": "__Repo-Folder",
             "patch_id": "patch_1",
         }
     )
 
     result = server.repo_apply(request)
 
+    assert resolved_requests == ["__Repo-Folder"]
     assert result["accepted"] is True
+    assert result["repo_name"] == "repo"
+    assert result["requested_repo_name"] == "__Repo-Folder"
     assert result["transaction_id"] == "run_apply_1"
     assert result["commit_mode"] == "auto"
     assert result["polling"]["request"] == {
@@ -1716,6 +1730,12 @@ def test_repo_apply_forwards_manual_commit_mode(monkeypatch) -> None:
                 "repo_name": "repo",
             }
 
+    monkeypatch.setattr(server, "get_config", lambda: object())
+    monkeypatch.setattr(
+        server,
+        "resolve_repo_identity",
+        lambda _config, repo_name: (repo_name, None, None),
+    )
     monkeypatch.setattr(server, "get_job_manager", lambda: Manager())
     request = TypeAdapter(RepoApplyRequest).validate_python(
         {

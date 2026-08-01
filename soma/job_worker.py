@@ -2601,26 +2601,52 @@ class JobWorker:
         operation = str(input_data["operation"])
         commit_mode = str(input_data.get("commit_mode") or "auto")
         runs_dir = self.config.resolve_runs_dir()
-        if operation == "previewed_change":
-            result = repo_writer.apply_previewed_repo_change(
-                repo_root, str(input_data["patch_id"]), runs_dir
-            )
-        elif operation == "cleanup":
-            result = apply_managed_artifact_cleanup(
-                repo_root, runs_dir, str(input_data["cleanup_id"])
-            )
-        elif operation == "revert":
-            result = repo_writer.revert_managed_patch(
-                repo_root, str(input_data["patch_id"]), runs_dir
-            )
-        else:
-            result = repo_writer.move_repo_file(
-                repo_root,
-                str(input_data["source_path"]),
-                str(input_data["destination_path"]),
-                str(input_data["expected_sha256"]),
-                runs_dir,
-            )
+        try:
+            if operation == "previewed_change":
+                result = repo_writer.apply_previewed_repo_change(
+                    repo_root, str(input_data["patch_id"]), runs_dir
+                )
+            elif operation == "cleanup":
+                result = apply_managed_artifact_cleanup(
+                    repo_root, runs_dir, str(input_data["cleanup_id"])
+                )
+            elif operation == "revert":
+                result = repo_writer.revert_managed_patch(
+                    repo_root, str(input_data["patch_id"]), runs_dir
+                )
+            else:
+                result = repo_writer.move_repo_file(
+                    repo_root,
+                    str(input_data["source_path"]),
+                    str(input_data["destination_path"]),
+                    str(input_data["expected_sha256"]),
+                    runs_dir,
+                )
+        except ValueError as exc:
+            ended_at = _utc_now()
+            message = str(exc)
+            return {
+                "run_id": self.run_id,
+                "repo_name": repo_name,
+                "tool": "repo_apply",
+                "operation": operation,
+                "commit_mode": commit_mode,
+                "status": "failed",
+                "exit_code": 1,
+                "process_success": False,
+                "classification": "validation_failure",
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "duration_seconds": _duration(started_at, ended_at),
+                "changed_files": [],
+                "tests_run": [],
+                "test_results": "",
+                "summary": message,
+                "remaining_risks": [],
+                "error": message,
+                "safety_failure": True,
+                "validation": {"ok": False, "reason": message},
+            }
         result = dict(result)
         result["run_id"] = self.run_id
         result["operation"] = operation
