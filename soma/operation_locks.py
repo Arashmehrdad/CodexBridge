@@ -22,6 +22,23 @@ class LockAcquisition:
     lock_key: str
     reason: str = ""
     fingerprint: str = ""
+    owner_lock: dict[str, Any] | None = None
+
+
+class RepositoryBusyError(RuntimeError):
+    """A verified repository owner blocked a synchronous mutation safely."""
+
+    def __init__(self, acquisition: LockAcquisition) -> None:
+        self.acquisition = acquisition
+        self.repo_name = acquisition.repo_name
+        self.reason = acquisition.reason
+        self.lock = dict(acquisition.owner_lock or {})
+        owner_run_id = str(self.lock.get("run_id") or "")
+        owner_suffix = f" (owner run {owner_run_id})" if owner_run_id else ""
+        super().__init__(
+            f"Repository operation lock unavailable for {acquisition.repo_name}: "
+            f"{acquisition.reason}{owner_suffix}"
+        )
 
 
 def normalize_input_fingerprint(payload: dict[str, Any]) -> str:
@@ -175,6 +192,24 @@ class OperationLockStore:
                         existing["tool"] == tool
                         and existing["input_fingerprint"] == fingerprint
                     )
+                    run = conn.execute(
+                        "SELECT status, state_version FROM runs WHERE run_id = ?",
+                        (existing["run_id"],),
+                    ).fetchone()
+                    owner_lock = {
+                        "repo_name": str(existing["repo_name"]),
+                        "tool": str(existing["tool"]),
+                        "run_id": str(existing["run_id"]),
+                        "owner_pid": int(existing["owner_pid"] or 0),
+                        "lease_generation": int(existing["lease_generation"] or 1),
+                        "acquired_at": str(existing["acquired_at"]),
+                        "heartbeat_at": str(existing["heartbeat_at"]),
+                        "stale": False,
+                        "run_status": str(run["status"] or "") if run else "",
+                        "run_state_version": int(run["state_version"] or 0)
+                        if run
+                        else 0,
+                    }
                     return LockAcquisition(
                         acquired=False,
                         duplicate=duplicate,
@@ -184,6 +219,7 @@ class OperationLockStore:
                         if duplicate
                         else "repository busy",
                         fingerprint=fingerprint,
+                        owner_lock=owner_lock,
                     )
             conn.execute(
                 """
@@ -551,9 +587,7 @@ def repository_operation_lock(
         owner_pid=os.getpid(),
     )
     if not acquisition.acquired:
-        raise RuntimeError(
-            f"Repository operation lock unavailable for {repo_name}: {acquisition.reason}"
-        )
+        raise RepositoryBusyError(acquisition)
     try:
         yield owner_id
     finally:

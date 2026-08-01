@@ -79,7 +79,7 @@ from .managed_artifacts import (
     apply_managed_artifact_cleanup as _apply_managed_artifact_cleanup,
     preview_managed_artifact_cleanup as _preview_managed_artifact_cleanup,
 )
-from .operation_locks import repository_operation_lock
+from .operation_locks import RepositoryBusyError, repository_operation_lock
 from .project_scope import ProjectScopeError, ProjectScopeStore
 from . import reconciliation_status
 from . import repo_reader as _repo_reader
@@ -6559,15 +6559,65 @@ def repo_apply(request: RepoApplyRequest) -> dict:
     )
 
 
+def _repository_busy_commit_result(
+    request: Any, exc: RepositoryBusyError
+) -> dict[str, Any]:
+    lock = dict(exc.lock)
+    canonical_name = str(lock.get("repo_name") or request.repo_name)
+    owner_run_id = str(lock.get("run_id") or "")
+    if owner_run_id and not owner_run_id.startswith("sync_"):
+        polling = {
+            "tool": "run_query",
+            "request": {"operation": "control", "run_id": owner_run_id},
+        }
+    else:
+        polling = {
+            "tool": "run_query",
+            "request": {
+                "operation": "locks",
+                "repo_name": canonical_name,
+                "include_stale": True,
+            },
+        }
+    result: dict[str, Any] = {
+        "ok": False,
+        "operation": request.operation,
+        "status": "repository_busy",
+        "repo_name": canonical_name,
+        "retryable": True,
+        "commit_attempted": False,
+        "repository_changed": False,
+        "reason_code": "repository_busy",
+        "reason": (
+            "Repository is busy with another verified operation. "
+            "No Git mutation was attempted."
+        ),
+        "lock": lock,
+        "polling": polling,
+        "recommended_action": (
+            "Wait for the owning run to become terminal, confirm repository preflight "
+            "shows no active lock, then retry the identical repo_commit request. "
+            "Do not stop or cancel the owning run solely to acquire the lock."
+        ),
+        "error": "",
+    }
+    if request.repo_name != canonical_name:
+        result["requested_repo_name"] = request.repo_name
+    return result
+
+
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def repo_commit(request: RepoCommitRequest) -> dict:
     """Write gateway for protected local branch creation and selected-file commits only."""
-    if request.operation == "create_branch":
-        result = create_git_branch(request.repo_name, request.branch_name)
-    else:
-        result = commit_selected_files(
-            request.repo_name, request.files, request.title, request.description
-        )
+    try:
+        if request.operation == "create_branch":
+            result = create_git_branch(request.repo_name, request.branch_name)
+        else:
+            result = commit_selected_files(
+                request.repo_name, request.files, request.title, request.description
+            )
+    except RepositoryBusyError as exc:
+        result = _repository_busy_commit_result(request, exc)
     if request.view == "full":
         return result
     if request.response_budget_bytes < 1024 or request.response_budget_bytes > 64 * 1024:
@@ -6589,7 +6639,13 @@ def repo_commit(request: RepoCommitRequest) -> dict:
                 "rollback_succeeded",
                 "commit_hash",
                 "commit_attempted",
+                "repository_changed",
+                "retryable",
+                "reason_code",
+                "reason",
+                "recommended_action",
                 "commit_metadata_sha256",
+                "requested_repo_name",
                 "error",
                 "message",
             )
@@ -6597,6 +6653,10 @@ def repo_commit(request: RepoCommitRequest) -> dict:
         }
     )
     compact["changed_files"] = [str(path) for path in result.get("changed_files", [])]
+    if result.get("lock"):
+        compact["lock"] = dict(result["lock"])
+    if result.get("polling"):
+        compact["polling"] = dict(result["polling"])
     compact["truncated"] = False
     compact["has_more"] = False
     compact["response_budget_bytes"] = request.response_budget_bytes

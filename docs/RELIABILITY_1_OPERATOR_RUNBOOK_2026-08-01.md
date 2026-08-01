@@ -77,6 +77,8 @@ Use the bounded transaction sequence:
 7. verify the worktree is clean;
 8. do not push.
 
+After `REL-024` activation, `repo_commit` may return `status: repository_busy` with `retryable: true`, the verified owner lock/run, and a polling request. This is successful serialization, not a failed Soma service. Require `commit_attempted: false` and `repository_changed: false`, poll the supplied owner until terminal, confirm `run_query(preflight, include_stale=true)` shows no active lock, and retry the identical selected-file commit. Do not cancel or stop a healthy owning run solely to acquire the repository lock.
+
 The repository-owned `--basetemp` avoids the observed Windows `%TEMP%\pytest-current` permission failure that can obscure the real pytest result.
 
 ## 5. Fresh-project onboarding
@@ -145,6 +147,7 @@ At the next owner-approved quiet restart, verify in one batch:
 8. `REL-019` `job_runs` startup reconciliation completes near the measured bounded path rather than the prior 46–101 second range;
 9. `REL-020` an actual filesystem-only Codex run is readable through exact status/input/output/result/terminal operations with no SQLite insertion, while the four empty directories remain unavailable;
 10. `REL-021` new Uvicorn default and access log lines carry an ISO timestamp with UTC offset, while stdio operation remains unchanged;
-11. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
+11. `REL-024` a selected-file commit attempted during a disposable repository-owned run returns structured retryable `repository_busy` ownership and polling metadata, then succeeds only after the owner is terminal and preflight is lock-free;
+12. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
 
 Do not perform this activation while shared users are active.

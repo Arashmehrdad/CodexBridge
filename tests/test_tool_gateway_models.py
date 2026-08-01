@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from pydantic import TypeAdapter, ValidationError
 import pytest
 
+from soma.operation_locks import LockAcquisition, RepositoryBusyError
 from soma.gateway_models import (
     RepoApplyRequest,
     RepoCommitRequest,
@@ -1318,6 +1319,54 @@ def test_repo_commit_create_branch_projection_preserves_checkout_state(
     assert result["current_branch"] == "feature/test"
     assert result["branch_created"] is True
     assert result["switched"] is True
+
+
+def test_repo_commit_busy_result_is_structured_retryable_and_owner_bound(
+    monkeypatch,
+) -> None:
+    def refuse_busy(*_args):
+        raise RepositoryBusyError(
+            LockAcquisition(
+                acquired=False,
+                duplicate=False,
+                repo_name="repo",
+                lock_key="repo",
+                reason="repository busy",
+                owner_lock={
+                    "repo_name": "repo",
+                    "tool": "executable_profile",
+                    "run_id": "run_pytest_1",
+                    "run_status": "running",
+                    "stale": False,
+                },
+            )
+        )
+
+    monkeypatch.setattr(server, "commit_selected_files", refuse_busy)
+    request = TypeAdapter(RepoCommitRequest).validate_python(
+        {
+            "operation": "commit_selected",
+            "repo_name": "repo",
+            "files": ["x.py"],
+            "title": "fix: x",
+        }
+    )
+
+    result = server.repo_commit(request)
+
+    assert result["ok"] is False
+    assert result["status"] == "repository_busy"
+    assert result["retryable"] is True
+    assert result["commit_attempted"] is False
+    assert result["repository_changed"] is False
+    assert result["error"] == ""
+    assert result["lock"]["run_id"] == "run_pytest_1"
+    assert result["polling"]["request"] == {
+        "operation": "control",
+        "run_id": "run_pytest_1",
+    }
+    assert "retry" in result["recommended_action"].lower()
+    assert "cancel" in result["recommended_action"].lower()
 
 
 def test_repo_commit_projection_honors_response_budget(monkeypatch) -> None:

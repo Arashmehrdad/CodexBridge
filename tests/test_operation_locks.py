@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import soma.operation_locks as operation_locks
-from soma.operation_locks import OperationLockStore
+from soma.operation_locks import (
+    OperationLockStore,
+    RepositoryBusyError,
+    repository_operation_lock,
+)
 
 
 RUN_ID = "20260706T120000Z_project_command_deadbeef"
@@ -117,6 +123,45 @@ def test_operation_lock_rejects_duplicate_active_task(tmp_path: Path) -> None:
     assert first.acquired is True
     assert second.acquired is False
     assert second.duplicate is True
+
+
+def test_repository_busy_error_exposes_verified_owner_without_releasing_it(
+    tmp_path: Path,
+) -> None:
+    runs_dir = tmp_path / "runs"
+    store = OperationLockStore(runs_dir)
+    store.store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=runs_dir / RUN_ID,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+        status="running",
+    )
+    store.acquire(
+        repo_name="sample",
+        tool="project_command",
+        normalized_input={"repo_name": "sample", "command_id": "pytest"},
+        run_id=RUN_ID,
+        owner_pid=123,
+    )
+
+    with pytest.raises(RepositoryBusyError) as caught:
+        with repository_operation_lock(
+            runs_dir,
+            repo_name="sample",
+            tool="commit_selected_files",
+            normalized_input={"files": ["one.txt"]},
+        ):
+            raise AssertionError("busy repository lock must not be entered")
+
+    error = caught.value
+    assert error.lock["repo_name"] == "sample"
+    assert error.lock["run_id"] == RUN_ID
+    assert error.lock["tool"] == "project_command"
+    assert error.lock["run_status"] == "running"
+    assert error.lock["stale"] is False
+    assert store.find_lock("sample", RUN_ID) is not None
 
 
 def test_operation_lock_release_allows_next_task(tmp_path: Path) -> None:
