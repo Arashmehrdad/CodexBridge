@@ -1435,6 +1435,44 @@ class RunStore:
             ).fetchall()
         return [self._row_to_run(row) for row in rows]
 
+    def list_terminal_publication_repair_candidates(
+        self, *, public_result_schema_version: str
+    ) -> list[dict[str, Any]]:
+        """Select terminal rows with incomplete durable publication identity."""
+        statuses = tuple(sorted(TERMINAL_STATUSES))
+        status_placeholders = ", ".join("?" for _ in statuses)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM runs
+                WHERE status IN ({status_placeholders})
+                  AND (
+                    COALESCE(result_publication_status, '') != 'published'
+                    OR LENGTH(COALESCE(result_published_hash, '')) != 64
+                    OR COALESCE(result_published_at, '') = ''
+                    OR COALESCE(public_result_json, '') IN ('', '{{}}')
+                    OR COALESCE(public_result_schema_version, '') != ?
+                    OR LENGTH(COALESCE(public_result_source_sha256, '')) != 64
+                    OR COALESCE(public_result_status, '') NOT IN ('ready', 'fallback')
+                  )
+                ORDER BY created_at ASC
+                """,
+                (*statuses, public_result_schema_version),
+            ).fetchall()
+        return [self._row_to_run(row) for row in rows]
+
+    def list_recent_terminal_runs(self, limit: int) -> list[dict[str, Any]]:
+        bounded_limit = max(1, min(int(limit), 1000))
+        statuses = tuple(sorted(TERMINAL_STATUSES))
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE status IN ("
+                + ", ".join("?" for _ in statuses)
+                + ") ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (*statuses, bounded_limit),
+            ).fetchall()
+        return [self._row_to_run(row) for row in reversed(rows)]
+
     def record_worker_launch(
         self,
         run_id: str,

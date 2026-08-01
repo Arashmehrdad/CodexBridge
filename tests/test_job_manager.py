@@ -24,6 +24,7 @@ from soma.config import (
 from soma.process_control import process_identity
 from soma.job_manager import JobManager
 from soma.parallel_groups import ParallelGroupStore
+from soma.run_publication import publish_run_result
 
 
 def _exited_pid() -> int:
@@ -1409,6 +1410,8 @@ def test_reconcile_startup_repairs_terminal_result_artifacts(
             expected_statuses=("queued",),
             expected_state_version=current["state_version"],
         )
+        assert publish_run_result(manager.store, run_id)["ok"] is True
+    (Path(manager.config.resolve_runs_dir()) / list(results)[0] / "result.json").unlink()
     (
         Path(manager.config.resolve_runs_dir()) / list(results)[1] / "result.json"
     ).write_text("not json", encoding="utf-8")
@@ -1428,6 +1431,74 @@ def test_reconcile_startup_repairs_terminal_result_artifacts(
         assert (
             manager.store.get_run(run_id)["result_publication_status"] == "published"
         )
+
+
+def test_reconcile_startup_skips_healthy_terminal_publications(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    run_id = "20260714T000020Z_project_command_deadbeef"
+    run_dir = Path(manager.config.resolve_runs_dir()) / run_id
+    run_dir.mkdir(parents=True)
+    manager.store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+    )
+    current = manager.store.get_run(run_id)
+    assert manager.store.transition_terminal(
+        run_id,
+        status="completed",
+        result={"status": "completed", "value": "healthy"},
+        expected_statuses=("queued",),
+        expected_state_version=current["state_version"],
+    )
+    assert publish_run_result(manager.store, run_id)["ok"] is True
+    calls: list[str] = []
+
+    def unexpected_publication(_store, observed_run_id: str):
+        calls.append(observed_run_id)
+        raise AssertionError("healthy terminal publication was rewritten")
+
+    monkeypatch.setattr(
+        "soma.job_manager.publish_run_result", unexpected_publication
+    )
+    assert manager.reconcile_startup() == 0
+    assert calls == []
+
+
+def test_reconcile_startup_repairs_incomplete_publication_outside_recent_audit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    run_id = "20260714T000021Z_project_command_deadbeef"
+    run_dir = Path(manager.config.resolve_runs_dir()) / run_id
+    run_dir.mkdir(parents=True)
+    manager.store.create_run(
+        run_id=run_id,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=run_dir,
+        input_data={"repo_name": "sample", "command_id": "pytest"},
+    )
+    current = manager.store.get_run(run_id)
+    assert manager.store.transition_terminal(
+        run_id,
+        status="completed",
+        result={"status": "completed", "value": "pending-publication"},
+        expected_statuses=("queued",),
+        expected_state_version=current["state_version"],
+    )
+    monkeypatch.setattr(
+        manager.store, "list_recent_terminal_runs", lambda _limit: []
+    )
+
+    assert manager.reconcile_startup() == 1
+    repaired = manager.store.get_run(run_id)
+    assert repaired["result_publication_status"] == "published"
+    assert (run_dir / "result.json").is_file()
 
 
 def test_unknown_and_malformed_run_ids_are_structured(

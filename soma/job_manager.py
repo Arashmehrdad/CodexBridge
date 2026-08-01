@@ -88,7 +88,11 @@ from .run_public_result import (
     build_pending_public_result,
     build_public_result_fallback,
 )
-from .run_publication import materialize_public_result, publish_run_result
+from .run_publication import (
+    materialize_public_result,
+    publish_run_result,
+    terminal_result_publication_needs_repair,
+)
 from .run_artifacts import read_redacted_output_tail, resolve_output_artifacts
 from .remote_controller_state import (
     build_remote_controller_state_contract,
@@ -525,6 +529,9 @@ def _fit_output_response(response: dict, response_budget_bytes: int) -> None:
     )
 
 
+STARTUP_TERMINAL_ARTIFACT_AUDIT_LIMIT = 100
+
+
 class JobManager:
     def __init__(self, config: AppConfig, config_path: Path | None):
         self.config = config
@@ -566,9 +573,22 @@ class JobManager:
                     data={"exception_type": type(exc).__name__},
                 )
             reconciled += 1
-        for run in self.store.list_terminal_runs():
-            if run["run_id"] in recoverable_ids:
-                continue
+        repair_candidates = {
+            run["run_id"]: run
+            for run in self.store.list_terminal_publication_repair_candidates(
+                public_result_schema_version=PUBLIC_RESULT_SCHEMA_VERSION
+            )
+            if run["run_id"] not in recoverable_ids
+        }
+        for run in self.store.list_recent_terminal_runs(
+            STARTUP_TERMINAL_ARTIFACT_AUDIT_LIMIT
+        ):
+            if (
+                run["run_id"] not in recoverable_ids
+                and terminal_result_publication_needs_repair(run)
+            ):
+                repair_candidates[run["run_id"]] = run
+        for run in repair_candidates.values():
             try:
                 publication = publish_run_result(self.store, run["run_id"])
                 if not publication["ok"]:

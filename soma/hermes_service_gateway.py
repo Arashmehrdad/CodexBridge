@@ -27,6 +27,7 @@ from .hermes_service_supervisor import (
     HermesServiceSupervisor,
     HermesSupervisorConfig,
 )
+from .run_publication import publish_run_result
 
 SHARED_EXECUTION_MODE = "shared_persistent_service"
 FALLBACK_EXECUTION_MODE = "one_request_companion_fallback"
@@ -233,7 +234,7 @@ class HermesServiceGateway:
                 self._active.pop(request_id, None)
 
         result_dict = result.as_dict()
-        self._run_store.transition_terminal(
+        persisted = self._run_store.transition_terminal(
             run_id,
             status="completed",
             result=result_dict,
@@ -242,6 +243,8 @@ class HermesServiceGateway:
             exit_code=0,
             summary=f"hermes {operation} served by shared service",
         )
+        if persisted is not None:
+            publish_run_result(self._run_store, run_id)
         return {
             "ok": True,
             "run_id": run_id,
@@ -363,14 +366,17 @@ class HermesServiceGateway:
         status: str = "failed",
     ) -> None:
         try:
-            self._run_store.transition_terminal(
-                str(created["run_id"]),
+            run_id = str(created["run_id"])
+            persisted = self._run_store.transition_terminal(
+                run_id,
                 status=status,
                 result={"ok": False, "error": error},
                 expected_statuses=("running",),
                 expected_state_version=int(created["state_version"]),
                 error=error,
             )
+            if persisted is not None:
+                publish_run_result(self._run_store, run_id)
         except Exception:
             # Result-record failure must not mask the original error.
             pass

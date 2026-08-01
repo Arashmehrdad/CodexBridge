@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -254,9 +255,12 @@ def test_shared_execution_creates_isolated_durable_run(tmp_path: Path) -> None:
 
         stored = tracking["store"].get_run(response["run_id"])
         assert stored["status"] == "completed"
+        assert stored["result_publication_status"] == "published"
         assert stored["result"]["response"]["served_by"].startswith(
             "hermes-worker-"
         )
+        result_path = Path(stored["run_dir"]) / "result.json"
+        assert json.loads(result_path.read_text(encoding="utf-8")) == stored["result"]
 
         owned = gateway.get_result(
             run_id=response["run_id"], session_id="Session-A"
@@ -320,6 +324,8 @@ def test_cross_session_cancel_is_rejected_and_owner_cancel_succeeds(
         assert response["status"] == "cancelled"
         stored = tracking["store"].get_run(response["run_id"])
         assert stored["status"] == "cancelled"
+        assert stored["result_publication_status"] == "published"
+        assert (Path(stored["run_dir"]) / "result.json").is_file()
     finally:
         gateway.close()
 
@@ -360,6 +366,8 @@ def test_stale_identity_fails_closed_without_fallback(tmp_path: Path) -> None:
         assert tracking["fallback_calls"] == []
         stored = tracking["store"].get_run(response["run_id"])
         assert stored["status"] == "failed"
+        assert stored["result_publication_status"] == "published"
+        assert (Path(stored["run_dir"]) / "result.json").is_file()
     finally:
         gateway.close()
 

@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from soma.run_publication import publish_run_result
+from soma.run_publication import (
+    publish_run_result,
+    terminal_result_publication_needs_repair,
+)
 from soma.run_store import RunStore, utc_now
 
 
@@ -104,3 +107,23 @@ def test_real_publication_retry_preserves_authoritative_source_and_is_idempotent
     assert published["public_result_source_sha256"] == source_hash
     assert json.loads((run_dir / "result.json").read_text(encoding="utf-8")) == winner
     assert write_attempts == 2
+
+
+def test_publication_repair_check_detects_only_broken_terminal_evidence(
+    tmp_path: Path,
+) -> None:
+    winner = {"run_id": "winner", "status": "completed", "summary": "database"}
+    store, run_id, run_dir = _terminal_run(tmp_path, winner)
+    pending = store.get_result_source_snapshot(run_id)
+    assert terminal_result_publication_needs_repair(pending) is True
+
+    assert publish_run_result(store, run_id)["ok"] is True
+    healthy = store.get_result_source_snapshot(run_id)
+    assert terminal_result_publication_needs_repair(healthy) is False
+    listed = store.list_terminal_runs()[0]
+    assert "result_json" not in listed
+    assert terminal_result_publication_needs_repair(listed) is False
+
+    (run_dir / "result.json").write_text("{}\n", encoding="utf-8")
+    damaged = store.get_result_source_snapshot(run_id)
+    assert terminal_result_publication_needs_repair(damaged) is True

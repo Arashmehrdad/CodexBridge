@@ -229,6 +229,50 @@ def _publication_failure(
     }
 
 
+def terminal_result_publication_needs_repair(
+    run: dict[str, Any], *, verify_artifact: bool = True
+) -> bool:
+    """Return whether a terminal run needs canonical publication repair.
+
+    The check is read-only. Publication metadata and source-bound projection
+    identity are always verified; artifact metadata/content checks can be
+    bounded by callers so historical filesystem size cannot dominate startup.
+    """
+    if run.get("status") not in TERMINAL_STATUSES:
+        return False
+    try:
+        _, content, content_hash = _canonical_result(run.get("result") or {})
+        if (
+            run.get("result_publication_status") != "published"
+            or run.get("result_published_hash") != content_hash
+        ):
+            return True
+        result_json = run.get("result_json")
+        source_sha256 = (
+            authoritative_result_sha256(result_json)
+            if isinstance(result_json, str)
+            else str(run.get("public_result_source_sha256") or "")
+        )
+        if not _projection_matches(run, source_sha256):
+            return True
+        if not verify_artifact:
+            return False
+
+        target = Path(str(run["run_dir"])) / "result.json"
+        artifact = target.stat()
+        if artifact.st_size != len(content):
+            return True
+        published_at = datetime.fromisoformat(str(run.get("result_published_at") or ""))
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+        published_mtime_ns = int(published_at.timestamp() * 1_000_000_000)
+        if artifact.st_mtime_ns <= published_mtime_ns:
+            return False
+        return target.read_bytes() != content
+    except Exception:
+        return True
+
+
 def publish_run_result(store: RunStore, run_id: str) -> dict[str, Any]:
     """Publish the terminal winner and persist its source-bound projection."""
     run = store.get_result_source_snapshot(run_id)
