@@ -20,6 +20,10 @@ param(
     [switch]$RestartAfterProfileChange,
     [int]$Tail = 80,
     [int]$StartupTimeoutSeconds = 30,
+    [ValidateRange(1, 9223372036854775807)]
+    [long]$MaxLogBytes = 26214400,
+    [ValidateRange(1, 100)]
+    [int]$MaxArchivedLogs = 4,
     [int]$ExpectedProcessId = 0
 )
 
@@ -66,6 +70,53 @@ function Write-WarningMessage {
 
 function Ensure-ControlDirectory {
     New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
+}
+
+function Get-ServiceLogPaths {
+    return @(
+        $ServerStdoutLog,
+        $ServerStderrLog,
+        $TunnelStdoutLog,
+        $TunnelStderrLog
+    )
+}
+
+function Invoke-ServiceLogRollover {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ([long]$item.Length -lt $MaxLogBytes) { return }
+
+    $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+    $archivePath = "$Path.$timestamp.archive"
+    Move-Item -LiteralPath $Path -Destination $archivePath -ErrorAction Stop
+    Write-Info "Rolled over $($item.Name) at $($item.Length) bytes to $(Split-Path -Leaf $archivePath)."
+
+    $directory = Split-Path -Parent $Path
+    $leaf = Split-Path -Leaf $Path
+    $archives = @(
+        Get-ChildItem -LiteralPath $directory -File -Filter "$leaf.*.archive" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending
+    )
+    if ($archives.Count -gt $MaxArchivedLogs) {
+        $archives |
+            Select-Object -Skip $MaxArchivedLogs |
+            Remove-Item -Force -ErrorAction Stop
+    }
+}
+
+function Show-ServiceLogGrowth {
+    Write-Host "  Log rollover limit: $MaxLogBytes bytes; retained archives per stream: $MaxArchivedLogs"
+    foreach ($path in Get-ServiceLogPaths) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        if (-not $item) { continue }
+        Write-Host "  Log size:           $($item.Name) = $($item.Length) bytes"
+        if ([long]$item.Length -ge $MaxLogBytes) {
+            Write-WarningMessage "$($item.Name) exceeds the rollover limit. It remains untouched while its service is active and will roll over before the next managed start."
+        }
+    }
 }
 
 function Resolve-SomaPython {
@@ -284,6 +335,9 @@ function Start-SomaServer {
         throw "Port $Port is owned by an unrelated process and will not be killed: PID $($listener.ProcessId) $($listener.Name) $($listener.CommandLine)"
     }
 
+    Invoke-ServiceLogRollover -Path $ServerStdoutLog
+    Invoke-ServiceLogRollover -Path $ServerStderrLog
+
     $python = Resolve-SomaPython
     $arguments = @(
         "-m", "soma.server",
@@ -410,6 +464,9 @@ function Start-SomaTunnel {
     if (-not $cloudflared) {
         throw "cloudflared was not found on PATH."
     }
+    Invoke-ServiceLogRollover -Path $TunnelStdoutLog
+    Invoke-ServiceLogRollover -Path $TunnelStderrLog
+
     $arguments = @("tunnel", "--config", $TunnelConfig, "run")
     Write-Info "Starting Cloudflare tunnel hidden."
     $process = Start-Process -FilePath $cloudflared.Source -ArgumentList $arguments `
@@ -716,6 +773,7 @@ function Show-Diagnostics {
     Write-Host "  Log directory:      $LogDirectory"
     Write-Host "  Server PID file:    $ServerPidFile"
     Write-Host "  Tunnel PID file:    $TunnelPidFile"
+    Show-ServiceLogGrowth
 
     $listener = Get-ListenerOwner
     if ($listener) {

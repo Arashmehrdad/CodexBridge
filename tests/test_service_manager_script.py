@@ -1,3 +1,4 @@
+import os
 import shutil
 import socket
 import subprocess
@@ -55,8 +56,10 @@ def _manager_argv(
     project_root: Path,
     config: Path,
     port: int,
+    *,
+    extra_args: list[str] | None = None,
 ) -> list[str]:
-    return [
+    argv = [
         engine,
         "-NoLogo",
         "-NoProfile",
@@ -83,6 +86,9 @@ def _manager_argv(
         "-StartupTimeoutSeconds",
         "30",
     ]
+    if extra_args:
+        argv.extend(extra_args)
+    return argv
 
 
 def _run_manager(
@@ -94,8 +100,16 @@ def _run_manager(
     *,
     timeout: int = 90,
     capture_output: bool = True,
+    extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    argv = _manager_argv(engine, action, project_root, config, port)
+    argv = _manager_argv(
+        engine,
+        action,
+        project_root,
+        config,
+        port,
+        extra_args=extra_args,
+    )
     if capture_output:
         return subprocess.run(
             argv,
@@ -168,6 +182,9 @@ def test_manager_represents_hidden_lifecycle_and_stable_logs() -> None:
     assert "runs\\service_logs" in text
     assert "soma-server.pid" in text
     assert "soma-mcp-tunnel.pid" in text
+    assert "Invoke-ServiceLogRollover" in text
+    assert "MaxLogBytes" in text
+    assert "MaxArchivedLogs" in text
 
 
 def test_manager_verifies_identity_and_protects_unrelated_port_owner() -> None:
@@ -259,6 +276,74 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
     assert final_status.returncode == 0, final_status.stdout + final_status.stderr
     assert "Ready:     False (HTTP 0" in final_status.stdout
     assert "PID:       not found" in final_status.stdout
+
+
+@pytest.mark.skipif(
+    not WINDOWS or not (POWERSHELL_7 or POWERSHELL_5) or not LOCAL_PYTHON.is_file(),
+    reason="Local Windows PowerShell and repository Python are required",
+)
+def test_server_start_rolls_oversized_logs_and_prunes_archives(tmp_path: Path) -> None:
+    engine = str(POWERSHELL_7 or POWERSHELL_5)
+    config = _write_isolated_config(tmp_path)
+    port = _unused_local_port()
+    log_dir = tmp_path / "runs" / "service_logs"
+    log_dir.mkdir(parents=True)
+    stdout_log = log_dir / "soma-server.out.log"
+    stderr_log = log_dir / "soma-server.err.log"
+    stdout_log.write_text("oversized stdout evidence", encoding="utf-8")
+    stderr_log.write_text("oversized stderr evidence", encoding="utf-8")
+    for index in range(2):
+        archive = log_dir / f"soma-server.out.log.20260101T00000{index}000Z.archive"
+        archive.write_text(f"old archive {index}", encoding="utf-8")
+        os.utime(archive, (index + 1, index + 1))
+
+    options = ["-MaxLogBytes", "1", "-MaxArchivedLogs", "2"]
+    try:
+        started = _run_manager(
+            engine,
+            "start",
+            tmp_path,
+            config,
+            port,
+            capture_output=False,
+            extra_args=options,
+        )
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        stdout_archives = sorted(log_dir.glob("soma-server.out.log.*.archive"))
+        stderr_archives = sorted(log_dir.glob("soma-server.err.log.*.archive"))
+        assert len(stdout_archives) == 2
+        assert len(stderr_archives) == 1
+        assert any(
+            archive.read_text(encoding="utf-8") == "oversized stdout evidence"
+            for archive in stdout_archives
+        )
+        assert stderr_archives[0].read_text(encoding="utf-8") == "oversized stderr evidence"
+
+        diagnostics = _run_manager(
+            engine,
+            "diagnostics",
+            tmp_path,
+            config,
+            port,
+            extra_args=options,
+        )
+        output = diagnostics.stdout + diagnostics.stderr
+        assert diagnostics.returncode == 0, output
+        assert "Log rollover limit: 1 bytes" in output
+        assert "will roll over before the next managed start" in output
+    finally:
+        stopped = _run_manager(
+            engine,
+            "stop",
+            tmp_path,
+            config,
+            port,
+            capture_output=False,
+            extra_args=options,
+        )
+
+    assert stopped.returncode == 0, stopped.stdout + stopped.stderr
 
 
 @pytest.mark.skipif(

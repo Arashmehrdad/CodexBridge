@@ -59,6 +59,8 @@ Preserve exact run, task, workflow, supervisor, project, repository, and request
 
 After `REL-021` activation, new Uvicorn default and HTTP access lines begin with a local ISO timestamp and UTC offset. Historical untimestamped access lines are not rewritten and cannot support exact wall-clock correlation. Cloudflared may label an ordinary client-aborted MCP stream as `ERR ... canceled by remote with error code 0`; do not infer a tunnel outage from that line alone. Compare its rate with adjacent minutes and require connection-loss, reconnect, registration, or HA-connection evidence before assigning the tunnel as the cause.
 
+Managed server and tunnel stdout/stderr use stable active files. Before each managed start, the controller rolls over a stream only when it is already at or above 25 MB, retains the four newest timestamped archives for that stream, and prunes older archives. It never moves or truncates a file owned by an active service. `diagnostics` reports the configured threshold, retention count, and current size of every existing stream; an over-limit active file is left untouched and warned for rollover at the next managed start. `-MaxLogBytes` and `-MaxArchivedLogs` exist for bounded testing or explicit operator adjustment.
+
 ## 4. Repository changes
 
 Use the bounded transaction sequence:
@@ -135,7 +137,7 @@ Canonical-memory catalog rebuild and semantic-provider index rebuild are differe
 
 The source sequence has already passed against an isolated backup of the live store; see [`RELIABILITY_1_ISOLATED_PRE_RESTART_REHEARSAL_2026-08-01.md`](RELIABILITY_1_ISOLATED_PRE_RESTART_REHEARSAL_2026-08-01.md). That rehearsal predicts the historical outcomes and proves idempotency, but it does not replace live activation.
 
-At the next owner-approved quiet restart, verify in one batch:
+The activation-batch checklist is:
 
 1. `REL-012` ambiguous repository aliases fail closed live;
 2. `REL-013` repository archival is visible through the refreshed connector and disposable bindings can be archived/deleted safely;
@@ -150,4 +152,6 @@ At the next owner-approved quiet restart, verify in one batch:
 11. `REL-024` a selected-file commit attempted during a disposable repository-owned run returns structured retryable `repository_busy` ownership and polling metadata, then succeeds only after the owner is terminal and preflight is lock-free;
 12. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
 
-Do not perform this activation while shared users are active.
+**Activation result on 2026-08-01:** items 6–12 passed after the owner-approved restart and connector refresh. Historical supervisors reconciled, all five pending Hermes results published, `job_runs` startup reconciliation completed in 1.281 seconds, the filesystem-only Codex probe succeeded, timestamped access lines were observed, the structured repository-busy refusal passed under a controlled healthy lock, capability identity converged, all ten self-check paths passed, and preflight returned to zero locks. The live controller also reported the `REL-023` rollover threshold, archive count, and all four current stream sizes. Items 1–5 remain targeted disposable scenario probes and must not be claimed complete from build convergence alone.
+
+Do not perform a future activation while shared users are active.

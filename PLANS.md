@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` is now the sole active implementation lane before any further large V3 work. The V3-1A interaction-foundation architecture review remains preserved but parked; product implementation and every later V3 outcome remain paused. The active reliability contract and durable bug ledger are [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` is now the sole active implementation lane before any further large V3 work. The owner-approved 2026-08-01 restart and connector refresh activated the validated source through `REL-024`; `REL-017` through `REL-024` are live, while targeted disposable scenario probes for `REL-012` through `REL-016` remain before lane acceptance. The V3-1A interaction-foundation architecture review remains preserved but parked; product implementation and every later V3 outcome remain paused. The active reliability contract and durable bug ledger are [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
@@ -56,7 +56,7 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 
 ## Active Lane: RELIABILITY-1 — Existing Runtime Hardening
 
-**Status:** active and the sole implementation lane from 2026-08-01. The authoritative gate, phased validation plan, severity model, baseline, acceptance criteria, and bug ledger are in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+**Status:** active and the sole implementation lane from 2026-08-01. The restart/refresh activation batch is complete; the resumed `REL-023` service-log retention slice is closed and live, and targeted disposable probes for `REL-012` through `REL-016` are the next bounded acceptance work. The authoritative gate, phased validation plan, severity model, baseline, acceptance criteria, and bug ledger are in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
 
 **Goal:** prove the existing runtime works reliably across fresh-project onboarding, ProjectScope and memory, runtime/connector convergence, repository transactions, task/run durability, supervisor/workflow handoffs, restart recovery, isolation, integrity, evidence, and operational use before adding another architecture layer.
 
@@ -66,7 +66,7 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 
 ## Completed Corrective Fix: MEMORY-REPOSITORY-ONBOARDING-1
 
-**Status:** implementation accepted on 2026-08-01; the immediate `axon_modelling` repair is live, while the new public onboarding action requires one Soma process restart and connector refresh. Evidence is recorded in [`docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md`](docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md).
+**Status:** implementation accepted and live on 2026-08-01. The immediate `axon_modelling` repair and the public onboarding action are both active after the owner-approved Soma restart and connector refresh. Evidence is recorded in [`docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md`](docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md).
 
 Newly discovered repositories remain read-only with respect to ProjectScope. Controllers may explicitly call `memory_bind_repository` to create or return one deterministic, idempotent repository binding and receive the exact scope required by canonical memory operations. Exact ProjectScope enforcement remains unchanged.
 
