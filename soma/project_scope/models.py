@@ -67,6 +67,7 @@ class ProjectScopeMismatch(ProjectScopeError):
 @dataclass(frozen=True)
 class RepositoryBinding:
     project_id: str
+    project_key: str
     resource_id: str
     repo_name: str
     repository_root: str
@@ -77,6 +78,7 @@ class RepositoryBinding:
     def to_dict(self) -> dict[str, object]:
         return {
             "project_id": self.project_id,
+            "project_key": self.project_key,
             "resource_id": self.resource_id,
             "repo_name": self.repo_name,
             "repository_root": self.repository_root,

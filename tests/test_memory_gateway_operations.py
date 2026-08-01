@@ -160,12 +160,17 @@ def test_unbound_repository_can_be_bound_then_saved(gateway):
 
     bound = action(
         mcp,
-        {"action": "memory_bind_repository", "repo_name": "new_project"},
+        {
+            "action": "memory_bind_repository",
+            "repo_name": "new_project",
+            "project_key": "new-project-custom-key",
+        },
     )
     assert bound["ok"] is True, bound.get("error")
     assert bound["binding_applied"] is True
     assert bound["idempotent"] is True
     assert bound["project_id"].startswith("proj_repo_")
+    assert bound["project_key"] == "new-project-custom-key"
     assert bound["resource_id"].startswith("res_repo_")
     assert bound["scope"] == {
         "kind": "project",
@@ -205,6 +210,7 @@ def test_unbound_repository_can_be_bound_then_saved(gateway):
     )
     assert repeated["ok"] is True
     assert repeated["binding_applied"] is False
+    assert repeated["project_key"] == bound["project_key"]
     assert repeated["scope"] == bound["scope"]
 
 

@@ -1546,7 +1546,7 @@ def register_knowledge_tools(mcp: Any) -> None:
                 return {
                     "ok": True,
                     "project_id": binding.project_id,
-                    "project_key": "",
+                    "project_key": binding.project_key,
                     "resource_id": binding.resource_id,
                     "repo_name": canonical_name,
                     "operation": "memory_bind_repository",
@@ -1591,7 +1591,7 @@ def register_knowledge_tools(mcp: Any) -> None:
             return {
                 "ok": True,
                 "project_id": binding.project_id,
-                "project_key": project_key,
+                "project_key": binding.project_key,
                 "resource_id": binding.resource_id,
                 "repo_name": canonical_name,
                 "operation": "memory_bind_repository",

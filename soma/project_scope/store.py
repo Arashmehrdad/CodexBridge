@@ -362,7 +362,7 @@ class ProjectScopeStore:
             params: list[Any] = [repo_name, identity_hash]
             sql = (
                 "SELECT binding.*, resource_binding.access_mode, "
-                "project.scope_generation "
+                "project.project_key, project.scope_generation "
                 "FROM project_repository_bindings binding "
                 "JOIN project_resource_bindings resource_binding "
                 "ON resource_binding.project_id = binding.project_id "
@@ -392,6 +392,7 @@ class ProjectScopeStore:
         row = rows[0]
         return RepositoryBinding(
             project_id=str(row["project_id"]),
+            project_key=str(row["project_key"]),
             resource_id=str(row["resource_id"]),
             repo_name=str(row["repo_name"]),
             repository_root=str(row["repository_root"]),
