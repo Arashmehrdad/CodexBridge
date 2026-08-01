@@ -936,23 +936,79 @@ def git_branch_list(repo_root: Path) -> list[str]:
 
 
 def create_branch(repo_root: Path, branch_name: str) -> dict:
-    """
-    Create a new local branch without switching to it.
-    Returns ok, branch_name, and error.
-    """
+    """Create and check out a new local branch as one verified operation."""
     manifest_before = dry_run_stage_manifest(repo_root)
+    index_state_before = _index_state(repo_root)
+    previous_branch = _run_git(repo_root, ["branch", "--show-current"]).stdout.strip()
     try:
-        _run_git(repo_root, ["branch", "--", branch_name], check=True)
+        _run_git(repo_root, ["switch", "--create", branch_name], check=True)
     except GitCommandError as exc:
         result = _operation_failure(repo_root, exc, manifest_before=manifest_before)
-        result["branch_name"] = branch_name
+        result.update(
+            {
+                "operation": "create_branch",
+                "status": "failed",
+                "branch_name": branch_name,
+                "previous_branch": previous_branch,
+                "current_branch": _run_git(
+                    repo_root, ["branch", "--show-current"]
+                ).stdout.strip(),
+                "branch_created": branch_name in git_branch_list(repo_root),
+                "switched": False,
+            }
+        )
         return result
+
+    current_branch = _run_git(repo_root, ["branch", "--show-current"]).stdout.strip()
+    if current_branch != branch_name:
+        rollback_attempted = branch_name in git_branch_list(repo_root)
+        rollback_succeeded = not rollback_attempted
+        rollback_error = ""
+        if rollback_attempted:
+            rollback = _run_git(repo_root, ["branch", "-D", "--", branch_name])
+            rollback_succeeded = rollback.returncode == 0
+            rollback_error = rollback.stderr.strip()
+        return {
+            "ok": False,
+            "operation": "create_branch",
+            "status": "postcondition_failed",
+            "branch_name": branch_name,
+            "previous_branch": previous_branch,
+            "current_branch": current_branch,
+            "branch_created": branch_name in git_branch_list(repo_root),
+            "switched": False,
+            "rollback_attempted": rollback_attempted,
+            "rollback_succeeded": rollback_succeeded,
+            "rollback_error": rollback_error,
+            "stage_manifest_before": manifest_before,
+            "stage_manifest_after": dry_run_stage_manifest(repo_root),
+            "index_state_before": index_state_before,
+            "index_state_after": _index_state(repo_root),
+            "error": (
+                f"Created branch {branch_name!r} was not checked out; "
+                + (
+                    "the partial branch was removed"
+                    if rollback_succeeded
+                    else "automatic rollback failed"
+                )
+            ),
+        }
+
     return {
         "ok": True,
+        "operation": "create_branch",
+        "status": "checked_out",
         "branch_name": branch_name,
+        "previous_branch": previous_branch,
+        "current_branch": current_branch,
+        "branch_created": True,
+        "switched": True,
+        "rollback_attempted": False,
+        "rollback_succeeded": False,
+        "rollback_error": "",
         "stage_manifest_before": manifest_before,
         "stage_manifest_after": dry_run_stage_manifest(repo_root),
-        "index_state_before": _index_state(repo_root),
+        "index_state_before": index_state_before,
         "index_state_after": _index_state(repo_root),
         "error": "",
     }

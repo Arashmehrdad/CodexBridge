@@ -1276,6 +1276,44 @@ def test_repo_gateways_dispatch_to_existing_safe_wrappers(monkeypatch) -> None:
     ).response_budget_bytes == 12 * 1024
 
 
+def test_repo_commit_create_branch_projection_preserves_checkout_state(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "create_git_branch",
+        lambda repo_name, branch_name: {
+            "ok": True,
+            "operation": "create_branch",
+            "status": "checked_out",
+            "repo_name": repo_name,
+            "branch_name": branch_name,
+            "previous_branch": "main",
+            "current_branch": branch_name,
+            "branch_created": True,
+            "switched": True,
+            "rollback_attempted": False,
+            "rollback_succeeded": False,
+            "error": "",
+        },
+    )
+    request = TypeAdapter(RepoCommitRequest).validate_python(
+        {
+            "operation": "create_branch",
+            "repo_name": "repo",
+            "branch_name": "feature/test",
+        }
+    )
+
+    result = server.repo_commit(request)
+
+    assert result["status"] == "checked_out"
+    assert result["previous_branch"] == "main"
+    assert result["current_branch"] == "feature/test"
+    assert result["branch_created"] is True
+    assert result["switched"] is True
+
+
 def test_repo_commit_projection_honors_response_budget(monkeypatch) -> None:
     monkeypatch.setattr(
         server,

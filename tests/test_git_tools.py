@@ -1002,13 +1002,41 @@ def test_inspect_commit_range_requires_full_hashes_and_returns_diff(repo: Path) 
         inspect_commit_range(repo, first[:8], second)
 
 
+def test_create_branch_creates_and_checks_out_new_branch(repo: Path) -> None:
+    previous_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    result = create_branch(repo, "feature/test")
+
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    assert result["ok"] is True
+    assert result["status"] == "checked_out"
+    assert result["previous_branch"] == previous_branch
+    assert result["current_branch"] == "feature/test"
+    assert result["branch_created"] is True
+    assert result["switched"] is True
+    assert current_branch == "feature/test"
+    assert "feature/test" in git_tools.git_branch_list(repo)
+
+
 def test_create_branch_failure_returns_structured_git_diagnostics(
     repo: Path, monkeypatch
 ) -> None:
     original_run_git = git_tools._run_git
 
     def fail_branch(repo_root: Path, args: list[str], *, check: bool = False):
-        if args[:1] == ["branch"] and check:
+        if args[:2] == ["switch", "--create"] and check:
             raise GitCommandError(
                 {
                     "argv": ["git", *args],
@@ -1028,6 +1056,48 @@ def test_create_branch_failure_returns_structured_git_diagnostics(
     assert result["ok"] is False
     assert result["branch_name"] == "feature/test"
     assert result["git_error"]["stderr"] == "simulated branch failure"
+    assert result["branch_created"] is False
+    assert result["switched"] is False
+
+
+def test_create_branch_rolls_back_if_checkout_postcondition_is_not_met(
+    repo: Path, monkeypatch
+) -> None:
+    original_run_git = git_tools._run_git
+    previous_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    def create_without_switch(repo_root: Path, args: list[str], *, check: bool = False):
+        if args[:2] == ["switch", "--create"]:
+            return original_run_git(
+                repo_root, ["branch", "--", args[2]], check=check
+            )
+        return original_run_git(repo_root, args, check=check)
+
+    monkeypatch.setattr(git_tools, "_run_git", create_without_switch)
+
+    result = create_branch(repo, "feature/postcondition")
+
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    assert result["ok"] is False
+    assert result["status"] == "postcondition_failed"
+    assert result["switched"] is False
+    assert result["rollback_attempted"] is True
+    assert result["rollback_succeeded"] is True
+    assert result["branch_created"] is False
+    assert current_branch == previous_branch
+    assert "feature/postcondition" not in git_tools.git_branch_list(repo)
 
 
 def _write_tool_owned_files(repo: Path, count: int) -> None:
