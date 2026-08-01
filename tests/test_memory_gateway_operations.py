@@ -54,11 +54,19 @@ def gateway(tmp_path: Path, monkeypatch):
     (sibling / ".git").mkdir()
     (sibling / "src" / "main.py").write_text("print('lab')\n", encoding="utf-8")
 
+    unbound = tmp_path / "new_project"
+    (unbound / "src").mkdir(parents=True)
+    (unbound / ".git").mkdir()
+    (unbound / "src" / "main.py").write_text(
+        "print('new project')\n", encoding="utf-8"
+    )
+
     vault = tmp_path / "Soma Memory"
     config = AppConfig(
         repos={
             "soma": RepoConfig(path=str(repo)),
             "lab": RepoConfig(path=str(sibling)),
+            "new_project": RepoConfig(path=str(unbound)),
         },
         runs_dir=str(tmp_path / "runs"),
         config_dir=tmp_path,
@@ -134,6 +142,70 @@ def save_payload(**overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+# ----------------------------------------------------------------------
+# explicit repository onboarding
+
+
+def test_unbound_repository_can_be_bound_then_saved(gateway):
+    mcp, _config, vault = gateway
+
+    unresolved = query(
+        mcp,
+        {"operation": "memory_scope", "repo_name": "new_project"},
+    )
+    assert unresolved["ok"] is False
+    assert "No active repository binding" in unresolved["error"]
+
+    bound = action(
+        mcp,
+        {"action": "memory_bind_repository", "repo_name": "new_project"},
+    )
+    assert bound["ok"] is True, bound.get("error")
+    assert bound["binding_applied"] is True
+    assert bound["idempotent"] is True
+    assert bound["project_id"].startswith("proj_repo_")
+    assert bound["resource_id"].startswith("res_repo_")
+    assert bound["scope"] == {
+        "kind": "project",
+        "project_id": bound["project_id"],
+        "repo_name": "new_project",
+    }
+
+    resolved = query(
+        mcp,
+        {"operation": "memory_scope", "repo_name": "new_project"},
+    )
+    assert resolved["ok"] is True, resolved.get("error")
+    assert resolved["scope"] == bound["scope"]
+
+    saved = action(
+        mcp,
+        {
+            "action": "memory_save",
+            "scope": bound["scope"],
+            "kind": "handoff",
+            "title": "New project handoff",
+            "body": "The repository is now bound to canonical memory.",
+            "idempotency_key": "new-project-handoff-1",
+        },
+    )
+    assert saved["ok"] is True, saved.get("error")
+    assert (
+        vault
+        / "projects"
+        / bound["project_id"]
+        / saved["vault_path"]
+    ).is_file()
+
+    repeated = action(
+        mcp,
+        {"action": "memory_bind_repository", "repo_name": "new_project"},
+    )
+    assert repeated["ok"] is True
+    assert repeated["binding_applied"] is False
+    assert repeated["scope"] == bound["scope"]
 
 
 # ----------------------------------------------------------------------

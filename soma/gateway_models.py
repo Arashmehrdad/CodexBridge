@@ -2472,6 +2472,24 @@ class ResearchRebuildIndexAction(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class MemoryBindRepositoryAction(GatewayModel):
+    """Explicitly onboard one trusted repository into ProjectScope.
+
+    Repository discovery is read-only and may not silently create authority.
+    This separate write action resolves the exact trusted repository root,
+    returns an existing active binding when one already exists, or creates one
+    idempotently using stable identities derived from that root.
+    """
+
+    action: Literal["memory_bind_repository"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
+    project_key: str = Field(default="", max_length=128)
+    access_mode: Literal["exclusive", "shared"] = "exclusive"
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class MemorySaveAction(GatewayModel):
     """Write one canonical record.
 
@@ -2589,6 +2607,7 @@ KnowledgeActionRequest = Annotated[
     | KnowledgeSaveAction
     | KnowledgeSupersedeAction
     | KnowledgeRebuildAction
+    | MemoryBindRepositoryAction
     | MemorySaveAction
     | MemorySupersedeAction
     | MemoryLifecycleAction

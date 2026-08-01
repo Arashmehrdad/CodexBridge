@@ -301,8 +301,17 @@ CANONICAL_MEMORY_ACTION_OUTPUT = {
         **public_projection_schema_properties(),
         "ok": {"type": "boolean"},
         "project_id": {"type": "string"},
+        "project_key": {"type": "string"},
+        "resource_id": {"type": "string"},
         "repo_name": {"type": "string"},
         "operation": {"type": "string"},
+        "scope": {"type": "object"},
+        "access_mode": {"type": "string"},
+        "scope_generation": {"type": "integer"},
+        "binding_applied": {"type": "boolean"},
+        "idempotent": {"type": "boolean"},
+        "evidence_event_id": {"type": "string"},
+        "outcome_hash": {"type": "string"},
         "memory_id": {"type": "string"},
         "memory_type": {"type": "string"},
         "title": {"type": "string"},
@@ -748,7 +757,15 @@ def _bounded_knowledge_action(result: dict[str, Any], budget: int) -> dict[str, 
             # next compare-and-swap, so dropping it under budget would make
             # correction impossible rather than merely terser.
             "project_id",
+            "project_key",
+            "resource_id",
             "operation",
+            "access_mode",
+            "scope_generation",
+            "binding_applied",
+            "idempotent",
+            "evidence_event_id",
+            "outcome_hash",
             "content_sha256",
             "revision",
             # A derived location the caller did not choose is not decoration;
@@ -1507,9 +1524,113 @@ def register_knowledge_tools(mcp: Any) -> None:
             request.view,
         )
 
+    def memory_bind_repository_operation(request: Any) -> dict:
+        """Create or return one exact ProjectScope repository binding."""
+        from .project_scope import ProjectScopeStore
+        from .project_scope.models import ProjectScopeError, repository_identity_hash
+
+        try:
+            config, repo_root, canonical_name = _runtime_context(
+                mcp, request.repo_name
+            )
+            store = ProjectScopeStore(config.resolve_runs_dir())
+            if not store.is_installed():
+                raise ProjectScopeError("ProjectScope schema is not installed")
+
+            try:
+                binding = store.resolve_repository(
+                    project_id=request.project_id,
+                    repo_name=canonical_name,
+                    repository_root=repo_root,
+                )
+                return {
+                    "ok": True,
+                    "project_id": binding.project_id,
+                    "project_key": "",
+                    "resource_id": binding.resource_id,
+                    "repo_name": canonical_name,
+                    "operation": "memory_bind_repository",
+                    "scope": {
+                        "kind": "project",
+                        "project_id": binding.project_id,
+                        "repo_name": canonical_name,
+                    },
+                    "access_mode": binding.access_mode,
+                    "scope_generation": binding.scope_generation,
+                    "binding_applied": False,
+                    "idempotent": True,
+                    "evidence_event_id": "",
+                    "outcome_hash": "",
+                    "error": "",
+                }
+            except ProjectScopeError as exc:
+                if not str(exc).startswith("No active repository binding"):
+                    raise
+
+            identity_hash = repository_identity_hash(repo_root)
+            project_id = request.project_id.strip() or (
+                f"proj_repo_{identity_hash[:24]}"
+            )
+            project_key = request.project_key.strip() or (
+                f"{canonical_name[:96]}-{identity_hash[:12]}"
+            )
+            resource_id = f"res_repo_{identity_hash[:24]}"
+            result = store.apply_bootstrap(
+                project_id=project_id,
+                project_key=project_key,
+                resource_id=resource_id,
+                repo_name=canonical_name,
+                repository_root=repo_root,
+                access_mode=request.access_mode,
+            )
+            binding = store.resolve_repository(
+                project_id=project_id,
+                repo_name=canonical_name,
+                repository_root=repo_root,
+            )
+            return {
+                "ok": True,
+                "project_id": binding.project_id,
+                "project_key": project_key,
+                "resource_id": binding.resource_id,
+                "repo_name": canonical_name,
+                "operation": "memory_bind_repository",
+                "scope": {
+                    "kind": "project",
+                    "project_id": binding.project_id,
+                    "repo_name": canonical_name,
+                },
+                "access_mode": binding.access_mode,
+                "scope_generation": binding.scope_generation,
+                "binding_applied": bool(result.get("applied")),
+                "idempotent": bool(result.get("idempotent")),
+                "evidence_event_id": str(result.get("evidence_event_id") or ""),
+                "outcome_hash": str(result.get("outcome_hash") or ""),
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "project_id": request.project_id,
+                "project_key": request.project_key,
+                "resource_id": "",
+                "repo_name": request.repo_name,
+                "operation": "memory_bind_repository",
+                "scope": {},
+                "access_mode": request.access_mode,
+                "scope_generation": 0,
+                "binding_applied": False,
+                "idempotent": False,
+                "evidence_event_id": "",
+                "outcome_hash": "",
+                "error": str(exc),
+            }
+
     def memory_action_operation(request: Any) -> dict:
         """Canonical memory writes. One authority, one write path."""
         action = request.action
+        if action == "memory_bind_repository":
+            return memory_bind_repository_operation(request)
         try:
             service, binding, canonical_name = _canonical_memory_context(
                 mcp, request.scope.project_id, request.scope.repo_name
@@ -1636,6 +1757,7 @@ def register_knowledge_tools(mcp: Any) -> None:
     def knowledge_action(request: KnowledgeActionRequest) -> dict:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action in {
+            "memory_bind_repository",
             "memory_save",
             "memory_supersede",
             "memory_mark_disputed",
