@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. Both `REPO-DOCUMENT-EDITING-1` corrective batches are accepted and closed. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` returns to the documentation-only `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`; product implementation remains paused and no later V3 outcome is active.
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. Both `REPO-DOCUMENT-EDITING-1` corrective batches are accepted and closed. `MEMORY-REPOSITORY-ONBOARDING-1` is implementation-accepted, and the immediate `axon_modelling` binding and canonical-memory save are complete; its new public action awaits one process restart and connector refresh. `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1` returns to the documentation-only `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1`; product implementation remains paused and no later V3 outcome is active.
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
@@ -53,6 +53,14 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Mandates are immutable, content-addressed, versioned, lineage-bound, and cannot grant authority or concrete capability the issuer does not possess.
 - Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
 - Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
+
+## Completed Corrective Fix: MEMORY-REPOSITORY-ONBOARDING-1
+
+**Status:** implementation accepted on 2026-08-01; the immediate `axon_modelling` repair is live, while the new public onboarding action requires one Soma process restart and connector refresh. Evidence is recorded in [`docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md`](docs/MEMORY_REPOSITORY_ONBOARDING_1_RESULT_2026-08-01.md).
+
+Newly discovered repositories remain read-only with respect to ProjectScope. Controllers may explicitly call `memory_bind_repository` to create or return one deterministic, idempotent repository binding and receive the exact scope required by canonical memory operations. Exact ProjectScope enforcement remains unchanged.
+
+The active V3 interaction-foundation architecture review is not altered by this corrective fix.
 
 ## Completed Corrective Lane: REPO-DOCUMENT-EDITING-1
 
