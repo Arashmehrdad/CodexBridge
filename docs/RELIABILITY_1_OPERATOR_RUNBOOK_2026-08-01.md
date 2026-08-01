@@ -107,6 +107,8 @@ For a durable run, use:
 
 Top-level query success is separate from run business outcome. A healthy query may report a failed, cancelled, blocked, or pending run.
 
+After `REL-020` activation, an exact pre-database Codex run ID may be served from its preserved filesystem evidence with `legacy_filesystem_only: true` and `database_record_present: false`. This compatibility path is exact-read only: it does not import rows, participate in run listing or reconciliation, expose an event stream, permit cancellation, or re-enable legacy execution. Incomplete, malformed, conflicting, oversized, symlinked, or nonlegacy directories continue to fail closed.
+
 ## 8. Storage and integrity
 
 Use read-only SQLite diagnostics while Soma is live. The minimum checks are:
@@ -133,6 +135,7 @@ At the next owner-approved quiet restart, verify in one batch:
 6. `REL-017` historical supervisors reconcile and readiness records the supervisor path;
 7. `REL-018` the five currently pending Hermes terminal results are repaired, and new shared-service runs publish immediately;
 8. `REL-019` `job_runs` startup reconciliation completes near the measured bounded path rather than the prior 46–101 second range;
-9. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
+9. `REL-020` an actual filesystem-only Codex run is readable through exact status/input/output/result/terminal operations with no SQLite insertion, while the four empty directories remain unavailable;
+10. capability identity converges, self-check passes, preflight is quiet, and the worktree remains clean.
 
 Do not perform this activation while shared users are active.

@@ -85,8 +85,10 @@ from .run_public_result import (
     PUBLIC_RESULT_SCHEMA_VERSION,
     PUBLIC_RESULT_STATUS_FALLBACK,
     PUBLIC_RESULT_STATUS_READY,
+    authoritative_result_sha256,
     build_pending_public_result,
     build_public_result_fallback,
+    build_public_result_projection,
 )
 from .run_publication import (
     materialize_public_result,
@@ -94,6 +96,7 @@ from .run_publication import (
     terminal_result_publication_needs_repair,
 )
 from .run_artifacts import read_redacted_output_tail, resolve_output_artifacts
+from .legacy_run_reader import load_legacy_filesystem_run
 from .remote_controller_state import (
     build_remote_controller_state_contract,
     reconcile_remote_controller_state,
@@ -177,6 +180,9 @@ RUN_PUBLIC_SUMMARY_FIELDS = (
     "result_published_hash",
     "result_published_at",
     "result_publication_error",
+    "legacy_filesystem_only",
+    "database_record_present",
+    "authoritative_storage",
 )
 RUN_SUMMARY_TEXT_BYTE_LIMITS = {
     "summary": 2048,
@@ -230,6 +236,9 @@ RUN_PUBLIC_CONTROL_FIELDS = (
     "error",
     "safety_failure",
     "recovery_reason",
+    "legacy_filesystem_only",
+    "database_record_present",
+    "authoritative_storage",
 )
 RUN_CONTROL_TEXT_BYTE_LIMITS = {
     "summary": 1024,
@@ -2578,9 +2587,26 @@ class JobManager:
             public["input"] = input_data
         return redact_payload(public)
 
+    def _legacy_run(self, run_id: str) -> dict:
+        try:
+            legacy = load_legacy_filesystem_run(
+                self.config.resolve_runs_dir(), run_id
+            )
+        except ValueError as exc:
+            raise KeyError(f"Legacy run evidence is unavailable: {exc}") from exc
+        if legacy is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return legacy
+
+    def _get_run_or_legacy(self, run_id: str) -> dict:
+        try:
+            return self.store.get_run(run_id)
+        except KeyError:
+            return self._legacy_run(run_id)
+
     def get_status_payload(self, run_id: str) -> dict:
         try:
-            run = self.store.get_run(run_id)
+            run = self._get_run_or_legacy(run_id)
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
         return self._public_run(run)
@@ -2600,7 +2626,11 @@ class JobManager:
     def get_events(
         self, run_id: str, limit: int = 50, after_id: int | None = None
     ) -> list[dict]:
-        return redact_and_truncate(self.store.get_events(run_id, limit, after_id))
+        try:
+            return redact_and_truncate(self.store.get_events(run_id, limit, after_id))
+        except KeyError:
+            self._legacy_run(run_id)
+            return []
 
     def get_event_page(
         self,
@@ -2610,19 +2640,47 @@ class JobManager:
         cursor: str | None = None,
     ) -> dict:
         requested_limit = limit
-        page = self.store.get_event_page(
-            run_id,
-            limit=limit,
-            after_id=after_id,
-            cursor=cursor,
-        )
+        legacy = False
+        try:
+            page = self.store.get_event_page(
+                run_id,
+                limit=limit,
+                after_id=after_id,
+                cursor=cursor,
+            )
+        except KeyError:
+            self._legacy_run(run_id)
+            if cursor:
+                raise ValueError("Legacy filesystem runs have no event cursor")
+            page = {
+                "events": [],
+                "limit": max(1, min(int(limit), 500)),
+                "has_more": False,
+                "next_after_id": max(0, int(after_id or 0)),
+                "next_cursor": "",
+                "ordering": "id ASC",
+                "cursor_expires_at_utc": "",
+            }
+            legacy = True
         page["run_id"] = run_id
         if not page["events"]:
-            return _build_run_event_response(
+            response = _build_run_event_response(
                 page,
                 requested_limit=requested_limit,
                 byte_limited=False,
             )
+            if legacy:
+                response.update(
+                    {
+                        "legacy_filesystem_only": True,
+                        "database_record_present": False,
+                        "events_available": False,
+                    }
+                )
+                response = _finalize_compact_projection(
+                    response, DEFAULT_PUBLIC_BYTE_BUDGETS.events
+                )
+            return response
 
         projected_events = [_project_run_event(event) for event in page["events"]]
         for returned_count in range(len(page["events"]), 0, -1):
@@ -2643,7 +2701,11 @@ class JobManager:
         raise ValueError("Run event page cannot fit its public byte budget")
 
     def _lifecycle_observation(self, run_id: str) -> dict:
-        run, worker_identity = self.store.get_run_control_observation(run_id)
+        try:
+            run, worker_identity = self.store.get_run_control_observation(run_id)
+        except KeyError:
+            run = self._legacy_run(run_id)
+            worker_identity = ""
         launcher_pid = int(run.get("launcher_pid") or 0)
         worker_pid = int(run.get("worker_pid") or 0)
         child_pid = int(run.get("pid") or 0)
@@ -2663,7 +2725,7 @@ class JobManager:
                     "output": True,
                     "result": True,
                     "terminal": True,
-                    "events": True,
+                    "events": not bool(run.get("legacy_filesystem_only")),
                 },
             }
         )
@@ -2682,7 +2744,10 @@ class JobManager:
     ) -> dict:
         try:
             if if_state_version is not None:
-                snapshot = self.store.get_run_control_snapshot(run_id)
+                try:
+                    snapshot = self.store.get_run_control_snapshot(run_id)
+                except KeyError:
+                    snapshot = self._legacy_run(run_id)
                 state_version = int(snapshot.get("state_version") or 0)
                 if int(if_state_version) == state_version:
                     return _build_unchanged_control_response(run_id, state_version)
@@ -2718,7 +2783,15 @@ class JobManager:
                 "input response_budget_bytes must be between 1024 and 12288"
             )
         try:
-            snapshot = self.store.get_run_input_snapshot(run_id)
+            try:
+                snapshot = self.store.get_run_input_snapshot(run_id)
+            except KeyError:
+                legacy = self._legacy_run(run_id)
+                snapshot = {
+                    **legacy,
+                    "input_json": legacy["input_json"],
+                    "input": legacy["input"],
+                }
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
         authoritative_bytes = snapshot["input_json"].encode("utf-8")
@@ -2747,8 +2820,13 @@ class JobManager:
                 str(key): self._input_field_metadata(value)
                 for key, value in sorted(snapshot["input"].items())
             },
-            "authoritative_storage": "runs/soma.sqlite3:input_json",
+            "authoritative_storage": (
+                snapshot.get("authoritative_storage", "runs/soma.sqlite3")
+                + ("/input.json" if snapshot.get("legacy_filesystem_only") else ":input_json")
+            ),
             "complete_authoritative_input_preserved": True,
+            "legacy_filesystem_only": bool(snapshot.get("legacy_filesystem_only")),
+            "database_record_present": not bool(snapshot.get("legacy_filesystem_only")),
             "error": "",
         }
         if view == "full" or cursor:
@@ -2790,7 +2868,7 @@ class JobManager:
         if normalized_stream not in {"stdout", "stderr", "combined"}:
             raise ValueError("stream must be stdout, stderr, or combined")
         bounded_tail = max(1, min(int(tail_bytes), 200000))
-        run = self.store.get_run(run_id)
+        run = self._get_run_or_legacy(run_id)
         artifacts = resolve_output_artifacts(run, self.config.resolve_runs_dir())
         selected = (
             [normalized_stream]
@@ -2810,6 +2888,8 @@ class JobManager:
             "stream": normalized_stream,
             "tail_bytes": bounded_tail,
             "streams": streams,
+            "legacy_filesystem_only": bool(run.get("legacy_filesystem_only")),
+            "database_record_present": not bool(run.get("legacy_filesystem_only")),
             "error": "",
         }
         if response_budget_bytes is not None:
@@ -2831,7 +2911,30 @@ class JobManager:
     def get_terminal_result(self, run_id: str) -> dict:
         """Return the bounded durable terminal projection without decoding full JSON."""
         try:
-            snapshot = self.store.get_public_result_snapshot(run_id)
+            try:
+                snapshot = self.store.get_public_result_snapshot(run_id)
+            except KeyError:
+                legacy = self._legacy_run(run_id)
+                projection = build_public_result_projection(
+                    legacy,
+                    dict(legacy.get("result") or {}),
+                    authoritative_result_sha256(str(legacy["result_json"])),
+                )
+                projection["legacy_filesystem_only"] = True
+                projection["database_record_present"] = False
+                projection["evidence"] = {
+                    **dict(projection.get("evidence") or {}),
+                    "authoritative_storage": legacy["authoritative_storage"] + "/result.json",
+                }
+                projection["payload_bytes"] = 0
+                for _ in range(4):
+                    measured = len(_canonical_public_json_bytes(projection))
+                    if projection["payload_bytes"] == measured:
+                        break
+                    projection["payload_bytes"] = measured
+                if len(_canonical_public_json_bytes(projection)) > DEFAULT_PUBLIC_BYTE_BUDGETS.terminal_result:
+                    raise ValueError("Legacy terminal result exceeds its public byte budget")
+                return projection
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
         if snapshot["status"] not in TERMINAL_STATUSES:
@@ -2859,11 +2962,13 @@ class JobManager:
 
     def get_result_payload(self, run_id: str) -> dict:
         try:
-            run = self.store.get_run(run_id)
+            run = self._get_run_or_legacy(run_id)
         except (ValueError, KeyError) as exc:
             return self._run_lookup_error(run_id, exc)
-        result = run.get("result") or {}
+        result = dict(run.get("result") or {})
         if result:
+            if run.get("legacy_filesystem_only"):
+                result.update({"legacy_filesystem_only": True, "database_record_present": False})
             return result
         return {
             "run_id": run["run_id"],
@@ -2897,11 +3002,13 @@ class JobManager:
         # is actually present; this retains identical lookup/redaction behavior.
         if not run_id.startswith(RUN_REFERENCE_PREFIX):
             try:
-                run = self.store.get_run(run_id)
+                run = self._get_run_or_legacy(run_id)
             except (ValueError, KeyError) as exc:
                 return self._run_lookup_error(run_id, exc)
-            result = run.get("result") or {}
+            result = dict(run.get("result") or {})
             if result:
+                if run.get("legacy_filesystem_only"):
+                    result.update({"legacy_filesystem_only": True, "database_record_present": False})
                 return redact_and_truncate(result)
             return redact_and_truncate(self.get_result_payload(run_id))
 
@@ -2961,7 +3068,10 @@ class JobManager:
 
     def get_run_summary(self, run_id: str) -> dict:
         try:
-            run = self.store.get_run_summary(run_id)
+            try:
+                run = self.store.get_run_summary(run_id)
+            except KeyError:
+                run = self._legacy_run(run_id)
         except (ValueError, KeyError) as exc:
             lookup = self._run_lookup_error(run_id, exc)
             return _finalize_compact_projection(
