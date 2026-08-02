@@ -543,18 +543,60 @@ class TaskStore:
             data=dict(data or {}),
         )
 
-    def record_command(
+    def find_command_by_controller_request_in_connection(
         self,
-        task_id: str,
+        conn: sqlite3.Connection,
         *,
+        task_id: str,
+        command_kind: TaskCommandKind,
+        controller_request_id: str,
+    ) -> TaskCommand | None:
+        validate_task_id(task_id)
+        if not controller_request_id:
+            return None
+        row = conn.execute(
+            "SELECT * FROM task_commands WHERE task_id = ? AND command_kind = ? "
+            "AND controller_request_id = ?",
+            (task_id, command_kind.value, controller_request_id),
+        ).fetchone()
+        return None if row is None else TaskCommand.model_validate(dict(row))
+
+    def reserve_command_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        task_id: str,
         command_kind: TaskCommandKind,
         requested_state_version: int,
         observed_state_version: int,
         status: TaskCommandStatus,
-        controller_request_id: str = "",
+        controller_request_id: str,
         reason: str = "",
-    ) -> TaskCommand:
+    ) -> tuple[TaskCommand, bool]:
+        """Reserve one canonical command inside a shared main-store transaction."""
         validate_task_id(task_id)
+        existing = self.find_command_by_controller_request_in_connection(
+            conn,
+            task_id=task_id,
+            command_kind=command_kind,
+            controller_request_id=controller_request_id,
+        )
+        if existing is not None:
+            submitted = (
+                int(requested_state_version),
+                int(observed_state_version),
+            )
+            durable = (
+                existing.requested_state_version,
+                existing.observed_state_version,
+            )
+            if submitted != durable:
+                raise ValueError(
+                    "controller_request_id is already bound to a command with "
+                    "different state-version identity"
+                )
+            return existing, False
+
         command_id = make_command_id()
         now = utc_now()
         completed_at = (
@@ -567,38 +609,64 @@ class TaskStore:
             }
             else None
         )
-        with self._transaction() as conn:
-            conn.execute(
-                "INSERT INTO task_commands "
-                "(command_id, task_id, command_kind, controller_request_id, "
-                " requested_state_version, observed_state_version, status, reason, "
-                " created_at, completed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    command_id,
-                    task_id,
-                    command_kind.value,
-                    controller_request_id,
-                    int(requested_state_version),
-                    int(observed_state_version),
-                    status.value,
-                    reason,
-                    now,
-                    completed_at,
-                ),
-            )
-        return TaskCommand(
-            command_id=command_id,
-            task_id=task_id,
-            command_kind=command_kind,
-            controller_request_id=controller_request_id,
-            requested_state_version=int(requested_state_version),
-            observed_state_version=int(observed_state_version),
-            status=status,
-            reason=reason,
-            created_at=now,
-            completed_at=completed_at,
+        conn.execute(
+            "INSERT INTO task_commands "
+            "(command_id, task_id, command_kind, controller_request_id, "
+            " requested_state_version, observed_state_version, status, reason, "
+            " created_at, completed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                command_id,
+                task_id,
+                command_kind.value,
+                controller_request_id,
+                int(requested_state_version),
+                int(observed_state_version),
+                status.value,
+                reason,
+                now,
+                completed_at,
+            ),
         )
+        return (
+            TaskCommand(
+                command_id=command_id,
+                task_id=task_id,
+                command_kind=command_kind,
+                controller_request_id=controller_request_id,
+                requested_state_version=int(requested_state_version),
+                observed_state_version=int(observed_state_version),
+                status=status,
+                reason=reason,
+                created_at=now,
+                completed_at=completed_at,
+            ),
+            True,
+        )
+
+    def record_command(
+        self,
+        task_id: str,
+        *,
+        command_kind: TaskCommandKind,
+        requested_state_version: int,
+        observed_state_version: int,
+        status: TaskCommandStatus,
+        controller_request_id: str = "",
+        reason: str = "",
+    ) -> TaskCommand:
+        with self._transaction() as conn:
+            command, _created = self.reserve_command_in_connection(
+                conn,
+                task_id=task_id,
+                command_kind=command_kind,
+                requested_state_version=requested_state_version,
+                observed_state_version=observed_state_version,
+                status=status,
+                controller_request_id=controller_request_id,
+                reason=reason,
+            )
+        return command
 
     def complete_command(
         self,

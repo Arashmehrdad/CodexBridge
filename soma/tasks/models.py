@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 TASK_SCHEMA_COMPONENT: Final[str] = "canonical_task_plane"
-TASK_SCHEMA_VERSION: Final[int] = 1
+TASK_SCHEMA_VERSION: Final[int] = 2
 TASK_MODEL_VERSION: Final[str] = "task.v1"
 
 TASK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -97,6 +97,8 @@ class TaskLinkTargetKind(str, Enum):
 
 class TaskCommandKind(str, Enum):
     CANCEL = "cancel"
+    STEER = "steer"
+    SUPPLY_INPUT = "supply_input"
 
 
 class TaskCommandStatus(str, Enum):

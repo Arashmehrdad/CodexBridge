@@ -137,8 +137,18 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     "CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id)",
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    # Interaction command idempotency is scoped to one task and command kind.
+    # Empty controller identities remain available for historical/internal
+    # commands that predate the interactive command contract.
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_commands_controller_identity "
+    "ON task_commands(task_id, command_kind, controller_request_id) "
+    "WHERE controller_request_id <> ''",
+)
+
 TASK_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "canonical_task_plane_foundation", _MIGRATION_0001),
+    (2, "interactive_command_idempotency", _MIGRATION_0002),
 )
 
 TASK_TABLE_NAMES: Final[tuple[str, ...]] = (

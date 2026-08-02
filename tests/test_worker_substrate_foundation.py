@@ -1202,14 +1202,18 @@ def test_substrate_reads_only_substrate_and_canonical_identity_tables():
     )
 
 
-def test_substrate_adds_no_task_plane_enum_values():
-    """This package launches nothing, so it publishes no new execution contract."""
+def test_interaction_commands_do_not_add_task_or_backend_lifecycle_kinds():
+    """The active package adds commands, not a second execution lifecycle."""
     from soma.tasks.models import BackendKind as Backends
     from soma.tasks.models import TaskCommandKind, TaskKind as Kinds
 
     assert [kind.value for kind in Kinds] == ["durable_command"]
     assert [kind.value for kind in Backends] == ["soma_durable_run"]
-    assert [kind.value for kind in TaskCommandKind] == ["cancel"]
+    assert [kind.value for kind in TaskCommandKind] == [
+        "cancel",
+        "steer",
+        "supply_input",
+    ]
 
 
 def test_existing_durable_command_request_hash_is_unchanged():
