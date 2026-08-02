@@ -37,6 +37,18 @@ from soma.project_scope.models import (
     validate_opaque_id,
 )
 from soma.safety import redact_secret_values
+from soma.worker_substrate import (
+    AttemptClaimBlocked,
+    InteractionCapabilityUnsupported,
+    InteractionDispatchUnavailable,
+    InteractionDispatcher,
+    InteractionStateConflict,
+    InteractionTransport,
+    MessageClass,
+    MessageConflict,
+    ResumeTransitionConflict,
+    UnavailableInteractionTransport,
+)
 
 from .backends import BackendObservation, DurableCommandSpec, DurableRunBackend
 from .models import (
@@ -96,6 +108,7 @@ class TaskManager:
         backend: Any | None = None,
         store: TaskStore | None = None,
         scope_store: ProjectScopeStore | None = None,
+        interaction_transport: InteractionTransport | None = None,
     ):
         self.config = config
         self.config_path = config_path
@@ -103,6 +116,10 @@ class TaskManager:
         self._backend = backend
         self.store = store or TaskStore(config.resolve_runs_dir())
         self.scope_store = scope_store or ProjectScopeStore(config.resolve_runs_dir())
+        self._interaction_transport = (
+            interaction_transport or UnavailableInteractionTransport()
+        )
+        self._interaction_dispatcher: InteractionDispatcher | None = None
 
     # ------------------------------------------------------------------
     # wiring
@@ -119,6 +136,15 @@ class TaskManager:
         if self._backend is None:
             self._backend = DurableRunBackend(self.job_manager)
         return self._backend
+
+    @property
+    def interaction_dispatcher(self) -> InteractionDispatcher:
+        if self._interaction_dispatcher is None:
+            self._interaction_dispatcher = InteractionDispatcher(
+                self.config.resolve_runs_dir(),
+                transport=self._interaction_transport,
+            )
+        return self._interaction_dispatcher
 
     # ------------------------------------------------------------------
     # queries
@@ -1056,6 +1082,260 @@ class TaskManager:
         )
         response["ok"] = not launch_error
         return response
+
+    def steer_task(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        if_state_version: int,
+        session_binding_id: str,
+        idempotency_key: str,
+        sender_ref: str,
+        recipient_ref: str,
+        payload: str,
+        checkpoint_id: str = "",
+        mandate_ref: str = "",
+        mandate_version: str = "",
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        return self._dispatch_interaction(
+            operation="steer",
+            command_kind=TaskCommandKind.STEER,
+            message_class=MessageClass.COMMAND,
+            project_id=project_id,
+            task_id=task_id,
+            if_state_version=if_state_version,
+            session_binding_id=session_binding_id,
+            idempotency_key=idempotency_key,
+            sender_ref=sender_ref,
+            recipient_ref=recipient_ref,
+            payload=payload,
+            checkpoint_id=checkpoint_id,
+            mandate_ref=mandate_ref,
+            mandate_version=mandate_version,
+            budget=budget,
+        )
+
+    def supply_input(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        if_state_version: int,
+        session_binding_id: str,
+        checkpoint_id: str,
+        idempotency_key: str,
+        sender_ref: str,
+        recipient_ref: str,
+        payload: str,
+        mandate_ref: str = "",
+        mandate_version: str = "",
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        return self._dispatch_interaction(
+            operation="supply_input",
+            command_kind=TaskCommandKind.SUPPLY_INPUT,
+            message_class=MessageClass.DECISION,
+            project_id=project_id,
+            task_id=task_id,
+            if_state_version=if_state_version,
+            session_binding_id=session_binding_id,
+            idempotency_key=idempotency_key,
+            sender_ref=sender_ref,
+            recipient_ref=recipient_ref,
+            payload=payload,
+            checkpoint_id=checkpoint_id,
+            mandate_ref=mandate_ref,
+            mandate_version=mandate_version,
+            budget=budget,
+        )
+
+    def _dispatch_interaction(
+        self,
+        *,
+        operation: str,
+        command_kind: TaskCommandKind,
+        message_class: MessageClass,
+        project_id: str,
+        task_id: str,
+        if_state_version: int,
+        session_binding_id: str,
+        idempotency_key: str,
+        sender_ref: str,
+        recipient_ref: str,
+        payload: str,
+        checkpoint_id: str,
+        mandate_ref: str,
+        mandate_version: str,
+        budget: int,
+    ) -> dict[str, Any]:
+        try:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
+            return self._lookup_error(operation, task_id, exc, budget)
+
+        if int(if_state_version) != int(task.state_version):
+            return task_error(
+                operation=operation,
+                error_code="stale_state_version",
+                error=(
+                    "Task state version has advanced: expected "
+                    f"{int(if_state_version)}, current {task.state_version}"
+                ),
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        if task.is_terminal:
+            return task_error(
+                operation=operation,
+                error_code="task_terminal",
+                error=f"Task is terminal: {task.state.value}",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        if not task.backend_ref:
+            return task_error(
+                operation=operation,
+                error_code="backend_reference_missing",
+                error="Task has no canonical Run reference",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        if command_kind is TaskCommandKind.SUPPLY_INPUT:
+            if task.state is not TaskState.AWAITING_CONTROLLER:
+                return task_error(
+                    operation=operation,
+                    error_code="task_not_awaiting_controller",
+                    error=(
+                        "supply_input requires an exact awaiting_controller task"
+                    ),
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+            if not checkpoint_id or task.checkpoint_ref != checkpoint_id:
+                return task_error(
+                    operation=operation,
+                    error_code="checkpoint_mismatch",
+                    error="checkpoint_id does not match the task's open checkpoint",
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+
+        scope_data = dict(scope)
+        resource_id = str(scope_data.get("project_resource_id") or "")
+        if not resource_id:
+            return task_error(
+                operation=operation,
+                error_code="project_scope_resource_missing",
+                error="Task ProjectScope has no canonical resource identity",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        try:
+            run = self.job_manager.store.get_run(task.backend_ref)
+            result = self.interaction_dispatcher.dispatch(
+                project_id=project_id,
+                resource_id=resource_id,
+                task_id=task.task_id,
+                run_id=task.backend_ref,
+                session_binding_id=session_binding_id,
+                command_kind=command_kind,
+                idempotency_key=idempotency_key,
+                sender_ref=sender_ref,
+                recipient_ref=recipient_ref,
+                payload=payload,
+                requested_task_state_version=task.state_version,
+                expected_run_state_version=int(run["state_version"]),
+                message_class=message_class,
+                checkpoint_id=checkpoint_id,
+                mandate_ref=mandate_ref,
+                mandate_version=mandate_version,
+            )
+        except InteractionCapabilityUnsupported as exc:
+            error_code = "interaction_capability_unsupported"
+            error = str(exc)
+        except InteractionDispatchUnavailable as exc:
+            error_code = "interaction_transport_unavailable"
+            error = str(exc)
+        except InteractionStateConflict as exc:
+            error_code = "stale_state_version"
+            error = str(exc)
+        except MessageConflict as exc:
+            error_code = "interaction_replay_conflict"
+            error = str(exc)
+        except AttemptClaimBlocked as exc:
+            error_code = "interaction_dispatch_blocked"
+            error = str(exc)
+        except ResumeTransitionConflict as exc:
+            error_code = "interaction_resume_blocked"
+            error = str(exc)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
+            error_code = "interaction_rejected"
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001 - bounded public error projection
+            error_code = "interaction_internal_error"
+            error = f"{type(exc).__name__}: interaction dispatch failed"
+        else:
+            current = self.store.get_task(task.task_id)
+            attempt = result.attempt
+            if result.acknowledged:
+                result_error_code = ""
+            elif result.uncertain:
+                result_error_code = "interaction_uncertain"
+            else:
+                result_error_code = "interaction_rejected"
+            return finalize(
+                {
+                    "ok": result.acknowledged,
+                    "operation": operation,
+                    "error_code": result_error_code,
+                    "project_id": project_id,
+                    "task_id": current.task_id,
+                    "state": current.state.value,
+                    "state_version": current.state_version,
+                    "run_id": current.backend_ref,
+                    "session_binding_id": session_binding_id,
+                    "checkpoint_id": result.reservation.message.checkpoint_id,
+                    "command_id": result.reservation.command.command_id,
+                    "message_id": result.reservation.message.message_id,
+                    "attempt_id": attempt.attempt_id if attempt else "",
+                    "delivery": result.delivery,
+                    "acknowledged": result.acknowledged,
+                    "uncertain": result.uncertain,
+                    "resumed": result.resumed is not None,
+                    "transport_called": result.transport_called,
+                    "evidence_ref": result.evidence_ref,
+                    "reason": redact_secret_values(result.reason)[:512],
+                    "payload_echoed": False,
+                    "error": "" if result.acknowledged else redact_secret_values(
+                        result.reason or result.delivery
+                    )[:512],
+                    **_envelope(budget),
+                }
+            )
+
+        return task_error(
+            operation=operation,
+            error_code=error_code,
+            error=redact_secret_values(error),
+            task_id=task.task_id,
+            state=task.state.value,
+            state_version=task.state_version,
+            budget=budget,
+        )
 
     def cancel_task(
         self,
