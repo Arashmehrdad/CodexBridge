@@ -1378,8 +1378,9 @@ class WorkerSubstrateStore:
             ).fetchone()
         return None if row is None else CheckpointDeadline.model_validate(dict(row))
 
-    def record_checkpoint_expiry(
+    def record_checkpoint_expiry_in_connection(
         self,
+        conn: sqlite3.Connection,
         *,
         checkpoint_id: str,
         task_id: str,
@@ -1389,8 +1390,9 @@ class WorkerSubstrateStore:
         disposition: CheckpointExpiryDisposition,
         quiescence_proof_ref: str = "",
         reason: str = "",
+        created_at: str | None = None,
     ) -> tuple[CheckpointExpiryEvent, bool]:
-        """Record exact immutable expiry evidence, idempotently and conflict-safe."""
+        """Record immutable expiry evidence inside a shared transaction."""
         require_opaque(idempotency_key, "idempotency_key")
         observed = self._parse_timestamp(observed_at, "observed_at")
         deadline = self._parse_timestamp(deadline_at, "deadline_at")
@@ -1416,53 +1418,86 @@ class WorkerSubstrateStore:
         }
         evidence_hash = content_hash(canonical_json(payload).encode("utf-8"))
         expiry_id = f"wexp_{evidence_hash[:24]}"
-        now = utc_now()
-        with self._transaction() as conn:
-            self._require_checkpoint_identity(
-                conn, checkpoint_id=checkpoint_id, task_id=task_id
+        now = created_at or utc_now()
+        self._require_checkpoint_identity(
+            conn, checkpoint_id=checkpoint_id, task_id=task_id
+        )
+        deadline_row = conn.execute(
+            "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
+            (checkpoint_id,),
+        ).fetchone()
+        if deadline_row is None:
+            raise CanonicalBindingMismatch(
+                "checkpoint expiry cannot exist without a durable deadline policy"
             )
-            deadline_row = conn.execute(
-                "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            if deadline_row is None:
-                raise CanonicalBindingMismatch(
-                    "checkpoint expiry cannot exist without a durable deadline policy"
-                )
-            if str(deadline_row["deadline_at"]) != deadline_at:
-                raise CanonicalBindingMismatch(
-                    "expiry deadline_at does not match the canonical deadline"
-                )
-            row = conn.execute(
-                "SELECT * FROM worker_checkpoint_expiries "
-                "WHERE checkpoint_id = ? AND idempotency_key = ?",
-                (checkpoint_id, idempotency_key),
-            ).fetchone()
-            if row is not None:
-                existing = CheckpointExpiryEvent.model_validate(dict(row))
-                if existing.evidence_hash != evidence_hash:
-                    raise EvidenceConflict(
-                        "checkpoint_expiry",
-                        f"{checkpoint_id}:{idempotency_key}",
-                        "same idempotency identity carries different evidence",
-                    )
-                return existing, False
-            conn.execute(
-                "INSERT INTO worker_checkpoint_expiries "
-                "(expiry_id, checkpoint_id, task_id, idempotency_key, deadline_at, "
-                "observed_at, disposition, quiescence_proof_ref, reason, "
-                "evidence_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    expiry_id, checkpoint_id, task_id, idempotency_key,
-                    deadline_at, observed_at, disposition.value,
-                    quiescence_proof_ref, reason, evidence_hash, now,
-                ),
+        if str(deadline_row["deadline_at"]) != deadline_at:
+            raise CanonicalBindingMismatch(
+                "expiry deadline_at does not match the canonical deadline"
             )
-            created = conn.execute(
-                "SELECT * FROM worker_checkpoint_expiries WHERE expiry_id = ?",
-                (expiry_id,),
-            ).fetchone()
+        row = conn.execute(
+            "SELECT * FROM worker_checkpoint_expiries "
+            "WHERE checkpoint_id = ? AND idempotency_key = ?",
+            (checkpoint_id, idempotency_key),
+        ).fetchone()
+        if row is not None:
+            existing = CheckpointExpiryEvent.model_validate(dict(row))
+            if existing.evidence_hash != evidence_hash:
+                raise EvidenceConflict(
+                    "checkpoint_expiry",
+                    f"{checkpoint_id}:{idempotency_key}",
+                    "same idempotency identity carries different evidence",
+                )
+            return existing, False
+        conn.execute(
+            "INSERT INTO worker_checkpoint_expiries "
+            "(expiry_id, checkpoint_id, task_id, idempotency_key, deadline_at, "
+            "observed_at, disposition, quiescence_proof_ref, reason, "
+            "evidence_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                expiry_id,
+                checkpoint_id,
+                task_id,
+                idempotency_key,
+                deadline_at,
+                observed_at,
+                disposition.value,
+                quiescence_proof_ref,
+                reason,
+                evidence_hash,
+                now,
+            ),
+        )
+        created = conn.execute(
+            "SELECT * FROM worker_checkpoint_expiries WHERE expiry_id = ?",
+            (expiry_id,),
+        ).fetchone()
         return CheckpointExpiryEvent.model_validate(dict(created)), True
+
+    def record_checkpoint_expiry(
+        self,
+        *,
+        checkpoint_id: str,
+        task_id: str,
+        idempotency_key: str,
+        deadline_at: str,
+        observed_at: str,
+        disposition: CheckpointExpiryDisposition,
+        quiescence_proof_ref: str = "",
+        reason: str = "",
+    ) -> tuple[CheckpointExpiryEvent, bool]:
+        """Record exact immutable expiry evidence, idempotently and conflict-safe."""
+        with self._transaction() as conn:
+            return self.record_checkpoint_expiry_in_connection(
+                conn,
+                checkpoint_id=checkpoint_id,
+                task_id=task_id,
+                idempotency_key=idempotency_key,
+                deadline_at=deadline_at,
+                observed_at=observed_at,
+                disposition=disposition,
+                quiescence_proof_ref=quiescence_proof_ref,
+                reason=reason,
+            )
 
 
     def list_checkpoint_expiries(self, checkpoint_id: str) -> list[CheckpointExpiryEvent]:

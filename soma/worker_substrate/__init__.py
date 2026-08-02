@@ -34,6 +34,7 @@ from .dispatch import (
 from .models import (
     CheckpointDeadlinePolicy,
     CheckpointExpiryDisposition,
+    CheckpointRecoveryWindow,
     InteractionDelivery,
     InteractionKind,
     MessageClass,
@@ -67,6 +68,8 @@ from .transport import (
     UnavailableInteractionTransport,
 )
 from .transitions import (
+    ExpiryTransitionConflict,
+    ExpiryTransitionResult,
     InteractionTransitionPolicy,
     ResumeTransitionConflict,
     ResumeTransitionResult,
@@ -91,8 +94,11 @@ __all__ = [
     "CheckpointDeadlinePolicy",
     "CheckpointExpiryDisposition",
     "CheckpointExpiryEvent",
+    "CheckpointRecoveryWindow",
     "DeterministicInteractionTransport",
     "EvidenceConflict",
+    "ExpiryTransitionConflict",
+    "ExpiryTransitionResult",
     "InteractionCapabilityUnsupported",
     "InteractionConflict",
     "InteractionCoordinator",

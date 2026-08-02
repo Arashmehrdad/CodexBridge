@@ -770,6 +770,10 @@ class TaskStore:
                 reason=reason,
             )
 
+    def get_checkpoint(self, checkpoint_id: str) -> TaskCheckpoint:
+        with self._read() as conn:
+            return self.get_checkpoint_in_connection(conn, checkpoint_id)
+
     def get_checkpoint_in_connection(
         self, conn: sqlite3.Connection, checkpoint_id: str
     ) -> TaskCheckpoint:
@@ -822,6 +826,45 @@ class TaskStore:
         )
         if int(cursor.rowcount) != 1:
             raise ValueError(f"checkpoint changed during resolution: {checkpoint_id}")
+        return self.get_checkpoint_in_connection(conn, checkpoint_id)
+
+    def cancel_checkpoint_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        checkpoint_id: str,
+        *,
+        task_id: str,
+        required_state_version: int,
+        cancelled_at: str | None = None,
+    ) -> TaskCheckpoint:
+        """Close one exact open checkpoint without implying successful input."""
+        checkpoint = self.get_checkpoint_in_connection(conn, checkpoint_id)
+        if checkpoint.task_id != task_id:
+            raise ValueError("checkpoint does not belong to the requested task")
+        if checkpoint.required_state_version != int(required_state_version):
+            raise ValueError("checkpoint required state version does not match")
+        if checkpoint.status is TaskCheckpointStatus.CANCELLED:
+            return checkpoint
+        if checkpoint.status is TaskCheckpointStatus.RESOLVED:
+            raise ValueError(
+                f"checkpoint {checkpoint_id} is resolved, not open"
+            )
+        now = cancelled_at or utc_now()
+        cursor = conn.execute(
+            "UPDATE task_checkpoints SET status = ?, resolved_at = ? "
+            "WHERE checkpoint_id = ? AND task_id = ? AND status = ? "
+            "AND required_state_version = ?",
+            (
+                TaskCheckpointStatus.CANCELLED.value,
+                now,
+                checkpoint_id,
+                task_id,
+                TaskCheckpointStatus.OPEN.value,
+                int(required_state_version),
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise ValueError(f"checkpoint changed during cancellation: {checkpoint_id}")
         return self.get_checkpoint_in_connection(conn, checkpoint_id)
 
     def create_checkpoint_in_connection(

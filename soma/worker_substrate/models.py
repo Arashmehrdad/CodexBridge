@@ -119,6 +119,19 @@ class CheckpointExpiryDisposition(str, Enum):
     UNCERTAIN = "uncertain"
 
 
+class CheckpointRecoveryWindow(str, Enum):
+    """Exact durable interaction window observed at checkpoint expiry."""
+
+    NO_INPUT_RESERVED = "no_input_reserved"
+    PENDING_NEVER_ATTEMPTED = "pending_never_attempted"
+    IN_FLIGHT_AT_EXPIRY = "in_flight_at_expiry"
+    UNRESOLVED_CLAIM = "unresolved_claim"
+    OUTCOME_UNKNOWN = "outcome_unknown"
+    ACKNOWLEDGED_BEFORE_RESUME = "acknowledged_before_resume"
+    RESOLVED_BEFORE_RUN_RESUME = "resolved_before_run_resume"
+    REJECTED_BEFORE_EXPIRY = "rejected_before_expiry"
+
+
 class ProviderChildRole(str, Enum):
     PROVIDER_ROOT = "provider_root"
     OWNED_DESCENDANT = "owned_descendant"

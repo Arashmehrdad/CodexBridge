@@ -18,10 +18,13 @@ from soma.run_store import RunStore, TERMINAL_STATUSES
 from soma.tasks.models import (
     TaskCheckpoint,
     TaskCheckpointStatus,
+    TaskCommand,
+    TaskCommandKind,
     TaskCommandStatus,
     TaskEventLevel,
     TaskPhase,
     TaskRecord,
+    TaskRecoveryState,
     TaskState,
     checkpoint_id_for_request,
     utc_now,
@@ -31,6 +34,9 @@ from soma.tasks.store import TaskStore
 from .models import (
     CheckpointDeadline,
     CheckpointDeadlinePolicy,
+    CheckpointExpiryDisposition,
+    CheckpointExpiryEvent,
+    CheckpointRecoveryWindow,
     MessageClass,
     MessageDisposition,
     TransportAttemptState,
@@ -60,6 +66,14 @@ class WaitTransitionConflict(ValueError):
         self.reason = reason
 
 
+class ExpiryTransitionConflict(ValueError):
+    """An expired checkpoint cannot enter the canonical cancellation path."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class ResumeTransitionResult:
     task: TaskRecord
@@ -78,6 +92,18 @@ class WaitTransitionResult:
     checkpoint: TaskCheckpoint
     deadline: CheckpointDeadline
     contract_hash: str
+    created: bool
+
+
+@dataclass(frozen=True)
+class ExpiryTransitionResult:
+    task: TaskRecord
+    run: dict[str, Any]
+    checkpoint: TaskCheckpoint
+    deadline: CheckpointDeadline
+    expiry: CheckpointExpiryEvent
+    command: TaskCommand
+    recovery_window: CheckpointRecoveryWindow
     created: bool
 
 
@@ -388,6 +414,372 @@ class InteractionTransitionPolicy:
             checkpoint=checkpoint,
             deadline=deadline,
             contract_hash=contract_hash,
+            created=True,
+        )
+
+    @staticmethod
+    def _classify_expiry_window(
+        conn: Any,
+        *,
+        checkpoint: TaskCheckpoint,
+        run: dict[str, Any],
+        expiry_exists: bool,
+    ) -> CheckpointRecoveryWindow:
+        if (
+            checkpoint.status is TaskCheckpointStatus.RESOLVED
+            and run["status"] == "awaiting_controller"
+        ):
+            return CheckpointRecoveryWindow.RESOLVED_BEFORE_RUN_RESUME
+
+        rows = conn.execute(
+            "SELECT m.disposition, a.attempt_state FROM worker_messages m "
+            "LEFT JOIN worker_transport_attempts a ON a.message_id = m.message_id "
+            "WHERE m.checkpoint_id = ? "
+            "ORDER BY m.created_at ASC, m.message_id ASC",
+            (checkpoint.checkpoint_id,),
+        ).fetchall()
+        if not rows:
+            return CheckpointRecoveryWindow.NO_INPUT_RESERVED
+
+        attempt_states = {
+            str(row["attempt_state"])
+            for row in rows
+            if row["attempt_state"] is not None
+        }
+        if TransportAttemptState.OUTCOME_UNKNOWN.value in attempt_states:
+            return CheckpointRecoveryWindow.OUTCOME_UNKNOWN
+        if TransportAttemptState.CLAIMED.value in attempt_states:
+            return (
+                CheckpointRecoveryWindow.UNRESOLVED_CLAIM
+                if expiry_exists
+                else CheckpointRecoveryWindow.IN_FLIGHT_AT_EXPIRY
+            )
+        if TransportAttemptState.ACKNOWLEDGED.value in attempt_states:
+            return CheckpointRecoveryWindow.ACKNOWLEDGED_BEFORE_RESUME
+
+        dispositions = {str(row["disposition"]) for row in rows}
+        if dispositions & {
+            MessageDisposition.RESERVED.value,
+            MessageDisposition.EXPIRED.value,
+        }:
+            return CheckpointRecoveryWindow.PENDING_NEVER_ATTEMPTED
+        return CheckpointRecoveryWindow.REJECTED_BEFORE_EXPIRY
+
+    def expire_checkpoint(
+        self,
+        *,
+        project_id: str,
+        resource_id: str,
+        task_id: str,
+        run_id: str,
+        session_binding_id: str,
+        checkpoint_id: str,
+        idempotency_key: str,
+        expected_task_state_version: int,
+        expected_run_state_version: int,
+        observed_at: str,
+        reason: str = "",
+        quiescence_proof_ref: str = "",
+    ) -> ExpiryTransitionResult:
+        """Atomically expire one checkpoint and reserve canonical cancellation."""
+        for value, field in (
+            (project_id, "project_id"),
+            (resource_id, "resource_id"),
+            (task_id, "task_id"),
+            (run_id, "run_id"),
+            (session_binding_id, "session_binding_id"),
+            (checkpoint_id, "checkpoint_id"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            require_opaque(value, field)
+        observed_time = self._parse_timestamp(observed_at, "observed_at")
+        transition_at = utc_now()
+        cancel_request_id = (
+            f"checkpoint_expiry:{checkpoint_id}:{idempotency_key}"
+        )
+
+        with self.task_store.transaction() as conn:
+            self.substrate_store._require_canonical_task_run_scope(
+                conn,
+                project_id=project_id,
+                resource_id=resource_id,
+                task_id=task_id,
+                run_id=run_id,
+            )
+            binding = self.substrate_store._require_binding_identity(
+                conn,
+                session_binding_id,
+                task_id=task_id,
+                run_id=run_id,
+            )
+            if str(binding["disposition"]) != "bound":
+                raise ExpiryTransitionConflict(
+                    "provider session binding is not durably bound"
+                )
+
+            task = self.task_store.get_task_in_connection(conn, task_id)
+            run = self.run_store.get_run_in_connection(conn, run_id)
+            checkpoint = self.task_store.get_checkpoint_in_connection(
+                conn, checkpoint_id
+            )
+            deadline_row = conn.execute(
+                "SELECT * FROM worker_checkpoint_deadlines "
+                "WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if deadline_row is None:
+                raise EvidenceConflict(
+                    "checkpoint_expiry",
+                    checkpoint_id,
+                    "checkpoint has no durable deadline",
+                )
+            deadline = CheckpointDeadline.model_validate(dict(deadline_row))
+            if deadline.task_id != task_id:
+                raise CanonicalBindingMismatch(
+                    "checkpoint deadline does not belong to the submitted task"
+                )
+            if deadline.session_binding_id != session_binding_id:
+                raise CanonicalBindingMismatch(
+                    "checkpoint deadline session does not match the binding"
+                )
+            if deadline.deadline_policy is not CheckpointDeadlinePolicy.BOUNDED:
+                raise ExpiryTransitionConflict(
+                    "checkpoint has no bounded deadline to expire"
+                )
+            deadline_time = self._parse_timestamp(
+                deadline.deadline_at, "deadline_at"
+            )
+            if observed_time < deadline_time:
+                raise ExpiryTransitionConflict(
+                    "checkpoint deadline has not elapsed"
+                )
+
+            expiry_row = conn.execute(
+                "SELECT * FROM worker_checkpoint_expiries "
+                "WHERE checkpoint_id = ? AND idempotency_key = ?",
+                (checkpoint_id, idempotency_key),
+            ).fetchone()
+            expiry_exists = expiry_row is not None
+            recovery_window = self._classify_expiry_window(
+                conn,
+                checkpoint=checkpoint,
+                run=run,
+                expiry_exists=expiry_exists,
+            )
+
+            if expiry_exists:
+                expiry = CheckpointExpiryEvent.model_validate(dict(expiry_row))
+                command = self.task_store.find_command_by_controller_request_in_connection(
+                    conn,
+                    task_id=task_id,
+                    command_kind=TaskCommandKind.CANCEL,
+                    controller_request_id=cancel_request_id,
+                )
+                if command is None:
+                    raise EvidenceConflict(
+                        "checkpoint_expiry",
+                        checkpoint_id,
+                        "expiry exists without its canonical cancel command",
+                    )
+                return ExpiryTransitionResult(
+                    task=task,
+                    run=run,
+                    checkpoint=checkpoint,
+                    deadline=deadline,
+                    expiry=expiry,
+                    command=command,
+                    recovery_window=recovery_window,
+                    created=False,
+                )
+
+            if task.backend_ref != run_id:
+                raise CanonicalBindingMismatch(
+                    "canonical task backend does not match the requested run"
+                )
+            if task.state is not TaskState.AWAITING_CONTROLLER:
+                raise ExpiryTransitionConflict(
+                    f"task is {task.state.value}, not awaiting_controller"
+                )
+            if task.phase is not TaskPhase.AWAITING_CONTROLLER:
+                raise ExpiryTransitionConflict(
+                    "task phase is not awaiting_controller"
+                )
+            if int(task.state_version) != int(expected_task_state_version):
+                raise ExpiryTransitionConflict(
+                    "task state version changed before checkpoint expiry"
+                )
+            if task.checkpoint_ref != checkpoint_id:
+                raise ExpiryTransitionConflict(
+                    "task checkpoint does not match the expiry request"
+                )
+            if checkpoint.task_id != task_id:
+                raise CanonicalBindingMismatch(
+                    "checkpoint does not belong to the submitted task"
+                )
+            if checkpoint.status not in {
+                TaskCheckpointStatus.OPEN,
+                TaskCheckpointStatus.RESOLVED,
+            }:
+                raise ExpiryTransitionConflict(
+                    f"checkpoint is {checkpoint.status.value}, not expirable"
+                )
+            if checkpoint.required_state_version != task.state_version:
+                raise ExpiryTransitionConflict(
+                    "checkpoint required state version is stale"
+                )
+            if run["status"] != "awaiting_controller":
+                raise ExpiryTransitionConflict(
+                    f"run is {run['status']}, not awaiting_controller"
+                )
+            if run["current_phase"] != "awaiting_controller":
+                raise ExpiryTransitionConflict(
+                    "run phase is not awaiting_controller"
+                )
+            if int(run["state_version"]) != int(expected_run_state_version):
+                raise ExpiryTransitionConflict(
+                    "run state version changed before checkpoint expiry"
+                )
+            if run["ended_at"] is not None or run["result"]:
+                raise ExpiryTransitionConflict(
+                    "terminal run evidence forbids checkpoint expiry transition"
+                )
+            if run["result_publication_status"] != "not_published":
+                raise ExpiryTransitionConflict(
+                    "result publication state forbids checkpoint expiry transition"
+                )
+
+            uncertain_windows = {
+                CheckpointRecoveryWindow.IN_FLIGHT_AT_EXPIRY,
+                CheckpointRecoveryWindow.OUTCOME_UNKNOWN,
+                CheckpointRecoveryWindow.ACKNOWLEDGED_BEFORE_RESUME,
+                CheckpointRecoveryWindow.RESOLVED_BEFORE_RUN_RESUME,
+            }
+            disposition = (
+                CheckpointExpiryDisposition.QUIESCENT_CONFIRMED
+                if quiescence_proof_ref
+                else (
+                    CheckpointExpiryDisposition.UNCERTAIN
+                    if recovery_window in uncertain_windows
+                    else CheckpointExpiryDisposition.RECORDED
+                )
+            )
+            expiry, created = self.substrate_store.record_checkpoint_expiry_in_connection(
+                conn,
+                checkpoint_id=checkpoint_id,
+                task_id=task_id,
+                idempotency_key=idempotency_key,
+                deadline_at=deadline.deadline_at,
+                observed_at=observed_at,
+                disposition=disposition,
+                quiescence_proof_ref=quiescence_proof_ref,
+                reason=reason or "controller-input checkpoint deadline expired",
+                created_at=transition_at,
+            )
+            if not created:
+                raise EvidenceConflict(
+                    "checkpoint_expiry",
+                    checkpoint_id,
+                    "expiry appeared during its atomic transition",
+                )
+
+            if checkpoint.status is TaskCheckpointStatus.OPEN:
+                checkpoint = self.task_store.cancel_checkpoint_in_connection(
+                    conn,
+                    checkpoint_id,
+                    task_id=task_id,
+                    required_state_version=task.state_version,
+                    cancelled_at=transition_at,
+                )
+            conn.execute(
+                "UPDATE worker_messages SET disposition = ?, "
+                "disposition_reason = ?, updated_at = ? "
+                "WHERE checkpoint_id = ? AND disposition = ?",
+                (
+                    MessageDisposition.EXPIRED.value,
+                    "checkpoint expired before terminal transport evidence",
+                    transition_at,
+                    checkpoint_id,
+                    MessageDisposition.RESERVED.value,
+                ),
+            )
+
+            command, command_created = self.task_store.reserve_command_in_connection(
+                conn,
+                task_id=task_id,
+                command_kind=TaskCommandKind.CANCEL,
+                requested_state_version=task.state_version,
+                observed_state_version=task.state_version,
+                status=TaskCommandStatus.ACCEPTED,
+                controller_request_id=cancel_request_id,
+                reason=(
+                    "checkpoint expired; canonical backend cancellation required "
+                    f"({recovery_window.value})"
+                ),
+            )
+            if not command_created:
+                raise EvidenceConflict(
+                    "checkpoint_expiry",
+                    checkpoint_id,
+                    "cancel command appeared during its atomic transition",
+                )
+
+            updated_task = self.task_store.conditional_update_in_connection(
+                conn,
+                task_id,
+                fields={
+                    "state": TaskState.CANCELLATION_PENDING.value,
+                    "phase": TaskPhase.CANCELLATION_REQUESTED.value,
+                    "recovery_state": TaskRecoveryState.PENDING.value,
+                    "recovery_reason": (
+                        f"checkpoint_expired:{recovery_window.value}"
+                    ),
+                },
+                expected_state_version=task.state_version,
+                expected_states=(TaskState.AWAITING_CONTROLLER.value,),
+            )
+            if updated_task is None:
+                raise ExpiryTransitionConflict(
+                    "task changed during checkpoint expiry transition"
+                )
+
+            event_data = {
+                "checkpoint_id": checkpoint_id,
+                "expiry_id": expiry.expiry_id,
+                "command_id": command.command_id,
+                "deadline_at": deadline.deadline_at,
+                "observed_at": observed_at,
+                "recovery_window": recovery_window.value,
+                "quiescence_proof_ref": quiescence_proof_ref,
+            }
+            self.task_store.append_event_in_connection(
+                conn,
+                task_id,
+                level=TaskEventLevel.WARNING,
+                stage="checkpoint_expired",
+                message="Controller checkpoint expired; cancellation reserved",
+                state=updated_task.state.value,
+                state_version=updated_task.state_version,
+                data=event_data,
+                timestamp=transition_at,
+            )
+            self.run_store.append_event_in_connection(
+                conn,
+                run_id,
+                level="warning",
+                stage="checkpoint_expired",
+                message="Controller checkpoint expired; awaiting backend cancellation",
+                data=event_data,
+                timestamp=transition_at,
+            )
+
+        return ExpiryTransitionResult(
+            task=updated_task,
+            run=run,
+            checkpoint=checkpoint,
+            deadline=deadline,
+            expiry=expiry,
+            command=command,
+            recovery_window=recovery_window,
             created=True,
         )
 

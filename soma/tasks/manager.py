@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 from .backends import BackendObservation, DurableCommandSpec, DurableRunBackend
 from .models import (
     BackendKind,
+    TaskCheckpointStatus,
     TaskCommandKind,
     TaskCommandStatus,
     TaskEventLevel,
@@ -1342,6 +1343,115 @@ class TaskManager:
             budget=budget,
         )
 
+    def process_checkpoint_expiry(
+        self,
+        task_id: str,
+        *,
+        checkpoint_id: str,
+        observed_at: str,
+        project_id: str = "",
+        reason: str = "",
+        quiescence_proof_ref: str = "",
+    ) -> dict[str, Any]:
+        """Expire one exact wait and delegate its reserved cancellation."""
+        from soma.worker_substrate.transitions import InteractionTransitionPolicy
+
+        task, scope = self._load_task_scope(task_id, project_id)
+        scoped_project_id = str(scope.get("project_id") or "")
+        resource_id = str(scope.get("project_resource_id") or "")
+        if not scoped_project_id or not resource_id:
+            raise ProjectScopeError(
+                "checkpoint expiry requires an exact project and resource binding"
+            )
+        if not task.backend_ref:
+            raise ValueError("checkpoint expiry requires a canonical backend run")
+
+        policy = InteractionTransitionPolicy(self.config.resolve_runs_dir())
+        deadline = policy.substrate_store.get_checkpoint_deadline(checkpoint_id)
+        if deadline is None:
+            raise ValueError("checkpoint expiry requires a durable deadline")
+        if not deadline.session_binding_id:
+            raise ValueError(
+                "checkpoint expiry requires an exact provider-session binding"
+            )
+        run = policy.run_store.get_run(task.backend_ref)
+        transition = policy.expire_checkpoint(
+            project_id=scoped_project_id,
+            resource_id=resource_id,
+            task_id=task.task_id,
+            run_id=task.backend_ref,
+            session_binding_id=deadline.session_binding_id,
+            checkpoint_id=checkpoint_id,
+            idempotency_key=f"deadline:{checkpoint_id}",
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=int(run["state_version"]),
+            observed_at=observed_at,
+            reason=redact_secret_values(
+                reason or "controller-input checkpoint deadline expired"
+            )[:512],
+            quiescence_proof_ref=quiescence_proof_ref,
+        )
+
+        backend_result = self.backend.cancel(task.backend_ref)
+        if not isinstance(backend_result, dict):
+            raise RuntimeError("backend cancellation returned a non-object result")
+        backend_reason = redact_secret_values(
+            str(backend_result.get("reason") or "")
+        )[:512]
+        self.store.append_event(
+            task.task_id,
+            level=TaskEventLevel.WARNING,
+            stage="checkpoint_expiry_cancel",
+            message="Expired checkpoint cancellation delegated to backend authority",
+            state=transition.task.state.value,
+            state_version=transition.task.state_version,
+            data={
+                "checkpoint_id": checkpoint_id,
+                "expiry_id": transition.expiry.expiry_id,
+                "command_id": transition.command.command_id,
+                "recovery_window": transition.recovery_window.value,
+                "backend_status": str(backend_result.get("status") or ""),
+                "backend_ok": bool(backend_result.get("ok")),
+                "termination_confirmed": bool(
+                    backend_result.get("termination_confirmed")
+                ),
+            },
+        )
+        self.store.complete_command(
+            transition.command.command_id,
+            status=TaskCommandStatus.COMPLETED,
+            reason=backend_reason or "cancellation delegated to backend authority",
+        )
+
+        current = self.reconcile_task(
+            task.task_id, stage="checkpoint_expiry_cancel"
+        )
+        if current.checkpoint_ref == checkpoint_id:
+            cleared = self.store.conditional_update(
+                current.task_id,
+                fields={"checkpoint_ref": ""},
+                expected_state_version=current.state_version,
+                expected_states=(current.state.value,),
+            )
+            if cleared is not None:
+                current = cleared
+
+        return {
+            "processed": True,
+            "created": transition.created,
+            "task": current,
+            "checkpoint": transition.checkpoint,
+            "expiry": transition.expiry,
+            "command": transition.command,
+            "recovery_window": transition.recovery_window,
+            "backend_result": backend_result,
+            "cancellation_complete": bool(
+                backend_result.get("termination_confirmed")
+            ),
+            "ownership_release_claimed": False,
+            "ownership_authority": "durable_backend",
+        }
+
     def cancel_task(
         self,
         task_id: str,
@@ -1561,6 +1671,15 @@ class TaskManager:
             message = "Backend identity does not match the recorded task mapping"
             data["observed_executor"] = observation.executor
             data["observed_repo_name"] = observation.repo_name
+        elif (
+            task.state is TaskState.CANCELLATION_PENDING
+            and observation.status
+            in {"pending", "launch_pending", "queued", "running", "awaiting_controller"}
+        ):
+            # A durable cancel intent outranks an older non-terminal backend
+            # observation. Reconciliation must never reopen controller input
+            # while backend cancellation has not yet reached its own CAS.
+            return None
         else:
             state, phase = map_backend_status(observation.status)
             if state is TaskState.UNCERTAIN:
@@ -1625,6 +1744,34 @@ class TaskManager:
         # case-insensitively rather than declaring a false mismatch.
         return recorded_repo.lower() == observation.repo_name.lower()
 
+    def _recover_expired_checkpoint_cancellation(
+        self, task: TaskRecord
+    ) -> TaskRecord | None:
+        if (
+            task.state is not TaskState.CANCELLATION_PENDING
+            or not task.checkpoint_ref
+        ):
+            return None
+        checkpoint = self.store.get_checkpoint(task.checkpoint_ref)
+        if checkpoint.status is not TaskCheckpointStatus.CANCELLED:
+            return None
+
+        from soma.worker_substrate.store import WorkerSubstrateStore
+
+        substrate = WorkerSubstrateStore(self.config.resolve_runs_dir())
+        expiries = substrate.list_checkpoint_expiries(checkpoint.checkpoint_id)
+        if not expiries:
+            return None
+        expiry = expiries[0]
+        result = self.process_checkpoint_expiry(
+            task.task_id,
+            checkpoint_id=checkpoint.checkpoint_id,
+            observed_at=expiry.observed_at,
+            reason=expiry.reason,
+            quiescence_proof_ref=expiry.quiescence_proof_ref,
+        )
+        return result["task"]
+
     def reconcile_startup(self, limit: int = 500) -> dict[str, Any]:
         """Restart-safe reconciliation for every non-terminal canonical task."""
         examined = 0
@@ -1634,7 +1781,11 @@ class TaskManager:
             examined += 1
             before = task.state_version
             try:
-                updated = self.reconcile_task(task.task_id, stage="startup_recovery")
+                updated = self._recover_expired_checkpoint_cancellation(task)
+                if updated is None:
+                    updated = self.reconcile_task(
+                        task.task_id, stage="startup_recovery"
+                    )
             except Exception as exc:  # noqa: BLE001 - never swallowed silently
                 detail = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
                 failures.append({"task_id": task.task_id, "error": detail})
