@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -186,3 +189,30 @@ def test_stale_version_and_wrong_checkpoint_create_nothing(waiting_fixture):
     assert WorkerSubstrateStore(waiting_fixture["runs_dir"]).list_messages(
         task_id=waiting_fixture["task_id"]
     ) == []
+
+
+def test_task_manager_and_worker_substrate_import_in_either_order() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    scripts = (
+        (
+            "from soma.tasks.manager import TaskManager; "
+            "import soma.worker_substrate as ws; "
+            "assert TaskManager; assert ws.InteractionDispatcher"
+        ),
+        (
+            "import soma.worker_substrate as ws; "
+            "from soma.tasks.manager import TaskManager; "
+            "assert ws.InteractionDispatcher; assert TaskManager"
+        ),
+    )
+
+    for script in scripts:
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr

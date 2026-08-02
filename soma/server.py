@@ -3380,6 +3380,36 @@ def task_action(request: TaskActionRequest) -> dict:
             parent_task_id=request.parent_task_id,
             budget=request.response_budget_bytes,
         )
+    if request.operation == "steer":
+        return manager.steer_task(
+            project_id=request.project_id,
+            task_id=request.task_id,
+            if_state_version=request.if_state_version,
+            session_binding_id=request.session_binding_id,
+            idempotency_key=request.idempotency_key,
+            sender_ref=request.sender_ref,
+            recipient_ref=request.recipient_ref,
+            payload=request.payload,
+            checkpoint_id=request.checkpoint_id,
+            mandate_ref=request.mandate_ref,
+            mandate_version=request.mandate_version,
+            budget=request.response_budget_bytes,
+        )
+    if request.operation == "supply_input":
+        return manager.supply_input(
+            project_id=request.project_id,
+            task_id=request.task_id,
+            if_state_version=request.if_state_version,
+            session_binding_id=request.session_binding_id,
+            checkpoint_id=request.checkpoint_id,
+            idempotency_key=request.idempotency_key,
+            sender_ref=request.sender_ref,
+            recipient_ref=request.recipient_ref,
+            payload=request.payload,
+            mandate_ref=request.mandate_ref,
+            mandate_version=request.mandate_version,
+            budget=request.response_budget_bytes,
+        )
     if request.operation == "resolve_recovery":
         return manager.resolve_recovery(
             project_id=request.project_id,

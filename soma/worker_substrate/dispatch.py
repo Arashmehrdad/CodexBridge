@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from soma.safety import redact_secret_values
 from soma.tasks.models import TaskCommandKind, TaskCommandStatus
 from soma.worker_adapters import Capability as ProviderCapability
 from soma.worker_adapters import get_adapter
@@ -132,13 +133,16 @@ class InteractionDispatcher:
         expected_run_state_version: int,
     ) -> InteractionDispatchResult:
         if attempt.state is TransportAttemptState.CLAIMED:
-            attempt = self.store.record_transport_attempt(
-                attempt.attempt_id,
-                state=TransportAttemptState.OUTCOME_UNKNOWN,
+            return InteractionDispatchResult(
+                reservation=reservation,
+                attempt=attempt,
+                delivery=attempt.state.value,
                 reason=(
-                    "replay found a prior claimed attempt; dispatch outcome cannot "
-                    "be proven and automatic resend is forbidden"
+                    "prior transport claim is unresolved; automatic resend is "
+                    "forbidden until evidence or recovery adjudication resolves it"
                 ),
+                evidence_ref=attempt.evidence_ref,
+                transport_called=False,
             )
         if attempt.state is TransportAttemptState.OUTCOME_UNKNOWN:
             return InteractionDispatchResult(
@@ -264,11 +268,11 @@ class InteractionDispatcher:
 
         try:
             result = self.transport.dispatch(request)
-        except (InteractionTransportOutcomeUnknown, InteractionTransportUnavailable) as exc:
+        except (InteractionTransportOutcomeUnknown, InteractionTransportUnavailable):
             attempt = self.store.record_transport_attempt(
                 attempt.attempt_id,
                 state=TransportAttemptState.OUTCOME_UNKNOWN,
-                reason=str(exc),
+                reason="transport outcome cannot be proven; resend forbidden",
             )
             return InteractionDispatchResult(
                 reservation=reservation,
@@ -283,8 +287,8 @@ class InteractionDispatcher:
                 attempt.attempt_id,
                 state=TransportAttemptState.OUTCOME_UNKNOWN,
                 reason=(
-                    f"{type(exc).__name__}: transport raised after durable claim; "
-                    "dispatch outcome cannot be proven"
+                    "transport raised after durable claim; outcome cannot be proven "
+                    f"({redact_secret_values(type(exc).__name__)})"
                 ),
             )
             return InteractionDispatchResult(
@@ -296,8 +300,11 @@ class InteractionDispatcher:
                 transport_called=True,
             )
 
+        reason = redact_secret_values(result.reason)[:512]
+        evidence_ref = redact_secret_values(result.evidence_ref)[:2048]
+
         if result.disposition is TransportDispatchDisposition.ACKNOWLEDGED:
-            if not result.evidence_ref:
+            if not evidence_ref:
                 attempt = self.store.record_transport_attempt(
                     attempt.attempt_id,
                     state=TransportAttemptState.OUTCOME_UNKNOWN,
@@ -314,8 +321,8 @@ class InteractionDispatcher:
             attempt = self.store.record_transport_attempt(
                 attempt.attempt_id,
                 state=TransportAttemptState.ACKNOWLEDGED,
-                reason=result.reason,
-                evidence_ref=result.evidence_ref,
+                reason=reason,
+                evidence_ref=evidence_ref,
             )
             resumed = None
             if command_kind is TaskCommandKind.SUPPLY_INPUT:
@@ -328,7 +335,7 @@ class InteractionDispatcher:
                 self.coordinator.task_store.complete_command(
                     reservation.command.command_id,
                     status=TaskCommandStatus.COMPLETED,
-                    reason=result.reason or "steering acknowledged",
+                    reason=reason or "steering acknowledged",
                 )
             return InteractionDispatchResult(
                 reservation=reservation,
@@ -344,13 +351,13 @@ class InteractionDispatcher:
             attempt = self.store.record_transport_attempt(
                 attempt.attempt_id,
                 state=TransportAttemptState.REJECTED,
-                reason=result.reason,
-                evidence_ref=result.evidence_ref,
+                reason=reason,
+                evidence_ref=evidence_ref,
             )
             self.coordinator.task_store.complete_command(
                 reservation.command.command_id,
                 status=TaskCommandStatus.FAILED,
-                reason=result.reason or "interaction rejected",
+                reason=reason or "interaction rejected",
             )
             return InteractionDispatchResult(
                 reservation=reservation,
@@ -364,8 +371,8 @@ class InteractionDispatcher:
         attempt = self.store.record_transport_attempt(
             attempt.attempt_id,
             state=TransportAttemptState.OUTCOME_UNKNOWN,
-            reason=result.reason or "transport outcome cannot be proven",
-            evidence_ref=result.evidence_ref,
+            reason=reason or "transport outcome cannot be proven",
+            evidence_ref=evidence_ref,
         )
         return InteractionDispatchResult(
             reservation=reservation,

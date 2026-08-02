@@ -10,19 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from pathlib import Path
-from threading import Lock
 from typing import Callable, Protocol
 
-from soma.safety import redact_secret_values
-
-from .models import (
-    ProviderSessionBinding,
-    TransportAttemptRecord,
-    TransportAttemptState,
-    WorkerMessageRecord,
-)
-from .store import WorkerSubstrateStore
+from .models import ProviderSessionBinding
 
 
 class TransportDispatchDisposition(str, Enum):
@@ -115,9 +105,13 @@ class DeterministicInteractionTransport:
         raise_outcome_unknown: bool = False,
     ) -> None:
         self.disposition = disposition
-        self.supported_providers = frozenset(supported_providers or {"claude_code"})
+        self.supported_providers = frozenset(
+            {"claude_code"} if supported_providers is None else supported_providers
+        )
         self.supported_command_kinds = frozenset(
-            supported_command_kinds or {"steer", "supply_input"}
+            {"steer", "supply_input"}
+            if supported_command_kinds is None
+            else supported_command_kinds
         )
         self.reason = reason
         self._claimer_id = claimer_id
@@ -167,171 +161,3 @@ class DeterministicInteractionTransport:
             reason=self.reason,
             evidence_ref=self._evidence_ref(request, self.disposition.value),
         )
-
-
-@dataclass(frozen=True)
-class InteractionDispatchResult:
-    """Durable evidence from one dispatch decision.
-
-    ``dispatched`` says this invocation called the transport. ``replayed`` says
-    the attempt already existed, in which case dispatch is never repeated.
-    """
-
-    message: WorkerMessageRecord
-    attempt: TransportAttemptRecord
-    dispatched: bool
-    replayed: bool
-
-
-class InteractionDispatcher:
-    """Single-claimer provider-neutral dispatch with zero blind resend."""
-
-    _registry_guard = Lock()
-    _message_locks: dict[str, Lock] = {}
-
-    def __init__(
-        self,
-        runs_dir: Path,
-        *,
-        transport: InteractionTransport | None = None,
-    ) -> None:
-        self.store = WorkerSubstrateStore(runs_dir)
-        self.transport = transport or UnavailableInteractionTransport()
-
-    @classmethod
-    def _message_lock(cls, message_id: str) -> Lock:
-        with cls._registry_guard:
-            return cls._message_locks.setdefault(message_id, Lock())
-
-    @staticmethod
-    def _request(
-        message: WorkerMessageRecord,
-        binding: ProviderSessionBinding,
-        attempt: TransportAttemptRecord,
-    ) -> InteractionTransportRequest:
-        if (
-            binding.session_binding_id != message.session_binding_id
-            or binding.task_id != message.task_id
-            or binding.run_id != message.run_id
-        ):
-            raise ValueError(
-                "message and provider-session binding identities do not match"
-            )
-        return InteractionTransportRequest(
-            message_id=message.message_id,
-            attempt_id=attempt.attempt_id,
-            command_kind=message.command_kind,
-            message_class=message.message_class.value,
-            session_binding_id=binding.session_binding_id,
-            provider=binding.provider,
-            native_session_id=binding.native_session_id,
-            payload_ref=message.payload_ref,
-            payload_hash=message.payload_hash,
-            payload_bytes=message.payload_bytes,
-            checkpoint_id=message.checkpoint_id,
-        )
-
-    @staticmethod
-    def _state_for_result(
-        result: InteractionTransportResult,
-    ) -> TransportAttemptState:
-        return {
-            TransportDispatchDisposition.ACKNOWLEDGED: (
-                TransportAttemptState.ACKNOWLEDGED
-            ),
-            TransportDispatchDisposition.REJECTED: TransportAttemptState.REJECTED,
-            TransportDispatchDisposition.OUTCOME_UNKNOWN: (
-                TransportAttemptState.OUTCOME_UNKNOWN
-            ),
-        }[result.disposition]
-
-    def dispatch_message(self, message_id: str) -> InteractionDispatchResult:
-        """Dispatch a newly claimed message once, or return prior evidence.
-
-        A pre-existing claim is never sent again. It may represent an active
-        concurrent sender or a crash after claim; both cases require preserving
-        the claim until evidence or recovery adjudication resolves it.
-        """
-        with self._message_lock(message_id):
-            message = self.store.get_message(message_id)
-            binding = self.store.get_binding(message.session_binding_id)
-            attempt, created = self.store.claim_transport_attempt(
-                message_id,
-                claimer_id=self.transport.claimer_id,
-            )
-            if not created:
-                return InteractionDispatchResult(
-                    message=self.store.get_message(message_id),
-                    attempt=attempt,
-                    dispatched=False,
-                    replayed=True,
-                )
-
-            if not self.transport.supports(
-                binding,
-                command_kind=message.command_kind,
-            ):
-                prevented = self.store.record_transport_attempt(
-                    attempt.attempt_id,
-                    state=TransportAttemptState.PREVENTED,
-                    reason=(
-                        "transport does not support this provider and command contract"
-                    ),
-                )
-                return InteractionDispatchResult(
-                    message=self.store.get_message(message_id),
-                    attempt=prevented,
-                    dispatched=False,
-                    replayed=False,
-                )
-
-            request = self._request(message, binding, attempt)
-            try:
-                result = self.transport.dispatch(request)
-            except InteractionTransportUnavailable:
-                recorded = self.store.record_transport_attempt(
-                    attempt.attempt_id,
-                    state=TransportAttemptState.PREVENTED,
-                    reason="reviewed interaction transport became unavailable",
-                )
-            except InteractionTransportOutcomeUnknown:
-                recorded = self.store.record_transport_attempt(
-                    attempt.attempt_id,
-                    state=TransportAttemptState.OUTCOME_UNKNOWN,
-                    reason="transport outcome cannot be proven; resend forbidden",
-                )
-            except Exception as exc:  # noqa: BLE001 - outcome is deliberately unknown
-                recorded = self.store.record_transport_attempt(
-                    attempt.attempt_id,
-                    state=TransportAttemptState.OUTCOME_UNKNOWN,
-                    reason=(
-                        "transport raised after claim; outcome cannot be proven "
-                        f"({redact_secret_values(type(exc).__name__)})"
-                    ),
-                )
-            else:
-                state = self._state_for_result(result)
-                reason = redact_secret_values(result.reason)[:512]
-                evidence_ref = redact_secret_values(result.evidence_ref)[:2048]
-                if (
-                    state is TransportAttemptState.ACKNOWLEDGED
-                    and not evidence_ref
-                ):
-                    state = TransportAttemptState.OUTCOME_UNKNOWN
-                    reason = (
-                        "transport reported acknowledgement without durable evidence; "
-                        "resend forbidden"
-                    )
-                recorded = self.store.record_transport_attempt(
-                    attempt.attempt_id,
-                    state=state,
-                    reason=reason,
-                    evidence_ref=evidence_ref,
-                )
-
-            return InteractionDispatchResult(
-                message=self.store.get_message(message_id),
-                attempt=recorded,
-                dispatched=True,
-                replayed=False,
-            )

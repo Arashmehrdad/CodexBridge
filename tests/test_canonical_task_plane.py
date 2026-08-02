@@ -1056,6 +1056,8 @@ def test_task_gateways_are_discoverable_with_strict_request_unions() -> None:
     assert action_ops == {
         "start",
         "cancel",
+        "steer",
+        "supply_input",
         "resolve_recovery",
         "adjudicate_quarantine",
     }
@@ -1073,6 +1075,8 @@ def test_task_capabilities_declare_the_canonical_contract(tmp_path: Path) -> Non
     assert capabilities["backends"][0]["default"] is True
     assert capabilities["version_guarded_commands"] == [
         "cancel",
+        "steer",
+        "supply_input",
         "resolve_recovery",
     ]
     assert capabilities["idempotency"]["keys"] == [

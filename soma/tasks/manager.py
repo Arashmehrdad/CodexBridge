@@ -20,7 +20,7 @@ import sqlite3
 from base64 import b64decode
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from soma.config import AppConfig, resolve_repo_identity
 from soma.job_manager import JobManager
@@ -37,18 +37,9 @@ from soma.project_scope.models import (
     validate_opaque_id,
 )
 from soma.safety import redact_secret_values
-from soma.worker_substrate import (
-    AttemptClaimBlocked,
-    InteractionCapabilityUnsupported,
-    InteractionDispatchUnavailable,
-    InteractionDispatcher,
-    InteractionStateConflict,
-    InteractionTransport,
-    MessageClass,
-    MessageConflict,
-    ResumeTransitionConflict,
-    UnavailableInteractionTransport,
-)
+
+if TYPE_CHECKING:
+    from soma.worker_substrate.transport import InteractionTransport
 
 from .backends import BackendObservation, DurableCommandSpec, DurableRunBackend
 from .models import (
@@ -116,10 +107,8 @@ class TaskManager:
         self._backend = backend
         self.store = store or TaskStore(config.resolve_runs_dir())
         self.scope_store = scope_store or ProjectScopeStore(config.resolve_runs_dir())
-        self._interaction_transport = (
-            interaction_transport or UnavailableInteractionTransport()
-        )
-        self._interaction_dispatcher: InteractionDispatcher | None = None
+        self._interaction_transport = interaction_transport
+        self._interaction_dispatcher: Any | None = None
 
     # ------------------------------------------------------------------
     # wiring
@@ -138,11 +127,15 @@ class TaskManager:
         return self._backend
 
     @property
-    def interaction_dispatcher(self) -> InteractionDispatcher:
+    def interaction_dispatcher(self) -> Any:
         if self._interaction_dispatcher is None:
+            from soma.worker_substrate.dispatch import InteractionDispatcher
+            from soma.worker_substrate.transport import UnavailableInteractionTransport
+
+            transport = self._interaction_transport or UnavailableInteractionTransport()
             self._interaction_dispatcher = InteractionDispatcher(
                 self.config.resolve_runs_dir(),
-                transport=self._interaction_transport,
+                transport=transport,
             )
         return self._interaction_dispatcher
 
@@ -1099,6 +1092,8 @@ class TaskManager:
         mandate_version: str = "",
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
+        from soma.worker_substrate.models import MessageClass
+
         return self._dispatch_interaction(
             operation="steer",
             command_kind=TaskCommandKind.STEER,
@@ -1133,6 +1128,8 @@ class TaskManager:
         mandate_version: str = "",
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
+        from soma.worker_substrate.models import MessageClass
+
         return self._dispatch_interaction(
             operation="supply_input",
             command_kind=TaskCommandKind.SUPPLY_INPUT,
@@ -1156,7 +1153,7 @@ class TaskManager:
         *,
         operation: str,
         command_kind: TaskCommandKind,
-        message_class: MessageClass,
+        message_class: Any,
         project_id: str,
         task_id: str,
         if_state_version: int,
@@ -1170,6 +1167,14 @@ class TaskManager:
         mandate_version: str,
         budget: int,
     ) -> dict[str, Any]:
+        from soma.worker_substrate.coordinator import InteractionStateConflict
+        from soma.worker_substrate.dispatch import (
+            InteractionCapabilityUnsupported,
+            InteractionDispatchUnavailable,
+        )
+        from soma.worker_substrate.store import AttemptClaimBlocked, MessageConflict
+        from soma.worker_substrate.transitions import ResumeTransitionConflict
+
         try:
             task, scope = self._load_task_scope(task_id, project_id)
         except (KeyError, ValueError, ProjectScopeError) as exc:

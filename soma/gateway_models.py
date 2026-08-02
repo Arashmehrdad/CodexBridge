@@ -1408,6 +1408,44 @@ class TaskCancelCommand(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TaskSteerCommand(GatewayModel):
+    """Version-guarded steering for one exact bound provider session."""
+
+    operation: Literal["steer"]
+    project_id: str = Field(min_length=1, max_length=128)
+    task_id: str = Field(min_length=1, max_length=128)
+    if_state_version: int = Field(ge=0)
+    session_binding_id: str = Field(min_length=1, max_length=128)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    sender_ref: str = Field(min_length=1, max_length=512)
+    recipient_ref: str = Field(min_length=1, max_length=512)
+    payload: str = Field(min_length=1, max_length=1_000_000)
+    checkpoint_id: str = Field(default="", max_length=128)
+    mandate_ref: str = Field(default="", max_length=512)
+    mandate_version: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class TaskSupplyInputCommand(GatewayModel):
+    """Exact acknowledged input for one open controller checkpoint."""
+
+    operation: Literal["supply_input"]
+    project_id: str = Field(min_length=1, max_length=128)
+    task_id: str = Field(min_length=1, max_length=128)
+    if_state_version: int = Field(ge=0)
+    session_binding_id: str = Field(min_length=1, max_length=128)
+    checkpoint_id: str = Field(min_length=1, max_length=128)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    sender_ref: str = Field(min_length=1, max_length=512)
+    recipient_ref: str = Field(min_length=1, max_length=512)
+    payload: str = Field(min_length=1, max_length=1_000_000)
+    mandate_ref: str = Field(default="", max_length=512)
+    mandate_version: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
 class TaskRecoveryResolve(GatewayModel):
     """Owner-only terminal resolution for one unresolved scoped task."""
 
@@ -1457,6 +1495,8 @@ class TaskQuarantineAdjudicate(GatewayModel):
 TaskActionRequest = Annotated[
     TaskDurableCommandStart
     | TaskCancelCommand
+    | TaskSteerCommand
+    | TaskSupplyInputCommand
     | TaskRecoveryResolve
     | TaskQuarantineAdjudicate,
     Field(discriminator="operation"),

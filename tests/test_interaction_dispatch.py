@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from soma.worker_substrate import (
     InteractionCoordinator,
     InteractionDispatcher,
     InteractionDispatchUnavailable,
+    InteractionTransportRequest,
+    InteractionTransportResult,
     MessageClass,
     TransportAttemptState,
     TransportDispatchDisposition,
@@ -220,7 +223,7 @@ def test_transport_exception_becomes_durable_uncertainty(waiting_fixture):
     assert result.uncertain is True
     assert result.transport_called is True
     assert len(transport.requests) == 1
-    assert "raised after transport claim" in result.reason
+    assert result.reason == "transport outcome cannot be proven; resend forbidden"
 
 
 def test_replay_of_prior_claim_never_calls_transport(waiting_fixture):
@@ -271,11 +274,14 @@ def test_replay_of_prior_claim_never_calls_transport(waiting_fixture):
         checkpoint_id=waiting.checkpoint.checkpoint_id,
     )
 
-    assert result.uncertain is True
+    assert result.uncertain is False
+    assert result.delivery == TransportAttemptState.CLAIMED.value
     assert result.transport_called is False
     assert transport.requests == []
     assert result.attempt is not None
     assert result.attempt.attempt_id == attempt.attempt_id
+    assert result.attempt.state is TransportAttemptState.CLAIMED
+    assert "prior transport claim is unresolved" in result.reason
 
 
 def test_ack_before_resume_is_repaired_without_second_dispatch(
@@ -369,3 +375,90 @@ def test_codex_steering_fails_capability_honestly_before_reservation(tmp_path):
     assert substrate.list_messages(task_id=task_id) == []
     assert task_store.list_commands(task_id) == []
     assert transport.requests == []
+
+
+def test_concurrent_identical_dispatch_calls_transport_once(tmp_path):
+    runs_dir, task_store, run_store, substrate, task_id, binding = _running_fixture(
+        tmp_path
+    )
+    task = task_store.get_task(task_id)
+    run = run_store.get_run(DEFAULT_RUN_ID)
+    transport = DeterministicInteractionTransport()
+    request = {
+        "project_id": PROJECT_ID,
+        "resource_id": RESOURCE_ID,
+        "task_id": task_id,
+        "run_id": DEFAULT_RUN_ID,
+        "session_binding_id": binding.session_binding_id,
+        "command_kind": TaskCommandKind.STEER,
+        "idempotency_key": "concurrent-steer-1",
+        "sender_ref": "controller:chatgpt",
+        "recipient_ref": "worker:provider-session",
+        "payload": "focus on the bounded result",
+        "requested_task_state_version": task.state_version,
+        "expected_run_state_version": run["state_version"],
+    }
+    dispatchers = [
+        InteractionDispatcher(runs_dir, transport=transport),
+        InteractionDispatcher(runs_dir, transport=transport),
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(dispatcher.dispatch, **request)
+            for dispatcher in dispatchers
+        ]
+    results = [future.result() for future in futures]
+
+    assert len(transport.requests) == 1
+    assert len({result.attempt.attempt_id for result in results if result.attempt}) == 1
+    assert sorted(result.transport_called for result in results) == [False, True]
+    assert len(
+        substrate.list_transport_attempts(
+            message_id=results[0].reservation.message.message_id
+        )
+    ) == 1
+
+
+class _MissingEvidenceTransport(DeterministicInteractionTransport):
+    def dispatch(
+        self, request: InteractionTransportRequest
+    ) -> InteractionTransportResult:
+        self.requests.append(request)
+        return InteractionTransportResult(
+            disposition=TransportDispatchDisposition.ACKNOWLEDGED,
+            reason="acknowledged but evidence was omitted",
+            evidence_ref="",
+        )
+
+
+def test_acknowledgement_without_evidence_becomes_uncertain(waiting_fixture):
+    transport = _MissingEvidenceTransport()
+    dispatcher, request = _dispatch_input(waiting_fixture, transport)
+
+    result = dispatcher.dispatch(**request)
+
+    assert result.uncertain is True
+    assert result.attempt is not None
+    assert result.attempt.state is TransportAttemptState.OUTCOME_UNKNOWN
+    assert result.evidence_ref == ""
+    assert "omitted durable evidence" in result.reason
+
+
+class _ExplodingTransport(DeterministicInteractionTransport):
+    def dispatch(self, request: InteractionTransportRequest):
+        self.requests.append(request)
+        raise RuntimeError("provider leaked secret-value-that-must-not-persist")
+
+
+def test_transport_exception_does_not_persist_exception_text(waiting_fixture):
+    transport = _ExplodingTransport()
+    dispatcher, request = _dispatch_input(waiting_fixture, transport)
+
+    result = dispatcher.dispatch(**request)
+
+    assert result.uncertain is True
+    assert result.attempt is not None
+    assert result.attempt.state is TransportAttemptState.OUTCOME_UNKNOWN
+    assert "RuntimeError" in result.reason
+    assert "secret-value-that-must-not-persist" not in result.reason

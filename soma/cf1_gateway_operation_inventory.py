@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v18"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v19"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -551,6 +551,23 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
             "authority; a stale version is rejected with the current state "
             "version and no cancellation is claimed before the backend proves "
             "it."
+        ),
+    ),
+    _entry(
+        "task_action",
+        ("steer", "supply_input"),
+        "soma.server:task_action -> soma.tasks.manager:TaskManager",
+        "compact canonical interaction evidence projection",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Exact project/task/session identities, caller idempotency, and task "
+            "state version are required. Payload bytes are content-addressed and "
+            "never echoed. supply_input also requires the exact open checkpoint. "
+            "The production transport default is unavailable; uncertain attempts "
+            "remain durable and are never blindly resent."
         ),
     ),
     _entry(

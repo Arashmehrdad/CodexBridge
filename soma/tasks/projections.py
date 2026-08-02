@@ -347,7 +347,21 @@ def task_capabilities(
             "same_request_returns_existing_task": True,
             "different_request_same_id_rejected": True,
         },
-        "version_guarded_commands": ["cancel", "resolve_recovery"],
+        "version_guarded_commands": [
+            "cancel",
+            "steer",
+            "supply_input",
+            "resolve_recovery",
+        ],
+        "interaction": {
+            "public_commands": ["steer", "supply_input"],
+            "exact_session_binding_required": True,
+            "supply_input_checkpoint_required": True,
+            "persist_before_send": True,
+            "uncertain_attempts_are_not_resent": True,
+            "payload_echoed": False,
+            "production_transport_default": "unavailable",
+        },
         "schema": dict(schema_state),
         "authority": {
             "task_identity": "task_store",
