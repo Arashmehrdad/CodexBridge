@@ -190,7 +190,7 @@ def test_migration_is_idempotent(tmp_path: Path):
             "SELECT COUNT(*) FROM soma_schema_migrations WHERE component = ?",
             ("interactive_worker_substrate",),
         ).fetchone()
-    assert int(rows[0]) == 1
+    assert int(rows[0]) == WORKER_SUBSTRATE_SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -1192,6 +1192,7 @@ def test_substrate_reads_only_substrate_and_canonical_identity_tables():
         "task_links",
         "runs",
         "task_checkpoints",
+        "task_commands",
         "project_run_attempts",
         "project_task_reservations",
         "project_repository_bindings",

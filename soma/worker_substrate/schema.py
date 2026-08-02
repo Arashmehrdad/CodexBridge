@@ -260,8 +260,87 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     "ON worker_child_processes(session_binding_id, role)",
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    # Generic message identity. Historical worker_interactions remain readable;
+    # no old row is backfilled with invented sender, recipient, mandate, command,
+    # or attempt evidence.
+    """
+    CREATE TABLE worker_messages (
+        message_id TEXT PRIMARY KEY,
+        command_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        session_binding_id TEXT NOT NULL,
+        checkpoint_id TEXT NOT NULL DEFAULT '',
+        sender_ref TEXT NOT NULL COLLATE BINARY,
+        recipient_ref TEXT NOT NULL COLLATE BINARY,
+        mandate_ref TEXT NOT NULL DEFAULT '' COLLATE BINARY,
+        mandate_version TEXT NOT NULL DEFAULT '' COLLATE BINARY,
+        message_class TEXT NOT NULL CHECK(message_class IN (
+            'command', 'decision', 'progress_report', 'evidence_submission',
+            'outcome_proposal', 'cancellation'
+        )),
+        command_kind TEXT NOT NULL CHECK(command_kind IN ('steer', 'supply_input')),
+        idempotency_key TEXT NOT NULL COLLATE BINARY,
+        payload_ref TEXT NOT NULL,
+        payload_hash TEXT NOT NULL CHECK(length(payload_hash) = 64),
+        payload_bytes INTEGER NOT NULL CHECK(payload_bytes >= 0),
+        requested_state_version INTEGER NOT NULL CHECK(requested_state_version >= 0),
+        contract_hash TEXT NOT NULL CHECK(length(contract_hash) = 64),
+        disposition TEXT NOT NULL CHECK(disposition IN (
+            'reserved', 'acknowledged', 'rejected', 'uncertain',
+            'message_cancelled', 'expired', 'superseded'
+        )),
+        disposition_reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK(length(project_id) > 0),
+        CHECK(length(resource_id) > 0),
+        CHECK(length(run_id) > 0),
+        CHECK(length(sender_ref) > 0),
+        CHECK(length(recipient_ref) > 0),
+        UNIQUE(command_id),
+        UNIQUE(task_id, command_kind, idempotency_key),
+        FOREIGN KEY(command_id) REFERENCES task_commands(command_id) ON DELETE CASCADE,
+        FOREIGN KEY(session_binding_id)
+            REFERENCES worker_provider_sessions(session_binding_id)
+            ON DELETE CASCADE,
+        FOREIGN KEY(task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX idx_worker_messages_session "
+    "ON worker_messages(session_binding_id, created_at)",
+    "CREATE INDEX idx_worker_messages_disposition "
+    "ON worker_messages(disposition, created_at)",
+    # A message receives at most one durable transport claim. Outcome-unknown
+    # evidence remains on that same row and therefore cannot create a resend.
+    """
+    CREATE TABLE worker_transport_attempts (
+        attempt_id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        claimer_id TEXT NOT NULL COLLATE BINARY,
+        attempt_state TEXT NOT NULL CHECK(attempt_state IN (
+            'claimed', 'outcome_unknown', 'acknowledged', 'rejected', 'prevented'
+        )),
+        reason TEXT NOT NULL DEFAULT '',
+        evidence_ref TEXT NOT NULL DEFAULT '',
+        claimed_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        terminal_at TEXT,
+        CHECK(length(claimer_id) > 0),
+        UNIQUE(message_id),
+        FOREIGN KEY(message_id) REFERENCES worker_messages(message_id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX idx_worker_attempts_state "
+    "ON worker_transport_attempts(attempt_state, claimed_at)",
+)
+
 WORKER_SUBSTRATE_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "interactive_worker_substrate_foundation", _MIGRATION_0001),
+    (2, "interaction_message_and_transport_attempt", _MIGRATION_0002),
 )
 
 WORKER_SUBSTRATE_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -271,6 +350,8 @@ WORKER_SUBSTRATE_TABLE_NAMES: Final[tuple[str, ...]] = (
     "worker_checkpoint_expiries",
     "worker_usage_events",
     "worker_child_processes",
+    "worker_messages",
+    "worker_transport_attempts",
 )
 
 

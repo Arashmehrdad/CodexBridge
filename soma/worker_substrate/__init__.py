@@ -12,40 +12,56 @@ that no existing authority represents:
 - raw provider-native usage events;
 - provider-child PID plus process-start identity.
 
-The package is inert until a later V3-1A package wires it. Importing it does not
-migrate the live database; only constructing :class:`WorkerSubstrateStore` does.
+The package has an internal atomic reservation coordinator but no public gateway
+or provider transport. Importing it does not migrate the live database; only
+constructing :class:`WorkerSubstrateStore` does.
 """
 
 from __future__ import annotations
 
+from .coordinator import (
+    InteractionCoordinator,
+    InteractionReservation,
+    InteractionStateConflict,
+)
 from .models import (
     CheckpointDeadlinePolicy,
     CheckpointExpiryDisposition,
     InteractionDelivery,
     InteractionKind,
+    MessageClass,
+    MessageDisposition,
     ProviderChildRole,
     ProviderChildProcessRecord,
     ProviderSessionBinding,
     SessionBindingDisposition,
+    TransportAttemptRecord,
+    TransportAttemptState,
     WORKER_SUBSTRATE_SCHEMA_COMPONENT,
     WORKER_SUBSTRATE_SCHEMA_VERSION,
     CheckpointDeadline,
     CheckpointExpiryEvent,
     InteractionRecord,
     UsageEvent,
+    WorkerMessageRecord,
+    message_contract_hash,
+    normalize_message_contract,
     usage_dedupe_key,
 )
 from .schema import WORKER_SUBSTRATE_TABLE_NAMES
 from .store import (
+    AttemptClaimBlocked,
     CanonicalBindingMismatch,
     EvidenceConflict,
     InteractionConflict,
+    MessageConflict,
     PayloadReference,
     SessionBindingConflict,
     WorkerSubstrateStore,
 )
 
 __all__ = [
+    "AttemptClaimBlocked",
     "CanonicalBindingMismatch",
     "CheckpointDeadline",
     "CheckpointDeadlinePolicy",
@@ -53,19 +69,30 @@ __all__ = [
     "CheckpointExpiryEvent",
     "EvidenceConflict",
     "InteractionConflict",
+    "InteractionCoordinator",
     "InteractionDelivery",
     "InteractionKind",
+    "InteractionReservation",
+    "InteractionStateConflict",
     "InteractionRecord",
+    "MessageClass",
+    "MessageConflict",
+    "MessageDisposition",
     "PayloadReference",
     "ProviderChildProcessRecord",
     "ProviderChildRole",
     "ProviderSessionBinding",
     "SessionBindingConflict",
     "SessionBindingDisposition",
+    "TransportAttemptRecord",
+    "TransportAttemptState",
     "UsageEvent",
+    "WorkerMessageRecord",
     "WORKER_SUBSTRATE_SCHEMA_COMPONENT",
     "WORKER_SUBSTRATE_SCHEMA_VERSION",
     "WORKER_SUBSTRATE_TABLE_NAMES",
     "WorkerSubstrateStore",
+    "message_contract_hash",
+    "normalize_message_contract",
     "usage_dedupe_key",
 ]

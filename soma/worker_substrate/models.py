@@ -9,10 +9,9 @@ Deliberate omissions, each one an authority decision:
   *binding fact* about a canonical run, not a second thing that can be running.
   The dispositions below describe what Soma can prove about a record, never what
   phase of work it is in.
-- no ``TaskKind``, ``BackendKind``, or ``TaskCommandKind`` additions. This
-  package launches nothing and delivers nothing; it only persists. Adding a task
-  command kind before the command semantics exist would publish a contract that
-  no code honours.
+- no ``TaskKind`` or ``BackendKind`` additions. Interactive command kinds live
+  in the canonical task plane; this module records only subordinate message and
+  transport evidence and never creates another execution lifecycle.
 """
 
 from __future__ import annotations
@@ -29,14 +28,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 WORKER_SUBSTRATE_SCHEMA_COMPONENT: Final[str] = "interactive_worker_substrate"
-WORKER_SUBSTRATE_SCHEMA_VERSION: Final[int] = 1
-WORKER_SUBSTRATE_MODEL_VERSION: Final[str] = "worker_substrate.v1"
+WORKER_SUBSTRATE_SCHEMA_VERSION: Final[int] = 2
+WORKER_SUBSTRATE_MODEL_VERSION: Final[str] = "worker_substrate.v2"
 
 SESSION_BINDING_ID_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^wsession_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{12}$"
 )
 INTERACTION_ID_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^wmsg_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{12}$"
+)
+MESSAGE_ID_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^wmessage_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{12}$"
+)
+TRANSPORT_ATTEMPT_ID_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^wattempt_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{12}$"
 )
 
 
@@ -65,6 +70,33 @@ class InteractionDelivery(str, Enum):
     ACKNOWLEDGED = "acknowledged"
     REJECTED = "rejected"
     UNCERTAIN = "uncertain"
+
+
+class MessageClass(str, Enum):
+    COMMAND = "command"
+    DECISION = "decision"
+    PROGRESS_REPORT = "progress_report"
+    EVIDENCE_SUBMISSION = "evidence_submission"
+    OUTCOME_PROPOSAL = "outcome_proposal"
+    CANCELLATION = "cancellation"
+
+
+class MessageDisposition(str, Enum):
+    RESERVED = "reserved"
+    ACKNOWLEDGED = "acknowledged"
+    REJECTED = "rejected"
+    UNCERTAIN = "uncertain"
+    CANCELLED = "message_cancelled"
+    EXPIRED = "expired"
+    SUPERSEDED = "superseded"
+
+
+class TransportAttemptState(str, Enum):
+    CLAIMED = "claimed"
+    OUTCOME_UNKNOWN = "outcome_unknown"
+    ACKNOWLEDGED = "acknowledged"
+    REJECTED = "rejected"
+    PREVENTED = "prevented"
 
 
 class CheckpointDeadlinePolicy(str, Enum):
@@ -109,12 +141,67 @@ def make_interaction_id() -> str:
     return _opaque_id("wmsg")
 
 
+def make_message_id() -> str:
+    return _opaque_id("wmessage")
+
+
+def make_transport_attempt_id() -> str:
+    return _opaque_id("wattempt")
+
+
 def canonical_json(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def content_hash(payload: bytes) -> str:
     return sha256(payload).hexdigest()
+
+
+def normalize_message_contract(
+    *,
+    project_id: str,
+    resource_id: str,
+    task_id: str,
+    run_id: str,
+    session_binding_id: str,
+    checkpoint_id: str,
+    sender_ref: str,
+    recipient_ref: str,
+    mandate_ref: str,
+    mandate_version: str,
+    message_class: MessageClass,
+    command_kind: str,
+    idempotency_key: str,
+    payload_ref: str,
+    payload_hash: str,
+    payload_bytes: int,
+    requested_state_version: int,
+) -> dict[str, Any]:
+    """Return the complete decision-bearing identity for one message replay."""
+    return {
+        "contract_version": "worker_message.v1",
+        "project_id": project_id,
+        "resource_id": resource_id,
+        "task_id": task_id,
+        "run_id": run_id,
+        "session_binding_id": session_binding_id,
+        "checkpoint_id": checkpoint_id,
+        "sender_ref": sender_ref,
+        "recipient_ref": recipient_ref,
+        "mandate_ref": mandate_ref,
+        "mandate_version": mandate_version,
+        "message_class": message_class.value,
+        "command_kind": command_kind,
+        "idempotency_key": idempotency_key,
+        "payload_ref": payload_ref,
+        "payload_hash": payload_hash,
+        "payload_bytes": int(payload_bytes),
+        "requested_state_version": int(requested_state_version),
+    }
+
+
+def message_contract_hash(contract: dict[str, Any]) -> str:
+    return sha256(canonical_json(contract).encode("utf-8")).hexdigest()
 
 
 def require_opaque(value: str, field: str) -> str:
@@ -203,6 +290,59 @@ class InteractionRecord(BaseModel):
     created_at: str
     updated_at: str
     delivered_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+class WorkerMessageRecord(BaseModel):
+    """One generic message envelope subordinate to a canonical task command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str
+    command_id: str
+    project_id: str
+    resource_id: str
+    task_id: str
+    run_id: str
+    session_binding_id: str
+    checkpoint_id: str = ""
+    sender_ref: str
+    recipient_ref: str
+    mandate_ref: str = ""
+    mandate_version: str = ""
+    message_class: MessageClass
+    command_kind: str
+    idempotency_key: str
+    payload_ref: str
+    payload_hash: str
+    payload_bytes: int
+    requested_state_version: int
+    contract_hash: str
+    disposition: MessageDisposition = MessageDisposition.RESERVED
+    disposition_reason: str = ""
+    created_at: str
+    updated_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+class TransportAttemptRecord(BaseModel):
+    """One durable single-claimer transport attempt for one message."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: str
+    message_id: str
+    claimer_id: str
+    state: TransportAttemptState
+    reason: str = ""
+    evidence_ref: str = ""
+    claimed_at: str
+    updated_at: str
+    terminal_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

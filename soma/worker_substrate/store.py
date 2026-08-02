@@ -4,7 +4,7 @@ Authority boundary, enforced by construction rather than by convention: this
 store issues no ``INSERT`` or ``UPDATE`` against ``tasks``, ``runs``,
 ``task_commands``, ``task_checkpoints``, or any ProjectScope table. It reads
 canonical task, run, checkpoint, and ProjectScope identity only to fail closed
-before writing subordinate evidence, and writes only the six substrate tables.
+before writing subordinate evidence, and writes only worker-substrate tables.
 """
 
 from __future__ import annotations
@@ -31,15 +31,24 @@ from .models import (
     InteractionDelivery,
     InteractionKind,
     InteractionRecord,
+    MessageClass,
+    MessageDisposition,
     ProviderChildProcessRecord,
     ProviderChildRole,
     ProviderSessionBinding,
     SessionBindingDisposition,
+    TransportAttemptRecord,
+    TransportAttemptState,
     UsageEvent,
+    WorkerMessageRecord,
     canonical_json,
     content_hash,
     make_interaction_id,
+    make_message_id,
     make_session_binding_id,
+    make_transport_attempt_id,
+    message_contract_hash,
+    normalize_message_contract,
     require_opaque,
     usage_dedupe_key,
     utc_now,
@@ -106,6 +115,30 @@ class InteractionConflict(ValueError):
         self.existing = existing
         self.submitted_hash = submitted_hash
         self.mismatched_fields = tuple(mismatched_fields)
+
+
+class MessageConflict(ValueError):
+    """One complete message idempotency identity was replayed differently."""
+
+    def __init__(
+        self, existing: WorkerMessageRecord, submitted_contract_hash: str
+    ) -> None:
+        super().__init__(
+            f"idempotency_key {existing.idempotency_key!r} on task "
+            f"{existing.task_id} is already bound to message {existing.message_id} "
+            "with a different complete contract"
+        )
+        self.existing = existing
+        self.submitted_contract_hash = submitted_contract_hash
+
+
+class AttemptClaimBlocked(ValueError):
+    """Canonical precedence does not permit a transport attempt to begin."""
+
+    def __init__(self, message_id: str, reason: str) -> None:
+        super().__init__(f"transport attempt blocked for {message_id}: {reason}")
+        self.message_id = message_id
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -238,7 +271,24 @@ class WorkerSubstrateStore:
             tmp = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
             try:
                 tmp.write_bytes(data)
-                os.replace(tmp, target)
+                try:
+                    os.replace(tmp, target)
+                except OSError:
+                    # On Windows two identical writers may both observe the
+                    # target as absent, after which the losing replace is denied
+                    # because the winner already installed the immutable blob.
+                    # Accept only an exact content-addressed winner; any missing,
+                    # non-file, wrong-sized, or wrong-hash target remains a hard
+                    # evidence conflict rather than a blind retry or overwrite.
+                    if not target.is_file():
+                        raise
+                    winner = target.read_bytes()
+                    if len(winner) != len(data) or content_hash(winner) != digest:
+                        raise EvidenceConflict(
+                            "worker_payload",
+                            digest,
+                            "concurrent target does not match the submitted bytes",
+                        )
             finally:
                 if tmp.exists():
                     tmp.unlink()
@@ -277,6 +327,16 @@ class WorkerSubstrateStore:
     @staticmethod
     def _row_to_interaction(row: sqlite3.Row) -> InteractionRecord:
         return InteractionRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_message(row: sqlite3.Row) -> WorkerMessageRecord:
+        return WorkerMessageRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_attempt(row: sqlite3.Row) -> TransportAttemptRecord:
+        data = dict(row)
+        data["state"] = data.pop("attempt_state")
+        return TransportAttemptRecord.model_validate(data)
 
     @staticmethod
     def _row_to_usage(row: sqlite3.Row) -> UsageEvent:
@@ -559,7 +619,405 @@ class WorkerSubstrateStore:
         return self._row_to_binding(row)
 
     # ------------------------------------------------------------------
-    # interaction delivery
+    # generic message reservation and transport attempts
+    # ------------------------------------------------------------------
+
+    def reserve_message_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        command_id: str,
+        project_id: str,
+        resource_id: str,
+        task_id: str,
+        run_id: str,
+        session_binding_id: str,
+        checkpoint_id: str,
+        sender_ref: str,
+        recipient_ref: str,
+        mandate_ref: str,
+        mandate_version: str,
+        message_class: MessageClass,
+        command_kind: str,
+        idempotency_key: str,
+        payload_ref: str,
+        payload_hash: str,
+        payload_bytes: int,
+        requested_state_version: int,
+        contract_hash: str,
+    ) -> tuple[WorkerMessageRecord, bool]:
+        """Reserve one subordinate message inside a shared main-store transaction."""
+        for value, field in (
+            (command_id, "command_id"),
+            (project_id, "project_id"),
+            (resource_id, "resource_id"),
+            (task_id, "task_id"),
+            (run_id, "run_id"),
+            (session_binding_id, "session_binding_id"),
+            (sender_ref, "sender_ref"),
+            (recipient_ref, "recipient_ref"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            require_opaque(value, field)
+        if mandate_ref:
+            require_opaque(mandate_ref, "mandate_ref")
+        if int(requested_state_version) < 0:
+            raise ValueError("requested_state_version must be non-negative")
+        if command_kind not in {"steer", "supply_input"}:
+            raise ValueError("command_kind must be steer or supply_input")
+
+        self._require_sha256(contract_hash, "contract_hash")
+        self._validate_payload_reference(payload_ref, payload_hash, int(payload_bytes))
+        contract = normalize_message_contract(
+            project_id=project_id,
+            resource_id=resource_id,
+            task_id=task_id,
+            run_id=run_id,
+            session_binding_id=session_binding_id,
+            checkpoint_id=checkpoint_id,
+            sender_ref=sender_ref,
+            recipient_ref=recipient_ref,
+            mandate_ref=mandate_ref,
+            mandate_version=mandate_version,
+            message_class=message_class,
+            command_kind=command_kind,
+            idempotency_key=idempotency_key,
+            payload_ref=payload_ref,
+            payload_hash=payload_hash,
+            payload_bytes=int(payload_bytes),
+            requested_state_version=int(requested_state_version),
+        )
+        computed_hash = message_contract_hash(contract)
+        if computed_hash != contract_hash:
+            raise ValueError("contract_hash does not match the complete message contract")
+
+        self._require_canonical_task_run_scope(
+            conn,
+            project_id=project_id,
+            resource_id=resource_id,
+            task_id=task_id,
+            run_id=run_id,
+        )
+        self._require_binding_identity(
+            conn,
+            session_binding_id,
+            task_id=task_id,
+            run_id=run_id,
+        )
+        if checkpoint_id:
+            self._require_checkpoint_identity(
+                conn,
+                checkpoint_id=checkpoint_id,
+                task_id=task_id,
+                session_binding_id=session_binding_id,
+            )
+
+        command = conn.execute(
+            "SELECT task_id, command_kind, controller_request_id, "
+            "requested_state_version FROM task_commands WHERE command_id = ?",
+            (command_id,),
+        ).fetchone()
+        if command is None:
+            raise CanonicalBindingMismatch(f"canonical command not found: {command_id}")
+        command_identity = (
+            str(command["task_id"]),
+            str(command["command_kind"]),
+            str(command["controller_request_id"]),
+            int(command["requested_state_version"]),
+        )
+        submitted_identity = (
+            task_id,
+            command_kind,
+            idempotency_key,
+            int(requested_state_version),
+        )
+        if command_identity != submitted_identity:
+            raise CanonicalBindingMismatch(
+                "canonical command identity does not match the message contract"
+            )
+
+        existing_row = conn.execute(
+            "SELECT * FROM worker_messages WHERE task_id = ? "
+            "AND command_kind = ? AND idempotency_key = ?",
+            (task_id, command_kind, idempotency_key),
+        ).fetchone()
+        if existing_row is not None:
+            existing = self._row_to_message(existing_row)
+            if (
+                existing.contract_hash != contract_hash
+                or existing.command_id != command_id
+            ):
+                raise MessageConflict(existing, contract_hash)
+            return existing, False
+
+        now = utc_now()
+        message_id = make_message_id()
+        conn.execute(
+            """
+            INSERT INTO worker_messages (
+                message_id, command_id, project_id, resource_id, task_id, run_id,
+                session_binding_id, checkpoint_id, sender_ref, recipient_ref,
+                mandate_ref, mandate_version, message_class, command_kind,
+                idempotency_key, payload_ref, payload_hash, payload_bytes,
+                requested_state_version, contract_hash, disposition,
+                disposition_reason, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, '', ?, ?)
+            """,
+            (
+                message_id,
+                command_id,
+                project_id,
+                resource_id,
+                task_id,
+                run_id,
+                session_binding_id,
+                checkpoint_id,
+                sender_ref,
+                recipient_ref,
+                mandate_ref,
+                mandate_version,
+                message_class.value,
+                command_kind,
+                idempotency_key,
+                payload_ref,
+                payload_hash,
+                int(payload_bytes),
+                int(requested_state_version),
+                contract_hash,
+                MessageDisposition.RESERVED.value,
+                now,
+                now,
+            ),
+        )
+        created = conn.execute(
+            "SELECT * FROM worker_messages WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        return self._row_to_message(created), True
+
+    def get_message(self, message_id: str) -> WorkerMessageRecord:
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT * FROM worker_messages WHERE message_id = ?", (message_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Worker message not found: {message_id}")
+        return self._row_to_message(row)
+
+    def list_messages(self, *, task_id: str = "") -> list[WorkerMessageRecord]:
+        sql = "SELECT * FROM worker_messages"
+        params: tuple[Any, ...] = ()
+        if task_id:
+            sql += " WHERE task_id = ?"
+            params = (task_id,)
+        sql += " ORDER BY created_at ASC, message_id ASC"
+        with self._read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_message(row) for row in rows]
+
+    @staticmethod
+    def _message_claim_blocker(
+        conn: sqlite3.Connection, message: WorkerMessageRecord
+    ) -> str:
+        blocker = WorkerSubstrateStore._terminal_blocker(conn, message.task_id)
+        if blocker:
+            return blocker
+        task = conn.execute(
+            "SELECT state FROM tasks WHERE task_id = ?", (message.task_id,)
+        ).fetchone()
+        state = str(task["state"])
+        if state in {"cancellation_pending", "recovery_pending", "uncertain"}:
+            return f"task_not_dispatchable:{state}"
+        binding = conn.execute(
+            "SELECT disposition FROM worker_provider_sessions "
+            "WHERE session_binding_id = ?",
+            (message.session_binding_id,),
+        ).fetchone()
+        if binding is None or str(binding["disposition"]) != "bound":
+            return "session_binding_not_bound"
+        if message.checkpoint_id:
+            checkpoint = conn.execute(
+                "SELECT status FROM task_checkpoints WHERE checkpoint_id = ?",
+                (message.checkpoint_id,),
+            ).fetchone()
+            if checkpoint is None or str(checkpoint["status"]) != "open":
+                return "checkpoint_not_open"
+            expired = conn.execute(
+                "SELECT 1 FROM worker_checkpoint_expiries "
+                "WHERE checkpoint_id = ? LIMIT 1",
+                (message.checkpoint_id,),
+            ).fetchone()
+            if expired is not None:
+                return "checkpoint_expired"
+        return ""
+
+    def claim_transport_attempt(
+        self, message_id: str, *, claimer_id: str
+    ) -> tuple[TransportAttemptRecord, bool]:
+        """Claim the sole transport attempt, or return the identical prior claim."""
+        require_opaque(claimer_id, "claimer_id")
+        with self._transaction() as conn:
+            message_row = conn.execute(
+                "SELECT * FROM worker_messages WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if message_row is None:
+                raise KeyError(f"Worker message not found: {message_id}")
+            message = self._row_to_message(message_row)
+
+            existing_row = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+            if existing_row is not None:
+                existing = self._row_to_attempt(existing_row)
+                if existing.claimer_id != claimer_id:
+                    raise EvidenceConflict(
+                        "transport_attempt",
+                        message_id,
+                        "message already claimed by a different sender",
+                    )
+                return existing, False
+
+            if message.disposition is not MessageDisposition.RESERVED:
+                raise AttemptClaimBlocked(
+                    message_id, f"message_disposition:{message.disposition.value}"
+                )
+            blocker = self._message_claim_blocker(conn, message)
+            if blocker:
+                raise AttemptClaimBlocked(message_id, blocker)
+
+            now = utc_now()
+            attempt_id = make_transport_attempt_id()
+            conn.execute(
+                """
+                INSERT INTO worker_transport_attempts (
+                    attempt_id, message_id, claimer_id, attempt_state, reason,
+                    evidence_ref, claimed_at, updated_at, terminal_at
+                ) VALUES (?, ?, ?, ?, '', '', ?, ?, NULL)
+                """,
+                (
+                    attempt_id,
+                    message_id,
+                    claimer_id,
+                    TransportAttemptState.CLAIMED.value,
+                    now,
+                    now,
+                ),
+            )
+            created = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+        return self._row_to_attempt(created), True
+
+    def get_transport_attempt(self, attempt_id: str) -> TransportAttemptRecord:
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Transport attempt not found: {attempt_id}")
+        return self._row_to_attempt(row)
+
+    def list_transport_attempts(
+        self, *, message_id: str = ""
+    ) -> list[TransportAttemptRecord]:
+        sql = "SELECT * FROM worker_transport_attempts"
+        params: tuple[Any, ...] = ()
+        if message_id:
+            sql += " WHERE message_id = ?"
+            params = (message_id,)
+        sql += " ORDER BY claimed_at ASC, attempt_id ASC"
+        with self._read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_attempt(row) for row in rows]
+
+    def record_transport_attempt(
+        self,
+        attempt_id: str,
+        *,
+        state: TransportAttemptState,
+        reason: str = "",
+        evidence_ref: str = "",
+    ) -> TransportAttemptRecord:
+        """Record transport evidence without interpreting canonical lifecycle."""
+        now = utc_now()
+        terminal_states = {
+            TransportAttemptState.ACKNOWLEDGED,
+            TransportAttemptState.REJECTED,
+            TransportAttemptState.PREVENTED,
+        }
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Transport attempt not found: {attempt_id}")
+            record = self._row_to_attempt(row)
+            if record.state in terminal_states:
+                if record.state is not state:
+                    raise EvidenceConflict(
+                        "transport_attempt",
+                        attempt_id,
+                        f"terminal {record.state.value} cannot become {state.value}",
+                    )
+                return record
+            if state is TransportAttemptState.CLAIMED:
+                if record.state is TransportAttemptState.CLAIMED:
+                    return record
+                raise EvidenceConflict(
+                    "transport_attempt",
+                    attempt_id,
+                    f"{record.state.value} cannot return to claimed",
+                )
+            if (
+                record.state is TransportAttemptState.OUTCOME_UNKNOWN
+                and state is TransportAttemptState.OUTCOME_UNKNOWN
+            ):
+                return record
+
+            terminal_at = now if state in terminal_states else None
+            conn.execute(
+                "UPDATE worker_transport_attempts SET attempt_state = ?, reason = ?, "
+                "evidence_ref = ?, updated_at = ?, terminal_at = ? "
+                "WHERE attempt_id = ?",
+                (state.value, reason, evidence_ref, now, terminal_at, attempt_id),
+            )
+
+            disposition_map = {
+                TransportAttemptState.OUTCOME_UNKNOWN: MessageDisposition.UNCERTAIN,
+                TransportAttemptState.ACKNOWLEDGED: MessageDisposition.ACKNOWLEDGED,
+                TransportAttemptState.REJECTED: MessageDisposition.REJECTED,
+                TransportAttemptState.PREVENTED: MessageDisposition.REJECTED,
+            }
+            disposition = disposition_map.get(state)
+            if disposition is not None:
+                message = conn.execute(
+                    "SELECT disposition FROM worker_messages WHERE message_id = ?",
+                    (record.message_id,),
+                ).fetchone()
+                protected = {
+                    MessageDisposition.CANCELLED.value,
+                    MessageDisposition.EXPIRED.value,
+                    MessageDisposition.SUPERSEDED.value,
+                }
+                if message is not None and str(message["disposition"]) not in protected:
+                    conn.execute(
+                        "UPDATE worker_messages SET disposition = ?, "
+                        "disposition_reason = ?, updated_at = ? WHERE message_id = ?",
+                        (disposition.value, reason, now, record.message_id),
+                    )
+
+            updated = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+        return self._row_to_attempt(updated)
+
+    # ------------------------------------------------------------------
+    # legacy v1 interaction delivery
     # ------------------------------------------------------------------
 
     def commit_interaction(
