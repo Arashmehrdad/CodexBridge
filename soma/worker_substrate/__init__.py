@@ -12,9 +12,10 @@ that no existing authority represents:
 - raw provider-native usage events;
 - provider-child PID plus process-start identity.
 
-The package has an internal atomic reservation coordinator but no public gateway
-or provider transport. Importing it does not migrate the live database; only
-constructing :class:`WorkerSubstrateStore` does.
+The package has internal atomic reservation and transition coordinators plus a
+provider-neutral transport port. The default transport is unavailable; only an
+injected deterministic stand-in exists in this package. Importing it does not
+migrate the live database; only constructing :class:`WorkerSubstrateStore` does.
 """
 
 from __future__ import annotations
@@ -23,6 +24,12 @@ from .coordinator import (
     InteractionCoordinator,
     InteractionReservation,
     InteractionStateConflict,
+)
+from .dispatch import (
+    InteractionCapabilityUnsupported,
+    InteractionDispatcher,
+    InteractionDispatchResult,
+    InteractionDispatchUnavailable,
 )
 from .models import (
     CheckpointDeadlinePolicy,
@@ -49,6 +56,16 @@ from .models import (
     usage_dedupe_key,
 )
 from .schema import WORKER_SUBSTRATE_TABLE_NAMES
+from .transport import (
+    DeterministicInteractionTransport,
+    InteractionTransport,
+    InteractionTransportOutcomeUnknown,
+    InteractionTransportRequest,
+    InteractionTransportResult,
+    InteractionTransportUnavailable,
+    TransportDispatchDisposition,
+    UnavailableInteractionTransport,
+)
 from .transitions import (
     InteractionTransitionPolicy,
     ResumeTransitionConflict,
@@ -74,13 +91,23 @@ __all__ = [
     "CheckpointDeadlinePolicy",
     "CheckpointExpiryDisposition",
     "CheckpointExpiryEvent",
+    "DeterministicInteractionTransport",
     "EvidenceConflict",
+    "InteractionCapabilityUnsupported",
     "InteractionConflict",
     "InteractionCoordinator",
+    "InteractionDispatcher",
+    "InteractionDispatchResult",
+    "InteractionDispatchUnavailable",
     "InteractionDelivery",
     "InteractionKind",
     "InteractionReservation",
     "InteractionStateConflict",
+    "InteractionTransport",
+    "InteractionTransportOutcomeUnknown",
+    "InteractionTransportRequest",
+    "InteractionTransportResult",
+    "InteractionTransportUnavailable",
     "InteractionTransitionPolicy",
     "InteractionRecord",
     "MessageClass",
@@ -96,6 +123,8 @@ __all__ = [
     "SessionBindingDisposition",
     "TransportAttemptRecord",
     "TransportAttemptState",
+    "TransportDispatchDisposition",
+    "UnavailableInteractionTransport",
     "UsageEvent",
     "WorkerMessageRecord",
     "WORKER_SUBSTRATE_SCHEMA_COMPONENT",

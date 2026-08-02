@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -261,6 +262,59 @@ class WorkerSubstrateStore:
             raise ValueError("referenced payload content does not match payload_hash")
         return path
 
+    @staticmethod
+    def _verify_payload_target(
+        target: Path,
+        *,
+        digest: str,
+        expected_bytes: int,
+        timeout_seconds: float = 2.0,
+    ) -> None:
+        """Wait briefly for one exact immutable winner after a Windows race.
+
+        The write itself is never retried. A concurrent winner is accepted only
+        after the target is readable, is a regular file, and matches both the
+        expected size and content hash. A mismatched winner fails immediately;
+        transient sharing violations are bounded and become explicit evidence
+        conflicts rather than guessed success.
+        """
+        deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+        last_error = ""
+        while True:
+            try:
+                if target.exists() and not target.is_file():
+                    raise EvidenceConflict(
+                        "worker_payload",
+                        digest,
+                        "content-addressed target exists but is not a regular file",
+                    )
+                if target.is_file():
+                    winner = target.read_bytes()
+                    if len(winner) != int(expected_bytes):
+                        raise EvidenceConflict(
+                            "worker_payload",
+                            digest,
+                            "concurrent target has the wrong byte length",
+                        )
+                    if content_hash(winner) != digest:
+                        raise EvidenceConflict(
+                            "worker_payload",
+                            digest,
+                            "concurrent target does not match the submitted hash",
+                        )
+                    return
+            except EvidenceConflict:
+                raise
+            except OSError as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+
+            if time.monotonic() >= deadline:
+                detail = "content-addressed target did not become readable"
+                if last_error:
+                    detail += f"; last error: {last_error}"
+                raise EvidenceConflict("worker_payload", digest, detail)
+            time.sleep(0.01)
+
     def put_payload(self, payload: bytes | str) -> PayloadReference:
         """Store interaction bytes content-addressed, outside the database."""
         data = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
@@ -274,24 +328,18 @@ class WorkerSubstrateStore:
                 try:
                     os.replace(tmp, target)
                 except OSError:
-                    # On Windows two identical writers may both observe the
-                    # target as absent, after which the losing replace is denied
-                    # because the winner already installed the immutable blob.
-                    # Accept only an exact content-addressed winner; any missing,
-                    # non-file, wrong-sized, or wrong-hash target remains a hard
-                    # evidence conflict rather than a blind retry or overwrite.
-                    if not target.is_file():
-                        raise
-                    winner = target.read_bytes()
-                    if len(winner) != len(data) or content_hash(winner) != digest:
-                        raise EvidenceConflict(
-                            "worker_payload",
-                            digest,
-                            "concurrent target does not match the submitted bytes",
-                        )
+                    # A competing writer may have installed the same immutable
+                    # target but Windows can keep it briefly unreadable. Verify
+                    # that winner below; never retry or overwrite the target.
+                    pass
             finally:
                 if tmp.exists():
                     tmp.unlink()
+        self._verify_payload_target(
+            target,
+            digest=digest,
+            expected_bytes=len(data),
+        )
         return PayloadReference(
             ref=f"{PAYLOAD_REFERENCE_PREFIX}{digest}",
             payload_hash=digest,
