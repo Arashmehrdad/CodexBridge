@@ -4,9 +4,9 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` passed its complete source, restart, connector, live-scenario, integrity, and clean-preflight acceptance audit and is closed. `V3-1A-INTERACTION-COMMANDS-1` is now the sole active implementation package under the accepted interaction-foundation architecture. Real provider execution and every later V3 outcome remain paused. Reliability evidence remains in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md), and the interaction architecture acceptance is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md).
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` is closed. `V3-1A — INTERACTIVE WORKER SUBSTRATE` has passed its source acceptance gate through checkpoint expiry and recovery closure and is closed in source; runtime activation remains a later controlled operational gate. The sole active package is the documentation-only `V3-1B — KERNEL OF ONE ARCHITECTURE GATE`. Real provider execution, V3-1B implementation, and every later V3 outcome remain inactive. Reliability evidence remains in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md), V3-1A completion is [`docs/V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md`](docs/V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md), and the active gate is [`docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md).
 
-The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
+The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The completed V3-1A lane contract remains [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md); the active documentation-only gate is [`docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md).
 
 Historical records:
 
@@ -38,6 +38,8 @@ The active development agent owns routine engineering acceptance. At every packa
 
 Owner instruction is required only for a genuine product-direction choice, an unresolved risk or failed acceptance gate, an irreversible external action, production activation, deployment, purchase, credential/account action, push, or a scope change not already authorised by this roadmap. Silence or missing ceremony is never a reason to leave accepted engineering work parked.
 
+After every accepted slice, material incident, acceptance decision, or roadmap transition, the development agent must update the authoritative result/gate documents and this plan, commit those records locally, and refresh canonical repository knowledge before beginning the next implementation package. Chat history alone is not accepted as project memory.
+
 ## Governing Boundaries
 
 - Soma remains the independent durable, project-aware control plane.
@@ -60,17 +62,25 @@ Owner instruction is required only for a genuine product-direction choice, an un
 - Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
 - Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
 
-## Active Lane: V3-1A — Interaction Commands Foundation
+## Active Lane: V3-1B — Kernel of One Architecture Gate
 
-**Status:** active and the sole implementation package. The adversarial interaction-foundation architecture review is independently accepted. The binding audit and corrected scope are in [`docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md), and the implementation gate is [`docs/V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](docs/V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md).
+**Status:** active and documentation-only. V3-1B product implementation is not yet authorised. The binding gate is [`docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](docs/V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md).
 
-**Goal:** implement the smallest durable controller-communication substrate inside the existing canonical Task → Run authority: atomic command/message reservation, complete contract identity, one transport-attempt claim, non-terminal controller waiting, evidence-proven resume, central cancellation/expiry/supersession precedence, and narrow public `steer`/`supply_input` commands using deterministic stand-in transport only.
+**Goal:** design and independently audit the smallest useful company kernel with one executive role: Company, Mission, one-current immutable PlanRevision, bounded WorkPackages, route-independent outcomes, route-specific canonical Task attempts, and one crash-safe AcceptanceCommit over an exact published result hash.
 
-**Method:** extend shared SQLite authority additively; preserve canonical Task, Run, ProjectScope, lock, cancellation, and publication ownership; keep informational messages lifecycle-inert; forbid blind resend of uncertain attempts; validate focused crash/race evidence before adjacent compatibility gates.
+**Method:** preserve ProjectScope, Task, Run, process, lock, interaction, and ResultPublication authority; add only irreducible company-domain facts; prove transaction, replay, supersession, outcome-concurrency, and acceptance boundaries before any implementation.
 
-**Progress:** the canonical command, complete-contract message reservation, and single-claimer transport-attempt foundation is accepted at commits `f6ba7ec42d9c5e1b59a26520a08abf130b1412ce` and `02ebc01a815bba309789871fa94160905308292e`; evidence is [`docs/V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md`](docs/V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md). Atomic non-terminal wait and acknowledgement-driven resume are accepted at commits `c89ead7f173a1d93bdfd961824db523dc4f70489` and `ac490f2f040251c83373afdb7e529389ec653cc5`; evidence is [`docs/V3_1A_INTERACTION_WAIT_RESUME_RESULT_2026-08-02.md`](docs/V3_1A_INTERACTION_WAIT_RESUME_RESULT_2026-08-02.md). Deterministic single-claimer dispatch and strict public `steer`/`supply_input` actions are accepted at commit `06d75ca197eb43fc9a356e1a7f9315241d0e7193`; evidence is [`docs/V3_1A_DETERMINISTIC_INTERACTION_ACTIONS_RESULT_2026-08-02.md`](docs/V3_1A_DETERMINISTIC_INTERACTION_ACTIONS_RESULT_2026-08-02.md). The active final slice is checkpoint expiry, recovery-window classification, cancellation-race closure, and the final V3-1A authority audit. Real provider execution remains inactive.
+**Boundaries:** no V3-1B product code, real provider launch, worker-facing Soma MCP, departments, permanent teams, scheduled autonomy, external business mutation, production activation, deployment, or push until the architecture gate passes independent audit.
 
-**Exit:** the corrected gate passes, authority-delta audit confirms no new generic lifecycle manager, evidence and result documentation are complete, the worktree is clean, and nothing is pushed. The development agent then audits and proceeds under the Engineering Progression Procedure.
+**Exit:** repository-grounded architecture proposal plus independent acceptance audit. An accepted audit may activate a bounded V3-1B implementation gate under the Engineering Progression Procedure.
+
+## Completed Lane: V3-1A — Interactive Worker Substrate
+
+**Status:** accepted and closed in source on 2026-08-02. Runtime activation remains pending a later controlled restart and connector refresh; no live-source claim is made before that gate.
+
+**Result:** exact provider-session evidence, sanitised stand-in process identity, zero-orphan cancellation, non-terminal controller waiting, atomic `steer`/`supply_input`, single-claimer delivery, acknowledgement-proven resume, bounded checkpoint expiry, explicit recovery windows, canonical backend cancellation delegation, and race closure all passed without adding a second lifecycle authority. Final implementation commit: `bf455b1da14f1fd5f959483444efa66662a78844`. Full evidence is [`docs/V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md`](docs/V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md).
+
+**Activation boundary:** the running Soma service remains on the prior build. Real provider execution and production activation remain inactive.
 
 ## Completed Lane: RELIABILITY-1 — Existing Runtime Hardening
 

@@ -257,8 +257,12 @@ The authoritative organisational model is [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_OR
 
 The package [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md) passed independent audit. The accepted transaction, delivery-attempt, wait/resume, message-class, identity, and precedence contract is recorded in [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md).
 
-### V3-1A-INTERACTION-COMMANDS-1 — active
+### V3-1A-INTERACTION-COMMANDS-1 — accepted and closed
 
-The implementation gate is [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It is reactivated around the smallest durable communication substrate and must implement the acceptance-audit corrections before any real provider package.
+The implementation gate [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md) is complete through atomic reservation, single-claimer delivery, non-terminal waiting, acknowledgement-driven resume, strict public commands, checkpoint expiry, backend cancellation delegation, recovery classification, and race closure. Final implementation commit: `bf455b1da14f1fd5f959483444efa66662a78844`. Completion evidence is [`V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md`](V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md).
 
-Real providers, permanent teams, broad capability delegation, V3-1B work, and production activation remain later and inactive.
+### V3-1A parent lane — accepted and closed in source
+
+The accepted V3-1A packages collectively satisfy the interactive-substrate source gate without adding a second lifecycle authority. Runtime activation and real provider execution remain separate, inactive operational decisions.
+
+The next roadmap package is the documentation-only [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md). V3-1B implementation, permanent teams, broad capability delegation, production activation, and push remain inactive.

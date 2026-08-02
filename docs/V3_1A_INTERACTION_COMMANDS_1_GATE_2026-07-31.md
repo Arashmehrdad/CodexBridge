@@ -1,7 +1,7 @@
 # V3-1A-INTERACTION-COMMANDS-1 — Canonical Controller Interaction and Non-Terminal Waiting
 
 **Date:** 2026-07-31
-**Status:** active; sole implementation package.
+**Status:** accepted and closed in source. Completion: [`V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md`](V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md).
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
 **Depends on:** accepted process-identity foundation, the owner-accepted hierarchical-intelligence contract, accepted [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md), and its binding [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md)
 **Activation baseline:** `dc24bcd2642e7c15b6ff524ec0edea500daf93d5`
@@ -79,16 +79,20 @@ Completed:
 - fresh-process import-order repair and permanent regression;
 - full repository regression floor of 2657 passed, 35 skipped, and 1 expected xfail.
 
-Active final slice:
+The final expiry/recovery slice is accepted and closed at commit `bf455b1da14f1fd5f959483444efa66662a78844`. Its completion and parent-lane audit is [`V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md`](V3_1A_INTERACTION_COMMANDS_1_COMPLETION_2026-08-02.md).
+
+Completed:
 
 - one central idempotent checkpoint-expiry processor;
-- canonical pause or cancellation request through existing process authority where required;
-- no ownership release without accepted quiescence or zero-descendant proof;
-- exact recovery classification for every pending, claimed, uncertain, acknowledged, resolved, and in-flight expiry window;
-- final cancellation-before-send, cancellation-during-send, late-acknowledgement, and late-input race closure;
-- final V3-1A authority-delta and completion audit.
+- explicit recovery classification for pending, claimed, uncertain, acknowledged, resolved, rejected, and in-flight windows;
+- atomic checkpoint expiry, message expiry, canonical cancellation reservation, and correlated Task/Run evidence;
+- cancellation delegation through the existing durable backend authority;
+- no ownership release from the expiry coordinator;
+- restart repair after expiry-before-delegation;
+- cancellation-before-send, cancellation-during-send, late-acknowledgement, late-input, stale-version, and replay closure;
+- focused, adjacent, public-contract, full-repository, static, dependency, and authority gates.
 
-Real provider execution remains inactive throughout this final internal slice.
+Final full regression: **2673 passed, 35 skipped, 1 expected xfail**. Real provider execution remains inactive and the running service remains on the prior build.
 
 ## 2. Existing authorities that remain canonical
 
