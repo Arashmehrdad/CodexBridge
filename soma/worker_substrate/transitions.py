@@ -18,6 +18,7 @@ from soma.run_store import RunStore, TERMINAL_STATUSES
 from soma.tasks.models import (
     TaskCheckpoint,
     TaskCheckpointStatus,
+    TaskCommandStatus,
     TaskEventLevel,
     TaskPhase,
     TaskRecord,
@@ -30,6 +31,9 @@ from soma.tasks.store import TaskStore
 from .models import (
     CheckpointDeadline,
     CheckpointDeadlinePolicy,
+    MessageClass,
+    MessageDisposition,
+    TransportAttemptState,
     canonical_json,
     require_opaque,
 )
@@ -40,12 +44,31 @@ WAIT_CONTRACT_REFERENCE_PREFIX = "worker_wait_contract:"
 WAIT_CONTRACT_VERSION = "worker_wait.v1"
 
 
+class ResumeTransitionConflict(ValueError):
+    """Acknowledged input cannot safely resume the canonical execution."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class WaitTransitionConflict(ValueError):
     """The requested wait transition conflicts with canonical durable state."""
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class ResumeTransitionResult:
+    task: TaskRecord
+    run: dict[str, Any]
+    checkpoint: TaskCheckpoint
+    message_id: str
+    attempt_id: str
+    acknowledgement_evidence_ref: str
+    created: bool
 
 
 @dataclass(frozen=True)
@@ -365,5 +388,337 @@ class InteractionTransitionPolicy:
             checkpoint=checkpoint,
             deadline=deadline,
             contract_hash=contract_hash,
+            created=True,
+        )
+
+    def resume_after_acknowledgement(
+        self,
+        *,
+        message_id: str,
+        expected_task_state_version: int,
+        expected_run_state_version: int,
+    ) -> ResumeTransitionResult:
+        """Resume one exact wait after durable, evidence-bearing input acceptance."""
+        require_opaque(message_id, "message_id")
+        if int(expected_task_state_version) < 0:
+            raise ValueError("expected_task_state_version must be non-negative")
+        if int(expected_run_state_version) < 0:
+            raise ValueError("expected_run_state_version must be non-negative")
+        transition_at = utc_now()
+        transition_time = self._parse_timestamp(transition_at, "transition_at")
+
+        with self.task_store.transaction() as conn:
+            message_row = conn.execute(
+                "SELECT * FROM worker_messages WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+            if message_row is None:
+                raise KeyError(f"Worker message not found: {message_id}")
+            message = self.substrate_store._row_to_message(message_row)
+            if message.command_kind != "supply_input":
+                raise ResumeTransitionConflict(
+                    "only an acknowledged supply_input command may resolve a checkpoint"
+                )
+            if message.message_class not in {
+                MessageClass.COMMAND,
+                MessageClass.DECISION,
+            }:
+                raise ResumeTransitionConflict(
+                    "informational message classes cannot resume canonical work"
+                )
+            if not message.checkpoint_id:
+                raise ResumeTransitionConflict(
+                    "supply_input message has no exact checkpoint identity"
+                )
+            if message.disposition is not MessageDisposition.ACKNOWLEDGED:
+                raise ResumeTransitionConflict(
+                    f"message is {message.disposition.value}, not acknowledged"
+                )
+
+            attempt_row = conn.execute(
+                "SELECT * FROM worker_transport_attempts WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+            if attempt_row is None:
+                raise ResumeTransitionConflict(
+                    "acknowledged message has no durable transport attempt"
+                )
+            attempt = self.substrate_store._row_to_attempt(attempt_row)
+            if attempt.state is not TransportAttemptState.ACKNOWLEDGED:
+                raise ResumeTransitionConflict(
+                    f"transport attempt is {attempt.state.value}, not acknowledged"
+                )
+            if not attempt.evidence_ref:
+                raise ResumeTransitionConflict(
+                    "acknowledgement has no durable evidence reference"
+                )
+
+            self.substrate_store._require_canonical_task_run_scope(
+                conn,
+                project_id=message.project_id,
+                resource_id=message.resource_id,
+                task_id=message.task_id,
+                run_id=message.run_id,
+            )
+            binding = self.substrate_store._require_binding_identity(
+                conn,
+                message.session_binding_id,
+                task_id=message.task_id,
+                run_id=message.run_id,
+            )
+            if str(binding["disposition"]) != "bound":
+                raise ResumeTransitionConflict(
+                    "provider session binding is not durably bound"
+                )
+
+            task = self.task_store.get_task_in_connection(conn, message.task_id)
+            run = self.run_store.get_run_in_connection(conn, message.run_id)
+            checkpoint = self.task_store.get_checkpoint_in_connection(
+                conn, message.checkpoint_id
+            )
+            command_row = conn.execute(
+                "SELECT * FROM task_commands WHERE command_id = ?",
+                (message.command_id,),
+            ).fetchone()
+            if command_row is None:
+                raise CanonicalBindingMismatch(
+                    f"canonical command not found: {message.command_id}"
+                )
+            command_status = str(command_row["status"])
+
+            if (
+                checkpoint.status is TaskCheckpointStatus.RESOLVED
+                and task.state is TaskState.RUNNING
+                and task.phase is TaskPhase.BACKEND_RUNNING
+                and not task.checkpoint_ref
+                and run["status"] == "running"
+                and run["current_phase"] == "backend_running"
+                and not bool(run["requires_human"])
+                and command_status == TaskCommandStatus.COMPLETED.value
+            ):
+                event_row = conn.execute(
+                    "SELECT 1 FROM task_events WHERE task_id = ? "
+                    "AND stage = 'controller_resumed' "
+                    "AND json_extract(data_json, '$.message_id') = ? LIMIT 1",
+                    (message.task_id, message_id),
+                ).fetchone()
+                if event_row is None:
+                    raise EvidenceConflict(
+                        "controller_resume",
+                        message_id,
+                        "canonical state is resumed without its exact event evidence",
+                    )
+                return ResumeTransitionResult(
+                    task=task,
+                    run=run,
+                    checkpoint=checkpoint,
+                    message_id=message_id,
+                    attempt_id=attempt.attempt_id,
+                    acknowledgement_evidence_ref=attempt.evidence_ref,
+                    created=False,
+                )
+
+            if task.state is not TaskState.AWAITING_CONTROLLER:
+                raise ResumeTransitionConflict(
+                    f"task is {task.state.value}, not awaiting_controller"
+                )
+            if task.phase is not TaskPhase.AWAITING_CONTROLLER:
+                raise ResumeTransitionConflict(
+                    "task phase is not awaiting_controller"
+                )
+            if int(task.state_version) != int(expected_task_state_version):
+                raise ResumeTransitionConflict(
+                    "task state version changed before acknowledged resume"
+                )
+            if task.checkpoint_ref != message.checkpoint_id:
+                raise ResumeTransitionConflict(
+                    "task checkpoint does not match acknowledged input"
+                )
+            if run["status"] != "awaiting_controller":
+                raise ResumeTransitionConflict(
+                    f"run is {run['status']}, not awaiting_controller"
+                )
+            if run["current_phase"] != "awaiting_controller":
+                raise ResumeTransitionConflict(
+                    "run phase is not awaiting_controller"
+                )
+            if int(run["state_version"]) != int(expected_run_state_version):
+                raise ResumeTransitionConflict(
+                    "run state version changed before acknowledged resume"
+                )
+            if not bool(run["requires_human"]):
+                raise ResumeTransitionConflict(
+                    "run no longer projects a controller-input wait"
+                )
+            if run["ended_at"] is not None or run["result"]:
+                raise ResumeTransitionConflict(
+                    "terminal run evidence forbids non-terminal resume"
+                )
+            if run["result_publication_status"] != "not_published":
+                raise ResumeTransitionConflict(
+                    "result publication state forbids non-terminal resume"
+                )
+            if not str(run["worker_lease_token"] or ""):
+                raise ResumeTransitionConflict(
+                    "run has no canonical worker lease token"
+                )
+            if int(run["lease_generation"] or 0) < 1:
+                raise ResumeTransitionConflict(
+                    "run has no canonical worker lease generation"
+                )
+            if int(run["worker_pid"] or 0) <= 0 or not str(
+                run["worker_identity"] or ""
+            ):
+                raise ResumeTransitionConflict(
+                    "run has no PID-reuse-resistant worker identity"
+                )
+            if checkpoint.task_id != message.task_id:
+                raise CanonicalBindingMismatch(
+                    "checkpoint does not belong to acknowledged task"
+                )
+            if checkpoint.status is not TaskCheckpointStatus.OPEN:
+                raise ResumeTransitionConflict(
+                    f"checkpoint is {checkpoint.status.value}, not open"
+                )
+            if checkpoint.required_state_version != task.state_version:
+                raise ResumeTransitionConflict(
+                    "checkpoint required state version is stale"
+                )
+            if message.requested_state_version != task.state_version:
+                raise ResumeTransitionConflict(
+                    "input command targeted a different task state version"
+                )
+
+            deadline_row = conn.execute(
+                "SELECT * FROM worker_checkpoint_deadlines "
+                "WHERE checkpoint_id = ?",
+                (message.checkpoint_id,),
+            ).fetchone()
+            if deadline_row is None:
+                raise EvidenceConflict(
+                    "controller_resume",
+                    message.checkpoint_id,
+                    "checkpoint has no durable deadline",
+                )
+            deadline = CheckpointDeadline.model_validate(dict(deadline_row))
+            if deadline.session_binding_id != message.session_binding_id:
+                raise CanonicalBindingMismatch(
+                    "checkpoint deadline session does not match acknowledged input"
+                )
+            if deadline.deadline_policy is CheckpointDeadlinePolicy.BOUNDED:
+                deadline_time = self._parse_timestamp(
+                    deadline.deadline_at, "deadline_at"
+                )
+                if transition_time >= deadline_time:
+                    raise ResumeTransitionConflict(
+                        "checkpoint deadline expired before canonical resume"
+                    )
+            expiry = conn.execute(
+                "SELECT 1 FROM worker_checkpoint_expiries "
+                "WHERE checkpoint_id = ? LIMIT 1",
+                (message.checkpoint_id,),
+            ).fetchone()
+            if expiry is not None:
+                raise ResumeTransitionConflict(
+                    "checkpoint expiry evidence outranks acknowledgement"
+                )
+            superseded = conn.execute(
+                "SELECT 1 FROM task_links WHERE link_type = 'supersedes' "
+                "AND target_kind = 'task' AND target_id = ? LIMIT 1",
+                (message.task_id,),
+            ).fetchone()
+            if superseded is not None:
+                raise ResumeTransitionConflict(
+                    "task supersession outranks acknowledged input"
+                )
+
+            resolved_checkpoint = self.task_store.resolve_checkpoint_in_connection(
+                conn,
+                message.checkpoint_id,
+                task_id=message.task_id,
+                required_state_version=task.state_version,
+                resolved_at=transition_at,
+            )
+            completed_command = self.task_store.complete_command_in_connection(
+                conn,
+                message.command_id,
+                status=TaskCommandStatus.COMPLETED,
+                reason="acknowledged input resumed the exact checkpoint",
+                completed_at=transition_at,
+            )
+            if completed_command.task_id != message.task_id:
+                raise CanonicalBindingMismatch(
+                    "completed command does not belong to acknowledged task"
+                )
+
+            updated_task = self.task_store.conditional_update_in_connection(
+                conn,
+                message.task_id,
+                fields={
+                    "state": TaskState.RUNNING.value,
+                    "phase": TaskPhase.BACKEND_RUNNING.value,
+                    "checkpoint_ref": "",
+                },
+                expected_state_version=int(expected_task_state_version),
+                expected_states=(TaskState.AWAITING_CONTROLLER.value,),
+            )
+            if updated_task is None:
+                raise ResumeTransitionConflict(
+                    "task changed during acknowledged resume"
+                )
+            updated_run = self.run_store.conditional_update_in_connection(
+                conn,
+                message.run_id,
+                fields={
+                    "status": "running",
+                    "current_phase": "backend_running",
+                    "requires_human": False,
+                    "heartbeat_at": transition_at,
+                    "ended_at": None,
+                },
+                expected_statuses=("awaiting_controller",),
+                expected_state_version=int(expected_run_state_version),
+                reject_terminal=True,
+            )
+            if updated_run is None:
+                raise ResumeTransitionConflict(
+                    "run changed during acknowledged resume"
+                )
+
+            event_data = {
+                "checkpoint_id": message.checkpoint_id,
+                "message_id": message_id,
+                "attempt_id": attempt.attempt_id,
+                "session_binding_id": message.session_binding_id,
+                "acknowledgement_evidence_ref": attempt.evidence_ref,
+            }
+            self.task_store.append_event_in_connection(
+                conn,
+                message.task_id,
+                level=TaskEventLevel.INFO,
+                stage="controller_resumed",
+                message="Task resumed from acknowledged controller input",
+                state=TaskState.RUNNING.value,
+                state_version=updated_task.state_version,
+                data=event_data,
+                timestamp=transition_at,
+            )
+            self.run_store.append_event_in_connection(
+                conn,
+                message.run_id,
+                level="info",
+                stage="controller_resumed",
+                message="Run resumed from acknowledged controller input",
+                data=event_data,
+                timestamp=transition_at,
+            )
+
+        return ResumeTransitionResult(
+            task=updated_task,
+            run=updated_run,
+            checkpoint=resolved_checkpoint,
+            message_id=message_id,
+            attempt_id=attempt.attempt_id,
+            acknowledgement_evidence_ref=attempt.evidence_ref,
             created=True,
         )

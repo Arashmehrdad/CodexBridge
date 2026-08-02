@@ -51,6 +51,8 @@ from .models import (
 from .schema import WORKER_SUBSTRATE_TABLE_NAMES
 from .transitions import (
     InteractionTransitionPolicy,
+    ResumeTransitionConflict,
+    ResumeTransitionResult,
     WaitTransitionConflict,
     WaitTransitionResult,
 )
@@ -88,6 +90,8 @@ __all__ = [
     "ProviderChildProcessRecord",
     "ProviderChildRole",
     "ProviderSessionBinding",
+    "ResumeTransitionConflict",
+    "ResumeTransitionResult",
     "SessionBindingConflict",
     "SessionBindingDisposition",
     "TransportAttemptRecord",

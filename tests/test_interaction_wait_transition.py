@@ -7,15 +7,29 @@ from pathlib import Path
 
 import pytest
 
+import soma.worker_substrate.transitions as transitions_module
 from soma.operation_locks import OperationLockStore
 from soma.run_public_result import NormalizedOutcome, normalized_outcome
 from soma.run_publication import materialize_public_result
 from soma.run_store import NON_TERMINAL_WAITING_STATUSES, TERMINAL_STATUSES, RunStore
-from soma.tasks.models import TaskPhase, TaskState
+from soma.tasks.models import (
+    TaskCommandKind,
+    TaskCommandStatus,
+    TaskLinkTargetKind,
+    TaskLinkType,
+    TaskPhase,
+    TaskState,
+)
 from soma.tasks.store import TaskStore
 from soma.worker_substrate import (
     CanonicalBindingMismatch,
+    CheckpointExpiryDisposition,
+    InteractionCoordinator,
     InteractionTransitionPolicy,
+    MessageClass,
+    ResumeTransitionConflict,
+    SessionBindingDisposition,
+    TransportAttemptState,
     WaitTransitionConflict,
     WorkerSubstrateStore,
 )
@@ -67,6 +81,11 @@ def waiting_fixture(tmp_path: Path):
             "current_phase": "backend_running",
             "started_at": STARTED_AT,
             "heartbeat_at": STARTED_AT,
+            "worker_pid": 54321,
+            "worker_identity": "54321:windows:1785693600000000000",
+            "worker_lease_token": "worker-lease-token",
+            "lease_generation": 1,
+            "worker_claimed_at": STARTED_AT,
         },
         expected_statuses=(str(run["status"]),),
         expected_state_version=int(run["state_version"]),
@@ -118,6 +137,45 @@ def _enter(fixture, **overrides):
     }
     request.update(overrides)
     return fixture["policy"].enter_waiting(**request)
+
+
+def _reserve_input(waiting_fixture, **message_overrides):
+    waiting = _enter(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    coordinator = InteractionCoordinator(waiting_fixture["runs_dir"])
+    request = {
+        "project_id": PROJECT_ID,
+        "resource_id": RESOURCE_ID,
+        "task_id": waiting_fixture["task_id"],
+        "run_id": DEFAULT_RUN_ID,
+        "session_binding_id": waiting_fixture["binding"].session_binding_id,
+        "command_kind": TaskCommandKind.SUPPLY_INPUT,
+        "idempotency_key": "supply-input-1",
+        "sender_ref": "controller:chatgpt",
+        "recipient_ref": "worker:provider-session",
+        "payload": "continue",
+        "requested_state_version": task.state_version,
+        "message_class": MessageClass.DECISION,
+        "checkpoint_id": waiting.checkpoint.checkpoint_id,
+    }
+    request.update(message_overrides)
+    return waiting, coordinator.reserve(**request)
+
+
+def _wait_and_acknowledge(waiting_fixture, **message_overrides):
+    waiting, reservation = _reserve_input(waiting_fixture, **message_overrides)
+    attempt, created = waiting_fixture["substrate"].claim_transport_attempt(
+        reservation.message.message_id,
+        claimer_id="sender:deterministic-stand-in",
+    )
+    assert created is True
+    acknowledged = waiting_fixture["substrate"].record_transport_attempt(
+        attempt.attempt_id,
+        state=TransportAttemptState.ACKNOWLEDGED,
+        reason="deterministic stand-in accepted exact input",
+        evidence_ref="transport_ack:stand-in:1",
+    )
+    return waiting, reservation, acknowledged
 
 
 def test_waiting_is_distinct_from_historical_terminal_needs_input() -> None:
@@ -422,3 +480,389 @@ def test_historical_needs_input_run_is_not_reinterpreted(waiting_fixture):
     assert waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)["status"] == (
         "needs_input"
     )
+
+
+def test_acknowledged_input_resumes_the_same_task_run_session_and_lock(
+    waiting_fixture,
+):
+    _waiting, reservation, acknowledged = _wait_and_acknowledge(waiting_fixture)
+    waiting_task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    waiting_run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    identity = {
+        key: waiting_run[key]
+        for key in (
+            "worker_pid",
+            "worker_identity",
+            "worker_lease_token",
+            "lease_generation",
+            "launcher_pid",
+            "launcher_identity",
+        )
+    }
+
+    resumed = waiting_fixture["policy"].resume_after_acknowledgement(
+        message_id=reservation.message.message_id,
+        expected_task_state_version=waiting_task.state_version,
+        expected_run_state_version=waiting_run["state_version"],
+    )
+
+    assert resumed.created is True
+    assert resumed.task.task_id == waiting_task.task_id
+    assert resumed.task.backend_ref == DEFAULT_RUN_ID
+    assert resumed.task.state is TaskState.RUNNING
+    assert resumed.task.phase is TaskPhase.BACKEND_RUNNING
+    assert resumed.task.checkpoint_ref == ""
+    assert resumed.task.state_version == waiting_task.state_version + 1
+    assert resumed.run["run_id"] == DEFAULT_RUN_ID
+    assert resumed.run["status"] == "running"
+    assert resumed.run["current_phase"] == "backend_running"
+    assert resumed.run["requires_human"] is False
+    assert resumed.run["state_version"] == waiting_run["state_version"] + 1
+    assert resumed.run["ended_at"] is None
+    assert resumed.run["result"] == {}
+    assert resumed.run["result_publication_status"] == "not_published"
+    assert {key: resumed.run[key] for key in identity} == identity
+    assert resumed.checkpoint.status.value == "resolved"
+    assert resumed.message_id == reservation.message.message_id
+    assert resumed.attempt_id == acknowledged.attempt_id
+    assert resumed.acknowledgement_evidence_ref == "transport_ack:stand-in:1"
+
+    command = waiting_fixture["task_store"].list_commands(
+        waiting_fixture["task_id"]
+    )[-1]
+    assert command.command_id == reservation.command.command_id
+    assert command.status is TaskCommandStatus.COMPLETED
+    assert waiting_fixture["locks"].find_lock("soma", DEFAULT_RUN_ID) is not None
+    assert len(
+        waiting_fixture["substrate"].list_transport_attempts(
+            message_id=reservation.message.message_id
+        )
+    ) == 1
+    with pytest.raises(ValueError, match="Run is not terminal"):
+        materialize_public_result(waiting_fixture["run_store"], DEFAULT_RUN_ID)
+
+
+def test_resume_replay_is_idempotent_and_never_resends(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    waiting_task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    waiting_run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    first = waiting_fixture["policy"].resume_after_acknowledgement(
+        message_id=reservation.message.message_id,
+        expected_task_state_version=waiting_task.state_version,
+        expected_run_state_version=waiting_run["state_version"],
+    )
+    task_event_count = len(
+        waiting_fixture["task_store"].list_events(waiting_fixture["task_id"], limit=50)
+    )
+    run_event_count = len(
+        waiting_fixture["run_store"].get_events(DEFAULT_RUN_ID, limit=50)
+    )
+
+    replay = waiting_fixture["policy"].resume_after_acknowledgement(
+        message_id=reservation.message.message_id,
+        expected_task_state_version=waiting_task.state_version,
+        expected_run_state_version=waiting_run["state_version"],
+    )
+
+    assert first.created is True
+    assert replay.created is False
+    assert replay.attempt_id == first.attempt_id
+    assert len(
+        waiting_fixture["substrate"].list_transport_attempts(
+            message_id=reservation.message.message_id
+        )
+    ) == 1
+    assert len(
+        waiting_fixture["task_store"].list_events(waiting_fixture["task_id"], limit=50)
+    ) == task_event_count
+    assert len(
+        waiting_fixture["run_store"].get_events(DEFAULT_RUN_ID, limit=50)
+    ) == run_event_count
+
+
+def test_concurrent_duplicate_resume_calls_converge_without_duplicate_events(
+    waiting_fixture,
+):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    waiting_task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    waiting_run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(
+                waiting_fixture["policy"].resume_after_acknowledgement,
+                message_id=reservation.message.message_id,
+                expected_task_state_version=waiting_task.state_version,
+                expected_run_state_version=waiting_run["state_version"],
+            )
+            for _index in range(2)
+        ]
+    results = [future.result() for future in futures]
+
+    assert sorted(result.created for result in results) == [False, True]
+    assert len({result.attempt_id for result in results}) == 1
+    task_events = [
+        event
+        for event in waiting_fixture["task_store"].list_events(
+            waiting_fixture["task_id"], limit=50
+        )
+        if event.stage == "controller_resumed"
+    ]
+    run_events = [
+        event
+        for event in waiting_fixture["run_store"].get_events(
+            DEFAULT_RUN_ID, limit=50
+        )
+        if event["stage"] == "controller_resumed"
+    ]
+    assert len(task_events) == 1
+    assert len(run_events) == 1
+
+
+def test_restart_after_acknowledgement_repairs_only_local_resume(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    waiting_task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    waiting_run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+
+    restarted_policy = InteractionTransitionPolicy(waiting_fixture["runs_dir"])
+    resumed = restarted_policy.resume_after_acknowledgement(
+        message_id=reservation.message.message_id,
+        expected_task_state_version=waiting_task.state_version,
+        expected_run_state_version=waiting_run["state_version"],
+    )
+
+    assert resumed.created is True
+    assert resumed.task.state is TaskState.RUNNING
+    assert len(
+        restarted_policy.substrate_store.list_transport_attempts(
+            message_id=reservation.message.message_id
+        )
+    ) == 1
+
+
+def test_outcome_unknown_and_informational_messages_cannot_resume(waiting_fixture):
+    _waiting, reservation = _reserve_input(waiting_fixture)
+    attempt, _created = waiting_fixture["substrate"].claim_transport_attempt(
+        reservation.message.message_id,
+        claimer_id="sender:deterministic-stand-in",
+    )
+    waiting_fixture["substrate"].record_transport_attempt(
+        attempt.attempt_id,
+        state=TransportAttemptState.OUTCOME_UNKNOWN,
+        reason="dispatch outcome cannot be proven",
+    )
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    with pytest.raises(ResumeTransitionConflict, match="not acknowledged"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+    # A fresh fixture proves that durable acknowledgement does not make an
+    # informational report resumptive.
+
+
+def test_acknowledged_progress_report_is_lifecycle_inert(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(
+        waiting_fixture,
+        message_class=MessageClass.PROGRESS_REPORT,
+    )
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    with pytest.raises(ResumeTransitionConflict, match="informational"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+    assert waiting_fixture["task_store"].get_task(
+        waiting_fixture["task_id"]
+    ).state is TaskState.AWAITING_CONTROLLER
+
+
+def test_cancellation_after_acknowledgement_outranks_resume(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    cancelled_task = waiting_fixture["task_store"].conditional_update(
+        waiting_fixture["task_id"],
+        fields={"state": TaskState.CANCELLATION_PENDING.value},
+        expected_state_version=task.state_version,
+        expected_states=(TaskState.AWAITING_CONTROLLER.value,),
+    )
+    cancelled_run = waiting_fixture["run_store"].conditional_update(
+        DEFAULT_RUN_ID,
+        fields={"status": "cancellation_pending"},
+        expected_statuses=("awaiting_controller",),
+        expected_state_version=run["state_version"],
+    )
+    assert cancelled_task is not None and cancelled_run is not None
+
+    with pytest.raises(ResumeTransitionConflict, match="cancellation_pending"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=cancelled_task.state_version,
+            expected_run_state_version=cancelled_run["state_version"],
+        )
+    with waiting_fixture["task_store"]._read() as conn:
+        checkpoint = waiting_fixture["task_store"].get_checkpoint_in_connection(
+            conn, reservation.message.checkpoint_id
+        )
+    assert checkpoint.status.value == "open"
+
+
+def test_expiry_and_supersession_outrank_acknowledgement(
+    waiting_fixture, monkeypatch
+):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    monkeypatch.setattr(
+        transitions_module,
+        "utc_now",
+        lambda: "2036-08-02T19:00:00+00:00",
+    )
+    with pytest.raises(ResumeTransitionConflict, match="deadline expired"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+
+def test_durable_expiry_evidence_outranks_acknowledgement(waiting_fixture):
+    waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    expiry, created = waiting_fixture["substrate"].record_checkpoint_expiry(
+        checkpoint_id=waiting.checkpoint.checkpoint_id,
+        task_id=waiting_fixture["task_id"],
+        idempotency_key="expiry-observation-1",
+        deadline_at=DEADLINE,
+        observed_at="2035-08-02T19:00:01+00:00",
+        disposition=CheckpointExpiryDisposition.UNCERTAIN,
+        reason="deadline elapsed while transport acknowledgement was pending",
+    )
+    assert created is True
+    assert expiry.checkpoint_id == waiting.checkpoint.checkpoint_id
+
+    with pytest.raises(ResumeTransitionConflict, match="expiry evidence"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+
+def test_supersession_after_acknowledgement_blocks_resume(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    successor = _make_task(
+        waiting_fixture["task_store"],
+        controller_request_id="wait-transition-successor",
+        run_id="20260802T190000Z_worker_deadbeef",
+    )
+    waiting_fixture["task_store"].add_link(
+        successor,
+        link_type=TaskLinkType.SUPERSEDES,
+        target_kind=TaskLinkTargetKind.TASK,
+        target_id=waiting_fixture["task_id"],
+    )
+
+    with pytest.raises(ResumeTransitionConflict, match="supersession"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+
+def test_unbound_session_and_lost_worker_identity_block_resume(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    waiting_fixture["substrate"].set_binding_disposition(
+        waiting_fixture["binding"].session_binding_id,
+        disposition=SessionBindingDisposition.UNVERIFIED,
+        reason="provider session cannot be proven after restart",
+    )
+    with pytest.raises(ResumeTransitionConflict, match="not durably bound"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+
+def test_lost_worker_start_identity_blocks_resume(waiting_fixture):
+    _waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    waiting_fixture["run_store"].update_run(DEFAULT_RUN_ID, worker_identity="")
+
+    with pytest.raises(ResumeTransitionConflict, match="worker identity"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+
+def test_stale_resume_versions_fail_without_resolving_checkpoint(waiting_fixture):
+    waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    with pytest.raises(ResumeTransitionConflict, match="task state version changed"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version + 1,
+            expected_run_state_version=run["state_version"],
+        )
+    with waiting_fixture["task_store"]._read() as conn:
+        checkpoint = waiting_fixture["task_store"].get_checkpoint_in_connection(
+            conn, waiting.checkpoint.checkpoint_id
+        )
+    assert checkpoint.status.value == "open"
+
+
+def test_resume_failure_after_checkpoint_resolution_rolls_back_everything(
+    waiting_fixture, monkeypatch
+):
+    waiting, reservation, _acknowledged = _wait_and_acknowledge(waiting_fixture)
+    task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+
+    def fail_run_update(*_args, **_kwargs):
+        raise RuntimeError("simulated run resume failure")
+
+    monkeypatch.setattr(
+        waiting_fixture["policy"].run_store,
+        "conditional_update_in_connection",
+        fail_run_update,
+    )
+    with pytest.raises(RuntimeError, match="simulated run resume failure"):
+        waiting_fixture["policy"].resume_after_acknowledgement(
+            message_id=reservation.message.message_id,
+            expected_task_state_version=task.state_version,
+            expected_run_state_version=run["state_version"],
+        )
+
+    current_task = waiting_fixture["task_store"].get_task(waiting_fixture["task_id"])
+    current_run = waiting_fixture["run_store"].get_run(DEFAULT_RUN_ID)
+    command = waiting_fixture["task_store"].list_commands(
+        waiting_fixture["task_id"]
+    )[-1]
+    with waiting_fixture["task_store"]._read() as conn:
+        checkpoint = waiting_fixture["task_store"].get_checkpoint_in_connection(
+            conn, waiting.checkpoint.checkpoint_id
+        )
+    assert current_task.state is TaskState.AWAITING_CONTROLLER
+    assert current_task.state_version == task.state_version
+    assert current_run["status"] == "awaiting_controller"
+    assert current_run["state_version"] == run["state_version"]
+    assert checkpoint.status.value == "open"
+    assert command.status is TaskCommandStatus.ACCEPTED
+    assert waiting_fixture["locks"].find_lock("soma", DEFAULT_RUN_ID) is not None

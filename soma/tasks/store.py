@@ -708,6 +708,53 @@ class TaskStore:
             )
         return command
 
+    def complete_command_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        command_id: str,
+        *,
+        status: TaskCommandStatus,
+        reason: str = "",
+        completed_at: str | None = None,
+    ) -> TaskCommand:
+        """Complete one exact canonical command inside a shared transaction."""
+        row = conn.execute(
+            "SELECT * FROM task_commands WHERE command_id = ?", (command_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Task command not found: {command_id}")
+        existing = TaskCommand.model_validate(dict(row))
+        terminal = {
+            TaskCommandStatus.COMPLETED,
+            TaskCommandStatus.FAILED,
+            TaskCommandStatus.REJECTED_STALE_VERSION,
+        }
+        if existing.status in terminal:
+            if existing.status is not status:
+                raise ValueError(
+                    f"terminal task command {command_id} is {existing.status.value}, "
+                    f"not {status.value}"
+                )
+            return existing
+        now = completed_at or utc_now()
+        cursor = conn.execute(
+            "UPDATE task_commands SET status = ?, reason = ?, completed_at = ? "
+            "WHERE command_id = ? AND status = ?",
+            (
+                status.value,
+                reason,
+                now,
+                command_id,
+                existing.status.value,
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise ValueError(f"task command changed during completion: {command_id}")
+        updated = conn.execute(
+            "SELECT * FROM task_commands WHERE command_id = ?", (command_id,)
+        ).fetchone()
+        return TaskCommand.model_validate(dict(updated))
+
     def complete_command(
         self,
         command_id: str,
@@ -716,10 +763,11 @@ class TaskStore:
         reason: str = "",
     ) -> None:
         with self._transaction() as conn:
-            conn.execute(
-                "UPDATE task_commands SET status = ?, reason = ?, completed_at = ? "
-                "WHERE command_id = ?",
-                (status.value, reason, utc_now(), command_id),
+            self.complete_command_in_connection(
+                conn,
+                command_id,
+                status=status,
+                reason=reason,
             )
 
     def get_checkpoint_in_connection(
@@ -736,6 +784,45 @@ class TaskStore:
             data.pop("expected_input_schema_json", "{}")
         )
         return TaskCheckpoint.model_validate(data)
+
+    def resolve_checkpoint_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        checkpoint_id: str,
+        *,
+        task_id: str,
+        required_state_version: int,
+        resolved_at: str | None = None,
+    ) -> TaskCheckpoint:
+        """Resolve one exact open checkpoint inside a shared transaction."""
+        checkpoint = self.get_checkpoint_in_connection(conn, checkpoint_id)
+        if checkpoint.task_id != task_id:
+            raise ValueError("checkpoint does not belong to the requested task")
+        if checkpoint.required_state_version != int(required_state_version):
+            raise ValueError("checkpoint required state version does not match")
+        if checkpoint.status is TaskCheckpointStatus.RESOLVED:
+            return checkpoint
+        if checkpoint.status is not TaskCheckpointStatus.OPEN:
+            raise ValueError(
+                f"checkpoint {checkpoint_id} is {checkpoint.status.value}, not open"
+            )
+        now = resolved_at or utc_now()
+        cursor = conn.execute(
+            "UPDATE task_checkpoints SET status = ?, resolved_at = ? "
+            "WHERE checkpoint_id = ? AND task_id = ? AND status = ? "
+            "AND required_state_version = ?",
+            (
+                TaskCheckpointStatus.RESOLVED.value,
+                now,
+                checkpoint_id,
+                task_id,
+                TaskCheckpointStatus.OPEN.value,
+                int(required_state_version),
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise ValueError(f"checkpoint changed during resolution: {checkpoint_id}")
+        return self.get_checkpoint_in_connection(conn, checkpoint_id)
 
     def create_checkpoint_in_connection(
         self,
