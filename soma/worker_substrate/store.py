@@ -1228,8 +1228,9 @@ class WorkerSubstrateStore:
     # checkpoint deadlines and expiry evidence
     # ------------------------------------------------------------------
 
-    def set_checkpoint_deadline(
+    def set_checkpoint_deadline_in_connection(
         self,
+        conn: sqlite3.Connection,
         *,
         checkpoint_id: str,
         task_id: str,
@@ -1237,8 +1238,9 @@ class WorkerSubstrateStore:
         deadline_at: str = "",
         policy_owner: str = "",
         session_binding_id: str = "",
+        created_at: str | None = None,
     ) -> CheckpointDeadline:
-        """Attach one immutable deadline policy to an exact checkpoint."""
+        """Attach one immutable deadline inside an existing shared transaction."""
         if deadline_policy is CheckpointDeadlinePolicy.BOUNDED:
             self._parse_timestamp(deadline_at, "deadline_at")
         elif deadline_at:
@@ -1253,44 +1255,71 @@ class WorkerSubstrateStore:
             "deadline_at": deadline_at,
             "policy_owner": policy_owner,
         }
-        now = utc_now()
+        self._require_checkpoint_identity(
+            conn,
+            checkpoint_id=checkpoint_id,
+            task_id=task_id,
+            session_binding_id=session_binding_id,
+        )
+        row = conn.execute(
+            "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
+            (checkpoint_id,),
+        ).fetchone()
+        if row is not None:
+            existing = dict(row)
+            mismatches = [
+                field for field, value in submitted.items()
+                if str(existing[field]) != str(value)
+            ]
+            if mismatches:
+                raise EvidenceConflict(
+                    "checkpoint_deadline",
+                    checkpoint_id,
+                    "conflicting fields: " + ", ".join(mismatches),
+                )
+            return CheckpointDeadline.model_validate(existing)
+        now = created_at or utc_now()
+        conn.execute(
+            "INSERT INTO worker_checkpoint_deadlines "
+            "(checkpoint_id, task_id, session_binding_id, deadline_policy, "
+            "deadline_at, policy_owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                checkpoint_id,
+                task_id,
+                session_binding_id,
+                deadline_policy.value,
+                deadline_at,
+                policy_owner,
+                now,
+            ),
+        )
+        created = conn.execute(
+            "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
+            (checkpoint_id,),
+        ).fetchone()
+        return CheckpointDeadline.model_validate(dict(created))
+
+    def set_checkpoint_deadline(
+        self,
+        *,
+        checkpoint_id: str,
+        task_id: str,
+        deadline_policy: CheckpointDeadlinePolicy,
+        deadline_at: str = "",
+        policy_owner: str = "",
+        session_binding_id: str = "",
+    ) -> CheckpointDeadline:
+        """Attach one immutable deadline policy to an exact checkpoint."""
         with self._transaction() as conn:
-            self._require_checkpoint_identity(
+            return self.set_checkpoint_deadline_in_connection(
                 conn,
                 checkpoint_id=checkpoint_id,
                 task_id=task_id,
+                deadline_policy=deadline_policy,
+                deadline_at=deadline_at,
+                policy_owner=policy_owner,
                 session_binding_id=session_binding_id,
             )
-            row = conn.execute(
-                "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            if row is not None:
-                existing = dict(row)
-                mismatches = [
-                    field for field, value in submitted.items()
-                    if str(existing[field]) != str(value)
-                ]
-                if mismatches:
-                    raise EvidenceConflict(
-                        "checkpoint_deadline", checkpoint_id,
-                        "conflicting fields: " + ", ".join(mismatches),
-                    )
-                return CheckpointDeadline.model_validate(existing)
-            conn.execute(
-                "INSERT INTO worker_checkpoint_deadlines "
-                "(checkpoint_id, task_id, session_binding_id, deadline_policy, "
-                "deadline_at, policy_owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    checkpoint_id, task_id, session_binding_id,
-                    deadline_policy.value, deadline_at, policy_owner, now,
-                ),
-            )
-            created = conn.execute(
-                "SELECT * FROM worker_checkpoint_deadlines WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-        return CheckpointDeadline.model_validate(dict(created))
 
 
     def get_checkpoint_deadline(self, checkpoint_id: str) -> CheckpointDeadline | None:

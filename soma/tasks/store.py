@@ -466,8 +466,9 @@ class TaskStore:
                 now=utc_now(),
             )
 
-    def conditional_update(
+    def conditional_update_in_connection(
         self,
+        conn: sqlite3.Connection,
         task_id: str,
         *,
         fields: dict[str, Any],
@@ -475,7 +476,7 @@ class TaskStore:
         expected_states: tuple[str, ...] | None = None,
         bump_state_version: bool = True,
     ) -> TaskRecord | None:
-        """Compare-and-set update. Returns ``None`` when the guard did not hold."""
+        """Compare-and-set one task inside an existing shared transaction."""
         validate_task_id(task_id)
         unknown = set(fields) - _UPDATABLE_TASK_FIELDS
         if unknown:
@@ -492,14 +493,72 @@ class TaskStore:
             placeholders = ", ".join("?" for _ in expected_states)
             sql += f" AND state IN ({placeholders})"
             params.extend(expected_states)
+        cursor = conn.execute(sql, params)
+        if cursor.rowcount != 1:
+            return None
+        return self.get_task_in_connection(conn, task_id)
+
+    def conditional_update(
+        self,
+        task_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_state_version: int,
+        expected_states: tuple[str, ...] | None = None,
+        bump_state_version: bool = True,
+    ) -> TaskRecord | None:
+        """Compare-and-set update. Returns ``None`` when the guard did not hold."""
         with self._transaction() as conn:
-            cursor = conn.execute(sql, params)
-            if cursor.rowcount != 1:
-                return None
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            return self._row_to_task(row)
+            return self.conditional_update_in_connection(
+                conn,
+                task_id,
+                fields=fields,
+                expected_state_version=expected_state_version,
+                expected_states=expected_states,
+                bump_state_version=bump_state_version,
+            )
+
+    def append_event_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        task_id: str,
+        *,
+        level: TaskEventLevel,
+        stage: str,
+        message: str,
+        state: str = "",
+        state_version: int = 0,
+        data: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> TaskEvent:
+        validate_task_id(task_id)
+        now = timestamp or utc_now()
+        cursor = conn.execute(
+            "INSERT INTO task_events "
+            "(task_id, timestamp, level, stage, message, state, state_version, data_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id,
+                now,
+                level.value,
+                stage,
+                message,
+                state,
+                int(state_version),
+                _dumps(data or {}),
+            ),
+        )
+        return TaskEvent(
+            id=int(cursor.lastrowid or 0),
+            task_id=task_id,
+            timestamp=now,
+            level=level,
+            stage=stage,
+            message=message,
+            state=state,
+            state_version=int(state_version),
+            data=dict(data or {}),
+        )
 
     def append_event(
         self,
@@ -512,36 +571,17 @@ class TaskStore:
         state_version: int = 0,
         data: dict[str, Any] | None = None,
     ) -> TaskEvent:
-        validate_task_id(task_id)
-        now = utc_now()
         with self._transaction() as conn:
-            cursor = conn.execute(
-                "INSERT INTO task_events "
-                "(task_id, timestamp, level, stage, message, state, state_version, data_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    task_id,
-                    now,
-                    level.value,
-                    stage,
-                    message,
-                    state,
-                    int(state_version),
-                    _dumps(data or {}),
-                ),
+            return self.append_event_in_connection(
+                conn,
+                task_id,
+                level=level,
+                stage=stage,
+                message=message,
+                state=state,
+                state_version=state_version,
+                data=data,
             )
-            event_id = int(cursor.lastrowid or 0)
-        return TaskEvent(
-            id=event_id,
-            task_id=task_id,
-            timestamp=now,
-            level=level,
-            stage=stage,
-            message=message,
-            state=state,
-            state_version=int(state_version),
-            data=dict(data or {}),
-        )
 
     def find_command_by_controller_request_in_connection(
         self,
@@ -682,6 +722,58 @@ class TaskStore:
                 (status.value, reason, utc_now(), command_id),
             )
 
+    def get_checkpoint_in_connection(
+        self, conn: sqlite3.Connection, checkpoint_id: str
+    ) -> TaskCheckpoint:
+        row = conn.execute(
+            "SELECT * FROM task_checkpoints WHERE checkpoint_id = ?",
+            (checkpoint_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Checkpoint not found: {checkpoint_id}")
+        data = dict(row)
+        data["expected_input_schema"] = _loads(
+            data.pop("expected_input_schema_json", "{}")
+        )
+        return TaskCheckpoint.model_validate(data)
+
+    def create_checkpoint_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        task_id: str,
+        *,
+        checkpoint_id: str,
+        kind: str,
+        required_state_version: int,
+        prompt: str = "",
+        expected_input_schema: dict[str, Any] | None = None,
+        context_ref: str = "",
+        evidence_ref: str = "",
+        created_at: str | None = None,
+    ) -> TaskCheckpoint:
+        validate_task_id(task_id)
+        now = created_at or utc_now()
+        conn.execute(
+            "INSERT INTO task_checkpoints "
+            "(checkpoint_id, task_id, kind, prompt, expected_input_schema_json, "
+            " context_ref, evidence_ref, required_state_version, status, "
+            " created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            (
+                checkpoint_id,
+                task_id,
+                kind,
+                prompt,
+                _dumps(expected_input_schema or {}),
+                context_ref,
+                evidence_ref,
+                int(required_state_version),
+                TaskCheckpointStatus.OPEN.value,
+                now,
+            ),
+        )
+        return self.get_checkpoint_in_connection(conn, checkpoint_id)
+
     def create_checkpoint(
         self,
         task_id: str,
@@ -693,38 +785,16 @@ class TaskStore:
         context_ref: str = "",
         evidence_ref: str = "",
     ) -> TaskCheckpoint:
-        validate_task_id(task_id)
         checkpoint_id = make_checkpoint_id()
-        now = utc_now()
         with self._transaction() as conn:
-            conn.execute(
-                "INSERT INTO task_checkpoints "
-                "(checkpoint_id, task_id, kind, prompt, expected_input_schema_json, "
-                " context_ref, evidence_ref, required_state_version, status, "
-                " created_at, resolved_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                (
-                    checkpoint_id,
-                    task_id,
-                    kind,
-                    prompt,
-                    _dumps(expected_input_schema or {}),
-                    context_ref,
-                    evidence_ref,
-                    int(required_state_version),
-                    TaskCheckpointStatus.OPEN.value,
-                    now,
-                ),
+            return self.create_checkpoint_in_connection(
+                conn,
+                task_id,
+                checkpoint_id=checkpoint_id,
+                kind=kind,
+                required_state_version=required_state_version,
+                prompt=prompt,
+                expected_input_schema=expected_input_schema,
+                context_ref=context_ref,
+                evidence_ref=evidence_ref,
             )
-        return TaskCheckpoint(
-            checkpoint_id=checkpoint_id,
-            task_id=task_id,
-            kind=kind,
-            prompt=prompt,
-            expected_input_schema=dict(expected_input_schema or {}),
-            context_ref=context_ref,
-            evidence_ref=evidence_ref,
-            required_state_version=int(required_state_version),
-            status=TaskCheckpointStatus.OPEN,
-            created_at=now,
-        )

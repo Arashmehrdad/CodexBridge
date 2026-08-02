@@ -49,6 +49,11 @@ from .models import (
     usage_dedupe_key,
 )
 from .schema import WORKER_SUBSTRATE_TABLE_NAMES
+from .transitions import (
+    InteractionTransitionPolicy,
+    WaitTransitionConflict,
+    WaitTransitionResult,
+)
 from .store import (
     AttemptClaimBlocked,
     CanonicalBindingMismatch,
@@ -74,6 +79,7 @@ __all__ = [
     "InteractionKind",
     "InteractionReservation",
     "InteractionStateConflict",
+    "InteractionTransitionPolicy",
     "InteractionRecord",
     "MessageClass",
     "MessageConflict",
@@ -91,6 +97,8 @@ __all__ = [
     "WORKER_SUBSTRATE_SCHEMA_COMPONENT",
     "WORKER_SUBSTRATE_SCHEMA_VERSION",
     "WORKER_SUBSTRATE_TABLE_NAMES",
+    "WaitTransitionConflict",
+    "WaitTransitionResult",
     "WorkerSubstrateStore",
     "message_contract_hash",
     "normalize_message_contract",

@@ -275,7 +275,13 @@ def normalized_outcome(run: dict[str, Any], result: dict[str, Any]) -> Normalize
         if result.get("process_success") is False:
             return NormalizedOutcome.VALIDATION_FAILURE
         return NormalizedOutcome.SUCCESS
-    if status in {"queued", "launch_pending", "running", "recovery_pending"}:
+    if status in {
+        "queued",
+        "launch_pending",
+        "running",
+        "awaiting_controller",
+        "recovery_pending",
+    }:
         return NormalizedOutcome.PENDING
     if status == "failed":
         return NormalizedOutcome.UNKNOWN_FAILURE

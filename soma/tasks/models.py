@@ -66,6 +66,7 @@ class TaskPhase(str, Enum):
     BACKEND_RESERVED = "backend_reserved"
     BACKEND_LAUNCHING = "backend_launching"
     BACKEND_RUNNING = "backend_running"
+    AWAITING_CONTROLLER = "awaiting_controller"
     BACKEND_TERMINAL = "backend_terminal"
     CANCELLATION_REQUESTED = "cancellation_requested"
     RECOVERY = "recovery"
@@ -146,6 +147,20 @@ def make_command_id() -> str:
 
 def make_checkpoint_id() -> str:
     return _opaque_id("taskckpt")
+
+
+def checkpoint_id_for_request(task_id: str, idempotency_key: str) -> str:
+    """Derive one opaque checkpoint identity for one exact wait request."""
+    validate_task_id(task_id)
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise ValueError("idempotency_key must be non-empty")
+    stamp = task_id.removeprefix("task_").split("_", 1)[0]
+    digest = sha256(
+        f"soma.task_checkpoint.wait.v1\0{task_id}\0{idempotency_key}".encode(
+            "utf-8"
+        )
+    ).hexdigest()[:12]
+    return f"taskckpt_{stamp}_{digest}"
 
 
 def validate_task_id(task_id: str) -> None:

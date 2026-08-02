@@ -28,8 +28,14 @@ TERMINAL_STATUSES = {
     "failed",
     "cancelled",
     "timed_out",
+    # Historical needs_input rows are terminal compatibility records. The V3
+    # interactive path uses awaiting_controller instead and does not reinterpret
+    # or resume these historical rows.
     "needs_input",
 }
+NON_TERMINAL_WAITING_STATUSES: Final[frozenset[str]] = frozenset(
+    {"awaiting_controller"}
+)
 # Historical durable run types whose records stay readable but for which no
 # new instances can ever be created or relaunched. These identifiers are inert
 # compatibility data and do not advertise a model-agent execution capability.
@@ -39,6 +45,7 @@ _CONDITIONAL_UPDATE_FIELDS = frozenset(
     {
         "status",
         "current_phase",
+        "requires_human",
         "launcher_pid",
         "worker_pid",
         "worker_lease_token",
@@ -406,15 +413,20 @@ class RunStore:
             )
         return self.get_run(run_id)
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
+    def get_run_in_connection(
+        self, conn: sqlite3.Connection, run_id: str
+    ) -> dict[str, Any]:
         validate_run_id(run_id)
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
+        row = conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
         return self._row_to_run(row)
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            return self.get_run_in_connection(conn, run_id)
 
     def get_run_input_snapshot(self, run_id: str) -> dict[str, Any]:
         """Return the exact durable input JSON and scalar run identity."""
@@ -1106,6 +1118,85 @@ class RunStore:
             conn.execute(f"UPDATE runs SET {assignments} WHERE run_id = ?", params)
         return self.get_run(run_id)
 
+    def conditional_update_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        *,
+        fields: dict[str, Any],
+        expected_statuses: list[str] | tuple[str, ...] | set[str] | None = None,
+        expected_state_version: int | None = None,
+        expected_lease_token: str | None = None,
+        expected_lease_generation: int | None = None,
+        expected_heartbeat_at: Any = _UNSET,
+        reject_terminal: bool = False,
+        bump_state_version: bool = True,
+        bump_state_version_if_phase_changes: bool = False,
+    ) -> dict[str, Any] | None:
+        """Apply one run compare-and-set inside an existing transaction."""
+        validate_run_id(run_id)
+        unknown = set(fields) - _CONDITIONAL_UPDATE_FIELDS
+        if unknown:
+            raise ValueError(f"Unsupported conditional run fields: {sorted(unknown)}")
+        normalized = self._normalize_update_values(fields)
+        if bump_state_version and bump_state_version_if_phase_changes:
+            raise ValueError("State version bump modes are mutually exclusive")
+        if not normalized and not (
+            bump_state_version or bump_state_version_if_phase_changes
+        ):
+            raise ValueError("Conditional update requires fields or a version bump")
+
+        assignments = [f"{key} = ?" for key in normalized]
+        params: list[Any] = list(normalized.values())
+        if bump_state_version:
+            assignments.append("state_version = state_version + 1")
+        elif bump_state_version_if_phase_changes:
+            if "current_phase" not in normalized:
+                raise ValueError(
+                    "Phase-sensitive state version bump requires current_phase"
+                )
+            assignments.append(
+                "state_version = state_version + "
+                "CASE WHEN current_phase IS NOT ? THEN 1 ELSE 0 END"
+            )
+            params.append(normalized["current_phase"])
+
+        where = ["run_id = ?"]
+        params.append(run_id)
+        if expected_statuses is not None:
+            statuses = tuple(str(status) for status in expected_statuses)
+            if not statuses:
+                return None
+            where.append("status IN (" + ", ".join("?" for _ in statuses) + ")")
+            params.extend(statuses)
+        if expected_state_version is not None:
+            where.append("state_version = ?")
+            params.append(int(expected_state_version))
+        if expected_lease_token is not None:
+            where.append("worker_lease_token = ?")
+            params.append(expected_lease_token)
+        if expected_lease_generation is not None:
+            where.append("lease_generation = ?")
+            params.append(int(expected_lease_generation))
+        if expected_heartbeat_at is not _UNSET:
+            if expected_heartbeat_at is None:
+                where.append("heartbeat_at IS NULL")
+            else:
+                where.append("heartbeat_at = ?")
+                params.append(str(expected_heartbeat_at))
+        if reject_terminal:
+            terminal = tuple(sorted(TERMINAL_STATUSES))
+            where.append("status NOT IN (" + ", ".join("?" for _ in terminal) + ")")
+            params.extend(terminal)
+
+        cursor = conn.execute(
+            f"UPDATE runs SET {', '.join(assignments)} WHERE {' AND '.join(where)}",
+            params,
+        )
+        if int(cursor.rowcount) != 1:
+            return None
+        return self.get_run_in_connection(conn, run_id)
+
     def conditional_update(
         self,
         run_id: str,
@@ -1184,6 +1275,42 @@ class RunStore:
         if int(cursor.rowcount) != 1:
             return None
         return self.get_run(run_id)
+
+    def append_event_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        *,
+        level: str,
+        stage: str,
+        message: str,
+        data: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        """Append one run event inside an existing shared transaction."""
+        validate_run_id(run_id)
+        event = {
+            "timestamp": timestamp or utc_now(),
+            "run_id": run_id,
+            "level": level,
+            "stage": stage,
+            "message": message,
+            "data": data or {},
+        }
+        cursor = conn.execute(
+            "INSERT INTO events (run_id, timestamp, level, stage, message, data_json) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                event["timestamp"],
+                level,
+                stage,
+                message,
+                dumps(event["data"]),
+            ),
+        )
+        event["id"] = int(cursor.lastrowid or 0)
+        return event
 
     def append_event(
         self,
