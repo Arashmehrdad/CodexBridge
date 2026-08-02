@@ -26,6 +26,10 @@ if (-not (Test-Path -LiteralPath $PythonExecutable -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     throw "Config file not found: $ConfigPath"
 }
+$PytestLauncher = Join-Path $ProjectRoot "scripts\run_pytest.ps1"
+if (-not (Test-Path -LiteralPath $PytestLauncher -PathType Leaf)) {
+    throw "Pytest launcher not found: $PytestLauncher"
+}
 
 $EvidenceRoot = Join-Path $ProjectRoot "runs\comprehensive-self-check"
 New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
@@ -43,9 +47,13 @@ function Invoke-Checked {
 }
 
 Invoke-Checked "pip check" $PythonExecutable @("-m", "pip", "check")
-Invoke-Checked "full pytest" $PythonExecutable @(
-    "-m", "pytest", "-q", "--basetemp", $PytestBaseTemp
-)
+Write-Output "[CHECK] full pytest"
+& $PytestLauncher `
+    -ProjectRoot $ProjectRoot `
+    -PythonExecutable $PythonExecutable `
+    -BaseTemp $PytestBaseTemp `
+    -CleanBaseTemp `
+    -PytestArguments @("-q")
 Invoke-Checked "git diff --check" "git" @("diff", "--check")
 Invoke-Checked "package identity" $PythonExecutable @(
     "-c",
