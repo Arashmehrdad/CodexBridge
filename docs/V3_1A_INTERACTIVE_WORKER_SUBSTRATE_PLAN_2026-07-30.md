@@ -1,12 +1,13 @@
 # V3-1A — Interactive Worker Substrate
 
 **Date:** 2026-07-30
-**Status:** active lane with product implementation paused; the interaction-foundation architecture review is active; no interaction product code, real provider execution, production activation, or push is authorised.
-**Branch baseline:** `lane/memory-integration-foundation-1` at `a2411b5e0877b4aba8d0c436a76f81f3ab5270c6`.
+**Status:** active lane; the interaction-foundation architecture review is accepted and `V3-1A-INTERACTION-COMMANDS-1` is the sole active implementation package. Real provider execution, production activation, deployment, and push remain unauthorised.
+**Activation baseline:** `lane/memory-integration-foundation-1` at `dc24bcd2642e7c15b6ff524ec0edea500daf93d5`.
 **Architecture:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
 **Reconciliation:** [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md)
 **Organisational contract:** [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md)
-**Active review:** [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md)
+**Accepted review:** [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md)
+**Acceptance audit:** [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md)
 
 ## 1. Goal
 
@@ -252,12 +253,12 @@ The accepted boundary includes sanitised stand-in launch, exact launcher/child i
 
 The authoritative organisational model is [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md).
 
-### V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1 — active documentation gate
+### V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1 — accepted and closed
 
-The active package is [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md). It must prove the transaction, delivery-attempt, wait/resume, message-class, identity, and precedence contracts.
+The package [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md) passed independent audit. The accepted transaction, delivery-attempt, wait/resume, message-class, identity, and precedence contract is recorded in [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md).
 
-### V3-1A-INTERACTION-COMMANDS-1 — paused
+### V3-1A-INTERACTION-COMMANDS-1 — active
 
-The previous implementation gate remains at [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It cannot resume until the review is independently accepted, the scope is rewritten around the smallest durable communication substrate, and `PLANS.md` explicitly reactivates it.
+The implementation gate is [`V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md). It is reactivated around the smallest durable communication substrate and must implement the acceptance-audit corrections before any real provider package.
 
 Real providers, permanent teams, broad capability delegation, V3-1B work, and production activation remain later and inactive.

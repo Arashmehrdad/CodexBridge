@@ -4,7 +4,7 @@
 
 Roadmap V2 is complete and preserved under [`docs/legacy/`](docs/legacy/). The Pre-Roadmap V3 bridge is also complete. This file remains the only concise active engineering plan.
 
-The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` is now the sole active implementation lane before any further large V3 work. The owner-approved 2026-08-01 restart and connector refresh activated the validated source through `REL-024`; every known `REL-001` through `REL-024` defect is now closed live, and the post-restart disposable scenarios for `REL-012` through `REL-016` have passed. The V3-1A interaction-foundation architecture review remains preserved but parked; product implementation and every later V3 outcome remain paused. The active reliability contract and durable bug ledger are [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+The V3 autonomous-company architecture is owner-accepted after the 2026-07-31 hierarchical-intelligence organisational research closure. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` passed its complete source, restart, connector, live-scenario, integrity, and clean-preflight acceptance audit and is closed. `V3-1A-INTERACTION-COMMANDS-1` is now the sole active implementation package under the accepted interaction-foundation architecture. Real provider execution and every later V3 outcome remain paused. Reliability evidence remains in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md), and the interaction architecture acceptance is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md).
 
 The architecture is [`docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](docs/SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md), the reconciliation is [`docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](docs/SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md), and the owner-accepted organisational contract is [`docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](docs/SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md). The active lane contract is [`docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](docs/V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md), and its active documentation-only gate is [`docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md).
 
@@ -32,6 +32,12 @@ Task prompts derived from this plan should contain the problem, known evidence, 
 
 Agents may challenge an assumption, propose a simpler route, or adjust their internal decomposition. They may not silently change the accepted goal, create a second authority, weaken durability, discard evidence, or broaden the batch into unrelated architecture.
 
+## Engineering Progression Procedure
+
+The active development agent owns routine engineering acceptance. At every package or lane boundary it must audit the objective acceptance gate against durable evidence. When the gate passes, it records the audit, closes the completed work, and proceeds to the next already-defined roadmap package without asking the owner for ceremonial approval.
+
+Owner instruction is required only for a genuine product-direction choice, an unresolved risk or failed acceptance gate, an irreversible external action, production activation, deployment, purchase, credential/account action, push, or a scope change not already authorised by this roadmap. Silence or missing ceremony is never a reason to leave accepted engineering work parked.
+
 ## Governing Boundaries
 
 - Soma remains the independent durable, project-aware control plane.
@@ -54,15 +60,21 @@ Agents may challenge an assumption, propose a simpler route, or adjust their int
 - Revocation and cancellation deny new protected actions from one canonical linearization point; already-started work remains unresolved until containment, cancellation, recovery, or external confirmation proves its outcome.
 - Soma proves procedural coherence and operational safety. Named acceptance authorities judge substantive correctness.
 
-## Active Lane: RELIABILITY-1 — Existing Runtime Hardening
+## Active Lane: V3-1A — Interaction Commands Foundation
 
-**Status:** acceptance-ready and still the sole authorised lane until owner review. The restart/refresh activation batch, resumed `REL-023` service-log retention slice, and post-restart disposable probes for `REL-012` through `REL-016` are complete. No later V3 implementation lane is active. The authoritative gate, phased validation plan, severity model, baseline, acceptance criteria, and bug ledger are in [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+**Status:** active and the sole implementation package. The adversarial interaction-foundation architecture review is independently accepted. The binding audit and corrected scope are in [`docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](docs/V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md), and the implementation gate is [`docs/V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md`](docs/V3_1A_INTERACTION_COMMANDS_1_GATE_2026-07-31.md).
 
-**Goal:** prove the existing runtime works reliably across fresh-project onboarding, ProjectScope and memory, runtime/connector convergence, repository transactions, task/run durability, supervisor/workflow handoffs, restart recovery, isolation, integrity, evidence, and operational use before adding another architecture layer.
+**Goal:** implement the smallest durable controller-communication substrate inside the existing canonical Task → Run authority: atomic command/message reservation, complete contract identity, one transport-attempt claim, non-terminal controller waiting, evidence-proven resume, central cancellation/expiry/supersession precedence, and narrow public `steer`/`supply_input` commands using deterministic stand-in transport only.
 
-**Method:** reproduce defects, fix only proven failures, add regression tests, validate adjacent authorities, and preserve honest uncertainty. No speculative refactor, V3 interaction implementation, provider-agent launch, team/mandate work, capability broker, unrelated cleanup, or push is authorised.
+**Method:** extend shared SQLite authority additively; preserve canonical Task, Run, ProjectScope, lock, cancellation, and publication ownership; keep informational messages lifecycle-inert; forbid blind resend of uncertain attempts; validate focused crash/race evidence before adjacent compatibility gates.
 
-**Exit:** zero known critical/high defects; every repaired defect regression-covered; medium defects fixed or explicitly owner-deferred; all reliability passes and the operator runbook accepted; clean worktree; no push. Only then may the owner reactivate the next large V3 lane.
+**Exit:** the corrected gate passes, authority-delta audit confirms no new generic lifecycle manager, evidence and result documentation are complete, the worktree is clean, and nothing is pushed. The development agent then audits and proceeds under the Engineering Progression Procedure.
+
+## Completed Lane: RELIABILITY-1 — Existing Runtime Hardening
+
+**Status:** accepted and closed on 2026-08-02 after objective audit. All known `REL-001` through `REL-024` defects are closed and live; restart/refresh convergence, disposable scenarios, integrity, documentation, and final quiet preflight passed. The authoritative evidence is [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+
+**Result:** the existing runtime is proven reliable across fresh-project onboarding, ProjectScope and memory, runtime/connector convergence, repository transactions, task/run durability, supervisor/workflow handoffs, restart recovery, isolation, integrity, evidence, and operational use. No push occurred.
 
 ## Completed Corrective Fix: MEMORY-REPOSITORY-ONBOARDING-1
 

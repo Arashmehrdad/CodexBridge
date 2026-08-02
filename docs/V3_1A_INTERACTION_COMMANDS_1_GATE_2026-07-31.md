@@ -1,10 +1,10 @@
 # V3-1A-INTERACTION-COMMANDS-1 — Canonical Controller Interaction and Non-Terminal Waiting
 
 **Date:** 2026-07-31
-**Status:** product implementation paused pending the interaction-foundation architecture review.
+**Status:** active; sole implementation package.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`
-**Depends on:** accepted process-identity foundation, the owner-accepted hierarchical-intelligence contract, and independent acceptance of [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md)
-**Repository baseline:** `3960aec266df3f8ee653bf54137d2ab00c990cb2`
+**Depends on:** accepted process-identity foundation, the owner-accepted hierarchical-intelligence contract, accepted [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md), and its binding [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md)
+**Activation baseline:** `dc24bcd2642e7c15b6ff524ec0edea500daf93d5`
 **Push:** not authorised.
 
 ## 1. Objective
@@ -22,9 +22,21 @@ This package must prove that Soma can:
 
 The package is an interaction and lifecycle-semantics gate. It is not a provider-launch gate.
 
-## 1.1 Architecture hold
+## 1.1 Accepted architecture corrections
 
-Do not implement this package from the current text. The active review must first freeze the atomic reservation, transport-attempt, wait/resume, message-class, identity, and precedence contracts. After independent acceptance, this gate must be re-scoped to the smallest durable communication substrate and explicitly reactivated through `PLANS.md`.
+The architecture hold is closed. Implementation must follow the binding acceptance audit and add, at minimum:
+
+1. one generic typed internal message envelope while public operations remain only `steer` and `supply_input`;
+2. exact sender and recipient references plus an optional mandate/version reference, without implementing permanent roles or authority graphs;
+3. one normalized complete contract hash covering every decision-bearing identity and field;
+4. connection-scoped canonical command and subordinate message inserts under one shared `TaskStore.transaction()` boundary;
+5. a separate durable transport-attempt record and single-claimer transition that distinguishes never attempted from outcome unknown;
+6. one central wait/resume and precedence policy that rechecks cancellation, expiry, supersession, authority version, checkpoint, session, ProjectScope, and technical execution state;
+7. typed informational message classes that cannot change lifecycle or imply substantive acceptance;
+8. zero blind resend from uncertain or outcome-unknown attempts;
+9. an authority-delta audit proving the package added no generic lifecycle manager, lock owner, result publisher, scheduler, or acceptance authority.
+
+The current worker-substrate v1 records are inert historical-compatible foundations. Their existing rows must not be backfilled with invented sender, recipient, mandate, contract, or attempt evidence.
 
 ## 2. Existing authorities that remain canonical
 
@@ -307,4 +319,4 @@ Report:
 15. local commit hashes;
 16. exact next gate recommendation.
 
-Stop at architecture review. Do not begin this product package until the review dependency is accepted and `PLANS.md` explicitly reactivates it.
+Implement this package under the accepted audit and stop at its completion gate. Do not begin real provider execution, production activation, deployment, push, V3-1B, or broader organisational state.

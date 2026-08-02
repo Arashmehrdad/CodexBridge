@@ -1,10 +1,11 @@
 # V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1 — Adversarial Contract Review
 
 **Date:** 2026-07-31  
-**Status:** active documentation-only review gate; interaction product implementation is paused.  
+**Status:** accepted and closed after independent audit on 2026-08-02.
 **Parent lane:** `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`  
 **Organisational contract:** [`SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md`](SOMA_V3_HIERARCHICAL_INTELLIGENCE_ORGANISATIONAL_CONTRACT_2026-07-31.md)  
 **Runtime baseline:** `06cc054ed3dfe2dac877dc8ea67875522a8463ad`  
+**Acceptance audit:** [`V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1A_INTERACTION_FOUNDATION_ARCH_REVIEW_ACCEPTANCE_AUDIT_2026-08-02.md)
 **Push:** not authorised.
 
 ## 1. Purpose
@@ -310,7 +311,7 @@ The independent review must report:
 
 - organisational research: closed;
 - target organisational contract: owner-accepted;
-- this adversarial architecture review: active;
-- `V3-1A-INTERACTION-COMMANDS-1` product implementation: paused;
+- this adversarial architecture review: accepted and closed;
+- `V3-1A-INTERACTION-COMMANDS-1` product implementation: active under the acceptance-audit corrections;
 - process-identity foundation: remains accepted;
 - real provider execution, teams, company kernel, capability broker, production activation, deployment, and push: inactive and unauthorised.
