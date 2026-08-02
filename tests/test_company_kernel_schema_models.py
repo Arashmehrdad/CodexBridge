@@ -1,0 +1,709 @@
+"""V3-1B-SCHEMA-MODELS-1: additive schema and immutable model proof.
+
+No test invokes a company action, provider, gateway, scheduler, Task launch, Run
+launch, acceptance service, or reconciliation loop. SQL inserts are fixtures for
+constraint verification only.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from soma.company_kernel import (
+    COMPANY_KERNEL_INDEX_NAMES,
+    COMPANY_KERNEL_MIGRATIONS,
+    COMPANY_KERNEL_SCHEMA_VERSION,
+    COMPANY_KERNEL_TABLE_NAMES,
+    COMPANY_KERNEL_TRIGGER_NAMES,
+    MISSION_ID_DOMAIN,
+    AcceptanceCommit,
+    Company,
+    CompanyKernelStore,
+    Mission,
+    WorkPackage,
+    canonical_hash,
+    canonical_json,
+    normalize_work_package_contract,
+    outcome_id_for,
+    route_request_hash,
+    work_package_contract_hash,
+)
+from soma.company_kernel.schema import apply_company_kernel_migrations
+from soma.project_scope.store import ProjectScopeStore
+from soma.run_store import RunStore
+from soma.tasks.models import (
+    BackendKind,
+    TaskKind,
+    make_task_id,
+    normalize_durable_command_request,
+    normalized_request_hash,
+)
+from soma.tasks.store import TaskStore
+
+
+COMPANY_ID = "company_" + "1" * 24
+MISSION_ID = "mission_" + "2" * 24
+PLAN_ID = "planrev_" + "3" * 24
+PACKAGE_ID = "workpkg_" + "4" * 24
+OUTCOME_ID = "outcome_" + "5" * 24
+ATTEMPT_ID = "wpattempt_" + "6" * 24
+ACCEPTANCE_ID = "accept_" + "7" * 24
+RECONCILIATION_ID = "kreconcile_" + "8" * 24
+PROJECT_ID = "proj_company_kernel_fixture"
+RESOURCE_ID = "resource_company_kernel_fixture"
+EXECUTIVE = "owner-controller:arash"
+NOW = "2026-08-02T22:00:00+00:00"
+
+
+def _prepare_dependencies(tmp_path: Path):
+    runs_dir = tmp_path / "runs"
+    run_store = RunStore(runs_dir)
+    task_store = TaskStore(runs_dir)
+    scope_store = ProjectScopeStore(runs_dir)
+    scope_store.init_db()
+    with scope_store.connect() as conn:
+        conn.execute(
+            "INSERT INTO projects "
+            "(project_id, project_key, lifecycle_state, scope_generation, created_at, updated_at) "
+            "VALUES (?, 'company-kernel-fixture', 'active', 1, ?, ?)",
+            (PROJECT_ID, NOW, NOW),
+        )
+        conn.execute(
+            "INSERT INTO project_resources "
+            "(resource_id, resource_kind, opaque_ref, identity_hash, created_at) "
+            "VALUES (?, 'repository', 'd:/github/soma', ?, ?)",
+            (RESOURCE_ID, "a" * 64, NOW),
+        )
+        conn.execute(
+            "INSERT INTO project_resource_bindings "
+            "(project_id, resource_id, access_mode, created_at) "
+            "VALUES (?, ?, 'exclusive', ?)",
+            (PROJECT_ID, RESOURCE_ID, NOW),
+        )
+    return runs_dir, run_store, task_store, scope_store
+
+
+def _make_task_and_run(runs_dir: Path, run_store: RunStore, task_store: TaskStore):
+    run_id = "20260802T220000Z_fixture_abcdef12"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(exist_ok=True)
+    normalized = normalize_durable_command_request(
+        repo_name="soma",
+        profile_id="powershell",
+        argv=["-NoProfile", "-Command", "Write-Output fixture"],
+    )
+    run_store.create_run(
+        run_id=run_id,
+        repo_name="soma",
+        tool="executable_profile",
+        run_dir=run_dir,
+        input_data=normalized,
+        status="completed",
+    )
+    task_id = make_task_id()
+    task_store.reserve_task(
+        task_id=task_id,
+        task_kind=TaskKind.DURABLE_COMMAND.value,
+        controller_request_id="company-kernel-task-fixture",
+        request_hash=normalized_request_hash(normalized),
+        backend_kind=BackendKind.SOMA_DURABLE_RUN.value,
+        backend_executor="executable_profile",
+        backend_ref=run_id,
+        backend_identity={"run_id": run_id},
+    )
+    return task_id, run_id
+
+
+def _insert_company_mission_plan_package(
+    conn: sqlite3.Connection,
+    *,
+    company_id: str = COMPANY_ID,
+    mission_id: str = MISSION_ID,
+    plan_id: str = PLAN_ID,
+    package_id: str = PACKAGE_ID,
+    outcome_id: str = OUTCOME_ID,
+    executive: str = EXECUTIVE,
+) -> None:
+    conn.execute(
+        "INSERT INTO companies VALUES (?, 'soma-company', 'Soma Company', ?, ?, ?, ?)",
+        (company_id, executive, f"create:{company_id}", "1" * 64, NOW),
+    )
+    conn.execute(
+        """
+        INSERT INTO missions(
+            mission_id, company_id, mission_key, project_id, resource_id,
+            scope_generation, mission_contract_json, mission_contract_hash,
+            accountable_owner_ref, acceptance_authority_ref,
+            current_plan_revision_id, plan_state_version, kernel_state_version,
+            creation_request_id, creation_request_hash, created_at, updated_at
+        ) VALUES (?, ?, 'build-soma', ?, ?, 1, '{}', ?, ?, ?, NULL, 0, 0, ?, ?, ?, ?)
+        """,
+        (
+            mission_id,
+            company_id,
+            PROJECT_ID,
+            RESOURCE_ID,
+            "2" * 64,
+            executive,
+            executive,
+            f"create:{mission_id}",
+            "3" * 64,
+            NOW,
+            NOW,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO plan_revisions(
+            plan_revision_id, mission_id, revision_number, parent_plan_revision_id,
+            plan_contract_json, plan_content_hash, deliberation_ref,
+            deliberation_hash, accepted_by_ref, acceptance_basis_ref,
+            controller_request_id, request_hash, accepted_at
+        ) VALUES (?, ?, 1, NULL, '{}', ?, '', '', ?, 'owner-decision', ?, ?, ?)
+        """,
+        (plan_id, mission_id, "4" * 64, executive, f"plan:{plan_id}", "5" * 64, NOW),
+    )
+    conn.execute(
+        "UPDATE missions SET current_plan_revision_id = ?, plan_state_version = 1, "
+        "kernel_state_version = 1, updated_at = ? WHERE mission_id = ?",
+        (plan_id, NOW, mission_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO work_packages(
+            work_package_id, mission_id, plan_revision_id, package_key, outcome_id,
+            project_id, target_resource_id, scope_generation, contract_version,
+            contract_json, contract_hash, topology, accountable_owner_ref,
+            acceptance_authority_ref, deliberation_ref, evidence_requirements_ref,
+            controller_request_id, request_hash, created_at
+        ) VALUES (?, ?, ?, 'schema-models', ?, ?, ?, 1, 'v1', '{}', ?,
+                  'single_active', ?, ?, '', 'tests', ?, ?, ?)
+        """,
+        (
+            package_id,
+            mission_id,
+            plan_id,
+            outcome_id,
+            PROJECT_ID,
+            RESOURCE_ID,
+            "6" * 64,
+            executive,
+            executive,
+            f"package:{package_id}",
+            "7" * 64,
+            NOW,
+        ),
+    )
+
+
+def _insert_attempt(
+    conn: sqlite3.Connection,
+    *,
+    task_id: str,
+    attempt_id: str = ATTEMPT_ID,
+    package_id: str = PACKAGE_ID,
+    outcome_id: str = OUTCOME_ID,
+    supersedes_attempt_id: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO work_package_attempts(
+            attempt_id, work_package_id, outcome_id, task_id, route_request_hash,
+            route_descriptor_json, supersedes_attempt_id, containment_evidence_ref,
+            containment_evidence_hash, controller_request_id, request_hash, created_at
+        ) VALUES (?, ?, ?, ?, ?, '{}', ?, '', '', ?, ?, ?)
+        """,
+        (
+            attempt_id,
+            package_id,
+            outcome_id,
+            task_id,
+            "8" * 64,
+            supersedes_attempt_id,
+            f"attempt:{attempt_id}",
+            "9" * 64,
+            NOW,
+        ),
+    )
+
+
+def test_constructor_is_inert_and_absent_schema_is_honest(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "missing-runs"
+    store = CompanyKernelStore(runs_dir)
+    assert not runs_dir.exists()
+    assert store.is_installed() is False
+    assert store.schema_state() == {
+        "component": "company_kernel",
+        "schema_version": 0,
+        "target_schema_version": 1,
+        "up_to_date": False,
+        "active_capability": False,
+        "tables": [],
+        "missing_tables": list(COMPANY_KERNEL_TABLE_NAMES),
+        "triggers": [],
+        "missing_triggers": list(COMPANY_KERNEL_TRIGGER_NAMES),
+        "indexes": [],
+        "missing_indexes": list(COMPANY_KERNEL_INDEX_NAMES),
+    }
+
+
+def test_fresh_migration_is_complete_idempotent_and_inactive(tmp_path: Path) -> None:
+    store = CompanyKernelStore(tmp_path / "runs")
+    assert store.init_db() == [1]
+    assert store.init_db() == []
+    state = store.schema_state()
+    assert state["schema_version"] == COMPANY_KERNEL_SCHEMA_VERSION
+    assert state["up_to_date"] is True
+    assert state["active_capability"] is False
+    assert set(state["tables"]) == set(COMPANY_KERNEL_TABLE_NAMES)
+    assert set(state["triggers"]) == set(COMPANY_KERNEL_TRIGGER_NAMES)
+    assert set(state["indexes"]) == set(COMPANY_KERNEL_INDEX_NAMES)
+    assert state["missing_tables"] == []
+    assert state["missing_triggers"] == []
+    assert state["missing_indexes"] == []
+    assert all(value == 0 for value in store.table_counts().values())
+    with store.connect() as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_migration_marker_without_objects_is_not_reported_installed(
+    tmp_path: Path,
+) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO soma_schema_migrations "
+            "(component, version, name, applied_at) VALUES (?, ?, ?, ?)",
+            ("company_kernel", 1, "company_kernel_foundation", NOW),
+        )
+    state = store.schema_state()
+    assert store.is_installed() is False
+    assert state["schema_version"] == 1
+    assert state["up_to_date"] is False
+    assert state["missing_tables"] == list(COMPANY_KERNEL_TABLE_NAMES)
+    assert state["missing_triggers"] == list(COMPANY_KERNEL_TRIGGER_NAMES)
+    assert state["missing_indexes"] == list(COMPANY_KERNEL_INDEX_NAMES)
+
+
+def test_failed_migration_rolls_back_every_kernel_object(tmp_path: Path) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    version, name, statements = COMPANY_KERNEL_MIGRATIONS[0]
+    broken = ((version, name, (*statements, "SELECT * FROM missing_kernel_table")),)
+    with pytest.raises(sqlite3.OperationalError):
+        apply_company_kernel_migrations(store.connect, migrations=broken)
+    with store.connect() as conn:
+        existing = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        marker = conn.execute(
+            "SELECT 1 FROM soma_schema_migrations WHERE component = 'company_kernel'"
+        ).fetchone()
+    assert not (set(COMPANY_KERNEL_TABLE_NAMES) & existing)
+    assert marker is None
+
+
+def test_migration_preserves_incumbent_rows_and_does_no_legacy_backfill(
+    tmp_path: Path,
+) -> None:
+    runs_dir, _run_store, _task_store, scope_store = _prepare_dependencies(tmp_path)
+    with scope_store.connect() as conn:
+        conn.execute("CREATE TABLE workflows(id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+        conn.execute("CREATE TABLE supervisors(id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+        conn.execute("INSERT INTO workflows VALUES ('workflow-1', 'reported')")
+        conn.execute("INSERT INTO supervisors VALUES ('supervisor-1', 'needs_input')")
+        before = {
+            table: (
+                conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()[0],
+                conn.execute(f'SELECT * FROM "{table}"').fetchall(),
+            )
+            for table in ("projects", "project_resources", "workflows", "supervisors")
+        }
+    store = CompanyKernelStore(runs_dir)
+    assert store.init_db() == [1]
+    with store.connect() as conn:
+        after = {
+            table: (
+                conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()[0],
+                conn.execute(f'SELECT * FROM "{table}"').fetchall(),
+            )
+            for table in before
+        }
+        assert conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM missions").fetchone()[0] == 0
+    assert after == before
+
+
+def test_database_enforces_fixed_executive_authority_chain(tmp_path: Path) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    store.init_db()
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO companies VALUES (?, 'soma-company', 'Soma Company', ?, 'create-company', ?, ?)",
+            (COMPANY_ID, EXECUTIVE, "1" * 64, NOW),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO missions(
+                    mission_id, company_id, mission_key, project_id, resource_id,
+                    scope_generation, mission_contract_json, mission_contract_hash,
+                    accountable_owner_ref, acceptance_authority_ref,
+                    current_plan_revision_id, plan_state_version, kernel_state_version,
+                    creation_request_id, creation_request_hash, created_at, updated_at
+                ) VALUES (?, ?, 'bad', ?, ?, 1, '{}', ?, 'other-owner', ?, NULL, 0, 0,
+                          'bad-mission-request', ?, ?, ?)
+                """,
+                (
+                    MISSION_ID,
+                    COMPANY_ID,
+                    PROJECT_ID,
+                    RESOURCE_ID,
+                    "2" * 64,
+                    EXECUTIVE,
+                    "3" * 64,
+                    NOW,
+                    NOW,
+                ),
+            )
+        conn.rollback()
+        # The failed statement rolled back its transaction, including the fixture company.
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO plan_revisions VALUES (
+                    ?, ?, 2, NULL, '{}', ?, '', '', 'other-authority', '',
+                    'bad-plan-authority', ?, ?
+                )
+                """,
+                ("planrev_" + "a" * 24, MISSION_ID, "a" * 64, "b" * 64, NOW),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO work_packages(
+                    work_package_id, mission_id, plan_revision_id, package_key,
+                    outcome_id, project_id, target_resource_id, scope_generation,
+                    contract_version, contract_json, contract_hash, topology,
+                    accountable_owner_ref, acceptance_authority_ref,
+                    deliberation_ref, evidence_requirements_ref,
+                    controller_request_id, request_hash, created_at
+                ) VALUES (?, ?, ?, 'bad-authority', ?, ?, ?, 1, 'v1', '{}', ?,
+                          'single_active', ?, 'other-authority', '', '', ?, ?, ?)
+                """,
+                (
+                    "workpkg_" + "b" * 24,
+                    MISSION_ID,
+                    PLAN_ID,
+                    "outcome_" + "b" * 24,
+                    PROJECT_ID,
+                    RESOURCE_ID,
+                    "c" * 64,
+                    EXECUTIVE,
+                    "bad-package-authority",
+                    "d" * 64,
+                    NOW,
+                ),
+            )
+
+
+def test_attempt_and_acceptance_relationships_and_one_winner_are_enforced(
+    tmp_path: Path,
+) -> None:
+    runs_dir, run_store, task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    store.init_db()
+    task_id, run_id = _make_task_and_run(runs_dir, run_store, task_store)
+    other_task_id = make_task_id()
+    task_store.reserve_task(
+        task_id=other_task_id,
+        task_kind=TaskKind.DURABLE_COMMAND.value,
+        controller_request_id="company-kernel-other-task",
+        request_hash="a" * 64,
+        backend_kind=BackendKind.SOMA_DURABLE_RUN.value,
+        backend_executor="executable_profile",
+        backend_ref="",
+        backend_identity={},
+    )
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_attempt(
+                conn,
+                task_id=task_id,
+                outcome_id="outcome_" + "f" * 24,
+            )
+        _insert_attempt(conn, task_id=task_id)
+        acceptance_values = (
+            ACCEPTANCE_ID,
+            COMPANY_ID,
+            MISSION_ID,
+            PACKAGE_ID,
+            OUTCOME_ID,
+            ATTEMPT_ID,
+            task_id,
+            run_id,
+            "a" * 64,
+            "b" * 64,
+            EXECUTIVE,
+            "owner acceptance",
+            "c" * 64,
+            "acceptance-request",
+            "d" * 64,
+            NOW,
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (*acceptance_values[:6], other_task_id, *acceptance_values[7:]),
+            )
+        conn.execute(
+            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            acceptance_values,
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "accept_" + "e" * 24,
+                    *acceptance_values[1:13],
+                    "second-acceptance-request",
+                    "e" * 64,
+                    NOW,
+                ),
+            )
+
+
+def test_immutable_facts_reject_update_delete_but_mission_cas_fields_are_open(
+    tmp_path: Path,
+) -> None:
+    runs_dir, run_store, task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    store.init_db()
+    task_id, run_id = _make_task_and_run(runs_dir, run_store, task_store)
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        _insert_attempt(conn, task_id=task_id)
+        conn.execute(
+            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                ACCEPTANCE_ID,
+                COMPANY_ID,
+                MISSION_ID,
+                PACKAGE_ID,
+                OUTCOME_ID,
+                ATTEMPT_ID,
+                task_id,
+                run_id,
+                "a" * 64,
+                "b" * 64,
+                EXECUTIVE,
+                "owner acceptance",
+                "c" * 64,
+                "acceptance-request",
+                "d" * 64,
+                NOW,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO kernel_reconciliation_receipts VALUES (?, ?, 'owner_turn', "
+            "'trigger-1', 1, 'no_op', '', ?, ?)",
+            (RECONCILIATION_ID, MISSION_ID, "e" * 64, NOW),
+        )
+        for statement in (
+            "UPDATE companies SET display_name = 'changed'",
+            "UPDATE plan_revisions SET acceptance_basis_ref = 'changed'",
+            "UPDATE work_packages SET package_key = 'changed'",
+            "UPDATE work_package_attempts SET route_descriptor_json = '{\"x\":1}'",
+            "UPDATE acceptance_commits SET acceptance_basis_ref = 'changed'",
+            "UPDATE kernel_reconciliation_receipts SET target_ref = 'changed'",
+            "DELETE FROM companies",
+            "DELETE FROM missions",
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(statement)
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE missions SET accountable_owner_ref = 'other' WHERE mission_id = ?",
+                (MISSION_ID,),
+            )
+        conn.execute(
+            "UPDATE missions SET plan_state_version = 2, kernel_state_version = 2, "
+            "updated_at = ? WHERE mission_id = ?",
+            ("2026-08-02T22:01:00+00:00", MISSION_ID),
+        )
+        row = conn.execute(
+            "SELECT plan_state_version, kernel_state_version FROM missions WHERE mission_id = ?",
+            (MISSION_ID,),
+        ).fetchone()
+    assert tuple(row) == (2, 2)
+
+
+def test_package_and_attempt_tables_carry_no_execution_authority(tmp_path: Path) -> None:
+    store = CompanyKernelStore(tmp_path / "runs")
+    store.init_db()
+    forbidden = {
+        "status",
+        "state",
+        "pid",
+        "process",
+        "lease",
+        "lock",
+        "result",
+        "publication",
+        "cancellation",
+        "recovery",
+        "worker",
+    }
+    with store.connect() as conn:
+        columns = {
+            row[1]
+            for table in ("work_packages", "work_package_attempts")
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+    assert not {
+        column
+        for column in columns
+        if any(fragment in column.lower() for fragment in forbidden)
+    }
+
+
+def test_route_independent_outcome_excludes_route_material() -> None:
+    contract = {
+        "purpose": "prove schema",
+        "expected_outcome": "accepted migration evidence",
+        "constraints": ["no provider launch"],
+    }
+    contract_hash = work_package_contract_hash(contract_version="v1", contract=contract)
+    identity = dict(
+        mission_id=MISSION_ID,
+        plan_revision_id=PLAN_ID,
+        package_key="schema-models",
+        contract_hash=contract_hash,
+        project_id=PROJECT_ID,
+        resource_id=RESOURCE_ID,
+        scope_generation=1,
+    )
+    outcome = outcome_id_for(**identity)
+    route_a = route_request_hash({"provider": "claude_code", "argv": ["one"]})
+    route_b = route_request_hash({"provider": "codex", "argv": ["two"]})
+    assert route_a != route_b
+    assert outcome_id_for(**identity) == outcome
+    with pytest.raises(ValueError, match="route-specific"):
+        normalize_work_package_contract(
+            contract_version="v1",
+            contract={**contract, "provider": "claude_code"},
+        )
+    with pytest.raises(TypeError):
+        outcome_id_for(**identity, provider="claude_code")
+
+
+def test_models_are_strict_frozen_canonical_and_hash_checked() -> None:
+    company = Company(
+        company_id=COMPANY_ID,
+        company_key="soma",
+        display_name="Soma",
+        executive_authority_ref=EXECUTIVE,
+        creation_request_id="company-request",
+        creation_request_hash="a" * 64,
+        created_at=NOW,
+    )
+    with pytest.raises(ValidationError):
+        Company.model_validate({**company.to_dict(), "surprise": True})
+    with pytest.raises(ValidationError):
+        company.display_name = "Changed"
+
+    mission_contract = {"purpose": "coordinate Soma"}
+    mission_json = canonical_json(mission_contract)
+    mission = Mission(
+        mission_id=MISSION_ID,
+        company_id=COMPANY_ID,
+        mission_key="build-soma",
+        project_id=PROJECT_ID,
+        resource_id=RESOURCE_ID,
+        scope_generation=1,
+        mission_contract_json=mission_json,
+        mission_contract_hash=canonical_hash(MISSION_ID_DOMAIN, mission_contract),
+        accountable_owner_ref=EXECUTIVE,
+        acceptance_authority_ref=EXECUTIVE,
+        creation_request_id="mission-request",
+        creation_request_hash="b" * 64,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    assert mission.mission_contract_json == mission_json
+    with pytest.raises(ValidationError, match="canonical"):
+        Mission.model_validate({**mission.to_dict(), "mission_contract_json": '{"z": 1, "a": 2}'})
+    with pytest.raises(ValidationError, match="must match"):
+        Mission.model_validate({**mission.to_dict(), "acceptance_authority_ref": "other"})
+    with pytest.raises(ValidationError, match="does not match"):
+        Mission.model_validate({**mission.to_dict(), "mission_contract_hash": "f" * 64})
+
+    package_contract = {"purpose": "schema proof"}
+    package_hash = work_package_contract_hash(
+        contract_version="v1", contract=package_contract
+    )
+    package = WorkPackage(
+        work_package_id=PACKAGE_ID,
+        mission_id=MISSION_ID,
+        plan_revision_id=PLAN_ID,
+        package_key="schema-models",
+        outcome_id=outcome_id_for(
+            mission_id=MISSION_ID,
+            plan_revision_id=PLAN_ID,
+            package_key="schema-models",
+            contract_hash=package_hash,
+            project_id=PROJECT_ID,
+            resource_id=RESOURCE_ID,
+            scope_generation=1,
+        ),
+        project_id=PROJECT_ID,
+        target_resource_id=RESOURCE_ID,
+        scope_generation=1,
+        contract_version="v1",
+        contract_json=canonical_json(package_contract),
+        contract_hash=package_hash,
+        accountable_owner_ref=EXECUTIVE,
+        acceptance_authority_ref=EXECUTIVE,
+        controller_request_id="package-request",
+        request_hash="c" * 64,
+        created_at=NOW,
+    )
+    assert package.topology == "single_active"
+
+    acceptance = AcceptanceCommit(
+        acceptance_commit_id=ACCEPTANCE_ID,
+        company_id=COMPANY_ID,
+        mission_id=MISSION_ID,
+        work_package_id=PACKAGE_ID,
+        outcome_id=package.outcome_id,
+        attempt_id=ATTEMPT_ID,
+        task_id="task_20260802T220000Z_abcdefabcdef",
+        run_id="20260802T220000Z_fixture_abcdef12",
+        result_published_hash="d" * 64,
+        public_result_source_sha256="e" * 64,
+        acceptance_authority_ref=EXECUTIVE,
+        acceptance_basis_ref="owner acceptance",
+        acceptance_basis_hash="f" * 64,
+        controller_request_id="acceptance-request",
+        request_hash="1" * 64,
+        accepted_at=NOW,
+    )
+    assert acceptance.outcome_id == package.outcome_id
+
+
+def test_store_exposes_schema_only_not_company_actions() -> None:
+    public = {name for name in dir(CompanyKernelStore) if not name.startswith("_")}
+    assert public == {"connect", "init_db", "is_installed", "schema_state", "table_counts"}

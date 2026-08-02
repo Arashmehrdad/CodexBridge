@@ -1,10 +1,11 @@
 # V3-1B-SCHEMA-MODELS-1 — Company Kernel Schema and Models Gate
 
 **Date:** 2026-08-02
-**Status:** active; bounded source implementation gate
+**Status:** accepted and closed in source
 **Parent lane:** `V3-1B — Kernel of One`
 **Architecture:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_PROPOSAL_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_PROPOSAL_2026-08-02.md)
 **Acceptance basis:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md)
+**Result:** [`V3_1B_SCHEMA_MODELS_1_RESULT_2026-08-02.md`](V3_1B_SCHEMA_MODELS_1_RESULT_2026-08-02.md)
 **Runtime activation:** not authorised
 **Push:** not authorised
 
@@ -109,3 +110,5 @@ Stop and return to architecture if implementation requires a duplicate lifecycle
 ## 9. Exit
 
 Produce an accepted schema/models implementation and copied-live migration proof. Only that acceptance may activate the next separately bounded V3-1B package. No later V3-1B behavior is implied by this gate.
+
+**Closure:** the inactive Company Kernel v1 schema/models implementation passed focused, adjacent, copied-live and full-repository acceptance on 2026-08-02. This gate is closed. No successor implementation gate is active; all company actions and runtime activation remain inactive.
