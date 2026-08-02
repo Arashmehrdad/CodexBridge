@@ -1,9 +1,10 @@
 # V3-1B — Kernel of One Architecture Proposal
 
-**Date:** 2026-08-02  
-**Status:** proposed for independent acceptance audit  
-**Gate:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md)  
-**Implementation effect:** none; this document does not authorise product code  
+**Date:** 2026-08-02
+**Status:** accepted after authority-ceiling correction and repeated independent adversarial audit
+**Gate:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_GATE_2026-08-02.md)
+**Acceptance:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md)
+**Implementation effect:** architecture accepted; product work is authorised only through separately bounded implementation gates
 **Push:** not authorised
 
 ## 1. Decision summary
@@ -191,11 +192,12 @@ CREATE TABLE companies (
     executive_authority_ref TEXT NOT NULL,
     creation_request_id TEXT NOT NULL UNIQUE,
     creation_request_hash TEXT NOT NULL CHECK(length(creation_request_hash) = 64),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    UNIQUE(company_id, executive_authority_ref)
 )
 ```
 
-First proof rule: exactly one explicitly addressed Company is used. The schema does not assume a global singleton so tests and future projects remain isolated.
+First proof rule: exactly one explicitly addressed Company is used. Its `executive_authority_ref` is resolved from the trusted owner-controller bootstrap configuration; it is not a caller-created grant. A public bootstrap request may carry only an expected executive reference as an assertion, and any mismatch fails before a write. The schema does not assume a global singleton so tests and future projects remain isolated.
 
 ### 4.2 `missions`
 
@@ -221,7 +223,13 @@ CREATE TABLE missions (
     UNIQUE(company_id, mission_key),
     UNIQUE(mission_id, company_id),
     UNIQUE(mission_id, project_id, resource_id, scope_generation),
+    UNIQUE(mission_id, acceptance_authority_ref),
+    UNIQUE(mission_id, accountable_owner_ref, acceptance_authority_ref),
     FOREIGN KEY(company_id) REFERENCES companies(company_id),
+    FOREIGN KEY(company_id, accountable_owner_ref)
+        REFERENCES companies(company_id, executive_authority_ref),
+    FOREIGN KEY(company_id, acceptance_authority_ref)
+        REFERENCES companies(company_id, executive_authority_ref),
     FOREIGN KEY(project_id, resource_id)
         REFERENCES project_resource_bindings(project_id, resource_id),
     FOREIGN KEY(mission_id, current_plan_revision_id)
@@ -230,7 +238,7 @@ CREATE TABLE missions (
 )
 ```
 
-The first proof has one fixed executive/accountable owner. Dynamic Role, Assignment and ownership-transfer tables remain deferred. A different executive identity requires a later explicit authority package, not an update hidden inside V3-1B.
+The first proof has one fixed executive who is also the accountable owner and acceptance authority. `missions.accountable_owner_ref` and `missions.acceptance_authority_ref` must both equal the immutable `companies.executive_authority_ref`; composite foreign keys enforce that ceiling even if future code bypasses the intended store API. Dynamic Role, Assignment, delegation and ownership-transfer tables remain deferred. A different executive, owner or acceptance identity requires a later explicit authority package, not an update hidden inside V3-1B.
 
 Mission operational health is projected from its active ProjectScope and current plan. V3-1B stores no process-like Mission status.
 
@@ -258,6 +266,8 @@ CREATE TABLE plan_revisions (
     UNIQUE(mission_id, plan_content_hash),
     UNIQUE(mission_id, controller_request_id),
     FOREIGN KEY(mission_id) REFERENCES missions(mission_id),
+    FOREIGN KEY(mission_id, accepted_by_ref)
+        REFERENCES missions(mission_id, acceptance_authority_ref),
     FOREIGN KEY(mission_id, parent_plan_revision_id)
         REFERENCES plan_revisions(mission_id, plan_revision_id)
 )
@@ -291,9 +301,14 @@ CREATE TABLE work_packages (
     created_at TEXT NOT NULL,
     UNIQUE(work_package_id, outcome_id),
     UNIQUE(work_package_id, mission_id, outcome_id),
+    UNIQUE(work_package_id, mission_id, outcome_id, acceptance_authority_ref),
     UNIQUE(mission_id, plan_revision_id, package_key),
     UNIQUE(mission_id, controller_request_id),
     FOREIGN KEY(mission_id) REFERENCES missions(mission_id),
+    FOREIGN KEY(mission_id, accountable_owner_ref, acceptance_authority_ref)
+        REFERENCES missions(
+            mission_id, accountable_owner_ref, acceptance_authority_ref
+        ),
     FOREIGN KEY(mission_id, plan_revision_id)
         REFERENCES plan_revisions(mission_id, plan_revision_id),
     FOREIGN KEY(mission_id, project_id, target_resource_id, scope_generation)
@@ -368,8 +383,11 @@ CREATE TABLE acceptance_commits (
     accepted_at TEXT NOT NULL,
     FOREIGN KEY(mission_id, company_id)
         REFERENCES missions(mission_id, company_id),
-    FOREIGN KEY(work_package_id, mission_id, outcome_id)
-        REFERENCES work_packages(work_package_id, mission_id, outcome_id),
+    FOREIGN KEY(
+        work_package_id, mission_id, outcome_id, acceptance_authority_ref
+    ) REFERENCES work_packages(
+        work_package_id, mission_id, outcome_id, acceptance_authority_ref
+    ),
     FOREIGN KEY(attempt_id, work_package_id, outcome_id, task_id)
         REFERENCES work_package_attempts(
             attempt_id, work_package_id, outcome_id, task_id
@@ -480,11 +498,13 @@ Every company-domain write uses `BEGIN IMMEDIATE` on the shared main database. E
 ### 5.1 Bootstrap Company and Mission
 
 1. Resolve exact active ProjectScope repository binding.
-2. Canonicalise Company and Mission requests.
-3. Check existing request IDs and hashes.
-4. Insert Company if absent.
-5. Insert Mission with exact `project_id`, `resource_id`, `scope_generation`, owner and acceptance authority.
-6. Commit.
+2. Resolve the fixed executive authority from trusted owner-controller bootstrap configuration; treat any request value only as an exact expectation, never as a grant.
+3. Canonicalise Company and Mission requests with that resolved authority.
+4. Check existing request IDs and hashes.
+5. Insert or verify the immutable Company and require its stored executive reference to equal the resolved bootstrap authority.
+6. Require both the Mission accountable owner and acceptance authority to equal that same executive reference; V3-1B has no delegation or authority-expansion operation.
+7. Insert Mission with exact `project_id`, `resource_id`, `scope_generation` and the fixed executive authority references.
+8. Commit.
 
 Replay with identical hashes returns existing records. A changed request under the same identity fails. No existing ProjectScope row is altered.
 
@@ -689,7 +709,9 @@ Every write requires:
 - exact ProjectScope;
 - controller request/idempotency identity;
 - expected Mission/plan/kernel version where applicable;
-- named accountable/acceptance authority;
+- an expected Company executive assertion that must match trusted owner-controller bootstrap configuration;
+- named accountable/acceptance authority, both equal to the immutable Company executive in v1;
+- no caller-created root authority and no authority delegation, expansion, substitution or transfer operation;
 - bounded request and response budgets;
 - `extra='forbid'` schema behavior.
 
@@ -763,6 +785,9 @@ This prevents both a disruptive global migration and permanent duplicate lifecyc
 - deterministic exact IDs and hashes;
 - semantic-similar but byte-different contract remains different;
 - wrong project/resource/generation/lifecycle fails;
+- caller-supplied Company executive identity different from trusted bootstrap configuration fails before mutation;
+- Mission owner or acceptance authority different from the immutable Company executive fails at both service and database boundaries;
+- PlanRevision, WorkPackage or AcceptanceCommit authority different from the Mission authority fails transactionally;
 - cross-project Task/Run/acceptance fails;
 - archived ProjectScope blocks mutation.
 
@@ -859,6 +884,7 @@ The proposal should be accepted only if independent audit confirms:
 - ProjectScope/Task/Run/ResultPublication remain canonical and unchanged;
 - one-current plan and one-winner acceptance are transactionally enforceable;
 - route-independent outcome and route-specific attempt identity are cleanly separated;
+- the v1 root executive is anchored to trusted owner-controller bootstrap configuration, its downstream authority ceiling is transactionally enforced, and no free-form reference can mint root or delegated authority;
 - default attempt concurrency cannot fork;
 - crash windows cannot fabricate execution or acceptance;
 - owner waiting reuses V3-1A exactly;

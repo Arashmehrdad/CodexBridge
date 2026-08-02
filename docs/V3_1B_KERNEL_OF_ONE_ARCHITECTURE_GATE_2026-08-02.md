@@ -1,10 +1,12 @@
 # V3-1B — Kernel of One Architecture Gate
 
-**Date:** 2026-08-02  
-**Status:** active; documentation-only architecture gate  
-**Parent roadmap:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)  
-**Depends on:** accepted V3-1A lane completion and the owner-accepted hierarchical-intelligence organisational contract  
-**Implementation:** not authorised by this gate  
+**Date:** 2026-08-02
+**Status:** accepted and closed after proposal correction and repeated independent audit
+**Parent roadmap:** [`SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md`](SOMA_ROADMAP_V3_AUTONOMOUS_COMPANY_ARCHITECTURE_2026-07-30.md)
+**Depends on:** accepted V3-1A lane completion and the owner-accepted hierarchical-intelligence organisational contract
+**Acceptance:** [`V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md`](V3_1B_KERNEL_OF_ONE_ARCHITECTURE_ACCEPTANCE_AUDIT_2026-08-02.md)
+**Successor gate:** [`V3_1B_SCHEMA_MODELS_1_GATE_2026-08-02.md`](V3_1B_SCHEMA_MODELS_1_GATE_2026-08-02.md)
+**Implementation:** authorised only through the separately bounded successor gate
 **Push:** not authorised
 
 ## 1. Objective
@@ -114,3 +116,5 @@ Return to architecture correction rather than implementation if:
 ## 9. Exit
 
 Produce a repository-grounded architecture proposal and an independent acceptance audit. Only an accepted audit may activate a bounded V3-1B implementation gate. Until then, all V3-1B product code and later V3 outcomes remain inactive.
+
+**Closure:** the corrected proposal passed the independent audit on 2026-08-02. This documentation gate is closed. Only `V3-1B-SCHEMA-MODELS-1` is active; every later V3-1B behavior remains inactive.
