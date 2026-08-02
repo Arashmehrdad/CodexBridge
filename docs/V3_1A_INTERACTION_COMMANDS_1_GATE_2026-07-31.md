@@ -65,15 +65,30 @@ Completed:
 - idempotent and concurrent wait/resume convergence;
 - rollback after intermediate checkpoint, command, Task, or Run mutation.
 
-Active next slice:
+The deterministic transport/public-command slice is accepted and closed at commit `06d75ca197eb43fc9a356e1a7f9315241d0e7193`, incorporating the reconciled work from commits `105da47dde70bafae38764808605c86e47b91b9e` and `3c94db4df67399a9ddfa236b48c3d3985f59892c`. Its result is [`V3_1A_DETERMINISTIC_INTERACTION_ACTIONS_RESULT_2026-08-02.md`](V3_1A_DETERMINISTIC_INTERACTION_ACTIONS_RESULT_2026-08-02.md).
 
-- one provider-neutral deterministic interaction transport port;
-- stand-in acknowledgement, rejection, outcome-unknown, and crash-window behavior;
-- capability-honest `steer` behavior;
-- narrow public `steer` and `supply_input` task actions derived from the same request models and runtime validation;
-- payload secrecy and bounded no-echo public projections.
+Completed:
 
-Real provider execution remains inactive until this deterministic transport/public-command slice passes.
+- one provider-neutral reference-only interaction transport port;
+- deterministic acknowledgement, rejection, outcome-unknown, and crash-window stand-ins;
+- one durable single-claimer dispatcher with no resend from unresolved or uncertain attempts;
+- capability-honest Claude steering and explicit Codex steering refusal;
+- narrow strict public `steer` and `supply_input` task actions;
+- payload secrecy and bounded no-echo public projections;
+- public discovery, runtime models, TaskManager behavior, and CF1 inventory convergence;
+- fresh-process import-order repair and permanent regression;
+- full repository regression floor of 2657 passed, 35 skipped, and 1 expected xfail.
+
+Active final slice:
+
+- one central idempotent checkpoint-expiry processor;
+- canonical pause or cancellation request through existing process authority where required;
+- no ownership release without accepted quiescence or zero-descendant proof;
+- exact recovery classification for every pending, claimed, uncertain, acknowledged, resolved, and in-flight expiry window;
+- final cancellation-before-send, cancellation-during-send, late-acknowledgement, and late-input race closure;
+- final V3-1A authority-delta and completion audit.
+
+Real provider execution remains inactive throughout this final internal slice.
 
 ## 2. Existing authorities that remain canonical
 
