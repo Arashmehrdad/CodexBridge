@@ -52,15 +52,28 @@ Completed:
 - additive schema v2 with copied-live migration proof;
 - Windows-safe concurrent content-addressed payload writes.
 
+The lifecycle-semantics slice is accepted and closed at commits `c89ead7f173a1d93bdfd961824db523dc4f70489` and `ac490f2f040251c83373afdb7e529389ec653cc5`. Its result is [`V3_1A_INTERACTION_WAIT_RESUME_RESULT_2026-08-02.md`](V3_1A_INTERACTION_WAIT_RESUME_RESULT_2026-08-02.md).
+
+Completed:
+
+- central atomic non-terminal `awaiting_controller` transition;
+- exact checkpoint and bounded deadline creation;
+- historical terminal `needs_input` compatibility;
+- evidence-proven resume of the same Task, Run, session, worker identity, lease, and lock;
+- central cancellation, expiry, supersession, stale-state, and technical-recovery precedence;
+- restart repair for acknowledgement-before-resume without resend;
+- idempotent and concurrent wait/resume convergence;
+- rollback after intermediate checkpoint, command, Task, or Run mutation.
+
 Active next slice:
 
-- central non-terminal `awaiting_controller` transition;
-- exact checkpoint and deadline creation;
-- evidence-proven resume of the same Task, Run, and session;
-- central cancellation, expiry, supersession, stale-state, and technical-recovery precedence;
-- restart repair for acknowledgement-before-resume without resend.
+- one provider-neutral deterministic interaction transport port;
+- stand-in acknowledgement, rejection, outcome-unknown, and crash-window behavior;
+- capability-honest `steer` behavior;
+- narrow public `steer` and `supply_input` task actions derived from the same request models and runtime validation;
+- payload secrecy and bounded no-echo public projections.
 
-Public operations, deterministic stand-in dispatch, and real provider execution remain inactive until this lifecycle slice passes.
+Real provider execution remains inactive until this deterministic transport/public-command slice passes.
 
 ## 2. Existing authorities that remain canonical
 
