@@ -68,11 +68,13 @@ Owner instruction is required only for a genuine product-direction choice, an un
 
 **Method:** extend shared SQLite authority additively; preserve canonical Task, Run, ProjectScope, lock, cancellation, and publication ownership; keep informational messages lifecycle-inert; forbid blind resend of uncertain attempts; validate focused crash/race evidence before adjacent compatibility gates.
 
+**Progress:** the canonical command, complete-contract message reservation, and single-claimer transport-attempt foundation is accepted at commits `f6ba7ec42d9c5e1b59a26520a08abf130b1412ce` and `02ebc01a815bba309789871fa94160905308292e`. Evidence is [`docs/V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md`](docs/V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md). The active slice is now central non-terminal wait/resume and precedence semantics; public commands and real provider transport remain inactive.
+
 **Exit:** the corrected gate passes, authority-delta audit confirms no new generic lifecycle manager, evidence and result documentation are complete, the worktree is clean, and nothing is pushed. The development agent then audits and proceeds under the Engineering Progression Procedure.
 
 ## Completed Lane: RELIABILITY-1 — Existing Runtime Hardening
 
-**Status:** accepted and closed on 2026-08-02 after objective audit. All known `REL-001` through `REL-024` defects are closed and live; restart/refresh convergence, disposable scenarios, integrity, documentation, and final quiet preflight passed. The authoritative evidence is [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
+**Status:** accepted and closed on 2026-08-02 after objective audit. All defects known at closure, `REL-001` through `REL-024`, are closed and live; later defects continue in the same ledger without reopening the lane. Restart/refresh convergence, disposable scenarios, integrity, documentation, and final quiet preflight passed. The authoritative evidence is [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md).
 
 **Result:** the existing runtime is proven reliable across fresh-project onboarding, ProjectScope and memory, runtime/connector convergence, repository transactions, task/run durability, supervisor/workflow handoffs, restart recovery, isolation, integrity, evidence, and operational use. No push occurred.
 

@@ -38,6 +38,30 @@ The architecture hold is closed. Implementation must follow the binding acceptan
 
 The current worker-substrate v1 records are inert historical-compatible foundations. Their existing rows must not be backfilled with invented sender, recipient, mandate, contract, or attempt evidence.
 
+## 1.2 Implementation progress
+
+The reservation foundation is accepted and closed at commits `f6ba7ec42d9c5e1b59a26520a08abf130b1412ce` and `02ebc01a815bba309789871fa94160905308292e`. Its result is [`V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md`](V3_1A_INTERACTION_RESERVATION_FOUNDATION_RESULT_2026-08-02.md).
+
+Completed:
+
+- canonical `steer` and `supply_input` command reservation;
+- one shared transaction for canonical command plus subordinate generic message;
+- exact sender, recipient, session, checkpoint, optional mandate, payload, state-version, and complete contract identity;
+- one durable single-claimer transport attempt;
+- outcome-unknown evidence that cannot create a resend;
+- additive schema v2 with copied-live migration proof;
+- Windows-safe concurrent content-addressed payload writes.
+
+Active next slice:
+
+- central non-terminal `awaiting_controller` transition;
+- exact checkpoint and deadline creation;
+- evidence-proven resume of the same Task, Run, and session;
+- central cancellation, expiry, supersession, stale-state, and technical-recovery precedence;
+- restart repair for acknowledgement-before-resume without resend.
+
+Public operations, deterministic stand-in dispatch, and real provider execution remain inactive until this lifecycle slice passes.
+
 ## 2. Existing authorities that remain canonical
 
 - `TaskStore` and `TaskManager` own task identity, task state, task commands, state-version guards, checkpoints, and public task projections.
