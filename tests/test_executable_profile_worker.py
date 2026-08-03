@@ -138,6 +138,31 @@ def test_executable_worker_preserves_quoting_and_binary_streams(
     assert result["output_truncated"] is False
 
 
+def test_failed_companion_process_preserves_process_diagnostic(
+    monkeypatch, tmp_path: Path
+) -> None:
+    diagnostic = "Invalid argument '-m'"
+    script = f"import sys; sys.stderr.write({diagnostic!r}); raise SystemExit(2)"
+    worker, _store, input_data, _run_dir = _make_worker(
+        tmp_path,
+        argv=["-c", script],
+    )
+    input_data["hermes_companion"] = {
+        "operation": "handshake",
+        "expected_registry_generation": None,
+        "expected_schema_hash": "",
+        "one_request": True,
+    }
+    monkeypatch.setattr(worker.store, "attach_child_pid", lambda *args, **kwargs: True)
+
+    result = worker._execute_executable_profile(utc_now(), input_data)
+
+    assert result["status"] == "failed"
+    assert result["exit_code"] == 2
+    assert result["summary"] == diagnostic
+    assert result["hermes_response"] is None
+
+
 def test_executable_worker_rejects_identity_change_before_launch(
     monkeypatch, tmp_path: Path
 ) -> None:

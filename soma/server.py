@@ -1065,6 +1065,35 @@ def get_job_manager() -> JobManager:
     return JobManager(get_config(), get_config_path())
 
 
+def _resolve_configured_hermes_companion_profile(profile_id: str) -> str:
+    config = get_config()
+    service_config = config.hermes_service
+    configured_profile_id = str(service_config.fallback_profile_id or "").strip()
+    if not configured_profile_id:
+        raise ValueError("Hermes companion Python profile is not configured")
+    requested_profile_id = str(profile_id or "").strip()
+    if requested_profile_id and requested_profile_id != configured_profile_id:
+        raise ValueError(
+            f"Hermes companion profile '{requested_profile_id}' is not the configured "
+            f"Hermes Python profile '{configured_profile_id}'"
+        )
+    profile = config.executable_profiles.get(configured_profile_id)
+    if profile is None:
+        raise ValueError(
+            f"Configured Hermes Python profile '{configured_profile_id}' is unavailable"
+        )
+    configured_python = str(service_config.python_executable or "").strip()
+    if configured_python:
+        selected_path = os.path.normcase(str(Path(profile.executable_path).resolve()))
+        configured_path = os.path.normcase(str(Path(configured_python).resolve()))
+        if selected_path != configured_path:
+            raise ValueError(
+                f"Configured Hermes Python profile '{configured_profile_id}' does not "
+                "use the configured Hermes Python executable"
+            )
+    return configured_profile_id
+
+
 def get_workflow_manager() -> WorkflowManager:
     return WorkflowManager(get_config(), get_config_path())
 
@@ -3276,8 +3305,9 @@ def run_start(request: RunStartRequest) -> dict:
             worker_wait_timeout_seconds=request.worker_wait_timeout_seconds,
         )
     if request.operation == "hermes_companion":
+        profile_id = _resolve_configured_hermes_companion_profile(request.profile_id)
         launch = build_companion_launch(
-            profile_id=request.profile_id,
+            profile_id=profile_id,
             checkout=request.checkout,
             operation=request.companion_operation,
             payload=request.payload,

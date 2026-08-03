@@ -158,7 +158,11 @@ def parse_companion_result(
     expected_schema_hash: str = "",
 ) -> dict[str, Any]:
     lines = [line for line in str(stdout).splitlines() if line.strip()]
-    if len(lines) != 1:
+    if not lines:
+        raise HermesCompanionProtocolError(
+            "companion emitted no response for one-request execution"
+        )
+    if len(lines) > 1:
         raise HermesCompanionProtocolError(
             "companion must emit exactly one response for one-request execution"
         )

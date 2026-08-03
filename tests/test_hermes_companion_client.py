@@ -186,6 +186,8 @@ def test_client_rejects_unbound_or_ambiguous_execution(tmp_path: Path) -> None:
             operation="tool_describe",
             payload={"tool_name": "filesystem.read_text"},
         )
+    with pytest.raises(ValueError, match="emitted no response"):
+        parse_companion_result("\n", expected_operation="handshake")
     with pytest.raises(ValueError, match="exactly one response"):
         parse_companion_result("{}\n{}\n", expected_operation="handshake")
     with pytest.raises(ValueError, match="operation drift"):

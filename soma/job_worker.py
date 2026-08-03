@@ -1322,16 +1322,17 @@ class JobWorker:
         if companion_metadata is not None:
             if not isinstance(companion_metadata, dict):
                 raise ValueError("Persisted Hermes companion metadata is invalid")
-            hermes_response = parse_companion_result(
-                stdout,
-                expected_operation=str(companion_metadata.get("operation") or ""),
-                expected_registry_generation=companion_metadata.get(
-                    "expected_registry_generation"
-                ),
-                expected_schema_hash=str(
-                    companion_metadata.get("expected_schema_hash") or ""
-                ),
-            )
+            if exit_code == 0:
+                hermes_response = parse_companion_result(
+                    stdout,
+                    expected_operation=str(companion_metadata.get("operation") or ""),
+                    expected_registry_generation=companion_metadata.get(
+                        "expected_registry_generation"
+                    ),
+                    expected_schema_hash=str(
+                        companion_metadata.get("expected_schema_hash") or ""
+                    ),
+                )
         status = "completed" if exit_code == 0 else "failed"
         if timed_out and termination.get("terminated"):
             status = "timed_out"

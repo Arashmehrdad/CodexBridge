@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from pydantic import TypeAdapter, ValidationError
 import pytest
 
+from soma.config import AppConfig, ExecutableProfileConfig, HermesServiceConfig, RepoConfig
 from soma.operation_locks import LockAcquisition, RepositoryBusyError
 from soma.gateway_models import (
     RepoApplyRequest,
@@ -1887,6 +1888,42 @@ def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None
 def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypatch) -> None:
     checkout = tmp_path / "hermes"
     checkout.mkdir()
+    python_executable = tmp_path / "python.exe"
+    python_executable.write_bytes(b"python-fixture")
+    powershell_executable = tmp_path / "pwsh.exe"
+    powershell_executable.write_bytes(b"powershell-fixture")
+    profile_options = {
+        "enabled": True,
+        "target": "local",
+        "working_directory_policy": "arbitrary",
+        "environment_policy": "arbitrary",
+        "stdin_mode": "text",
+        "unrestricted_argv": True,
+    }
+    server.set_config(
+        AppConfig(
+            repos={"sample": RepoConfig(path=str(tmp_path))},
+            executable_profiles={
+                "hermes_python": ExecutableProfileConfig(
+                    profile_id="hermes_python",
+                    executable_path=str(python_executable),
+                    **profile_options,
+                ),
+                "powershell": ExecutableProfileConfig(
+                    profile_id="powershell",
+                    executable_path=str(powershell_executable),
+                    **profile_options,
+                ),
+            },
+            hermes_service=HermesServiceConfig(
+                checkout=str(checkout),
+                python_executable=str(python_executable),
+                fallback_profile_id="hermes_python",
+            ),
+            config_dir=tmp_path,
+        ),
+        tmp_path / "config.yaml",
+    )
     calls = []
 
     class FakeJobs:
@@ -1906,7 +1943,6 @@ def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypat
         {
             "operation": "hermes_companion",
             "repo_name": "sample",
-            "profile_id": "python",
             "checkout": str(checkout),
             "companion_operation": "tool_search",
             "payload": {"query": "github", "limit": 5},
@@ -1919,6 +1955,7 @@ def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypat
 
     assert result["run_id"] == "hermes_run"
     assert result["hermes_companion"]["operation"] == "tool_search"
+    assert calls[0]["profile_id"] == "hermes_python"
     assert calls[0]["hermes_companion"]["expected_registry_generation"] == 7
     assert calls[0]["hermes_companion"]["expected_schema_hash"] == "a" * 64
     assert calls[0]["stdin_text"].endswith("\n")
@@ -1927,7 +1964,7 @@ def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypat
         {
             "operation": "hermes_companion",
             "repo_name": "sample",
-            "profile_id": "python",
+            "profile_id": "hermes_python",
             "checkout": str(checkout),
             "companion_operation": "tool_call",
             "payload": {
@@ -1943,6 +1980,19 @@ def test_run_start_dispatches_bound_hermes_companion_request(tmp_path, monkeypat
     assert call_result["hermes_companion"]["operation"] == "tool_call"
     assert json.loads(calls[1]["stdin_text"])["tool_name"] == "read_file"
     assert json.loads(calls[1]["stdin_text"])["arguments"]["limit"] == 5
+
+    wrong_profile = TypeAdapter(RunStartRequest).validate_python(
+        {
+            "operation": "hermes_companion",
+            "repo_name": "sample",
+            "profile_id": "powershell",
+            "checkout": str(checkout),
+            "companion_operation": "handshake",
+        }
+    )
+    with pytest.raises(ValueError, match="configured Hermes Python profile"):
+        server.run_start(wrong_profile)
+    assert len(calls) == 2
 
 
 def test_run_start_rejects_invalid_remote_powershell_binary_input() -> None:
