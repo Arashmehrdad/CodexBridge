@@ -1,0 +1,808 @@
+{
+  "contract_version": "chatgpt-tool-ux.c1.v1",
+  "status": "research_candidate_not_live",
+  "generated_for": "Soma normal-chat Plugin/MCP UX research iteration 5",
+  "source_head": "24fa7774d97e8a04bed3ec79054ae9b66182fd39",
+  "fastmcp_version_tested": "3.4.2",
+  "tool_count": 43,
+  "principles": [
+    "Keep existing Soma runtime authorities and execution paths unchanged.",
+    "Split a public tool only when proven state, safety, confirmation, or external-world semantics differ materially.",
+    "Use human-facing titles, trigger-first descriptions, and ChatGPT invocation labels on every public tool.",
+    "Treat annotations as truthful host hints, never as server-side authorization.",
+    "Keep stateful helper operations out of readOnlyHint=true tools.",
+    "Keep canonical project memory distinct from repository wiki and legacy knowledge.",
+    "Do not add automatic commit, push, restart, refresh, plugin install, or other hidden side effects."
+  ],
+  "tools": {
+    "ssh_inspect": {
+      "title": "Inspect SSH host",
+      "description": "Use this when you need to check whether an authorized SSH host, tunnel, or service is reachable, or inspect live read-only SSH health, environment, GPU telemetry, logs, files, services, Git, or Docker state. Do not use it to change the host.",
+      "invoking": "Inspecting SSH host...",
+      "invoked": "SSH inspection ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "source_gateway": "ssh_inspect",
+      "schema_source": "inherit"
+    },
+    "docker_query": {
+      "title": "Inspect Docker",
+      "description": "Use this when you need Docker capabilities, health, container or Compose inspection without changing Docker state. Do not use it to start, stop, remove, or prune resources.",
+      "invoking": "Inspecting Docker...",
+      "invoked": "Docker inspection ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "docker_query",
+      "schema_source": "inherit"
+    },
+    "cloudflare_query": {
+      "title": "Inspect Cloudflare",
+      "description": "Use this when you need authorized Cloudflare capabilities, health, DNS, ruleset, tunnel, cache, or zone information without changing Cloudflare.",
+      "invoking": "Inspecting Cloudflare...",
+      "invoked": "Cloudflare inspection ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "source_gateway": "cloudflare_query",
+      "schema_source": "inherit"
+    },
+    "ssh_action": {
+      "title": "Run SSH action",
+      "description": "Use this when the user explicitly wants an authorized remote SSH command, reviewed script, root shell, administration change, transfer, deployment, or profile activation. This surface can change or remove remote state.",
+      "invoking": "Running SSH action...",
+      "invoked": "SSH action submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "ssh_action",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation: mixed remote execution risks remain one tool pending A/B."
+    },
+    "run_start": {
+      "title": "Start durable command",
+      "description": "Use this when the user explicitly wants to run tests, scripts, PowerShell, or a Hermes operation as durable local or remote execution. The command surface is unrestricted enough to overwrite, delete, or reach external systems; do not use it for inspection.",
+      "invoking": "Starting durable command...",
+      "invoked": "Durable command started",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "run_start",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation for unrestricted execution."
+    },
+    "workflow_query": {
+      "title": "Inspect workflow",
+      "description": "Use this when you need durable workflow status, events, or results without advancing or cancelling the workflow.",
+      "invoking": "Inspecting workflow...",
+      "invoked": "Workflow status ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "workflow_query",
+      "schema_source": "inherit"
+    },
+    "workflow_action": {
+      "title": "Control workflow",
+      "description": "Use this when the user explicitly wants to start or cancel a validated durable workflow. Workflow steps can launch allowlisted project commands that may write files.",
+      "invoking": "Updating workflow...",
+      "invoked": "Workflow action submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "workflow_action",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation: configured project commands can write files and may execute code."
+    },
+    "cancel_run": {
+      "title": "Cancel durable run",
+      "description": "Use this when the user explicitly wants to cancel one exact known durable run or PowerShell command group. Do not use it as a broad process-kill tool.",
+      "invoking": "Cancelling durable run...",
+      "invoked": "Run cancellation complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "cancel_run",
+      "schema_source": "inherit"
+    },
+    "run_query": {
+      "title": "Inspect durable run",
+      "description": "Use this when you need durable run status, input, output, events, terminal evidence, results, summaries, locks, or repository preflight without launching or cancelling work.",
+      "invoking": "Inspecting durable run...",
+      "invoked": "Run evidence ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "run_query",
+      "schema_source": "inherit"
+    },
+    "task_query": {
+      "title": "Inspect task",
+      "description": "Use this when you need canonical task capabilities, status, result, events, links, or quarantine evidence without changing the task.",
+      "invoking": "Inspecting task...",
+      "invoked": "Task evidence ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "task_query",
+      "schema_source": "inherit"
+    },
+    "task_action": {
+      "title": "Control task",
+      "description": "Use this when the user explicitly wants to start, steer, supply input to, cancel, or resolve one canonical task. Task start delegates to the durable execution backend and can have unrestricted command effects.",
+      "invoking": "Updating task...",
+      "invoked": "Task action submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "task_action",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation because start delegates to unrestricted durable execution."
+    },
+    "system_query": {
+      "title": "Inspect Soma service",
+      "description": "Use this when you need Soma capabilities, self-checks, configuration validation, local-model health, capability identity, or reload status without changing the running service.",
+      "invoking": "Inspecting Soma service...",
+      "invoked": "Soma service status ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "system_query",
+      "schema_source": "inherit"
+    },
+    "system_action": {
+      "title": "Reload Soma service",
+      "description": "Use this when the user explicitly wants a validated Soma module reload or last-known-good rollback. Do not use it for ordinary health or configuration inspection.",
+      "invoking": "Updating Soma service...",
+      "invoked": "Soma service update complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "system_action",
+      "schema_source": "inherit"
+    },
+    "supervisor_query": {
+      "title": "Inspect supervisor",
+      "description": "Use this when you need durable supervisor status, events, results, notifications, or a resume prompt without advancing the supervisor.",
+      "invoking": "Inspecting supervisor...",
+      "invoked": "Supervisor evidence ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "supervisor_query",
+      "schema_source": "inherit"
+    },
+    "supervisor_action": {
+      "title": "Control supervisor",
+      "description": "Use this when the user explicitly wants to start, resume, pause, or cancel a durable supervisor. Start and resume can advance child execution; cancel can terminate an active child.",
+      "invoking": "Updating supervisor...",
+      "invoked": "Supervisor action complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "supervisor_action",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation pending live confirmation-cost measurement."
+    },
+    "trading_signal_submit": {
+      "title": "Record trading signal",
+      "description": "Use this when you need to store one packet-bound Trading Lab signal or NO_TRADE decision in the local journal. This tool does not submit a broker order.",
+      "invoking": "Recording trading signal...",
+      "invoked": "Trading signal recorded",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_signal_submit",
+      "schema_source": "inherit"
+    },
+    "trading_signal_get": {
+      "title": "Read trading signal",
+      "description": "Use this when you need one exact Trading Lab signal record from the local journal.",
+      "invoking": "Reading trading signal...",
+      "invoked": "Trading signal ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_signal_get",
+      "schema_source": "inherit"
+    },
+    "trading_signal_list": {
+      "title": "List trading signals",
+      "description": "Use this when you need a filtered page of Trading Lab signal records from the local journal.",
+      "invoking": "Listing trading signals...",
+      "invoked": "Trading signals ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_signal_list",
+      "schema_source": "inherit"
+    },
+    "trading_signal_cancel_before_entry": {
+      "title": "Cancel trading signal",
+      "description": "Use this when the user explicitly wants to cancel one stored Trading Lab signal before entry. This changes the signal's durable lifecycle and does not close an existing broker position.",
+      "invoking": "Cancelling trading signal...",
+      "invoked": "Trading signal cancelled",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_signal_cancel_before_entry",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 lifecycle annotation; G-corpus measures whether host framing is excessive."
+    },
+    "trading_companion_action": {
+      "title": "Advance trading companion",
+      "description": "Use this when the user explicitly wants to start, decide, review, or execute a Trading Lab companion cycle. Some stages read the configured provider and execute can reach broker-demo trading.",
+      "invoking": "Advancing trading companion...",
+      "invoked": "Trading companion updated",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "trading_companion_action",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation for mixed internal/provider/execution stages."
+    },
+    "trading_action_submit": {
+      "title": "Submit trading action",
+      "description": "Use this when the user explicitly wants one guarded Trading Lab action such as entry, modification, close, flatten, or emergency close. The configured mode may be internal paper or broker-demo.",
+      "invoking": "Submitting trading action...",
+      "invoked": "Trading action complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "trading_action_submit",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation; C2 paper/broker split is gated on G42-G44."
+    },
+    "trading_runtime_control": {
+      "title": "Control trading runtime",
+      "description": "Use this when the user explicitly wants to start, stop, change the kill switch, or run a manual trading supervision/analysis pass. Use Trading Lab record reads for runtime status instead of this mutation surface.",
+      "invoking": "Updating trading runtime...",
+      "invoked": "Trading runtime updated",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "trading_runtime_control",
+      "schema_source": "inherit",
+      "notes": "Conservative C1 annotation; provider-backed actions share this surface."
+    },
+    "repo_query": {
+      "title": "Inspect repository",
+      "description": "Use this when you need to inspect or search a repository (repo) or repository evidence: current status, files, audit documents, source text, diffs, history, commit ranges, patch status, or the current state of an interrupted repository task. Do not use it to preview, apply, or commit changes.",
+      "invoking": "Inspecting repository...",
+      "invoked": "Repository inspection ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "repo_query",
+      "schema_source": "inherit"
+    },
+    "repo_preview": {
+      "title": "Prepare repository change",
+      "description": "Use this when the user asks to make, correct, edit, create, remove, or otherwise change repository source/files and you need a durable hash-bound preview or cleanup plan before applying it. This creates Soma preview state but does not modify repository files.",
+      "invoking": "Preparing change preview...",
+      "invoked": "Change preview ready",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "repo_preview",
+      "schema_source": "inherit"
+    },
+    "repo_apply": {
+      "title": "Apply repository change",
+      "description": "Use this when the user has authorized an established managed preview, cleanup, revert, or move. This can overwrite, remove, restore, or move repository content; it does not push.",
+      "invoking": "Applying repository change...",
+      "invoked": "Repository change applied",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "repo_apply",
+      "schema_source": "inherit"
+    },
+    "repo_commit": {
+      "title": "Commit selected files",
+      "description": "Use this when the user explicitly wants a protected local branch creation or a commit containing selected validated files. Do not push or include unrelated work.",
+      "invoking": "Committing selected files...",
+      "invoked": "Selected files committed",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "repo_commit",
+      "schema_source": "inherit"
+    },
+    "memory_query": {
+      "title": "Read project memory",
+      "description": "Use this when you need to resolve, search, retrieve, or check Soma's canonical project memory without creating a context packet or changing memory. Do not substitute repository wiki or MEMORY.md files.",
+      "invoking": "Reading project memory...",
+      "invoked": "Project memory ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_query",
+      "operations": [
+        "memory_scope",
+        "memory_search",
+        "memory_get",
+        "memory_health",
+        "memory_packet_get"
+      ],
+      "schema_source": "KnowledgeQueryRequest subset"
+    },
+    "memory_context": {
+      "title": "Build project-memory context",
+      "description": "Use this when you need a persisted context packet assembled from Soma's canonical project memory for a specific query. This creates durable Soma packet state but does not change the underlying memory records.",
+      "invoking": "Building memory context...",
+      "invoked": "Memory context ready",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_query",
+      "operations": [
+        "memory_context"
+      ],
+      "schema_source": "KnowledgeQueryRequest subset"
+    },
+    "research_query": {
+      "title": "Read research evidence",
+      "description": "Use this when you need stored research sources, claim evidence, questions, decisions, or research health without building a new context packet.",
+      "invoking": "Reading research evidence...",
+      "invoked": "Research evidence ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_query",
+      "operations": [
+        "get_research_source",
+        "get_claim_evidence",
+        "list_research_questions",
+        "list_research_decisions",
+        "research_health"
+      ],
+      "schema_source": "KnowledgeQueryRequest subset"
+    },
+    "research_context": {
+      "title": "Build research context",
+      "description": "Use this when you need research search results or a research context packet. Both operations currently persist a context-packet record, so this is intentionally not a read-only surface.",
+      "invoking": "Building research context...",
+      "invoked": "Research context ready",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_query",
+      "operations": [
+        "search_research",
+        "build_context_packet"
+      ],
+      "schema_source": "KnowledgeQueryRequest subset"
+    },
+    "knowledge_query": {
+      "title": "Read repository knowledge",
+      "description": "Use this when you need the repository wiki or legacy repository-knowledge records. Do not use it for Soma's canonical project memory or for research context-packet construction.",
+      "invoking": "Reading repository knowledge...",
+      "invoked": "Repository knowledge ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_query",
+      "operations": [
+        "read_wiki",
+        "search",
+        "search_knowledge",
+        "get_knowledge",
+        "knowledge_health"
+      ],
+      "schema_source": "KnowledgeQueryRequest subset"
+    },
+    "memory_action": {
+      "title": "Update project memory",
+      "description": "Use this when the user explicitly wants to bind, save, supersede, archive, reject, dispute, rebuild, sync, or deliberately adopt drift in Soma's canonical project memory. Some operations change memory authority or lifecycle.",
+      "invoking": "Updating project memory...",
+      "invoked": "Project memory updated",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_action",
+      "operations": [
+        "memory_bind_repository",
+        "memory_archive_repository",
+        "memory_save",
+        "memory_supersede",
+        "memory_mark_disputed",
+        "memory_archive",
+        "memory_reject",
+        "memory_accept_drift",
+        "memory_rebuild_index",
+        "memory_sync_provider"
+      ],
+      "schema_source": "KnowledgeActionRequest subset",
+      "notes": "C1 intentionally keeps ordinary and lifecycle memory writes together; G47/G48 gate a later split."
+    },
+    "knowledge_action": {
+      "title": "Update repository knowledge",
+      "description": "Use this when the user explicitly wants to refresh the repository wiki or change legacy/research knowledge records. Do not use it for Soma's canonical project-memory workflow.",
+      "invoking": "Updating repository knowledge...",
+      "invoked": "Repository knowledge updated",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "knowledge_action",
+      "operations": [
+        "refresh_wiki",
+        "remember_decision",
+        "save_knowledge",
+        "supersede_knowledge",
+        "rebuild_knowledge",
+        "import_research_source",
+        "preserve_research_packet",
+        "rebuild_research_index"
+      ],
+      "schema_source": "KnowledgeActionRequest subset",
+      "notes": "Conservative because legacy supersede shares this surface."
+    },
+    "ssh_query": {
+      "title": "Read SSH configuration",
+      "description": "Use this when you need local SSH capability metadata, profile-change status, or configured project bindings. Do not use it to create a probe, preview, snapshot, or remote change.",
+      "invoking": "Reading SSH configuration...",
+      "invoked": "SSH configuration ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "ssh_query",
+      "operations": [
+        "capabilities",
+        "profile_status",
+        "project_bindings"
+      ],
+      "schema_source": "SSHQueryRequest subset"
+    },
+    "ssh_prepare": {
+      "title": "Prepare SSH configuration",
+      "description": "Use this when you need a sanitized credential-source probe or a durable SSH profile-change preview. This creates local Soma probe or preview state but does not mutate the remote host.",
+      "invoking": "Preparing SSH configuration...",
+      "invoked": "SSH preparation ready",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "ssh_query",
+      "operations": [
+        "credential_probe",
+        "profile_preview"
+      ],
+      "schema_source": "SSHQueryRequest subset"
+    },
+    "ssh_probe": {
+      "title": "Probe SSH host",
+      "description": "Use this when you need a fresh authorized host capability snapshot or project-binding validation. This performs remote read-only probes and persists local Soma evidence.",
+      "invoking": "Probing SSH host...",
+      "invoked": "SSH probe complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "ssh_query",
+      "operations": [
+        "capability_snapshot",
+        "project_binding_validation"
+      ],
+      "schema_source": "SSHQueryRequest subset"
+    },
+    "docker_action": {
+      "title": "Control Docker",
+      "description": "Use this when the user explicitly wants a bounded Docker build, pull, push, create, start, stop, restart, pause, unpause, Compose down, or exec action that is not in the destructive removal/prune class.",
+      "invoking": "Updating Docker...",
+      "invoked": "Docker action submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "docker_action",
+      "operations": [
+        "compose_build",
+        "compose_down",
+        "compose_exec",
+        "compose_pause",
+        "compose_pull",
+        "compose_restart",
+        "compose_start",
+        "compose_stop",
+        "compose_unpause",
+        "compose_up",
+        "container_exec",
+        "container_pause",
+        "container_restart",
+        "container_start",
+        "container_stop",
+        "container_unpause",
+        "image_build",
+        "image_pull",
+        "image_push",
+        "image_tag",
+        "network_create",
+        "volume_create"
+      ],
+      "schema_source": "DockerActionRequest subset"
+    },
+    "docker_destructive_action": {
+      "title": "Remove Docker resources",
+      "description": "Use this when the user explicitly wants a Docker kill, removal, prune, Compose removal, or volume-destructive action. These operations can discard containers, images, networks, volumes, or cached build state.",
+      "invoking": "Removing Docker resources...",
+      "invoked": "Docker removal submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "docker_action",
+      "operations": [
+        "builder_prune",
+        "compose_down_volumes",
+        "compose_kill",
+        "compose_rm",
+        "container_kill",
+        "container_prune",
+        "container_remove",
+        "image_prune",
+        "image_remove",
+        "network_prune",
+        "network_remove",
+        "system_prune",
+        "system_prune_volumes",
+        "volume_prune",
+        "volume_remove"
+      ],
+      "schema_source": "DockerActionRequest subset"
+    },
+    "cloudflare_action": {
+      "title": "Update Cloudflare",
+      "description": "Use this when the user explicitly wants to change, update, or create authorized Cloudflare state, including DNS records, DNSSEC, cache purge, ruleset edits, Turnstile updates, or tunnel configuration, and the requested effect is not a deletion or secret rotation.",
+      "invoking": "Updating Cloudflare...",
+      "invoked": "Cloudflare action submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "cloudflare_action",
+      "operations": [
+        "cache_purge",
+        "create_dns_record",
+        "create_tunnel",
+        "dns_create",
+        "dns_update",
+        "dnssec_disable",
+        "dnssec_enable",
+        "purge_cache",
+        "ruleset_create",
+        "ruleset_rule_add",
+        "ruleset_rule_update",
+        "ruleset_update",
+        "ssl_universal_update",
+        "tunnel_config_update",
+        "tunnel_create",
+        "tunnel_route_create",
+        "turnstile_create",
+        "turnstile_update",
+        "update_dns_record",
+        "update_ssl_settings",
+        "update_turnstile_widget",
+        "zone_setting_update"
+      ],
+      "schema_source": "CloudflareActionRequest subset"
+    },
+    "cloudflare_destructive_action": {
+      "title": "Delete Cloudflare resources",
+      "description": "Use this when the user explicitly wants a Cloudflare deletion, DNS batch that may delete records, or Turnstile secret rotation. These operations can remove external configuration or invalidate an existing secret.",
+      "invoking": "Deleting Cloudflare resources...",
+      "invoked": "Cloudflare deletion submitted",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "source_gateway": "cloudflare_action",
+      "operations": [
+        "delete_dns_record",
+        "dns_delete",
+        "dns_batch",
+        "ruleset_delete",
+        "ruleset_rule_delete",
+        "turnstile_rotate_secret",
+        "turnstile_delete",
+        "tunnel_delete",
+        "tunnel_route_delete"
+      ],
+      "schema_source": "CloudflareActionRequest subset"
+    },
+    "trading_journal_query": {
+      "title": "Read Trading Lab records",
+      "description": "Use this when you need local Trading Lab packets, outcomes, rejections, reports, recorded actions, companion lists, runtime status, or other journal-backed evidence without contacting the market provider.",
+      "invoking": "Reading Trading Lab records...",
+      "invoked": "Trading Lab records ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_query",
+      "operations": [
+        "action_get",
+        "action_list",
+        "calibration_report",
+        "companion_list",
+        "data_quality",
+        "demo_performance",
+        "market_packet_get",
+        "market_packet_list",
+        "open_virtual_positions",
+        "outcome_get",
+        "outcome_list",
+        "portfolio_status",
+        "reconciliation_report",
+        "rejection_list",
+        "replay_report",
+        "runtime_status",
+        "threshold_report"
+      ],
+      "schema_source": "TradingQueryRequest subset"
+    },
+    "trading_market_query": {
+      "title": "Read live market data",
+      "description": "Use this when you need Trading Lab health, configuration with observed account state, symbols, specifications, ticks, candles, history, candle boundaries, or broker exposure from the configured MT5/provider path.",
+      "invoking": "Reading live market data...",
+      "invoked": "Live market data ready",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "source_gateway": "trading_query",
+      "operations": [
+        "broker_exposure",
+        "candle_boundary",
+        "candles",
+        "configuration",
+        "h1_candles",
+        "h4_candles",
+        "health",
+        "historical_candles",
+        "historical_ticks",
+        "specification",
+        "symbols",
+        "tick"
+      ],
+      "schema_source": "TradingQueryRequest subset"
+    },
+    "trading_companion_sync": {
+      "title": "Sync trading companion",
+      "description": "Use this when you need one Trading Lab companion record refreshed against its current signal, action, and outcome links. The default sync path updates durable journal links before returning the record.",
+      "invoking": "Syncing trading companion...",
+      "invoked": "Trading companion synced",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "source_gateway": "trading_query",
+      "operations": [
+        "companion_get"
+      ],
+      "schema_source": "TradingQueryRequest subset",
+      "notes": "New Iteration-5 correction: companion_get(sync=true) is stateful."
+    }
+  }
+}
