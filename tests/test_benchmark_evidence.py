@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -249,10 +250,8 @@ def test_bridge_injects_canonical_identity_and_builds_bounded_submission() -> No
 
     assert submission.work_identity.task_id == "task_g6_fixture"
     assert submission.work_identity.backend_ref == "reasoning_g6_fixture"
-    assert submission.assignment.contract_hash == semantic_payload_hash(payload) or (
-        submission.assignment.contract_hash != semantic_payload_hash(payload)
-    )
-    assert submission.assignment.contract_hash == __import__("hashlib").sha256(packet).hexdigest()
+    assert submission.assignment.contract_hash == hashlib.sha256(packet).hexdigest()
+    assert submission.assignment.contract_hash != semantic_payload_hash(payload)
     assert submission.producer.provider == "codex"
     assert submission.producer.native_session_ref == "thr_g6_fixture"
     assert submission.usage.input_tokens == 120
