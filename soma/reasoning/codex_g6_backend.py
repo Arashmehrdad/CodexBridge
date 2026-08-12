@@ -55,9 +55,7 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
-CODEX_G6_OUTPUT_CONTRACT_REF = (
-    "output-contract:soma.agent_worker_benchmark.semantic.v1"
-)
+CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v1"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
 CODEX_G6_DEFAULT_WALL_TIME_SECONDS = 120
@@ -149,7 +147,9 @@ def make_g6_reasoning_spec(
 class CodexG6Client(Protocol):
     server_requests: list[dict[str, Any]]
 
-    def start_thread(self, *, working_directory: str, model: str = "") -> dict[str, Any]: ...
+    def start_thread(
+        self, *, working_directory: str, model: str = ""
+    ) -> dict[str, Any]: ...
 
     def begin_turn(
         self,
@@ -172,7 +172,9 @@ class CodexG6Client(Protocol):
 
     def interrupt_turn(self, *, thread_id: str, turn_id: str) -> dict[str, Any]: ...
 
-    def read_thread(self, thread_id: str, *, include_turns: bool = True) -> dict[str, Any]: ...
+    def read_thread(
+        self, thread_id: str, *, include_turns: bool = True
+    ) -> dict[str, Any]: ...
 
     def close(self) -> None: ...
 
@@ -248,9 +250,13 @@ class CodexG6ReasoningBackend:
                     f"G6 reasoning spec {field_name} does not match route freeze"
                 )
         if spec.mutation_policy != "read_only":
-            raise CodexG6BackendError("G6 Codex route requires read_only mutation policy")
+            raise CodexG6BackendError(
+                "G6 Codex route requires read_only mutation policy"
+            )
         if spec.continuation_policy != "none":
-            raise CodexG6BackendError("G6 screening does not permit provider continuation")
+            raise CodexG6BackendError(
+                "G6 screening does not permit provider continuation"
+            )
         if spec.budgets.provider_internal_concurrency_limit != 1:
             raise CodexG6BackendError(
                 "G6 canonical benchmark requires provider internal concurrency exactly 1"
@@ -261,16 +267,25 @@ class CodexG6ReasoningBackend:
             )
         packet = self.assignment_resolver(spec.assignment_ref)
         if sha256_hex(packet) != spec.assignment_hash:
-            raise CodexG6BackendError("assignment bytes do not match ReasoningSpec hash")
+            raise CodexG6BackendError(
+                "assignment bytes do not match ReasoningSpec hash"
+            )
         return packet
 
     def _validate_preflight(self, result: Mapping[str, Any]) -> None:
         if str(result.get("auth_type") or "") != "chatgpt":
-            raise CodexG6BackendError("Codex G6 route requires ChatGPT-managed authentication")
-        if str(result.get("protocol_manifest_sha256") or "") != CODEX_G6_PROTOCOL_MANIFEST_SHA256:
+            raise CodexG6BackendError(
+                "Codex G6 route requires ChatGPT-managed authentication"
+            )
+        if (
+            str(result.get("protocol_manifest_sha256") or "")
+            != CODEX_G6_PROTOCOL_MANIFEST_SHA256
+        ):
             raise CodexG6BackendError("Codex App Server protocol drift detected")
         models = result.get("models")
-        if isinstance(models, (list, tuple, set)) and self.model not in {str(item) for item in models}:
+        if isinstance(models, (list, tuple, set)) and self.model not in {
+            str(item) for item in models
+        }:
             raise CodexG6BackendError(f"Codex model {self.model!r} is not available")
         if result.get("model_available") is False:
             raise CodexG6BackendError(f"Codex model {self.model!r} is not available")
@@ -297,7 +312,9 @@ class CodexG6ReasoningBackend:
             raise CodexG6BackendError("stored Codex provider operation ref is invalid")
         thread_id, turn_id = value[len(prefix) :].split(marker, 1)
         if not thread_id or not turn_id:
-            raise CodexG6BackendError("stored Codex provider operation ref is incomplete")
+            raise CodexG6BackendError(
+                "stored Codex provider operation ref is incomplete"
+            )
         return thread_id, turn_id
 
     def _artifact(self, backend_ref: str, name: str, value: Any) -> tuple[str, str]:
@@ -360,7 +377,9 @@ class CodexG6ReasoningBackend:
         packet = self._validate_spec(spec)
         task_id = self.task_id_resolver(backend_ref)
         if not task_id:
-            raise CodexG6BackendError("canonical task_id resolver returned no task identity")
+            raise CodexG6BackendError(
+                "canonical task_id resolver returned no task identity"
+            )
 
         self.store.reserve_run(backend_ref=backend_ref, spec=spec)
         attempt, _created = self.store.claim_start_attempt(
@@ -389,9 +408,12 @@ class CodexG6ReasoningBackend:
                 self._active[backend_ref] = session
 
             request_hash = start_request_hash(spec, backend_ref)
-            client_message_id = "soma-g6-" + content_hash(
-                {"backend_ref": backend_ref, "request_hash": request_hash}
-            )[:24]
+            client_message_id = (
+                "soma-g6-"
+                + content_hash(
+                    {"backend_ref": backend_ref, "request_hash": request_hash}
+                )[:24]
+            )
             boundary = {
                 "schema": "soma.reasoning.codex_g6.send_boundary.v1",
                 "backend_ref": backend_ref,
@@ -531,7 +553,10 @@ class CodexG6ReasoningBackend:
                     provider_thread_id=thread_id,
                     usage=usage,
                     wall_time_seconds=wall_time,
-                    provenance_refs=((binding_ref, binding_hash), (provenance_ref, provenance_hash)),
+                    provenance_refs=(
+                        (binding_ref, binding_hash),
+                        (provenance_ref, provenance_hash),
+                    ),
                     raw_provider_ref=event_ref,
                     raw_provider_hash=event_hash,
                 )
@@ -643,7 +668,9 @@ class CodexG6ReasoningBackend:
         operation_ref = observation.provider_operation_ref or ""
         if observation.provider_binding_disposition != "bound" or not operation_ref:
             evidence_ref, evidence_hash = self._cancellation_evidence(
-                backend_ref, operation_ref or "unbound", "exact_provider_identity_unavailable"
+                backend_ref,
+                operation_ref or "unbound",
+                "exact_provider_identity_unavailable",
             )
             self.store.record_cancellation_uncertain(
                 backend_ref=backend_ref,
@@ -690,7 +717,11 @@ class CodexG6ReasoningBackend:
                     raise
                 thread_result = client.read_thread(thread_id, include_turns=True)
                 thread = thread_result.get("thread")
-                status = self._turn_status(thread, turn_id) if isinstance(thread, Mapping) else ""
+                status = (
+                    self._turn_status(thread, turn_id)
+                    if isinstance(thread, Mapping)
+                    else ""
+                )
                 if status == "interrupted":
                     outcome = "already_interrupted"
                     accepted = True

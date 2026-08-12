@@ -44,15 +44,47 @@ def _semantic_output() -> str:
     packet = json.loads(_packet())
     sources = {source["path"]: source for source in packet["sources"]}
     specs = [
-        ("e1", sources["soma/tasks/models.py"], "class TaskState", "task.canonical_state_owner", "TaskState"),
-        ("e2", sources["soma/tasks/models.py"], "class TaskKind", "task.current_task_kind_set", 1),
-        ("e3", sources["soma/tasks/models.py"], "class BackendKind", "task.current_backend_kind_set", 1),
-        ("e4", sources["soma/tasks/projections.py"], "result_reference", "task.result_body_policy", "reference_only"),
-        ("e5", sources["soma/tasks/backends.py"], "class ExecutionBackend", "task.backend_protocol_shape", "protocol"),
+        (
+            "e1",
+            sources["soma/tasks/models.py"],
+            "class TaskState",
+            "task.canonical_state_owner",
+            "TaskState",
+        ),
+        (
+            "e2",
+            sources["soma/tasks/models.py"],
+            "class TaskKind",
+            "task.current_task_kind_set",
+            1,
+        ),
+        (
+            "e3",
+            sources["soma/tasks/models.py"],
+            "class BackendKind",
+            "task.current_backend_kind_set",
+            1,
+        ),
+        (
+            "e4",
+            sources["soma/tasks/projections.py"],
+            "result_reference",
+            "task.result_body_policy",
+            "reference_only",
+        ),
+        (
+            "e5",
+            sources["soma/tasks/backends.py"],
+            "class ExecutionBackend",
+            "task.backend_protocol_shape",
+            "protocol",
+        ),
     ]
     evidence = []
     claims = []
-    for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(specs, start=1):
+    for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
+        specs, start=1
+    ):
         line, excerpt = _line_for(source, needle)
         evidence.append(
             {
@@ -149,7 +181,9 @@ class ScriptedG6Client:
             message = ""
         else:
             status = "completed"
-            message = "not-json" if self.behavior == "invalid_output" else _semantic_output()
+            message = (
+                "not-json" if self.behavior == "invalid_output" else _semantic_output()
+            )
         return CodexTurnEvidence(
             thread_id=self.thread_id,
             turn_id=self.turn_id,
@@ -225,7 +259,9 @@ def _backend(tmp_path: Path, client_factory, *, task_id="task_g6"):
     return backend, store
 
 
-def test_success_binds_exact_provider_identity_and_publishes_bounded_result(tmp_path: Path) -> None:
+def test_success_binds_exact_provider_identity_and_publishes_bounded_result(
+    tmp_path: Path,
+) -> None:
     client = ScriptedG6Client()
     backend, store = _backend(tmp_path, lambda: client)
     backend_ref = backend.reserve()
@@ -250,7 +286,12 @@ def test_success_binds_exact_provider_identity_and_publishes_bounded_result(tmp_
         "total_tokens": 125,
     }
 
-    evidence_path = store.runs_dir / "reasoning_backend_evidence" / backend_ref / "evidence_submission.json"
+    evidence_path = (
+        store.runs_dir
+        / "reasoning_backend_evidence"
+        / backend_ref
+        / "evidence_submission.json"
+    )
     value = json.loads(evidence_path.read_text(encoding="utf-8"))
     assert value["work_identity"]["task_id"] == "task_g6"
     assert value["work_identity"]["backend_ref"] == backend_ref
@@ -279,7 +320,9 @@ def test_terminal_replay_never_creates_a_second_provider_turn(tmp_path: Path) ->
     assert client.begin_turn_calls == 1
 
 
-def test_ambiguous_turn_send_stays_outcome_unknown_and_never_retries(tmp_path: Path) -> None:
+def test_ambiguous_turn_send_stays_outcome_unknown_and_never_retries(
+    tmp_path: Path,
+) -> None:
     client = ScriptedG6Client(behavior="ambiguous_ack")
     backend, store = _backend(tmp_path, lambda: client)
     backend_ref = backend.reserve()
@@ -295,7 +338,9 @@ def test_ambiguous_turn_send_stays_outcome_unknown_and_never_retries(tmp_path: P
     assert backend.result_reference(backend_ref) is None
 
 
-def test_invalid_provider_output_is_bound_but_fails_output_contract(tmp_path: Path) -> None:
+def test_invalid_provider_output_is_bound_but_fails_output_contract(
+    tmp_path: Path,
+) -> None:
     client = ScriptedG6Client(behavior="invalid_output")
     backend, _store = _backend(tmp_path, lambda: client)
     backend_ref = backend.reserve()
@@ -331,7 +376,9 @@ def test_cancellation_uses_exact_live_thread_turn_pair(tmp_path: Path) -> None:
     assert result_holder[0].provider_terminal_claim == "cancelled"
 
 
-def test_restart_cancellation_recovers_exact_stored_provider_pair(tmp_path: Path) -> None:
+def test_restart_cancellation_recovers_exact_stored_provider_pair(
+    tmp_path: Path,
+) -> None:
     first_client = ScriptedG6Client()
     backend, store = _backend(tmp_path, lambda: first_client)
     backend_ref = backend.reserve()
@@ -353,9 +400,7 @@ def test_restart_cancellation_recovers_exact_stored_provider_pair(tmp_path: Path
         provider_status_raw="in_progress",
     )
 
-    restart_client = ScriptedG6Client(
-        thread_id="thr_restart", turn_id="turn_restart"
-    )
+    restart_client = ScriptedG6Client(thread_id="thr_restart", turn_id="turn_restart")
     restarted = CodexG6ReasoningBackend(
         store,
         assignment_resolver=lambda _ref: _packet(),
@@ -371,7 +416,9 @@ def test_restart_cancellation_recovers_exact_stored_provider_pair(tmp_path: Path
     assert cancelled.provider_terminal_claim == "cancelled"
 
 
-def test_missing_task_identity_stops_before_provider_client_creation(tmp_path: Path) -> None:
+def test_missing_task_identity_stops_before_provider_client_creation(
+    tmp_path: Path,
+) -> None:
     created = 0
 
     def factory():
@@ -386,7 +433,9 @@ def test_missing_task_identity_stops_before_provider_client_creation(tmp_path: P
     assert created == 0
 
 
-def test_assignment_hash_mismatch_stops_before_provider_client_creation(tmp_path: Path) -> None:
+def test_assignment_hash_mismatch_stops_before_provider_client_creation(
+    tmp_path: Path,
+) -> None:
     created = 0
 
     def factory():
@@ -417,7 +466,9 @@ def test_route_rejects_provider_internal_subagent_concurrency(tmp_path: Path) ->
         backend.start(spec, backend.reserve())
 
 
-def test_send_boundary_hash_matches_existing_reasoning_store_contract(tmp_path: Path) -> None:
+def test_send_boundary_hash_matches_existing_reasoning_store_contract(
+    tmp_path: Path,
+) -> None:
     client = ScriptedG6Client(behavior="ambiguous_ack")
     backend, store = _backend(tmp_path, lambda: client)
     backend_ref = backend.reserve()
