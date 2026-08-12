@@ -493,23 +493,50 @@ def _git_blob(repo_root: Path, source: BenchmarkSource) -> bytes:
     return completed.stdout
 
 
+def _research_materialized_blob(
+    repo_root: Path, source: BenchmarkSource
+) -> tuple[bytes, str, str]:
+    """Reproduce the exact mixed-EOL source bytes hashed by Iteration 5.
+
+    The frozen research record was produced from a Windows worktree. Fifteen
+    recorded hashes equal the raw Git blob and six equal the deterministic CRLF
+    representation of that same blob. We derive both candidates from the
+    immutable commit and accept only the candidate whose SHA equals the frozen
+    recorded source hash.
+    """
+
+    raw = _git_blob(repo_root, source)
+    raw_hash = sha256_hex(raw)
+    if raw_hash == source.sha256:
+        return raw, "git_blob", raw_hash
+
+    normalized_lf = raw.replace(b"\r\n", b"\n")
+    crlf = normalized_lf.replace(b"\n", b"\r\n")
+    if sha256_hex(crlf) == source.sha256:
+        return crlf, "git_blob_crlf_materialization", raw_hash
+
+    raise ValueError(
+        f"Frozen source hash mismatch for {source.path}: research hash "
+        f"{source.sha256} matches neither raw Git blob {raw_hash} nor its CRLF "
+        "materialization"
+    )
+
+
 def verify_frozen_sources(repo_root: Path) -> dict[str, Any]:
     repo_root = Path(repo_root).resolve()
     verified: list[dict[str, Any]] = []
     for unit in UNITS:
         for source in unit.sources:
-            blob = _git_blob(repo_root, source)
-            actual = sha256_hex(blob)
-            if actual != source.sha256:
-                raise ValueError(
-                    f"Frozen source hash mismatch for {source.path}: "
-                    f"expected {source.sha256}, got {actual}"
-                )
+            blob, representation, git_blob_hash = _research_materialized_blob(
+                repo_root, source
+            )
             verified.append(
                 {
                     "unit_id": unit.unit_id,
                     "path": source.path,
-                    "sha256": actual,
+                    "research_sha256": source.sha256,
+                    "git_blob_sha256": git_blob_hash,
+                    "representation": representation,
                     "bytes": len(blob),
                 }
             )
@@ -531,13 +558,9 @@ def build_assignment_packet(repo_root: Path, unit_id: str) -> bytes:
     unit = unit_by_id(unit_id)
     sources: list[dict[str, Any]] = []
     for source in unit.sources:
-        blob = _git_blob(Path(repo_root).resolve(), source)
-        actual = sha256_hex(blob)
-        if actual != source.sha256:
-            raise ValueError(
-                f"Frozen source hash mismatch for {source.path}: "
-                f"expected {source.sha256}, got {actual}"
-            )
+        blob, representation, git_blob_hash = _research_materialized_blob(
+            Path(repo_root).resolve(), source
+        )
         try:
             text = blob.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -546,6 +569,8 @@ def build_assignment_packet(repo_root: Path, unit_id: str) -> bytes:
             {
                 "path": source.path,
                 "sha256": source.sha256,
+                "git_blob_sha256": git_blob_hash,
+                "representation": representation,
                 "content": text,
             }
         )
