@@ -1204,12 +1204,12 @@ def test_substrate_reads_only_substrate_and_canonical_identity_tables():
 
 
 def test_interaction_commands_do_not_add_task_or_backend_lifecycle_kinds():
-    """The active package adds commands, not a second execution lifecycle."""
+    """Interaction commands add no lifecycle beyond established Task backends."""
     from soma.tasks.models import BackendKind as Backends
     from soma.tasks.models import TaskCommandKind, TaskKind as Kinds
 
-    assert [kind.value for kind in Kinds] == ["durable_command"]
-    assert [kind.value for kind in Backends] == ["soma_durable_run"]
+    assert [kind.value for kind in Kinds] == ["durable_command", "reasoning"]
+    assert [kind.value for kind in Backends] == ["soma_durable_run", "soma_reasoning"]
     assert [kind.value for kind in TaskCommandKind] == [
         "cancel",
         "steer",
