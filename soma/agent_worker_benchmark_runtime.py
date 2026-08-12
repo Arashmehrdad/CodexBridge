@@ -314,11 +314,11 @@ def provider_model_generations_observed(runtime: G6Runtime) -> int:
             raise G6RuntimeError(
                 f"invalid durable generation marker for {backend_ref}"
             ) from exc
-        if (
-            value.get("schema")
-            != "soma.reasoning.codex_g6.model_generation_observed.v1"
-            or value.get("provider_operation_ref") != str(operation_ref)
-        ):
+        if value.get(
+            "schema"
+        ) != "soma.reasoning.codex_g6.model_generation_observed.v1" or value.get(
+            "provider_operation_ref"
+        ) != str(operation_ref):
             raise G6RuntimeError(
                 f"generation marker identity mismatch for {backend_ref}"
             )
