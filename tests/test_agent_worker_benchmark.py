@@ -22,7 +22,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_frozen_unit_shape_is_exactly_eight_units_and_twenty_one_sources() -> None:
-    assert [unit.unit_id for unit in UNITS] == [f"B{index:02d}" for index in range(1, 9)]
+    assert [unit.unit_id for unit in UNITS] == [
+        f"B{index:02d}" for index in range(1, 9)
+    ]
     assert len({unit.lane_id for unit in UNITS}) == 8
     assert sum(len(unit.sources) for unit in UNITS) == 21
     assert all(len(unit.questions) == 5 for unit in UNITS)
@@ -30,7 +32,9 @@ def test_frozen_unit_shape_is_exactly_eight_units_and_twenty_one_sources() -> No
     assert all(unit.expected_trap_disposition for unit in UNITS)
 
 
-def test_materialization_manifest_preserves_research_identity_without_inventing_hash_recipe() -> None:
+def test_materialization_manifest_preserves_research_identity_without_inventing_hash_recipe() -> (
+    None
+):
     manifest = source_manifest()
 
     assert manifest["research_identity"]["source_commit"] == SOURCE_COMMIT
@@ -38,7 +42,9 @@ def test_materialization_manifest_preserves_research_identity_without_inventing_
         manifest["research_identity"]["frozen_research_corpus_hash"]
         == FROZEN_RESEARCH_CORPUS_HASH
     )
-    assert manifest["research_identity"]["research_hash_serialization_recorded"] is False
+    assert (
+        manifest["research_identity"]["research_hash_serialization_recorded"] is False
+    )
     assert len(materialization_manifest_hash()) == 64
 
 
@@ -54,7 +60,9 @@ def test_every_frozen_git_blob_matches_iteration_five_hash() -> None:
     assert all(item["bytes"] > 0 for item in result["verified_sources"])
 
 
-def test_assignment_packet_is_byte_stable_and_contains_only_frozen_source_bytes() -> None:
+def test_assignment_packet_is_byte_stable_and_contains_only_frozen_source_bytes() -> (
+    None
+):
     first = build_assignment_packet(REPO_ROOT, "B01")
     second = build_assignment_packet(REPO_ROOT, "B01")
 

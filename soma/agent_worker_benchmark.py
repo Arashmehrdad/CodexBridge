@@ -286,9 +286,7 @@ UNITS: Final[tuple[BenchmarkUnit, ...]] = (
             "An undeclared provider capability may be treated as supported when the "
             "adapter does not say otherwise."
         ),
-        expected_trap_disposition=(
-            "false; incomplete declarations are refused"
-        ),
+        expected_trap_disposition=("false; incomplete declarations are refused"),
     ),
     BenchmarkUnit(
         unit_id="B06",
@@ -564,7 +562,9 @@ def build_assignment_packet(repo_root: Path, unit_id: str) -> bytes:
         try:
             text = blob.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ValueError(f"Frozen benchmark source is not UTF-8: {source.path}") from exc
+            raise ValueError(
+                f"Frozen benchmark source is not UTF-8: {source.path}"
+            ) from exc
         sources.append(
             {
                 "path": source.path,
