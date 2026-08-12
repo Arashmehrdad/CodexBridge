@@ -877,10 +877,15 @@ class CodexG6ReasoningBackend:
         result = self.result_reference(backend_ref)
         if result is None:
             return None
+        observation = self.query(backend_ref)
+        if not observation.evidence_index_hash:
+            raise CodexG6BackendError(
+                "G6 reasoning observation has no evidence-index hash"
+            )
         evidence_index = self._read_verified_json_artifact(
             backend_ref,
             "evidence_index.json",
-            expected_hash=result.evidence_index_hash,
+            expected_hash=observation.evidence_index_hash,
         )
         assessment_hash = evidence_index.get("benchmark_assessment_hash")
         if not isinstance(assessment_hash, str):
