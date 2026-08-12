@@ -254,7 +254,7 @@ def test_constructor_is_inert_and_absent_schema_is_honest(tmp_path: Path) -> Non
 
 def test_fresh_migration_is_complete_idempotent_and_inactive(tmp_path: Path) -> None:
     store = CompanyKernelStore(tmp_path / "runs")
-    assert store.init_db() == [1, 2]
+    assert store.init_db() == [1, 2, 3]
     assert store.init_db() == []
     state = store.schema_state()
     assert state["schema_version"] == COMPANY_KERNEL_SCHEMA_VERSION
@@ -330,7 +330,7 @@ def test_migration_preserves_incumbent_rows_and_does_no_legacy_backfill(
             for table in ("projects", "project_resources", "workflows", "supervisors")
         }
     store = CompanyKernelStore(runs_dir)
-    assert store.init_db() == [1, 2]
+    assert store.init_db() == [1, 2, 3]
     with store.connect() as conn:
         after = {
             table: (
@@ -360,7 +360,10 @@ def test_v1_to_v2_migration_preserves_kernel_rows_without_graph_backfill(
             for table in ("companies", "missions", "plan_revisions", "work_packages")
         }
 
-    assert store.init_db() == [2]
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[1],),
+    ) == [2]
     with store.connect() as conn:
         after = {
             table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
@@ -910,6 +913,199 @@ def test_models_are_strict_frozen_canonical_and_hash_checked() -> None:
         accepted_at=NOW,
     )
     assert acceptance.outcome_id == package.outcome_id
+
+
+def _prepare_v2_graph_for_proof_migration(
+    tmp_path: Path,
+) -> tuple[CompanyKernelStore, str]:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=COMPANY_KERNEL_MIGRATIONS[:2],
+    ) == [1, 2]
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        downstream_package_id, _downstream_outcome_id = _insert_second_graph_package(conn)
+        conn.execute(
+            """
+            INSERT INTO plan_graph_manifests(
+                plan_revision_id, mission_id, schema_version, manifest_json,
+                manifest_hash, package_count, edge_count, created_at
+            ) VALUES (?, ?, ?, '{}', ?, 2, 1, ?)
+            """,
+            (PLAN_ID, MISSION_ID, PLAN_GRAPH_SCHEMA_VERSION, "c" * 64, NOW),
+        )
+        _insert_graph_dependency(
+            conn,
+            edge_id="edge-proof-fixture",
+            downstream_package_id=downstream_package_id,
+            requirement="accepted_outcome",
+            edge_hash="d" * 64,
+        )
+    return store, downstream_package_id
+
+
+def _insert_dependency_proof(
+    conn: sqlite3.Connection,
+    *,
+    proof_id: str,
+    proof_hash: str,
+    downstream_package_id: str,
+    edge_hash: str = "d" * 64,
+    requirement: str = "accepted_outcome",
+    upstream_package_id: str = PACKAGE_ID,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO dependency_satisfaction_proofs(
+            proof_id, proof_hash, mission_id, plan_revision_id, edge_id,
+            edge_hash, requirement, upstream_work_package_id,
+            upstream_outcome_id, downstream_work_package_id,
+            satisfaction_json, observed_kernel_state_version,
+            observed_at, created_at
+        ) VALUES (?, ?, ?, ?, 'edge-proof-fixture', ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        """,
+        (
+            proof_id,
+            proof_hash,
+            MISSION_ID,
+            PLAN_ID,
+            edge_hash,
+            requirement,
+            upstream_package_id,
+            OUTCOME_ID,
+            downstream_package_id,
+            '{"kind":"accepted_outcome"}',
+            NOW,
+            NOW,
+        ),
+    )
+
+
+def test_v2_to_v3_migration_preserves_graph_rows_without_proof_backfill(
+    tmp_path: Path,
+) -> None:
+    store, downstream_package_id = _prepare_v2_graph_for_proof_migration(tmp_path)
+    with store.connect() as conn:
+        before = {
+            table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in (
+                "companies",
+                "missions",
+                "plan_revisions",
+                "work_packages",
+                "plan_graph_manifests",
+                "work_package_dependencies",
+            )
+        }
+
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[2],),
+    ) == [3]
+    with store.connect() as conn:
+        after = {
+            table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in before
+        }
+        assert (
+            conn.execute("SELECT COUNT(*) FROM dependency_satisfaction_proofs").fetchone()[0]
+            == 0
+        )
+        _insert_dependency_proof(
+            conn,
+            proof_id="proof-valid",
+            proof_hash="a" * 64,
+            downstream_package_id=downstream_package_id,
+        )
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert after == before
+
+
+def test_failed_v3_migration_rolls_back_proof_schema_objects(tmp_path: Path) -> None:
+    store, _downstream_package_id = _prepare_v2_graph_for_proof_migration(tmp_path)
+    version, name, statements = COMPANY_KERNEL_MIGRATIONS[2]
+    broken = ((version, name, (*statements, "SELECT * FROM missing_proof_table")),)
+
+    with pytest.raises(sqlite3.OperationalError):
+        apply_company_kernel_migrations(store.connect, migrations=broken)
+
+    with store.connect() as conn:
+        objects = {
+            (row[0], row[1])
+            for row in conn.execute(
+                "SELECT type, name FROM sqlite_master "
+                "WHERE type IN ('table', 'trigger', 'index')"
+            ).fetchall()
+        }
+        marker = conn.execute(
+            "SELECT 1 FROM soma_schema_migrations "
+            "WHERE component = 'company_kernel' AND version = 3"
+        ).fetchone()
+    assert ("table", "dependency_satisfaction_proofs") not in objects
+    assert ("index", "idx_dependency_edge_proof_identity") not in objects
+    assert ("trigger", "dependency_satisfaction_proofs_no_update") not in objects
+    assert ("trigger", "dependency_satisfaction_proofs_no_delete") not in objects
+    assert marker is None
+
+
+def test_dependency_proof_schema_is_immutable_and_fails_closed_on_identity_drift(
+    tmp_path: Path,
+) -> None:
+    store, downstream_package_id = _prepare_v2_graph_for_proof_migration(tmp_path)
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[2],),
+    ) == [3]
+    with store.connect() as conn:
+        _insert_dependency_proof(
+            conn,
+            proof_id="proof-valid",
+            proof_hash="a" * 64,
+            downstream_package_id=downstream_package_id,
+        )
+        for statement in (
+            "UPDATE dependency_satisfaction_proofs SET observed_at = 'changed'",
+            "DELETE FROM dependency_satisfaction_proofs",
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(statement)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_dependency_proof(
+                conn,
+                proof_id="proof-edge-hash-mismatch",
+                proof_hash="b" * 64,
+                downstream_package_id=downstream_package_id,
+                edge_hash="e" * 64,
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_dependency_proof(
+                conn,
+                proof_id="proof-requirement-mismatch",
+                proof_hash="c" * 64,
+                downstream_package_id=downstream_package_id,
+                requirement="settled",
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_dependency_proof(
+                conn,
+                proof_id="proof-upstream-mismatch",
+                proof_hash="d" * 64,
+                downstream_package_id=downstream_package_id,
+                upstream_package_id=downstream_package_id,
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_dependency_proof(
+                conn,
+                proof_id="proof-duplicate-hash",
+                proof_hash="a" * 64,
+                downstream_package_id=downstream_package_id,
+            )
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_store_exposes_schema_only_not_company_actions() -> None:

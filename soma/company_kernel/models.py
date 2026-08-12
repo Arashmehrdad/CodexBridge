@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 COMPANY_KERNEL_SCHEMA_COMPONENT: Final[str] = "company_kernel"
-COMPANY_KERNEL_SCHEMA_VERSION: Final[int] = 2
+COMPANY_KERNEL_SCHEMA_VERSION: Final[int] = 3
 COMPANY_KERNEL_MODEL_VERSION: Final[str] = "company_kernel.v1"
 
 COMPANY_ID_DOMAIN: Final[str] = "soma.company_kernel.company.v1"

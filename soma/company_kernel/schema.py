@@ -388,9 +388,80 @@ _MIGRATION_0002: Final[tuple[str, ...]] = (
     """,
 )
 
+_MIGRATION_0003: Final[tuple[str, ...]] = (
+    """
+    CREATE UNIQUE INDEX idx_dependency_edge_proof_identity
+    ON work_package_dependencies(
+        edge_id,
+        mission_id,
+        plan_revision_id,
+        edge_hash,
+        upstream_work_package_id,
+        downstream_work_package_id,
+        requirement
+    )
+    """,
+    """
+    CREATE TABLE dependency_satisfaction_proofs (
+        proof_id TEXT PRIMARY KEY,
+        proof_hash TEXT NOT NULL UNIQUE CHECK(length(proof_hash) = 64),
+        mission_id TEXT NOT NULL,
+        plan_revision_id TEXT NOT NULL,
+        edge_id TEXT NOT NULL,
+        edge_hash TEXT NOT NULL CHECK(length(edge_hash) = 64),
+        requirement TEXT NOT NULL CHECK(requirement IN (
+            'accepted_outcome',
+            'published_success',
+            'evidence_available',
+            'settled'
+        )),
+        upstream_work_package_id TEXT NOT NULL,
+        upstream_outcome_id TEXT NOT NULL,
+        downstream_work_package_id TEXT NOT NULL,
+        satisfaction_json TEXT NOT NULL,
+        observed_kernel_state_version INTEGER NOT NULL
+            CHECK(observed_kernel_state_version >= 0),
+        observed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(
+            edge_id,
+            mission_id,
+            plan_revision_id,
+            edge_hash,
+            upstream_work_package_id,
+            downstream_work_package_id,
+            requirement
+        ) REFERENCES work_package_dependencies(
+            edge_id,
+            mission_id,
+            plan_revision_id,
+            edge_hash,
+            upstream_work_package_id,
+            downstream_work_package_id,
+            requirement
+        ),
+        FOREIGN KEY(upstream_work_package_id, mission_id, upstream_outcome_id)
+            REFERENCES work_packages(work_package_id, mission_id, outcome_id),
+        FOREIGN KEY(downstream_work_package_id, mission_id, plan_revision_id)
+            REFERENCES work_packages(work_package_id, mission_id, plan_revision_id)
+    )
+    """,
+    """
+    CREATE TRIGGER dependency_satisfaction_proofs_no_update
+    BEFORE UPDATE ON dependency_satisfaction_proofs
+    BEGIN SELECT RAISE(ABORT, 'dependency satisfaction proofs are immutable'); END
+    """,
+    """
+    CREATE TRIGGER dependency_satisfaction_proofs_no_delete
+    BEFORE DELETE ON dependency_satisfaction_proofs
+    BEGIN SELECT RAISE(ABORT, 'dependency satisfaction proofs are immutable'); END
+    """,
+)
+
 COMPANY_KERNEL_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "company_kernel_foundation", _MIGRATION_0001),
     (2, "company_kernel_plan_graph", _MIGRATION_0002),
+    (3, "company_kernel_dependency_proofs", _MIGRATION_0003),
 )
 
 COMPANY_KERNEL_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -403,6 +474,7 @@ COMPANY_KERNEL_TABLE_NAMES: Final[tuple[str, ...]] = (
     "kernel_reconciliation_receipts",
     "plan_graph_manifests",
     "work_package_dependencies",
+    "dependency_satisfaction_proofs",
 )
 
 COMPANY_KERNEL_TRIGGER_NAMES: Final[tuple[str, ...]] = (
@@ -424,11 +496,14 @@ COMPANY_KERNEL_TRIGGER_NAMES: Final[tuple[str, ...]] = (
     "plan_graph_manifests_no_delete",
     "work_package_dependencies_no_update",
     "work_package_dependencies_no_delete",
+    "dependency_satisfaction_proofs_no_update",
+    "dependency_satisfaction_proofs_no_delete",
 )
 
 COMPANY_KERNEL_INDEX_NAMES: Final[tuple[str, ...]] = (
     "idx_work_package_attempt_single_successor",
     "idx_work_package_plan_membership",
+    "idx_dependency_edge_proof_identity",
 )
 
 

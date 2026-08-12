@@ -24,6 +24,7 @@ from .graph_models import (
     PlanGraphNodeV1,
 )
 from .models import (
+    COMPANY_KERNEL_SCHEMA_VERSION,
     PLAN_REVISION_ID_DOMAIN,
     ROUTE_SPECIFIC_CONTRACT_KEYS,
     WORK_PACKAGE_ID_DOMAIN,
@@ -577,8 +578,13 @@ def accept_plan_graph(
     result: GraphAcceptanceResultV1 | None = None
     with store.transaction() as conn:
         state = schema_state(conn)
-        if not state["up_to_date"] or int(state["schema_version"]) != 2:
-            raise GraphAcceptanceError("Company Kernel schema v2 must be installed")
+        if (
+            not state["up_to_date"]
+            or int(state["schema_version"]) != COMPANY_KERNEL_SCHEMA_VERSION
+        ):
+            raise GraphAcceptanceError(
+                f"Company Kernel schema v{COMPANY_KERNEL_SCHEMA_VERSION} must be installed"
+            )
         if state["active_capability"] is not False:
             raise GraphAcceptanceError(
                 "graph acceptance requires the inactive internal gate"
