@@ -18,7 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
-from soma.worker_evidence.models import EVIDENCE_SUBMISSION_SCHEMA_VERSION
+from soma.worker_evidence.models import (
+    EVIDENCE_SUBMISSION_SCHEMA_VERSION,
+    EvidenceSubmissionV1,
+)
 
 from .backends import (
     ReasoningBackendObservationV1,
@@ -816,6 +819,69 @@ class CodexG6ReasoningBackend:
 
     def result_reference(self, backend_ref: str) -> ReasoningResultReferenceV1 | None:
         return self.store.result_reference(backend_ref)
+
+    def _read_verified_json_artifact(
+        self,
+        backend_ref: str,
+        name: str,
+        *,
+        expected_hash: str,
+    ) -> dict[str, Any]:
+        path = self.artifacts_root / backend_ref / name
+        try:
+            payload = path.read_bytes()
+        except OSError as exc:
+            raise CodexG6BackendError(
+                f"missing G6 reasoning artifact {name!r} for {backend_ref!r}"
+            ) from exc
+        actual = sha256_hex(payload)
+        if actual != expected_hash:
+            raise CodexG6BackendError(
+                f"G6 reasoning artifact hash mismatch for {name!r}: "
+                f"expected {expected_hash}, got {actual}"
+            )
+        try:
+            value = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CodexG6BackendError(
+                f"G6 reasoning artifact {name!r} is not valid JSON"
+            ) from exc
+        if not isinstance(value, dict):
+            raise CodexG6BackendError(
+                f"G6 reasoning artifact {name!r} must contain one JSON object"
+            )
+        return value
+
+    def load_evidence_submission(self, backend_ref: str) -> EvidenceSubmissionV1 | None:
+        result = self.result_reference(backend_ref)
+        if result is None:
+            return None
+        value = self._read_verified_json_artifact(
+            backend_ref,
+            "evidence_submission.json",
+            expected_hash=result.evidence_submission_hash,
+        )
+        return EvidenceSubmissionV1.model_validate(value)
+
+    def load_benchmark_assessment(self, backend_ref: str) -> dict[str, Any] | None:
+        result = self.result_reference(backend_ref)
+        if result is None:
+            return None
+        evidence_index = self._read_verified_json_artifact(
+            backend_ref,
+            "evidence_index.json",
+            expected_hash=result.evidence_index_hash,
+        )
+        assessment_hash = evidence_index.get("benchmark_assessment_hash")
+        if not isinstance(assessment_hash, str):
+            raise CodexG6BackendError(
+                "G6 evidence index does not contain benchmark assessment identity"
+            )
+        return self._read_verified_json_artifact(
+            backend_ref,
+            "benchmark_assessment.json",
+            expected_hash=assessment_hash,
+        )
 
 
 def default_codex_g6_client_factory(working_directory: Path) -> ClientFactory:
