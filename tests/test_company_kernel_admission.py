@@ -14,9 +14,14 @@ from soma.company_kernel.admission import (
     admit_reasoning_batch,
     admit_reasoning_work_package,
 )
+from soma.company_kernel.coordinator import (
+    AdmitReadyWorkRequestV1,
+    PreparedReasoningAdmissionV1,
+    admit_ready_work,
+)
 from soma.company_kernel.store import CompanyKernelStore
 from soma.config import AppConfig, load_config
-from soma.fanin.proofs import EvidenceAvailableCandidateV1
+from soma.company_kernel.dependencies import EvidenceAvailableCandidateV1
 from soma.project_scope import ProjectScopeStore
 from soma.reasoning.backends import reasoning_spec_hash, reasoning_spec_ref
 from soma.reasoning.fake import FakeReasoningBackend
@@ -208,7 +213,7 @@ def _insert_kernel_graph(store: CompanyKernelStore) -> None:
         )
 
 
-def _environment(tmp_path: Path):
+def _environment(tmp_path: Path, *, fake_case: str = "success"):
     config, config_path, repo = _config(tmp_path)
     TaskStore(config.resolve_runs_dir())
     scope = ProjectScopeStore(config.resolve_runs_dir())
@@ -226,7 +231,7 @@ def _environment(tmp_path: Path):
     assert kernel.init_db() == [1, 2, 3]
     _insert_kernel_graph(kernel)
     reasoning_store = ReasoningBackendStore(config.resolve_runs_dir())
-    fake = FakeReasoningBackend(reasoning_store, case="success")
+    fake = FakeReasoningBackend(reasoning_store, case=fake_case)
     manager = TaskManager(
         config, config_path, reasoning_backend=fake, scope_store=scope
     )
@@ -358,7 +363,10 @@ def test_downstream_admission_freezes_proof_into_attempt_and_task_identity(
     assert task.backend_identity["work_package_attempt_ref"] == result.attempt_id
     assert task.backend_identity["work_package_attempt_hash"] == result.attempt_hash
 
-    replay = admit_reasoning_work_package(manager, request)
+    replay_without_current_candidate = request.model_copy(
+        update={"evidence_candidates": {}}
+    )
+    replay = admit_reasoning_work_package(manager, replay_without_current_candidate)
     assert replay.created is False
     assert replay.attempt_id == result.attempt_id
     assert replay.task_id == result.task_id
@@ -436,7 +444,7 @@ def test_old_plan_package_cannot_be_newly_admitted_after_replan(tmp_path: Path) 
     assert fake.provider_create_calls == 0
 
 
-def test_identical_attempt_under_different_controller_request_fails_closed(
+def test_existing_attempt_requires_explicit_successor_lineage_for_new_request(
     tmp_path: Path,
 ) -> None:
     manager, fake, _kernel, _scope = _environment(tmp_path)
@@ -444,9 +452,174 @@ def test_identical_attempt_under_different_controller_request_fails_closed(
         manager, _request(ROOT_PACKAGE_ID, "admit-first")
     )
     assert first.task_start["state"] == "completed"
-    with pytest.raises(AdmissionError, match="different controller request"):
+    with pytest.raises(AdmissionError, match="explicitly supersede"):
         admit_reasoning_work_package(manager, _request(ROOT_PACKAGE_ID, "admit-second"))
     assert fake.provider_create_calls == 1
+
+
+def test_single_active_blocks_new_route_until_prior_attempt_is_terminal_or_contained(
+    tmp_path: Path,
+) -> None:
+    manager, fake, _kernel, _scope = _environment(tmp_path, fake_case="long_running")
+    first = admit_reasoning_work_package(
+        manager, _request(ROOT_PACKAGE_ID, "admit-active-first")
+    )
+    assert first.task_start["state"] == "running"
+    second = _request(ROOT_PACKAGE_ID, "admit-active-second").model_copy(
+        update={"supersedes_attempt_id": first.attempt_id}
+    )
+    with pytest.raises(AdmissionError, match="single_active"):
+        admit_reasoning_work_package(manager, second)
+    assert fake.provider_create_calls == 1
+
+
+def test_changed_proof_set_can_create_explicit_successor_after_terminal_attempt(
+    tmp_path: Path,
+) -> None:
+    manager, fake, kernel, _scope = _environment(tmp_path)
+    first_request = _request(
+        DOWNSTREAM_PACKAGE_ID, "admit-proof-first", with_evidence=True
+    )
+    first = admit_reasoning_work_package(manager, first_request)
+    assert first.task_start["state"] == "completed"
+
+    changed_candidate = EvidenceAvailableCandidateV1(
+        selector_ref=SELECTOR_REF,
+        selector_hash=_hash("a"),
+        evidence_ref="artifact:upstream-evidence-successor",
+        evidence_hash=_hash("d"),
+    )
+    successor_request = _request(
+        DOWNSTREAM_PACKAGE_ID, "admit-proof-successor", with_evidence=True
+    ).model_copy(
+        update={
+            "supersedes_attempt_id": first.attempt_id,
+            "evidence_candidates": {EDGE_ID: changed_candidate},
+        }
+    )
+    successor = admit_reasoning_work_package(manager, successor_request)
+
+    assert successor.created is True
+    assert successor.attempt_id != first.attempt_id
+    assert successor.proof_refs != first.proof_refs
+    assert fake.provider_create_calls == 2
+    with kernel.connect() as conn:
+        row = conn.execute(
+            "SELECT supersedes_attempt_id FROM work_package_attempts WHERE attempt_id = ?",
+            (successor.attempt_id,),
+        ).fetchone()
+        assert row is not None
+        assert str(row["supersedes_attempt_id"]) == first.attempt_id
+
+
+def _prepared(
+    package_id: str,
+    *,
+    with_evidence: bool = False,
+    supersedes_attempt_id: str | None = None,
+) -> PreparedReasoningAdmissionV1:
+    request = _request(package_id, "prepared-template", with_evidence=with_evidence)
+    return PreparedReasoningAdmissionV1(
+        work_package_id=package_id,
+        repo_name=request.repo_name,
+        reasoning_spec=request.reasoning_spec,
+        supersedes_attempt_id=supersedes_attempt_id,
+        evidence_candidates=request.evidence_candidates,
+        published_success_candidates=request.published_success_candidates,
+    )
+
+
+def _coordinator_request(
+    *prepared: PreparedReasoningAdmissionV1,
+    controller_request_id: str = "coordinator-fixture",
+    concurrency: int = 1,
+    max_new_attempts: int = 8,
+) -> AdmitReadyWorkRequestV1:
+    return AdmitReadyWorkRequestV1(
+        mission_id=MISSION_ID,
+        expected_plan_revision_id=PLAN_ID,
+        expected_plan_state_version=1,
+        controller_request_id=controller_request_id,
+        max_new_attempts=max_new_attempts,
+        canonical_concurrency_limit=concurrency,
+        prepared_admissions=prepared,
+    )
+
+
+def test_coordinator_uses_package_key_order_and_not_ready_does_not_consume_capacity(
+    tmp_path: Path,
+) -> None:
+    manager, fake, _kernel, _scope = _environment(tmp_path)
+    result = admit_ready_work(
+        manager,
+        _coordinator_request(
+            _prepared(ROOT_PACKAGE_ID),
+            _prepared(DOWNSTREAM_PACKAGE_ID),
+        ),
+    )
+
+    assert result.considered_package_keys == ("downstream", "root")
+    assert [item.work_package_id for item in result.admitted] == [ROOT_PACKAGE_ID]
+    assert result.deferred[0].work_package_id == DOWNSTREAM_PACKAGE_ID
+    assert result.deferred[0].reason == "not_ready"
+    assert fake.provider_create_calls == 1
+
+
+def test_coordinator_c1_capacity_is_bounded_even_when_two_routes_are_ready(
+    tmp_path: Path,
+) -> None:
+    manager, fake, _kernel, _scope = _environment(tmp_path, fake_case="long_running")
+    result = admit_ready_work(
+        manager,
+        _coordinator_request(
+            _prepared(ROOT_PACKAGE_ID),
+            _prepared(DOWNSTREAM_PACKAGE_ID, with_evidence=True),
+            concurrency=1,
+            max_new_attempts=8,
+        ),
+    )
+
+    assert result.considered_package_keys == ("downstream", "root")
+    assert [item.work_package_id for item in result.admitted] == [DOWNSTREAM_PACKAGE_ID]
+    assert result.active_attempts_before == 0
+    assert result.active_attempts_after == 1
+    assert any(
+        item.work_package_id == ROOT_PACKAGE_ID and item.reason == "capacity"
+        for item in result.deferred
+    )
+    assert fake.provider_create_calls == 1
+
+
+def test_duplicate_coordinator_request_replays_without_duplicate_backend_start(
+    tmp_path: Path,
+) -> None:
+    manager, fake, _kernel, _scope = _environment(tmp_path)
+    request = _coordinator_request(
+        _prepared(ROOT_PACKAGE_ID),
+        controller_request_id="coordinator-replay",
+    )
+    first = admit_ready_work(manager, request)
+    second = admit_ready_work(manager, request)
+
+    assert len(first.admitted) == 1
+    assert len(second.admitted) == 0
+    assert len(second.replayed) == 1
+    assert second.replayed[0].attempt_id == first.admitted[0].attempt_id
+    assert second.replayed[0].task_id == first.admitted[0].task_id
+    assert fake.provider_create_calls == 1
+
+
+def test_coordinator_stale_plan_state_version_fails_closed(tmp_path: Path) -> None:
+    manager, fake, kernel, _scope = _environment(tmp_path)
+    request = _coordinator_request(_prepared(ROOT_PACKAGE_ID))
+    with kernel.connect() as conn:
+        conn.execute(
+            "UPDATE missions SET plan_state_version = 2 WHERE mission_id = ?",
+            (MISSION_ID,),
+        )
+    with pytest.raises(AdmissionError, match="plan_state_version"):
+        admit_ready_work(manager, request)
+    assert fake.provider_create_calls == 0
 
 
 def test_batch_is_bounded_and_never_turns_into_scheduler_loop(tmp_path: Path) -> None:

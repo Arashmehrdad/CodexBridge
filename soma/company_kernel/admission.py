@@ -8,6 +8,7 @@ transaction. It is not a scheduler loop.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Final, Mapping, Sequence
 
@@ -21,7 +22,7 @@ from soma.company_kernel.models import (
     derive_identity,
     route_request_hash,
 )
-from soma.fanin.proofs import (
+from soma.company_kernel.dependencies import (
     DependencyEdgeContextV1,
     DependencyProofEvaluationError,
     EvidenceAvailableCandidateV1,
@@ -54,6 +55,10 @@ class AdmissionError(ValueError):
     """Current facts do not authorize this bounded admission."""
 
 
+class AdmissionNotReady(AdmissionError):
+    """Current exact dependency evidence does not yet satisfy admission."""
+
+
 class _FrozenAdmissionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -62,6 +67,8 @@ class AdmissionRequestV1(_FrozenAdmissionModel):
     mission_id: str
     work_package_id: str
     controller_request_id: str = Field(min_length=1, max_length=128)
+    expected_plan_revision_id: str | None = None
+    expected_plan_state_version: int | None = Field(default=None, ge=0)
     repo_name: str = Field(min_length=1, max_length=128)
     reasoning_spec: ReasoningSpecV1
     supersedes_attempt_id: str | None = None
@@ -108,6 +115,208 @@ def _attempt_identity(
     )
 
 
+def _existing_controller_attempt(conn, controller_request_id: str):
+    rows = conn.execute(
+        "SELECT * FROM work_package_attempts WHERE controller_request_id = ? ORDER BY attempt_id",
+        (controller_request_id,),
+    ).fetchall()
+    if len(rows) > 1:
+        raise AdmissionError(
+            "controller request is bound to multiple WorkPackageAttempts; durable state is inconsistent"
+        )
+    return rows[0] if rows else None
+
+
+def _proof_refs_from_route(conn, route_descriptor: Mapping[str, Any]):
+    raw_refs = route_descriptor.get("dependency_proof_refs", [])
+    if not isinstance(raw_refs, list):
+        raise AdmissionError(
+            "stored WorkPackageAttempt dependency proof refs are invalid"
+        )
+    refs = tuple(
+        sorted(
+            (ReasoningHashedReferenceV1.model_validate(item) for item in raw_refs),
+            key=lambda item: (item.ref, item.hash),
+        )
+    )
+    if len(refs) != len({item.ref for item in refs}):
+        raise AdmissionError(
+            "stored WorkPackageAttempt dependency proof refs are duplicated"
+        )
+    for item in refs:
+        prefix = "dependency-proof:"
+        if not item.ref.startswith(prefix):
+            raise AdmissionError(
+                "stored WorkPackageAttempt contains an invalid proof ref"
+            )
+        proof_id = item.ref[len(prefix) :]
+        durable = conn.execute(
+            "SELECT proof_hash FROM dependency_satisfaction_proofs WHERE proof_id = ?",
+            (proof_id,),
+        ).fetchone()
+        if durable is None or str(durable["proof_hash"]) != item.hash:
+            raise AdmissionError(
+                "stored WorkPackageAttempt dependency proof identity is unavailable"
+            )
+    return refs
+
+
+def _replay_existing_attempt(
+    task_manager,
+    request: AdmissionRequestV1,
+    *,
+    binding,
+    existing_attempt,
+) -> AdmissionResultV1:
+    if str(existing_attempt["work_package_id"]) != request.work_package_id:
+        raise AdmissionError(
+            "controller request already owns a different WorkPackageAttempt"
+        )
+    conn = task_manager.store.connect()
+    try:
+        target = conn.execute(
+            "SELECT * FROM work_packages WHERE work_package_id = ? AND mission_id = ?",
+            (request.work_package_id, request.mission_id),
+        ).fetchone()
+        if target is None:
+            raise AdmissionError(
+                "replayed WorkPackage no longer exists in Mission history"
+            )
+        route_descriptor = json.loads(str(existing_attempt["route_descriptor_json"]))
+        if not isinstance(route_descriptor, dict):
+            raise AdmissionError(
+                "stored WorkPackageAttempt route descriptor is invalid"
+            )
+        proof_refs = _proof_refs_from_route(conn, route_descriptor)
+    finally:
+        conn.close()
+
+    final_spec = request.reasoning_spec.model_copy(
+        update={
+            "assignment_ref": f"work-package:{request.work_package_id}",
+            "assignment_hash": str(target["contract_hash"]),
+            "dependency_proof_refs": proof_refs,
+        }
+    )
+    stored_spec = route_descriptor.get("reasoning_spec")
+    expected_spec = {
+        "ref": reasoning_spec_ref(final_spec),
+        "hash": reasoning_spec_hash(final_spec),
+    }
+    if stored_spec != expected_spec:
+        raise AdmissionError(
+            "controller replay reasoning assignment differs from the frozen WorkPackageAttempt"
+        )
+    stored_scope = route_descriptor.get("project_scope")
+    if stored_scope != {
+        "project_id": binding.project_id,
+        "resource_id": binding.resource_id,
+        "scope_generation": binding.scope_generation,
+    }:
+        raise AdmissionError(
+            "controller replay ProjectScope differs from the frozen WorkPackageAttempt"
+        )
+    route_hash = route_request_hash(route_descriptor)
+    if route_hash != str(existing_attempt["route_request_hash"]):
+        raise AdmissionError("stored WorkPackageAttempt route hash is inconsistent")
+    attempt_id, attempt_hash = _attempt_identity(
+        work_package_id=request.work_package_id,
+        outcome_id=str(target["outcome_id"]),
+        route_hash=route_hash,
+        supersedes_attempt_id=(
+            str(existing_attempt["supersedes_attempt_id"])
+            if existing_attempt["supersedes_attempt_id"] is not None
+            else None
+        ),
+    )
+    if (
+        attempt_id != str(existing_attempt["attempt_id"])
+        or attempt_hash != str(existing_attempt["request_hash"])
+        or request.supersedes_attempt_id
+        != (
+            str(existing_attempt["supersedes_attempt_id"])
+            if existing_attempt["supersedes_attempt_id"] is not None
+            else None
+        )
+    ):
+        raise AdmissionError(
+            "controller replay does not match the frozen WorkPackageAttempt identity"
+        )
+    task_id = str(existing_attempt["task_id"])
+    task_start = task_manager.start_reasoning_task(
+        controller_request_id=request.controller_request_id,
+        repo_name=request.repo_name,
+        project_id=binding.project_id,
+        spec=final_spec,
+        work_package_attempt_ref=attempt_id,
+        work_package_attempt_hash=attempt_hash,
+    )
+    return AdmissionResultV1(
+        mission_id=request.mission_id,
+        plan_revision_id=str(target["plan_revision_id"]),
+        work_package_id=request.work_package_id,
+        attempt_id=attempt_id,
+        attempt_hash=attempt_hash,
+        task_id=task_id,
+        proof_refs=proof_refs,
+        created=False,
+        task_start=task_start,
+    )
+
+
+def _assert_new_attempt_allowed(conn, target, request: AdmissionRequestV1) -> None:
+    rows = conn.execute(
+        """
+        SELECT attempt.*, task.state AS task_state
+        FROM work_package_attempts attempt
+        JOIN tasks task ON task.task_id = attempt.task_id
+        WHERE attempt.work_package_id = ?
+        ORDER BY attempt.created_at, attempt.attempt_id
+        """,
+        (request.work_package_id,),
+    ).fetchall()
+    active = [
+        row
+        for row in rows
+        if str(row["task_state"]) not in {"completed", "failed", "cancelled"}
+        and not str(row["containment_evidence_ref"] or "")
+    ]
+    if active:
+        raise AdmissionError(
+            "single_active WorkPackage already has an active or uncontained Attempt"
+        )
+    if not rows:
+        if request.supersedes_attempt_id is not None:
+            raise AdmissionError(
+                "first WorkPackageAttempt cannot supersede an unknown Attempt"
+            )
+        return
+    if request.supersedes_attempt_id is None:
+        raise AdmissionError(
+            "a successor WorkPackageAttempt must explicitly supersede the current head Attempt"
+        )
+    attempt_ids = {str(row["attempt_id"]) for row in rows}
+    superseded_ids = {
+        str(row["supersedes_attempt_id"])
+        for row in rows
+        if row["supersedes_attempt_id"] is not None
+    }
+    heads = sorted(attempt_ids - superseded_ids)
+    if len(heads) != 1 or request.supersedes_attempt_id != heads[0]:
+        raise AdmissionError(
+            "successor WorkPackageAttempt must supersede the exact current head Attempt"
+        )
+    parent = next(row for row in rows if str(row["attempt_id"]) == heads[0])
+    if str(parent["task_state"]) not in {
+        "completed",
+        "failed",
+        "cancelled",
+    } and not str(parent["containment_evidence_ref"] or ""):
+        raise AdmissionError(
+            "superseded WorkPackageAttempt is not terminal or contained"
+        )
+
+
 def _context_from_edge(
     conn, edge, kernel_state_version: int
 ) -> DependencyEdgeContextV1:
@@ -145,7 +354,7 @@ def _accepted_outcome_proof(conn, context: DependencyEdgeContextV1, observed_at:
         ),
     ).fetchall()
     if len(rows) != 1:
-        raise AdmissionError(
+        raise AdmissionNotReady(
             "accepted_outcome requires exactly one authoritative AcceptanceCommit"
         )
     return evaluate_accepted_outcome(
@@ -161,24 +370,24 @@ def _verify_published_success_candidate(conn, context, candidate) -> None:
         (candidate.attempt_id,),
     ).fetchone()
     if attempt is None:
-        raise AdmissionError("published_success attempt does not exist")
+        raise AdmissionNotReady("published_success attempt does not exist")
     if (
         str(attempt["work_package_id"]) != context.upstream_work_package_id
         or str(attempt["outcome_id"]) != context.upstream_outcome_id
         or str(attempt["task_id"]) != candidate.task_id
     ):
-        raise AdmissionError("published_success attempt/task identity mismatch")
+        raise AdmissionNotReady("published_success attempt/task identity mismatch")
     task = conn.execute(
         "SELECT * FROM tasks WHERE task_id = ?", (candidate.task_id,)
     ).fetchone()
     if task is None:
-        raise AdmissionError("published_success canonical Task is missing")
+        raise AdmissionNotReady("published_success canonical Task is missing")
     if (
         str(task["backend_kind"]) != BackendKind.SOMA_DURABLE_RUN.value
         or str(task["backend_ref"]) != candidate.run_id
         or str(task["state"]) != "completed"
     ):
-        raise AdmissionError(
+        raise AdmissionNotReady(
             "published_success requires a completed durable-Run-backed canonical Task"
         )
     run_table = conn.execute(
@@ -190,12 +399,12 @@ def _verify_published_success_candidate(conn, context, candidate) -> None:
         "SELECT * FROM runs WHERE run_id = ?", (candidate.run_id,)
     ).fetchone()
     if run is None:
-        raise AdmissionError("published_success durable Run is missing")
+        raise AdmissionNotReady("published_success durable Run is missing")
     if (
         str(run["result_publication_status"] or "") != "published"
         or str(run["result_published_hash"] or "") != candidate.result_published_hash
     ):
-        raise AdmissionError("published_success Run publication identity mismatch")
+        raise AdmissionNotReady("published_success Run publication identity mismatch")
 
 
 def _settled_attempt_facts(conn, context: DependencyEdgeContextV1):
@@ -267,7 +476,7 @@ def _evaluate_and_persist_proofs(
             elif context.requirement == "published_success":
                 candidate = request.published_success_candidates.get(context.edge_id)
                 if candidate is None:
-                    raise AdmissionError(
+                    raise AdmissionNotReady(
                         f"published_success candidate is missing for edge {context.edge_id}"
                     )
                 _verify_published_success_candidate(conn, context, candidate)
@@ -279,7 +488,7 @@ def _evaluate_and_persist_proofs(
             elif context.requirement == "evidence_available":
                 candidate = request.evidence_candidates.get(context.edge_id)
                 if candidate is None:
-                    raise AdmissionError(
+                    raise AdmissionNotReady(
                         f"evidence candidate is missing for edge {context.edge_id}"
                     )
                 proof = evaluate_evidence_available(
@@ -298,7 +507,7 @@ def _evaluate_and_persist_proofs(
                     f"unsupported dependency requirement {context.requirement}"
                 )
         except DependencyProofEvaluationError as exc:
-            raise AdmissionError(str(exc)) from exc
+            raise AdmissionNotReady(str(exc)) from exc
         persisted.append(
             persist_dependency_proof_in_connection(
                 conn,
@@ -330,10 +539,9 @@ def admit_reasoning_work_package(
             "SELECT project_id FROM work_packages WHERE work_package_id = ? AND mission_id = ?",
             (request.work_package_id, request.mission_id),
         ).fetchone()
-        existing_attempt = conn.execute(
-            "SELECT * FROM work_package_attempts WHERE controller_request_id = ?",
-            (request.controller_request_id,),
-        ).fetchone()
+        existing_attempt = _existing_controller_attempt(
+            conn, request.controller_request_id
+        )
     finally:
         conn.close()
     if target_identity is None:
@@ -343,6 +551,14 @@ def admit_reasoning_work_package(
         repo_name=request.repo_name,
         working_directory="",
     )
+
+    if existing_attempt is not None:
+        return _replay_existing_attempt(
+            task_manager,
+            request,
+            binding=binding,
+            existing_attempt=existing_attempt,
+        )
 
     backend_ref = None
     task_id = None
@@ -367,7 +583,21 @@ def admit_reasoning_work_package(
         ).fetchone()
         if target is None:
             raise AdmissionError("target WorkPackage does not exist in Mission")
-        if str(target["plan_revision_id"]) != str(mission["current_plan_revision_id"]):
+        current_plan_revision_id = str(mission["current_plan_revision_id"])
+        if (
+            request.expected_plan_revision_id is not None
+            and request.expected_plan_revision_id != current_plan_revision_id
+        ):
+            raise AdmissionError(
+                "Mission current PlanRevision changed before admission"
+            )
+        if (
+            request.expected_plan_state_version is not None
+            and request.expected_plan_state_version
+            != int(mission["plan_state_version"])
+        ):
+            raise AdmissionError("Mission plan_state_version changed before admission")
+        if str(target["plan_revision_id"]) != current_plan_revision_id:
             raise AdmissionError(
                 "target WorkPackage is not in the current PlanRevision"
             )
@@ -379,6 +609,8 @@ def admit_reasoning_work_package(
             raise AdmissionError(
                 "target WorkPackage ProjectScope identity is stale or mismatched"
             )
+
+        _assert_new_attempt_allowed(conn, target, request)
 
         proofs = _evaluate_and_persist_proofs(
             conn,
@@ -431,77 +663,64 @@ def admit_reasoning_work_package(
             supersedes_attempt_id=request.supersedes_attempt_id,
         )
 
-        if existing_attempt is not None:
-            if (
-                str(existing_attempt["attempt_id"]) != attempt_id
-                or str(existing_attempt["request_hash"]) != attempt_hash
-                or str(existing_attempt["work_package_id"]) != request.work_package_id
-            ):
-                raise AdmissionError(
-                    "controller request already owns a different WorkPackageAttempt"
-                )
-            task_id = str(existing_attempt["task_id"])
-            conn.rollback()
-        else:
-            same_attempt = conn.execute(
-                "SELECT * FROM work_package_attempts WHERE attempt_id = ?",
-                (attempt_id,),
-            ).fetchone()
-            if same_attempt is not None:
-                raise AdmissionError(
-                    "identical WorkPackageAttempt already exists under a different controller request"
-                )
-            else:
-                backend_ref = backend.reserve()
-                task_id = make_task_id()
-                normalized = normalize_reasoning_request(
-                    reasoning_spec_ref=spec_ref,
-                    reasoning_spec_hash=spec_hash,
-                    project_id=binding.project_id,
-                    resource_id=binding.resource_id,
-                    scope_generation=binding.scope_generation,
-                    work_package_attempt_ref=attempt_id,
-                    work_package_attempt_hash=attempt_hash,
-                    dependency_proof_refs=[
-                        {"ref": item.ref, "hash": item.hash} for item in proof_refs
-                    ],
-                )
-                task_request_hash = normalized_request_hash(normalized)
-                task_manager.scope_store.reserve_task_attempt(
-                    conn,
-                    binding=binding,
-                    task_id=task_id,
-                    run_id=backend_ref,
-                    parent_task_id="",
-                )
-                task_manager.store.reserve_task_in_connection(
-                    conn,
-                    task_id=task_id,
-                    task_kind=TaskKind.REASONING.value,
-                    controller_request_id=request.controller_request_id,
-                    request_hash=task_request_hash,
-                    backend_kind=BackendKind.SOMA_REASONING.value,
-                    backend_executor=REASONING_EXECUTOR,
-                    backend_ref=backend_ref,
-                    backend_identity={
-                        "engine": BackendKind.SOMA_REASONING.value,
-                        "reasoning_spec_ref": spec_ref,
-                        "reasoning_spec_hash": spec_hash,
-                        "work_package_attempt_ref": attempt_id,
-                        "work_package_attempt_hash": attempt_hash,
-                        "project_id": binding.project_id,
-                        "resource_id": binding.resource_id,
-                        "scope_generation": binding.scope_generation,
-                    },
-                    objective_ref=final_spec.assignment_ref,
-                    constraints_ref=final_spec.authority_ref,
-                    workspace_kind="repository",
-                    workspace_ref=effective_repo_name,
-                    parent_task_id="",
-                )
-                task_manager.scope_store.attach_task(conn, task_id)
-                conn.execute(
-                    """
+        same_attempt = conn.execute(
+            "SELECT * FROM work_package_attempts WHERE attempt_id = ?",
+            (attempt_id,),
+        ).fetchone()
+        if same_attempt is not None:
+            raise AdmissionError(
+                "identical WorkPackageAttempt already exists under a different controller request"
+            )
+        backend_ref = backend.reserve()
+        task_id = make_task_id()
+        normalized = normalize_reasoning_request(
+            reasoning_spec_ref=spec_ref,
+            reasoning_spec_hash=spec_hash,
+            project_id=binding.project_id,
+            resource_id=binding.resource_id,
+            scope_generation=binding.scope_generation,
+            work_package_attempt_ref=attempt_id,
+            work_package_attempt_hash=attempt_hash,
+            dependency_proof_refs=[
+                {"ref": item.ref, "hash": item.hash} for item in proof_refs
+            ],
+        )
+        task_request_hash = normalized_request_hash(normalized)
+        task_manager.scope_store.reserve_task_attempt(
+            conn,
+            binding=binding,
+            task_id=task_id,
+            run_id=backend_ref,
+            parent_task_id="",
+        )
+        task_manager.store.reserve_task_in_connection(
+            conn,
+            task_id=task_id,
+            task_kind=TaskKind.REASONING.value,
+            controller_request_id=request.controller_request_id,
+            request_hash=task_request_hash,
+            backend_kind=BackendKind.SOMA_REASONING.value,
+            backend_executor=REASONING_EXECUTOR,
+            backend_ref=backend_ref,
+            backend_identity={
+                "engine": BackendKind.SOMA_REASONING.value,
+                "reasoning_spec_ref": spec_ref,
+                "reasoning_spec_hash": spec_hash,
+                "work_package_attempt_ref": attempt_id,
+                "work_package_attempt_hash": attempt_hash,
+                "project_id": binding.project_id,
+                "resource_id": binding.resource_id,
+                "scope_generation": binding.scope_generation,
+            },
+            objective_ref=final_spec.assignment_ref,
+            constraints_ref=final_spec.authority_ref,
+            workspace_kind="repository",
+            workspace_ref=effective_repo_name,
+            parent_task_id="",
+        )
+        task_manager.scope_store.attach_task(conn, task_id)
+        conn.execute(
+            """
                     INSERT INTO work_package_attempts(
                         attempt_id, work_package_id, outcome_id, task_id,
                         route_request_hash, route_descriptor_json,
@@ -510,21 +729,21 @@ def admit_reasoning_work_package(
                         request_hash, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?)
                     """,
-                    (
-                        attempt_id,
-                        request.work_package_id,
-                        str(target["outcome_id"]),
-                        task_id,
-                        route_hash,
-                        canonical_json(route_descriptor),
-                        request.supersedes_attempt_id,
-                        request.controller_request_id,
-                        attempt_hash,
-                        observed_at,
-                    ),
-                )
-                conn.commit()
-                created = True
+            (
+                attempt_id,
+                request.work_package_id,
+                str(target["outcome_id"]),
+                task_id,
+                route_hash,
+                canonical_json(route_descriptor),
+                request.supersedes_attempt_id,
+                request.controller_request_id,
+                attempt_hash,
+                observed_at,
+            ),
+        )
+        conn.commit()
+        created = True
     except BaseException:
         if conn.in_transaction:
             conn.rollback()

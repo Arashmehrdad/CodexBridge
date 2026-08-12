@@ -8,7 +8,7 @@ import pytest
 
 from soma.company_kernel.models import AcceptanceCommit
 from soma.company_kernel.store import CompanyKernelStore
-from soma.fanin.proofs import (
+from soma.company_kernel.dependencies import (
     DependencyEdgeContextV1,
     DependencyProofEvaluationError,
     EvidenceAvailableCandidateV1,
@@ -374,4 +374,9 @@ def test_persistence_is_idempotent_and_replay_returns_durable_audit_metadata(
             ).fetchone()[0]
             == 1
         )
-        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert (
+            conn.execute(
+                "PRAGMA foreign_key_check(dependency_satisfaction_proofs)"
+            ).fetchall()
+            == []
+        )
