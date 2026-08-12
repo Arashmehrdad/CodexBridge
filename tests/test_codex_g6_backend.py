@@ -193,16 +193,10 @@ class ScriptedG6Client:
             message = (
                 "not-json" if self.behavior == "invalid_output" else _semantic_output()
             )
-        return CodexTurnEvidence(
-            thread_id=self.thread_id,
-            turn_id=self.turn_id,
-            status=status,
-            events=(
-                {"method": "turn/started", "params": {"threadId": self.thread_id}},
-                {"method": "turn/completed", "params": {"threadId": self.thread_id}},
-            ),
-            agent_message=message,
-            token_usage_events=(
+        token_usage_events = (
+            ()
+            if self.behavior == "provider_failed"
+            else (
                 {
                     "tokenUsage": {
                         "total": {
@@ -214,7 +208,18 @@ class ScriptedG6Client:
                         }
                     }
                 },
+            )
+        )
+        return CodexTurnEvidence(
+            thread_id=self.thread_id,
+            turn_id=self.turn_id,
+            status=status,
+            events=(
+                {"method": "turn/started", "params": {"threadId": self.thread_id}},
+                {"method": "turn/completed", "params": {"threadId": self.thread_id}},
             ),
+            agent_message=message,
+            token_usage_events=token_usage_events,
             terminal_error=terminal_error,
         )
 
@@ -305,6 +310,13 @@ def test_success_binds_exact_provider_identity_and_publishes_bounded_result(
     value = json.loads(evidence_path.read_text(encoding="utf-8"))
     assert value["work_identity"]["task_id"] == "task_g6"
     assert value["work_identity"]["backend_ref"] == backend_ref
+    generation_marker = (
+        store.runs_dir
+        / "reasoning_backend_evidence"
+        / backend_ref
+        / "model_generation_observed.json"
+    )
+    assert generation_marker.exists()
     assert value["producer"]["provider"] == "codex"
     assert value["producer"]["native_session_ref"] == "thr_g6"
     assert len(value["claims"]) == 5
@@ -424,6 +436,13 @@ def test_provider_terminal_failure_persists_exact_diagnostic_evidence(
         "code": "invalid_json_schema",
     }
     assert len(value["events"]) == 2
+    generation_marker = (
+        store.runs_dir
+        / "reasoning_backend_evidence"
+        / backend_ref
+        / "model_generation_observed.json"
+    )
+    assert not generation_marker.exists()
 
 
 def test_invalid_provider_output_is_bound_but_fails_output_contract(
