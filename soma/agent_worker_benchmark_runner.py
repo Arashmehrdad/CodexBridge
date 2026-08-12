@@ -224,14 +224,18 @@ def validate_g6_plan(
             ).fetchone()[0]
         )
         if edge_count != 0:
-            raise G6BenchmarkRunnerError("G6 benchmark graph must have zero dependency edges")
+            raise G6BenchmarkRunnerError(
+                "G6 benchmark graph must have zero dependency edges"
+            )
         graph_row = conn.execute(
             "SELECT * FROM plan_graph_manifests WHERE mission_id = ? AND plan_revision_id = ?",
             (mission_id, plan_revision_id),
         ).fetchone()
-        if graph_row is None or int(graph_row["package_count"]) != 8 or int(
-            graph_row["edge_count"]
-        ) != 0:
+        if (
+            graph_row is None
+            or int(graph_row["package_count"]) != 8
+            or int(graph_row["edge_count"]) != 0
+        ):
             raise G6BenchmarkRunnerError("G6 plan graph manifest shape is not 8/0")
 
         package_ids: dict[str, str] = {}
@@ -267,7 +271,9 @@ def validate_g6_plan(
             scope_generation=int(mission["scope_generation"]),
         )
         if str(graph_row["manifest_hash"]) != expected_manifest.graph_manifest_hash:
-            raise G6BenchmarkRunnerError("G6 graph manifest hash does not match frozen graph")
+            raise G6BenchmarkRunnerError(
+                "G6 graph manifest hash does not match frozen graph"
+            )
 
     return G6PlanContext(
         mission_id=mission_id,
@@ -304,7 +310,9 @@ def make_g6_assignment_resolver(
         if row is None:
             raise G6BenchmarkRunnerError("G6 WorkPackage assignment does not exist")
         if str(row["plan_revision_id"]) != str(row["current_plan_revision_id"]):
-            raise G6BenchmarkRunnerError("G6 WorkPackage assignment is not in current plan")
+            raise G6BenchmarkRunnerError(
+                "G6 WorkPackage assignment is not in current plan"
+            )
         unit_id = str(row["package_key"])
         if unit_id not in G6_EXPECTED_UNIT_IDS:
             raise G6BenchmarkRunnerError("G6 WorkPackage package_key is not B01-B08")
@@ -314,12 +322,18 @@ def make_g6_assignment_resolver(
             contract_version=str(row["contract_version"]),
             contract=expected_contract,
         )
-        if actual_contract != expected_contract or str(row["contract_hash"]) != expected_hash:
-            raise G6BenchmarkRunnerError("G6 WorkPackage contract identity drift detected")
+        if (
+            actual_contract != expected_contract
+            or str(row["contract_hash"]) != expected_hash
+        ):
+            raise G6BenchmarkRunnerError(
+                "G6 WorkPackage contract identity drift detected"
+            )
         packet = build_assignment_packet(root, unit_id)
-        if assignment_packet_hash(root, unit_id) != expected_contract["benchmark"][
-            "assignment_packet_sha256"
-        ]:
+        if (
+            assignment_packet_hash(root, unit_id)
+            != expected_contract["benchmark"]["assignment_packet_sha256"]
+        ):
             raise G6BenchmarkRunnerError("G6 packet hash drift detected")
         return ResolvedG6Assignment(
             packet_bytes=packet,
@@ -420,7 +434,9 @@ class G6TrialStore:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise G6BenchmarkRunnerError("stored G6 trial result is unreadable") from exc
+            raise G6BenchmarkRunnerError(
+                "stored G6 trial result is unreadable"
+            ) from exc
         return G6TrialResultV1.model_validate(value)
 
     def write_fanin(self, trial_id: str, fanin: FanInV1) -> tuple[str, str]:
@@ -499,7 +515,8 @@ def _prepare_admissions(
                 active = [
                     row
                     for row in rows
-                    if str(row["task_state"]) not in {
+                    if str(row["task_state"])
+                    not in {
                         TaskState.COMPLETED.value,
                         TaskState.FAILED.value,
                         TaskState.CANCELLED.value,
@@ -567,9 +584,7 @@ def _mechanical_metrics(
         assessment = assessments.get(unit.unit_id)
         if assessment is None:
             continue
-        claim_keys = {
-            str(value) for value in (assessment.get("claim_fact_keys") or [])
-        }
+        claim_keys = {str(value) for value in (assessment.get("claim_fact_keys") or [])}
         required_keys = {question.fact_key for question in unit.questions}
         covered += len(claim_keys & required_keys)
         claims += int(assessment.get("claim_count") or 0)
@@ -717,11 +732,15 @@ def run_g6_trial(
         max_workers=canonical_concurrency_limit,
         thread_name_prefix=f"{trial_id}-{_condition_name(canonical_concurrency_limit)}",
     ) as executor:
-        future_map = {executor.submit(execute, item): item.unit_id for item in admissions}
+        future_map = {
+            executor.submit(execute, item): item.unit_id for item in admissions
+        }
         for future in as_completed(future_map):
             unit_results_by_id[future_map[future]] = future.result()
     makespan = max(0.0, time.monotonic() - started)
-    unit_results = tuple(unit_results_by_id[unit_id] for unit_id in G6_EXPECTED_UNIT_IDS)
+    unit_results = tuple(
+        unit_results_by_id[unit_id] for unit_id in G6_EXPECTED_UNIT_IDS
+    )
 
     submissions: dict[str, EvidenceSubmissionV1] = {}
     assessments: dict[str, Mapping[str, Any]] = {}

@@ -310,7 +310,9 @@ def _environment(tmp_path: Path, *, delay_seconds: float = 0.06):
     return manager, backend, clients, kernel, accepted
 
 
-def _run(manager, backend, kernel, *, condition: int, repetition: int = 1, phase="screening"):
+def _run(
+    manager, backend, kernel, *, condition: int, repetition: int = 1, phase="screening"
+):
     return run_g6_trial(
         task_manager=manager,
         kernel_store=kernel,
@@ -325,8 +327,12 @@ def _run(manager, backend, kernel, *, condition: int, repetition: int = 1, phase
     )
 
 
-def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(tmp_path: Path) -> None:
-    manager, backend, _clients, kernel, accepted = _environment(tmp_path, delay_seconds=0)
+def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(
+    tmp_path: Path,
+) -> None:
+    manager, backend, _clients, kernel, accepted = _environment(
+        tmp_path, delay_seconds=0
+    )
     context = validate_g6_plan(kernel, REPO_ROOT, MISSION_ID)
 
     assert context.plan_revision_id == accepted.plan_revision_id
@@ -340,7 +346,9 @@ def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(tmp
     assert manager._reasoning_backend.kind == "soma_reasoning"
 
 
-def test_c1_c2_c4_c8_use_exact_canonical_peak_and_successor_attempts(tmp_path: Path) -> None:
+def test_c1_c2_c4_c8_use_exact_canonical_peak_and_successor_attempts(
+    tmp_path: Path,
+) -> None:
     manager, backend, clients, kernel, _accepted = _environment(tmp_path)
     results = [
         _run(manager, backend, kernel, condition=condition)
@@ -393,7 +401,9 @@ def test_c1_c2_c4_c8_use_exact_canonical_peak_and_successor_attempts(tmp_path: P
                 )
 
 
-def test_exact_trial_replay_returns_stored_measurement_without_provider_start(tmp_path: Path) -> None:
+def test_exact_trial_replay_returns_stored_measurement_without_provider_start(
+    tmp_path: Path,
+) -> None:
     manager, backend, clients, kernel, _accepted = _environment(tmp_path)
     first = _run(manager, backend, kernel, condition=4)
     creates_after_first = clients.created
@@ -408,10 +418,18 @@ def test_exact_trial_replay_returns_stored_measurement_without_provider_start(tm
     assert replay.makespan_seconds == first.makespan_seconds
 
 
-def test_new_confirmation_repetition_creates_one_exact_successor_per_unit(tmp_path: Path) -> None:
-    manager, backend, clients, kernel, _accepted = _environment(tmp_path, delay_seconds=0)
-    first = _run(manager, backend, kernel, condition=2, phase="confirmation", repetition=1)
-    second = _run(manager, backend, kernel, condition=2, phase="confirmation", repetition=2)
+def test_new_confirmation_repetition_creates_one_exact_successor_per_unit(
+    tmp_path: Path,
+) -> None:
+    manager, backend, clients, kernel, _accepted = _environment(
+        tmp_path, delay_seconds=0
+    )
+    first = _run(
+        manager, backend, kernel, condition=2, phase="confirmation", repetition=1
+    )
+    second = _run(
+        manager, backend, kernel, condition=2, phase="confirmation", repetition=2
+    )
 
     assert first.trial_id != second.trial_id
     assert clients.created == 16
@@ -420,8 +438,12 @@ def test_new_confirmation_repetition_creates_one_exact_successor_per_unit(tmp_pa
     assert second.metrics.deliberate_trial_repetition is True
 
 
-def test_active_prior_head_blocks_whole_new_trial_before_any_provider_start(tmp_path: Path) -> None:
-    manager, backend, clients, kernel, _accepted = _environment(tmp_path, delay_seconds=0)
+def test_active_prior_head_blocks_whole_new_trial_before_any_provider_start(
+    tmp_path: Path,
+) -> None:
+    manager, backend, clients, kernel, _accepted = _environment(
+        tmp_path, delay_seconds=0
+    )
     first = _run(manager, backend, kernel, condition=1)
     prior_creates = clients.created
     active_task_id = first.unit_results[0].task_id
@@ -436,15 +458,22 @@ def test_active_prior_head_blocks_whole_new_trial_before_any_provider_start(tmp_
 
     assert clients.created == prior_creates
     with kernel.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM work_package_attempts").fetchone()[0] == 8
+        assert (
+            conn.execute("SELECT COUNT(*) FROM work_package_attempts").fetchone()[0]
+            == 8
+        )
 
 
 def test_trial_artifacts_are_durable_and_semantic_metrics_remain_explicitly_unadjudicated(
     tmp_path: Path,
 ) -> None:
-    manager, backend, _clients, kernel, _accepted = _environment(tmp_path, delay_seconds=0)
+    manager, backend, _clients, kernel, _accepted = _environment(
+        tmp_path, delay_seconds=0
+    )
     result = _run(manager, backend, kernel, condition=8)
-    directory = manager.store.runs_dir / "agent_worker_benchmark_trials" / result.trial_id
+    directory = (
+        manager.store.runs_dir / "agent_worker_benchmark_trials" / result.trial_id
+    )
 
     assert (directory / "manifest.json").is_file()
     assert (directory / "fanin.json").is_file()
