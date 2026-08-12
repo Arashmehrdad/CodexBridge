@@ -147,7 +147,9 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
                     f"uncertainty {uncertainty.uncertainty_id} references unknown claims: "
                     f"{sorted(missing_claims)}"
                 )
-        missing_trap_evidence = set(self.critical_trap.supports_evidence_ids) - evidence_set
+        missing_trap_evidence = (
+            set(self.critical_trap.supports_evidence_ids) - evidence_set
+        )
         if missing_trap_evidence:
             raise ValueError(
                 "critical_trap references unknown evidence IDs: "
@@ -178,7 +180,9 @@ def parse_assignment_packet(packet_bytes: bytes) -> dict[str, Any]:
     try:
         packet = json.loads(packet_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BenchmarkSemanticValidationError("benchmark packet is not valid JSON") from exc
+        raise BenchmarkSemanticValidationError(
+            "benchmark packet is not valid JSON"
+        ) from exc
     if packet.get("schema_version") != "soma.agent_worker_benchmark.assignment.v1":
         raise BenchmarkSemanticValidationError("unexpected benchmark assignment schema")
     return packet
@@ -226,16 +230,22 @@ def _packet_sources(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for source in sources:
         if not isinstance(source, dict):
-            raise BenchmarkSemanticValidationError("assignment source must be an object")
+            raise BenchmarkSemanticValidationError(
+                "assignment source must be an object"
+            )
         path = source.get("path")
         content = source.get("content")
         digest = source.get("sha256")
         if not isinstance(path, str) or not path:
             raise BenchmarkSemanticValidationError("assignment source path is invalid")
         if path in result:
-            raise BenchmarkSemanticValidationError("assignment source paths must be unique")
+            raise BenchmarkSemanticValidationError(
+                "assignment source paths must be unique"
+            )
         if not isinstance(content, str) or not isinstance(digest, str):
-            raise BenchmarkSemanticValidationError("assignment source content/hash is invalid")
+            raise BenchmarkSemanticValidationError(
+                "assignment source content/hash is invalid"
+            )
         result[path] = source
     return result
 
@@ -251,7 +261,9 @@ def _assignment_fact_keys(packet: dict[str, Any]) -> set[str]:
         if isinstance(item, dict) and isinstance(item.get("fact_key"), str)
     }
     if len(keys) != len(questions):
-        raise BenchmarkSemanticValidationError("assignment fact keys are invalid or duplicate")
+        raise BenchmarkSemanticValidationError(
+            "assignment fact keys are invalid or duplicate"
+        )
     return {str(value) for value in keys}
 
 

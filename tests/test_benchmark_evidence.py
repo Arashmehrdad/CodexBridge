@@ -193,7 +193,9 @@ def test_unassigned_fact_key_is_rejected() -> None:
     value["evidence"][0]["fact_key"] = "invented.semantic.key"
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="not assignment-provided"):
+    with pytest.raises(
+        BenchmarkSemanticValidationError, match="not assignment-provided"
+    ):
         validate_semantic_against_packet(payload, _packet())
 
 
@@ -268,4 +270,6 @@ def test_bridge_injects_canonical_identity_and_builds_bounded_submission() -> No
 
 
 def test_semantic_hash_is_deterministic() -> None:
-    assert semantic_payload_hash(_valid_payload()) == semantic_payload_hash(_valid_payload())
+    assert semantic_payload_hash(_valid_payload()) == semantic_payload_hash(
+        _valid_payload()
+    )
