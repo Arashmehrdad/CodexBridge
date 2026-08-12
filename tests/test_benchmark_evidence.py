@@ -145,6 +145,32 @@ def test_schema_and_prompt_are_strict_read_only() -> None:
         "blockers",
         "critical_trap",
     }
+    def assert_strict(value) -> None:
+        if isinstance(value, list):
+            for item in value:
+                assert_strict(item)
+            return
+        if not isinstance(value, dict):
+            return
+        assert "default" not in value
+        properties = value.get("properties")
+        if isinstance(properties, dict):
+            assert value.get("additionalProperties") is False
+            assert value.get("required") == list(properties)
+        for item in value.values():
+            assert_strict(item)
+
+    assert_strict(schema)
+    fact_value = schema["$defs"]["BenchmarkSemanticEvidenceV1"]["properties"][
+        "fact_value"
+    ]
+    assert {item.get("type") for item in fact_value["anyOf"]} == {
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "null",
+    }
     assert "Do not use tools, files, network sources" in prompt
     assert "Do not implement or modify anything" in prompt
     assert BENCHMARK_SEMANTIC_SCHEMA_VERSION in prompt
