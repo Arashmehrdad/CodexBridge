@@ -451,7 +451,7 @@ class CodexG6ReasoningBackend:
             wall_time = max(0.0, time.monotonic() - started_at)
             if turn.status == "interrupted":
                 current = self.store.query(backend_ref)
-                if current.cancellation_disposition == "accepted":
+                if current.cancellation_disposition in {"accepted", "uncertain"}:
                     return current
                 self._record_terminal_without_result(
                     backend_ref=backend_ref,
@@ -663,6 +663,14 @@ class CodexG6ReasoningBackend:
             active = self._active.get(backend_ref)
         client = active.client if active is not None else self.client_factory()
         owns_client = active is None
+        intent_ref, intent_hash = self._cancellation_evidence(
+            backend_ref, operation_ref, "interrupt_requested"
+        )
+        self.store.record_cancellation_uncertain(
+            backend_ref=backend_ref,
+            evidence_ref=intent_ref,
+            evidence_hash=intent_hash,
+        )
         try:
             try:
                 client.interrupt_turn(thread_id=thread_id, turn_id=turn_id)
