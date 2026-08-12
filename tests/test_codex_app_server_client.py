@@ -244,6 +244,7 @@ def test_thread_and_turn_requests_are_mechanically_read_only(tmp_path: Path) -> 
     assert evidence.thread_id == "thr_fixture"
     assert evidence.turn_id == "turn_fixture"
     assert evidence.status == "completed"
+    assert evidence.terminal_error is None
     assert evidence.agent_message == '{"answer":"ok"}'
     assert len(evidence.token_usage_events) == 1
     assert any(event["method"] == "turn/started" for event in evidence.events)

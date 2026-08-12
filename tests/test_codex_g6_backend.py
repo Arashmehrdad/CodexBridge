@@ -176,10 +176,18 @@ class ScriptedG6Client:
         self, *, thread_id: str, turn_id: str, timeout_seconds: float
     ) -> CodexTurnEvidence:
         assert (thread_id, turn_id) == (self.thread_id, self.turn_id)
+        terminal_error = None
         if self.behavior == "wait_for_interrupt":
             assert self.interrupted.wait(timeout=5)
             status = "interrupted"
             message = ""
+        elif self.behavior == "provider_failed":
+            status = "failed"
+            message = ""
+            terminal_error = {
+                "message": "fixture invalid request",
+                "code": "invalid_json_schema",
+            }
         else:
             status = "completed"
             message = (
@@ -207,6 +215,7 @@ class ScriptedG6Client:
                     }
                 },
             ),
+            terminal_error=terminal_error,
         )
 
     def interrupt_turn(self, *, thread_id: str, turn_id: str) -> dict:
@@ -385,6 +394,36 @@ def test_ambiguous_turn_send_stays_outcome_unknown_and_never_retries(
     assert client.begin_turn_calls == 1
     assert store.start_attempt(backend_ref)["disposition"] == "outcome_unknown"
     assert backend.result_reference(backend_ref) is None
+
+
+def test_provider_terminal_failure_persists_exact_diagnostic_evidence(
+    tmp_path: Path,
+) -> None:
+    client = ScriptedG6Client(behavior="provider_failed")
+    backend, store = _backend(tmp_path, lambda: client)
+    backend_ref = backend.reserve()
+
+    observation = backend.start(_spec(), backend_ref)
+
+    assert observation.provider_terminal_claim == "failure"
+    assert observation.output_contract_disposition == "not_available"
+    assert observation.error_code == "provider_terminal_failure"
+    assert observation.raw_provider_evidence_root_ref is not None
+    assert observation.raw_provider_evidence_root_hash is not None
+    evidence_path = (
+        store.runs_dir
+        / "reasoning_backend_evidence"
+        / backend_ref
+        / "provider_terminal_evidence.json"
+    )
+    value = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert value["provider_status"] == "failed"
+    assert value["provider_terminal_claim"] == "failure"
+    assert value["terminal_error"] == {
+        "message": "fixture invalid request",
+        "code": "invalid_json_schema",
+    }
+    assert len(value["events"]) == 2
 
 
 def test_invalid_provider_output_is_bound_but_fails_output_contract(
