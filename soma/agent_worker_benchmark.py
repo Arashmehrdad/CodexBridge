@@ -37,6 +37,19 @@ QUESTION_RUBRIC_VERSION: Final[str] = "g6-question-rubric.v1"
 EVIDENCE_CONTRACT_VERSION: Final[str] = "evidence_submission.v1"
 EVIDENCE_NORMAL_TARGET_BYTES: Final[int] = 12 * 1024
 EVIDENCE_HARD_CEILING_BYTES: Final[int] = 32 * 1024
+G6_WORK_PACKAGE_CONTRACT_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.work_package.v1"
+)
+EXPECTED_TRAP_DISPOSITIONS: Final[dict[str, tuple[str, ...]]] = {
+    "B01": ("false",),
+    "B02": ("false",),
+    "B03": ("false",),
+    "B04": ("false",),
+    "B05": ("false",),
+    "B06": ("false",),
+    "B07": ("false", "unsupported"),
+    "B08": ("false",),
+}
 
 
 @dataclass(frozen=True)
@@ -619,3 +632,87 @@ def build_assignment_packet(repo_root: Path, unit_id: str) -> bytes:
 
 def assignment_packet_hash(repo_root: Path, unit_id: str) -> str:
     return sha256_hex(build_assignment_packet(repo_root, unit_id))
+
+
+def build_work_package_contract(repo_root: Path, unit_id: str) -> dict[str, Any]:
+    """Return one route-neutral frozen benchmark WorkPackage contract."""
+
+    unit = unit_by_id(unit_id)
+    return {
+        "schema_version": G6_WORK_PACKAGE_CONTRACT_VERSION,
+        "benchmark": {
+            "unit_id": unit.unit_id,
+            "lane_id": unit.lane_id,
+            "title": unit.title,
+            "source_repository": SOURCE_REPOSITORY,
+            "source_commit": SOURCE_COMMIT,
+            "frozen_research_corpus_hash": FROZEN_RESEARCH_CORPUS_HASH,
+            "materialization_manifest_hash": materialization_manifest_hash(),
+            "assignment_packet_sha256": assignment_packet_hash(repo_root, unit.unit_id),
+            "question_rubric_version": QUESTION_RUBRIC_VERSION,
+            "fact_keys": [question.fact_key for question in unit.questions],
+            "critical_trap": unit.critical_trap,
+            "expected_trap_dispositions": list(
+                EXPECTED_TRAP_DISPOSITIONS[unit.unit_id]
+            ),
+        },
+        "objective": (
+            "Produce one bounded, source-grounded EvidenceSubmission for the frozen "
+            f"{unit.unit_id} benchmark assignment without external mutation."
+        ),
+        "output_contract": {
+            "schema_version": EVIDENCE_CONTRACT_VERSION,
+            "normal_target_bytes": EVIDENCE_NORMAL_TARGET_BYTES,
+            "hard_ceiling_bytes": EVIDENCE_HARD_CEILING_BYTES,
+        },
+    }
+
+
+def work_package_contract_materials(repo_root: Path):
+    """Return exact Company Kernel contract material keyed by B01..B08."""
+
+    from soma.company_kernel.service import WorkPackageContractMaterialV1
+
+    root = Path(repo_root).resolve()
+    return {
+        unit.unit_id: WorkPackageContractMaterialV1(
+            contract_version=G6_WORK_PACKAGE_CONTRACT_VERSION,
+            contract=build_work_package_contract(root, unit.unit_id),
+        )
+        for unit in UNITS
+    }
+
+
+def build_g6_plan_graph_manifest(
+    repo_root: Path,
+    *,
+    mission_id: str,
+    project_id: str,
+    resource_id: str,
+    scope_generation: int,
+):
+    """Build the eight independent route-neutral G6 WorkPackage graph nodes."""
+
+    from soma.company_kernel.graph_models import PlanGraphManifestV1, PlanGraphNodeV1
+    from soma.company_kernel.models import work_package_contract_hash
+
+    materials = work_package_contract_materials(repo_root)
+    nodes = tuple(
+        PlanGraphNodeV1(
+            package_key=unit.unit_id,
+            work_package_contract_hash=work_package_contract_hash(
+                contract_version=materials[unit.unit_id].contract_version,
+                contract=materials[unit.unit_id].contract,
+            ),
+            target_resource_id=resource_id,
+        )
+        for unit in UNITS
+    )
+    return PlanGraphManifestV1(
+        mission_id=mission_id,
+        project_id=project_id,
+        resource_id=resource_id,
+        scope_generation=scope_generation,
+        package_nodes=nodes,
+        dependency_edges=(),
+    )
