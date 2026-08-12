@@ -42,7 +42,7 @@ from soma.reasoning.codex_pilot import (
 DEFAULT_MODEL = "gpt-5.6-luna"
 DEFAULT_EFFORT = "low"
 DEFAULT_PROTOCOL_HASH = (
-    "de45a8da2cd3e32ed35a137609396cd9aa84190e40c4943d44f17ef7613c8bda"
+    "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 PILOT_SCHEMA = "soma.cdx_r1.real_pilot.v1"
 

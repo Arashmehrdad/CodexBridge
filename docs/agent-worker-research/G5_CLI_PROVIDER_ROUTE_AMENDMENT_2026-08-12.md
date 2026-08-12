@@ -111,6 +111,24 @@ Two independent generations produced the same canonical protocol-manifest SHA-25
 
 CDX-R1 must record both CLI version and this canonical schema-manifest hash before any model turn. A mismatch is protocol drift and stops promotion until reviewed.
 
+### Reviewed same-version protocol drift before first real turn
+
+After the later Soma restart/connector refresh and before any CDX-R1 model turn, the pilot preflight correctly stopped on protocol drift. The installed package still reported `@openai/codex@0.145.0`, but fresh App Server schema generation produced a different canonical manifest.
+
+Observed installed wrapper:
+
+`C:\\Users\\arash\\AppData\\Roaming\\npm\\codex.ps1`
+
+Observed wrapper SHA-256:
+
+`0c149db80ed0bf442c810146b0ad0163b74982fe4542d673f56c354d7b8229cb`
+
+Two additional independent 273-file schema generations produced the same new canonical protocol-manifest SHA-256:
+
+`dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc`
+
+The failed pilot attempt stopped in preflight before thread/turn creation, so it consumed zero model turns. The new hash is therefore the reviewed executable CDX-R1 protocol freeze for the first real provider turn. The earlier `de45a8da...` value remains historical drift evidence and is not treated as current.
+
 ## CDX-R1 measurements
 
 The pilot measures:
