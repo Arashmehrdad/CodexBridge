@@ -61,6 +61,7 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
+CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v1"
 CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v1"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
@@ -89,6 +90,25 @@ def provider_route_hash(
 
 def output_contract_hash() -> str:
     return content_hash(semantic_output_schema())
+
+
+def execution_contract_hash() -> str:
+    """Hash the provider-facing execution semantics that may invalidate a trial."""
+
+    return content_hash(
+        {
+            "schema": "soma.reasoning.codex_g6.execution_contract.v1",
+            "provider_route_ref": CODEX_G6_PROVIDER_ROUTE_REF,
+            "provider_route_hash": provider_route_hash(),
+            "output_contract_ref": CODEX_G6_OUTPUT_CONTRACT_REF,
+            "output_contract_hash": output_contract_hash(),
+            "model": CODEX_G6_MODEL,
+            "effort": CODEX_G6_EFFORT,
+            "protocol_manifest_sha256": CODEX_G6_PROTOCOL_MANIFEST_SHA256,
+            "provider_internal_concurrency_limit": 1,
+            "mutation_policy": "read_only",
+        }
+    )
 
 
 def tool_policy_hash() -> str:

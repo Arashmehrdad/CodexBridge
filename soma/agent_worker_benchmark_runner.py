@@ -29,7 +29,9 @@ from soma.company_kernel.admission import (
 from soma.company_kernel.models import work_package_contract_hash
 from soma.company_kernel.store import CompanyKernelStore
 from soma.reasoning.codex_g6_backend import (
+    CODEX_G6_EXECUTION_CONTRACT_REF,
     ResolvedG6Assignment,
+    execution_contract_hash,
     make_g6_reasoning_spec,
 )
 from soma.tasks.models import TaskState
@@ -388,6 +390,8 @@ def _trial_descriptor(
             for unit in UNITS
         ],
         "fixed_controls": {
+            "provider_execution_contract_ref": CODEX_G6_EXECUTION_CONTRACT_REF,
+            "provider_execution_contract_hash": execution_contract_hash(),
             "provider_internal_concurrency_limit": 1,
             "mutation_policy": "read_only",
             "continuation_policy": "none",

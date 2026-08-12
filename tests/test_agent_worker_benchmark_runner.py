@@ -475,7 +475,20 @@ def test_trial_artifacts_are_durable_and_semantic_metrics_remain_explicitly_unad
         manager.store.runs_dir / "agent_worker_benchmark_trials" / result.trial_id
     )
 
-    assert (directory / "manifest.json").is_file()
+    manifest_path = directory / "manifest.json"
+    assert manifest_path.is_file()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    from soma.reasoning.codex_g6_backend import (
+        CODEX_G6_EXECUTION_CONTRACT_REF,
+        execution_contract_hash,
+    )
+
+    assert manifest["fixed_controls"]["provider_execution_contract_ref"] == (
+        CODEX_G6_EXECUTION_CONTRACT_REF
+    )
+    assert manifest["fixed_controls"]["provider_execution_contract_hash"] == (
+        execution_contract_hash()
+    )
     assert (directory / "fanin.json").is_file()
     assert (directory / "result.json").is_file()
     assert result.metrics.claims == 40
