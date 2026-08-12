@@ -145,6 +145,7 @@ def test_schema_and_prompt_are_strict_read_only() -> None:
         "blockers",
         "critical_trap",
     }
+
     def assert_strict(value) -> None:
         if isinstance(value, list):
             for item in value:
