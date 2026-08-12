@@ -587,6 +587,15 @@ class CodexG6ReasoningBackend:
                     "semantic_payload_sha256": semantic_payload_hash(semantic),
                     "submission_disposition": semantic.submission_disposition,
                     "critical_trap": semantic.critical_trap.model_dump(mode="json"),
+                    "claim_count": len(semantic.claims),
+                    "evidence_count": len(semantic.evidence),
+                    "uncertainty_count": len(semantic.uncertainties),
+                    "blocker_count": len(semantic.blockers),
+                    "claims_without_support": sum(
+                        1
+                        for claim in semantic.claims
+                        if not claim.supports_evidence_ids
+                    ),
                     "claim_fact_keys": sorted(
                         {claim.subject_key for claim in semantic.claims}
                     ),
