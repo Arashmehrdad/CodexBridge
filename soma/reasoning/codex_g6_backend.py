@@ -191,6 +191,7 @@ class _ActiveSession:
     thread_id: str
     turn_id: str = ""
     binding_settled: threading.Event = field(default_factory=threading.Event)
+    cancellation_settled: threading.Event = field(default_factory=threading.Event)
 
 
 class CodexG6BackendError(RuntimeError):
@@ -451,6 +452,9 @@ class CodexG6ReasoningBackend:
             wall_time = max(0.0, time.monotonic() - started_at)
             if turn.status == "interrupted":
                 current = self.store.query(backend_ref)
+                if current.cancellation_disposition == "uncertain":
+                    session.cancellation_settled.wait(timeout=5)
+                    current = self.store.query(backend_ref)
                 if current.cancellation_disposition in {"accepted", "uncertain"}:
                     return current
                 self._record_terminal_without_result(
@@ -719,6 +723,8 @@ class CodexG6ReasoningBackend:
                 )
             return self.query(backend_ref)
         finally:
+            if active is not None:
+                active.cancellation_settled.set()
             if owns_client:
                 client.close()
 
