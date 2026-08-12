@@ -311,6 +311,11 @@ _MIGRATION_0002: Final[tuple[str, ...]] = (
     ON work_packages(work_package_id, mission_id, plan_revision_id)
     """,
     """
+    ALTER TABLE work_packages
+    ADD COLUMN evidence_requirements_hash TEXT NOT NULL DEFAULT ''
+        CHECK(length(evidence_requirements_hash) IN (0, 64))
+    """,
+    """
     CREATE TABLE plan_graph_manifests (
         plan_revision_id TEXT PRIMARY KEY,
         mission_id TEXT NOT NULL,

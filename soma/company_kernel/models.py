@@ -333,6 +333,7 @@ class WorkPackage(_FrozenKernelRecord):
     acceptance_authority_ref: str = Field(min_length=1, max_length=128)
     deliberation_ref: str = Field(default="", max_length=2048)
     evidence_requirements_ref: str = Field(default="", max_length=2048)
+    evidence_requirements_hash: str = ""
     controller_request_id: str = Field(min_length=1, max_length=128)
     request_hash: str
     created_at: str = Field(min_length=1, max_length=128)
@@ -362,6 +363,15 @@ class WorkPackage(_FrozenKernelRecord):
         )
         if expected_outcome != self.outcome_id:
             raise ValueError("outcome_id does not match route-independent identity")
+        validate_sha256(
+            self.evidence_requirements_hash,
+            "evidence_requirements_hash",
+            allow_empty=True,
+        )
+        if bool(self.evidence_requirements_ref) != bool(self.evidence_requirements_hash):
+            raise ValueError(
+                "evidence requirements reference and hash must appear together"
+            )
         validate_sha256(self.request_hash, "request_hash")
         if self.accountable_owner_ref != self.acceptance_authority_ref:
             raise ValueError("kernel-of-one WorkPackage authorities must match")

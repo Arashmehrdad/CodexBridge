@@ -371,6 +371,12 @@ def test_v1_to_v2_migration_preserves_kernel_rows_without_graph_backfill(
             conn.execute("SELECT COUNT(*) FROM work_package_dependencies").fetchone()[0]
             == 0
         )
+        migrated_package = conn.execute(
+            "SELECT evidence_requirements_hash FROM work_packages "
+            "WHERE work_package_id = ?",
+            (PACKAGE_ID,),
+        ).fetchone()
+        assert migrated_package[0] == ""
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert after == before
