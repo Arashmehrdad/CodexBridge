@@ -1,0 +1,61 @@
+{
+  "schema_version": "soma.cdx_r1.synthetic_packet.v1",
+  "records": [
+    {
+      "record_id": "R01",
+      "text": "The project codename is Meridian.",
+      "facts": {
+        "project_codename": "Meridian"
+      }
+    },
+    {
+      "record_id": "R02",
+      "text": "The release channel is beta.",
+      "facts": {
+        "release_channel": "beta"
+      }
+    },
+    {
+      "record_id": "R03",
+      "text": "The retry limit is 3 attempts.",
+      "facts": {
+        "retry_limit": "3"
+      }
+    },
+    {
+      "record_id": "R04",
+      "text": "The cache mode is write-through.",
+      "facts": {
+        "cache_mode": "write-through"
+      }
+    },
+    {
+      "record_id": "R05",
+      "text": "The retry limit is 4 attempts.",
+      "facts": {
+        "retry_limit": "4"
+      }
+    },
+    {
+      "record_id": "R06",
+      "text": "The deployment ring is canary-2.",
+      "facts": {
+        "deployment_ring": "canary-2"
+      }
+    }
+  ],
+  "required_fact_keys": [
+    "project_codename",
+    "release_channel",
+    "retry_limit"
+  ],
+  "expected_conflict_fact_keys": [
+    "retry_limit"
+  ],
+  "instructions": [
+    "Use only these records as evidence.",
+    "Do not use tools, files, network sources, memory, or unstated assumptions.",
+    "Report the contradictory retry_limit values as unresolved uncertainty rather than selecting a winner.",
+    "Every factual claim must cite exact evidence IDs whose record_id and fact_key identify the supporting packet record."
+  ]
+}
