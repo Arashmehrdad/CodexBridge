@@ -512,6 +512,49 @@ class CodexAppServerClient:
         )
         return self.await_response(request_id, "turn/start")
 
+    def wait_for_turn_started(
+        self,
+        *,
+        thread_id: str,
+        timeout_seconds: float,
+    ) -> str:
+        """Capture the exact provider turn ID as soon as ``turn/started`` arrives."""
+
+        if not thread_id:
+            raise ValueError("thread_id is required")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        deadline = time.monotonic() + timeout_seconds
+
+        for notification in self.notifications:
+            turn_id = self._started_turn_id(notification, thread_id)
+            if turn_id:
+                return turn_id
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Timed out waiting for Codex thread {thread_id!r} to start a turn"
+                )
+            notification = self._receive_notification(remaining)
+            turn_id = self._started_turn_id(notification, thread_id)
+            if turn_id:
+                return turn_id
+
+    @staticmethod
+    def _started_turn_id(notification: dict[str, Any], thread_id: str) -> str:
+        if notification.get("method") != "turn/started":
+            return ""
+        params = notification.get("params")
+        if not isinstance(params, dict) or params.get("threadId") != thread_id:
+            return ""
+        turn = params.get("turn")
+        if not isinstance(turn, dict):
+            return ""
+        turn_id = turn.get("id")
+        return turn_id if isinstance(turn_id, str) else ""
+
     def interrupt_turn(self, *, thread_id: str, turn_id: str) -> dict[str, Any]:
         if not thread_id or not turn_id:
             raise ValueError("thread_id and turn_id are required")

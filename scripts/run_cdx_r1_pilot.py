@@ -20,6 +20,7 @@ from typing import Any
 
 from soma.reasoning.codex_app_server import (
     CodexAppServerClient,
+    CodexAppServerRpcError,
     StdioCodexTransport,
     canonical_schema_manifest_hash,
     find_turn_by_client_user_message_id,
@@ -439,20 +440,47 @@ def run_cancel(
             thread_id = _extract_thread_id(
                 client.start_thread(working_directory=directory, model=model)
             )
-            turn_id = _extract_turn_id(
-                client.start_turn(
-                    thread_id=thread_id,
-                    prompt=prompt,
-                    client_user_message_id=client_message_id,
-                    output_schema=semantic_output_schema(),
-                    model=model,
-                    effort=effort,
-                )
-            )
-            interrupt_result = client.interrupt_turn(
+            turn_start_request_id = client.begin_turn(
                 thread_id=thread_id,
-                turn_id=turn_id,
+                prompt=prompt,
+                client_user_message_id=client_message_id,
+                output_schema=semantic_output_schema(),
+                model=model,
+                effort=effort,
             )
+            turn_id = client.wait_for_turn_started(
+                thread_id=thread_id,
+                timeout_seconds=30,
+            )
+            print(
+                json.dumps(
+                    {
+                        "schema_version": PILOT_SCHEMA,
+                        "pilot": "CDX-R1",
+                        "mode": "cancel_checkpoint",
+                        "thread_id": thread_id,
+                        "turn_id": turn_id,
+                        "turn_start_request_id": turn_start_request_id,
+                        "client_user_message_id": client_message_id,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ),
+                flush=True,
+            )
+            interrupt_outcome = "requested"
+            try:
+                interrupt_result = client.interrupt_turn(
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                )
+            except CodexAppServerRpcError as exc:
+                error_message = str(exc.error.get("message") or "") if isinstance(exc.error, dict) else str(exc.error)
+                if exc.method != "turn/interrupt" or "no active turn to interrupt" not in error_message:
+                    raise
+                interrupt_outcome = "completion_won_race"
+                interrupt_result = {"error": exc.error}
             evidence = client.wait_for_turn_completed(
                 thread_id=thread_id,
                 turn_id=turn_id,
@@ -491,6 +519,8 @@ def run_cancel(
             "thread_id": thread_id,
             "turn_id": turn_id,
             "client_user_message_id": client_message_id,
+            "turn_start_request_id": turn_start_request_id,
+            "interrupt_outcome": interrupt_outcome,
             "interrupt_result_sha256": _hash_json(interrupt_result),
             "turn_status": evidence.status,
             "persisted_turn_status": persisted_status,

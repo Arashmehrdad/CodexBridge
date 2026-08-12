@@ -250,6 +250,78 @@ def test_thread_and_turn_requests_are_mechanically_read_only(tmp_path: Path) -> 
     assert evidence.events[-1]["method"] == "turn/completed"
 
 
+def test_wait_for_turn_started_captures_exact_id_before_start_ack() -> None:
+    transport = ScriptedTransport(
+        [
+            _initialize_response(),
+            {
+                "method": "turn/started",
+                "params": {
+                    "threadId": "thr_cancel",
+                    "turn": {
+                        "id": "turn_cancel",
+                        "status": "inProgress",
+                        "items": [],
+                        "error": None,
+                    },
+                },
+            },
+            {
+                "id": 2,
+                "result": {
+                    "turn": {
+                        "id": "turn_cancel",
+                        "status": "inProgress",
+                        "items": [],
+                        "error": None,
+                    }
+                },
+            },
+            {"id": 3, "result": {}},
+        ]
+    )
+    client = CodexAppServerClient(transport)
+    client.initialize()
+
+    start_request_id = client.begin_turn(
+        thread_id="thr_cancel",
+        prompt="fixture",
+        client_user_message_id="cancel-message",
+        output_schema=_output_schema(),
+    )
+    turn_id = client.wait_for_turn_started(
+        thread_id="thr_cancel",
+        timeout_seconds=5,
+    )
+    interrupted = client.interrupt_turn(
+        thread_id="thr_cancel",
+        turn_id=turn_id,
+    )
+
+    assert start_request_id == 2
+    assert turn_id == "turn_cancel"
+    assert interrupted == {}
+    assert transport.sent[2]["method"] == "turn/start"
+    assert transport.sent[3] == {
+        "method": "turn/interrupt",
+        "id": 3,
+        "params": {"threadId": "thr_cancel", "turnId": "turn_cancel"},
+    }
+    assert client.orphan_responses == [
+        {
+            "id": 2,
+            "result": {
+                "turn": {
+                    "id": "turn_cancel",
+                    "status": "inProgress",
+                    "items": [],
+                    "error": None,
+                }
+            },
+        }
+    ]
+
+
 def test_exact_resume_read_fork_and_interrupt_never_use_fuzzy_identity() -> None:
     transport = ScriptedTransport(
         [
