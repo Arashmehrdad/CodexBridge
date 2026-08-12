@@ -1,4 +1,4 @@
-"""Schema-only facade for the inactive Company Kernel v1 component.
+"""Schema-only facade for the inactive Company Kernel v2 component.
 
 Constructing this class does not touch the filesystem or database. The sole
 write operation is explicit additive schema migration; there are deliberately

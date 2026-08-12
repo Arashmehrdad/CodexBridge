@@ -20,6 +20,7 @@ from soma.company_kernel import (
     COMPANY_KERNEL_TABLE_NAMES,
     COMPANY_KERNEL_TRIGGER_NAMES,
     MISSION_ID_DOMAIN,
+    PLAN_GRAPH_SCHEMA_VERSION,
     AcceptanceCommit,
     Company,
     CompanyKernelStore,
@@ -239,7 +240,7 @@ def test_constructor_is_inert_and_absent_schema_is_honest(tmp_path: Path) -> Non
     assert store.schema_state() == {
         "component": "company_kernel",
         "schema_version": 0,
-        "target_schema_version": 1,
+        "target_schema_version": COMPANY_KERNEL_SCHEMA_VERSION,
         "up_to_date": False,
         "active_capability": False,
         "tables": [],
@@ -253,7 +254,7 @@ def test_constructor_is_inert_and_absent_schema_is_honest(tmp_path: Path) -> Non
 
 def test_fresh_migration_is_complete_idempotent_and_inactive(tmp_path: Path) -> None:
     store = CompanyKernelStore(tmp_path / "runs")
-    assert store.init_db() == [1]
+    assert store.init_db() == [1, 2]
     assert store.init_db() == []
     state = store.schema_state()
     assert state["schema_version"] == COMPANY_KERNEL_SCHEMA_VERSION
@@ -329,7 +330,7 @@ def test_migration_preserves_incumbent_rows_and_does_no_legacy_backfill(
             for table in ("projects", "project_resources", "workflows", "supervisors")
         }
     store = CompanyKernelStore(runs_dir)
-    assert store.init_db() == [1]
+    assert store.init_db() == [1, 2]
     with store.connect() as conn:
         after = {
             table: (
@@ -341,6 +342,207 @@ def test_migration_preserves_incumbent_rows_and_does_no_legacy_backfill(
         assert conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM missions").fetchone()[0] == 0
     assert after == before
+
+
+def test_v1_to_v2_migration_preserves_kernel_rows_without_graph_backfill(
+    tmp_path: Path,
+) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[0],),
+    ) == [1]
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        before = {
+            table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in ("companies", "missions", "plan_revisions", "work_packages")
+        }
+
+    assert store.init_db() == [2]
+    with store.connect() as conn:
+        after = {
+            table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in before
+        }
+        assert conn.execute("SELECT COUNT(*) FROM plan_graph_manifests").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT COUNT(*) FROM work_package_dependencies").fetchone()[0]
+            == 0
+        )
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert after == before
+
+
+def test_failed_v2_migration_rolls_back_every_graph_object(tmp_path: Path) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[0],),
+    ) == [1]
+    version, name, statements = COMPANY_KERNEL_MIGRATIONS[1]
+    broken = ((version, name, (*statements, "SELECT * FROM missing_graph_table")),)
+
+    with pytest.raises(sqlite3.OperationalError):
+        apply_company_kernel_migrations(store.connect, migrations=broken)
+
+    with store.connect() as conn:
+        objects = {
+            (row[0], row[1])
+            for row in conn.execute(
+                "SELECT type, name FROM sqlite_master "
+                "WHERE type IN ('table', 'trigger', 'index')"
+            ).fetchall()
+        }
+        marker = conn.execute(
+            "SELECT 1 FROM soma_schema_migrations "
+            "WHERE component = 'company_kernel' AND version = 2"
+        ).fetchone()
+    assert ("table", "plan_graph_manifests") not in objects
+    assert ("table", "work_package_dependencies") not in objects
+    assert ("index", "idx_work_package_plan_membership") not in objects
+    assert ("trigger", "plan_graph_manifests_no_update") not in objects
+    assert ("trigger", "work_package_dependencies_no_update") not in objects
+    assert marker is None
+
+
+def _insert_second_graph_package(conn: sqlite3.Connection) -> tuple[str, str]:
+    package_id = "workpkg_" + "9" * 24
+    outcome_id = "outcome_" + "9" * 24
+    conn.execute(
+        """
+        INSERT INTO work_packages(
+            work_package_id, mission_id, plan_revision_id, package_key, outcome_id,
+            project_id, target_resource_id, scope_generation, contract_version,
+            contract_json, contract_hash, topology, accountable_owner_ref,
+            acceptance_authority_ref, deliberation_ref, evidence_requirements_ref,
+            controller_request_id, request_hash, created_at
+        ) VALUES (?, ?, ?, 'schema-models-second', ?, ?, ?, 1, 'v1', '{}', ?,
+                  'single_active', ?, ?, '', '', 'package-second', ?, ?)
+        """,
+        (
+            package_id,
+            MISSION_ID,
+            PLAN_ID,
+            outcome_id,
+            PROJECT_ID,
+            RESOURCE_ID,
+            "a" * 64,
+            EXECUTIVE,
+            EXECUTIVE,
+            "b" * 64,
+            NOW,
+        ),
+    )
+    return package_id, outcome_id
+
+
+def _insert_graph_dependency(
+    conn: sqlite3.Connection,
+    *,
+    edge_id: str,
+    downstream_package_id: str,
+    requirement: str,
+    edge_hash: str,
+    selector_ref: str = "",
+    selector_hash: str = "",
+    upstream_package_id: str = PACKAGE_ID,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO work_package_dependencies(
+            edge_id, mission_id, plan_revision_id, upstream_work_package_id,
+            downstream_work_package_id, requirement, evidence_selector_ref,
+            evidence_selector_hash, edge_hash, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            edge_id,
+            MISSION_ID,
+            PLAN_ID,
+            upstream_package_id,
+            downstream_package_id,
+            requirement,
+            selector_ref,
+            selector_hash,
+            edge_hash,
+            NOW,
+        ),
+    )
+
+
+def test_graph_tables_are_immutable_and_dependency_constraints_fail_closed(
+    tmp_path: Path,
+) -> None:
+    runs_dir, _run_store, _task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    store.init_db()
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        second_package_id, _second_outcome_id = _insert_second_graph_package(conn)
+        conn.execute(
+            """
+            INSERT INTO plan_graph_manifests(
+                plan_revision_id, mission_id, schema_version, manifest_json,
+                manifest_hash, package_count, edge_count, created_at
+            ) VALUES (?, ?, ?, '{}', ?, 2, 1, ?)
+            """,
+            (PLAN_ID, MISSION_ID, PLAN_GRAPH_SCHEMA_VERSION, "c" * 64, NOW),
+        )
+        _insert_graph_dependency(
+            conn,
+            edge_id="edge-valid",
+            downstream_package_id=second_package_id,
+            requirement="accepted_outcome",
+            edge_hash="d" * 64,
+        )
+
+        for statement in (
+            "UPDATE plan_graph_manifests SET manifest_json = '{\"changed\":true}'",
+            "DELETE FROM plan_graph_manifests",
+            "UPDATE work_package_dependencies SET requirement = 'settled'",
+            "DELETE FROM work_package_dependencies",
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(statement)
+
+        invalid_rows = (
+            dict(
+                edge_id="edge-self",
+                downstream_package_id=PACKAGE_ID,
+                requirement="settled",
+                edge_hash="e" * 64,
+            ),
+            dict(
+                edge_id="edge-unknown",
+                downstream_package_id=second_package_id,
+                requirement="unknown",
+                edge_hash="f" * 64,
+            ),
+            dict(
+                edge_id="edge-missing-selector",
+                downstream_package_id=second_package_id,
+                requirement="evidence_available",
+                edge_hash="1" * 64,
+            ),
+            dict(
+                edge_id="edge-forbidden-selector",
+                downstream_package_id=second_package_id,
+                requirement="settled",
+                edge_hash="3" * 64,
+                selector_ref="selector:forbidden",
+                selector_hash="2" * 64,
+            ),
+        )
+        for values in invalid_rows:
+            with pytest.raises(sqlite3.IntegrityError):
+                _insert_graph_dependency(conn, **values)
+
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_database_enforces_fixed_executive_authority_chain(tmp_path: Path) -> None:

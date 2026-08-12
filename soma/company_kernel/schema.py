@@ -1,4 +1,4 @@
-"""Ordered additive Company Kernel v1 migration.
+"""Ordered additive Company Kernel migrations.
 
 The component lives in the existing ``runs/soma.sqlite3`` database beside
 ProjectScope, canonical Tasks and durable Runs. It creates only company-domain
@@ -305,8 +305,87 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     """,
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    """
+    CREATE UNIQUE INDEX idx_work_package_plan_membership
+    ON work_packages(work_package_id, mission_id, plan_revision_id)
+    """,
+    """
+    CREATE TABLE plan_graph_manifests (
+        plan_revision_id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL,
+        schema_version TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        manifest_hash TEXT NOT NULL CHECK(length(manifest_hash) = 64),
+        package_count INTEGER NOT NULL CHECK(package_count BETWEEN 1 AND 32),
+        edge_count INTEGER NOT NULL CHECK(edge_count BETWEEN 0 AND 128),
+        created_at TEXT NOT NULL,
+        UNIQUE(mission_id, manifest_hash),
+        FOREIGN KEY(mission_id, plan_revision_id)
+            REFERENCES plan_revisions(mission_id, plan_revision_id)
+    )
+    """,
+    """
+    CREATE TABLE work_package_dependencies (
+        edge_id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL,
+        plan_revision_id TEXT NOT NULL,
+        upstream_work_package_id TEXT NOT NULL,
+        downstream_work_package_id TEXT NOT NULL,
+        requirement TEXT NOT NULL CHECK(requirement IN (
+            'accepted_outcome',
+            'published_success',
+            'evidence_available',
+            'settled'
+        )),
+        evidence_selector_ref TEXT NOT NULL DEFAULT '',
+        evidence_selector_hash TEXT NOT NULL DEFAULT '',
+        edge_hash TEXT NOT NULL CHECK(length(edge_hash) = 64),
+        created_at TEXT NOT NULL,
+        CHECK(upstream_work_package_id <> downstream_work_package_id),
+        CHECK(
+            (requirement = 'evidence_available'
+                AND evidence_selector_ref <> ''
+                AND length(evidence_selector_hash) = 64)
+            OR
+            (requirement <> 'evidence_available'
+                AND evidence_selector_ref = ''
+                AND evidence_selector_hash = '')
+        ),
+        UNIQUE(plan_revision_id, edge_hash),
+        FOREIGN KEY(mission_id, plan_revision_id)
+            REFERENCES plan_revisions(mission_id, plan_revision_id),
+        FOREIGN KEY(upstream_work_package_id, mission_id, plan_revision_id)
+            REFERENCES work_packages(work_package_id, mission_id, plan_revision_id),
+        FOREIGN KEY(downstream_work_package_id, mission_id, plan_revision_id)
+            REFERENCES work_packages(work_package_id, mission_id, plan_revision_id)
+    )
+    """,
+    """
+    CREATE TRIGGER plan_graph_manifests_no_update
+    BEFORE UPDATE ON plan_graph_manifests
+    BEGIN SELECT RAISE(ABORT, 'plan graph manifests are immutable'); END
+    """,
+    """
+    CREATE TRIGGER plan_graph_manifests_no_delete
+    BEFORE DELETE ON plan_graph_manifests
+    BEGIN SELECT RAISE(ABORT, 'plan graph manifests are immutable'); END
+    """,
+    """
+    CREATE TRIGGER work_package_dependencies_no_update
+    BEFORE UPDATE ON work_package_dependencies
+    BEGIN SELECT RAISE(ABORT, 'work package dependencies are immutable'); END
+    """,
+    """
+    CREATE TRIGGER work_package_dependencies_no_delete
+    BEFORE DELETE ON work_package_dependencies
+    BEGIN SELECT RAISE(ABORT, 'work package dependencies are immutable'); END
+    """,
+)
+
 COMPANY_KERNEL_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "company_kernel_foundation", _MIGRATION_0001),
+    (2, "company_kernel_plan_graph", _MIGRATION_0002),
 )
 
 COMPANY_KERNEL_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -317,6 +396,8 @@ COMPANY_KERNEL_TABLE_NAMES: Final[tuple[str, ...]] = (
     "work_package_attempts",
     "acceptance_commits",
     "kernel_reconciliation_receipts",
+    "plan_graph_manifests",
+    "work_package_dependencies",
 )
 
 COMPANY_KERNEL_TRIGGER_NAMES: Final[tuple[str, ...]] = (
@@ -334,10 +415,15 @@ COMPANY_KERNEL_TRIGGER_NAMES: Final[tuple[str, ...]] = (
     "kernel_reconciliation_receipts_no_delete",
     "missions_immutable_identity",
     "missions_no_delete",
+    "plan_graph_manifests_no_update",
+    "plan_graph_manifests_no_delete",
+    "work_package_dependencies_no_update",
+    "work_package_dependencies_no_delete",
 )
 
 COMPANY_KERNEL_INDEX_NAMES: Final[tuple[str, ...]] = (
     "idx_work_package_attempt_single_successor",
+    "idx_work_package_plan_membership",
 )
 
 
