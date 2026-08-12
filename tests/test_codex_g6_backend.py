@@ -20,6 +20,7 @@ from soma.reasoning.codex_g6_backend import (
     CODEX_G6_PROTOCOL_MANIFEST_SHA256,
     CodexG6BackendError,
     CodexG6ReasoningBackend,
+    ResolvedG6Assignment,
     make_g6_reasoning_spec,
 )
 from soma.reasoning.store import ReasoningBackendStore
@@ -301,6 +302,54 @@ def test_success_binds_exact_provider_identity_and_publishes_bounded_result(
     assert len(value["evidence"]) == 5
 
 
+def test_canonical_work_package_hash_remains_submission_assignment_identity(
+    tmp_path: Path,
+) -> None:
+    import hashlib
+
+    packet = _packet()
+    contract_hash = "c" * 64
+    assignment_ref = "work-package:workpkg_" + "1" * 24
+    client = ScriptedG6Client()
+    store = ReasoningBackendStore(tmp_path / "runs")
+    backend = CodexG6ReasoningBackend(
+        store,
+        assignment_resolver=lambda ref: ResolvedG6Assignment(
+            packet_bytes=packet,
+            assignment_hash=contract_hash,
+            unit_id="B01",
+        ),
+        task_id_resolver=lambda _backend_ref: "task_g6_canonical",
+        client_factory=lambda: client,
+        preflight=_preflight,
+        working_directory=REPO_ROOT,
+    )
+    backend_ref = backend.reserve()
+    spec = make_g6_reasoning_spec(
+        assignment_ref=assignment_ref,
+        assignment_hash=contract_hash,
+    )
+
+    observation = backend.start(spec, backend_ref)
+
+    assert observation.output_contract_disposition == "valid"
+    directory = store.runs_dir / "reasoning_backend_evidence" / backend_ref
+    submission = json.loads(
+        (directory / "evidence_submission.json").read_text(encoding="utf-8")
+    )
+    assessment = json.loads(
+        (directory / "benchmark_assessment.json").read_text(encoding="utf-8")
+    )
+    assert submission["assignment"] == {
+        "contract_ref": assignment_ref,
+        "contract_hash": contract_hash,
+    }
+    assert assessment["assignment_ref"] == assignment_ref
+    assert assessment["assignment_hash"] == contract_hash
+    assert assessment["packet_sha256"] == hashlib.sha256(packet).hexdigest()
+    assert assessment["unit_id"] == "B01"
+
+
 def test_terminal_replay_never_creates_a_second_provider_turn(tmp_path: Path) -> None:
     client = ScriptedG6Client()
     factories = 0
@@ -446,7 +495,7 @@ def test_assignment_hash_mismatch_stops_before_provider_client_creation(
     backend, _store = _backend(tmp_path, factory)
     spec = _spec().model_copy(update={"assignment_hash": "f" * 64})
 
-    with pytest.raises(CodexG6BackendError, match="assignment bytes"):
+    with pytest.raises(CodexG6BackendError, match="canonical assignment identity"):
         backend.start(spec, backend.reserve())
     assert created == 0
 
