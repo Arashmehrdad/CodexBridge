@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Final, Literal
 
@@ -31,10 +32,15 @@ from soma.worker_evidence.models import (
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.semantic.v1"
+    "soma.agent_worker_benchmark.semantic.v2"
+)
+BENCHMARK_CITATION_CATALOG_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.citation_catalog.v1"
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 MAX_BENCHMARK_LINE_SPAN: Final[int] = 24
+CITATION_CHUNK_MAX_LINES: Final[int] = 4
+CITATION_CHUNK_MAX_CHARACTERS: Final[int] = 480
 BenchmarkFactValue = str | int | float | bool | None
 
 
@@ -60,22 +66,19 @@ class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
 
 class BenchmarkSemanticEvidenceV1(_FrozenBenchmarkModel):
     evidence_id: str = Field(min_length=1, max_length=128)
-    source_path: str = Field(min_length=1, max_length=512)
-    start_line: int = Field(ge=1)
-    end_line: int = Field(ge=1)
-    excerpt: str = Field(min_length=1, max_length=512)
+    citation_id: str = Field(min_length=1, max_length=128)
     fact_key: str = Field(min_length=1, max_length=256)
     fact_value: BenchmarkFactValue
 
-    @model_validator(mode="after")
-    def _validate_lines(self):
-        if self.end_line < self.start_line:
-            raise ValueError("end_line must be >= start_line")
-        if self.end_line - self.start_line + 1 > MAX_BENCHMARK_LINE_SPAN:
-            raise ValueError(
-                f"evidence line span exceeds {MAX_BENCHMARK_LINE_SPAN} lines"
-            )
-        return self
+
+@dataclass(frozen=True)
+class BenchmarkCitationV1:
+    citation_id: str
+    source_path: str
+    source_hash: str
+    start_line: int
+    end_line: int
+    excerpt: str
 
 
 class BenchmarkSemanticUncertaintyV1(_FrozenBenchmarkModel):
@@ -218,21 +221,106 @@ def semantic_output_schema() -> dict[str, Any]:
     return _strict_provider_schema(BenchmarkSemanticPayloadV1.model_json_schema())
 
 
+def _citation_chunks(lines: list[str]) -> list[tuple[int, int, str]]:
+    chunks: list[tuple[int, int, str]] = []
+    start = 0
+    while start < len(lines):
+        selected: list[str] = []
+        end = start
+        while end < len(lines) and len(selected) < CITATION_CHUNK_MAX_LINES:
+            candidate = "\n".join((*selected, lines[end]))
+            if selected and len(candidate) > CITATION_CHUNK_MAX_CHARACTERS:
+                break
+            if not selected and len(candidate) > CITATION_CHUNK_MAX_CHARACTERS:
+                raise BenchmarkSemanticValidationError(
+                    "frozen source line exceeds citation chunk character ceiling"
+                )
+            selected.append(lines[end])
+            end += 1
+        excerpt = "\n".join(selected)
+        chunks.append((start + 1, end, excerpt))
+        start = end
+    return chunks
+
+
+def citation_catalog(packet_bytes: bytes) -> tuple[BenchmarkCitationV1, ...]:
+    packet = parse_assignment_packet(packet_bytes)
+    sources = _packet_sources(packet)
+    entries: list[BenchmarkCitationV1] = []
+    for source_index, source in enumerate(sources.values(), start=1):
+        lines = str(source["content"]).splitlines()
+        for chunk_index, (start_line, end_line, excerpt) in enumerate(
+            _citation_chunks(lines), start=1
+        ):
+            entries.append(
+                BenchmarkCitationV1(
+                    citation_id=f"S{source_index:02d}C{chunk_index:04d}",
+                    source_path=str(source["path"]),
+                    source_hash=str(source["sha256"]),
+                    start_line=start_line,
+                    end_line=end_line,
+                    excerpt=excerpt,
+                )
+            )
+    return tuple(entries)
+
+
+def citation_catalog_contract_hash() -> str:
+    return sha256_hex(
+        canonical_json_bytes(
+            {
+                "schema_version": BENCHMARK_CITATION_CATALOG_VERSION,
+                "chunk_max_lines": CITATION_CHUNK_MAX_LINES,
+                "chunk_max_characters": CITATION_CHUNK_MAX_CHARACTERS,
+                "citation_id_format": "S{source_index:02d}C{chunk_index:04d}",
+                "provider_selects_identity_only": True,
+                "soma_injects_source_locator_excerpt": True,
+            }
+        )
+    )
+
+
+def citation_catalog_payload(packet_bytes: bytes) -> dict[str, Any]:
+    packet = parse_assignment_packet(packet_bytes)
+    sources = list(_packet_sources(packet).values())
+    return {
+        "schema_version": BENCHMARK_CITATION_CATALOG_VERSION,
+        "sources": [
+            {"source_index": index, "path": str(source["path"])}
+            for index, source in enumerate(sources, start=1)
+        ],
+        "citations": [
+            {
+                "citation_id": item.citation_id,
+                "source_path": item.source_path,
+                "locator": f"lines:{item.start_line}-{item.end_line}",
+                "excerpt": item.excerpt,
+            }
+            for item in citation_catalog(packet_bytes)
+        ],
+    }
+
+
 def semantic_prompt(packet_bytes: bytes) -> str:
     packet = parse_assignment_packet(packet_bytes)
+    catalog = citation_catalog_payload(packet_bytes)
     return (
         "You are a read-only G6 benchmark evidence worker. Use only the ASSIGNMENT "
-        "JSON below. Do not use tools, files, network sources, memory, chat history, "
-        "or unstated assumptions. Return only the object required by the output "
-        "schema. Use schema_version "
+        "JSON and mechanically derived CITATION CATALOG below. Do not use tools, "
+        "files, network sources, memory, chat history, or unstated assumptions. "
+        "Return only the object required by the output schema. Use schema_version "
         f"{BENCHMARK_SEMANTIC_SCHEMA_VERSION!r}. Every claim subject_key must be one "
-        "of the assignment fact keys. Every evidence item must cite one assignment "
-        "source path, a bounded 1-based line range, an exact excerpt from that range, "
-        "and the fact key it supports. Preserve uncertainty instead of inventing a "
-        "winner. Evaluate the supplied critical trap as false, true, or unsupported "
-        "from the frozen sources only. Do not implement or modify anything.\n\n"
+        "of the assignment fact keys. For evidence, do not calculate line numbers "
+        "and do not copy or rewrite source text. Select only an exact citation_id "
+        "from the CITATION CATALOG and bind it to the fact_key it supports. Soma "
+        "will inject the citation's exact path, hash, locator, and excerpt "
+        "mechanically. Preserve uncertainty instead of inventing a winner. Evaluate "
+        "the supplied critical trap as false, true, or unsupported from the frozen "
+        "sources only. Do not implement or modify anything.\n\n"
         "ASSIGNMENT JSON:\n"
         + json.dumps(packet, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        + "\n\nCITATION CATALOG JSON:\n"
+        + json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     )
 
 
@@ -309,26 +397,16 @@ def validate_semantic_against_packet(
         claims_by_key.setdefault(claim.subject_key, []).append(claim)
 
     evidence_by_id = {item.evidence_id: item for item in payload.evidence}
+    catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
     for evidence in payload.evidence:
         if evidence.fact_key not in allowed_fact_keys:
             raise BenchmarkSemanticValidationError(
                 f"evidence fact_key {evidence.fact_key!r} is not assignment-provided"
             )
-        source = sources.get(evidence.source_path)
-        if source is None:
+        if evidence.citation_id not in catalog:
             raise BenchmarkSemanticValidationError(
-                f"evidence cites source outside assignment: {evidence.source_path!r}"
-            )
-        lines = str(source["content"]).splitlines()
-        if evidence.end_line > len(lines):
-            raise BenchmarkSemanticValidationError(
-                f"evidence line range exceeds source {evidence.source_path!r}"
-            )
-        selected = "\n".join(lines[evidence.start_line - 1 : evidence.end_line])
-        if evidence.excerpt not in selected:
-            raise BenchmarkSemanticValidationError(
-                f"evidence excerpt is not exact text from {evidence.source_path!r} "
-                f"lines {evidence.start_line}-{evidence.end_line}"
+                f"evidence citation_id {evidence.citation_id!r} is not in the "
+                "mechanically derived assignment citation catalog"
             )
 
     for claim in payload.claims:
@@ -409,15 +487,19 @@ def build_evidence_submission(
         f"{task_id}\0{backend_ref}\0{payload_digest}".encode("utf-8")
     )
 
+    catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
     evidence_records = tuple(
         EvidenceRecordV1(
             evidence_id=item.evidence_id,
             source_kind="frozen_git_source",
-            source_ref=f"git:{SOURCE_COMMIT}:{item.source_path}",
-            source_hash=str(sources[item.source_path]["sha256"]),
-            locator=f"lines:{item.start_line}-{item.end_line}",
+            source_ref=f"git:{SOURCE_COMMIT}:{catalog[item.citation_id].source_path}",
+            source_hash=catalog[item.citation_id].source_hash,
+            locator=(
+                f"lines:{catalog[item.citation_id].start_line}-"
+                f"{catalog[item.citation_id].end_line}"
+            ),
             content_type="text/x-python",
-            excerpt=item.excerpt,
+            excerpt=catalog[item.citation_id].excerpt,
             fact_key=item.fact_key,
             fact_value=item.fact_value,
         )
