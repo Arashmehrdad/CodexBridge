@@ -351,7 +351,23 @@ def test_c1_c2_c4_c8_use_exact_canonical_peak_and_successor_attempts(tmp_path: P
     assert [result.peak_active_canonical_tasks for result in results] == [1, 2, 4, 8]
     assert clients.created == 32
     assert all(result.metrics.expected_units == 8 for result in results)
-    assert all(result.metrics.collected_submissions == 8 for result in results)
+    assert all(result.metrics.collected_submissions == 8 for result in results), [
+        (
+            result.condition,
+            result.metrics.collected_submissions,
+            [
+                (
+                    unit.unit_id,
+                    unit.task_state,
+                    unit.submission_present,
+                    unit.assessment_present,
+                    unit.error,
+                )
+                for unit in result.unit_results
+            ],
+        )
+        for result in results
+    ]
     assert all(result.metrics.schema_valid_submission_rate == 1 for result in results)
     assert all(result.metrics.required_fact_key_recall == 1 for result in results)
     assert all(result.metrics.critical_trap_failures == 0 for result in results)
