@@ -132,15 +132,22 @@ def _extract_turn_id(result: dict[str, Any]) -> str:
     return value
 
 
-def _thread_turn_status(thread: dict[str, Any], turn_id: str) -> str:
+def _thread_turn(thread: dict[str, Any], turn_id: str) -> dict[str, Any] | None:
     turns = thread.get("turns")
     if not isinstance(turns, list):
-        return ""
+        return None
     for turn in turns:
         if isinstance(turn, dict) and turn.get("id") == turn_id:
-            status = turn.get("status")
-            return status if isinstance(status, str) else ""
-    return ""
+            return turn
+    return None
+
+
+def _thread_turn_status(thread: dict[str, Any], turn_id: str) -> str:
+    turn = _thread_turn(thread, turn_id)
+    if turn is None:
+        return ""
+    status = turn.get("status")
+    return status if isinstance(status, str) else ""
 
 
 def _preflight(
@@ -502,15 +509,9 @@ def run_cancel(
             read_result = restarted.read_thread(thread_id, include_turns=True)
             recovered = read_result.get("thread")
             recovered = recovered if isinstance(recovered, dict) else {}
-            reconciled_turn = find_turn_by_client_user_message_id(
-                recovered,
-                client_message_id,
-            )
-            persisted_status = (
-                _thread_turn_status(recovered, reconciled_turn)
-                if reconciled_turn
-                else ""
-            )
+            exact_persisted_turn = _thread_turn(recovered, turn_id)
+            reconciled_turn = turn_id if exact_persisted_turn is not None else ""
+            persisted_status = _thread_turn_status(recovered, turn_id)
         finally:
             restarted.close()
 
