@@ -20,6 +20,7 @@ from .store import ReasoningBackendStore
 FakeReasoningCase = Literal[
     "success",
     "provider_rejection",
+    "timeout",
     "long_running",
     "malformed_output",
     "result_publication",
@@ -112,6 +113,14 @@ class FakeReasoningBackend:
                 backend_ref=backend_ref,
                 error_code="fake_provider_rejected",
                 provider_status_raw="rejected",
+            )
+            return self.query(backend_ref)
+
+        if self.case == "timeout":
+            self.store.record_rejected(
+                backend_ref=backend_ref,
+                error_code="fake_timeout",
+                provider_status_raw="timeout",
             )
             return self.query(backend_ref)
 
