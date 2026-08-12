@@ -740,8 +740,8 @@ def run_g6_trial(
         for unit in UNITS
     }
     fanin = synthesize_fanin(
-        G6_EXPECTED_UNIT_IDS,
-        submissions,
+        expected_unit_refs=G6_EXPECTED_UNIT_IDS,
+        submissions=submissions,
         assignment_fact_keys=assignment_fact_keys,
         mission_id=context.mission_id,
         plan_revision_id=context.plan_revision_id,
