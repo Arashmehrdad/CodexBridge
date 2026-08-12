@@ -1,10 +1,10 @@
 """Canonical task plane.
 
-One controller-neutral public task identity above Soma's existing durable
-execution engine. The task plane owns canonical task identity, typed links,
-version-guarded commands, checkpoints, and task events. It does not own
-worker, lease, lock, evidence, or result authority: those remain with the
-existing durable run engine, which the task plane references.
+One controller-neutral task identity above provider-neutral execution backends.
+The task plane owns canonical task identity, typed links, version-guarded
+commands, checkpoints, and task events. It does not copy backend/provider
+lifecycle authority: durable-run and reasoning backends remain subordinate
+evidence sources selected by the Task's persisted BackendKind.
 """
 
 from .models import (

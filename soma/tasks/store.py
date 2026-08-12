@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .models import (
+    BackendKind,
     TaskCheckpoint,
     TaskCheckpointStatus,
     TaskCommand,
@@ -400,11 +401,21 @@ class TaskStore:
             ),
         )
         if backend_ref:
+            link_type = (
+                TaskLinkType.BACKEND_RUN.value
+                if backend_kind == BackendKind.SOMA_DURABLE_RUN.value
+                else TaskLinkType.BACKEND.value
+            )
+            target_kind = (
+                TaskLinkTargetKind.DURABLE_RUN.value
+                if backend_kind == BackendKind.SOMA_DURABLE_RUN.value
+                else TaskLinkTargetKind.BACKEND.value
+            )
             self._insert_link(
                 conn,
                 task_id=task_id,
-                link_type=TaskLinkType.BACKEND_RUN.value,
-                target_kind=TaskLinkTargetKind.DURABLE_RUN.value,
+                link_type=link_type,
+                target_kind=target_kind,
                 target_id=backend_ref,
                 metadata={
                     "backend_kind": backend_kind,

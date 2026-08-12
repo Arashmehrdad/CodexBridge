@@ -748,7 +748,44 @@ class ProjectScopeStore:
         if updated.rowcount != 1:
             raise ProjectScopeError("Task scope attachment lost its reservation")
 
-    def attach_attempt(self, run_id: str) -> bool:
+    @staticmethod
+    def _backend_record_exists(
+        conn: sqlite3.Connection,
+        backend_kind: str,
+        backend_ref: str,
+    ) -> bool:
+        if backend_kind == "soma_durable_run":
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs'"
+            ).fetchone()
+            if table is None:
+                return False
+            return (
+                conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (backend_ref,)).fetchone()
+                is not None
+            )
+        if backend_kind == "soma_reasoning":
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'reasoning_backend_runs'"
+            ).fetchone()
+            if table is None:
+                return False
+            return (
+                conn.execute(
+                    "SELECT 1 FROM reasoning_backend_runs WHERE backend_ref = ?",
+                    (backend_ref,),
+                ).fetchone()
+                is not None
+            )
+        return False
+
+    def attach_attempt(
+        self,
+        run_id: str,
+        *,
+        backend_kind: str = "soma_durable_run",
+    ) -> bool:
         with self._transaction() as conn:
             row = conn.execute(
                 "SELECT status FROM project_run_attempts WHERE run_id = ?",
@@ -758,11 +795,8 @@ class ProjectScopeStore:
                 raise ProjectScopeError(f"Run attempt is not reserved: {run_id}")
             if str(row["status"]) == AttemptBindingStatus.ATTACHED.value:
                 return False
-            run = conn.execute(
-                "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            if run is None:
-                raise ProjectScopeError("Durable run row is not present")
+            if not self._backend_record_exists(conn, backend_kind, run_id):
+                raise ProjectScopeError("Backend evidence row is not present")
             updated = conn.execute(
                 "UPDATE project_run_attempts "
                 "SET status = 'attached', recovery_reason = '', updated_at = ? "
@@ -823,14 +857,14 @@ class ProjectScopeStore:
             attempts = conn.execute(
                 "SELECT attempt.run_id, attempt.task_id, attempt.project_id, "
                 "attempt.scope_generation, attempt.status, "
-                "task.status AS task_status, run.run_id AS stored_run_id, "
+                "task.status AS task_status, "
                 "project.scope_generation AS current_generation, "
-                "stored_task.backend_ref AS stored_backend_ref "
+                "stored_task.backend_ref AS stored_backend_ref, "
+                "stored_task.backend_kind AS stored_backend_kind "
                 "FROM project_run_attempts attempt "
                 "JOIN project_task_reservations task ON task.task_id = attempt.task_id "
                 "JOIN projects project ON project.project_id = attempt.project_id "
                 "LEFT JOIN tasks stored_task ON stored_task.task_id = attempt.task_id "
-                "LEFT JOIN runs run ON run.run_id = attempt.run_id "
                 "WHERE attempt.status != 'quarantined'"
             ).fetchall()
             for row in attempts:
@@ -852,29 +886,48 @@ class ProjectScopeStore:
                         conn, run_id, "project_generation_mismatch"
                     )
                     counts["generation_quarantined"] += 1
-                elif status in {"reserved", "recovery_pending"}:
-                    if row["stored_run_id"] is None:
-                        if status == "reserved":
+                else:
+                    backend_kind = str(row["stored_backend_kind"] or "")
+                    backend_exists = self._backend_record_exists(
+                        conn, backend_kind, run_id
+                    )
+                    if status in {"reserved", "recovery_pending"}:
+                        if not backend_exists:
+                            if status == "reserved":
+                                reason = (
+                                    "run_row_missing"
+                                    if backend_kind == "soma_durable_run"
+                                    else "reasoning_backend_row_missing"
+                                    if backend_kind == "soma_reasoning"
+                                    else "backend_kind_unsupported"
+                                )
+                                conn.execute(
+                                    "UPDATE project_run_attempts "
+                                    "SET status = 'recovery_pending', "
+                                    "recovery_reason = ?, updated_at = ? "
+                                    "WHERE run_id = ? AND status = 'reserved'",
+                                    (reason, _utc_now(), run_id),
+                                )
+                                counts["attempt_recovery_pending"] += 1
+                        else:
                             conn.execute(
                                 "UPDATE project_run_attempts "
-                                "SET status = 'recovery_pending', "
-                                "recovery_reason = 'run_row_missing', updated_at = ? "
-                                "WHERE run_id = ? AND status = 'reserved'",
+                                "SET status = 'attached', recovery_reason = '', "
+                                "updated_at = ? WHERE run_id = ? "
+                                "AND status IN ('reserved', 'recovery_pending')",
                                 (_utc_now(), run_id),
                             )
-                            counts["attempt_recovery_pending"] += 1
-                    else:
-                        conn.execute(
-                            "UPDATE project_run_attempts "
-                            "SET status = 'attached', recovery_reason = '', "
-                            "updated_at = ? WHERE run_id = ? "
-                            "AND status IN ('reserved', 'recovery_pending')",
-                            (_utc_now(), run_id),
+                            counts["attempt_attached"] += 1
+                    elif status == "attached" and not backend_exists:
+                        reason = (
+                            "attached_run_row_missing"
+                            if backend_kind == "soma_durable_run"
+                            else "attached_reasoning_backend_row_missing"
+                            if backend_kind == "soma_reasoning"
+                            else "attached_backend_kind_unsupported"
                         )
-                        counts["attempt_attached"] += 1
-                elif status == "attached" and row["stored_run_id"] is None:
-                    self._quarantine_attempt(conn, run_id, "attached_run_row_missing")
-                    counts["attempt_quarantined"] += 1
+                        self._quarantine_attempt(conn, run_id, reason)
+                        counts["attempt_quarantined"] += 1
         return {
             "ok": True,
             "available": True,

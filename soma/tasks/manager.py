@@ -36,12 +36,19 @@ from soma.project_scope.models import (
     path_is_within_repository,
     validate_opaque_id,
 )
+from soma.reasoning.backends import ReasoningBackend, reasoning_spec_hash, reasoning_spec_ref
+from soma.reasoning.models import ReasoningSpecV1
 from soma.safety import redact_secret_values
 
 if TYPE_CHECKING:
     from soma.worker_substrate.transport import InteractionTransport
 
-from .backends import BackendObservation, DurableCommandSpec, DurableRunBackend
+from .backends import (
+    BackendObservation,
+    DurableCommandSpec,
+    DurableRunBackend,
+    ReasoningTaskBackendAdapter,
+)
 from .models import (
     BackendKind,
     TaskCheckpointStatus,
@@ -57,6 +64,7 @@ from .models import (
     make_task_id,
     map_backend_status,
     normalize_durable_command_request,
+    normalize_reasoning_request,
     normalize_scoped_durable_command_request,
     normalized_request_hash,
     run_input_reference,
@@ -98,6 +106,7 @@ class TaskManager:
         *,
         job_manager: JobManager | None = None,
         backend: Any | None = None,
+        reasoning_backend: ReasoningBackend | None = None,
         store: TaskStore | None = None,
         scope_store: ProjectScopeStore | None = None,
         interaction_transport: InteractionTransport | None = None,
@@ -106,6 +115,11 @@ class TaskManager:
         self.config_path = config_path
         self._job_manager = job_manager
         self._backend = backend
+        self._reasoning_backend = (
+            ReasoningTaskBackendAdapter(reasoning_backend)
+            if reasoning_backend is not None
+            else None
+        )
         self.store = store or TaskStore(config.resolve_runs_dir())
         self.scope_store = scope_store or ProjectScopeStore(config.resolve_runs_dir())
         self._interaction_transport = interaction_transport
@@ -126,6 +140,26 @@ class TaskManager:
         if self._backend is None:
             self._backend = DurableRunBackend(self.job_manager)
         return self._backend
+
+    def _backend_for_kind(self, backend_kind: BackendKind):
+        if backend_kind is BackendKind.SOMA_DURABLE_RUN:
+            return self.backend
+        if backend_kind is BackendKind.SOMA_REASONING:
+            return self._reasoning_backend
+        return None
+
+    def _backend_for_task(self, task: TaskRecord):
+        return self._backend_for_kind(task.backend_kind)
+
+    def _query_task_backend(self, task: TaskRecord) -> BackendObservation:
+        backend = self._backend_for_task(task)
+        if backend is None:
+            return BackendObservation(
+                exists=False,
+                executor=task.backend_executor,
+                error_code="backend_not_configured",
+            )
+        return backend.query(task.backend_ref)
 
     @property
     def interaction_dispatcher(self) -> Any:
@@ -628,7 +662,7 @@ class TaskManager:
             return self._lookup_error("status", task_id, exc, budget)
         if reconcile and not task.is_terminal:
             task = self.reconcile_task(task.task_id)
-        observation = self.backend.query(task.backend_ref)
+        observation = self._query_task_backend(task)
         return compact_task_status(
             task,
             observation=observation,
@@ -651,11 +685,16 @@ class TaskManager:
             return self._lookup_error("result", task_id, exc, budget)
         if not task.is_terminal:
             task = self.reconcile_task(task.task_id)
-        observation = self.backend.query(task.backend_ref)
+        backend = self._backend_for_task(task)
+        observation = self._query_task_backend(task)
         source = (
-            self.backend.result_reference(task.backend_ref)
-            if task.backend_ref
-            else {"available": False, "authority": "durable_run", "run_id": ""}
+            backend.result_reference(task.backend_ref)
+            if backend is not None and task.backend_ref
+            else {
+                "available": False,
+                "authority": task.backend_kind.value,
+                "backend_ref": task.backend_ref,
+            }
         )
         source["result_publication_status"] = observation.result_publication_status
         source["result_published_hash"] = observation.result_published_hash
@@ -1077,6 +1116,298 @@ class TaskManager:
         response["ok"] = not launch_error
         return response
 
+    def start_reasoning_task(
+        self,
+        *,
+        controller_request_id: str,
+        repo_name: str,
+        project_id: str,
+        spec: ReasoningSpecV1,
+        work_package_attempt_ref: str = "",
+        work_package_attempt_hash: str = "",
+        parent_task_id: str = "",
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+        _fault_injector: Any | None = None,
+    ) -> dict[str, Any]:
+        """Internal idempotent reasoning Task start through the persisted backend registry."""
+
+        if self._reasoning_backend is None:
+            return task_error(
+                operation="start",
+                error_code="reasoning_backend_not_configured",
+                error="No provider-neutral reasoning backend is configured",
+                budget=budget,
+            )
+        enforcement_state = self.scope_store.enforcement_state()
+        if enforcement_state != "enforced":
+            return task_error(
+                operation="start",
+                error_code=(
+                    "project_scope_paused"
+                    if enforcement_state == "paused"
+                    else "project_scope_inactive"
+                ),
+                error="Reasoning Task creation requires enforced ProjectScope",
+                budget=budget,
+            )
+        if not project_id:
+            return task_error(
+                operation="start",
+                error_code="project_scope_required",
+                error="Reasoning Task creation requires project_id",
+                budget=budget,
+            )
+
+        try:
+            binding, effective_repo_name = self._resolve_repository_binding(
+                project_id=project_id,
+                repo_name=repo_name,
+                working_directory="",
+            )
+            spec_ref = reasoning_spec_ref(spec)
+            spec_hash = reasoning_spec_hash(spec)
+            normalized = normalize_reasoning_request(
+                reasoning_spec_ref=spec_ref,
+                reasoning_spec_hash=spec_hash,
+                project_id=binding.project_id,
+                resource_id=binding.resource_id,
+                scope_generation=binding.scope_generation,
+                work_package_attempt_ref=work_package_attempt_ref,
+                work_package_attempt_hash=work_package_attempt_hash,
+                dependency_proof_refs=[
+                    {"ref": reference.ref, "hash": reference.hash}
+                    for reference in spec.dependency_proof_refs
+                ],
+                parent_task_id=parent_task_id,
+            )
+            request_hash = normalized_request_hash(normalized)
+        except (ValueError, TypeError, ProjectScopeError) as exc:
+            return task_error(
+                operation="start",
+                error_code="reasoning_request_invalid",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+
+        existing = self.store.find_by_controller_request(controller_request_id)
+        if existing is not None:
+            existing_scope = self.scope_store.scope_for_task(existing.task_id)
+            if (
+                existing.task_kind is not TaskKind.REASONING
+                or existing.backend_kind is not BackendKind.SOMA_REASONING
+                or existing_scope.project_id != binding.project_id
+                or existing_scope.scope_generation != binding.scope_generation
+                or existing_scope.resource_id != binding.resource_id
+            ):
+                return self._scope_conflict_response(budget=budget)
+            try:
+                self.scope_store.require_task_attempt(
+                    binding.project_id,
+                    existing.task_id,
+                    existing.backend_ref,
+                )
+            except ProjectScopeError:
+                return self._scope_conflict_response(budget=budget)
+            if existing.request_hash != request_hash:
+                return self._request_conflict_response(
+                    existing, request_hash, budget=budget
+                )
+            return self._reasoning_replay_response(
+                existing,
+                spec=spec,
+                binding=binding,
+                budget=budget,
+            )
+
+        backend = self._reasoning_backend
+        backend_ref = backend.reserve()
+        if _fault_injector is not None:
+            _fault_injector("after_backend_reserve")
+        task_id = make_task_id()
+        task_kwargs = {
+            "task_id": task_id,
+            "task_kind": TaskKind.REASONING.value,
+            "controller_request_id": controller_request_id,
+            "request_hash": request_hash,
+            "backend_kind": BackendKind.SOMA_REASONING.value,
+            "backend_executor": backend.executor,
+            "backend_ref": backend_ref,
+            "backend_identity": {
+                "engine": BackendKind.SOMA_REASONING.value,
+                "reasoning_spec_ref": spec_ref,
+                "reasoning_spec_hash": spec_hash,
+                "project_id": binding.project_id,
+                "resource_id": binding.resource_id,
+                "scope_generation": binding.scope_generation,
+            },
+            "objective_ref": spec.assignment_ref,
+            "constraints_ref": spec.authority_ref,
+            "workspace_kind": "repository",
+            "workspace_ref": effective_repo_name,
+            "parent_task_id": parent_task_id,
+        }
+        try:
+            with self.store.transaction() as conn:
+                concurrent = self.store.find_by_controller_request_in_connection(
+                    conn, controller_request_id
+                )
+                if concurrent is not None:
+                    concurrent_scope = self.scope_store.scope_for_task(
+                        concurrent.task_id
+                    )
+                    if (
+                        concurrent.task_kind is not TaskKind.REASONING
+                        or concurrent.backend_kind is not BackendKind.SOMA_REASONING
+                        or concurrent_scope.project_id != binding.project_id
+                    ):
+                        raise _ControllerRequestScopeConflict(
+                            "Concurrent request belongs to another task/backend scope"
+                        )
+                    self.scope_store.require_task_attempt(
+                        binding.project_id,
+                        concurrent.task_id,
+                        concurrent.backend_ref,
+                    )
+                    if concurrent.request_hash != request_hash:
+                        raise TaskRequestConflict(concurrent, request_hash)
+                    task, created = concurrent, False
+                else:
+                    self.scope_store.reserve_task_attempt(
+                        conn,
+                        binding=binding,
+                        task_id=task_id,
+                        run_id=backend_ref,
+                        parent_task_id=parent_task_id,
+                    )
+                    task, created = self.store.reserve_task_in_connection(
+                        conn, **task_kwargs
+                    )
+                    self.scope_store.attach_task(conn, task.task_id)
+        except _ControllerRequestScopeConflict:
+            return self._scope_conflict_response(budget=budget)
+        except TaskRequestConflict as exc:
+            return self._request_conflict_response(
+                exc.task, exc.submitted_hash, budget=budget
+            )
+        except ProjectScopeError as exc:
+            return task_error(
+                operation="start",
+                error_code="project_scope_reservation_failed",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except sqlite3.IntegrityError:
+            existing = self.store.find_by_controller_request(controller_request_id)
+            if existing is None:
+                raise
+            if existing.request_hash != request_hash:
+                return self._request_conflict_response(
+                    existing, request_hash, budget=budget
+                )
+            task, created = existing, False
+
+        if not created:
+            return self._reasoning_replay_response(
+                task,
+                spec=spec,
+                binding=binding,
+                budget=budget,
+            )
+
+        self.store.append_event(
+            task.task_id,
+            level=TaskEventLevel.INFO,
+            stage="reserved",
+            message="Canonical reasoning Task reserved its provider-neutral backend reference",
+            state=task.state.value,
+            state_version=task.state_version,
+            data={
+                "backend_kind": task.backend_kind.value,
+                "backend_reference": task.backend_ref,
+                "reasoning_spec_ref": spec_ref,
+                "reasoning_spec_hash": spec_hash,
+                "project_id": binding.project_id,
+                "resource_id": binding.resource_id,
+                "scope_generation": binding.scope_generation,
+            },
+        )
+        if _fault_injector is not None:
+            _fault_injector("after_task_commit")
+
+        launch: dict[str, Any] = {}
+        launch_error = ""
+        try:
+            self.scope_store.require_launchable_attempt(
+                binding=binding,
+                task_id=task.task_id,
+                run_id=task.backend_ref,
+            )
+            launch = backend.start(spec, task.backend_ref)
+        except Exception as exc:  # noqa: BLE001 - persisted/reconciled as backend evidence
+            launch_error = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
+            self.store.append_event(
+                task.task_id,
+                level=TaskEventLevel.WARNING,
+                stage="reasoning_backend_start",
+                message="Reasoning backend start requires deterministic replay/recovery",
+                state=task.state.value,
+                state_version=task.state_version,
+                data={"error": launch_error},
+            )
+        if _fault_injector is not None and not launch_error:
+            _fault_injector("after_backend_start")
+
+        try:
+            self.scope_store.attach_attempt(
+                task.backend_ref,
+                backend_kind=BackendKind.SOMA_REASONING.value,
+            )
+        except ProjectScopeError as exc:
+            self.scope_store.mark_attempt_recovery_pending(
+                task.backend_ref,
+                "backend_attachment_incomplete",
+            )
+            self.store.append_event(
+                task.task_id,
+                level=TaskEventLevel.WARNING,
+                stage="project_scope_attachment",
+                message="Reasoning backend attachment requires reconciliation",
+                state=task.state.value,
+                state_version=task.state_version,
+                data={"error": redact_secret_values(str(exc))},
+            )
+
+        task = self.reconcile_task(task.task_id, stage="reasoning_backend_attachment")
+        scope_projection = self.scope_store.scope_for_task(task.task_id).to_dict()
+        response = compact_task_status(
+            task,
+            observation=self._query_task_backend(task),
+            open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
+            link_counts=self._link_counts(task.task_id),
+            operation="start",
+            budget=budget,
+            project_scope=scope_projection,
+            extra={
+                "created": True,
+                "idempotent_replay": False,
+                "request_hash": task.request_hash,
+                "backend_launch_accepted": bool(
+                    launch.get("accepted", not launch_error)
+                ),
+                "backend_launch_error": launch_error,
+                "polling": {
+                    "tool": "task_query",
+                    "request": {
+                        "operation": "status",
+                        "task_id": task.task_id,
+                        "project_id": binding.project_id,
+                    },
+                },
+            },
+        )
+        response["ok"] = not launch_error
+        return response
+
     def steer_task(
         self,
         *,
@@ -1363,6 +1694,8 @@ class TaskManager:
             raise ProjectScopeError(
                 "checkpoint expiry requires an exact project and resource binding"
             )
+        if task.backend_kind is not BackendKind.SOMA_DURABLE_RUN:
+            raise ValueError("checkpoint expiry is supported only by the durable-run backend")
         if not task.backend_ref:
             raise ValueError("checkpoint expiry requires a canonical backend run")
 
@@ -1543,7 +1876,8 @@ class TaskManager:
                 error="Task has no backend reference; cancellation was not claimed",
             )
 
-        observation = self.backend.query(task.backend_ref)
+        backend = self._backend_for_task(task)
+        observation = self._query_task_backend(task)
         if not observation.exists:
             task = self.reconcile_task(task.task_id, stage="cancel")
             self.store.complete_command(
@@ -1565,12 +1899,30 @@ class TaskManager:
                 ),
             )
 
-        backend_result = self.backend.cancel(task.backend_ref)
+        if backend is None:
+            task = self.reconcile_task(task.task_id, stage="cancel")
+            self.store.complete_command(
+                command.command_id,
+                status=TaskCommandStatus.FAILED,
+                reason="configured backend adapter is not available",
+            )
+            return self._cancel_response(
+                task,
+                command_id=command.command_id,
+                backend_result={},
+                already_terminal=False,
+                budget=budget,
+                ok=False,
+                error_code="backend_not_configured",
+                error="Task backend adapter is not configured; cancellation is not claimed",
+            )
+
+        backend_result = backend.cancel(task.backend_ref)
         self.store.append_event(
             task.task_id,
             level=TaskEventLevel.WARNING,
             stage="cancel",
-            message="Cancellation delegated to the durable backend authority",
+            message="Cancellation delegated to the persisted backend authority",
             state=task.state.value,
             state_version=task.state_version,
             data={
@@ -1611,7 +1963,7 @@ class TaskManager:
                 task.task_id,
                 task.backend_ref,
             )
-        observation = self.backend.query(task.backend_ref)
+        observation = self._query_task_backend(task)
         target = self._derive_target(task, observation)
         if not target:
             return task
@@ -1647,9 +1999,17 @@ class TaskManager:
             "backend_status": observation.status,
         }
 
-        if task.backend_kind is not BackendKind.SOMA_DURABLE_RUN:
+        if task.backend_kind not in {
+            BackendKind.SOMA_DURABLE_RUN,
+            BackendKind.SOMA_REASONING,
+        }:
             state, phase = TaskState.UNCERTAIN, TaskPhase.RECOVERY
             recovery = (TaskRecoveryState.UNRESOLVED, "unsupported_backend_kind")
+        elif observation.error_code == "backend_not_configured":
+            state, phase = TaskState.UNCERTAIN, TaskPhase.RECOVERY
+            recovery = (TaskRecoveryState.UNRESOLVED, "backend_not_configured")
+            level = TaskEventLevel.ERROR
+            message = "Persisted task backend adapter is not configured"
         elif not task.backend_ref:
             state, phase = TaskState.RECOVERY_PENDING, TaskPhase.RECOVERY
             recovery = (TaskRecoveryState.PENDING, "backend_reference_missing")
@@ -1697,12 +2057,19 @@ class TaskManager:
             if state in TERMINAL_TASK_STATES or state is TaskState.AWAITING_CONTROLLER:
                 if observation.ended_at:
                     fields["ended_at"] = observation.ended_at
-                # Publish the result linkage rather than the result body.
-                fields["result_ref"] = task.backend_ref
-                fields["result_hash"] = observation.result_published_hash
-                fields["evidence_ref"] = run_terminal_reference(task.backend_ref)
-                if state in TERMINAL_TASK_STATES:
-                    phase = TaskPhase.RESULT_PUBLISHED
+                # Publish bounded result linkage rather than a result body.
+                if task.backend_kind is BackendKind.SOMA_DURABLE_RUN:
+                    fields["result_ref"] = task.backend_ref
+                    fields["result_hash"] = observation.result_published_hash
+                    fields["evidence_ref"] = run_terminal_reference(task.backend_ref)
+                    if state in TERMINAL_TASK_STATES:
+                        phase = TaskPhase.RESULT_PUBLISHED
+                elif observation.result_ref:
+                    fields["result_ref"] = observation.result_ref
+                    fields["result_hash"] = observation.result_published_hash
+                    fields["evidence_ref"] = observation.evidence_ref
+                    if state in TERMINAL_TASK_STATES:
+                        phase = TaskPhase.RESULT_PUBLISHED
 
         fields["state"] = state.value
         fields["phase"] = phase.value
@@ -1929,7 +2296,7 @@ class TaskManager:
     def _replay_response(self, task: TaskRecord, *, budget: int) -> dict[str, Any]:
         if not task.is_terminal:
             task = self.reconcile_task(task.task_id, stage="idempotent_replay")
-        observation = self.backend.query(task.backend_ref)
+        observation = self._query_task_backend(task)
         scope = self.scope_store.scope_for_task(task.task_id).to_dict()
         project_id = str(scope.get("project_id") or "")
         polling_request: dict[str, Any] = {
@@ -1969,6 +2336,71 @@ class TaskManager:
             },
         )
 
+    def _reasoning_replay_response(
+        self,
+        task: TaskRecord,
+        *,
+        spec: ReasoningSpecV1,
+        binding: RepositoryBinding,
+        budget: int,
+    ) -> dict[str, Any]:
+        backend = self._reasoning_backend
+        launch_error = ""
+        launch_attempted = False
+        launch: dict[str, Any] = {}
+        if not task.is_terminal and backend is not None:
+            launch_attempted = True
+            try:
+                # G2.2 proves start() is replay-safe: claimed_not_sent may resume,
+                # while accepted/outcome_unknown/rejected never resend provider create.
+                launch = backend.start(spec, task.backend_ref)
+            except Exception as exc:  # noqa: BLE001 - returned as replay evidence
+                launch_error = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
+            try:
+                self.scope_store.attach_attempt(
+                    task.backend_ref,
+                    backend_kind=BackendKind.SOMA_REASONING.value,
+                )
+            except ProjectScopeError:
+                # The exact reservation is already revalidated by the caller.
+                # Reconciliation below will conservatively surface any unresolved
+                # backend/scope evidence rather than inventing launch success.
+                pass
+            task = self.reconcile_task(task.task_id, stage="reasoning_idempotent_replay")
+
+        observation = self._query_task_backend(task)
+        scope = self.scope_store.scope_for_task(task.task_id).to_dict()
+        return compact_task_status(
+            task,
+            observation=observation,
+            open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
+            link_counts=self._link_counts(task.task_id),
+            operation="start",
+            budget=budget,
+            project_scope=scope,
+            extra={
+                "created": False,
+                "idempotent_replay": True,
+                "request_hash": task.request_hash,
+                "backend_launch_attempted_on_replay": launch_attempted,
+                "backend_launch_accepted": bool(
+                    launch.get("accepted", observation.exists and not launch_error)
+                ),
+                "backend_launch_accepted_semantics": (
+                    "reasoning_backend_idempotent_start_replay"
+                ),
+                "backend_launch_error": launch_error,
+                "polling": {
+                    "tool": "task_query",
+                    "request": {
+                        "operation": "status",
+                        "task_id": task.task_id,
+                        "project_id": binding.project_id,
+                    },
+                },
+            },
+        )
+
     def _cancel_response(
         self,
         task: TaskRecord,
@@ -1983,7 +2415,7 @@ class TaskManager:
     ) -> dict[str, Any]:
         response = compact_task_status(
             task,
-            observation=self.backend.query(task.backend_ref),
+            observation=self._query_task_backend(task),
             open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
             link_counts=self._link_counts(task.task_id),
             operation="cancel",

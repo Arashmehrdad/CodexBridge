@@ -177,7 +177,7 @@ def compact_task_status(
         "error": "",
         **_envelope(budget),
     }
-    if task.backend_ref:
+    if task.backend_ref and task.backend_kind is BackendKind.SOMA_DURABLE_RUN:
         payload["backend_evidence_retrieval"] = backend_evidence_retrieval(
             task.backend_ref, project_id
         )
@@ -206,13 +206,17 @@ def compact_task_result(
         "result_reference": task.result_ref,
         "result_hash": task.result_hash,
         "evidence_reference": task.evidence_ref,
-        "result_authority": "durable_run",
+        "result_authority": (
+            "durable_run"
+            if task.backend_kind is BackendKind.SOMA_DURABLE_RUN
+            else "reasoning_backend"
+        ),
         "result_source": dict(result_source),
         "result_duplicated_into_task": False,
         "error": "",
         **_envelope(budget),
     }
-    if task.backend_ref:
+    if task.backend_ref and task.backend_kind is BackendKind.SOMA_DURABLE_RUN:
         payload["authoritative_result_retrieval"] = backend_terminal_retrieval(
             task.backend_ref, project_id
         )
@@ -325,10 +329,17 @@ def task_capabilities(
     payload: dict[str, Any] = {
         "ok": True,
         "operation": "capabilities",
-        "task_kinds": [kind.value for kind in TaskKind],
+        # Internal reasoning Tasks are not publicly advertised before activation.
+        "task_kinds": [TaskKind.DURABLE_COMMAND.value],
         "task_states": [state.value for state in TaskState],
         "terminal_task_states": sorted(state.value for state in TERMINAL_TASK_STATES),
-        "link_types": [link.value for link in TaskLinkType],
+        "link_types": [
+            TaskLinkType.PARENT.value,
+            TaskLinkType.CHILD.value,
+            TaskLinkType.BACKEND_RUN.value,
+            TaskLinkType.RELATED.value,
+            TaskLinkType.SUPERSEDES.value,
+        ],
         "command_kinds": [command.value for command in TaskCommandKind],
         "backends": [
             {

@@ -75,18 +75,21 @@ class TaskPhase(str, Enum):
 
 class TaskKind(str, Enum):
     DURABLE_COMMAND = "durable_command"
+    REASONING = "reasoning"
 
 
 class BackendKind(str, Enum):
-    """Selected execution backend. The existing durable engine is the default."""
+    """Selected execution backend. Provider/vendor names never appear here."""
 
     SOMA_DURABLE_RUN = "soma_durable_run"
+    SOMA_REASONING = "soma_reasoning"
 
 
 class TaskLinkType(str, Enum):
     PARENT = "parent"
     CHILD = "child"
     BACKEND_RUN = "backend_run"
+    BACKEND = "backend"
     RELATED = "related"
     SUPERSEDES = "supersedes"
 
@@ -94,6 +97,7 @@ class TaskLinkType(str, Enum):
 class TaskLinkTargetKind(str, Enum):
     TASK = "task"
     DURABLE_RUN = "durable_run"
+    BACKEND = "backend"
 
 
 class TaskCommandKind(str, Enum):
@@ -169,6 +173,8 @@ def validate_task_id(task_id: str) -> None:
 
 
 DURABLE_RUN_EXECUTOR: Final[str] = "executable_profile"
+REASONING_EXECUTOR: Final[str] = "reasoning_backend"
+REASONING_REQUEST_HASH_DOMAIN: Final[str] = "soma.task.reasoning_request.v1"
 
 # Reference schemes point at evidence that already exists in the durable run
 # store. The task plane never becomes a second copy of that evidence.
@@ -276,6 +282,67 @@ def normalize_scoped_durable_command_request(
         "project_id": project_id,
         "resource_id": resource_id,
         "request": legacy,
+    }
+
+
+def normalize_reasoning_request(
+    *,
+    reasoning_spec_ref: str,
+    reasoning_spec_hash: str,
+    project_id: str,
+    resource_id: str,
+    scope_generation: int,
+    work_package_attempt_ref: str = "",
+    work_package_attempt_hash: str = "",
+    dependency_proof_refs: list[dict[str, str]] | None = None,
+    parent_task_id: str = "",
+) -> dict[str, Any]:
+    """Return the provider-neutral normalized request for one reasoning Task."""
+
+    if not reasoning_spec_ref:
+        raise ValueError("reasoning_spec_ref is required")
+    if not re.fullmatch(r"[a-f0-9]{64}", reasoning_spec_hash):
+        raise ValueError("reasoning_spec_hash must be lowercase SHA-256")
+    if not project_id or not resource_id or int(scope_generation) < 1:
+        raise ValueError("reasoning request requires exact ProjectScope identity")
+    if bool(work_package_attempt_ref) != bool(work_package_attempt_hash):
+        raise ValueError("WorkPackageAttempt ref/hash must appear together")
+    if work_package_attempt_hash and not re.fullmatch(
+        r"[a-f0-9]{64}", work_package_attempt_hash
+    ):
+        raise ValueError("work_package_attempt_hash must be lowercase SHA-256")
+
+    proofs: list[dict[str, str]] = []
+    for raw in dependency_proof_refs or []:
+        ref = str(raw.get("ref") or "")
+        digest = str(raw.get("hash") or "")
+        if not ref or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("dependency proof refs require exact ref and SHA-256 hash")
+        proofs.append({"ref": ref, "hash": digest})
+    proofs.sort(key=lambda item: (item["ref"], item["hash"]))
+    if len(proofs) != len({(item["ref"], item["hash"]) for item in proofs}):
+        raise ValueError("dependency proof refs must be unique")
+
+    return {
+        "hash_domain": REASONING_REQUEST_HASH_DOMAIN,
+        "task_kind": TaskKind.REASONING.value,
+        "backend_kind": BackendKind.SOMA_REASONING.value,
+        "backend_executor": REASONING_EXECUTOR,
+        "reasoning_spec": {
+            "ref": reasoning_spec_ref,
+            "hash": reasoning_spec_hash,
+        },
+        "project_scope": {
+            "project_id": project_id,
+            "resource_id": resource_id,
+            "scope_generation": int(scope_generation),
+        },
+        "work_package_attempt": {
+            "ref": work_package_attempt_ref,
+            "hash": work_package_attempt_hash,
+        },
+        "dependency_proof_refs": proofs,
+        "parent_task_id": parent_task_id,
     }
 
 
