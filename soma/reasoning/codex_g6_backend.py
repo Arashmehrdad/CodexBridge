@@ -32,8 +32,10 @@ from .benchmark_evidence import (
     build_evidence_submission,
     canonical_json_bytes,
     extract_usage,
+    parse_assignment_packet,
     parse_semantic_output,
     semantic_output_schema,
+    semantic_payload_hash,
     semantic_prompt,
     sha256_hex,
 )
@@ -403,7 +405,8 @@ class CodexG6ReasoningBackend:
     def start(
         self, spec: ReasoningSpecV1, backend_ref: str
     ) -> ReasoningBackendObservationV1:
-        packet = self._validate_spec(spec)
+        assignment = self._validate_spec(spec)
+        packet = assignment.packet_bytes
         task_id = self.task_id_resolver(backend_ref)
         if not task_id:
             raise CodexG6BackendError(
@@ -572,12 +575,32 @@ class CodexG6ReasoningBackend:
                 provenance_ref, provenance_hash = self._artifact(
                     backend_ref, "provider_provenance.json", provenance
                 )
+                assessment = {
+                    "schema": "soma.agent_worker_benchmark.assessment.v1",
+                    "unit_id": assignment.unit_id,
+                    "assignment_ref": spec.assignment_ref,
+                    "assignment_hash": spec.assignment_hash,
+                    "packet_sha256": assignment.packet_sha256,
+                    "semantic_payload_sha256": semantic_payload_hash(semantic),
+                    "submission_disposition": semantic.submission_disposition,
+                    "critical_trap": semantic.critical_trap.model_dump(mode="json"),
+                    "claim_fact_keys": sorted(
+                        {claim.subject_key for claim in semantic.claims}
+                    ),
+                    "evidence_fact_keys": sorted(
+                        {item.fact_key for item in semantic.evidence}
+                    ),
+                }
+                assessment_ref, assessment_hash = self._artifact(
+                    backend_ref, "benchmark_assessment.json", assessment
+                )
                 submission = build_evidence_submission(
                     payload=semantic,
                     packet_bytes=packet,
                     task_id=task_id,
                     backend_ref=backend_ref,
                     assignment_ref=spec.assignment_ref,
+                    assignment_hash=spec.assignment_hash,
                     provider_model=self.model,
                     provider_thread_id=thread_id,
                     usage=usage,
@@ -585,6 +608,7 @@ class CodexG6ReasoningBackend:
                     provenance_refs=(
                         (binding_ref, binding_hash),
                         (provenance_ref, provenance_hash),
+                        (assessment_ref, assessment_hash),
                     ),
                     raw_provider_ref=event_ref,
                     raw_provider_hash=event_hash,
@@ -597,6 +621,8 @@ class CodexG6ReasoningBackend:
                     "schema": "soma.reasoning.codex_g6.evidence_index.v1",
                     "submission_ref": submission_ref,
                     "submission_hash": submission_hash,
+                    "benchmark_assessment_ref": assessment_ref,
+                    "benchmark_assessment_hash": assessment_hash,
                     "records": [
                         {
                             "evidence_id": item.evidence_id,
