@@ -360,6 +360,7 @@ def build_evidence_submission(
     task_id: str,
     backend_ref: str,
     assignment_ref: str,
+    assignment_hash: str | None = None,
     provider_model: str,
     provider_thread_id: str,
     usage: BenchmarkUsageV1,
@@ -371,7 +372,12 @@ def build_evidence_submission(
     validate_semantic_against_packet(payload, packet_bytes)
     packet = parse_assignment_packet(packet_bytes)
     sources = _packet_sources(packet)
-    assignment_hash = sha256_hex(packet_bytes)
+    packet_hash = sha256_hex(packet_bytes)
+    canonical_assignment_hash = assignment_hash or packet_hash
+    if len(canonical_assignment_hash) != 64 or any(
+        char not in "0123456789abcdef" for char in canonical_assignment_hash
+    ):
+        raise ValueError("assignment_hash must be lowercase SHA-256")
     payload_digest = semantic_payload_hash(payload)
     submission_digest = sha256_hex(
         f"{task_id}\0{backend_ref}\0{payload_digest}".encode("utf-8")
@@ -407,7 +413,7 @@ def build_evidence_submission(
         submission_id=f"g6_submission_{submission_digest[:24]}",
         work_identity=EvidenceWorkIdentityV1(task_id=task_id, backend_ref=backend_ref),
         assignment=EvidenceAssignmentV1(
-            contract_ref=assignment_ref, contract_hash=assignment_hash
+            contract_ref=assignment_ref, contract_hash=canonical_assignment_hash
         ),
         producer=EvidenceProducerV1(
             backend_kind="soma_reasoning",

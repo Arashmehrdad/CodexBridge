@@ -179,7 +179,18 @@ class CodexG6Client(Protocol):
     def close(self) -> None: ...
 
 
-AssignmentResolver = Callable[[str], bytes]
+@dataclass(frozen=True)
+class ResolvedG6Assignment:
+    packet_bytes: bytes
+    assignment_hash: str
+    unit_id: str
+
+    @property
+    def packet_sha256(self) -> str:
+        return sha256_hex(self.packet_bytes)
+
+
+AssignmentResolver = Callable[[str], bytes | ResolvedG6Assignment]
 TaskIdResolver = Callable[[str], str]
 ClientFactory = Callable[[], CodexG6Client]
 Preflight = Callable[[], Mapping[str, Any]]
@@ -233,7 +244,7 @@ class CodexG6ReasoningBackend:
     def reserve(self) -> str:
         return make_backend_ref()
 
-    def _validate_spec(self, spec: ReasoningSpecV1) -> bytes:
+    def _validate_spec(self, spec: ReasoningSpecV1) -> ResolvedG6Assignment:
         expected = {
             "output_contract_ref": CODEX_G6_OUTPUT_CONTRACT_REF,
             "output_contract_hash": output_contract_hash(),
@@ -265,12 +276,30 @@ class CodexG6ReasoningBackend:
             raise CodexG6BackendError(
                 "G6 screening assignment must not import context or dependency evidence"
             )
-        packet = self.assignment_resolver(spec.assignment_ref)
-        if sha256_hex(packet) != spec.assignment_hash:
-            raise CodexG6BackendError(
-                "assignment bytes do not match ReasoningSpec hash"
+        resolved = self.assignment_resolver(spec.assignment_ref)
+        if isinstance(resolved, bytes):
+            packet_value = parse_assignment_packet(resolved)
+            unit = packet_value.get("unit")
+            unit_id = str(unit.get("unit_id") or "") if isinstance(unit, Mapping) else ""
+            assignment = ResolvedG6Assignment(
+                packet_bytes=resolved,
+                assignment_hash=sha256_hex(resolved),
+                unit_id=unit_id,
             )
-        return packet
+        elif isinstance(resolved, ResolvedG6Assignment):
+            assignment = resolved
+        else:
+            raise CodexG6BackendError("assignment resolver returned unsupported material")
+        if assignment.assignment_hash != spec.assignment_hash:
+            raise CodexG6BackendError(
+                "resolved canonical assignment identity does not match ReasoningSpec hash"
+            )
+        packet_value = parse_assignment_packet(assignment.packet_bytes)
+        unit = packet_value.get("unit")
+        packet_unit_id = str(unit.get("unit_id") or "") if isinstance(unit, Mapping) else ""
+        if not assignment.unit_id or assignment.unit_id != packet_unit_id:
+            raise CodexG6BackendError("resolved benchmark unit identity does not match packet")
+        return assignment
 
     def _validate_preflight(self, result: Mapping[str, Any]) -> None:
         if str(result.get("auth_type") or "") != "chatgpt":
