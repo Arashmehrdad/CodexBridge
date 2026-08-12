@@ -2184,6 +2184,8 @@ class JobManager:
         action: str,
         *,
         resource_id: str = "",
+        zone_id: str = "",
+        zone_name: str = "",
         payload: dict | None = None,
         confirmation: str = "",
     ) -> dict:
@@ -2198,6 +2200,8 @@ class JobManager:
             resource_id=resource_id,
             payload=normalized_payload,
             confirmation=confirmation,
+            zone_id=zone_id,
+            zone_name=zone_name,
         )
         estimated_minutes = max(1, (spec.timeout_seconds + 59) // 60)
         decision = PolicyDecision(
@@ -2218,6 +2222,8 @@ class JobManager:
             "profile_id": profile_id,
             "action": action,
             "resource_id": resource_id,
+            "zone_id": zone_id,
+            "zone_name": zone_name,
             "payload": normalized_payload,
             "confirmation": confirmation,
         }

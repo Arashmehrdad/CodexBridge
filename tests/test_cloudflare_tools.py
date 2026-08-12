@@ -458,7 +458,7 @@ def test_response_limit_and_capability_listing(monkeypatch, tmp_path: Path) -> N
     assert capabilities["raw_graphql_supported"] is False
 
 
-def test_repository_cloudflare_profile_authorization_and_filtering(
+def test_repository_cloudflare_profile_binding_is_default_not_authorization(
     tmp_path: Path,
 ) -> None:
     config = make_config(tmp_path)
@@ -471,17 +471,17 @@ def test_repository_cloudflare_profile_authorization_and_filtering(
     )
 
     canonical_name, profile = cloudflare_tools.authorize_cloudflare_profile(
-        config, "Sample", "production"
+        config, "Sample", "other"
     )
     assert canonical_name == "sample"
-    assert profile.zone_name == "example.com"
+    assert profile.zone_name == "other.example"
 
     capabilities = cloudflare_tools.list_cloudflare_capabilities(config, "sample")
     assert capabilities["repo_name"] == "sample"
-    assert [item["profile_id"] for item in capabilities["profiles"]] == ["production"]
-
-    with pytest.raises(ValueError, match="not authorized"):
-        cloudflare_tools.authorize_cloudflare_profile(config, "sample", "other")
+    by_id = {item["profile_id"]: item for item in capabilities["profiles"]}
+    assert set(by_id) == {"other", "production"}
+    assert by_id["production"]["repo_default"] is True
+    assert by_id["other"]["repo_default"] is False
 
 
 def test_exact_read_capability_aliases_use_fixed_scoped_endpoints(
@@ -532,6 +532,91 @@ def test_exact_read_capability_aliases_use_fixed_scoped_endpoints(
     assert results[2]["operation"] == "get_zone"
     assert results[2]["canonical_operation"] == "zone_details"
     assert results[8]["canonical_operation"] == "get_ssl_settings"
+
+
+def test_explicit_zone_id_overrides_profile_default_for_reads_and_writes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    requested_zone_id = "f" * 32
+    urls: list[str] = []
+
+    def fake_urlopen(request, timeout):
+        urls.append(request.full_url)
+        return FakeResponse({"success": True, "result": []})
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
+    cloudflare_tools.run_cloudflare_inspection(
+        config,
+        "production",
+        "dns_records",
+        zone_id=requested_zone_id,
+    )
+    spec = cloudflare_tools.build_cloudflare_action(
+        config,
+        "production",
+        "dns_create",
+        zone_id=requested_zone_id,
+        payload={
+            "type": "A",
+            "name": "api.example.com",
+            "content": "192.0.2.44",
+        },
+    )
+
+    assert f"/zones/{requested_zone_id}/dns_records" in urls[0]
+    assert spec.path == f"/zones/{requested_zone_id}/dns_records"
+    assert ZONE_ID not in spec.path
+
+
+def test_explicit_zone_name_resolves_with_profile_account_scope(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    install_token(monkeypatch, config)
+    requested_zone_id = "f" * 32
+    urls: list[str] = []
+
+    def fake_urlopen(request, timeout):
+        urls.append(request.full_url)
+        if request.full_url.startswith("https://api.cloudflare.com/client/v4/zones?"):
+            return FakeResponse(
+                {
+                    "success": True,
+                    "result": [{"id": requested_zone_id, "name": "other.example"}],
+                }
+            )
+        return FakeResponse({"success": True, "result": []})
+
+    monkeypatch.setattr(cloudflare_tools.urllib.request, "urlopen", fake_urlopen)
+    cloudflare_tools.run_cloudflare_inspection(
+        config,
+        "production",
+        "zone_details",
+        zone_name="other.example",
+    )
+
+    assert "name=other.example" in urls[0]
+    assert f"account.id={ACCOUNT_ID}" in urls[0]
+    assert urls[1].endswith(f"/zones/{requested_zone_id}")
+
+
+def test_explicit_zone_rejects_ambiguous_selector(tmp_path: Path) -> None:
+    config = make_config(tmp_path)
+    with pytest.raises(ValueError, match="only one"):
+        cloudflare_tools.build_cloudflare_action(
+            config,
+            "production",
+            "dns_create",
+            zone_id="f" * 32,
+            zone_name="other.example",
+            payload={
+                "type": "A",
+                "name": "api.example.com",
+                "content": "192.0.2.44",
+            },
+        )
 
 
 def test_ssl_setting_update_alias_is_bounded(tmp_path: Path) -> None:

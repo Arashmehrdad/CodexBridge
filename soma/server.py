@@ -2380,6 +2380,8 @@ def cloudflare_inspect(
     resource_id: str = "",
     name: str = "",
     record_type: str = "",
+    zone_id: str = "",
+    zone_name: str = "",
     since_minutes: int = 60,
     page: int = 1,
     per_page: int = 100,
@@ -2400,6 +2402,8 @@ def cloudflare_inspect(
         resource_id=resource_id,
         name=name,
         record_type=record_type,
+        zone_id=zone_id,
+        zone_name=zone_name,
         since_minutes=since_minutes,
         page=page,
         per_page=per_page,
@@ -2442,6 +2446,8 @@ def start_cloudflare_action_async(
     profile_id: str,
     action: str,
     resource_id: str = "",
+    zone_id: str = "",
+    zone_name: str = "",
     payload: dict[str, Any] = {},
     confirmation: str = "",
 ) -> dict:
@@ -2451,6 +2457,8 @@ def start_cloudflare_action_async(
         profile_id,
         action,
         resource_id=resource_id,
+        zone_id=zone_id,
+        zone_name=zone_name,
         payload=payload,
         confirmation=confirmation,
     )
@@ -3031,6 +3039,7 @@ def cloudflare_query(request: CloudflareQueryRequest) -> dict:
     return cloudflare_inspect(
         request.repo_name, request.profile_id, request.inspection,
         resource_id=request.resource_id, name=request.name, record_type=request.record_type,
+        zone_id=request.zone_id, zone_name=request.zone_name,
         since_minutes=request.since_minutes, page=request.page, per_page=request.per_page,
         response_budget_bytes=request.response_budget_bytes, view=request.view,
     )
@@ -3041,8 +3050,8 @@ def cloudflare_action(request: CloudflareActionRequest) -> dict:
     """Write Cloudflare gateway for profile-authorized bounded actions."""
     return start_cloudflare_action_async(
         request.repo_name, request.profile_id, request.action,
-        resource_id=request.resource_id, payload=request.payload,
-        confirmation=request.confirmation,
+        resource_id=request.resource_id, zone_id=request.zone_id, zone_name=request.zone_name,
+        payload=request.payload, confirmation=request.confirmation,
     )
 
 

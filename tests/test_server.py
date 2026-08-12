@@ -409,12 +409,14 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
         "dns_records",
         name="api.example.com",
         record_type="A",
+        zone_name="other.example",
     )
     assert inspected["operation"] == "dns_records"
     queued = server.start_cloudflare_action_async(
         "repo",
         "production",
         "dns_create",
+        zone_id="f" * 32,
         payload={
             "type": "A",
             "name": "api.example.com",
@@ -422,6 +424,7 @@ def test_server_cloudflare_tools_delegate(monkeypatch, tmp_path) -> None:
         },
     )
     assert queued["run_id"] == "run_cloudflare"
+    assert queued["kwargs"]["zone_id"] == "f" * 32
     assert queued["kwargs"]["payload"]["name"] == "api.example.com"
 
 

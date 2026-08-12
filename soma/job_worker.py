@@ -2102,6 +2102,8 @@ class JobWorker:
                     resource_id=str(input_data.get("resource_id", "")),
                     payload=dict(input_data.get("payload") or {}),
                     confirmation=str(input_data.get("confirmation", "")),
+                    zone_id=str(input_data.get("zone_id", "")),
+                    zone_name=str(input_data.get("zone_name", "")),
                     repo_root=repo_root,
                 )
             )

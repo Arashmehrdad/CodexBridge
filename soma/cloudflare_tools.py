@@ -382,13 +382,15 @@ def resolve_cloudflare_profile(
 def authorize_cloudflare_profile(
     config: AppConfig, repo_name: str, profile_id: str
 ) -> tuple[str, CloudflareProfileConfig]:
-    canonical_repo_name, repo = resolve_repo_config(config, repo_name)
-    profile_id = _safe_profile_id(profile_id)
-    if profile_id not in repo.cloudflare_profiles:
-        raise ValueError(
-            f"Repository {canonical_repo_name!r} is not authorized for "
-            f"Cloudflare profile {profile_id!r}"
-        )
+    """Resolve a repository and a globally configured Cloudflare profile.
+
+    With Soma's active permissive autonomy contract, repository profile bindings
+    are defaults for selection/discovery, not an additional authorization fence.
+    Mechanical Cloudflare gates, confirmations, and resource validation remain
+    authoritative for each operation.
+    """
+
+    canonical_repo_name, _repo = resolve_repo_config(config, repo_name)
     return canonical_repo_name, resolve_cloudflare_profile(config, profile_id)
 
 
@@ -814,27 +816,62 @@ def _request_turnstile_secret_action(
         _cleanup_secret_destination(prepared)
 
 
-def _zone_id(config: AppConfig, profile: CloudflareProfileConfig) -> str:
+def _safe_zone_name(value: str) -> str:
+    zone_name = str(value or "").strip().lower().rstrip(".")
+    if (
+        not zone_name
+        or len(zone_name) > 253
+        or any(
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+            or any(not (char.isalnum() or char == "-") for char in label)
+            for label in zone_name.split(".")
+        )
+    ):
+        raise ValueError("Invalid Cloudflare zone name")
+    return zone_name
+
+
+def _zone_id(
+    config: AppConfig,
+    profile: CloudflareProfileConfig,
+    *,
+    requested_zone_id: str = "",
+    requested_zone_name: str = "",
+) -> str:
+    requested_id = str(requested_zone_id or "").strip().lower()
+    requested_name = str(requested_zone_name or "").strip()
+    if requested_id and requested_name:
+        raise ValueError("Specify only one of Cloudflare zone_id or zone_name")
+    if requested_id:
+        if not _ID_RE.fullmatch(requested_id):
+            raise ValueError("Cloudflare zone_id must be a 32-character hex ID")
+        return requested_id
+
     configured = str(profile.zone_id or "").strip().lower()
     if not configured and profile.zone_id_env:
         configured = _env_value(config, profile.zone_id_env).strip().lower()
-    if configured:
+    if not requested_name and configured:
         if not _ID_RE.fullmatch(configured):
             raise ValueError("Cloudflare zone_id must be a 32-character hex ID")
         return configured
-    if not profile.zone_name:
-        raise ValueError("Cloudflare zone_id or zone_name is required")
-    response = _request(
-        config,
-        "GET",
-        "/zones",
-        query={"name": profile.zone_name, "status": "active", "per_page": 50},
-    )
+
+    zone_name = _safe_zone_name(requested_name or profile.zone_name)
+    query: dict[str, Any] = {
+        "name": zone_name,
+        "status": "active",
+        "per_page": 50,
+    }
+    if profile.account_id or profile.account_id_env:
+        query["account.id"] = _account_id(config, profile)
+    response = _request(config, "GET", "/zones", query=query)
     matches = [
         item
         for item in (response.get("result") or [])
         if isinstance(item, dict)
-        and str(item.get("name", "")).lower().rstrip(".") == profile.zone_name
+        and str(item.get("name", "")).lower().rstrip(".") == zone_name
     ]
     if len(matches) != 1:
         raise ValueError(
@@ -944,6 +981,8 @@ def run_cloudflare_inspection(
     resource_id: str = "",
     name: str = "",
     record_type: str = "",
+    zone_id: str = "",
+    zone_name: str = "",
     since_minutes: int = 60,
     page: int = 1,
     per_page: int = 100,
@@ -1006,7 +1045,12 @@ def run_cloudflare_inspection(
         "ruleset",
         "analytics_http_summary",
     }:
-        zone_id = _zone_id(config, profile)
+        zone_id = _zone_id(
+            config,
+            profile,
+            requested_zone_id=zone_id,
+            requested_zone_name=zone_name,
+        )
         if operation == "zone_details":
             response = _request(config, "GET", f"/zones/{zone_id}")
         elif operation == "dns_records":
@@ -1201,6 +1245,8 @@ def build_cloudflare_action(
     resource_id: str = "",
     payload: dict[str, Any] | None = None,
     confirmation: str = "",
+    zone_id: str = "",
+    zone_name: str = "",
 ) -> CloudflareActionSpec:
     profile = resolve_cloudflare_profile(config, profile_id)
     requested_action = str(action or "").strip()
@@ -1216,7 +1262,12 @@ def build_cloudflare_action(
     secret_response = False
 
     if action.startswith("dns_"):
-        zone_id = _zone_id(config, profile)
+        zone_id = _zone_id(
+            config,
+            profile,
+            requested_zone_id=zone_id,
+            requested_zone_name=zone_name,
+        )
         if action in {"dns_create", "dns_update"}:
             _require_gate(config, "allow_dns_write", action)
             data = _validate_dns_record_payload(
@@ -1270,7 +1321,12 @@ def build_cloudflare_action(
             path = f"/zones/{zone_id}/dns_records/batch"
     elif action == "cache_purge":
         _require_gate(config, "allow_cache_purge", action)
-        zone_id = _zone_id(config, profile)
+        zone_id = _zone_id(
+            config,
+            profile,
+            requested_zone_id=zone_id,
+            requested_zone_name=zone_name,
+        )
         allowed = {"purge_everything", "files", "prefixes", "tags", "hosts"}
         unknown = sorted(set(data) - allowed)
         populated = [key for key in allowed if key in data]
@@ -1304,7 +1360,12 @@ def build_cloudflare_action(
         _require_gate(config, "allow_zone_settings", action)
         _require_confirmation(config, action, confirmation)
         high_risk = True
-        zone_id = _zone_id(config, profile)
+        zone_id = _zone_id(
+            config,
+            profile,
+            requested_zone_id=zone_id,
+            requested_zone_name=zone_name,
+        )
         if action == "zone_setting_update":
             data = _safe_payload(data, allowed_keys={"value"})
             if "value" not in data:
@@ -1347,7 +1408,12 @@ def build_cloudflare_action(
         _require_gate(config, "allow_rulesets", action)
         _require_confirmation(config, action, confirmation)
         high_risk = True
-        zone_id = _zone_id(config, profile)
+        zone_id = _zone_id(
+            config,
+            profile,
+            requested_zone_id=zone_id,
+            requested_zone_name=zone_name,
+        )
         if action == "ruleset_create":
             data = _safe_payload(
                 data, allowed_keys={"name", "description", "kind", "phase", "rules"}
@@ -1521,6 +1587,8 @@ def run_cloudflare_action(
     resource_id: str = "",
     payload: dict[str, Any] | None = None,
     confirmation: str = "",
+    zone_id: str = "",
+    zone_name: str = "",
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     profile = resolve_cloudflare_profile(config, profile_id)
@@ -1531,6 +1599,8 @@ def run_cloudflare_action(
         resource_id=resource_id,
         payload=payload,
         confirmation=confirmation,
+        zone_id=zone_id,
+        zone_name=zone_name,
     )
     if spec.secret_response:
         prepared = _prepare_secret_destination(repo_root, profile)
@@ -1588,20 +1658,16 @@ def list_cloudflare_capabilities(
     config: AppConfig, repo_name: str = ""
 ) -> dict[str, Any]:
     canonical_repo_name = ""
-    authorized_profile_ids: set[str] | None = None
+    default_profile_ids: set[str] = set()
     if repo_name:
         canonical_repo_name, repo = resolve_repo_config(config, repo_name)
-        authorized_profile_ids = set(repo.cloudflare_profiles)
+        default_profile_ids = set(repo.cloudflare_profiles)
     profiles = []
     for profile_id, profile in sorted(config.cloudflare.profiles.items()):
-        if (
-            authorized_profile_ids is not None
-            and profile_id not in authorized_profile_ids
-        ):
-            continue
         profiles.append(
             {
                 "profile_id": profile_id,
+                "repo_default": profile_id in default_profile_ids,
                 "zone_name": profile.zone_name,
                 "zone_id_configured": bool(profile.zone_id or profile.zone_id_env),
                 "account_id_configured": bool(

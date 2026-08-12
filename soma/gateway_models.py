@@ -1642,6 +1642,8 @@ class CloudflareInspectQuery(GatewayModel):
     resource_id: str = Field(default="", max_length=256)
     name: str = Field(default="", max_length=256)
     record_type: str = Field(default="", max_length=32)
+    zone_id: str = Field(default="", max_length=64)
+    zone_name: str = Field(default="", max_length=253)
     since_minutes: int = Field(default=60, ge=1, le=43_200)
     page: int = Field(default=1, ge=1, le=10_000)
     per_page: int = Field(default=100, ge=1, le=100)
@@ -1658,6 +1660,8 @@ class CloudflareActionBase(GatewayModel):
     repo_name: str = Field(min_length=1, max_length=128)
     profile_id: str = Field(min_length=1, max_length=128)
     resource_id: str = Field(default="", max_length=256)
+    zone_id: str = Field(default="", max_length=64)
+    zone_name: str = Field(default="", max_length=253)
     payload: dict[str, Any] = Field(default_factory=dict)
     confirmation: str = Field(default="", max_length=128)
 

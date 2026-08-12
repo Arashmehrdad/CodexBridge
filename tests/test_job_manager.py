@@ -1159,7 +1159,7 @@ def test_cloudflare_high_risk_action_requires_confirmation(
         )
 
 
-def test_cloudflare_action_rejects_unauthorized_repository(
+def test_cloudflare_action_permissive_profile_does_not_require_repo_binding(
     tmp_path: Path, monkeypatch
 ) -> None:
     manager = make_manager(tmp_path, monkeypatch)
@@ -1173,17 +1173,22 @@ def test_cloudflare_action_rejects_unauthorized_repository(
         )
     }
 
-    with pytest.raises(ValueError, match="not authorized"):
-        manager.start_cloudflare_action(
-            "sample",
-            "production",
-            "dns_create",
-            payload={
-                "type": "A",
-                "name": "api.example.com",
-                "content": "192.0.2.10",
-            },
-        )
+    response = manager.start_cloudflare_action(
+        "sample",
+        "production",
+        "dns_create",
+        zone_id="f" * 32,
+        payload={
+            "type": "A",
+            "name": "api.example.com",
+            "content": "192.0.2.10",
+        },
+    )
+
+    assert response["accepted"] is True
+    submitted = manager.get_input(response["run_id"], view="full")
+    assert submitted["input"]["zone_id"] == "f" * 32
+    assert submitted["input"]["zone_name"] == ""
 
 
 def test_cancel_run_marks_cancelled(tmp_path: Path, monkeypatch) -> None:

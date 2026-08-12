@@ -19,6 +19,9 @@ PRE_B3_DESCRIPTOR_HASH = (
 PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
+CURRENT_INPUT_SCHEMA_HASH = (
+    "403b78fee8d4c8a1b27173933557e4b9d3739c28fa3eb6264454f7696148310e"
+)
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
 )
@@ -115,13 +118,14 @@ def test_public_registration_name_prefers_explicit_name_over_wrapped_function() 
     )
 
 
-def test_b3_preserves_candidate_b_schemas_and_operation_inventory() -> None:
+def test_cloudflare_permissive_change_is_additive_to_candidate_b_inventory() -> None:
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "84d0af8b66d7df990320268ba905bf536cbb2722dfabf6cda30aaa5e93f9012c"
+        "6da1fedf86bbb4ee656647503c22acf4413c80f1f0cb687d2254fc6dda2a6cde"
     )
-    assert _schema_digest(actions, "inputSchema") == PRE_B3_INPUT_SCHEMA_HASH
+    assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
+    assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH
     assert _schema_digest(actions, "outputSchema") == PRE_B3_OUTPUT_SCHEMA_HASH
     assert (
         server._operation_identity_metadata(actions=actions)["operation_inventory_hash"]
