@@ -9,7 +9,6 @@ automatic replacement turn.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
@@ -29,7 +28,6 @@ from .backends import (
     start_request_hash,
 )
 from .benchmark_evidence import (
-    BENCHMARK_SEMANTIC_SCHEMA_VERSION,
     BenchmarkSemanticValidationError,
     build_evidence_submission,
     canonical_json_bytes,
@@ -244,9 +242,11 @@ class CodexG6ReasoningBackend:
             "provider_route_ref": CODEX_G6_PROVIDER_ROUTE_REF,
             "provider_route_hash": provider_route_hash(self.model, self.effort),
         }
-        for field, value in expected.items():
-            if getattr(spec, field) != value:
-                raise CodexG6BackendError(f"G6 reasoning spec {field} does not match route freeze")
+        for field_name, value in expected.items():
+            if getattr(spec, field_name) != value:
+                raise CodexG6BackendError(
+                    f"G6 reasoning spec {field_name} does not match route freeze"
+                )
         if spec.mutation_policy != "read_only":
             raise CodexG6BackendError("G6 Codex route requires read_only mutation policy")
         if spec.continuation_policy != "none":
