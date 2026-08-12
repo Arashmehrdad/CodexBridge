@@ -230,7 +230,7 @@ def test_thread_and_turn_requests_are_mechanically_read_only(tmp_path: Path) -> 
     thread_request = transport.sent[2]
     assert thread_request["method"] == "thread/start"
     assert thread_request["params"]["approvalPolicy"] == "never"
-    assert thread_request["params"]["sandbox"] == "readOnly"
+    assert thread_request["params"]["sandbox"] == "read-only"
     assert thread_request["params"]["cwd"] == str(tmp_path)
 
     turn_request = transport.sent[3]

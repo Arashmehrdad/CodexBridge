@@ -411,7 +411,7 @@ class CodexAppServerClient:
         params: dict[str, Any] = {
             "cwd": str(cwd),
             "approvalPolicy": "never",
-            "sandbox": "readOnly",
+            "sandbox": "read-only",
         }
         if model:
             params["model"] = model
