@@ -30,7 +30,8 @@ class FakeMCP:
     def __init__(self) -> None:
         self.tools: dict[str, dict[str, Any]] = {}
 
-    def tool(self, *, output_schema: dict, annotations: dict):
+    def tool(self, *, output_schema: dict, annotations: dict, **metadata: Any):
+        del metadata
         def decorator(function):
             self.tools[function.__name__] = {
                 "function": function,

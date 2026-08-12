@@ -256,15 +256,28 @@ STOP
 
 ### B2 - Add exact descriptor identity
 
+Candidate-B identity contract:
+
+```text
+public_schema_hash
+    unchanged during Candidate B
+    public input-contract identity
+
+public_descriptor_hash
+    additive exact served-descriptor identity
+    exposed through capability/discovery results
+
+expected_discovery_cache_generation
+    Candidate-B public convergence token
+
+expected_public_descriptor_hash
+    NOT added during Candidate B because doing so would alter the public
+    input contract and move public_schema_hash
+```
+
 Keep existing `public_schema_hash` unchanged in meaning:
 
 > deterministic identity of public tool names plus effective advertised input schemas.
-
-Add:
-
-```text
-public_descriptor_hash
-```
 
 Definition:
 
@@ -306,20 +319,18 @@ system_query(operation="capabilities")
 system_query(operation="capability_identity")
 ```
 
-Add request field:
+Descriptor/cache mismatch must converge through the existing
+`expected_discovery_cache_generation` token:
 
 ```text
-expected_public_descriptor_hash
-```
-
-Descriptor mismatch must produce:
-
-```text
-connector_public_descriptor_hash
+metadata/descriptor change
+-> public_descriptor_hash changes
+-> discovery_cache_generation changes
+-> stale expected_discovery_cache_generation
+-> connector_discovery_cache_generation mismatch
 connector_refresh_required = true
+restart_required = false
 ```
-
-Descriptor mismatch alone must not imply `restart_required=true`.
 
 Add `public_descriptor_hash` to `discovery_cache_generation` input.
 
@@ -344,7 +355,7 @@ annotation mutation -> descriptor hash moves
 invocation meta mutation -> descriptor hash moves
 input schema mutation -> public_schema_hash and public_descriptor_hash both move
 metadata-only mutation -> public_schema_hash does not move
-three fresh equivalent discovery passes -> identical descriptor hash
+three fresh-process equivalent discovery passes -> identical descriptor hash
 ```
 
 Endpoint: identity tests pass; public surface not yet metadata-activated; STOP.

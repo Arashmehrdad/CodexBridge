@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import base64
 import binascii
+import hashlib
 import inspect
 import json
 import os
@@ -81,6 +82,7 @@ from .managed_artifacts import (
 )
 from .operation_locks import RepositoryBusyError, repository_operation_lock
 from .project_scope import ProjectScopeError, ProjectScopeStore
+from .public_tool_metadata import fastmcp_registration_kwargs
 from . import reconciliation_status
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
@@ -198,6 +200,30 @@ _original_mcp_tool = mcp.tool
 #: `public_schema_hash`, so the two can never drift apart unnoticed.
 _PUBLIC_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {}
 _PUBLIC_CONTRACT_HASH_CACHE: str = ""
+_PUBLIC_DESCRIPTOR_HASH_CACHE: str = ""
+
+
+def _served_descriptor_from_tool(tool: Any) -> dict[str, Any]:
+    """Return the exact JSON descriptor served for one registered tool."""
+
+    return tool.to_mcp_tool().model_dump(
+        mode="json",
+        by_alias=True,
+        exclude_none=False,
+    )
+
+
+def _descriptor_hash_from_actions(actions: list[dict[str, Any]]) -> str:
+    """Hash the canonical, name-ordered snapshot of served tool descriptors."""
+
+    ordered_actions = sorted(actions, key=lambda action: str(action.get("name", "")))
+    encoded = json.dumps(
+        ordered_actions,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _record_public_input_schema(tool: Any) -> None:
@@ -209,9 +235,10 @@ def _record_public_input_schema(tool: Any) -> None:
     reproduces what a connector actually caches. Hashing either would yield an
     identity no client could reproduce -- authoritative-looking and wrong.
     """
-    global _PUBLIC_CONTRACT_HASH_CACHE
+    global _PUBLIC_CONTRACT_HASH_CACHE, _PUBLIC_DESCRIPTOR_HASH_CACHE
     if getattr(tool, "name", ""):
         _PUBLIC_CONTRACT_HASH_CACHE = ""
+        _PUBLIC_DESCRIPTOR_HASH_CACHE = ""
 
 
 def refresh_public_contract_hash() -> str:
@@ -221,7 +248,7 @@ def refresh_public_contract_hash() -> str:
     stamp the identity synchronously without driving discovery per call. Safe
     to call again; it is idempotent for an unchanged surface.
     """
-    global _PUBLIC_CONTRACT_HASH_CACHE
+    global _PUBLIC_CONTRACT_HASH_CACHE, _PUBLIC_DESCRIPTOR_HASH_CACHE
     try:
         from .knowledge_tools_integration import register_knowledge_tools
 
@@ -231,9 +258,10 @@ def refresh_public_contract_hash() -> str:
         # Never let identity computation break startup or a response: an absent
         # field is honest, a wrong one is not.
         return _PUBLIC_CONTRACT_HASH_CACHE
+    schema_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     _PUBLIC_INPUT_SCHEMAS.clear()
-    for tool in tools:
-        action = tool.to_mcp_tool().model_dump(mode="json")
+    for action in schema_actions:
         name = str(action.get("name", "") or "")
         served = action.get("inputSchema")
         if name and isinstance(served, dict):
@@ -244,6 +272,7 @@ def refresh_public_contract_hash() -> str:
             for name, schema in _PUBLIC_INPUT_SCHEMAS.items()
         ]
     )
+    _PUBLIC_DESCRIPTOR_HASH_CACHE = _descriptor_hash_from_actions(descriptor_actions)
     return _PUBLIC_CONTRACT_HASH_CACHE
 
 
@@ -265,6 +294,19 @@ def public_contract_hash() -> str:
         asyncio.get_running_loop()
     except RuntimeError:
         return refresh_public_contract_hash()
+    return ""
+
+
+def public_descriptor_hash() -> str:
+    """Return the cached hash of the exact currently served tool descriptors."""
+
+    if _PUBLIC_DESCRIPTOR_HASH_CACHE:
+        return _PUBLIC_DESCRIPTOR_HASH_CACHE
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        refresh_public_contract_hash()
+        return _PUBLIC_DESCRIPTOR_HASH_CACHE
     return ""
 
 
@@ -337,6 +379,19 @@ def _mcp_transport_result(result: Any) -> Any:
     )
 
 
+def _public_tool_registration_name(
+    function: Callable[..., Any], tool_args: tuple, tool_kwargs: dict
+) -> str:
+    """Resolve the exact name FastMCP will use for a registration."""
+
+    explicit_name = tool_kwargs.get("name")
+    if explicit_name is not None:
+        return str(explicit_name)
+    if tool_args and isinstance(tool_args[0], str):
+        return tool_args[0]
+    return str(getattr(function, "__name__", ""))
+
+
 def _register_public_tool(function, tool_args: tuple, tool_kwargs: dict) -> None:
     """Register one public tool, flattening a ``request`` envelope if present.
 
@@ -350,15 +405,19 @@ def _register_public_tool(function, tool_args: tuple, tool_kwargs: dict) -> None
     Tools that are already flat (``cancel_run``) yield no flattened schema and
     fall back to unmodified FastMCP registration.
     """
+    registration_kwargs = fastmcp_registration_kwargs(
+        _public_tool_registration_name(function, tool_args, tool_kwargs),
+        **tool_kwargs,
+    )
     flat_tool = None
     if not tool_args:
-        candidate = FlatGatewayTool.from_function(function, **tool_kwargs)
+        candidate = FlatGatewayTool.from_function(function, **registration_kwargs)
         flat_schema = flatten_request_input_schema(candidate.parameters)
         if flat_schema is not None:
             candidate.parameters = flat_schema
             flat_tool = candidate
     if flat_tool is None:
-        registered = _original_mcp_tool(*tool_args, **tool_kwargs)(function)
+        registered = _original_mcp_tool(*tool_args, **registration_kwargs)(function)
         _record_public_input_schema(registered)
         return
     mcp.add_tool(flat_tool)
@@ -1219,7 +1278,9 @@ def _mark_wiki_stale_safely(
 def _operation_identity_metadata(
     *,
     actions: list[dict[str, Any]] | None = None,
+    descriptor_actions: list[dict[str, Any]] | None = None,
     live_input_schema_hash: str = "",
+    live_public_descriptor_hash: str = "",
 ) -> dict[str, Any]:
     """Build identities from the actual effective public input schemas."""
     operation_inventory = {
@@ -1229,11 +1290,18 @@ def _operation_identity_metadata(
     public_schema_hash = live_input_schema_hash or _input_schema_hash_from_actions(
         actions or []
     )
+    descriptor_source = descriptor_actions if descriptor_actions is not None else actions
+    public_descriptor_hash = live_public_descriptor_hash or (
+        _descriptor_hash_from_actions(descriptor_source)
+        if descriptor_source is not None
+        else ""
+    )
     discovery_cache_generation = schema_hash(
         {
             "inventory_version": CF1_GATEWAY_OPERATION_INVENTORY_VERSION,
             "operation_inventory_hash": operation_inventory_hash,
             "public_schema_hash": public_schema_hash,
+            "public_descriptor_hash": public_descriptor_hash,
             "server_build_hash": _PROCESS_CAPABILITY_METADATA["server_build_hash"],
             "capability_epoch": _PROCESS_CAPABILITY_METADATA["capability_epoch"],
         }
@@ -1242,6 +1310,7 @@ def _operation_identity_metadata(
         "operation_inventory_hash": operation_inventory_hash,
         "operation_inventory_gateway_count": len(operation_inventory),
         "public_schema_hash": public_schema_hash,
+        "public_descriptor_hash": public_descriptor_hash,
         "runtime_input_schema_hash": public_schema_hash,
         "discovery_cache_generation": discovery_cache_generation,
         "operation_inventory": operation_inventory,
@@ -1303,6 +1372,7 @@ async def list_capabilities() -> dict:
     """Read-only: return the authoritative live tool list and schema epoch."""
     tools = await mcp.list_tools()
     actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     result: dict[str, Any] = {
         "ok": True,
         "actions": actions,
@@ -1313,7 +1383,10 @@ async def list_capabilities() -> dict:
     result.update(
         {
             key: value
-            for key, value in _operation_identity_metadata(actions=actions).items()
+            for key, value in _operation_identity_metadata(
+                actions=actions,
+                descriptor_actions=descriptor_actions,
+            ).items()
             if key != "operation_inventory"
         }
     )
@@ -1334,6 +1407,7 @@ def _list_capabilities_sync() -> dict[str, Any]:
             **_PROCESS_CAPABILITY_METADATA,
         }
     actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     result = {
             "ok": True,
             "actions": actions,
@@ -1344,7 +1418,10 @@ def _list_capabilities_sync() -> dict[str, Any]:
     result.update(
         {
             key: value
-            for key, value in _operation_identity_metadata(actions=actions).items()
+            for key, value in _operation_identity_metadata(
+                actions=actions,
+                descriptor_actions=descriptor_actions,
+            ).items()
             if key != "operation_inventory"
         }
     )
@@ -1362,7 +1439,7 @@ def _system_capabilities_result() -> dict[str, Any]:
     return _list_capabilities_sync()
 
 
-def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str]:
+def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str, str]:
     """Return live per-operation identities and two-pass discovery stability."""
     try:
         from .knowledge_tools_integration import register_knowledge_tools
@@ -1371,7 +1448,7 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
         first_tools = asyncio.run(mcp.list_tools())
         second_tools = asyncio.run(mcp.list_tools())
     except Exception as exc:
-        return {}, f"live operation-schema discovery unavailable: {exc}", False, ""
+        return {}, f"live operation-schema discovery unavailable: {exc}", False, "", ""
 
     def _hashes(tools: list[Any]) -> tuple[dict[str, str], list[str]]:
         hashes: dict[str, str] = {}
@@ -1440,8 +1517,10 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
     second_hashes, second_collisions = _hashes(second_tools)
     first_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in first_tools]
     second_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in second_tools]
+    second_descriptor_actions = [_served_descriptor_from_tool(tool) for tool in second_tools]
     first_input_schema_hash = _input_schema_hash_from_actions(first_actions)
     second_input_schema_hash = _input_schema_hash_from_actions(second_actions)
+    second_public_descriptor_hash = _descriptor_hash_from_actions(second_descriptor_actions)
     collisions = sorted(set(first_collisions) | set(second_collisions))
     if collisions:
         return (
@@ -1449,12 +1528,14 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
             f"live operation-schema collisions: {', '.join(collisions)}",
             False,
             second_input_schema_hash,
+            second_public_descriptor_hash,
         )
     return (
         second_hashes,
         "",
         first_hashes == second_hashes and first_input_schema_hash == second_input_schema_hash,
         second_input_schema_hash,
+        second_public_descriptor_hash,
     )
 
 
@@ -4302,13 +4383,16 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         live_schema_error,
         discovery_passes_converged,
         live_input_schema_hash,
+        live_public_descriptor_hash,
     ) = _live_operation_schema_hashes_sync()
     identity = _operation_identity_metadata(
-        live_input_schema_hash=live_input_schema_hash
+        live_input_schema_hash=live_input_schema_hash,
+        live_public_descriptor_hash=live_public_descriptor_hash,
     )
     operation_inventory = identity["operation_inventory"]
     operation_inventory_hash = identity["operation_inventory_hash"]
     public_schema_hash = identity["public_schema_hash"]
+    public_descriptor_hash = identity["public_descriptor_hash"]
     discovery_cache_generation = identity["discovery_cache_generation"]
     inventory_operation_names = {
         f"{gateway}.{operation}"
@@ -4415,6 +4499,7 @@ def _capability_identity_result(request: SystemQueryRequest) -> dict[str, Any]:
         "running_schema_hash": running_schema,
         "running_capability_epoch": running_epoch,
         "public_schema_hash": public_schema_hash,
+        "public_descriptor_hash": public_descriptor_hash,
         "connector_schema_hash": connector_schema_hash,
         "discovery_cache_generation": discovery_cache_generation,
         "operation_schema_hashes": live_operation_schema_hashes,

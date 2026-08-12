@@ -2690,7 +2690,7 @@ def test_system_capabilities_resolves_live_async_discovery(monkeypatch) -> None:
         return [
             SimpleNamespace(
                 to_mcp_tool=lambda: SimpleNamespace(
-                    model_dump=lambda mode: {"name": "demo_gateway"}
+                    model_dump=lambda mode, **kwargs: {"name": "demo_gateway"}
                 )
             )
         ]
@@ -2843,7 +2843,7 @@ def test_live_operation_schema_hashes_are_gateway_qualified(monkeypatch) -> None
     def fake_tool(name: str, marker: str):
         return SimpleNamespace(
             to_mcp_tool=lambda: SimpleNamespace(
-                model_dump=lambda mode: {
+                model_dump=lambda mode, **kwargs: {
                     "name": name,
                     "inputSchema": {
                         "type": "object",
@@ -2869,7 +2869,7 @@ def test_live_operation_schema_hashes_are_gateway_qualified(monkeypatch) -> None
         return [fake_tool("alpha_query", "alpha"), fake_tool("beta_query", "beta")]
 
     monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
-    hashes, error, converged, input_schema_hash = (
+    hashes, error, converged, input_schema_hash, _ = (
         server._live_operation_schema_hashes_sync()
     )
     assert error == ""
@@ -2885,7 +2885,7 @@ def test_live_operation_schema_hashes_reject_conflicting_qualified_keys(
     def fake_tool(marker: str):
         return SimpleNamespace(
             to_mcp_tool=lambda: SimpleNamespace(
-                model_dump=lambda mode: {
+                model_dump=lambda mode, **kwargs: {
                     "name": "alpha_query",
                     "inputSchema": {
                         "type": "object",
@@ -2911,7 +2911,7 @@ def test_live_operation_schema_hashes_reject_conflicting_qualified_keys(
         return [fake_tool("first"), fake_tool("second")]
 
     monkeypatch.setattr(server.mcp, "list_tools", fake_list_tools)
-    hashes, error, converged, _ = server._live_operation_schema_hashes_sync()
+    hashes, error, converged, _, _ = server._live_operation_schema_hashes_sync()
     assert set(hashes) == {"alpha_query.status"}
     assert error == "live operation-schema collisions: alpha_query.status"
     assert converged is False
@@ -2938,7 +2938,7 @@ def test_capability_identity_rejects_disagreeing_discovery_passes(monkeypatch) -
         return [
             SimpleNamespace(
                 to_mcp_tool=lambda: SimpleNamespace(
-                    model_dump=lambda mode: {
+                    model_dump=lambda mode, **kwargs: {
                         "name": "demo_gateway",
                         "inputSchema": {
                             "type": "object",

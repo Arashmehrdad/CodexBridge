@@ -13,6 +13,7 @@ from .public_projection_contract import (
     apply_compact_projection_envelope,
     public_projection_schema_properties,
 )
+from .public_tool_metadata import fastmcp_registration_kwargs
 
 
 READ_ONLY_ANNOTATIONS = {
@@ -1356,7 +1357,11 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "error": str(exc),
             }
 
-    @mcp.tool(output_schema=KNOWLEDGE_QUERY_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+    @mcp.tool(
+        **fastmcp_registration_kwargs(
+            "knowledge_query", output_schema=KNOWLEDGE_QUERY_OUTPUT
+        )
+    )
     def knowledge_query(request: KnowledgeQueryRequest) -> dict:
         """Read-only gateway for repository wiki pages and isolated knowledge search."""
         if request.operation in {
@@ -1816,7 +1821,11 @@ def register_knowledge_tools(mcp: Any) -> None:
                 "error": str(exc),
             }
 
-    @mcp.tool(output_schema=KNOWLEDGE_ACTION_OUTPUT, annotations=WRITE_ANNOTATIONS)
+    @mcp.tool(
+        **fastmcp_registration_kwargs(
+            "knowledge_action", output_schema=KNOWLEDGE_ACTION_OUTPUT
+        )
+    )
     def knowledge_action(request: KnowledgeActionRequest) -> dict:
         """Write gateway for repository wiki refresh and repository-scoped decisions."""
         if request.action in {

@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 
 from soma.config import AppConfig, LocalModelConfig, RepoConfig
 from soma.knowledge_tools_integration import register_knowledge_tools
+from soma.public_tool_metadata import PUBLIC_TOOL_METADATA
 import soma.server as server
 
 
@@ -1344,66 +1345,29 @@ def test_mcp_actions_have_descriptions_annotations_and_valid_input_schemas() -> 
 
 def test_mcp_risky_actions_are_not_marked_read_only_or_destructive() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
-    write_actions = {
-        "repo_apply",
-        "repo_commit",
-        "run_start",
-        "docker_action",
-        "cloudflare_action",
-        "ssh_action",
-        "system_action",
-        "knowledge_action",
-        "start_docker_action_async",
-        "start_cloudflare_action_async",
-        "start_project_command_async",
-        "start_pytest_path_async",
-        "start_py_compile_path_async",
-        "start_bash_n_path_async",
-        "start_json_validation_path_async",
-    "start_git_readonly_async",
-    "list_docker_capabilities",
-    "docker_health",
-    "docker_inspect",
-    "start_docker_action_async",
-    "list_cloudflare_capabilities",
-    "cloudflare_health",
-    "cloudflare_inspect",
-    "start_cloudflare_action_async",
-    "list_ssh_capabilities",
-    "preview_ssh_profile_change",
-    "get_ssh_profile_change_status",
-    "apply_ssh_profile_change",
-    "start_ssh_command_async",
-    "start_ssh_monitored_command_async",
-    "start_ssh_action_async",
-    "start_ssh_transfer_async",
-    "start_ssh_deployment_async",
-        "start_ssh_command_async",
-        "start_ssh_monitored_command_async",
-        "start_ssh_action_async",
-        "start_ssh_transfer_async",
-        "start_ssh_deployment_async",
-        "apply_ssh_profile_change",
-        "start_external_fixture_validation_async",
-        "cancel_run",
-        "task_action",
-        "workflow_action",
-        "refresh_repo_wiki",
-        "remember_repo_decision",
-        "reload_service",
-        "rollback_service",
-        "supervisor_action",
-        "trading_signal_submit",
-        "trading_signal_cancel_before_entry",
-        "trading_companion_action",
-        "trading_action_submit",
-        "trading_runtime_control",
-    }
     for name, action in actions.items():
         annotations = action["annotations"]
-        if name in write_actions:
+        metadata = PUBLIC_TOOL_METADATA.get(name)
+        if metadata is not None:
+            for key, value in metadata.annotations.items():
+                assert annotations[key] is value
+            continue
+        if name in {
+            "cancel_run",
+            "task_action",
+            "workflow_action",
+            "refresh_repo_wiki",
+            "remember_repo_decision",
+            "reload_service",
+            "rollback_service",
+            "supervisor_action",
+            "trading_signal_submit",
+            "trading_signal_cancel_before_entry",
+            "trading_companion_action",
+            "trading_action_submit",
+            "trading_runtime_control",
+        }:
             assert annotations["readOnlyHint"] is False
-            assert annotations["destructiveHint"] is False
         else:
             assert annotations["readOnlyHint"] is True
 

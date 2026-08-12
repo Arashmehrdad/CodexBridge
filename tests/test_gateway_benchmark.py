@@ -17,6 +17,7 @@ from soma.gateway_models import (
 )
 from soma.knowledge_tools_integration import register_knowledge_tools
 from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
+from soma.public_tool_metadata import PUBLIC_TOOL_METADATA
 
 
 def _actions() -> dict[str, dict]:
@@ -38,31 +39,10 @@ def test_deterministic_gateway_surface_benchmark() -> None:
     for action in actions.values():
         Draft202012Validator.check_schema(action["inputSchema"])
         Draft202012Validator.check_schema(action["outputSchema"])
-    for name in {
-        "repo_query",
-        "docker_query",
-        "cloudflare_query",
-        "ssh_query",
-        "system_query",
-        "knowledge_query",
-        "trading_query",
-        "trading_signal_get",
-        "trading_signal_list",
-    }:
-        assert actions[name]["annotations"]["readOnlyHint"] is True
-    for name in {
-        "repo_apply",
-        "repo_commit",
-        "run_start",
-        "docker_action",
-        "cloudflare_action",
-        "ssh_action",
-        "system_action",
-        "knowledge_action",
-        "trading_signal_submit",
-        "trading_signal_cancel_before_entry",
-    }:
-        assert actions[name]["annotations"]["readOnlyHint"] is False
+    for name, metadata in PUBLIC_TOOL_METADATA.items():
+        annotations = actions[name]["annotations"]
+        for key, value in metadata.annotations.items():
+            assert annotations[key] is value
 
 
 def test_mcp_transport_serializes_projection_into_content_text(
