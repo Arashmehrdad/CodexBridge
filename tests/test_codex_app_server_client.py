@@ -14,6 +14,7 @@ from soma.reasoning.codex_app_server import (
     CodexAppServerClient,
     CodexAppServerError,
     CodexUnexpectedServerRequest,
+    StdioCodexTransport,
     canonical_schema_manifest_hash,
     find_turn_by_client_user_message_id,
 )
@@ -57,6 +58,60 @@ def _output_schema() -> dict[str, Any]:
         "required": ["answer"],
         "additionalProperties": False,
     }
+
+
+def test_stdio_close_prefers_graceful_eof_exit_before_terminate() -> None:
+    class FakeStdin:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = FakeStdin()
+            self.wait_timeouts: list[float] = []
+            self.terminated = False
+            self.killed = False
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float) -> int:
+            self.wait_timeouts.append(timeout)
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def kill(self) -> None:
+            self.killed = True
+
+    class FakeThread:
+        def __init__(self) -> None:
+            self.join_timeouts: list[float] = []
+
+        def join(self, timeout: float | None = None) -> None:
+            assert timeout is not None
+            self.join_timeouts.append(timeout)
+
+    transport = object.__new__(StdioCodexTransport)
+    transport._closed = False
+    transport._process = FakeProcess()
+    transport._reader = FakeThread()
+    transport._stderr_reader = FakeThread()
+
+    transport.close()
+
+    assert transport._process.stdin.closed is True
+    assert transport._process.wait_timeouts == [5]
+    assert transport._process.terminated is False
+    assert transport._process.killed is False
+    assert transport._reader.join_timeouts == [2]
+    assert transport._stderr_reader.join_timeouts == [2]
 
 
 def test_initialize_and_account_read_capture_chatgpt_auth() -> None:

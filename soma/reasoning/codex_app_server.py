@@ -194,13 +194,25 @@ class StdioCodexTransport:
                 self._process.stdin.close()
         except OSError:
             pass
+
+        # Codex is commonly launched through the npm ``codex.cmd`` wrapper on
+        # Windows. Closing stdin is the protocol-level shutdown signal for the
+        # App Server child. Terminating the wrapper immediately can orphan that
+        # child while it still owns the working directory, so give EOF-driven
+        # shutdown a bounded grace period before escalating.
         if self._process.poll() is None:
-            self._process.terminate()
             try:
-                self._process.wait(timeout=2)
+                self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=2)
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=2)
+
+        self._reader.join(timeout=2)
+        self._stderr_reader.join(timeout=2)
 
 
 @dataclass(frozen=True)
