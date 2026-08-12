@@ -914,4 +914,11 @@ def test_models_are_strict_frozen_canonical_and_hash_checked() -> None:
 
 def test_store_exposes_schema_only_not_company_actions() -> None:
     public = {name for name in dir(CompanyKernelStore) if not name.startswith("_")}
-    assert public == {"connect", "init_db", "is_installed", "schema_state", "table_counts"}
+    assert public == {
+        "connect",
+        "init_db",
+        "is_installed",
+        "schema_state",
+        "table_counts",
+        "transaction",
+    }

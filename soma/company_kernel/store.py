@@ -84,6 +84,21 @@ class CompanyKernelStore:
         ProjectScopeStore(self.runs_dir).init_db()
         return apply_company_kernel_migrations(self.connect)
 
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Own one immediate Company Kernel transaction on the shared database."""
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+            except BaseException:
+                conn.rollback()
+                raise
+            conn.commit()
+        finally:
+            conn.close()
+
     def table_counts(self) -> dict[str, int]:
         if not self.is_installed():
             return {name: 0 for name in COMPANY_KERNEL_TABLE_NAMES}
