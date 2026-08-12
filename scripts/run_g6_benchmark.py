@@ -21,7 +21,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode", choices=("setup", "preflight", "trial", "status"), required=True
     )
-    parser.add_argument("--phase", choices=("screening", "confirmation"), default="screening")
+    parser.add_argument(
+        "--phase", choices=("screening", "confirmation"), default="screening"
+    )
     parser.add_argument("--condition", type=int, choices=(1, 2, 4, 8), default=1)
     parser.add_argument("--repetition", type=int, default=1)
     parser.add_argument("--model-turn-ceiling", type=int, default=32)
@@ -59,7 +61,9 @@ def main() -> int:
         output = {
             "mode": "trial",
             "result": result.model_dump(mode="json"),
-            "provider_send_boundaries_crossed": provider_send_boundaries_crossed(runtime),
+            "provider_send_boundaries_crossed": provider_send_boundaries_crossed(
+                runtime
+            ),
         }
     else:
         output = {

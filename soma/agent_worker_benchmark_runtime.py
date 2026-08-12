@@ -311,7 +311,9 @@ def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any
             )
     else:
         if used > ceiling:
-            raise G6RuntimeError("observed provider sends already exceed requested ceiling")
+            raise G6RuntimeError(
+                "observed provider sends already exceed requested ceiling"
+            )
         _atomic_json(path, expected)
     return {**expected, "provider_send_boundaries_crossed": used}
 
