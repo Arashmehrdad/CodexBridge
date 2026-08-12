@@ -476,8 +476,15 @@ def run_cancel(
                     turn_id=turn_id,
                 )
             except CodexAppServerRpcError as exc:
-                error_message = str(exc.error.get("message") or "") if isinstance(exc.error, dict) else str(exc.error)
-                if exc.method != "turn/interrupt" or "no active turn to interrupt" not in error_message:
+                error_message = (
+                    str(exc.error.get("message") or "")
+                    if isinstance(exc.error, dict)
+                    else str(exc.error)
+                )
+                if (
+                    exc.method != "turn/interrupt"
+                    or "no active turn to interrupt" not in error_message
+                ):
                     raise
                 interrupt_outcome = "completion_won_race"
                 interrupt_result = {"error": exc.error}
