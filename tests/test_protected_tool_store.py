@@ -84,7 +84,7 @@ def _effect(call: ProtectedToolCallV1, **overrides) -> ProtectedToolEffectV1:
 
 def test_fresh_schema_is_additive_and_complete(tmp_path: Path) -> None:
     store = ProtectedToolStore(tmp_path / "runs")
-    assert store.schema_version() == 1
+    assert store.schema_version() == 2
     state = store.schema_state()
     assert state["component"] == PROTECTED_TOOL_SCHEMA_COMPONENT
     assert state["up_to_date"] is True

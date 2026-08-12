@@ -168,7 +168,9 @@ class ProtectedAuthorityResolver(Protocol):
 class ProtectedResourceGuard(Protocol):
     def acquire(self, call: ProtectedToolCallV1) -> ProtectedResourceLeaseV1: ...
 
-    def release(self, lease: ProtectedResourceLeaseV1) -> None: ...
+    def reconcile(
+        self, call: ProtectedToolCallV1, effect: ProtectedToolEffectV1
+    ) -> None: ...
 
 
 class ProtectedToolAdapter(Protocol):
@@ -469,6 +471,7 @@ class ProtectedToolBroker:
         observation = self.store.get_observation(canonical_call.call_request_id)
         existing = observation["effect"]
         if existing is not None:
+            self.resource_guard.reconcile(canonical_call, existing)
             return ProtectedBrokerResultV1(
                 call=canonical_call,
                 effect=existing,
@@ -480,6 +483,7 @@ class ProtectedToolBroker:
             unknown = self._materialize_unknown_after_restart(
                 canonical_call, observation
             )
+            self.resource_guard.reconcile(canonical_call, unknown)
             return ProtectedBrokerResultV1(
                 call=canonical_call,
                 effect=unknown,
@@ -533,6 +537,7 @@ class ProtectedToolBroker:
                 effect = self._materialize_unknown_after_restart(
                     canonical_call, observation
                 )
+            self.resource_guard.reconcile(canonical_call, effect)
             return ProtectedBrokerResultV1(
                 call=canonical_call,
                 effect=effect,
@@ -558,6 +563,7 @@ class ProtectedToolBroker:
                 completed_at=self.clock(),
             )
             stored, _created = self.store.record_effect(effect)
+            self.resource_guard.reconcile(canonical_call, stored)
             return ProtectedBrokerResultV1(
                 call=canonical_call,
                 effect=stored,
@@ -578,8 +584,7 @@ class ProtectedToolBroker:
             completed_at=self.clock(),
         )
         stored, _created = self.store.record_effect(effect)
-        if stored.disposition != "outcome_unknown":
-            self.resource_guard.release(lease)
+        self.resource_guard.reconcile(canonical_call, stored)
         return ProtectedBrokerResultV1(
             call=canonical_call,
             effect=stored,

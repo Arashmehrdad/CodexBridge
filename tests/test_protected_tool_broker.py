@@ -302,9 +302,10 @@ class FakeResourceGuard:
             evidence_hash=_hash("f"),
         )
 
-    def release(self, lease: ProtectedResourceLeaseV1) -> None:
-        self.release_calls += 1
-        self.held.discard(lease.resource_key)
+    def reconcile(self, call: ProtectedToolCallV1, effect) -> None:
+        if effect.disposition in {"acknowledged", "rejected"}:
+            self.release_calls += 1
+            self.held.discard(call.resource_key)
 
 
 class FakeProtectedAdapter:

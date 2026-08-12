@@ -9,7 +9,7 @@ from typing import Final
 
 
 PROTECTED_TOOL_SCHEMA_COMPONENT: Final[str] = "protected_tools"
-PROTECTED_TOOL_SCHEMA_VERSION: Final[int] = 1
+PROTECTED_TOOL_SCHEMA_VERSION: Final[int] = 2
 
 MIGRATION_TABLE_SQL: Final[str] = """
 CREATE TABLE IF NOT EXISTS soma_schema_migrations (
@@ -120,8 +120,62 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     """,
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    """
+    CREATE TABLE protected_resource_leases (
+        lease_ref TEXT PRIMARY KEY,
+        resource_key TEXT NOT NULL,
+        call_request_id TEXT NOT NULL UNIQUE,
+        request_hash TEXT NOT NULL CHECK(length(request_hash) = 64),
+        task_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        owner_ref TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('held', 'uncertain', 'released', 'contained')),
+        acquired_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolution_evidence_ref TEXT NOT NULL DEFAULT '',
+        resolution_evidence_hash TEXT NOT NULL DEFAULT '',
+        CHECK(length(resource_key) > 0),
+        CHECK(length(task_id) > 0),
+        CHECK(length(attempt_id) > 0),
+        CHECK(length(owner_ref) > 0),
+        CHECK(
+            (resolution_evidence_ref = '' AND resolution_evidence_hash = '')
+            OR (resolution_evidence_ref <> '' AND length(resolution_evidence_hash) = 64)
+        ),
+        FOREIGN KEY(call_request_id)
+            REFERENCES protected_tool_calls(call_request_id) ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX idx_protected_resource_active_key
+    ON protected_resource_leases(resource_key)
+    WHERE state IN ('held', 'uncertain')
+    """,
+    "CREATE INDEX idx_protected_resource_state "
+    "ON protected_resource_leases(state, updated_at)",
+    """
+    CREATE TRIGGER protected_resource_lease_identity_immutable
+    BEFORE UPDATE OF
+        lease_ref, resource_key, call_request_id, request_hash,
+        task_id, attempt_id, owner_ref, acquired_at
+    ON protected_resource_leases
+    BEGIN
+        SELECT RAISE(ABORT, 'protected resource lease identity is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER protected_resource_leases_no_delete
+    BEFORE DELETE ON protected_resource_leases
+    BEGIN
+        SELECT RAISE(ABORT, 'protected resource lease history is immutable');
+    END
+    """,
+)
+
 PROTECTED_TOOL_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "protected_tool_foundation", _MIGRATION_0001),
+    (2, "protected_resource_serialization", _MIGRATION_0002),
 )
 
 PROTECTED_TOOL_TABLE_NAMES: Final[tuple[str, ...]] = (
@@ -129,6 +183,7 @@ PROTECTED_TOOL_TABLE_NAMES: Final[tuple[str, ...]] = (
     "protected_tool_provider_provenance",
     "protected_tool_delivery",
     "protected_tool_effects",
+    "protected_resource_leases",
 )
 
 
