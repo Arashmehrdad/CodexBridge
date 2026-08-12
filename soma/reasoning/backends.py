@@ -90,6 +90,8 @@ class ReasoningBackendObservationV1(_FrozenBackendModel):
     result_hash: str | None = None
     evidence_index_ref: str | None = Field(default=None, max_length=2048)
     evidence_index_hash: str | None = None
+    raw_provider_evidence_root_ref: str | None = Field(default=None, max_length=2048)
+    raw_provider_evidence_root_hash: str | None = None
     usage_summary: dict[str, Any] | None = None
     error_code: str | None = Field(default=None, max_length=256)
     cancellation_disposition: CancellationDisposition = "not_requested"
@@ -105,6 +107,7 @@ class ReasoningBackendObservationV1(_FrozenBackendModel):
             ("last_event_cursor", self.last_event_cursor),
             ("result_ref", self.result_ref),
             ("evidence_index_ref", self.evidence_index_ref),
+            ("raw_provider_evidence_root_ref", self.raw_provider_evidence_root_ref),
             ("cancellation_evidence_ref", self.cancellation_evidence_ref),
         ):
             if ref is not None:
@@ -112,6 +115,7 @@ class ReasoningBackendObservationV1(_FrozenBackendModel):
         for field, value in (
             ("result_hash", self.result_hash),
             ("evidence_index_hash", self.evidence_index_hash),
+            ("raw_provider_evidence_root_hash", self.raw_provider_evidence_root_hash),
             ("cancellation_evidence_hash", self.cancellation_evidence_hash),
         ):
             if value is not None:
@@ -121,6 +125,12 @@ class ReasoningBackendObservationV1(_FrozenBackendModel):
         if bool(self.evidence_index_ref) != bool(self.evidence_index_hash):
             raise ValueError(
                 "evidence_index_ref and evidence_index_hash must appear together"
+            )
+        if bool(self.raw_provider_evidence_root_ref) != bool(
+            self.raw_provider_evidence_root_hash
+        ):
+            raise ValueError(
+                "raw_provider_evidence_root_ref and raw_provider_evidence_root_hash must appear together"
             )
         if bool(self.cancellation_evidence_ref) != bool(
             self.cancellation_evidence_hash

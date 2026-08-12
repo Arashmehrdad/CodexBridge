@@ -506,6 +506,41 @@ class ReasoningBackendStore:
                 ),
             )
 
+    def record_terminal_evidence(
+        self,
+        *,
+        backend_ref: str,
+        raw_provider_evidence_root_ref: str,
+        raw_provider_evidence_root_hash: str,
+        error_code: str,
+        now: str | None = None,
+    ) -> None:
+        validate_opaque(
+            raw_provider_evidence_root_ref,
+            "raw_provider_evidence_root_ref",
+            max_length=2048,
+        )
+        validate_sha256(
+            raw_provider_evidence_root_hash, "raw_provider_evidence_root_hash"
+        )
+        validate_opaque(error_code, "error_code", max_length=256)
+        timestamp = now or utc_now()
+        with self._transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE reasoning_backend_runs SET raw_provider_evidence_root_ref = ?, "
+                "raw_provider_evidence_root_hash = ?, error_code = ?, updated_at = ? "
+                "WHERE backend_ref = ?",
+                (
+                    raw_provider_evidence_root_ref,
+                    raw_provider_evidence_root_hash,
+                    error_code,
+                    timestamp,
+                    backend_ref,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ReasoningBackendStateError("backend_ref does not exist")
+
     def record_cancelled(
         self,
         *,
@@ -625,6 +660,12 @@ class ReasoningBackendStore:
             result_hash=self._optional(row["result_hash"]),
             evidence_index_ref=self._optional(row["evidence_index_ref"]),
             evidence_index_hash=self._optional(row["evidence_index_hash"]),
+            raw_provider_evidence_root_ref=self._optional(
+                row["raw_provider_evidence_root_ref"]
+            ),
+            raw_provider_evidence_root_hash=self._optional(
+                row["raw_provider_evidence_root_hash"]
+            ),
             usage_summary=self._usage(str(row["usage_summary_json"])),
             error_code=self._optional(row["error_code"]),
             cancellation_disposition=str(row["cancellation_disposition"]),

@@ -223,6 +223,7 @@ class CodexTurnEvidence:
     events: tuple[dict[str, Any], ...]
     agent_message: str
     token_usage_events: tuple[dict[str, Any], ...]
+    terminal_error: Any | None = None
 
 
 class CodexAppServerClient:
@@ -598,6 +599,7 @@ class CodexAppServerClient:
                         events=tuple(observed),
                         agent_message=agent_message,
                         token_usage_events=tuple(usage_events),
+                        terminal_error=completed.get("error"),
                     )
 
         while True:
@@ -628,6 +630,7 @@ class CodexAppServerClient:
                 events=tuple(observed),
                 agent_message=agent_message,
                 token_usage_events=tuple(usage_events),
+                terminal_error=completed.get("error"),
             )
 
     @staticmethod

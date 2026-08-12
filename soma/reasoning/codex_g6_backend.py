@@ -401,8 +401,20 @@ class CodexG6ReasoningBackend:
         binding_hash: str,
         provider_status: str,
         terminal_claim: str,
-        event_count: int,
+        events: tuple[dict[str, Any], ...],
+        terminal_error: Any | None,
     ) -> None:
+        terminal_evidence = {
+            "schema": "soma.reasoning.codex_g6.terminal_evidence.v1",
+            "provider_operation_ref": operation_ref,
+            "provider_status": provider_status,
+            "provider_terminal_claim": terminal_claim,
+            "terminal_error": terminal_error,
+            "events": list(events),
+        }
+        terminal_ref, terminal_hash = self._artifact(
+            backend_ref, "provider_terminal_evidence.json", terminal_evidence
+        )
         self.store.record_accepted_bound(
             backend_ref=backend_ref,
             provider_operation_ref=operation_ref,
@@ -411,7 +423,13 @@ class CodexG6ReasoningBackend:
             provider_status_raw=provider_status,
             provider_terminal_claim=terminal_claim,
             output_contract_disposition="not_available",
-            last_event_cursor=str(event_count),
+            last_event_cursor=str(len(events)),
+        )
+        self.store.record_terminal_evidence(
+            backend_ref=backend_ref,
+            raw_provider_evidence_root_ref=terminal_ref,
+            raw_provider_evidence_root_hash=terminal_hash,
+            error_code=f"provider_terminal_{terminal_claim}",
         )
 
     def start(
@@ -530,7 +548,8 @@ class CodexG6ReasoningBackend:
                     binding_hash=binding_hash,
                     provider_status="interrupted",
                     terminal_claim="incomplete",
-                    event_count=len(turn.events),
+                    events=turn.events,
+                    terminal_error=turn.terminal_error,
                 )
                 return self.query(backend_ref)
             if turn.status != "completed":
@@ -541,7 +560,8 @@ class CodexG6ReasoningBackend:
                     binding_hash=binding_hash,
                     provider_status=turn.status or "failed",
                     terminal_claim="failure",
-                    event_count=len(turn.events),
+                    events=turn.events,
+                    terminal_error=turn.terminal_error,
                 )
                 return self.query(backend_ref)
 
