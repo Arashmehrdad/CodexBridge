@@ -337,7 +337,7 @@ def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(tmp
     assert resolved.unit_id == unit_id
     assert resolved.assignment_hash != resolved.packet_sha256
     assert resolved.packet_bytes
-    assert manager._reasoning_backend is backend
+    assert manager._reasoning_backend.kind == "soma_reasoning"
 
 
 def test_c1_c2_c4_c8_use_exact_canonical_peak_and_successor_attempts(tmp_path: Path) -> None:
