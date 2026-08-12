@@ -35,6 +35,7 @@ BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 MAX_BENCHMARK_LINE_SPAN: Final[int] = 24
+BenchmarkFactValue = str | int | float | bool | None
 
 
 class BenchmarkSemanticValidationError(ValueError):
@@ -64,7 +65,7 @@ class BenchmarkSemanticEvidenceV1(_FrozenBenchmarkModel):
     end_line: int = Field(ge=1)
     excerpt: str = Field(min_length=1, max_length=512)
     fact_key: str = Field(min_length=1, max_length=256)
-    fact_value: Any
+    fact_value: BenchmarkFactValue
 
     @model_validator(mode="after")
     def _validate_lines(self):
@@ -188,8 +189,33 @@ def parse_assignment_packet(packet_bytes: bytes) -> dict[str, Any]:
     return packet
 
 
+def _strict_provider_schema(value: Any) -> Any:
+    """Normalize Pydantic JSON Schema to the provider strict-output contract.
+
+    Structured Outputs requires every declared object property to appear in
+    ``required``. Defaults are validation conveniences for local Pydantic models,
+    not provider output semantics, so they are removed from the wire schema.
+    """
+
+    if isinstance(value, list):
+        return [_strict_provider_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    normalized = {
+        key: _strict_provider_schema(item)
+        for key, item in value.items()
+        if key != "default"
+    }
+    properties = normalized.get("properties")
+    if isinstance(properties, dict):
+        normalized["additionalProperties"] = False
+        normalized["required"] = list(properties)
+    return normalized
+
+
 def semantic_output_schema() -> dict[str, Any]:
-    return BenchmarkSemanticPayloadV1.model_json_schema()
+    return _strict_provider_schema(BenchmarkSemanticPayloadV1.model_json_schema())
 
 
 def semantic_prompt(packet_bytes: bytes) -> str:
