@@ -1,0 +1,346 @@
+"""Durable real-provider runtime wiring for the frozen G6 benchmark.
+
+This module keeps benchmark state isolated under a dedicated runs directory while
+using the real Company Kernel, ProjectScope, canonical Task, reasoning store,
+and Codex G6 backend implementations. It also enforces a durable conservative
+model-turn ceiling before a benchmark trial may start.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from soma.agent_worker_benchmark import (
+    build_g6_plan_graph_manifest,
+    work_package_contract_materials,
+)
+from soma.agent_worker_benchmark_runner import G6TrialResultV1, run_g6_trial
+from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
+from soma.company_kernel.service import accept_plan_graph
+from soma.company_kernel.store import CompanyKernelStore
+from soma.config import AppConfig
+from soma.project_scope import ProjectScopeStore
+from soma.reasoning.codex_g6_backend import (
+    CODEX_G6_MODEL,
+    CodexG6ReasoningBackend,
+    default_codex_g6_client_factory,
+    default_codex_g6_preflight,
+)
+from soma.reasoning.store import ReasoningBackendStore
+from soma.tasks.manager import TaskManager
+from soma.tasks.store import TaskStore
+
+
+G6_REAL_COMPANY_ID = "company_" + "c" * 24
+G6_REAL_MISSION_ID = "mission_" + "d" * 24
+G6_REAL_PROJECT_ID = "Project_G6_Real_Benchmark"
+G6_REAL_RESOURCE_ID = "Resource_G6_Real_Benchmark"
+G6_REAL_OWNER = "owner-controller:g6-real-benchmark"
+G6_REAL_CREATED_AT = "2026-08-13T00:00:00+00:00"
+G6_QUOTA_SCHEMA = "soma.agent_worker_benchmark.provider_quota.v1"
+
+
+class G6RuntimeError(RuntimeError):
+    """The real G6 runtime cannot preserve identity, isolation, or quota."""
+
+
+@dataclass(frozen=True)
+class G6Runtime:
+    repo_root: Path
+    repo_name: str
+    runs_dir: Path
+    config: AppConfig
+    task_store: TaskStore
+    scope_store: ProjectScopeStore
+    kernel_store: CompanyKernelStore
+    reasoning_store: ReasoningBackendStore
+    reasoning_backend: CodexG6ReasoningBackend
+    task_manager: TaskManager
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    payload = json.dumps(
+        dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
+    with temporary.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def _ensure_company_and_mission(kernel: CompanyKernelStore) -> None:
+    mission_contract = {
+        "purpose": "run the frozen G6 real-provider canonical concurrency benchmark"
+    }
+    with kernel.connect() as conn:
+        company = conn.execute(
+            "SELECT * FROM companies WHERE company_id = ?", (G6_REAL_COMPANY_ID,)
+        ).fetchone()
+        if company is None:
+            conn.execute(
+                "INSERT INTO companies(company_id, company_key, display_name, "
+                "executive_authority_ref, creation_request_id, creation_request_hash, created_at) "
+                "VALUES (?, 'g6-real-company', 'G6 Real Benchmark Company', ?, ?, ?, ?)",
+                (
+                    G6_REAL_COMPANY_ID,
+                    G6_REAL_OWNER,
+                    "g6-real-company-create",
+                    _sha256_text("g6-real-company-create"),
+                    G6_REAL_CREATED_AT,
+                ),
+            )
+        elif str(company["executive_authority_ref"]) != G6_REAL_OWNER:
+            raise G6RuntimeError("existing G6 benchmark Company authority drifted")
+
+        mission = conn.execute(
+            "SELECT * FROM missions WHERE mission_id = ?", (G6_REAL_MISSION_ID,)
+        ).fetchone()
+        if mission is None:
+            conn.execute(
+                """
+                INSERT INTO missions(
+                    mission_id, company_id, mission_key, project_id, resource_id,
+                    scope_generation, mission_contract_json, mission_contract_hash,
+                    accountable_owner_ref, acceptance_authority_ref,
+                    current_plan_revision_id, plan_state_version, kernel_state_version,
+                    creation_request_id, creation_request_hash, created_at, updated_at
+                ) VALUES (?, ?, 'g6-real-mission', ?, ?, 1, ?, ?, ?, ?, NULL, 0, 0, ?, ?, ?, ?)
+                """,
+                (
+                    G6_REAL_MISSION_ID,
+                    G6_REAL_COMPANY_ID,
+                    G6_REAL_PROJECT_ID,
+                    G6_REAL_RESOURCE_ID,
+                    canonical_json(mission_contract),
+                    canonical_hash(MISSION_ID_DOMAIN, mission_contract),
+                    G6_REAL_OWNER,
+                    G6_REAL_OWNER,
+                    "g6-real-mission-create",
+                    _sha256_text("g6-real-mission-create"),
+                    G6_REAL_CREATED_AT,
+                    G6_REAL_CREATED_AT,
+                ),
+            )
+        else:
+            durable = (
+                str(mission["company_id"]),
+                str(mission["project_id"]),
+                str(mission["resource_id"]),
+                int(mission["scope_generation"]),
+                str(mission["accountable_owner_ref"]),
+                str(mission["acceptance_authority_ref"]),
+            )
+            expected = (
+                G6_REAL_COMPANY_ID,
+                G6_REAL_PROJECT_ID,
+                G6_REAL_RESOURCE_ID,
+                1,
+                G6_REAL_OWNER,
+                G6_REAL_OWNER,
+            )
+            if durable != expected:
+                raise G6RuntimeError("existing G6 benchmark Mission identity drifted")
+        conn.commit()
+
+
+def _cached_preflight(
+    factory: Callable[[], Mapping[str, Any]],
+) -> Callable[[], Mapping[str, Any]]:
+    lock = threading.Lock()
+    cached: dict[str, Any] | None = None
+
+    def check() -> Mapping[str, Any]:
+        nonlocal cached
+        with lock:
+            if cached is None:
+                cached = dict(factory())
+            return dict(cached)
+
+    return check
+
+
+def prepare_g6_runtime(
+    *,
+    repo_root: Path,
+    base_config: AppConfig,
+    config_path: Path | None,
+    repo_name: str = "soma",
+    runtime_root: Path | None = None,
+    client_factory=None,
+    preflight=None,
+) -> G6Runtime:
+    """Create or reopen the isolated durable canonical G6 runtime."""
+
+    root = Path(repo_root).resolve()
+    if repo_name not in base_config.repos:
+        raise G6RuntimeError(f"repository {repo_name!r} is absent from configuration")
+    configured_root = Path(base_config.repos[repo_name].path).resolve()
+    if configured_root != root:
+        raise G6RuntimeError("configured G6 repository root does not match repo_root")
+
+    runs_dir = Path(
+        runtime_root or (root / "runs" / "agent_worker_benchmark" / "runtime")
+    ).resolve()
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    config = base_config.model_copy(update={"runs_dir": str(runs_dir)})
+
+    task_store = TaskStore(runs_dir)
+    scope = ProjectScopeStore(runs_dir)
+    scope.init_db()
+    scope.apply_bootstrap(
+        project_id=G6_REAL_PROJECT_ID,
+        project_key="g6-real-benchmark",
+        resource_id=G6_REAL_RESOURCE_ID,
+        repo_name=repo_name,
+        repository_root=root,
+        access_mode="exclusive",
+    )
+    scope.set_scoped_writes_enabled(True)
+
+    kernel = CompanyKernelStore(runs_dir)
+    kernel.init_db()
+    _ensure_company_and_mission(kernel)
+    graph = build_g6_plan_graph_manifest(
+        root,
+        mission_id=G6_REAL_MISSION_ID,
+        project_id=G6_REAL_PROJECT_ID,
+        resource_id=G6_REAL_RESOURCE_ID,
+        scope_generation=1,
+    )
+    accept_plan_graph(
+        kernel,
+        company_id=G6_REAL_COMPANY_ID,
+        mission_id=G6_REAL_MISSION_ID,
+        expected_current_plan_revision_id=None,
+        expected_plan_state_version=0,
+        expected_kernel_state_version=0,
+        project_id=G6_REAL_PROJECT_ID,
+        resource_id=G6_REAL_RESOURCE_ID,
+        scope_generation=1,
+        controller_request_id="g6-real-graph-accept",
+        accepted_by_ref=G6_REAL_OWNER,
+        acceptance_basis_ref="owner-authorized frozen G6 benchmark",
+        plan_contract_base={"purpose": "run frozen G6 real-provider benchmark"},
+        graph_manifest=graph,
+        work_package_contracts=work_package_contract_materials(root),
+        accepted_at=G6_REAL_CREATED_AT,
+    )
+
+    reasoning_store = ReasoningBackendStore(runs_dir)
+    from soma.agent_worker_benchmark_runner import (
+        make_g6_assignment_resolver,
+        make_g6_task_id_resolver,
+    )
+
+    effective_client_factory = client_factory or default_codex_g6_client_factory(root)
+    effective_preflight = preflight or default_codex_g6_preflight(root)
+    backend = CodexG6ReasoningBackend(
+        reasoning_store,
+        assignment_resolver=make_g6_assignment_resolver(kernel, root),
+        task_id_resolver=make_g6_task_id_resolver(task_store),
+        client_factory=effective_client_factory,
+        preflight=_cached_preflight(effective_preflight),
+        working_directory=root,
+    )
+    manager = TaskManager(
+        config,
+        config_path,
+        reasoning_backend=backend,
+        store=task_store,
+        scope_store=scope,
+    )
+    return G6Runtime(
+        repo_root=root,
+        repo_name=repo_name,
+        runs_dir=runs_dir,
+        config=config,
+        task_store=task_store,
+        scope_store=scope,
+        kernel_store=kernel,
+        reasoning_store=reasoning_store,
+        reasoning_backend=backend,
+        task_manager=manager,
+    )
+
+
+def provider_send_boundaries_crossed(runtime: G6Runtime) -> int:
+    """Conservatively count starts that crossed the durable provider send boundary."""
+
+    db_path = runtime.runs_dir / "soma.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM reasoning_backend_start_attempts "
+                "WHERE disposition IN ('outcome_unknown', 'accepted_bound', 'rejected')"
+            ).fetchone()[0]
+        )
+
+
+def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any]:
+    """Freeze one durable G6 quota ceiling; changing it requires a new explicit act."""
+
+    if ceiling < 1:
+        raise G6RuntimeError("model-turn ceiling must be positive")
+    path = runtime.runs_dir / "provider_quota.json"
+    used = provider_send_boundaries_crossed(runtime)
+    expected = {
+        "schema_version": G6_QUOTA_SCHEMA,
+        "provider_route": "codex_app_server_chatgpt",
+        "model": CODEX_G6_MODEL,
+        "model_turn_ceiling": int(ceiling),
+    }
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing != expected:
+            raise G6RuntimeError(
+                "durable G6 model-turn ceiling differs from requested ceiling"
+            )
+    else:
+        if used > ceiling:
+            raise G6RuntimeError("observed provider sends already exceed requested ceiling")
+        _atomic_json(path, expected)
+    return {**expected, "provider_send_boundaries_crossed": used}
+
+
+def run_real_g6_trial(
+    runtime: G6Runtime,
+    *,
+    phase: str,
+    concurrency: int,
+    repetition: int,
+    model_turn_ceiling: int,
+) -> G6TrialResultV1:
+    """Run one real trial only when eight worst-case new sends fit the frozen ceiling."""
+
+    quota = ensure_model_turn_ceiling(runtime, model_turn_ceiling)
+    used = int(quota["provider_send_boundaries_crossed"])
+    if used + 8 > model_turn_ceiling:
+        raise G6RuntimeError(
+            f"G6 quota would be exceeded: used={used}, worst_case_new=8, ceiling={model_turn_ceiling}"
+        )
+    return run_g6_trial(
+        task_manager=runtime.task_manager,
+        kernel_store=runtime.kernel_store,
+        repo_root=runtime.repo_root,
+        mission_id=G6_REAL_MISSION_ID,
+        repo_name=runtime.repo_name,
+        phase=phase,
+        canonical_concurrency_limit=concurrency,
+        repetition_index=repetition,
+        submission_loader=runtime.reasoning_backend.load_evidence_submission,
+        assessment_loader=runtime.reasoning_backend.load_benchmark_assessment,
+    )
