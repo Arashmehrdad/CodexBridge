@@ -22,9 +22,7 @@ from typing import Any, Callable, Final, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from soma.company_kernel import canonical_json
 from soma.company_kernel.admission import (
-    AdmissionError,
     AdmissionRequestV1,
     admit_reasoning_work_package,
 )
