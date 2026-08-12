@@ -10,6 +10,7 @@ from soma.agent_worker_benchmark_runtime import (
     G6_REAL_MISSION_ID,
     ensure_model_turn_ceiling,
     prepare_g6_runtime,
+    provider_model_generations_observed,
     provider_send_boundaries_crossed,
     run_real_g6_trial,
 )
@@ -64,6 +65,7 @@ def main() -> int:
             "provider_send_boundaries_crossed": provider_send_boundaries_crossed(
                 runtime
             ),
+            "model_generations_observed": provider_model_generations_observed(runtime),
         }
     else:
         output = {

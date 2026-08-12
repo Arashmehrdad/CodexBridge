@@ -534,6 +534,19 @@ class CodexG6ReasoningBackend:
                 timeout_seconds=float(spec.budgets.wall_time_seconds),
             )
             wall_time = max(0.0, time.monotonic() - started_at)
+            usage = extract_usage(turn.token_usage_events)
+            if turn.agent_message or usage.total_tokens > 0:
+                self._artifact(
+                    backend_ref,
+                    "model_generation_observed.json",
+                    {
+                        "schema": "soma.reasoning.codex_g6.model_generation_observed.v1",
+                        "provider_operation_ref": operation_ref,
+                        "provider_status": turn.status,
+                        "agent_message_present": bool(turn.agent_message),
+                        "usage": usage.model_dump(mode="json"),
+                    },
+                )
             if turn.status == "interrupted":
                 current = self.store.query(backend_ref)
                 if current.cancellation_disposition == "uncertain":
@@ -591,7 +604,6 @@ class CodexG6ReasoningBackend:
                 event_ref, event_hash = self._artifact(
                     backend_ref, "provider_events.json", list(turn.events)
                 )
-                usage = extract_usage(turn.token_usage_events)
                 usage_ref, usage_hash = self._artifact(
                     backend_ref, "usage.json", usage.model_dump(mode="json")
                 )

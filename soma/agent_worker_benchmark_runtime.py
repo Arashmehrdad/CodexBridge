@@ -290,6 +290,42 @@ def provider_send_boundaries_crossed(runtime: G6Runtime) -> int:
         )
 
 
+def provider_model_generations_observed(runtime: G6Runtime) -> int:
+    """Count durable evidence that a provider request actually reached generation."""
+
+    db_path = runtime.runs_dir / "soma.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT backend_ref, provider_operation_ref FROM reasoning_backend_runs"
+        ).fetchall()
+    observed = 0
+    for backend_ref, operation_ref in rows:
+        marker = (
+            runtime.runs_dir
+            / "reasoning_backend_evidence"
+            / str(backend_ref)
+            / "model_generation_observed.json"
+        )
+        if not marker.exists():
+            continue
+        try:
+            value = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise G6RuntimeError(
+                f"invalid durable generation marker for {backend_ref}"
+            ) from exc
+        if (
+            value.get("schema")
+            != "soma.reasoning.codex_g6.model_generation_observed.v1"
+            or value.get("provider_operation_ref") != str(operation_ref)
+        ):
+            raise G6RuntimeError(
+                f"generation marker identity mismatch for {backend_ref}"
+            )
+        observed += 1
+    return observed
+
+
 def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any]:
     """Freeze one durable G6 quota ceiling; changing it requires a new explicit act."""
 
@@ -315,7 +351,11 @@ def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any
                 "observed provider sends already exceed requested ceiling"
             )
         _atomic_json(path, expected)
-    return {**expected, "provider_send_boundaries_crossed": used}
+    return {
+        **expected,
+        "provider_send_boundaries_crossed": used,
+        "model_generations_observed": provider_model_generations_observed(runtime),
+    }
 
 
 def run_real_g6_trial(
@@ -329,10 +369,11 @@ def run_real_g6_trial(
     """Run one real trial only when eight worst-case new sends fit the frozen ceiling."""
 
     quota = ensure_model_turn_ceiling(runtime, model_turn_ceiling)
-    used = int(quota["provider_send_boundaries_crossed"])
-    if used + 8 > model_turn_ceiling:
+    generated = int(quota["model_generations_observed"])
+    if generated + 8 > model_turn_ceiling:
         raise G6RuntimeError(
-            f"G6 quota would be exceeded: used={used}, worst_case_new=8, ceiling={model_turn_ceiling}"
+            "G6 model-generation ceiling would be exceeded: "
+            f"generated={generated}, worst_case_new=8, ceiling={model_turn_ceiling}"
         )
     return run_g6_trial(
         task_manager=runtime.task_manager,
