@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
@@ -190,6 +190,7 @@ class _ActiveSession:
     client: CodexG6Client
     thread_id: str
     turn_id: str = ""
+    binding_settled: threading.Event = field(default_factory=threading.Event)
 
 
 class CodexG6BackendError(RuntimeError):
@@ -439,6 +440,7 @@ class CodexG6ReasoningBackend:
                 last_event_cursor="0",
             )
             bound = True
+            session.binding_settled.set()
 
             started_at = time.monotonic()
             turn = client.wait_for_turn_completed(
@@ -583,6 +585,8 @@ class CodexG6ReasoningBackend:
                 return self.query(backend_ref)
             raise
         finally:
+            if session is not None:
+                session.binding_settled.set()
             with self._active_lock:
                 current = self._active.get(backend_ref)
                 if current is session:
@@ -621,6 +625,17 @@ class CodexG6ReasoningBackend:
         observation = self.query(backend_ref)
         if not observation.exists:
             return observation
+
+        with self._active_lock:
+            active = self._active.get(backend_ref)
+        if (
+            observation.provider_binding_disposition != "bound"
+            and active is not None
+            and not active.binding_settled.is_set()
+        ):
+            active.binding_settled.wait(timeout=5)
+            observation = self.query(backend_ref)
+
         operation_ref = observation.provider_operation_ref or ""
         if observation.provider_binding_disposition != "bound" or not operation_ref:
             evidence_ref, evidence_hash = self._cancellation_evidence(
