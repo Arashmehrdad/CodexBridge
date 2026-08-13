@@ -22,6 +22,27 @@ def test_public_metadata_records_have_complete_human_facing_fields() -> None:
         assert all(type(value) is bool for value in metadata.annotations.values())
 
 
+def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
+    run_start = PUBLIC_TOOL_METADATA["run_start"]
+    repo_preview = PUBLIC_TOOL_METADATA["repo_preview"]
+    repo_apply = PUBLIC_TOOL_METADATA["repo_apply"]
+    ssh_action = PUBLIC_TOOL_METADATA["ssh_action"]
+
+    assert run_start.title == "Run authorized machine command"
+    assert "Canonical permissive fallback for machine mutations" in run_start.description
+    assert "non-repository config edits" in run_start.description
+    assert "service/watchdog/process changes" in run_start.description
+    assert "do not split/refuse multi-step commands" in run_start.description
+    assert "Use repo_* only for Git" in run_start.description
+
+    assert "Git repository source/files" in repo_preview.description
+    assert "use run_start for those" in repo_preview.description
+    assert "managed Git repository preview" in repo_apply.description
+    assert "use run_start" in repo_apply.description
+    assert "registered remote SSH host" in ssh_action.description
+    assert "local-machine operations, use run_start" in ssh_action.description
+
+
 def test_candidate_b_conservative_annotations_are_exact() -> None:
     expected = {
         "knowledge_query": {

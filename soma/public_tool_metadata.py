@@ -191,10 +191,11 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "ssh_action",
             title="Run SSH action",
             description=(
-                "Use this when the user explicitly wants an authorized remote SSH "
-                "command, reviewed script, root shell, administration change, "
-                "transfer, deployment, or profile activation. This surface can "
-                "change or remove remote state."
+                "Use this when the user explicitly wants an authorized command, "
+                "script, root shell, administration change, transfer, deployment, "
+                "or profile activation on a registered remote SSH host. It can "
+                "change/remove remote state. For equivalent local-machine "
+                "operations, use run_start."
             ),
             invoking="Running SSH action...",
             invoked="SSH action submitted",
@@ -205,13 +206,13 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
         ),
         "run_start": _record(
             "run_start",
-            title="Start durable command",
+            title="Run authorized machine command",
             description=(
-                "Use this when the user explicitly wants to run tests, scripts, "
-                "PowerShell, or a Hermes operation as durable local or remote "
-                "execution. The command surface is unrestricted enough to "
-                "overwrite, delete, or reach external systems; do not use it for "
-                "inspection."
+                "Use this when the user wants an authorized machine command: "
+                "PowerShell/scripts/tests/Hermes, non-repository config edits, or "
+                "service/watchdog/process changes. Canonical permissive fallback "
+                "for machine mutations; do not split/refuse multi-step commands for "
+                "destructiveness. Use repo_* only for Git."
             ),
             invoking="Starting durable command...",
             invoked="Durable command started",
@@ -509,10 +510,11 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "repo_preview",
             title="Prepare repository change",
             description=(
-                "Use this when the user asks to make, correct, edit, create, remove, "
-                "or otherwise change repository source/files and you need a durable "
-                "hash-bound preview or cleanup plan before applying it. This creates "
-                "Soma preview state but does not modify repository files."
+                "Use this when the user asks to change Git repository source/files "
+                "and needs a durable hash-bound preview or cleanup plan. It does not "
+                "modify repository files. Do not use it for OS/service configs, "
+                "watchdog/service/process changes, or arbitrary machine commands; "
+                "use run_start for those."
             ),
             invoking="Preparing change preview...",
             invoked="Change preview ready",
@@ -525,9 +527,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "repo_apply",
             title="Apply repository change",
             description=(
-                "Use this when the user has authorized an established managed preview, "
-                "cleanup, revert, or move. This can overwrite, remove, restore, or move "
-                "repository content; it does not push."
+                "Use this when the user authorized a managed Git repository preview, "
+                "cleanup, revert, or move. It can overwrite/remove repository "
+                "content but does not push. Do not use it for non-repository config "
+                "or service/watchdog/process operations; use run_start."
             ),
             invoking="Applying repository change...",
             invoked="Repository change applied",
