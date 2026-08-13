@@ -382,27 +382,27 @@ def validate_semantic_against_packet(
             )
         claims_by_key.setdefault(claim.subject_key, []).append(claim)
 
-    evidence_by_citation = {item.citation_id: item for item in payload.evidence}
     catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
-    for evidence in payload.evidence:
-        if evidence.fact_key not in allowed_fact_keys:
-            raise BenchmarkSemanticValidationError(
-                f"evidence fact_key {evidence.fact_key!r} is not assignment-provided"
-            )
-        if evidence.citation_id not in catalog:
-            raise BenchmarkSemanticValidationError(
-                f"evidence citation_id {evidence.citation_id!r} is not in the "
-                "mechanically derived assignment citation catalog"
-            )
-
+    referenced_citations: list[str] = []
     for claim in payload.claims:
-        linked = [
-            evidence_by_citation[item] for item in claim.supports_citation_ids
-        ] + [evidence_by_citation[item] for item in claim.opposes_citation_ids]
-        if any(item.fact_key != claim.subject_key for item in linked):
-            raise BenchmarkSemanticValidationError(
-                f"claim {claim.claim_id} cites evidence for another fact key"
-            )
+        referenced_citations.extend(claim.supports_citation_ids)
+        referenced_citations.extend(claim.opposes_citation_ids)
+    referenced_citations.extend(payload.critical_trap.supports_citation_ids)
+    unknown_citations = set(referenced_citations) - set(catalog)
+    if unknown_citations:
+        raise BenchmarkSemanticValidationError(
+            "semantic payload references citation IDs outside the mechanically "
+            f"derived assignment catalog: {sorted(unknown_citations)}"
+        )
+    claim_evidence_count = sum(
+        len(claim.supports_citation_ids) + len(claim.opposes_citation_ids)
+        for claim in payload.claims
+    )
+    if claim_evidence_count > MAX_EVIDENCE_RECORDS:
+        raise BenchmarkSemanticValidationError(
+            "claim citation references exceed final EvidenceSubmission evidence cap: "
+            f"{claim_evidence_count} > {MAX_EVIDENCE_RECORDS}"
+        )
 
     missing_claim_keys = allowed_fact_keys - set(claims_by_key)
     if payload.submission_disposition == "complete" and missing_claim_keys:
@@ -475,26 +475,33 @@ def build_evidence_submission(
     )
 
     catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
-    citation_to_evidence_id = {
-        item.citation_id: item.evidence_id for item in payload.evidence
-    }
-    evidence_records = tuple(
-        EvidenceRecordV1(
-            evidence_id=item.evidence_id,
-            source_kind="frozen_git_source",
-            source_ref=f"git:{SOURCE_COMMIT}:{catalog[item.citation_id].source_path}",
-            source_hash=catalog[item.citation_id].source_hash,
-            locator=(
-                f"lines:{catalog[item.citation_id].start_line}-"
-                f"{catalog[item.citation_id].end_line}"
-            ),
-            content_type="text/x-python",
-            excerpt=catalog[item.citation_id].excerpt,
-            fact_key=item.fact_key,
-            fact_value=item.fact_value,
-        )
-        for item in payload.evidence
-    )
+    evidence_records_list: list[EvidenceRecordV1] = []
+    claim_evidence_ids: dict[tuple[str, str, str], str] = {}
+    for claim in payload.claims:
+        for polarity, citation_ids in (
+            ("support", claim.supports_citation_ids),
+            ("oppose", claim.opposes_citation_ids),
+        ):
+            for citation_id in citation_ids:
+                evidence_id = "g6_evidence_" + sha256_hex(
+                    f"{claim.claim_id}\0{polarity}\0{citation_id}".encode("utf-8")
+                )[:24]
+                claim_evidence_ids[(claim.claim_id, polarity, citation_id)] = evidence_id
+                citation = catalog[citation_id]
+                evidence_records_list.append(
+                    EvidenceRecordV1(
+                        evidence_id=evidence_id,
+                        source_kind="frozen_git_source",
+                        source_ref=f"git:{SOURCE_COMMIT}:{citation.source_path}",
+                        source_hash=citation.source_hash,
+                        locator=f"lines:{citation.start_line}-{citation.end_line}",
+                        content_type="text/x-python",
+                        excerpt=citation.excerpt,
+                        fact_key=claim.subject_key,
+                        fact_value=claim.statement,
+                    )
+                )
+    evidence_records = tuple(evidence_records_list)
     provenance = tuple(
         EvidenceHashedReferenceV1(ref=ref, hash=digest)
         for ref, digest in provenance_refs
@@ -529,11 +536,12 @@ def build_evidence_submission(
                 subject_key=claim.subject_key,
                 statement=claim.statement,
                 supports_evidence_ids=tuple(
-                    citation_to_evidence_id[item]
+                    claim_evidence_ids[(claim.claim_id, "support", item)]
                     for item in claim.supports_citation_ids
                 ),
                 opposes_evidence_ids=tuple(
-                    citation_to_evidence_id[item] for item in claim.opposes_citation_ids
+                    claim_evidence_ids[(claim.claim_id, "oppose", item)]
+                    for item in claim.opposes_citation_ids
                 ),
                 uncertainty_ids=claim.uncertainty_ids,
             )
