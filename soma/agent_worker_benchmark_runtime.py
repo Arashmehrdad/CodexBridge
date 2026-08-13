@@ -372,6 +372,38 @@ def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any
     }
 
 
+def extend_model_turn_ceiling(
+    runtime: G6Runtime,
+    *,
+    expected_ceiling: int,
+    new_ceiling: int,
+) -> dict[str, Any]:
+    """Explicitly and monotonically extend the durable G6 model-generation ceiling."""
+
+    if new_ceiling <= expected_ceiling:
+        raise G6RuntimeError("new model-turn ceiling must exceed expected ceiling")
+    path = runtime.runs_dir / "provider_quota.json"
+    if not path.exists():
+        raise G6RuntimeError("durable G6 model-turn ceiling does not exist")
+    existing = json.loads(path.read_text(encoding="utf-8"))
+    expected_existing = {
+        "schema_version": G6_QUOTA_SCHEMA,
+        "provider_route": "codex_app_server_chatgpt",
+        "model": CODEX_G6_MODEL,
+        "model_turn_ceiling": int(expected_ceiling),
+    }
+    if existing != expected_existing:
+        raise G6RuntimeError(
+            "durable G6 model-turn ceiling does not match explicitly expected ceiling"
+        )
+    generated = provider_model_generations_observed(runtime)
+    if generated > new_ceiling:
+        raise G6RuntimeError("observed model generations already exceed new ceiling")
+    updated = {**expected_existing, "model_turn_ceiling": int(new_ceiling)}
+    _atomic_json(path, updated)
+    return ensure_model_turn_ceiling(runtime, new_ceiling)
+
+
 def _smoke_identity(
     runtime: G6Runtime, unit_id: str
 ) -> tuple[str, str, dict[str, Any]]:

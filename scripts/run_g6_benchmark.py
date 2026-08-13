@@ -9,6 +9,7 @@ from pathlib import Path
 from soma.agent_worker_benchmark_runtime import (
     G6_REAL_MISSION_ID,
     ensure_model_turn_ceiling,
+    extend_model_turn_ceiling,
     prepare_g6_runtime,
     provider_model_generations_observed,
     provider_send_boundaries_crossed,
@@ -22,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("setup", "preflight", "smoke", "trial", "status"),
+        choices=("setup", "preflight", "smoke", "trial", "status", "extend_ceiling"),
         required=True,
     )
     parser.add_argument(
@@ -36,6 +37,7 @@ def _parser() -> argparse.ArgumentParser:
         default="B01",
     )
     parser.add_argument("--model-turn-ceiling", type=int, default=32)
+    parser.add_argument("--expected-model-turn-ceiling", type=int)
     return parser
 
 
@@ -49,6 +51,24 @@ def main() -> int:
         config_path=config_path,
         repo_name="soma",
     )
+
+    if args.mode == "extend_ceiling":
+        if args.expected_model_turn_ceiling is None:
+            raise SystemExit("--expected-model-turn-ceiling is required for extend_ceiling")
+        quota = extend_model_turn_ceiling(
+            runtime,
+            expected_ceiling=args.expected_model_turn_ceiling,
+            new_ceiling=args.model_turn_ceiling,
+        )
+        print(
+            json.dumps(
+                {"mode": "extend_ceiling", "quota": quota},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+
     quota = ensure_model_turn_ceiling(runtime, args.model_turn_ceiling)
 
     if args.mode == "preflight":
