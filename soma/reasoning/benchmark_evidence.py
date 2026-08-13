@@ -42,6 +42,9 @@ BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.evidence_compaction.v1"
 )
+BENCHMARK_PACKET_SCHEMA_BINDING_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.packet_schema_binding.v1"
+)
 MAX_BENCHMARK_LINE_SPAN: Final[int] = 24
 CITATION_CHUNK_MAX_LINES: Final[int] = 4
 CITATION_CHUNK_MAX_CHARACTERS: Final[int] = 480
@@ -204,8 +207,55 @@ def _strict_provider_schema(value: Any) -> Any:
     return normalized
 
 
-def semantic_output_schema() -> dict[str, Any]:
-    return _strict_provider_schema(BenchmarkSemanticPayloadV1.model_json_schema())
+def packet_schema_binding_contract_hash() -> str:
+    return sha256_hex(
+        canonical_json_bytes(
+            {
+                "schema_version": BENCHMARK_PACKET_SCHEMA_BINDING_VERSION,
+                "claim_subject_key": "exact_assignment_fact_key_enum",
+                "citation_arrays": "exact_packet_catalog_enum_via_local_ref",
+                "citation_def_name": "BenchmarkPacketCitationId",
+            }
+        )
+    )
+
+
+def semantic_output_schema(packet_bytes: bytes | None = None) -> dict[str, Any]:
+    schema = _strict_provider_schema(BenchmarkSemanticPayloadV1.model_json_schema())
+    if packet_bytes is None:
+        return schema
+
+    packet = parse_assignment_packet(packet_bytes)
+    questions = packet.get("rubric", {}).get("questions", [])
+    fact_keys = [
+        str(item["fact_key"])
+        for item in questions
+        if isinstance(item, dict) and isinstance(item.get("fact_key"), str)
+    ]
+    if len(fact_keys) != len(questions) or len(fact_keys) != len(set(fact_keys)):
+        raise BenchmarkSemanticValidationError(
+            "assignment fact keys are invalid or duplicate"
+        )
+    citation_ids = [item.citation_id for item in citation_catalog(packet_bytes)]
+    if not citation_ids:
+        raise BenchmarkSemanticValidationError("assignment citation catalog is empty")
+
+    definitions = schema.setdefault("$defs", {})
+    definitions["BenchmarkPacketCitationId"] = {
+        "enum": citation_ids,
+        "type": "string",
+    }
+    claim_properties = definitions["BenchmarkSemanticClaimV1"]["properties"]
+    claim_properties["subject_key"] = {
+        "enum": fact_keys,
+        "type": "string",
+    }
+    citation_ref = {"$ref": "#/$defs/BenchmarkPacketCitationId"}
+    claim_properties["supports_citation_ids"]["items"] = dict(citation_ref)
+    claim_properties["opposes_citation_ids"]["items"] = dict(citation_ref)
+    trap_properties = definitions["BenchmarkCriticalTrapV1"]["properties"]
+    trap_properties["supports_citation_ids"]["items"] = dict(citation_ref)
+    return schema
 
 
 def _citation_chunks(lines: list[str]) -> list[tuple[int, int, str]]:

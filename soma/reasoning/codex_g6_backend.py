@@ -39,6 +39,7 @@ from .benchmark_evidence import (
     compact_claim_citations,
     evidence_compaction_contract_hash,
     extract_usage,
+    packet_schema_binding_contract_hash,
     parse_assignment_packet,
     parse_semantic_output,
     semantic_output_schema,
@@ -65,7 +66,7 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
-CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v6"
+CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v7"
 CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v4"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
@@ -109,6 +110,7 @@ def execution_contract_hash() -> str:
             "citation_catalog_contract_hash": citation_catalog_contract_hash(),
             "evidence_compaction_contract_hash": evidence_compaction_contract_hash(),
             "semantic_prompt_contract_hash": semantic_prompt_contract_hash(),
+            "packet_schema_binding_contract_hash": packet_schema_binding_contract_hash(),
             "model": CODEX_G6_MODEL,
             "effort": CODEX_G6_EFFORT,
             "protocol_manifest_sha256": CODEX_G6_PROTOCOL_MANIFEST_SHA256,
@@ -527,7 +529,7 @@ class CodexG6ReasoningBackend:
                 thread_id=thread_id,
                 prompt=semantic_prompt(packet),
                 client_user_message_id=client_message_id,
-                output_schema=semantic_output_schema(),
+                output_schema=semantic_output_schema(packet),
                 model=self.model,
                 effort=self.effort,
             )

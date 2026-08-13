@@ -155,7 +155,16 @@ class ScriptedG6Client:
         assert kwargs["thread_id"] == self.thread_id
         assert kwargs["model"] == CODEX_G6_MODEL
         assert kwargs["effort"] == "low"
-        assert kwargs["output_schema"]["additionalProperties"] is False
+        output_schema = kwargs["output_schema"]
+        assert output_schema["additionalProperties"] is False
+        assert "BenchmarkPacketCitationId" in output_schema["$defs"]
+        claim_properties = output_schema["$defs"]["BenchmarkSemanticClaimV1"][
+            "properties"
+        ]
+        assert claim_properties["subject_key"].get("enum")
+        assert claim_properties["supports_citation_ids"]["items"] == {
+            "$ref": "#/$defs/BenchmarkPacketCitationId"
+        }
         assert "Do not implement or modify anything" in kwargs["prompt"]
         if self.behavior == "ambiguous_ack":
             raise CodexAppServerTransportError("injected lost acknowledgement")

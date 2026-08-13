@@ -210,6 +210,42 @@ def test_provider_schema_has_no_parallel_evidence_list() -> None:
     assert "those two citation-id sets must be disjoint" in prompt.lower()
 
 
+def test_packet_bound_schema_enums_exact_fact_keys_and_catalog_ids() -> None:
+    packet = _packet()
+    packet_value = json.loads(packet)
+    schema = semantic_output_schema(packet)
+    definitions = schema["$defs"]
+    claim_properties = definitions["BenchmarkSemanticClaimV1"]["properties"]
+    trap_properties = definitions["BenchmarkCriticalTrapV1"]["properties"]
+    expected_fact_keys = [
+        item["fact_key"] for item in packet_value["rubric"]["questions"]
+    ]
+    expected_citations = [item.citation_id for item in citation_catalog(packet)]
+
+    assert claim_properties["subject_key"] == {
+        "enum": expected_fact_keys,
+        "type": "string",
+    }
+    assert definitions["BenchmarkPacketCitationId"] == {
+        "enum": expected_citations,
+        "type": "string",
+    }
+    citation_ref = {"$ref": "#/$defs/BenchmarkPacketCitationId"}
+    assert claim_properties["supports_citation_ids"]["items"] == citation_ref
+    assert claim_properties["opposes_citation_ids"]["items"] == citation_ref
+    assert trap_properties["supports_citation_ids"]["items"] == citation_ref
+    assert semantic_output_schema(packet) == schema
+
+
+def test_b06_packet_schema_excludes_observed_hallucinated_citation_ids() -> None:
+    packet = build_assignment_packet(REPO_ROOT, "B06")
+    schema = semantic_output_schema(packet)
+    allowed = set(schema["$defs"]["BenchmarkPacketCitationId"]["enum"])
+
+    assert allowed == {item.citation_id for item in citation_catalog(packet)}
+    assert {"S02C0051", "S02C0052", "S02C0054"}.isdisjoint(allowed)
+
+
 def test_unassigned_fact_key_is_rejected() -> None:
     value = _valid_payload_dict()
     value["claims"][0]["subject_key"] = "invented.semantic.key"
