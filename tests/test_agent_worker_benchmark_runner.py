@@ -14,12 +14,12 @@ from soma.agent_worker_benchmark import (
     build_g6_plan_graph_manifest,
     work_package_contract_materials,
 )
-from soma.agent_worker_benchmark_runner import (
-    G6BenchmarkRunnerError,
-    make_g6_assignment_resolver,
-    make_g6_task_id_resolver,
-    run_g6_trial,
-    validate_g6_plan,
+from soma.agent_worker_benchmark_runtime import (
+    G6Runtime,
+    G6RuntimeError,
+    provider_model_generations_observed,
+    provider_send_boundaries_crossed,
+    run_real_g6_smoke,
 )
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
 from soma.company_kernel.service import accept_plan_graph
@@ -330,7 +330,56 @@ def _run(
     )
 
 
-def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(
+def test_single_unit_smoke_is_replay_safe_and_generation_ceiling_is_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, backend, clients, kernel, _accepted = _environment(
+        tmp_path, delay_seconds=0
+    )
+    monkeypatch.setattr(
+        "soma.agent_worker_benchmark_runtime.G6_REAL_MISSION_ID", MISSION_ID
+    )
+    runtime = G6Runtime(
+        repo_root=REPO_ROOT,
+        repo_name="sample",
+        runs_dir=manager.store.runs_dir,
+        config=manager.config,
+        task_store=manager.store,
+        scope_store=manager.scope_store,
+        kernel_store=kernel,
+        reasoning_store=backend.store,
+        reasoning_backend=backend,
+        task_manager=manager,
+    )
+
+    first = run_real_g6_smoke(runtime, unit_id="B01", model_turn_ceiling=2)
+    assert first["success"] is True
+    assert first["created"] is True
+    assert first["replayed_stored_result"] is False
+    assert first["model_generations_observed"] == 1
+    assert first["provider_send_boundaries_crossed"] == 1
+    assert clients.created == 1
+
+    replay = run_real_g6_smoke(runtime, unit_id="B01", model_turn_ceiling=2)
+    assert replay["smoke_id"] == first["smoke_id"]
+    assert replay["replayed_stored_result"] is True
+    assert clients.created == 1
+    assert provider_model_generations_observed(runtime) == 1
+    assert provider_send_boundaries_crossed(runtime) == 1
+
+    second = run_real_g6_smoke(runtime, unit_id="B02", model_turn_ceiling=2)
+    assert second["success"] is True
+    assert second["model_generations_observed"] == 2
+    assert clients.created == 2
+
+    with pytest.raises(G6RuntimeError, match="ceiling would be exceeded by smoke"):
+        run_real_g6_smoke(runtime, unit_id="B03", model_turn_ceiling=2)
+    assert clients.created == 2
+    assert provider_model_generations_observed(runtime) == 2
+    assert provider_send_boundaries_crossed(runtime) == 2
+
+
     tmp_path: Path,
 ) -> None:
     manager, backend, _clients, kernel, accepted = _environment(
