@@ -21,6 +21,13 @@ from soma.agent_worker_benchmark_runner import (
     run_g6_trial,
     validate_g6_plan,
 )
+from soma.agent_worker_benchmark_runtime import (
+    G6Runtime,
+    G6RuntimeError,
+    provider_model_generations_observed,
+    provider_send_boundaries_crossed,
+    run_real_g6_smoke,
+)
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
 from soma.company_kernel.service import accept_plan_graph
 from soma.company_kernel.store import CompanyKernelStore
