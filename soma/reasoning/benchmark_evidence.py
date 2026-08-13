@@ -27,12 +27,13 @@ from soma.worker_evidence.models import (
     EvidenceSubmissionV1,
     EvidenceUncertaintyV1,
     EvidenceUsageV1,
+    MAX_EVIDENCE_RECORDS,
     EvidenceWorkIdentityV1,
 )
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.semantic.v3"
+    "soma.agent_worker_benchmark.semantic.v4"
 )
 BENCHMARK_CITATION_CATALOG_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.citation_catalog.v1"
@@ -65,16 +66,13 @@ class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
 
     @model_validator(mode="after")
     def _validate_citation_polarity(self):
+        if len(self.supports_citation_ids) != len(set(self.supports_citation_ids)):
+            raise ValueError("supports_citation_ids must be unique")
+        if len(self.opposes_citation_ids) != len(set(self.opposes_citation_ids)):
+            raise ValueError("opposes_citation_ids must be unique")
         if set(self.supports_citation_ids) & set(self.opposes_citation_ids):
             raise ValueError("one citation cannot both support and oppose one claim")
         return self
-
-
-class BenchmarkSemanticEvidenceV1(_FrozenBenchmarkModel):
-    evidence_id: str = Field(min_length=1, max_length=128)
-    citation_id: str = Field(min_length=1, max_length=128)
-    fact_key: str = Field(min_length=1, max_length=256)
-    fact_value: BenchmarkFactValue
 
 
 @dataclass(frozen=True)
@@ -112,7 +110,6 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
     submission_disposition: Literal["complete", "partial", "blocked", "uncertain"]
     executive_summary: str = Field(max_length=1024)
     claims: tuple[BenchmarkSemanticClaimV1, ...] = Field(max_length=12)
-    evidence: tuple[BenchmarkSemanticEvidenceV1, ...] = Field(max_length=24)
     uncertainties: tuple[BenchmarkSemanticUncertaintyV1, ...] = Field(max_length=12)
     blockers: tuple[BenchmarkSemanticBlockerV1, ...] = Field(max_length=8)
     critical_trap: BenchmarkCriticalTrapV1
@@ -120,33 +117,19 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
     @model_validator(mode="after")
     def _validate_local_refs(self):
         claim_ids = [claim.claim_id for claim in self.claims]
-        evidence_ids = [item.evidence_id for item in self.evidence]
         uncertainty_ids = [item.uncertainty_id for item in self.uncertainties]
         blocker_ids = [item.blocker_id for item in self.blockers]
         for label, values in (
             ("claim", claim_ids),
-            ("evidence", evidence_ids),
             ("uncertainty", uncertainty_ids),
             ("blocker", blocker_ids),
         ):
             if len(values) != len(set(values)):
                 raise ValueError(f"{label} IDs must be unique")
 
-        citation_ids = [item.citation_id for item in self.evidence]
-        if len(citation_ids) != len(set(citation_ids)):
-            raise ValueError("evidence citation IDs must be unique")
-        citation_set = set(citation_ids)
         uncertainty_set = set(uncertainty_ids)
         claim_set = set(claim_ids)
         for claim in self.claims:
-            missing_citations = (
-                set(claim.supports_citation_ids) | set(claim.opposes_citation_ids)
-            ) - citation_set
-            if missing_citations:
-                raise ValueError(
-                    f"claim {claim.claim_id} references unknown citation IDs: "
-                    f"{sorted(missing_citations)}"
-                )
             missing_uncertainties = set(claim.uncertainty_ids) - uncertainty_set
             if missing_uncertainties:
                 raise ValueError(
@@ -160,14 +143,6 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
                     f"uncertainty {uncertainty.uncertainty_id} references unknown claims: "
                     f"{sorted(missing_claims)}"
                 )
-        missing_trap_citations = (
-            set(self.critical_trap.supports_citation_ids) - citation_set
-        )
-        if missing_trap_citations:
-            raise ValueError(
-                "critical_trap references unknown citation IDs: "
-                f"{sorted(missing_trap_citations)}"
-            )
         return self
 
 
