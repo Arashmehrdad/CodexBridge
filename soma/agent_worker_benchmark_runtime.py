@@ -18,11 +18,19 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from soma.agent_worker_benchmark import (
+    assignment_packet_hash,
     build_g6_plan_graph_manifest,
     work_package_contract_materials,
 )
-from soma.agent_worker_benchmark_runner import G6TrialResultV1, run_g6_trial
+from soma.agent_worker_benchmark_runner import (
+    G6_EXPECTED_UNIT_IDS,
+    G6TrialResultV1,
+    prepare_g6_unit_admission,
+    run_g6_trial,
+    validate_g6_plan,
+)
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
+from soma.company_kernel.admission import AdmissionRequestV1, admit_reasoning_work_package
 from soma.company_kernel.service import accept_plan_graph
 from soma.company_kernel.store import CompanyKernelStore
 from soma.config import AppConfig
@@ -32,6 +40,8 @@ from soma.reasoning.codex_g6_backend import (
     CodexG6ReasoningBackend,
     default_codex_g6_client_factory,
     default_codex_g6_preflight,
+    execution_contract_hash,
+    make_g6_reasoning_spec,
 )
 from soma.reasoning.store import ReasoningBackendStore
 from soma.tasks.manager import TaskManager
@@ -45,6 +55,7 @@ G6_REAL_RESOURCE_ID = "Resource_G6_Real_Benchmark"
 G6_REAL_OWNER = "owner-controller:g6-real-benchmark"
 G6_REAL_CREATED_AT = "2026-08-13T00:00:00+00:00"
 G6_QUOTA_SCHEMA = "soma.agent_worker_benchmark.provider_quota.v1"
+G6_SMOKE_SCHEMA = "soma.agent_worker_benchmark.provider_smoke.v1"
 
 
 class G6RuntimeError(RuntimeError):
@@ -358,7 +369,122 @@ def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any
     }
 
 
-def run_real_g6_trial(
+def _smoke_identity(runtime: G6Runtime, unit_id: str) -> tuple[str, str, dict[str, Any]]:
+    if unit_id not in G6_EXPECTED_UNIT_IDS:
+        raise G6RuntimeError(f"unknown G6 smoke unit {unit_id!r}")
+    context = validate_g6_plan(runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID)
+    descriptor = {
+        "schema_version": G6_SMOKE_SCHEMA,
+        "purpose": "qualify one real provider execution contract before benchmark screening",
+        "unit_id": unit_id,
+        "mission_id": context.mission_id,
+        "plan_revision_id": context.plan_revision_id,
+        "work_package_id": context.work_packages[unit_id],
+        "assignment_packet_sha256": assignment_packet_hash(runtime.repo_root, unit_id),
+        "provider_execution_contract_hash": execution_contract_hash(),
+    }
+    payload = json.dumps(
+        descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"g6smoke_{digest[:24]}", digest, descriptor
+
+
+def run_real_g6_smoke(
+    runtime: G6Runtime,
+    *,
+    unit_id: str,
+    model_turn_ceiling: int,
+) -> dict[str, Any]:
+    """Run/replay one canonical unit solely to qualify the current provider contract."""
+
+    quota = ensure_model_turn_ceiling(runtime, model_turn_ceiling)
+    generated = int(quota["model_generations_observed"])
+    if generated + 1 > model_turn_ceiling:
+        raise G6RuntimeError(
+            "G6 model-generation ceiling would be exceeded by smoke: "
+            f"generated={generated}, worst_case_new=1, ceiling={model_turn_ceiling}"
+        )
+
+    smoke_id, manifest_hash, descriptor = _smoke_identity(runtime, unit_id)
+    directory = runtime.runs_dir / "agent_worker_benchmark_smokes" / smoke_id
+    manifest_path = directory / "manifest.json"
+    result_path = directory / "result.json"
+    if manifest_path.exists():
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if existing != descriptor:
+            raise G6RuntimeError("stored G6 smoke manifest identity drifted")
+    else:
+        _atomic_json(manifest_path, descriptor)
+    if result_path.exists():
+        stored = json.loads(result_path.read_text(encoding="utf-8"))
+        if stored.get("smoke_manifest_hash") != manifest_hash:
+            raise G6RuntimeError("stored G6 smoke result manifest identity drifted")
+        return {**stored, "replayed_stored_result": True}
+
+    context = validate_g6_plan(runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID)
+    prepared = prepare_g6_unit_admission(
+        runtime.kernel_store,
+        context,
+        smoke_id,
+        unit_id,
+    )
+    packet_hash = assignment_packet_hash(runtime.repo_root, unit_id)
+    spec = make_g6_reasoning_spec(
+        assignment_ref=f"benchmark-packet:{unit_id}",
+        assignment_hash=packet_hash,
+    )
+    request = AdmissionRequestV1(
+        mission_id=context.mission_id,
+        work_package_id=prepared.work_package_id,
+        controller_request_id=prepared.controller_request_id,
+        repo_name=runtime.repo_name,
+        reasoning_spec=spec,
+        expected_plan_revision_id=context.plan_revision_id,
+        expected_plan_state_version=context.plan_state_version,
+        supersedes_attempt_id=prepared.supersedes_attempt_id,
+    )
+    admission = admit_reasoning_work_package(runtime.task_manager, request)
+    task = runtime.task_store.get_task(admission.task_id)
+    observation = runtime.reasoning_store.query(task.backend_ref)
+    submission = runtime.reasoning_backend.load_evidence_submission(task.backend_ref)
+    assessment = runtime.reasoning_backend.load_benchmark_assessment(task.backend_ref)
+    output = {
+        "schema_version": G6_SMOKE_SCHEMA,
+        "smoke_id": smoke_id,
+        "smoke_manifest_hash": manifest_hash,
+        "unit_id": unit_id,
+        "provider_execution_contract_hash": execution_contract_hash(),
+        "work_package_id": prepared.work_package_id,
+        "supersedes_attempt_id": prepared.supersedes_attempt_id,
+        "attempt_id": admission.attempt_id,
+        "task_id": admission.task_id,
+        "backend_ref": task.backend_ref,
+        "task_state": task.state.value,
+        "created": admission.created,
+        "provider_operation_ref": observation.provider_operation_ref or "",
+        "provider_status_raw": observation.provider_status_raw or "",
+        "provider_terminal_claim": observation.provider_terminal_claim,
+        "output_contract_disposition": observation.output_contract_disposition,
+        "error_code": observation.error_code or "",
+        "raw_provider_evidence_root_ref": observation.raw_provider_evidence_root_ref or "",
+        "raw_provider_evidence_root_hash": observation.raw_provider_evidence_root_hash or "",
+        "submission_present": submission is not None,
+        "assessment_present": assessment is not None,
+        "success": (
+            task.state.value == "completed"
+            and observation.output_contract_disposition == "valid"
+            and submission is not None
+            and assessment is not None
+        ),
+        "provider_send_boundaries_crossed": provider_send_boundaries_crossed(runtime),
+        "model_generations_observed": provider_model_generations_observed(runtime),
+        "replayed_stored_result": False,
+    }
+    _atomic_json(result_path, output)
+    return output
+
+
     runtime: G6Runtime,
     *,
     phase: str,
