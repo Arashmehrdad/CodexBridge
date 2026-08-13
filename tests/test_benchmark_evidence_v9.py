@@ -143,6 +143,44 @@ def test_soma_rejects_only_invalid_assignment_or_locator_mechanics() -> None:
         validate_semantic_against_packet(bad_range, _packet())
 
 
+def test_soma_accepts_any_existing_worker_chosen_line_range() -> None:
+    packet_value = json.loads(_packet())
+    source = next(
+        item for item in packet_value["sources"] if item["path"] == "soma/tasks/models.py"
+    )
+    line_count = len(source["content"].splitlines())
+    assert line_count >= 12
+    locator = BenchmarkSourceLocatorV1(
+        source_path=source["path"], start_line=1, end_line=12
+    )
+
+    citation = resolve_source_locator(_packet(), locator)
+
+    assert citation.start_line == 1
+    assert citation.end_line == 12
+
+
+def test_missing_fact_key_is_quality_data_not_transport_invalidity() -> None:
+    payload = _payload()
+    value = payload.model_dump(mode="json")
+    value["claims"] = value["claims"][:-1]
+    incomplete_despite_complete_label = BenchmarkSemanticPayloadV1.model_validate(value)
+
+    validate_semantic_against_packet(incomplete_despite_complete_label, _packet())
+    submission = build_evidence_submission(
+        payload=incomplete_despite_complete_label,
+        packet_bytes=_packet(),
+        task_id="task_g6_v10_missing_fact",
+        backend_ref="reasoning_g6_v10_missing_fact",
+        assignment_ref="benchmark:B01",
+        provider_model="gpt-5.6-luna",
+        provider_thread_id="thr_g6_v10_missing_fact",
+        usage=BenchmarkUsageV1(),
+        wall_time_seconds=0.1,
+    )
+    assert len(submission.claims) == 4
+
+
 def test_soma_preserves_worker_semantics_without_grading_them() -> None:
     payload = _payload()
     value = payload.model_dump(mode="json")

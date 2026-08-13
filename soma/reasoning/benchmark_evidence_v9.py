@@ -41,7 +41,7 @@ BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.semantic.v6"
 )
 BENCHMARK_SOURCE_LOCATOR_CONTRACT_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.source_locator.v1"
+    "soma.agent_worker_benchmark.source_locator.v2"
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
@@ -50,7 +50,6 @@ BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
 BENCHMARK_PACKET_SCHEMA_BINDING_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.packet_schema_binding.v3"
 )
-MAX_BENCHMARK_SPAN_LINES: Final[int] = 8
 
 
 class BenchmarkSemanticValidationError(ValueError):
@@ -72,10 +71,6 @@ class BenchmarkSourceLocatorV1(_FrozenBenchmarkModel):
     def _validate_range(self):
         if self.end_line < self.start_line:
             raise ValueError("source locator end_line must be >= start_line")
-        if self.end_line - self.start_line + 1 > MAX_BENCHMARK_SPAN_LINES:
-            raise ValueError(
-                f"source locator exceeds {MAX_BENCHMARK_SPAN_LINES} line ceiling"
-            )
         return self
 
 
@@ -263,7 +258,7 @@ def source_locator_contract_hash() -> str:
                 "semantic_support_judgment": "sol_adjudication_only",
                 "source_binding": "exact_assignment_source_path",
                 "locator_model": "inclusive_one_based_line_range",
-                "span_line_ceiling": MAX_BENCHMARK_SPAN_LINES,
+                "range_policy": "any_existing_range_inside_assigned_source",
                 "provider_source_view": "zero_padded_numbered_lines",
             }
         )
@@ -358,8 +353,10 @@ def _semantic_instruction_text() -> str:
         "by the output schema, using schema_version "
         f"{BENCHMARK_SEMANTIC_SCHEMA_VERSION!r}. Every claim subject_key must be one "
         "of the assignment fact keys. For evidence_locations, point to an assigned "
-        "source_path and the smallest useful inclusive start_line/end_line range. "
-        "Each source's numbered_content uses a five-digit one-based line number, a "
+        "source_path and an inclusive start_line/end_line range that exists in that "
+        "assigned source. Choose a compact useful range for later review; Soma does "
+        "not impose a semantic evidence-size rule. Each source's numbered_content "
+        "uses a five-digit one-based line number, a "
         "literal | separator, then the exact frozen source line; the numeric prefix "
         "is locator metadata, not source text. Do not copy quotes and do not mint "
         "evidence IDs. Soma will only validate that your file/range exists in the "
@@ -483,12 +480,8 @@ def validate_semantic_against_packet(
     for locator in payload.critical_trap.evidence_locations:
         _resolve_source_locator_from_sources(sources, locator)
 
-    missing_claim_keys = allowed_fact_keys - set(claims_by_key)
-    if payload.submission_disposition == "complete" and missing_claim_keys:
-        raise BenchmarkSemanticValidationError(
-            "complete submission is missing required fact-key claims: "
-            f"{sorted(missing_claim_keys)}"
-        )
+    # Missing assignment fact keys are benchmark quality data for FanIn/Sol, not a
+    # transport-invalid condition. Soma preserves the worker submission as emitted.
 
 
 def semantic_payload_hash(payload: BenchmarkSemanticPayloadV1) -> str:
