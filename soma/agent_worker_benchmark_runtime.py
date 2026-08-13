@@ -30,7 +30,10 @@ from soma.agent_worker_benchmark_runner import (
     validate_g6_plan,
 )
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
-from soma.company_kernel.admission import AdmissionRequestV1, admit_reasoning_work_package
+from soma.company_kernel.admission import (
+    AdmissionRequestV1,
+    admit_reasoning_work_package,
+)
 from soma.company_kernel.service import accept_plan_graph
 from soma.company_kernel.store import CompanyKernelStore
 from soma.config import AppConfig
@@ -369,10 +372,14 @@ def ensure_model_turn_ceiling(runtime: G6Runtime, ceiling: int) -> dict[str, Any
     }
 
 
-def _smoke_identity(runtime: G6Runtime, unit_id: str) -> tuple[str, str, dict[str, Any]]:
+def _smoke_identity(
+    runtime: G6Runtime, unit_id: str
+) -> tuple[str, str, dict[str, Any]]:
     if unit_id not in G6_EXPECTED_UNIT_IDS:
         raise G6RuntimeError(f"unknown G6 smoke unit {unit_id!r}")
-    context = validate_g6_plan(runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID)
+    context = validate_g6_plan(
+        runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID
+    )
     descriptor = {
         "schema_version": G6_SMOKE_SCHEMA,
         "purpose": "qualify one real provider execution contract before benchmark screening",
@@ -422,7 +429,9 @@ def run_real_g6_smoke(
             raise G6RuntimeError("stored G6 smoke result manifest identity drifted")
         return {**stored, "replayed_stored_result": True}
 
-    context = validate_g6_plan(runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID)
+    context = validate_g6_plan(
+        runtime.kernel_store, runtime.repo_root, G6_REAL_MISSION_ID
+    )
     prepared = prepare_g6_unit_admission(
         runtime.kernel_store,
         context,
@@ -467,8 +476,10 @@ def run_real_g6_smoke(
         "provider_terminal_claim": observation.provider_terminal_claim,
         "output_contract_disposition": observation.output_contract_disposition,
         "error_code": observation.error_code or "",
-        "raw_provider_evidence_root_ref": observation.raw_provider_evidence_root_ref or "",
-        "raw_provider_evidence_root_hash": observation.raw_provider_evidence_root_hash or "",
+        "raw_provider_evidence_root_ref": observation.raw_provider_evidence_root_ref
+        or "",
+        "raw_provider_evidence_root_hash": observation.raw_provider_evidence_root_hash
+        or "",
         "submission_present": submission is not None,
         "assessment_present": assessment is not None,
         "success": (
