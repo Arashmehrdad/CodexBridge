@@ -1763,7 +1763,11 @@ One provider path passes
 G6 selects concurrency
     -> G7 separate provider-native subagent benchmark
 
-Only after all required evidence
+Owner closes G6 optimization inconclusive under explicit provider budget
+    -> preserve bounded runtime policy; defer G6.4/G7 without promoting a winner
+    -> public/normal-Chat activation may proceed if it does not depend on those deferred results
+
+After required core evidence
     -> decide public/normal-Chat activation surface
 ```
 
