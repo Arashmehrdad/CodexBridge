@@ -16,6 +16,7 @@ def test_public_metadata_records_have_complete_human_facing_fields() -> None:
         assert metadata.name == name
         assert metadata.title.strip()
         assert metadata.description.startswith("Use this when")
+        assert len(metadata.description) <= 300
         assert len(metadata.invoking) <= 64
         assert len(metadata.invoked) <= 64
         assert set(metadata.annotations) == ANNOTATION_KEYS
@@ -41,7 +42,7 @@ def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
     assert "use run_start" in repo_apply.description
     assert "registered remote SSH host" in ssh_action.description
     assert "Prefer action=administration" in ssh_action.description
-    assert "service_start/stop/restart/reload/enable/disable" in ssh_action.description
+    assert "service_*" in ssh_action.description
     assert "ssh_action=service_binary_promote" in ssh_action.description
     assert "rolls back on failure" in ssh_action.description
     assert "rejected shell form" in ssh_action.description

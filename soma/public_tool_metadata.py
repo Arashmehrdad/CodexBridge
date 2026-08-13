@@ -191,19 +191,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "ssh_action",
             title="Run SSH action",
             description=(
-                "Use this when the user explicitly wants a change on a registered "
-                "remote SSH host. Prefer action=administration for supported "
-                "structured operations such as service_start/stop/restart/reload/"
-                "enable/disable. For a staged service binary replacement, prefer "
-                "ssh_action=service_binary_promote: source is the staged binary, "
-                "destination is the live binary, path is the rollback copy, target "
-                "is the systemd service, and args are [new_sha256,current_sha256]. "
-                "That route verifies both hashes, replaces atomically, restarts, "
-                "verifies, and rolls back on failure. Use reviewed_script or "
-                "root_shell only when no structured action can express the authorized "
-                "intent. A rejected shell form is not evidence that a structured "
-                "administration route is unavailable. For equivalent local-machine "
-                "operations, use run_start."
+                "Use this when changing a registered remote SSH host. Prefer "
+                "action=administration for service_* or ssh_action=service_binary_promote; "
+                "the latter verifies hashes and rolls back on failure. A rejected shell form "
+                "does not reject structured admin. For local-machine operations, use run_start."
             ),
             invoking="Running SSH action...",
             invoked="SSH action submitted",
@@ -307,11 +298,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "task_action",
             title="Control task",
             description=(
-                "Use this when the user explicitly wants to start, steer, supply "
-                "input to, cancel, or resolve one canonical task. start launches "
-                "the durable command backend; start_reasoning is available only "
-                "when the owner-activated read-only reasoning backend is enabled. "
-                "Never substitute start_reasoning for ordinary execution."
+                "Use this when the user wants to start, steer, supply input to, cancel, "
+                "or resolve one canonical task. start uses the durable command backend. "
+                "start_reasoning is owner-gated and read-only; use it only for reasoning, "
+                "never ordinary execution."
             ),
             invoking="Updating task...",
             invoked="Task action submitted",
