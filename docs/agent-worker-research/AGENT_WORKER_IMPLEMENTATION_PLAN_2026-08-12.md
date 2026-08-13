@@ -1611,6 +1611,27 @@ Should normal ChatGPT see:
 
 This decision must be informed by the completed normal-Chat Tool UX project rather than reopening its architecture implicitly.
 
+### Public/runtime activation decision - 2026-08-14
+
+Accepted surface: `EXISTING_TASK_SURFACES_ONLY`.
+
+The production reasoning lane is exposed only as additive operations on the canonical Task tools:
+
+```text
+task_action.start_reasoning
+task_query.evidence
+```
+
+Do not add public Mission, PlanRevision, WorkPackage, FanIn, or provider-specific reasoning tools for this activation stage. Graph orchestration remains internal to Soma and canonical Task remains the public lifecycle vocabulary.
+
+The reasoning runtime is owner-gated and disabled by default. Public schema availability is not runtime activation: when disabled, reasoning is not advertised by Task capabilities and `start_reasoning` terminates before backend/provider work. A separate explicit owner activation is required before the production provider route can execute.
+
+The accepted evidence boundary exposes the complete bounded mechanically verified EvidenceSubmission while keeping raw provider event streams behind references. Worker semantics remain worker-owned; Soma remains mechanical evidence/lifecycle authority; Sol remains semantic adjudicator.
+
+G6 concurrency remains unselected. G6.4 and G7 remain deferred and are not prerequisites for this public surface because their results are not being used to set runtime authority or topology.
+
+Acceptance evidence: `PUBLIC_REASONING_TASK_ACTIVATION_ACCEPTANCE_2026-08-14.md`.
+
 Any public gateway change requires:
 
 - explicit operation inventory change;
