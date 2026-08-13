@@ -380,6 +380,7 @@ def test_single_unit_smoke_is_replay_safe_and_generation_ceiling_is_exact(
     assert provider_send_boundaries_crossed(runtime) == 2
 
 
+def test_current_plan_and_assignment_resolver_preserve_exact_frozen_contract(
     tmp_path: Path,
 ) -> None:
     manager, backend, _clients, kernel, accepted = _environment(
