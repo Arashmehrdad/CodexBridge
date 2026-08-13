@@ -32,7 +32,7 @@ from soma.worker_evidence.models import (
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.semantic.v2"
+    "soma.agent_worker_benchmark.semantic.v3"
 )
 BENCHMARK_CITATION_CATALOG_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.citation_catalog.v1"
@@ -59,9 +59,15 @@ class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
     ]
     subject_key: str = Field(min_length=1, max_length=256)
     statement: str = Field(min_length=1, max_length=4096)
-    supports_evidence_ids: tuple[str, ...] = Field(default=(), max_length=24)
-    opposes_evidence_ids: tuple[str, ...] = Field(default=(), max_length=24)
+    supports_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
+    opposes_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
     uncertainty_ids: tuple[str, ...] = Field(default=(), max_length=12)
+
+    @model_validator(mode="after")
+    def _validate_citation_polarity(self):
+        if set(self.supports_citation_ids) & set(self.opposes_citation_ids):
+            raise ValueError("one citation cannot both support and oppose one claim")
+        return self
 
 
 class BenchmarkSemanticEvidenceV1(_FrozenBenchmarkModel):
@@ -98,7 +104,7 @@ class BenchmarkSemanticBlockerV1(_FrozenBenchmarkModel):
 class BenchmarkCriticalTrapV1(_FrozenBenchmarkModel):
     disposition: Literal["false", "true", "unsupported"]
     statement: str = Field(min_length=1, max_length=2048)
-    supports_evidence_ids: tuple[str, ...] = Field(default=(), max_length=24)
+    supports_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
 
 
 class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
@@ -126,17 +132,20 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
             if len(values) != len(set(values)):
                 raise ValueError(f"{label} IDs must be unique")
 
-        evidence_set = set(evidence_ids)
+        citation_ids = [item.citation_id for item in self.evidence]
+        if len(citation_ids) != len(set(citation_ids)):
+            raise ValueError("evidence citation IDs must be unique")
+        citation_set = set(citation_ids)
         uncertainty_set = set(uncertainty_ids)
         claim_set = set(claim_ids)
         for claim in self.claims:
-            missing_evidence = (
-                set(claim.supports_evidence_ids) | set(claim.opposes_evidence_ids)
-            ) - evidence_set
-            if missing_evidence:
+            missing_citations = (
+                set(claim.supports_citation_ids) | set(claim.opposes_citation_ids)
+            ) - citation_set
+            if missing_citations:
                 raise ValueError(
-                    f"claim {claim.claim_id} references unknown evidence IDs: "
-                    f"{sorted(missing_evidence)}"
+                    f"claim {claim.claim_id} references unknown citation IDs: "
+                    f"{sorted(missing_citations)}"
                 )
             missing_uncertainties = set(claim.uncertainty_ids) - uncertainty_set
             if missing_uncertainties:
@@ -151,13 +160,13 @@ class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
                     f"uncertainty {uncertainty.uncertainty_id} references unknown claims: "
                     f"{sorted(missing_claims)}"
                 )
-        missing_trap_evidence = (
-            set(self.critical_trap.supports_evidence_ids) - evidence_set
+        missing_trap_citations = (
+            set(self.critical_trap.supports_citation_ids) - citation_set
         )
-        if missing_trap_evidence:
+        if missing_trap_citations:
             raise ValueError(
-                "critical_trap references unknown evidence IDs: "
-                f"{sorted(missing_trap_evidence)}"
+                "critical_trap references unknown citation IDs: "
+                f"{sorted(missing_trap_citations)}"
             )
         return self
 
@@ -312,9 +321,12 @@ def semantic_prompt(packet_bytes: bytes) -> str:
         f"{BENCHMARK_SEMANTIC_SCHEMA_VERSION!r}. Every claim subject_key must be one "
         "of the assignment fact keys. For evidence, do not calculate line numbers "
         "and do not copy or rewrite source text. Select only an exact citation_id "
-        "from the CITATION CATALOG and bind it to the fact_key it supports. Soma "
-        "will inject the citation's exact path, hash, locator, and excerpt "
-        "mechanically. Preserve uncertainty instead of inventing a winner. Evaluate "
+        "from the CITATION CATALOG and bind it to the fact_key it supports. Claims "
+        "must reference those same catalog IDs through supports_citation_ids or "
+        "opposes_citation_ids; never place evidence_id values in claim support fields. "
+        "Soma will inject the citation's exact path, hash, locator, excerpt, and final "
+        "evidence cross-reference mechanically. Preserve uncertainty instead of "
+        "inventing a winner. Evaluate "
         "the supplied critical trap as false, true, or unsupported from the frozen "
         "sources only. Do not implement or modify anything.\n\n"
         "ASSIGNMENT JSON:\n"
@@ -395,7 +407,7 @@ def validate_semantic_against_packet(
             )
         claims_by_key.setdefault(claim.subject_key, []).append(claim)
 
-    evidence_by_id = {item.evidence_id: item for item in payload.evidence}
+    evidence_by_citation = {item.citation_id: item for item in payload.evidence}
     catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
     for evidence in payload.evidence:
         if evidence.fact_key not in allowed_fact_keys:
@@ -409,7 +421,9 @@ def validate_semantic_against_packet(
             )
 
     for claim in payload.claims:
-        linked = [evidence_by_id[item] for item in claim.supports_evidence_ids]
+        linked = [
+            evidence_by_citation[item] for item in claim.supports_citation_ids
+        ] + [evidence_by_citation[item] for item in claim.opposes_citation_ids]
         if any(item.fact_key != claim.subject_key for item in linked):
             raise BenchmarkSemanticValidationError(
                 f"claim {claim.claim_id} cites evidence for another fact key"
@@ -486,6 +500,9 @@ def build_evidence_submission(
     )
 
     catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
+    citation_to_evidence_id = {
+        item.citation_id: item.evidence_id for item in payload.evidence
+    }
     evidence_records = tuple(
         EvidenceRecordV1(
             evidence_id=item.evidence_id,
@@ -536,8 +553,14 @@ def build_evidence_submission(
                 claim_class=claim.claim_class,
                 subject_key=claim.subject_key,
                 statement=claim.statement,
-                supports_evidence_ids=claim.supports_evidence_ids,
-                opposes_evidence_ids=claim.opposes_evidence_ids,
+                supports_evidence_ids=tuple(
+                    citation_to_evidence_id[item]
+                    for item in claim.supports_citation_ids
+                ),
+                opposes_evidence_ids=tuple(
+                    citation_to_evidence_id[item]
+                    for item in claim.opposes_citation_ids
+                ),
                 uncertainty_ids=claim.uncertainty_ids,
             )
             for claim in payload.claims
