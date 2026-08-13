@@ -177,11 +177,9 @@ def _prepare_kernel_and_scope(tmp_path: Path):
 
 def _semantic_from_prompt(prompt: str) -> str:
     marker = "ASSIGNMENT JSON:\n"
-    catalog_marker = "\n\nCITATION CATALOG JSON:\n"
     assert marker in prompt
-    assert catalog_marker in prompt
-    assignment_text = prompt.split(marker, 1)[1].split(catalog_marker, 1)[0]
-    packet = json.loads(assignment_text)
+    assert "CITATION CATALOG JSON" not in prompt
+    packet = json.loads(prompt.split(marker, 1)[1])
     questions = packet["rubric"]["questions"]
     claims = [
         {
@@ -189,8 +187,7 @@ def _semantic_from_prompt(prompt: str) -> str:
             "claim_class": "observation",
             "subject_key": question["fact_key"],
             "statement": f"Scripted claim for {question['fact_key']}.",
-            "supports_citation_ids": [],
-            "opposes_citation_ids": [],
+            "evidence_quotes": [],
             "uncertainty_ids": [],
         }
         for index, question in enumerate(questions, start=1)
@@ -206,7 +203,7 @@ def _semantic_from_prompt(prompt: str) -> str:
             "critical_trap": {
                 "disposition": "false",
                 "statement": "The frozen critical trap is false in this scripted fixture.",
-                "supports_citation_ids": [],
+                "evidence_quotes": [],
             },
         },
         sort_keys=True,

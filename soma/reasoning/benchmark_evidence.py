@@ -33,21 +33,19 @@ from soma.worker_evidence.models import (
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.semantic.v4"
+    "soma.agent_worker_benchmark.semantic.v5"
 )
-BENCHMARK_CITATION_CATALOG_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.citation_catalog.v1"
+BENCHMARK_SOURCE_QUOTE_CONTRACT_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.source_quote.v1"
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.evidence_compaction.v1"
+    "soma.agent_worker_benchmark.evidence_compaction.v2"
 )
 BENCHMARK_PACKET_SCHEMA_BINDING_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.packet_schema_binding.v1"
+    "soma.agent_worker_benchmark.packet_schema_binding.v2"
 )
-MAX_BENCHMARK_LINE_SPAN: Final[int] = 24
-CITATION_CHUNK_MAX_LINES: Final[int] = 4
-CITATION_CHUNK_MAX_CHARACTERS: Final[int] = 480
+MAX_BENCHMARK_QUOTE_CHARACTERS: Final[int] = 480
 BenchmarkFactValue = str | int | float | bool | None
 
 
@@ -59,6 +57,23 @@ class _FrozenBenchmarkModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class BenchmarkSourceQuoteV1(_FrozenBenchmarkModel):
+    """One support-only quote copied from exactly one assigned frozen source line."""
+
+    source_path: str = Field(min_length=1, max_length=2048)
+    quote: str = Field(
+        min_length=1,
+        max_length=MAX_BENCHMARK_QUOTE_CHARACTERS,
+        pattern=r"^[^\r\n]+$",
+    )
+
+    @model_validator(mode="after")
+    def _validate_quote(self):
+        if not self.quote.strip():
+            raise ValueError("source quote must contain non-whitespace text")
+        return self
+
+
 class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
     claim_id: str = Field(min_length=1, max_length=128)
     claim_class: Literal[
@@ -66,19 +81,10 @@ class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
     ]
     subject_key: str = Field(min_length=1, max_length=256)
     statement: str = Field(min_length=1, max_length=4096)
-    supports_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
-    opposes_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
+    evidence_quotes: tuple[BenchmarkSourceQuoteV1, ...] = Field(
+        default=(), max_length=24
+    )
     uncertainty_ids: tuple[str, ...] = Field(default=(), max_length=12)
-
-    @model_validator(mode="after")
-    def _validate_citation_polarity(self):
-        if len(self.supports_citation_ids) != len(set(self.supports_citation_ids)):
-            raise ValueError("supports_citation_ids must be unique")
-        if len(self.opposes_citation_ids) != len(set(self.opposes_citation_ids)):
-            raise ValueError("opposes_citation_ids must be unique")
-        if set(self.supports_citation_ids) & set(self.opposes_citation_ids):
-            raise ValueError("one citation cannot both support and oppose one claim")
-        return self
 
 
 @dataclass(frozen=True)
@@ -108,7 +114,9 @@ class BenchmarkSemanticBlockerV1(_FrozenBenchmarkModel):
 class BenchmarkCriticalTrapV1(_FrozenBenchmarkModel):
     disposition: Literal["false", "true", "unsupported"]
     statement: str = Field(min_length=1, max_length=2048)
-    supports_citation_ids: tuple[str, ...] = Field(default=(), max_length=24)
+    evidence_quotes: tuple[BenchmarkSourceQuoteV1, ...] = Field(
+        default=(), max_length=24
+    )
 
 
 class BenchmarkSemanticPayloadV1(_FrozenBenchmarkModel):
@@ -207,14 +215,29 @@ def _strict_provider_schema(value: Any) -> Any:
     return normalized
 
 
+def source_quote_contract_hash() -> str:
+    return sha256_hex(
+        canonical_json_bytes(
+            {
+                "schema_version": BENCHMARK_SOURCE_QUOTE_CONTRACT_VERSION,
+                "relation_model": "support_only",
+                "source_binding": "exact_assignment_source_path",
+                "quote_match": "exact_unique_single_line_substring",
+                "quote_max_characters": MAX_BENCHMARK_QUOTE_CHARACTERS,
+                "soma_injects_source_hash_and_line_locator": True,
+            }
+        )
+    )
+
+
 def packet_schema_binding_contract_hash() -> str:
     return sha256_hex(
         canonical_json_bytes(
             {
                 "schema_version": BENCHMARK_PACKET_SCHEMA_BINDING_VERSION,
                 "claim_subject_key": "exact_assignment_fact_key_enum",
-                "citation_arrays": "exact_packet_catalog_enum_via_local_ref",
-                "citation_def_name": "BenchmarkPacketCitationId",
+                "source_quote_path": "exact_assignment_source_path_enum",
+                "source_path_def_name": "BenchmarkPacketSourcePath",
             }
         )
     )
@@ -236,13 +259,13 @@ def semantic_output_schema(packet_bytes: bytes | None = None) -> dict[str, Any]:
         raise BenchmarkSemanticValidationError(
             "assignment fact keys are invalid or duplicate"
         )
-    citation_ids = [item.citation_id for item in citation_catalog(packet_bytes)]
-    if not citation_ids:
-        raise BenchmarkSemanticValidationError("assignment citation catalog is empty")
+    source_paths = list(_packet_sources(packet))
+    if not source_paths:
+        raise BenchmarkSemanticValidationError("assignment source set is empty")
 
     definitions = schema.setdefault("$defs", {})
-    definitions["BenchmarkPacketCitationId"] = {
-        "enum": citation_ids,
+    definitions["BenchmarkPacketSourcePath"] = {
+        "enum": source_paths,
         "type": "string",
     }
     claim_properties = definitions["BenchmarkSemanticClaimV1"]["properties"]
@@ -250,71 +273,11 @@ def semantic_output_schema(packet_bytes: bytes | None = None) -> dict[str, Any]:
         "enum": fact_keys,
         "type": "string",
     }
-    citation_ref = {"$ref": "#/$defs/BenchmarkPacketCitationId"}
-    claim_properties["supports_citation_ids"]["items"] = dict(citation_ref)
-    claim_properties["opposes_citation_ids"]["items"] = dict(citation_ref)
-    trap_properties = definitions["BenchmarkCriticalTrapV1"]["properties"]
-    trap_properties["supports_citation_ids"]["items"] = dict(citation_ref)
+    quote_properties = definitions["BenchmarkSourceQuoteV1"]["properties"]
+    quote_properties["source_path"] = {
+        "$ref": "#/$defs/BenchmarkPacketSourcePath"
+    }
     return schema
-
-
-def _citation_chunks(lines: list[str]) -> list[tuple[int, int, str]]:
-    chunks: list[tuple[int, int, str]] = []
-    start = 0
-    while start < len(lines):
-        selected: list[str] = []
-        end = start
-        while end < len(lines) and len(selected) < CITATION_CHUNK_MAX_LINES:
-            candidate = "\n".join((*selected, lines[end]))
-            if selected and len(candidate) > CITATION_CHUNK_MAX_CHARACTERS:
-                break
-            if not selected and len(candidate) > CITATION_CHUNK_MAX_CHARACTERS:
-                raise BenchmarkSemanticValidationError(
-                    "frozen source line exceeds citation chunk character ceiling"
-                )
-            selected.append(lines[end])
-            end += 1
-        excerpt = "\n".join(selected)
-        chunks.append((start + 1, end, excerpt))
-        start = end
-    return chunks
-
-
-def citation_catalog(packet_bytes: bytes) -> tuple[BenchmarkCitationV1, ...]:
-    packet = parse_assignment_packet(packet_bytes)
-    sources = _packet_sources(packet)
-    entries: list[BenchmarkCitationV1] = []
-    for source_index, source in enumerate(sources.values(), start=1):
-        lines = str(source["content"]).splitlines()
-        for chunk_index, (start_line, end_line, excerpt) in enumerate(
-            _citation_chunks(lines), start=1
-        ):
-            entries.append(
-                BenchmarkCitationV1(
-                    citation_id=f"S{source_index:02d}C{chunk_index:04d}",
-                    source_path=str(source["path"]),
-                    source_hash=str(source["sha256"]),
-                    start_line=start_line,
-                    end_line=end_line,
-                    excerpt=excerpt,
-                )
-            )
-    return tuple(entries)
-
-
-def citation_catalog_contract_hash() -> str:
-    return sha256_hex(
-        canonical_json_bytes(
-            {
-                "schema_version": BENCHMARK_CITATION_CATALOG_VERSION,
-                "chunk_max_lines": CITATION_CHUNK_MAX_LINES,
-                "chunk_max_characters": CITATION_CHUNK_MAX_CHARACTERS,
-                "citation_id_format": "S{source_index:02d}C{chunk_index:04d}",
-                "provider_selects_identity_only": True,
-                "soma_injects_source_locator_excerpt": True,
-            }
-        )
-    )
 
 
 def evidence_compaction_contract_hash() -> str:
@@ -323,53 +286,37 @@ def evidence_compaction_contract_hash() -> str:
             {
                 "schema_version": BENCHMARK_EVIDENCE_COMPACTION_VERSION,
                 "evidence_record_ceiling": MAX_EVIDENCE_RECORDS,
-                "mandatory_policy": "first_per_nonempty_claim_polarity",
+                "mandatory_policy": "first_per_nonempty_claim",
                 "fill_policy": "round_robin_remaining_in_provider_order",
-                "fact_semantics": "one_record_per_claim_polarity_citation",
+                "duplicate_policy": "deduplicate_identical_source_quote_per_claim",
+                "fact_semantics": "one_support_record_per_claim_source_quote",
                 "raw_provider_evidence_retained": True,
             }
         )
     )
 
 
-def citation_catalog_payload(packet_bytes: bytes) -> dict[str, Any]:
-    packet = parse_assignment_packet(packet_bytes)
-    sources = list(_packet_sources(packet).values())
-    return {
-        "schema_version": BENCHMARK_CITATION_CATALOG_VERSION,
-        "sources": [
-            {"source_index": index, "path": str(source["path"])}
-            for index, source in enumerate(sources, start=1)
-        ],
-        "citations": [
-            {
-                "citation_id": item.citation_id,
-                "source_path": item.source_path,
-                "locator": f"lines:{item.start_line}-{item.end_line}",
-                "excerpt": item.excerpt,
-            }
-            for item in citation_catalog(packet_bytes)
-        ],
-    }
-
-
 def _semantic_instruction_text() -> str:
     return (
         "You are a read-only G6 benchmark evidence worker. Use only the ASSIGNMENT "
-        "JSON and mechanically derived CITATION CATALOG below. Do not use tools, "
-        "files, network sources, memory, chat history, or unstated assumptions. "
-        "Return only the object required by the output schema. Use schema_version "
+        "JSON below. Do not use tools, files, network sources, memory, chat history, "
+        "or unstated assumptions. Return only the object required by the output "
+        "schema. Use schema_version "
         f"{BENCHMARK_SEMANTIC_SCHEMA_VERSION!r}. Every claim subject_key must be one "
-        "of the assignment fact keys. Do not calculate line numbers, copy source "
-        "text, mint evidence IDs, or return a parallel evidence list. Claims must "
-        "select exact catalog IDs through supports_citation_ids or "
-        "opposes_citation_ids. Within one claim those two citation-ID sets must be "
-        "disjoint: never place the same citation ID in both. Soma will derive every "
-        "final EvidenceRecord from each claim/citation pair and inject the exact path, "
-        "hash, locator, excerpt, fact key, fact value, and evidence cross-reference "
-        "mechanically. Preserve uncertainty instead of inventing a winner. Evaluate "
-        "the supplied critical trap as false, true, or unsupported from the frozen "
-        "sources only. Do not implement or modify anything."
+        "of the assignment fact keys. Every evidence_quotes entry is support-only: "
+        "its quote must be a one-line exact verbatim substring copied from the "
+        "declared assigned source, must directly support the exact claim statement, "
+        "and should be long enough to occur only once in that source. There is no "
+        "opposition relation. If the source contradicts a proposition, phrase the "
+        "claim as the corresponding negative finding and quote evidence that supports "
+        "that negative statement. Do not calculate line numbers or mint evidence IDs; "
+        "Soma will verify each quote against the frozen source and inject the exact "
+        "source hash, line locator, fact key, fact value, and evidence cross-reference "
+        "mechanically. Prefer the smallest unique proof-bearing quote; do not cite "
+        "context-only or merely nearby text. If exact support is unavailable, preserve "
+        "uncertainty or a partial/blocked disposition instead of attaching unrelated "
+        "evidence. Evaluate the supplied critical trap as false, true, or unsupported "
+        "from the frozen sources only. Do not implement or modify anything."
     )
 
 
@@ -379,13 +326,10 @@ def semantic_prompt_contract_hash() -> str:
 
 def semantic_prompt(packet_bytes: bytes) -> str:
     packet = parse_assignment_packet(packet_bytes)
-    catalog = citation_catalog_payload(packet_bytes)
     return (
         _semantic_instruction_text()
         + "\n\nASSIGNMENT JSON:\n"
         + json.dumps(packet, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        + "\n\nCITATION CATALOG JSON:\n"
-        + json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     )
 
 
@@ -446,11 +390,55 @@ def _assignment_fact_keys(packet: dict[str, Any]) -> set[str]:
     return {str(value) for value in keys}
 
 
+def _resolve_source_quote_from_sources(
+    sources: dict[str, dict[str, Any]], source_quote: BenchmarkSourceQuoteV1
+) -> BenchmarkCitationV1:
+    source = sources.get(source_quote.source_path)
+    if source is None:
+        raise BenchmarkSemanticValidationError(
+            f"source quote path {source_quote.source_path!r} is not assignment-provided"
+        )
+    content = str(source["content"])
+    quote = source_quote.quote
+    occurrences = content.count(quote)
+    if occurrences == 0:
+        raise BenchmarkSemanticValidationError(
+            "source quote is not an exact substring of its declared frozen source: "
+            f"{source_quote.source_path!r}"
+        )
+    if occurrences != 1:
+        raise BenchmarkSemanticValidationError(
+            "source quote must identify exactly one frozen-source occurrence: "
+            f"{source_quote.source_path!r} has {occurrences} matches"
+        )
+    start_offset = content.index(quote)
+    start_line = content.count("\n", 0, start_offset) + 1
+    citation_id = "Q" + sha256_hex(
+        f"{source_quote.source_path}\0{quote}".encode("utf-8")
+    )[:24]
+    return BenchmarkCitationV1(
+        citation_id=citation_id,
+        source_path=source_quote.source_path,
+        source_hash=str(source["sha256"]),
+        start_line=start_line,
+        end_line=start_line,
+        excerpt=quote,
+    )
+
+
+def resolve_source_quote(
+    packet_bytes: bytes, source_quote: BenchmarkSourceQuoteV1
+) -> BenchmarkCitationV1:
+    packet = parse_assignment_packet(packet_bytes)
+    return _resolve_source_quote_from_sources(_packet_sources(packet), source_quote)
+
+
 def validate_semantic_against_packet(
     payload: BenchmarkSemanticPayloadV1, packet_bytes: bytes
 ) -> None:
     packet = parse_assignment_packet(packet_bytes)
     allowed_fact_keys = _assignment_fact_keys(packet)
+    sources = _packet_sources(packet)
 
     claims_by_key: dict[str, list[BenchmarkSemanticClaimV1]] = {}
     for claim in payload.claims:
@@ -459,19 +447,11 @@ def validate_semantic_against_packet(
                 f"claim subject_key {claim.subject_key!r} is not assignment-provided"
             )
         claims_by_key.setdefault(claim.subject_key, []).append(claim)
+        for source_quote in claim.evidence_quotes:
+            _resolve_source_quote_from_sources(sources, source_quote)
+    for source_quote in payload.critical_trap.evidence_quotes:
+        _resolve_source_quote_from_sources(sources, source_quote)
 
-    catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
-    referenced_citations: list[str] = []
-    for claim in payload.claims:
-        referenced_citations.extend(claim.supports_citation_ids)
-        referenced_citations.extend(claim.opposes_citation_ids)
-    referenced_citations.extend(payload.critical_trap.supports_citation_ids)
-    unknown_citations = set(referenced_citations) - set(catalog)
-    if unknown_citations:
-        raise BenchmarkSemanticValidationError(
-            "semantic payload references citation IDs outside the mechanically "
-            f"derived assignment catalog: {sorted(unknown_citations)}"
-        )
     missing_claim_keys = allowed_fact_keys - set(claims_by_key)
     if payload.submission_disposition == "complete" and missing_claim_keys:
         raise BenchmarkSemanticValidationError(
@@ -513,33 +493,40 @@ def extract_usage(token_usage_events: tuple[dict[str, Any], ...]) -> BenchmarkUs
     )
 
 
-def compact_claim_citations(
+def compact_claim_quotes(
     payload: BenchmarkSemanticPayloadV1,
-) -> tuple[dict[tuple[str, str], tuple[str, ...]], int]:
-    buckets: list[tuple[str, str, tuple[str, ...]]] = []
+) -> tuple[dict[str, tuple[BenchmarkSourceQuoteV1, ...]], int]:
+    buckets: list[tuple[str, tuple[BenchmarkSourceQuoteV1, ...]]] = []
+    provider_reference_count = 0
     for claim in payload.claims:
-        if claim.supports_citation_ids:
-            buckets.append((claim.claim_id, "support", claim.supports_citation_ids))
-        if claim.opposes_citation_ids:
-            buckets.append((claim.claim_id, "oppose", claim.opposes_citation_ids))
+        provider_reference_count += len(claim.evidence_quotes)
+        unique: list[BenchmarkSourceQuoteV1] = []
+        seen: set[tuple[str, str]] = set()
+        for source_quote in claim.evidence_quotes:
+            key = (source_quote.source_path, source_quote.quote)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(source_quote)
+        if unique:
+            buckets.append((claim.claim_id, tuple(unique)))
 
     if len(buckets) > MAX_EVIDENCE_RECORDS:
         raise BenchmarkSemanticValidationError(
-            "claim citation polarities exceed final EvidenceSubmission evidence cap"
+            "claims with source quotes exceed final EvidenceSubmission evidence cap"
         )
 
-    selected: dict[tuple[str, str], list[str]] = {
-        (claim_id, polarity): [citation_ids[0]]
-        for claim_id, polarity, citation_ids in buckets
+    selected: dict[str, list[BenchmarkSourceQuoteV1]] = {
+        claim_id: [quotes[0]] for claim_id, quotes in buckets
     }
     remaining_slots = MAX_EVIDENCE_RECORDS - len(buckets)
     depth = 1
     while remaining_slots > 0:
         progressed = False
-        for claim_id, polarity, citation_ids in buckets:
-            if depth >= len(citation_ids):
+        for claim_id, quotes in buckets:
+            if depth >= len(quotes):
                 continue
-            selected[(claim_id, polarity)].append(citation_ids[depth])
+            selected[claim_id].append(quotes[depth])
             remaining_slots -= 1
             progressed = True
             if remaining_slots == 0:
@@ -548,10 +535,7 @@ def compact_claim_citations(
             break
         depth += 1
 
-    provider_reference_count = sum(len(citation_ids) for _, _, citation_ids in buckets)
-    published_reference_count = sum(
-        len(citation_ids) for citation_ids in selected.values()
-    )
+    published_reference_count = sum(len(quotes) for quotes in selected.values())
     return (
         {key: tuple(value) for key, value in selected.items()},
         provider_reference_count - published_reference_count,
@@ -587,36 +571,35 @@ def build_evidence_submission(
         f"{task_id}\0{backend_ref}\0{payload_digest}".encode("utf-8")
     )
 
-    catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
-    selected_citations, _omitted_citation_references = compact_claim_citations(payload)
+    packet = parse_assignment_packet(packet_bytes)
+    sources = _packet_sources(packet)
+    selected_quotes, _omitted_quote_references = compact_claim_quotes(payload)
     evidence_records_list: list[EvidenceRecordV1] = []
     claim_evidence_ids: dict[tuple[str, str, str], str] = {}
     for claim in payload.claims:
-        for polarity in ("support", "oppose"):
-            for citation_id in selected_citations.get((claim.claim_id, polarity), ()):
-                evidence_id = (
-                    "g6_evidence_"
-                    + sha256_hex(
-                        f"{claim.claim_id}\0{polarity}\0{citation_id}".encode("utf-8")
-                    )[:24]
+        for source_quote in selected_quotes.get(claim.claim_id, ()):
+            citation = _resolve_source_quote_from_sources(sources, source_quote)
+            quote_key = (claim.claim_id, source_quote.source_path, source_quote.quote)
+            evidence_id = (
+                "g6_evidence_"
+                + sha256_hex(
+                    f"{claim.claim_id}\0{citation.citation_id}".encode("utf-8")
+                )[:24]
+            )
+            claim_evidence_ids[quote_key] = evidence_id
+            evidence_records_list.append(
+                EvidenceRecordV1(
+                    evidence_id=evidence_id,
+                    source_kind="frozen_git_source",
+                    source_ref=f"git:{SOURCE_COMMIT}:{citation.source_path}",
+                    source_hash=citation.source_hash,
+                    locator=f"lines:{citation.start_line}-{citation.end_line}",
+                    content_type="text/x-python",
+                    excerpt=citation.excerpt,
+                    fact_key=claim.subject_key,
+                    fact_value=claim.statement,
                 )
-                claim_evidence_ids[(claim.claim_id, polarity, citation_id)] = (
-                    evidence_id
-                )
-                citation = catalog[citation_id]
-                evidence_records_list.append(
-                    EvidenceRecordV1(
-                        evidence_id=evidence_id,
-                        source_kind="frozen_git_source",
-                        source_ref=f"git:{SOURCE_COMMIT}:{citation.source_path}",
-                        source_hash=citation.source_hash,
-                        locator=f"lines:{citation.start_line}-{citation.end_line}",
-                        content_type="text/x-python",
-                        excerpt=citation.excerpt,
-                        fact_key=claim.subject_key,
-                        fact_value=claim.statement,
-                    )
-                )
+            )
     evidence_records = tuple(evidence_records_list)
     provenance = tuple(
         EvidenceHashedReferenceV1(ref=ref, hash=digest)
@@ -652,13 +635,12 @@ def build_evidence_submission(
                 subject_key=claim.subject_key,
                 statement=claim.statement,
                 supports_evidence_ids=tuple(
-                    claim_evidence_ids[(claim.claim_id, "support", item)]
-                    for item in selected_citations.get((claim.claim_id, "support"), ())
+                    claim_evidence_ids[
+                        (claim.claim_id, item.source_path, item.quote)
+                    ]
+                    for item in selected_quotes.get(claim.claim_id, ())
                 ),
-                opposes_evidence_ids=tuple(
-                    claim_evidence_ids[(claim.claim_id, "oppose", item)]
-                    for item in selected_citations.get((claim.claim_id, "oppose"), ())
-                ),
+                opposes_evidence_ids=(),
                 uncertainty_ids=claim.uncertainty_ids,
             )
             for claim in payload.claims

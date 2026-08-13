@@ -13,11 +13,12 @@ from soma.reasoning.benchmark_evidence import (
     BENCHMARK_SEMANTIC_SCHEMA_VERSION,
     BenchmarkSemanticPayloadV1,
     BenchmarkSemanticValidationError,
+    BenchmarkSourceQuoteV1,
     BenchmarkUsageV1,
     build_evidence_submission,
-    citation_catalog,
-    compact_claim_citations,
+    compact_claim_quotes,
     parse_semantic_output,
+    resolve_source_quote,
     semantic_output_schema,
     semantic_payload_hash,
     semantic_prompt,
@@ -32,14 +33,29 @@ def _packet() -> bytes:
     return build_assignment_packet(REPO_ROOT, "B01")
 
 
-def _citation_for(source_path: str, needle: str) -> str:
-    matches = [
-        item.citation_id
-        for item in citation_catalog(_packet())
-        if item.source_path == source_path and needle in item.excerpt
-    ]
+def _quote_for(source_path: str, needle: str) -> dict[str, str]:
+    packet = json.loads(_packet())
+    source = next(item for item in packet["sources"] if item["path"] == source_path)
+    matches = [line.strip() for line in source["content"].splitlines() if needle in line]
     assert len(matches) == 1, (source_path, needle, matches)
-    return matches[0]
+    quote = matches[0]
+    assert quote and source["content"].count(quote) == 1
+    return {"source_path": source_path, "quote": quote}
+
+
+def _unique_quote_pool(count: int) -> list[dict[str, str]]:
+    packet = json.loads(_packet())
+    result: list[dict[str, str]] = []
+    for source in packet["sources"]:
+        content = source["content"]
+        for line in content.splitlines():
+            quote = line.strip()
+            if not quote or len(quote) > 480 or content.count(quote) != 1:
+                continue
+            result.append({"source_path": source["path"], "quote": quote})
+            if len(result) == count:
+                return result
+    raise AssertionError(f"only found {len(result)} unique source quotes")
 
 
 def _valid_payload_dict() -> dict:
@@ -87,20 +103,19 @@ def _valid_payload_dict() -> dict:
         ),
     ]
     claims = []
-    citation_ids = []
+    evidence_quotes = []
     for index, (_evidence_id, source, needle, fact_key, _fact_value) in enumerate(
         evidence_specs, start=1
     ):
-        citation_id = _citation_for(source["path"], needle)
-        citation_ids.append(citation_id)
+        source_quote = _quote_for(source["path"], needle)
+        evidence_quotes.append(source_quote)
         claims.append(
             {
                 "claim_id": f"claim_{index}",
                 "claim_class": "observation",
                 "subject_key": fact_key,
                 "statement": f"Fixture claim for {fact_key}.",
-                "supports_citation_ids": [citation_id],
-                "opposes_citation_ids": [],
+                "evidence_quotes": [source_quote],
                 "uncertainty_ids": [],
             }
         )
@@ -115,7 +130,7 @@ def _valid_payload_dict() -> dict:
         "critical_trap": {
             "disposition": "false",
             "statement": "Task admission is not substantive outcome acceptance.",
-            "supports_citation_ids": [citation_ids[0]],
+            "evidence_quotes": [evidence_quotes[0]],
         },
     }
 
@@ -157,10 +172,12 @@ def test_schema_and_prompt_are_strict_read_only() -> None:
     assert_strict(schema)
     assert "evidence" not in schema["properties"]
     claim_properties = schema["$defs"]["BenchmarkSemanticClaimV1"]["properties"]
-    assert "supports_citation_ids" in claim_properties
-    assert "opposes_citation_ids" in claim_properties
+    assert "evidence_quotes" in claim_properties
+    assert "supports_citation_ids" not in claim_properties
+    assert "opposes_citation_ids" not in claim_properties
     assert "supports_evidence_ids" not in claim_properties
     assert "Do not use tools, files, network sources" in prompt
+    assert "There is no opposition relation" in prompt
     assert "Do not implement or modify anything" in prompt
     assert BENCHMARK_SEMANTIC_SCHEMA_VERSION in prompt
 
@@ -173,77 +190,95 @@ def test_valid_payload_is_grounded_in_frozen_packet() -> None:
     assert len(payload.claims) == 5
 
 
-def test_unknown_citation_id_is_rejected() -> None:
+def test_unknown_source_path_is_rejected() -> None:
     value = _valid_payload_dict()
-    unknown = "S99C9999"
-    value["claims"][0]["supports_citation_ids"] = [unknown]
-    value["critical_trap"]["supports_citation_ids"] = [unknown]
+    value["claims"][0]["evidence_quotes"] = [
+        {"source_path": "invented.py", "quote": "invented"}
+    ]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="assignment catalog"):
+    with pytest.raises(BenchmarkSemanticValidationError, match="not assignment-provided"):
         validate_semantic_against_packet(payload, _packet())
 
 
-def test_citation_catalog_is_deterministic_bounded_and_source_exact() -> None:
-    first = citation_catalog(_packet())
-    second = citation_catalog(_packet())
-    packet = json.loads(_packet())
-    sources = {source["path"]: source for source in packet["sources"]}
+def test_source_quote_resolution_is_deterministic_single_line_and_source_exact() -> None:
+    source_quote = BenchmarkSourceQuoteV1.model_validate(
+        _quote_for("soma/tasks/models.py", "class BackendKind")
+    )
+    first = resolve_source_quote(_packet(), source_quote)
+    second = resolve_source_quote(_packet(), source_quote)
 
     assert first == second
-    assert first
-    assert len({item.citation_id for item in first}) == len(first)
-    for item in first:
-        lines = sources[item.source_path]["content"].splitlines()
-        selected = "\n".join(lines[item.start_line - 1 : item.end_line])
-        assert selected == item.excerpt
-        assert 1 <= item.end_line - item.start_line + 1 <= 4
-        assert len(item.excerpt) <= 480
+    assert first.source_path == "soma/tasks/models.py"
+    assert first.start_line == first.end_line
+    assert first.excerpt == source_quote.quote
+    assert len(first.excerpt) <= 480
 
 
-def test_provider_schema_has_no_parallel_evidence_list() -> None:
+def test_source_quote_must_be_unique_and_single_line() -> None:
+    packet = json.loads(_packet())
+    source = next(item for item in packet["sources"] if item["path"] == "soma/tasks/models.py")
+    repeated = next(
+        line.strip()
+        for line in source["content"].splitlines()
+        if line.strip() and source["content"].count(line.strip()) > 1
+    )
+    payload_value = _valid_payload_dict()
+    payload_value["claims"][0]["evidence_quotes"] = [
+        {"source_path": source["path"], "quote": repeated}
+    ]
+    payload = BenchmarkSemanticPayloadV1.model_validate(payload_value)
+    with pytest.raises(BenchmarkSemanticValidationError, match="exactly one"):
+        validate_semantic_against_packet(payload, _packet())
+
+    with pytest.raises(ValueError):
+        BenchmarkSourceQuoteV1(source_path=source["path"], quote="a\nb")
+
+
+def test_provider_schema_has_support_only_quotes_and_no_parallel_evidence_list() -> None:
     schema = semantic_output_schema()
     assert "evidence" not in schema["properties"]
     assert "BenchmarkSemanticEvidenceV1" not in schema.get("$defs", {})
     prompt = semantic_prompt(_packet())
-    assert "or return a parallel evidence list" in prompt.lower()
-    assert "those two citation-id sets must be disjoint" in prompt.lower()
+    assert "evidence_quotes" in prompt
+    assert "support-only" in prompt
+    assert "there is no opposition relation" in prompt.lower()
+    assert "CITATION CATALOG JSON" not in prompt
 
 
-def test_packet_bound_schema_enums_exact_fact_keys_and_catalog_ids() -> None:
+def test_packet_bound_schema_enums_exact_fact_keys_and_source_paths() -> None:
     packet = _packet()
     packet_value = json.loads(packet)
     schema = semantic_output_schema(packet)
     definitions = schema["$defs"]
     claim_properties = definitions["BenchmarkSemanticClaimV1"]["properties"]
-    trap_properties = definitions["BenchmarkCriticalTrapV1"]["properties"]
+    quote_properties = definitions["BenchmarkSourceQuoteV1"]["properties"]
     expected_fact_keys = [
         item["fact_key"] for item in packet_value["rubric"]["questions"]
     ]
-    expected_citations = [item.citation_id for item in citation_catalog(packet)]
+    expected_source_paths = [item["path"] for item in packet_value["sources"]]
 
     assert claim_properties["subject_key"] == {
         "enum": expected_fact_keys,
         "type": "string",
     }
-    assert definitions["BenchmarkPacketCitationId"] == {
-        "enum": expected_citations,
+    assert definitions["BenchmarkPacketSourcePath"] == {
+        "enum": expected_source_paths,
         "type": "string",
     }
-    citation_ref = {"$ref": "#/$defs/BenchmarkPacketCitationId"}
-    assert claim_properties["supports_citation_ids"]["items"] == citation_ref
-    assert claim_properties["opposes_citation_ids"]["items"] == citation_ref
-    assert trap_properties["supports_citation_ids"]["items"] == citation_ref
+    assert quote_properties["source_path"] == {
+        "$ref": "#/$defs/BenchmarkPacketSourcePath"
+    }
     assert semantic_output_schema(packet) == schema
 
 
-def test_b06_packet_schema_excludes_observed_hallucinated_citation_ids() -> None:
+def test_b06_packet_schema_binds_only_assigned_source_paths() -> None:
     packet = build_assignment_packet(REPO_ROOT, "B06")
+    packet_value = json.loads(packet)
     schema = semantic_output_schema(packet)
-    allowed = set(schema["$defs"]["BenchmarkPacketCitationId"]["enum"])
+    allowed = set(schema["$defs"]["BenchmarkPacketSourcePath"]["enum"])
 
-    assert allowed == {item.citation_id for item in citation_catalog(packet)}
-    assert {"S02C0051", "S02C0052", "S02C0054"}.isdisjoint(allowed)
+    assert allowed == {item["path"] for item in packet_value["sources"]}
 
 
 def test_unassigned_fact_key_is_rejected() -> None:
@@ -257,20 +292,18 @@ def test_unassigned_fact_key_is_rejected() -> None:
         validate_semantic_against_packet(payload, _packet())
 
 
-def test_claim_citation_volume_is_compacted_deterministically_to_evidence_cap() -> None:
+def test_claim_quote_volume_is_compacted_deterministically_to_evidence_cap() -> None:
     value = _valid_payload_dict()
-    catalog_ids = [item.citation_id for item in citation_catalog(_packet())][:25]
+    quote_pool = _unique_quote_pool(25)
     for index, claim in enumerate(value["claims"]):
-        claim["supports_citation_ids"] = catalog_ids[index * 5 : (index + 1) * 5]
+        claim["evidence_quotes"] = quote_pool[index * 5 : (index + 1) * 5]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
     validate_semantic_against_packet(payload, _packet())
-    selected, omitted = compact_claim_citations(payload)
+    selected, omitted = compact_claim_quotes(payload)
     assert sum(len(items) for items in selected.values()) == 24
     assert omitted == 1
-    assert [
-        len(selected[(claim["claim_id"], "support")]) for claim in value["claims"]
-    ] == [
+    assert [len(selected[claim["claim_id"]]) for claim in value["claims"]] == [
         5,
         5,
         5,
@@ -297,6 +330,7 @@ def test_claim_citation_volume_is_compacted_deterministically_to_evidence_cap() 
         5,
         4,
     ]
+    assert all(not claim.opposes_evidence_ids for claim in submission.claims)
 
 
 def test_complete_submission_requires_all_five_fact_keys() -> None:
