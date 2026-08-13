@@ -189,7 +189,10 @@ def test_valid_payload_is_grounded_in_frozen_packet() -> None:
 
 def test_unknown_citation_id_is_rejected() -> None:
     value = _valid_payload_dict()
-    value["evidence"][0]["citation_id"] = "S99C9999"
+    unknown = "S99C9999"
+    value["evidence"][0]["citation_id"] = unknown
+    value["claims"][0]["supports_citation_ids"] = [unknown]
+    value["critical_trap"]["supports_citation_ids"] = [unknown]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
     with pytest.raises(BenchmarkSemanticValidationError, match="citation catalog"):
