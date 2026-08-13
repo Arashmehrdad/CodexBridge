@@ -90,10 +90,11 @@ def _valid_payload_dict() -> dict:
     for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
         evidence_specs, start=1
     ):
+        citation_id = _citation_for(source["path"], needle)
         evidence.append(
             {
                 "evidence_id": evidence_id,
-                "citation_id": _citation_for(source["path"], needle),
+                "citation_id": citation_id,
                 "fact_key": fact_key,
                 "fact_value": fact_value,
             }
@@ -104,8 +105,8 @@ def _valid_payload_dict() -> dict:
                 "claim_class": "observation",
                 "subject_key": fact_key,
                 "statement": f"Fixture claim for {fact_key}.",
-                "supports_evidence_ids": [evidence_id],
-                "opposes_evidence_ids": [],
+                "supports_citation_ids": [citation_id],
+                "opposes_citation_ids": [],
                 "uncertainty_ids": [],
             }
         )
@@ -121,7 +122,7 @@ def _valid_payload_dict() -> dict:
         "critical_trap": {
             "disposition": "false",
             "statement": "Task admission is not substantive outcome acceptance.",
-            "supports_evidence_ids": ["e_state_owner"],
+            "supports_citation_ids": [evidence[0]["citation_id"]],
         },
     }
 
@@ -237,7 +238,9 @@ def test_unassigned_fact_key_is_rejected() -> None:
 
 def test_claim_cannot_use_evidence_from_another_fact_key() -> None:
     value = _valid_payload_dict()
-    value["claims"][0]["supports_evidence_ids"] = ["e_task_kind"]
+    value["claims"][0]["supports_citation_ids"] = [
+        value["evidence"][1]["citation_id"]
+    ]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
     with pytest.raises(BenchmarkSemanticValidationError, match="another fact key"):

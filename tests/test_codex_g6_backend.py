@@ -92,10 +92,11 @@ def _semantic_output() -> str:
     for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
         specs, start=1
     ):
+        citation_id = _citation_for(source["path"], needle)
         evidence.append(
             {
                 "evidence_id": evidence_id,
-                "citation_id": _citation_for(source["path"], needle),
+                "citation_id": citation_id,
                 "fact_key": fact_key,
                 "fact_value": fact_value,
             }
@@ -106,8 +107,8 @@ def _semantic_output() -> str:
                 "claim_class": "observation",
                 "subject_key": fact_key,
                 "statement": f"Grounded fixture claim for {fact_key}.",
-                "supports_evidence_ids": [evidence_id],
-                "opposes_evidence_ids": [],
+                "supports_citation_ids": [citation_id],
+                "opposes_citation_ids": [],
                 "uncertainty_ids": [],
             }
         )
@@ -123,7 +124,7 @@ def _semantic_output() -> str:
             "critical_trap": {
                 "disposition": "false",
                 "statement": "Admission is not substantive outcome acceptance.",
-                "supports_evidence_ids": ["e1"],
+                "supports_citation_ids": [evidence[0]["citation_id"]],
             },
         },
         sort_keys=True,

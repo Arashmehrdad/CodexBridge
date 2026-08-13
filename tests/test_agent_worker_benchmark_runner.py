@@ -189,8 +189,8 @@ def _semantic_from_prompt(prompt: str) -> str:
             "claim_class": "observation",
             "subject_key": question["fact_key"],
             "statement": f"Scripted claim for {question['fact_key']}.",
-            "supports_evidence_ids": [],
-            "opposes_evidence_ids": [],
+            "supports_citation_ids": [],
+            "opposes_citation_ids": [],
             "uncertainty_ids": [],
         }
         for index, question in enumerate(questions, start=1)
@@ -207,7 +207,7 @@ def _semantic_from_prompt(prompt: str) -> str:
             "critical_trap": {
                 "disposition": "false",
                 "statement": "The frozen critical trap is false in this scripted fixture.",
-                "supports_evidence_ids": [],
+                "supports_citation_ids": [],
             },
         },
         sort_keys=True,
