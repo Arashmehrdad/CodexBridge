@@ -10,7 +10,10 @@ import pytest
 
 from soma.agent_worker_benchmark import build_assignment_packet
 from soma.reasoning.backends import start_request_hash
-from soma.reasoning.benchmark_evidence import BENCHMARK_SEMANTIC_SCHEMA_VERSION
+from soma.reasoning.benchmark_evidence import (
+    BENCHMARK_SEMANTIC_SCHEMA_VERSION,
+    citation_catalog,
+)
 from soma.reasoning.codex_app_server import (
     CodexAppServerTransportError,
     CodexTurnEvidence,
@@ -34,11 +37,14 @@ def _packet() -> bytes:
     return build_assignment_packet(REPO_ROOT, "B01")
 
 
-def _line_for(source: dict, needle: str) -> tuple[int, str]:
-    for index, line in enumerate(source["content"].splitlines(), start=1):
-        if needle in line:
-            return index, line.strip()
-    raise AssertionError(needle)
+def _citation_for(source_path: str, needle: str) -> str:
+    matches = [
+        item.citation_id
+        for item in citation_catalog(_packet())
+        if item.source_path == source_path and needle in item.excerpt
+    ]
+    assert len(matches) == 1, (source_path, needle, matches)
+    return matches[0]
 
 
 def _semantic_output() -> str:
@@ -86,14 +92,10 @@ def _semantic_output() -> str:
     for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
         specs, start=1
     ):
-        line, excerpt = _line_for(source, needle)
         evidence.append(
             {
                 "evidence_id": evidence_id,
-                "source_path": source["path"],
-                "start_line": line,
-                "end_line": line,
-                "excerpt": excerpt,
+                "citation_id": _citation_for(source["path"], needle),
                 "fact_key": fact_key,
                 "fact_value": fact_value,
             }

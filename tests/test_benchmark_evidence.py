@@ -15,6 +15,7 @@ from soma.reasoning.benchmark_evidence import (
     BenchmarkSemanticValidationError,
     BenchmarkUsageV1,
     build_evidence_submission,
+    citation_catalog,
     parse_semantic_output,
     semantic_output_schema,
     semantic_payload_hash,
@@ -30,11 +31,14 @@ def _packet() -> bytes:
     return build_assignment_packet(REPO_ROOT, "B01")
 
 
-def _line_for(source: dict, needle: str) -> tuple[int, str]:
-    for index, line in enumerate(source["content"].splitlines(), start=1):
-        if needle in line:
-            return index, line.strip()
-    raise AssertionError(f"needle not found: {needle!r}")
+def _citation_for(source_path: str, needle: str) -> str:
+    matches = [
+        item.citation_id
+        for item in citation_catalog(_packet())
+        if item.source_path == source_path and needle in item.excerpt
+    ]
+    assert len(matches) == 1, (source_path, needle, matches)
+    return matches[0]
 
 
 def _valid_payload_dict() -> dict:
@@ -86,14 +90,10 @@ def _valid_payload_dict() -> dict:
     for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
         evidence_specs, start=1
     ):
-        line_number, excerpt = _line_for(source, needle)
         evidence.append(
             {
                 "evidence_id": evidence_id,
-                "source_path": source["path"],
-                "start_line": line_number,
-                "end_line": line_number,
-                "excerpt": excerpt,
+                "citation_id": _citation_for(source["path"], needle),
                 "fact_key": fact_key,
                 "fact_value": fact_value,
             }
@@ -186,32 +186,41 @@ def test_valid_payload_is_grounded_in_frozen_packet() -> None:
     assert len(payload.evidence) == 5
 
 
-def test_wrong_source_path_is_rejected() -> None:
+def test_unknown_citation_id_is_rejected() -> None:
     value = _valid_payload_dict()
-    value["evidence"][0]["source_path"] = "soma/not-in-assignment.py"
+    value["evidence"][0]["citation_id"] = "S99C9999"
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="outside assignment"):
+    with pytest.raises(BenchmarkSemanticValidationError, match="citation catalog"):
         validate_semantic_against_packet(payload, _packet())
 
 
-def test_out_of_range_lines_are_rejected() -> None:
-    value = _valid_payload_dict()
-    value["evidence"][0]["start_line"] = 999999
-    value["evidence"][0]["end_line"] = 999999
-    payload = BenchmarkSemanticPayloadV1.model_validate(value)
+def test_citation_catalog_is_deterministic_bounded_and_source_exact() -> None:
+    first = citation_catalog(_packet())
+    second = citation_catalog(_packet())
+    packet = json.loads(_packet())
+    sources = {source["path"]: source for source in packet["sources"]}
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="line range exceeds"):
-        validate_semantic_against_packet(payload, _packet())
+    assert first == second
+    assert first
+    assert len({item.citation_id for item in first}) == len(first)
+    for item in first:
+        lines = sources[item.source_path]["content"].splitlines()
+        selected = "\n".join(lines[item.start_line - 1 : item.end_line])
+        assert selected == item.excerpt
+        assert 1 <= item.end_line - item.start_line + 1 <= 4
+        assert len(item.excerpt) <= 480
 
 
-def test_fabricated_excerpt_is_rejected() -> None:
-    value = _valid_payload_dict()
-    value["evidence"][0]["excerpt"] = "this exact text is not in the frozen source"
-    payload = BenchmarkSemanticPayloadV1.model_validate(value)
-
-    with pytest.raises(BenchmarkSemanticValidationError, match="excerpt is not exact"):
-        validate_semantic_against_packet(payload, _packet())
+def test_provider_evidence_schema_cannot_supply_source_locator_or_excerpt() -> None:
+    evidence = semantic_output_schema()["$defs"]["BenchmarkSemanticEvidenceV1"]
+    assert set(evidence["properties"]) == {
+        "evidence_id",
+        "citation_id",
+        "fact_key",
+        "fact_value",
+    }
+    assert set(evidence["required"]) == set(evidence["properties"])
 
 
 def test_unassigned_fact_key_is_rejected() -> None:
