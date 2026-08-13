@@ -34,7 +34,7 @@ from soma.worker_evidence.models import (
     MAX_EVIDENCE_RECORDS,
 )
 
-from .benchmark_evidence import BenchmarkUsageV1, extract_usage
+from .benchmark_evidence import BenchmarkUsageV1, extract_usage as extract_usage
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
