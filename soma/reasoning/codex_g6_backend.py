@@ -31,11 +31,11 @@ from .backends import (
     make_backend_ref,
     start_request_hash,
 )
-from .benchmark_evidence import (
+from .benchmark_evidence_v9 import (
     BenchmarkSemanticValidationError,
     build_evidence_submission,
     canonical_json_bytes,
-    compact_claim_quotes,
+    compact_claim_locations,
     evidence_compaction_contract_hash,
     extract_usage,
     packet_schema_binding_contract_hash,
@@ -46,7 +46,7 @@ from .benchmark_evidence import (
     semantic_prompt,
     semantic_prompt_contract_hash,
     sha256_hex,
-    source_quote_contract_hash,
+    source_locator_contract_hash,
 )
 from .codex_app_server import (
     CodexAppServerClient,
@@ -66,8 +66,8 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
-CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v8"
-CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v5"
+CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v9"
+CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v6"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
 CODEX_G6_DEFAULT_WALL_TIME_SECONDS = 120
@@ -107,7 +107,7 @@ def execution_contract_hash() -> str:
             "provider_route_hash": provider_route_hash(),
             "output_contract_ref": CODEX_G6_OUTPUT_CONTRACT_REF,
             "output_contract_hash": output_contract_hash(),
-            "source_quote_contract_hash": source_quote_contract_hash(),
+            "source_locator_contract_hash": source_locator_contract_hash(),
             "evidence_compaction_contract_hash": evidence_compaction_contract_hash(),
             "semantic_prompt_contract_hash": semantic_prompt_contract_hash(),
             "packet_schema_binding_contract_hash": packet_schema_binding_contract_hash(),
@@ -667,12 +667,14 @@ class CodexG6ReasoningBackend:
                 provenance_ref, provenance_hash = self._artifact(
                     backend_ref, "provider_provenance.json", provenance
                 )
-                selected_quotes, omitted_quote_references = compact_claim_quotes(semantic)
+                selected_locations, omitted_location_references = (
+                    compact_claim_locations(semantic)
+                )
                 provider_citation_reference_count = sum(
-                    len(claim.evidence_quotes) for claim in semantic.claims
+                    len(claim.evidence_locations) for claim in semantic.claims
                 )
                 published_evidence_count = sum(
-                    len(source_quotes) for source_quotes in selected_quotes.values()
+                    len(locations) for locations in selected_locations.values()
                 )
                 assessment = {
                     "schema": "soma.agent_worker_benchmark.assessment.v1",
@@ -687,11 +689,11 @@ class CodexG6ReasoningBackend:
                     "evidence_count": published_evidence_count,
                     "provider_citation_reference_count": provider_citation_reference_count,
                     "published_evidence_count": published_evidence_count,
-                    "omitted_citation_reference_count": omitted_quote_references,
+                    "omitted_citation_reference_count": omitted_location_references,
                     "uncertainty_count": len(semantic.uncertainties),
                     "blocker_count": len(semantic.blockers),
                     "claims_without_support": sum(
-                        1 for claim in semantic.claims if not claim.evidence_quotes
+                        1 for claim in semantic.claims if not claim.evidence_locations
                     ),
                     "claim_fact_keys": sorted(
                         {claim.subject_key for claim in semantic.claims}
@@ -700,7 +702,7 @@ class CodexG6ReasoningBackend:
                         {
                             claim.subject_key
                             for claim in semantic.claims
-                            if claim.evidence_quotes
+                            if claim.evidence_locations
                         }
                     ),
                 }
