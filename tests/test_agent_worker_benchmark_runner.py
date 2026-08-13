@@ -201,7 +201,6 @@ def _semantic_from_prompt(prompt: str) -> str:
             "submission_disposition": "complete",
             "executive_summary": "Scripted source-bounded G6 result.",
             "claims": claims,
-            "evidence": [],
             "uncertainties": [],
             "blockers": [],
             "critical_trap": {

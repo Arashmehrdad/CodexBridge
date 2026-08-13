@@ -87,20 +87,13 @@ def _semantic_output() -> str:
             "protocol",
         ),
     ]
-    evidence = []
     claims = []
-    for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
+    citation_ids = []
+    for index, (_evidence_id, source, needle, fact_key, _fact_value) in enumerate(
         specs, start=1
     ):
         citation_id = _citation_for(source["path"], needle)
-        evidence.append(
-            {
-                "evidence_id": evidence_id,
-                "citation_id": citation_id,
-                "fact_key": fact_key,
-                "fact_value": fact_value,
-            }
-        )
+        citation_ids.append(citation_id)
         claims.append(
             {
                 "claim_id": f"c{index}",
@@ -118,13 +111,12 @@ def _semantic_output() -> str:
             "submission_disposition": "complete",
             "executive_summary": "Scripted frozen-source evidence.",
             "claims": claims,
-            "evidence": evidence,
             "uncertainties": [],
             "blockers": [],
             "critical_trap": {
                 "disposition": "false",
                 "statement": "Admission is not substantive outcome acceptance.",
-                "supports_citation_ids": [evidence[0]["citation_id"]],
+                "supports_citation_ids": [citation_ids[0]],
             },
         },
         sort_keys=True,
