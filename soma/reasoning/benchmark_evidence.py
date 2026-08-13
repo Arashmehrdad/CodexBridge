@@ -303,9 +303,7 @@ def citation_catalog_payload(packet_bytes: bytes) -> dict[str, Any]:
     }
 
 
-def semantic_prompt(packet_bytes: bytes) -> str:
-    packet = parse_assignment_packet(packet_bytes)
-    catalog = citation_catalog_payload(packet_bytes)
+def _semantic_instruction_text() -> str:
     return (
         "You are a read-only G6 benchmark evidence worker. Use only the ASSIGNMENT "
         "JSON and mechanically derived CITATION CATALOG below. Do not use tools, "
@@ -315,14 +313,26 @@ def semantic_prompt(packet_bytes: bytes) -> str:
         "of the assignment fact keys. Do not calculate line numbers, copy source "
         "text, mint evidence IDs, or return a parallel evidence list. Claims must "
         "select exact catalog IDs through supports_citation_ids or "
-        "opposes_citation_ids. Soma will derive every final EvidenceRecord from each "
-        "claim/citation pair and inject the exact path, hash, locator, excerpt, fact "
-        "key, fact value, and evidence cross-reference mechanically. Preserve "
-        "uncertainty instead of "
-        "inventing a winner. Evaluate "
+        "opposes_citation_ids. Within one claim those two citation-ID sets must be "
+        "disjoint: never place the same citation ID in both. Soma will derive every "
+        "final EvidenceRecord from each claim/citation pair and inject the exact path, "
+        "hash, locator, excerpt, fact key, fact value, and evidence cross-reference "
+        "mechanically. Preserve uncertainty instead of inventing a winner. Evaluate "
         "the supplied critical trap as false, true, or unsupported from the frozen "
-        "sources only. Do not implement or modify anything.\n\n"
-        "ASSIGNMENT JSON:\n"
+        "sources only. Do not implement or modify anything."
+    )
+
+
+def semantic_prompt_contract_hash() -> str:
+    return sha256_hex(_semantic_instruction_text().encode("utf-8"))
+
+
+def semantic_prompt(packet_bytes: bytes) -> str:
+    packet = parse_assignment_packet(packet_bytes)
+    catalog = citation_catalog_payload(packet_bytes)
+    return (
+        _semantic_instruction_text()
+        + "\n\nASSIGNMENT JSON:\n"
         + json.dumps(packet, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         + "\n\nCITATION CATALOG JSON:\n"
         + json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

@@ -207,6 +207,7 @@ def test_provider_schema_has_no_parallel_evidence_list() -> None:
     assert "BenchmarkSemanticEvidenceV1" not in schema.get("$defs", {})
     prompt = semantic_prompt(_packet())
     assert "or return a parallel evidence list" in prompt.lower()
+    assert "those two citation-id sets must be disjoint" in prompt.lower()
 
 
 def test_unassigned_fact_key_is_rejected() -> None:
