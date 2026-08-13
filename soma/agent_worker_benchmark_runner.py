@@ -470,88 +470,96 @@ def _controller_request_id(trial_id: str, unit_id: str) -> str:
     return f"g6:{unit_id}:{digest[:32]}"
 
 
+def prepare_g6_unit_admission(
+    kernel_store: CompanyKernelStore,
+    context: G6PlanContext,
+    execution_identity: str,
+    unit_id: str,
+) -> _AdmissionPreparation:
+    """Prepare one replay-safe successor Attempt without starting provider work."""
+
+    if unit_id not in G6_EXPECTED_UNIT_IDS:
+        raise G6BenchmarkRunnerError(f"unknown G6 unit_id {unit_id!r}")
+    work_package_id = context.work_packages[unit_id]
+    controller_request_id = _controller_request_id(execution_identity, unit_id)
+    with kernel_store.connect() as conn:
+        existing = conn.execute(
+            "SELECT attempt.*, task.state AS task_state "
+            "FROM work_package_attempts attempt JOIN tasks task "
+            "ON task.task_id = attempt.task_id "
+            "WHERE attempt.controller_request_id = ?",
+            (controller_request_id,),
+        ).fetchone()
+        if existing is not None:
+            if str(existing["work_package_id"]) != work_package_id:
+                raise G6BenchmarkRunnerError(
+                    "G6 controller request is already bound to another WorkPackage"
+                )
+            return _AdmissionPreparation(
+                unit_id=unit_id,
+                work_package_id=work_package_id,
+                controller_request_id=controller_request_id,
+                supersedes_attempt_id=(
+                    str(existing["supersedes_attempt_id"])
+                    if existing["supersedes_attempt_id"] is not None
+                    else None
+                ),
+            )
+
+        rows = conn.execute(
+            "SELECT attempt.*, task.state AS task_state "
+            "FROM work_package_attempts attempt JOIN tasks task "
+            "ON task.task_id = attempt.task_id "
+            "WHERE attempt.work_package_id = ? ORDER BY attempt.created_at, attempt.attempt_id",
+            (work_package_id,),
+        ).fetchall()
+        if not rows:
+            supersedes = None
+        else:
+            active = [
+                row
+                for row in rows
+                if str(row["task_state"])
+                not in {
+                    TaskState.COMPLETED.value,
+                    TaskState.FAILED.value,
+                    TaskState.CANCELLED.value,
+                }
+                and not str(row["containment_evidence_ref"] or "")
+            ]
+            if active:
+                raise G6BenchmarkRunnerError(
+                    f"G6 unit {unit_id} has an active or uncontained prior Attempt"
+                )
+            attempt_ids = {str(row["attempt_id"]) for row in rows}
+            superseded = {
+                str(row["supersedes_attempt_id"])
+                for row in rows
+                if row["supersedes_attempt_id"] is not None
+            }
+            heads = sorted(attempt_ids - superseded)
+            if len(heads) != 1:
+                raise G6BenchmarkRunnerError(
+                    f"G6 unit {unit_id} does not have exactly one Attempt head"
+                )
+            supersedes = heads[0]
+    return _AdmissionPreparation(
+        unit_id=unit_id,
+        work_package_id=work_package_id,
+        controller_request_id=controller_request_id,
+        supersedes_attempt_id=supersedes,
+    )
+
+
 def _prepare_admissions(
     kernel_store: CompanyKernelStore,
     context: G6PlanContext,
     trial_id: str,
 ) -> tuple[_AdmissionPreparation, ...]:
-    prepared: list[_AdmissionPreparation] = []
-    with kernel_store.connect() as conn:
-        for unit_id in G6_EXPECTED_UNIT_IDS:
-            work_package_id = context.work_packages[unit_id]
-            controller_request_id = _controller_request_id(trial_id, unit_id)
-            existing = conn.execute(
-                "SELECT attempt.*, task.state AS task_state "
-                "FROM work_package_attempts attempt JOIN tasks task "
-                "ON task.task_id = attempt.task_id "
-                "WHERE attempt.controller_request_id = ?",
-                (controller_request_id,),
-            ).fetchone()
-            if existing is not None:
-                if str(existing["work_package_id"]) != work_package_id:
-                    raise G6BenchmarkRunnerError(
-                        "G6 controller request is already bound to another WorkPackage"
-                    )
-                prepared.append(
-                    _AdmissionPreparation(
-                        unit_id=unit_id,
-                        work_package_id=work_package_id,
-                        controller_request_id=controller_request_id,
-                        supersedes_attempt_id=(
-                            str(existing["supersedes_attempt_id"])
-                            if existing["supersedes_attempt_id"] is not None
-                            else None
-                        ),
-                    )
-                )
-                continue
-
-            rows = conn.execute(
-                "SELECT attempt.*, task.state AS task_state "
-                "FROM work_package_attempts attempt JOIN tasks task "
-                "ON task.task_id = attempt.task_id "
-                "WHERE attempt.work_package_id = ? ORDER BY attempt.created_at, attempt.attempt_id",
-                (work_package_id,),
-            ).fetchall()
-            if not rows:
-                supersedes = None
-            else:
-                active = [
-                    row
-                    for row in rows
-                    if str(row["task_state"])
-                    not in {
-                        TaskState.COMPLETED.value,
-                        TaskState.FAILED.value,
-                        TaskState.CANCELLED.value,
-                    }
-                    and not str(row["containment_evidence_ref"] or "")
-                ]
-                if active:
-                    raise G6BenchmarkRunnerError(
-                        f"G6 unit {unit_id} has an active or uncontained prior Attempt"
-                    )
-                attempt_ids = {str(row["attempt_id"]) for row in rows}
-                superseded = {
-                    str(row["supersedes_attempt_id"])
-                    for row in rows
-                    if row["supersedes_attempt_id"] is not None
-                }
-                heads = sorted(attempt_ids - superseded)
-                if len(heads) != 1:
-                    raise G6BenchmarkRunnerError(
-                        f"G6 unit {unit_id} does not have exactly one Attempt head"
-                    )
-                supersedes = heads[0]
-            prepared.append(
-                _AdmissionPreparation(
-                    unit_id=unit_id,
-                    work_package_id=work_package_id,
-                    controller_request_id=controller_request_id,
-                    supersedes_attempt_id=supersedes,
-                )
-            )
-    return tuple(prepared)
+    return tuple(
+        prepare_g6_unit_admission(kernel_store, context, trial_id, unit_id)
+        for unit_id in G6_EXPECTED_UNIT_IDS
+    )
 
 
 class _CanonicalActivityCounter:
