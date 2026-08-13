@@ -1483,6 +1483,7 @@ Normative reasoning/evidence authority boundary:
 - the reasoning worker is the semantic actor: it reads the assigned material, answers the task, and chooses the evidence locations it believes support its claims;
 - Soma validates only mechanical transport facts: assignment identity, assigned-source membership/hash, locator/range validity, schema/bounds, provenance, persistence, replay, and FanIn completeness;
 - Soma must not decide whether a cited passage proves a claim, semantically grade a worker answer, infer claim equivalence, or replace the reasoning worker with deterministic proof heuristics;
+- missing assignment fact keys, weak evidence choices, and other quality defects remain preserved benchmark data and must not make an otherwise schema/assignment/locator-valid worker submission transport-invalid;
 - Sol performs unsupported-assertion, evidence-precision, contradiction, uncertainty, and final semantic adjudication over the preserved worker result/evidence;
 - if a semantic second opinion is needed, use a reasoning worker/Sol adjudication rather than adding semantic heuristics to Soma.
 
