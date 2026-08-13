@@ -33,7 +33,7 @@ from soma.company_kernel.service import accept_plan_graph
 from soma.company_kernel.store import CompanyKernelStore
 from soma.config import load_config
 from soma.project_scope import ProjectScopeStore
-from soma.reasoning.benchmark_evidence import BENCHMARK_SEMANTIC_SCHEMA_VERSION
+from soma.reasoning.benchmark_evidence_v9 import BENCHMARK_SEMANTIC_SCHEMA_VERSION
 from soma.reasoning.codex_app_server import CodexTurnEvidence
 from soma.reasoning.codex_g6_backend import (
     CODEX_G6_MODEL,
@@ -176,9 +176,9 @@ def _prepare_kernel_and_scope(tmp_path: Path):
 
 
 def _semantic_from_prompt(prompt: str) -> str:
-    marker = "ASSIGNMENT JSON:\n"
+    marker = "PROVIDER ASSIGNMENT VIEW JSON:\n"
     assert marker in prompt
-    assert "CITATION CATALOG JSON" not in prompt
+    assert "Soma will not judge whether your evidence proves your claim" in prompt
     packet = json.loads(prompt.split(marker, 1)[1])
     questions = packet["rubric"]["questions"]
     claims = [
@@ -187,7 +187,7 @@ def _semantic_from_prompt(prompt: str) -> str:
             "claim_class": "observation",
             "subject_key": question["fact_key"],
             "statement": f"Scripted claim for {question['fact_key']}.",
-            "evidence_quotes": [],
+            "evidence_locations": [],
             "uncertainty_ids": [],
         }
         for index, question in enumerate(questions, start=1)
@@ -203,7 +203,7 @@ def _semantic_from_prompt(prompt: str) -> str:
             "critical_trap": {
                 "disposition": "false",
                 "statement": "The frozen critical trap is false in this scripted fixture.",
-                "evidence_quotes": [],
+                "evidence_locations": [],
             },
         },
         sort_keys=True,

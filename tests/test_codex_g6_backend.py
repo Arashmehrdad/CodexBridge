@@ -10,7 +10,7 @@ import pytest
 
 from soma.agent_worker_benchmark import build_assignment_packet
 from soma.reasoning.backends import start_request_hash
-from soma.reasoning.benchmark_evidence import BENCHMARK_SEMANTIC_SCHEMA_VERSION
+from soma.reasoning.benchmark_evidence_v9 import BENCHMARK_SEMANTIC_SCHEMA_VERSION
 from soma.reasoning.codex_app_server import (
     CodexAppServerTransportError,
     CodexTurnEvidence,
@@ -34,14 +34,20 @@ def _packet() -> bytes:
     return build_assignment_packet(REPO_ROOT, "B01")
 
 
-def _quote_for(source_path: str, needle: str) -> dict[str, str]:
+def _location_for(source_path: str, needle: str) -> dict[str, int | str]:
     packet = json.loads(_packet())
     source = next(item for item in packet["sources"] if item["path"] == source_path)
-    matches = [line.strip() for line in source["content"].splitlines() if needle in line]
+    matches = [
+        number
+        for number, line in enumerate(source["content"].splitlines(), start=1)
+        if needle in line
+    ]
     assert len(matches) == 1, (source_path, needle, matches)
-    quote = matches[0]
-    assert quote and source["content"].count(quote) == 1
-    return {"source_path": source_path, "quote": quote}
+    return {
+        "source_path": source_path,
+        "start_line": matches[0],
+        "end_line": matches[0],
+    }
 
 
 def _semantic_output() -> str:
@@ -85,19 +91,19 @@ def _semantic_output() -> str:
         ),
     ]
     claims = []
-    citation_ids = []
+    evidence_locations = []
     for index, (_evidence_id, source, needle, fact_key, _fact_value) in enumerate(
         specs, start=1
     ):
-        source_quote = _quote_for(source["path"], needle)
-        citation_ids.append(source_quote)
+        location = _location_for(source["path"], needle)
+        evidence_locations.append(location)
         claims.append(
             {
                 "claim_id": f"c{index}",
                 "claim_class": "observation",
                 "subject_key": fact_key,
                 "statement": f"Grounded fixture claim for {fact_key}.",
-                "evidence_quotes": [source_quote],
+                "evidence_locations": [location],
                 "uncertainty_ids": [],
             }
         )
@@ -112,7 +118,7 @@ def _semantic_output() -> str:
             "critical_trap": {
                 "disposition": "false",
                 "statement": "Admission is not substantive outcome acceptance.",
-                "evidence_quotes": [citation_ids[0]],
+                "evidence_locations": [evidence_locations[0]],
             },
         },
         sort_keys=True,
@@ -157,14 +163,16 @@ class ScriptedG6Client:
         claim_properties = output_schema["$defs"]["BenchmarkSemanticClaimV1"][
             "properties"
         ]
-        quote_properties = output_schema["$defs"]["BenchmarkSourceQuoteV1"][
+        locator_properties = output_schema["$defs"]["BenchmarkSourceLocatorV1"][
             "properties"
         ]
         assert claim_properties["subject_key"].get("enum")
-        assert quote_properties["source_path"] == {
+        assert locator_properties["source_path"] == {
             "$ref": "#/$defs/BenchmarkPacketSourcePath"
         }
-        assert "There is no opposition relation" in kwargs["prompt"]
+        assert "Soma will not judge whether your evidence proves your claim" in kwargs[
+            "prompt"
+        ]
         assert "Do not implement or modify anything" in kwargs["prompt"]
         if self.behavior == "ambiguous_ack":
             raise CodexAppServerTransportError("injected lost acknowledgement")
