@@ -62,8 +62,8 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
-CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v3"
-CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v3"
+CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v4"
+CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v4"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
 CODEX_G6_DEFAULT_WALL_TIME_SECONDS = 120
@@ -670,7 +670,11 @@ class CodexG6ReasoningBackend:
                     "submission_disposition": semantic.submission_disposition,
                     "critical_trap": semantic.critical_trap.model_dump(mode="json"),
                     "claim_count": len(semantic.claims),
-                    "evidence_count": len(semantic.evidence),
+                    "evidence_count": sum(
+                        len(claim.supports_citation_ids)
+                        + len(claim.opposes_citation_ids)
+                        for claim in semantic.claims
+                    ),
                     "uncertainty_count": len(semantic.uncertainties),
                     "blocker_count": len(semantic.blockers),
                     "claims_without_support": sum(
@@ -682,7 +686,11 @@ class CodexG6ReasoningBackend:
                         {claim.subject_key for claim in semantic.claims}
                     ),
                     "evidence_fact_keys": sorted(
-                        {item.fact_key for item in semantic.evidence}
+                        {
+                            claim.subject_key
+                            for claim in semantic.claims
+                            if claim.supports_citation_ids or claim.opposes_citation_ids
+                        }
                     ),
                 }
                 assessment_ref, assessment_hash = self._artifact(
