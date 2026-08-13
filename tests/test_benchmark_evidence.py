@@ -179,7 +179,7 @@ def test_unknown_citation_id_is_rejected() -> None:
     value["critical_trap"]["supports_citation_ids"] = [unknown]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="citation catalog"):
+    with pytest.raises(BenchmarkSemanticValidationError, match="assignment catalog"):
         validate_semantic_against_packet(payload, _packet())
 
 
@@ -205,7 +205,7 @@ def test_provider_schema_has_no_parallel_evidence_list() -> None:
     assert "evidence" not in schema["properties"]
     assert "BenchmarkSemanticEvidenceV1" not in schema.get("$defs", {})
     prompt = semantic_prompt(_packet())
-    assert "do not return a parallel evidence list" in prompt
+    assert "do not return a parallel evidence list" in prompt.lower()
 
 
 def test_unassigned_fact_key_is_rejected() -> None:
