@@ -385,7 +385,6 @@ def validate_semantic_against_packet(
     payload: BenchmarkSemanticPayloadV1, packet_bytes: bytes
 ) -> None:
     packet = parse_assignment_packet(packet_bytes)
-    sources = _packet_sources(packet)
     allowed_fact_keys = _assignment_fact_keys(packet)
 
     claims_by_key: dict[str, list[BenchmarkSemanticClaimV1]] = {}
@@ -474,8 +473,7 @@ def build_evidence_submission(
     raw_provider_hash: str = "",
 ) -> EvidenceSubmissionV1:
     validate_semantic_against_packet(payload, packet_bytes)
-    packet = parse_assignment_packet(packet_bytes)
-    sources = _packet_sources(packet)
+    parse_assignment_packet(packet_bytes)
     packet_hash = sha256_hex(packet_bytes)
     canonical_assignment_hash = assignment_hash or packet_hash
     if len(canonical_assignment_hash) != 64 or any(
