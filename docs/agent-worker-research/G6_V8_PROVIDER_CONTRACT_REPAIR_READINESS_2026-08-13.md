@@ -113,6 +113,14 @@ Post-repair quota status run `20260813T144125Z_executable_profile_8cb16fdd` prov
 - API spend remains `$0`;
 - no model generation was consumed by the repair.
 
+Post-freeze provider preflight `20260813T144326Z_executable_profile_4cbde8e9` also passed without a generation:
+
+- authentication: `chatgpt`;
+- selected model `gpt-5.6-luna` remains available;
+- protocol manifest remains `dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc`;
+- generated protocol schema count remains `273`;
+- quota remained exactly `86/86` generations and `94` send boundaries.
+
 ## Required next experiment
 
 The v8 change materially alters the fixed provider/output contract. Therefore the v7 screening results cannot be mixed with v8 for canonical selection.
