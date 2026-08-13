@@ -241,9 +241,7 @@ def test_unassigned_fact_key_is_rejected() -> None:
 
 def test_claim_cannot_use_evidence_from_another_fact_key() -> None:
     value = _valid_payload_dict()
-    value["claims"][0]["supports_citation_ids"] = [
-        value["evidence"][1]["citation_id"]
-    ]
+    value["claims"][0]["supports_citation_ids"] = [value["evidence"][1]["citation_id"]]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
     with pytest.raises(BenchmarkSemanticValidationError, match="another fact key"):

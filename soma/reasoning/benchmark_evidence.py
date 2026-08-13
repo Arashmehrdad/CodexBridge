@@ -558,8 +558,7 @@ def build_evidence_submission(
                     for item in claim.supports_citation_ids
                 ),
                 opposes_evidence_ids=tuple(
-                    citation_to_evidence_id[item]
-                    for item in claim.opposes_citation_ids
+                    citation_to_evidence_id[item] for item in claim.opposes_citation_ids
                 ),
                 uncertainty_ids=claim.uncertainty_ids,
             )
