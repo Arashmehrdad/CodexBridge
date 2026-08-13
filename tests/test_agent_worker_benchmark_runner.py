@@ -170,8 +170,11 @@ def _prepare_kernel_and_scope(tmp_path: Path):
 
 def _semantic_from_prompt(prompt: str) -> str:
     marker = "ASSIGNMENT JSON:\n"
+    catalog_marker = "\n\nCITATION CATALOG JSON:\n"
     assert marker in prompt
-    packet = json.loads(prompt.split(marker, 1)[1])
+    assert catalog_marker in prompt
+    assignment_text = prompt.split(marker, 1)[1].split(catalog_marker, 1)[0]
+    packet = json.loads(assignment_text)
     questions = packet["rubric"]["questions"]
     claims = [
         {
