@@ -42,6 +42,8 @@ def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
     assert "registered remote SSH host" in ssh_action.description
     assert "Prefer action=administration" in ssh_action.description
     assert "service_start/stop/restart/reload/enable/disable" in ssh_action.description
+    assert "ssh_action=service_binary_promote" in ssh_action.description
+    assert "rolls back on failure" in ssh_action.description
     assert "rejected shell form" in ssh_action.description
     assert "local-machine operations, use run_start" in ssh_action.description
 

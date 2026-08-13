@@ -194,11 +194,16 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
                 "Use this when the user explicitly wants a change on a registered "
                 "remote SSH host. Prefer action=administration for supported "
                 "structured operations such as service_start/stop/restart/reload/"
-                "enable/disable; use reviewed_script or root_shell only when no "
-                "structured action can express the authorized intent. A rejected "
-                "shell form is not evidence that a structured administration route "
-                "is unavailable. For equivalent local-machine operations, use "
-                "run_start."
+                "enable/disable. For a staged service binary replacement, prefer "
+                "ssh_action=service_binary_promote: source is the staged binary, "
+                "destination is the live binary, path is the rollback copy, target "
+                "is the systemd service, and args are [new_sha256,current_sha256]. "
+                "That route verifies both hashes, replaces atomically, restarts, "
+                "verifies, and rolls back on failure. Use reviewed_script or "
+                "root_shell only when no structured action can express the authorized "
+                "intent. A rejected shell form is not evidence that a structured "
+                "administration route is unavailable. For equivalent local-machine "
+                "operations, use run_start."
             ),
             invoking="Running SSH action...",
             invoked="SSH action submitted",

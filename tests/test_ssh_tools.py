@@ -176,6 +176,131 @@ def test_actions_require_gates_and_confirmation_for_high_risk_work(
     assert removal.high_risk is True
 
 
+def _ssh_result(*, exit_code: int = 0, stdout: str = "", stderr: str = "") -> dict:
+    return {
+        "ok": exit_code == 0,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "timed_out": False,
+        "output_truncated": False,
+    }
+
+
+def test_service_binary_promote_is_hash_pinned_and_high_risk(tmp_path: Path) -> None:
+    config, _ = make_config(tmp_path)
+    new_hash = "a" * 64
+    current_hash = "b" * 64
+
+    with pytest.raises(ValueError, match="requires confirmation token"):
+        ssh_tools.build_ssh_action(
+            config,
+            "sample_host",
+            "service_binary_promote",
+            source="/srv/app/staged.bin",
+            destination="/srv/app/live.bin",
+            path="/srv/app/live.bin.rollback",
+            target="api.service",
+            args=[new_hash, current_hash],
+        )
+
+    spec = ssh_tools.build_ssh_action(
+        config,
+        "sample_host",
+        "service_binary_promote",
+        source="/srv/app/staged.bin",
+        destination="/srv/app/live.bin",
+        path="/srv/app/live.bin.rollback",
+        target="api.service",
+        args=[new_hash, current_hash],
+        confirmation=config.ssh.confirmation_token,
+    )
+    assert spec.high_risk is True
+    assert spec.writes_remote is True
+    assert "Hash-pinned atomic" in spec.description
+
+
+def test_service_binary_promote_executes_verified_atomic_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, _ = make_config(tmp_path)
+    new_hash = "a" * 64
+    current_hash = "b" * 64
+    hash_values = iter([new_hash, current_hash, current_hash, new_hash, new_hash])
+    calls: list[list[str]] = []
+
+    def fake_run(_config, _host_id, argv, *, timeout_seconds):
+        calls.append(list(argv))
+        command = list(argv[2:]) if argv[:2] == ["sudo", "-n"] else list(argv)
+        if command and command[0] == "sha256sum":
+            digest = next(hash_values)
+            return _ssh_result(stdout=f"{digest}  {command[-1]}\n")
+        return _ssh_result()
+
+    monkeypatch.setattr(ssh_tools, "_run_remote_argv", fake_run)
+    result = ssh_tools.run_ssh_action(
+        config,
+        "sample_host",
+        "service_binary_promote",
+        source="/srv/app/staged.bin",
+        destination="/srv/app/live.bin",
+        path="/srv/app/live.bin.rollback",
+        target="api.service",
+        args=[new_hash, current_hash],
+        confirmation=config.ssh.confirmation_token,
+    )
+
+    commands = [argv[2:] if argv[:2] == ["sudo", "-n"] else argv for argv in calls]
+    assert result["ok"] is True
+    assert result["remote_state_verified"] is True
+    assert result["live_sha256"] == new_hash
+    assert result["rollback_attempted"] is False
+    assert ["mv", "-f", "--", "/srv/app/live.bin.soma-promote-new", "/srv/app/live.bin"] in commands
+    assert ["systemctl", "restart", "api.service"] in commands
+    assert ["systemctl", "is-active", "--quiet", "api.service"] in commands
+
+
+def test_service_binary_promote_rolls_back_when_restart_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, _ = make_config(tmp_path)
+    new_hash = "a" * 64
+    current_hash = "b" * 64
+    hash_values = iter([new_hash, current_hash, current_hash, new_hash, current_hash])
+    restart_count = 0
+
+    def fake_run(_config, _host_id, argv, *, timeout_seconds):
+        nonlocal restart_count
+        command = list(argv[2:]) if argv[:2] == ["sudo", "-n"] else list(argv)
+        if command and command[0] == "sha256sum":
+            digest = next(hash_values)
+            return _ssh_result(stdout=f"{digest}  {command[-1]}\n")
+        if command[:2] == ["systemctl", "restart"]:
+            restart_count += 1
+            if restart_count == 1:
+                return _ssh_result(exit_code=1, stderr="injected restart failure")
+        return _ssh_result()
+
+    monkeypatch.setattr(ssh_tools, "_run_remote_argv", fake_run)
+    result = ssh_tools.run_ssh_action(
+        config,
+        "sample_host",
+        "service_binary_promote",
+        source="/srv/app/staged.bin",
+        destination="/srv/app/live.bin",
+        path="/srv/app/live.bin.rollback",
+        target="api.service",
+        args=[new_hash, current_hash],
+        confirmation=config.ssh.confirmation_token,
+    )
+
+    assert result["ok"] is False
+    assert result["rollback_attempted"] is True
+    assert result["rollback_ok"] is True
+    assert result["remote_state_verified"] is True
+    assert restart_count == 2
+
+
 def test_emergency_argv_is_allowlisted_and_never_accepts_shell_launchers(
     tmp_path: Path,
 ) -> None:

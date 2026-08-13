@@ -2041,7 +2041,9 @@ class JobWorker:
             risks.append("High-risk SSH action executed after explicit confirmation")
         if command_result.get("timed_out"):
             risks.append("SSH action timed out; inspect durable output before retrying")
-        risks.append("Soma cannot independently verify the final remote state")
+        remote_state_verified = bool(command_result.get("remote_state_verified", False))
+        if not remote_state_verified:
+            risks.append("Soma cannot independently verify the final remote state")
         output_summary = (stdout or stderr).strip()
         return {
             "run_id": self.run_id,
@@ -2052,7 +2054,7 @@ class JobWorker:
             **policy_metadata,
             "writes_remote": bool(command_result.get("writes_remote", True)),
             "high_risk": bool(command_result.get("high_risk", False)),
-            "remote_state_verified": False,
+            "remote_state_verified": remote_state_verified,
             "status": "completed" if command_result.get("ok") else "failed",
             "exit_code": int(command_result.get("exit_code", 1)),
             "started_at": started_at,

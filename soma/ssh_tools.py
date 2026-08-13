@@ -115,6 +115,7 @@ SSH_ACTIONS = (
     "git_pull_ff",
     "create_directory",
     "copy_path",
+    "service_binary_promote",
     "move_path",
     "remove_file",
     "remove_directory",
@@ -130,6 +131,7 @@ SSH_ACTIONS = (
 HIGH_RISK_SSH_ACTIONS = {
     "service_stop": "allow_admin",
     "service_disable": "allow_admin",
+    "service_binary_promote": "allow_admin",
     "docker_compose_down": "allow_admin",
     "move_path": "allow_admin",
     "remove_file": "allow_delete",
@@ -218,6 +220,13 @@ def _safe_packages(packages: list[str] | None) -> list[str]:
             raise ValueError(f"Invalid package name: {package!r}")
         normalized.append(value)
     return normalized
+
+
+def _safe_sha256(value: str, field: str) -> str:
+    token = str(value or "").strip().lower()
+    if len(token) != 64 or any(ch not in "0123456789abcdef" for ch in token):
+        raise ValueError(f"{field} must be a SHA-256 hex digest")
+    return token
 
 
 def _validate_runtime_argv(
@@ -774,6 +783,28 @@ def build_ssh_action(
             writes_remote=profile.writes_remote,
             description=profile.description,
         )
+    if action == "service_binary_promote":
+        staged = validate_remote_path(host, source, sensitive=True)
+        live = validate_remote_path(host, destination, sensitive=True)
+        backup = validate_remote_path(host, path, sensitive=True)
+        _safe_name(target, "target")
+        hashes = list(args or [])
+        if len(hashes) != 2:
+            raise ValueError(
+                "service_binary_promote requires args=[expected_new_sha256, expected_current_sha256]"
+            )
+        _safe_sha256(hashes[0], "expected_new_sha256")
+        _safe_sha256(hashes[1], "expected_current_sha256")
+        if len({staged, live, backup}) != 3:
+            raise ValueError("service_binary_promote source, destination, and backup path must differ")
+        return SSHActionSpec(
+            action=action,
+            remote_argv=["sha256sum", "--", staged],
+            timeout_seconds=180,
+            high_risk=True,
+            writes_remote=True,
+            description="Hash-pinned atomic service binary promotion with rollback",
+        )
     if action in service_actions:
         remote_argv = _with_sudo(
             host,
@@ -873,8 +904,198 @@ def build_ssh_action(
     )
 
 
+def _run_service_binary_promote(
+    config: AppConfig,
+    host_id: str,
+    *,
+    source: str,
+    destination: str,
+    backup_path: str,
+    service: str,
+    expected_new_sha256: str,
+    expected_current_sha256: str,
+) -> dict[str, Any]:
+    """Atomically promote one staged binary and rollback if restart/verification fails."""
+    host = resolve_ssh_host(config, host_id)
+    staged = validate_remote_path(host, source, sensitive=True)
+    live = validate_remote_path(host, destination, sensitive=True)
+    backup = validate_remote_path(host, backup_path, sensitive=True)
+    service_name = _safe_name(service, "target")
+    expected_new = _safe_sha256(expected_new_sha256, "expected_new_sha256")
+    expected_current = _safe_sha256(
+        expected_current_sha256, "expected_current_sha256"
+    )
+    if len({staged, live, backup}) != 3:
+        raise ValueError("service_binary_promote source, destination, and backup path must differ")
+    temporary = validate_remote_path(host, live + ".soma-promote-new", sensitive=True)
+    steps: list[dict[str, Any]] = []
+
+    def run_step(label: str, argv: list[str], timeout: int = 60) -> dict[str, Any]:
+        result = _run_remote_argv(
+            config,
+            host_id,
+            argv,
+            timeout_seconds=timeout,
+        )
+        exit_code = int(result.get("exit_code", 1))
+        steps.append({"step": label, "exit_code": exit_code})
+        if bool(result.get("timed_out")) or exit_code != 0:
+            detail = str(result.get("stderr") or result.get("stdout") or "").strip()
+            raise RuntimeError(f"{label} failed" + (f": {detail}" if detail else ""))
+        return result
+
+    def remote_hash(label: str, remote_path: str) -> str:
+        result = run_step(
+            label,
+            _with_sudo(host, ["sha256sum", "--", remote_path]),
+        )
+        fields = str(result.get("stdout") or "").strip().split()
+        if not fields:
+            raise RuntimeError(f"{label} returned no SHA-256")
+        return _safe_sha256(fields[0], f"{label}_sha256")
+
+    mutated = False
+    backup_ready = False
+    rollback_attempted = False
+    rollback_ok = False
+    try:
+        staged_hash = remote_hash("verify_staged_hash", staged)
+        if staged_hash != expected_new:
+            raise RuntimeError(
+                f"staged hash mismatch: expected {expected_new}, got {staged_hash}"
+            )
+        current_hash = remote_hash("verify_current_hash", live)
+        if current_hash != expected_current:
+            raise RuntimeError(
+                f"current hash mismatch: expected {expected_current}, got {current_hash}"
+            )
+        run_step(
+            "verify_service_preflight",
+            _with_sudo(host, ["systemctl", "is-active", "--quiet", service_name]),
+        )
+        run_step("backup_current", _with_sudo(host, ["cp", "-a", "--", live, backup]))
+        backup_ready = True
+        backup_hash = remote_hash("verify_backup_hash", backup)
+        if backup_hash != expected_current:
+            raise RuntimeError(
+                f"backup hash mismatch: expected {expected_current}, got {backup_hash}"
+            )
+        run_step("stage_candidate", _with_sudo(host, ["cp", "-a", "--", staged, temporary]))
+        run_step("set_candidate_mode", _with_sudo(host, ["chmod", "0755", "--", temporary]))
+        run_step("set_candidate_owner", _with_sudo(host, ["chown", "root:root", "--", temporary]))
+        staged_live_hash = remote_hash("verify_candidate_hash", temporary)
+        if staged_live_hash != expected_new:
+            raise RuntimeError(
+                f"candidate hash mismatch after staging: expected {expected_new}, got {staged_live_hash}"
+            )
+        # From this boundary onward, even an ambiguous SSH response must trigger rollback.
+        mutated = True
+        run_step("atomic_replace", _with_sudo(host, ["mv", "-f", "--", temporary, live]))
+        run_step(
+            "restart_service",
+            _with_sudo(host, ["systemctl", "restart", service_name]),
+            timeout=120,
+        )
+        run_step(
+            "verify_service_active",
+            _with_sudo(host, ["systemctl", "is-active", "--quiet", service_name]),
+        )
+        final_hash = remote_hash("verify_live_hash", live)
+        if final_hash != expected_new:
+            raise RuntimeError(
+                f"live hash mismatch after restart: expected {expected_new}, got {final_hash}"
+            )
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "stdout": (
+                f"Promoted {live} to {expected_new}; {service_name} is active; "
+                f"rollback copy preserved at {backup}"
+            ),
+            "stderr": "",
+            "timed_out": False,
+            "output_truncated": False,
+            "action": "service_binary_promote",
+            "writes_remote": True,
+            "high_risk": True,
+            "remote_state_verified": True,
+            "previous_sha256": expected_current,
+            "live_sha256": final_hash,
+            "backup_path": backup,
+            "service": service_name,
+            "steps": steps,
+            "rollback_attempted": False,
+            "rollback_ok": False,
+        }
+    except Exception as exc:
+        rollback_error = ""
+        if mutated and backup_ready:
+            rollback_attempted = True
+            try:
+                run_step(
+                    "rollback_stage",
+                    _with_sudo(host, ["cp", "-a", "--", backup, temporary]),
+                )
+                run_step(
+                    "rollback_replace",
+                    _with_sudo(host, ["mv", "-f", "--", temporary, live]),
+                )
+                run_step(
+                    "rollback_restart",
+                    _with_sudo(host, ["systemctl", "restart", service_name]),
+                    timeout=120,
+                )
+                run_step(
+                    "rollback_verify_service",
+                    _with_sudo(
+                        host, ["systemctl", "is-active", "--quiet", service_name]
+                    ),
+                )
+                restored_hash = remote_hash("rollback_verify_hash", live)
+                rollback_ok = restored_hash == expected_current
+                if not rollback_ok:
+                    rollback_error = (
+                        f"rollback hash mismatch: expected {expected_current}, got {restored_hash}"
+                    )
+            except Exception as rollback_exc:  # noqa: BLE001 - preserve both failures
+                rollback_error = str(rollback_exc)
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": str(exc),
+            "error": str(exc),
+            "timed_out": False,
+            "output_truncated": False,
+            "action": "service_binary_promote",
+            "writes_remote": True,
+            "high_risk": True,
+            "remote_state_verified": bool(rollback_attempted and rollback_ok),
+            "previous_sha256": expected_current,
+            "expected_new_sha256": expected_new,
+            "backup_path": backup,
+            "service": service_name,
+            "steps": steps,
+            "rollback_attempted": rollback_attempted,
+            "rollback_ok": rollback_ok,
+            "rollback_error": rollback_error,
+        }
+
+
 def run_ssh_action(config: AppConfig, host_id: str, action: str, **kwargs: Any) -> dict:
     spec = build_ssh_action(config, host_id, action, **kwargs)
+    if action == "service_binary_promote":
+        hashes = list(kwargs.get("args") or [])
+        return _run_service_binary_promote(
+            config,
+            host_id,
+            source=str(kwargs.get("source") or ""),
+            destination=str(kwargs.get("destination") or ""),
+            backup_path=str(kwargs.get("path") or ""),
+            service=str(kwargs.get("target") or ""),
+            expected_new_sha256=hashes[0],
+            expected_current_sha256=hashes[1],
+        )
     result = _run_remote_argv(
         config,
         host_id,
