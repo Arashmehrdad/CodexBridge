@@ -483,10 +483,15 @@ def build_evidence_submission(
             ("oppose", claim.opposes_citation_ids),
         ):
             for citation_id in citation_ids:
-                evidence_id = "g6_evidence_" + sha256_hex(
-                    f"{claim.claim_id}\0{polarity}\0{citation_id}".encode("utf-8")
-                )[:24]
-                claim_evidence_ids[(claim.claim_id, polarity, citation_id)] = evidence_id
+                evidence_id = (
+                    "g6_evidence_"
+                    + sha256_hex(
+                        f"{claim.claim_id}\0{polarity}\0{citation_id}".encode("utf-8")
+                    )[:24]
+                )
+                claim_evidence_ids[(claim.claim_id, polarity, citation_id)] = (
+                    evidence_id
+                )
                 citation = catalog[citation_id]
                 evidence_records_list.append(
                     EvidenceRecordV1(
