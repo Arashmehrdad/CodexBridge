@@ -1695,8 +1695,8 @@ The agent/worker architecture is complete only when all required gates demonstra
 10. provider-neutral protected mutation broker;
 11. provider-native provenance remains evidence rather than authority;
 12. real reasoning backend selected through measured read-only pilot evidence;
-13. canonical 1/2/4/8 concurrency selected through the frozen quality-gated benchmark;
-14. provider-native subagent concurrency measured separately;
+13. runtime concurrency remains explicitly bounded and must not claim a benchmark-selected optimum while G6 is closed inconclusive; a canonical 1/2/4/8 winner is required only if that optimization lane is explicitly reopened and its result is used to set topology;
+14. provider-native subagent concurrency remains a separate deferred optimization experiment and is not required for core completion unless its result is used to set runtime topology;
 15. normal-Chat integration chosen only after the existing Tool UX architecture is accounted for;
 16. full regression suite passes;
 17. no unapproved push/external mutation/provider spend.
