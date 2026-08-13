@@ -14,12 +14,12 @@ from soma.agent_worker_benchmark import (
     build_g6_plan_graph_manifest,
     work_package_contract_materials,
 )
-from soma.agent_worker_benchmark_runtime import (
-    G6Runtime,
-    G6RuntimeError,
-    provider_model_generations_observed,
-    provider_send_boundaries_crossed,
-    run_real_g6_smoke,
+from soma.agent_worker_benchmark_runner import (
+    G6BenchmarkRunnerError,
+    make_g6_assignment_resolver,
+    make_g6_task_id_resolver,
+    run_g6_trial,
+    validate_g6_plan,
 )
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
 from soma.company_kernel.service import accept_plan_graph
