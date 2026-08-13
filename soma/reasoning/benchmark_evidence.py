@@ -39,6 +39,9 @@ BENCHMARK_CITATION_CATALOG_VERSION: Final[str] = (
     "soma.agent_worker_benchmark.citation_catalog.v1"
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
+BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.evidence_compaction.v1"
+)
 MAX_BENCHMARK_LINE_SPAN: Final[int] = 24
 CITATION_CHUNK_MAX_LINES: Final[int] = 4
 CITATION_CHUNK_MAX_CHARACTERS: Final[int] = 480
@@ -264,6 +267,21 @@ def citation_catalog_contract_hash() -> str:
     )
 
 
+def evidence_compaction_contract_hash() -> str:
+    return sha256_hex(
+        canonical_json_bytes(
+            {
+                "schema_version": BENCHMARK_EVIDENCE_COMPACTION_VERSION,
+                "evidence_record_ceiling": MAX_EVIDENCE_RECORDS,
+                "mandatory_policy": "first_per_nonempty_claim_polarity",
+                "fill_policy": "round_robin_remaining_in_provider_order",
+                "fact_semantics": "one_record_per_claim_polarity_citation",
+                "raw_provider_evidence_retained": True,
+            }
+        )
+    )
+
+
 def citation_catalog_payload(packet_bytes: bytes) -> dict[str, Any]:
     packet = parse_assignment_packet(packet_bytes)
     sources = list(_packet_sources(packet).values())
@@ -394,16 +412,6 @@ def validate_semantic_against_packet(
             "semantic payload references citation IDs outside the mechanically "
             f"derived assignment catalog: {sorted(unknown_citations)}"
         )
-    claim_evidence_count = sum(
-        len(claim.supports_citation_ids) + len(claim.opposes_citation_ids)
-        for claim in payload.claims
-    )
-    if claim_evidence_count > MAX_EVIDENCE_RECORDS:
-        raise BenchmarkSemanticValidationError(
-            "claim citation references exceed final EvidenceSubmission evidence cap: "
-            f"{claim_evidence_count} > {MAX_EVIDENCE_RECORDS}"
-        )
-
     missing_claim_keys = allowed_fact_keys - set(claims_by_key)
     if payload.submission_disposition == "complete" and missing_claim_keys:
         raise BenchmarkSemanticValidationError(
@@ -445,6 +453,51 @@ def extract_usage(token_usage_events: tuple[dict[str, Any], ...]) -> BenchmarkUs
     )
 
 
+def compact_claim_citations(
+    payload: BenchmarkSemanticPayloadV1,
+) -> tuple[dict[tuple[str, str], tuple[str, ...]], int]:
+    buckets: list[tuple[str, str, tuple[str, ...]]] = []
+    for claim in payload.claims:
+        if claim.supports_citation_ids:
+            buckets.append((claim.claim_id, "support", claim.supports_citation_ids))
+        if claim.opposes_citation_ids:
+            buckets.append((claim.claim_id, "oppose", claim.opposes_citation_ids))
+
+    if len(buckets) > MAX_EVIDENCE_RECORDS:
+        raise BenchmarkSemanticValidationError(
+            "claim citation polarities exceed final EvidenceSubmission evidence cap"
+        )
+
+    selected: dict[tuple[str, str], list[str]] = {
+        (claim_id, polarity): [citation_ids[0]]
+        for claim_id, polarity, citation_ids in buckets
+    }
+    remaining_slots = MAX_EVIDENCE_RECORDS - len(buckets)
+    depth = 1
+    while remaining_slots > 0:
+        progressed = False
+        for claim_id, polarity, citation_ids in buckets:
+            if depth >= len(citation_ids):
+                continue
+            selected[(claim_id, polarity)].append(citation_ids[depth])
+            remaining_slots -= 1
+            progressed = True
+            if remaining_slots == 0:
+                break
+        if not progressed:
+            break
+        depth += 1
+
+    provider_reference_count = sum(len(citation_ids) for _, _, citation_ids in buckets)
+    published_reference_count = sum(
+        len(citation_ids) for citation_ids in selected.values()
+    )
+    return (
+        {key: tuple(value) for key, value in selected.items()},
+        provider_reference_count - published_reference_count,
+    )
+
+
 def build_evidence_submission(
     *,
     payload: BenchmarkSemanticPayloadV1,
@@ -475,14 +528,12 @@ def build_evidence_submission(
     )
 
     catalog = {item.citation_id: item for item in citation_catalog(packet_bytes)}
+    selected_citations, _omitted_citation_references = compact_claim_citations(payload)
     evidence_records_list: list[EvidenceRecordV1] = []
     claim_evidence_ids: dict[tuple[str, str, str], str] = {}
     for claim in payload.claims:
-        for polarity, citation_ids in (
-            ("support", claim.supports_citation_ids),
-            ("oppose", claim.opposes_citation_ids),
-        ):
-            for citation_id in citation_ids:
+        for polarity in ("support", "oppose"):
+            for citation_id in selected_citations.get((claim.claim_id, polarity), ()):
                 evidence_id = (
                     "g6_evidence_"
                     + sha256_hex(
@@ -542,11 +593,11 @@ def build_evidence_submission(
                 statement=claim.statement,
                 supports_evidence_ids=tuple(
                     claim_evidence_ids[(claim.claim_id, "support", item)]
-                    for item in claim.supports_citation_ids
+                    for item in selected_citations.get((claim.claim_id, "support"), ())
                 ),
                 opposes_evidence_ids=tuple(
                     claim_evidence_ids[(claim.claim_id, "oppose", item)]
-                    for item in claim.opposes_citation_ids
+                    for item in selected_citations.get((claim.claim_id, "oppose"), ())
                 ),
                 uncertainty_ids=claim.uncertainty_ids,
             )

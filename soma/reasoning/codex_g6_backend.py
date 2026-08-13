@@ -36,6 +36,8 @@ from .benchmark_evidence import (
     build_evidence_submission,
     canonical_json_bytes,
     citation_catalog_contract_hash,
+    compact_claim_citations,
+    evidence_compaction_contract_hash,
     extract_usage,
     parse_assignment_packet,
     parse_semantic_output,
@@ -62,7 +64,7 @@ CODEX_G6_PROTOCOL_MANIFEST_SHA256 = (
     "dcc92e96e856b1d4f93548f7f8f73e26aa87766431a0e44ceb23049c58c0dcbc"
 )
 CODEX_G6_PROVIDER_ROUTE_REF = "provider-route:codex-app-server:g6:v1"
-CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v4"
+CODEX_G6_EXECUTION_CONTRACT_REF = "execution-contract:codex-app-server:g6:v5"
 CODEX_G6_OUTPUT_CONTRACT_REF = "output-contract:soma.agent_worker_benchmark.semantic.v4"
 CODEX_G6_TOOL_POLICY_REF = "tool-policy:codex-g6-read-only:v1"
 CODEX_G6_AUTHORITY_REF = "authority:codex-g6-read-only:v1"
@@ -104,6 +106,7 @@ def execution_contract_hash() -> str:
             "output_contract_ref": CODEX_G6_OUTPUT_CONTRACT_REF,
             "output_contract_hash": output_contract_hash(),
             "citation_catalog_contract_hash": citation_catalog_contract_hash(),
+            "evidence_compaction_contract_hash": evidence_compaction_contract_hash(),
             "model": CODEX_G6_MODEL,
             "effort": CODEX_G6_EFFORT,
             "protocol_manifest_sha256": CODEX_G6_PROTOCOL_MANIFEST_SHA256,
@@ -660,6 +663,16 @@ class CodexG6ReasoningBackend:
                 provenance_ref, provenance_hash = self._artifact(
                     backend_ref, "provider_provenance.json", provenance
                 )
+                selected_citations, omitted_citation_references = (
+                    compact_claim_citations(semantic)
+                )
+                provider_citation_reference_count = sum(
+                    len(claim.supports_citation_ids) + len(claim.opposes_citation_ids)
+                    for claim in semantic.claims
+                )
+                published_evidence_count = sum(
+                    len(citation_ids) for citation_ids in selected_citations.values()
+                )
                 assessment = {
                     "schema": "soma.agent_worker_benchmark.assessment.v1",
                     "unit_id": assignment.unit_id,
@@ -670,11 +683,10 @@ class CodexG6ReasoningBackend:
                     "submission_disposition": semantic.submission_disposition,
                     "critical_trap": semantic.critical_trap.model_dump(mode="json"),
                     "claim_count": len(semantic.claims),
-                    "evidence_count": sum(
-                        len(claim.supports_citation_ids)
-                        + len(claim.opposes_citation_ids)
-                        for claim in semantic.claims
-                    ),
+                    "evidence_count": published_evidence_count,
+                    "provider_citation_reference_count": provider_citation_reference_count,
+                    "published_evidence_count": published_evidence_count,
+                    "omitted_citation_reference_count": omitted_citation_references,
                     "uncertainty_count": len(semantic.uncertainties),
                     "blocker_count": len(semantic.blockers),
                     "claims_without_support": sum(

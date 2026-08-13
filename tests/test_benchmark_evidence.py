@@ -16,6 +16,7 @@ from soma.reasoning.benchmark_evidence import (
     BenchmarkUsageV1,
     build_evidence_submission,
     citation_catalog,
+    compact_claim_citations,
     parse_semantic_output,
     semantic_output_schema,
     semantic_payload_hash,
@@ -219,15 +220,46 @@ def test_unassigned_fact_key_is_rejected() -> None:
         validate_semantic_against_packet(payload, _packet())
 
 
-def test_claim_citation_volume_cannot_exceed_final_evidence_cap() -> None:
+def test_claim_citation_volume_is_compacted_deterministically_to_evidence_cap() -> None:
     value = _valid_payload_dict()
     catalog_ids = [item.citation_id for item in citation_catalog(_packet())][:25]
     for index, claim in enumerate(value["claims"]):
         claim["supports_citation_ids"] = catalog_ids[index * 5 : (index + 1) * 5]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="evidence cap"):
-        validate_semantic_against_packet(payload, _packet())
+    validate_semantic_against_packet(payload, _packet())
+    selected, omitted = compact_claim_citations(payload)
+    assert sum(len(items) for items in selected.values()) == 24
+    assert omitted == 1
+    assert [
+        len(selected[(claim["claim_id"], "support")]) for claim in value["claims"]
+    ] == [
+        5,
+        5,
+        5,
+        5,
+        4,
+    ]
+
+    submission = build_evidence_submission(
+        payload=payload,
+        packet_bytes=_packet(),
+        task_id="task_g6_compaction",
+        backend_ref="reasoning_g6_compaction",
+        assignment_ref="benchmark:B01",
+        provider_model="gpt-5.6-luna",
+        provider_thread_id="thr_g6_compaction",
+        usage=BenchmarkUsageV1(),
+        wall_time_seconds=0.5,
+    )
+    assert len(submission.evidence) == 24
+    assert [len(claim.supports_evidence_ids) for claim in submission.claims] == [
+        5,
+        5,
+        5,
+        5,
+        4,
+    ]
 
 
 def test_complete_submission_requires_all_five_fact_keys() -> None:
