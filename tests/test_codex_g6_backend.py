@@ -451,7 +451,7 @@ def test_invalid_provider_output_is_bound_but_fails_output_contract(
     tmp_path: Path,
 ) -> None:
     client = ScriptedG6Client(behavior="invalid_output")
-    backend, _store = _backend(tmp_path, lambda: client)
+    backend, store = _backend(tmp_path, lambda: client)
     backend_ref = backend.reserve()
 
     observation = backend.start(_spec(), backend_ref)
@@ -460,6 +460,22 @@ def test_invalid_provider_output_is_bound_but_fails_output_contract(
     assert observation.provider_terminal_claim == "success"
     assert observation.output_contract_disposition == "invalid"
     assert observation.error_code == "invalid_benchmark_output"
+    assert observation.raw_provider_evidence_root_ref is not None
+    assert observation.raw_provider_evidence_root_hash is not None
+    diagnostic = json.loads(
+        (
+            store.runs_dir
+            / "reasoning_backend_evidence"
+            / backend_ref
+            / "invalid_output_evidence.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert diagnostic["error_code"] == "invalid_benchmark_output"
+    assert diagnostic["validation_error_type"] == "BenchmarkSemanticValidationError"
+    assert "not exact JSON" in diagnostic["validation_error"]
+    assert diagnostic["agent_message_characters"] == len("not-json")
+    assert len(diagnostic["agent_message_sha256"]) == 64
+    assert diagnostic["provider_event_root_ref"].endswith("provider_events.json")
     assert backend.result_reference(backend_ref) is None
 
 

@@ -611,7 +611,26 @@ class CodexG6ReasoningBackend:
                 continuation_ref=f"codex:thread:{thread_id}",
                 last_event_cursor=str(len(turn.events)),
             )
+            event_ref, event_hash = self._artifact(
+                backend_ref, "provider_events.json", list(turn.events)
+            )
+            usage_ref, usage_hash = self._artifact(
+                backend_ref, "usage.json", usage.model_dump(mode="json")
+            )
             if client.server_requests:
+                diagnostic_ref, diagnostic_hash = self._artifact(
+                    backend_ref,
+                    "invalid_output_evidence.json",
+                    {
+                        "schema": "soma.reasoning.codex_g6.invalid_output_evidence.v1",
+                        "provider_operation_ref": operation_ref,
+                        "error_code": "provider_requested_disallowed_capability",
+                        "server_request_count": len(client.server_requests),
+                        "provider_event_root_ref": event_ref,
+                        "provider_event_root_hash": event_hash,
+                        "usage": usage.model_dump(mode="json"),
+                    },
+                )
                 self.store.record_invalid_output(
                     backend_ref=backend_ref,
                     provider_operation_ref=operation_ref,
@@ -619,16 +638,16 @@ class CodexG6ReasoningBackend:
                     provider_binding_hash=binding_hash,
                     error_code="provider_requested_disallowed_capability",
                 )
+                self.store.record_terminal_evidence(
+                    backend_ref=backend_ref,
+                    raw_provider_evidence_root_ref=diagnostic_ref,
+                    raw_provider_evidence_root_hash=diagnostic_hash,
+                    error_code="provider_requested_disallowed_capability",
+                )
                 return self.query(backend_ref)
 
             try:
                 semantic = parse_semantic_output(turn.agent_message)
-                event_ref, event_hash = self._artifact(
-                    backend_ref, "provider_events.json", list(turn.events)
-                )
-                usage_ref, usage_hash = self._artifact(
-                    backend_ref, "usage.json", usage.model_dump(mode="json")
-                )
                 provenance = {
                     "schema": "soma.reasoning.codex_g6.provenance.v1",
                     "provider_operation_ref": operation_ref,
@@ -727,12 +746,36 @@ class CodexG6ReasoningBackend:
                     usage_hash=usage_hash,
                     usage_summary=usage.model_dump(mode="json"),
                 )
-            except (BenchmarkSemanticValidationError, ValueError):
+            except (BenchmarkSemanticValidationError, ValueError) as exc:
+                diagnostic_ref, diagnostic_hash = self._artifact(
+                    backend_ref,
+                    "invalid_output_evidence.json",
+                    {
+                        "schema": "soma.reasoning.codex_g6.invalid_output_evidence.v1",
+                        "provider_operation_ref": operation_ref,
+                        "error_code": "invalid_benchmark_output",
+                        "validation_error_type": type(exc).__name__,
+                        "validation_error": str(exc),
+                        "agent_message_sha256": sha256_hex(
+                            turn.agent_message.encode("utf-8")
+                        ),
+                        "agent_message_characters": len(turn.agent_message),
+                        "provider_event_root_ref": event_ref,
+                        "provider_event_root_hash": event_hash,
+                        "usage": usage.model_dump(mode="json"),
+                    },
+                )
                 self.store.record_invalid_output(
                     backend_ref=backend_ref,
                     provider_operation_ref=operation_ref,
                     provider_binding_ref=binding_ref,
                     provider_binding_hash=binding_hash,
+                    error_code="invalid_benchmark_output",
+                )
+                self.store.record_terminal_evidence(
+                    backend_ref=backend_ref,
+                    raw_provider_evidence_root_ref=diagnostic_ref,
+                    raw_provider_evidence_root_hash=diagnostic_hash,
                     error_code="invalid_benchmark_output",
                 )
             return self.query(backend_ref)
