@@ -85,20 +85,13 @@ def _valid_payload_dict() -> dict:
             "ExecutionBackend protocol",
         ),
     ]
-    evidence = []
     claims = []
-    for index, (evidence_id, source, needle, fact_key, fact_value) in enumerate(
+    citation_ids = []
+    for index, (_evidence_id, source, needle, fact_key, _fact_value) in enumerate(
         evidence_specs, start=1
     ):
         citation_id = _citation_for(source["path"], needle)
-        evidence.append(
-            {
-                "evidence_id": evidence_id,
-                "citation_id": citation_id,
-                "fact_key": fact_key,
-                "fact_value": fact_value,
-            }
-        )
+        citation_ids.append(citation_id)
         claims.append(
             {
                 "claim_id": f"claim_{index}",
@@ -116,13 +109,12 @@ def _valid_payload_dict() -> dict:
         "submission_disposition": "complete",
         "executive_summary": "Bounded B01 fixture evidence.",
         "claims": claims,
-        "evidence": evidence,
         "uncertainties": [],
         "blockers": [],
         "critical_trap": {
             "disposition": "false",
             "statement": "Task admission is not substantive outcome acceptance.",
-            "supports_citation_ids": [evidence[0]["citation_id"]],
+            "supports_citation_ids": [citation_ids[0]],
         },
     }
 
@@ -141,7 +133,6 @@ def test_schema_and_prompt_are_strict_read_only() -> None:
         "submission_disposition",
         "executive_summary",
         "claims",
-        "evidence",
         "uncertainties",
         "blockers",
         "critical_trap",
@@ -163,16 +154,11 @@ def test_schema_and_prompt_are_strict_read_only() -> None:
             assert_strict(item)
 
     assert_strict(schema)
-    fact_value = schema["$defs"]["BenchmarkSemanticEvidenceV1"]["properties"][
-        "fact_value"
-    ]
-    assert {item.get("type") for item in fact_value["anyOf"]} == {
-        "string",
-        "integer",
-        "number",
-        "boolean",
-        "null",
-    }
+    assert "evidence" not in schema["properties"]
+    claim_properties = schema["$defs"]["BenchmarkSemanticClaimV1"]["properties"]
+    assert "supports_citation_ids" in claim_properties
+    assert "opposes_citation_ids" in claim_properties
+    assert "supports_evidence_ids" not in claim_properties
     assert "Do not use tools, files, network sources" in prompt
     assert "Do not implement or modify anything" in prompt
     assert BENCHMARK_SEMANTIC_SCHEMA_VERSION in prompt
@@ -184,13 +170,11 @@ def test_valid_payload_is_grounded_in_frozen_packet() -> None:
     validate_semantic_against_packet(payload, _packet())
     assert payload.critical_trap.disposition == "false"
     assert len(payload.claims) == 5
-    assert len(payload.evidence) == 5
 
 
 def test_unknown_citation_id_is_rejected() -> None:
     value = _valid_payload_dict()
     unknown = "S99C9999"
-    value["evidence"][0]["citation_id"] = unknown
     value["claims"][0]["supports_citation_ids"] = [unknown]
     value["critical_trap"]["supports_citation_ids"] = [unknown]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
@@ -216,21 +200,17 @@ def test_citation_catalog_is_deterministic_bounded_and_source_exact() -> None:
         assert len(item.excerpt) <= 480
 
 
-def test_provider_evidence_schema_cannot_supply_source_locator_or_excerpt() -> None:
-    evidence = semantic_output_schema()["$defs"]["BenchmarkSemanticEvidenceV1"]
-    assert set(evidence["properties"]) == {
-        "evidence_id",
-        "citation_id",
-        "fact_key",
-        "fact_value",
-    }
-    assert set(evidence["required"]) == set(evidence["properties"])
+def test_provider_schema_has_no_parallel_evidence_list() -> None:
+    schema = semantic_output_schema()
+    assert "evidence" not in schema["properties"]
+    assert "BenchmarkSemanticEvidenceV1" not in schema.get("$defs", {})
+    prompt = semantic_prompt(_packet())
+    assert "do not return a parallel evidence list" in prompt
 
 
 def test_unassigned_fact_key_is_rejected() -> None:
     value = _valid_payload_dict()
     value["claims"][0]["subject_key"] = "invented.semantic.key"
-    value["evidence"][0]["fact_key"] = "invented.semantic.key"
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
     with pytest.raises(
@@ -239,12 +219,14 @@ def test_unassigned_fact_key_is_rejected() -> None:
         validate_semantic_against_packet(payload, _packet())
 
 
-def test_claim_cannot_use_evidence_from_another_fact_key() -> None:
+def test_claim_citation_volume_cannot_exceed_final_evidence_cap() -> None:
     value = _valid_payload_dict()
-    value["claims"][0]["supports_citation_ids"] = [value["evidence"][1]["citation_id"]]
+    catalog_ids = [item.citation_id for item in citation_catalog(_packet())][:25]
+    for index, claim in enumerate(value["claims"]):
+        claim["supports_citation_ids"] = catalog_ids[index * 5 : (index + 1) * 5]
     payload = BenchmarkSemanticPayloadV1.model_validate(value)
 
-    with pytest.raises(BenchmarkSemanticValidationError, match="another fact key"):
+    with pytest.raises(BenchmarkSemanticValidationError, match="evidence cap"):
         validate_semantic_against_packet(payload, _packet())
 
 
