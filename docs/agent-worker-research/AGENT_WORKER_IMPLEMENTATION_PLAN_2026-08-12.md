@@ -1530,6 +1530,16 @@ No hard-coded preference for 4 or 8.
 
 STOP.
 
+### Owner-directed G6 budget closure - 2026-08-13
+
+The provider-expensive concurrency optimization experiment is closed inconclusive under the owner's explicit token budget boundary. v10 received one final real-provider smoke and passed end-to-end with a valid preserved EvidenceSubmission. That smoke qualifies the repaired smart-worker/mechanical-Soma provider contract; it does not select a concurrency winner.
+
+`CANONICAL_CONCURRENCY` remains unselected. Historical measurements from superseded provider contracts must not be combined with v10 to manufacture a winner. Concurrency therefore remains a bounded runtime/controller policy until a future same-contract benchmark is explicitly reopened.
+
+G6.4 and G7 are deferred optimization/research gates, not completed gates and not blockers for continuing the core Agent/Worker implementation. Reopening either provider-expensive lane requires fresh explicit owner authorization. See `G6_V10_BUDGET_CLOSURE_2026-08-13.md`.
+
+STOP.
+
 ## G6.4 - Separate recovery matrix
 
 After concurrency selection, inject separately:
