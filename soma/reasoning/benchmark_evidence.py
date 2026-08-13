@@ -27,25 +27,26 @@ from soma.worker_evidence.models import (
     EvidenceSubmissionV1,
     EvidenceUncertaintyV1,
     EvidenceUsageV1,
+    MAX_EVIDENCE_EXCERPT_CHARACTERS,
     MAX_EVIDENCE_RECORDS,
     EvidenceWorkIdentityV1,
 )
 
 
 BENCHMARK_SEMANTIC_SCHEMA_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.semantic.v5"
+    "soma.agent_worker_benchmark.semantic.v6"
 )
-BENCHMARK_SOURCE_QUOTE_CONTRACT_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.source_quote.v1"
+BENCHMARK_SOURCE_SPAN_CONTRACT_VERSION: Final[str] = (
+    "soma.agent_worker_benchmark.source_span.v1"
 )
 BENCHMARK_ADAPTER_ID: Final[str] = "soma.reasoning.codex_app_server.g6"
 BENCHMARK_EVIDENCE_COMPACTION_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.evidence_compaction.v2"
+    "soma.agent_worker_benchmark.evidence_compaction.v3"
 )
 BENCHMARK_PACKET_SCHEMA_BINDING_VERSION: Final[str] = (
-    "soma.agent_worker_benchmark.packet_schema_binding.v2"
+    "soma.agent_worker_benchmark.packet_schema_binding.v3"
 )
-MAX_BENCHMARK_QUOTE_CHARACTERS: Final[int] = 480
+MAX_BENCHMARK_SPAN_LINES: Final[int] = 8
 BenchmarkFactValue = str | int | float | bool | None
 
 
@@ -57,20 +58,21 @@ class _FrozenBenchmarkModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class BenchmarkSourceQuoteV1(_FrozenBenchmarkModel):
-    """One support-only quote copied from exactly one assigned frozen source line."""
+class BenchmarkSourceSpanV1(_FrozenBenchmarkModel):
+    """One support-only inclusive line span in an assigned frozen source."""
 
     source_path: str = Field(min_length=1, max_length=2048)
-    quote: str = Field(
-        min_length=1,
-        max_length=MAX_BENCHMARK_QUOTE_CHARACTERS,
-        pattern=r"^[^\r\n]+$",
-    )
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
 
     @model_validator(mode="after")
-    def _validate_quote(self):
-        if not self.quote.strip():
-            raise ValueError("source quote must contain non-whitespace text")
+    def _validate_span(self):
+        if self.end_line < self.start_line:
+            raise ValueError("source span end_line must be >= start_line")
+        if self.end_line - self.start_line + 1 > MAX_BENCHMARK_SPAN_LINES:
+            raise ValueError(
+                f"source span exceeds {MAX_BENCHMARK_SPAN_LINES} line ceiling"
+            )
         return self
 
 
@@ -81,7 +83,7 @@ class BenchmarkSemanticClaimV1(_FrozenBenchmarkModel):
     ]
     subject_key: str = Field(min_length=1, max_length=256)
     statement: str = Field(min_length=1, max_length=4096)
-    evidence_quotes: tuple[BenchmarkSourceQuoteV1, ...] = Field(
+    evidence_spans: tuple[BenchmarkSourceSpanV1, ...] = Field(
         default=(), max_length=24
     )
     uncertainty_ids: tuple[str, ...] = Field(default=(), max_length=12)
@@ -114,7 +116,7 @@ class BenchmarkSemanticBlockerV1(_FrozenBenchmarkModel):
 class BenchmarkCriticalTrapV1(_FrozenBenchmarkModel):
     disposition: Literal["false", "true", "unsupported"]
     statement: str = Field(min_length=1, max_length=2048)
-    evidence_quotes: tuple[BenchmarkSourceQuoteV1, ...] = Field(
+    evidence_spans: tuple[BenchmarkSourceSpanV1, ...] = Field(
         default=(), max_length=24
     )
 
@@ -215,16 +217,17 @@ def _strict_provider_schema(value: Any) -> Any:
     return normalized
 
 
-def source_quote_contract_hash() -> str:
+def source_span_contract_hash() -> str:
     return sha256_hex(
         canonical_json_bytes(
             {
-                "schema_version": BENCHMARK_SOURCE_QUOTE_CONTRACT_VERSION,
+                "schema_version": BENCHMARK_SOURCE_SPAN_CONTRACT_VERSION,
                 "relation_model": "support_only",
                 "source_binding": "exact_assignment_source_path",
-                "quote_match": "exact_unique_single_line_substring",
-                "quote_max_characters": MAX_BENCHMARK_QUOTE_CHARACTERS,
-                "soma_injects_source_hash_and_line_locator": True,
+                "locator_model": "inclusive_one_based_line_span",
+                "span_line_ceiling": MAX_BENCHMARK_SPAN_LINES,
+                "provider_source_view": "zero_padded_numbered_lines",
+                "soma_injects_source_hash_locator_and_excerpt": True,
             }
         )
     )
@@ -236,7 +239,8 @@ def packet_schema_binding_contract_hash() -> str:
             {
                 "schema_version": BENCHMARK_PACKET_SCHEMA_BINDING_VERSION,
                 "claim_subject_key": "exact_assignment_fact_key_enum",
-                "source_quote_path": "exact_assignment_source_path_enum",
+                "source_span_path": "exact_assignment_source_path_enum",
+                "line_numbers": "packet_max_bound_plus_source_specific_local_validation",
                 "source_path_def_name": "BenchmarkPacketSourcePath",
             }
         )
@@ -259,9 +263,13 @@ def semantic_output_schema(packet_bytes: bytes | None = None) -> dict[str, Any]:
         raise BenchmarkSemanticValidationError(
             "assignment fact keys are invalid or duplicate"
         )
-    source_paths = list(_packet_sources(packet))
+    sources = _packet_sources(packet)
+    source_paths = list(sources)
     if not source_paths:
         raise BenchmarkSemanticValidationError("assignment source set is empty")
+    max_source_lines = max(
+        max(1, len(str(source["content"]).splitlines())) for source in sources.values()
+    )
 
     definitions = schema.setdefault("$defs", {})
     definitions["BenchmarkPacketSourcePath"] = {
@@ -273,10 +281,16 @@ def semantic_output_schema(packet_bytes: bytes | None = None) -> dict[str, Any]:
         "enum": fact_keys,
         "type": "string",
     }
-    quote_properties = definitions["BenchmarkSourceQuoteV1"]["properties"]
-    quote_properties["source_path"] = {
+    span_properties = definitions["BenchmarkSourceSpanV1"]["properties"]
+    span_properties["source_path"] = {
         "$ref": "#/$defs/BenchmarkPacketSourcePath"
     }
+    for field_name in ("start_line", "end_line"):
+        span_properties[field_name] = {
+            "maximum": max_source_lines,
+            "minimum": 1,
+            "type": "integer",
+        }
     return schema
 
 
@@ -288,8 +302,8 @@ def evidence_compaction_contract_hash() -> str:
                 "evidence_record_ceiling": MAX_EVIDENCE_RECORDS,
                 "mandatory_policy": "first_per_nonempty_claim",
                 "fill_policy": "round_robin_remaining_in_provider_order",
-                "duplicate_policy": "deduplicate_identical_source_quote_per_claim",
-                "fact_semantics": "one_support_record_per_claim_source_quote",
+                "duplicate_policy": "deduplicate_identical_source_span_per_claim",
+                "fact_semantics": "one_support_record_per_claim_source_span",
                 "raw_provider_evidence_retained": True,
             }
         )
@@ -298,25 +312,28 @@ def evidence_compaction_contract_hash() -> str:
 
 def _semantic_instruction_text() -> str:
     return (
-        "You are a read-only G6 benchmark evidence worker. Use only the ASSIGNMENT "
-        "JSON below. Do not use tools, files, network sources, memory, chat history, "
-        "or unstated assumptions. Return only the object required by the output "
-        "schema. Use schema_version "
+        "You are a read-only G6 benchmark evidence worker. Use only the PROVIDER "
+        "ASSIGNMENT VIEW below. Do not use tools, files, network sources, memory, "
+        "chat history, or unstated assumptions. Return only the object required by "
+        "the output schema. Use schema_version "
         f"{BENCHMARK_SEMANTIC_SCHEMA_VERSION!r}. Every claim subject_key must be one "
-        "of the assignment fact keys. Every evidence_quotes entry is support-only: "
-        "its quote must be a one-line exact verbatim substring copied from the "
-        "declared assigned source, must directly support the exact claim statement, "
-        "and should be long enough to occur only once in that source. There is no "
-        "opposition relation. If the source contradicts a proposition, phrase the "
-        "claim as the corresponding negative finding and quote evidence that supports "
-        "that negative statement. Do not calculate line numbers or mint evidence IDs; "
-        "Soma will verify each quote against the frozen source and inject the exact "
-        "source hash, line locator, fact key, fact value, and evidence cross-reference "
-        "mechanically. Prefer the smallest unique proof-bearing quote; do not cite "
-        "context-only or merely nearby text. If exact support is unavailable, preserve "
-        "uncertainty or a partial/blocked disposition instead of attaching unrelated "
-        "evidence. Evaluate the supplied critical trap as false, true, or unsupported "
-        "from the frozen sources only. Do not implement or modify anything."
+        "of the assignment fact keys. Every evidence_spans entry is support-only. "
+        "Each source's numbered_content uses a five-digit one-based line number, a "
+        "literal | separator, then the exact frozen source line; the prefix is locator "
+        "metadata and is not source text. Select the declared source_path plus the "
+        "smallest inclusive start_line/end_line range that directly supports the exact "
+        f"claim statement, never more than {MAX_BENCHMARK_SPAN_LINES} lines. There is "
+        "no opposition relation. If the source contradicts a proposition, phrase the "
+        "claim as the corresponding negative finding and select lines that support "
+        "that negative statement. Do not copy source quotes or mint evidence IDs. "
+        "Soma will verify every line span against the frozen source and inject the "
+        "exact source hash, locator, verbatim excerpt, fact key, fact value, and "
+        "evidence cross-reference mechanically. Prefer the narrowest proof-bearing "
+        "span; do not select context-only or merely nearby lines. If exact support is "
+        "unavailable, preserve uncertainty or a partial/blocked disposition instead "
+        "of attaching unrelated evidence. Evaluate the supplied critical trap as "
+        "false, true, or unsupported from the frozen sources only. Do not implement "
+        "or modify anything."
     )
 
 
@@ -324,12 +341,36 @@ def semantic_prompt_contract_hash() -> str:
     return sha256_hex(_semantic_instruction_text().encode("utf-8"))
 
 
+def _provider_assignment_view(packet: dict[str, Any]) -> dict[str, Any]:
+    view = {key: value for key, value in packet.items() if key != "sources"}
+    provider_sources: list[dict[str, Any]] = []
+    for source in _packet_sources(packet).values():
+        lines = str(source["content"]).splitlines()
+        provider_sources.append(
+            {
+                "path": source["path"],
+                "sha256": source["sha256"],
+                "git_blob_sha256": source.get("git_blob_sha256", ""),
+                "representation": source.get("representation", ""),
+                "numbered_content": "\n".join(
+                    f"{line_number:05d}|{line}"
+                    for line_number, line in enumerate(lines, start=1)
+                ),
+            }
+        )
+    view["sources"] = provider_sources
+    return view
+
+
 def semantic_prompt(packet_bytes: bytes) -> str:
     packet = parse_assignment_packet(packet_bytes)
+    provider_view = _provider_assignment_view(packet)
     return (
         _semantic_instruction_text()
-        + "\n\nASSIGNMENT JSON:\n"
-        + json.dumps(packet, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        + "\n\nPROVIDER ASSIGNMENT VIEW JSON:\n"
+        + json.dumps(
+            provider_view, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
     )
 
 
@@ -390,47 +431,48 @@ def _assignment_fact_keys(packet: dict[str, Any]) -> set[str]:
     return {str(value) for value in keys}
 
 
-def _resolve_source_quote_from_sources(
-    sources: dict[str, dict[str, Any]], source_quote: BenchmarkSourceQuoteV1
+def _resolve_source_span_from_sources(
+    sources: dict[str, dict[str, Any]], source_span: BenchmarkSourceSpanV1
 ) -> BenchmarkCitationV1:
-    source = sources.get(source_quote.source_path)
+    source = sources.get(source_span.source_path)
     if source is None:
         raise BenchmarkSemanticValidationError(
-            f"source quote path {source_quote.source_path!r} is not assignment-provided"
+            f"source span path {source_span.source_path!r} is not assignment-provided"
         )
-    content = str(source["content"])
-    quote = source_quote.quote
-    occurrences = content.count(quote)
-    if occurrences == 0:
+    lines = str(source["content"]).splitlines()
+    if source_span.end_line > len(lines):
         raise BenchmarkSemanticValidationError(
-            "source quote is not an exact substring of its declared frozen source: "
-            f"{source_quote.source_path!r}"
+            "source span exceeds frozen-source line count: "
+            f"{source_span.source_path!r} has {len(lines)} lines"
         )
-    if occurrences != 1:
+    selected = lines[source_span.start_line - 1 : source_span.end_line]
+    excerpt = "\n".join(selected)
+    if not excerpt.strip():
+        raise BenchmarkSemanticValidationError("source span contains no proof-bearing text")
+    if len(excerpt) > MAX_EVIDENCE_EXCERPT_CHARACTERS:
         raise BenchmarkSemanticValidationError(
-            "source quote must identify exactly one frozen-source occurrence: "
-            f"{source_quote.source_path!r} has {occurrences} matches"
+            "source span excerpt exceeds EvidenceRecord excerpt ceiling"
         )
-    start_offset = content.index(quote)
-    start_line = content.count("\n", 0, start_offset) + 1
-    citation_id = "Q" + sha256_hex(
-        f"{source_quote.source_path}\0{quote}".encode("utf-8")
+    citation_id = "L" + sha256_hex(
+        f"{source_span.source_path}\0{source_span.start_line}\0{source_span.end_line}".encode(
+            "utf-8"
+        )
     )[:24]
     return BenchmarkCitationV1(
         citation_id=citation_id,
-        source_path=source_quote.source_path,
+        source_path=source_span.source_path,
         source_hash=str(source["sha256"]),
-        start_line=start_line,
-        end_line=start_line,
-        excerpt=quote,
+        start_line=source_span.start_line,
+        end_line=source_span.end_line,
+        excerpt=excerpt,
     )
 
 
-def resolve_source_quote(
-    packet_bytes: bytes, source_quote: BenchmarkSourceQuoteV1
+def resolve_source_span(
+    packet_bytes: bytes, source_span: BenchmarkSourceSpanV1
 ) -> BenchmarkCitationV1:
     packet = parse_assignment_packet(packet_bytes)
-    return _resolve_source_quote_from_sources(_packet_sources(packet), source_quote)
+    return _resolve_source_span_from_sources(_packet_sources(packet), source_span)
 
 
 def validate_semantic_against_packet(
@@ -447,10 +489,10 @@ def validate_semantic_against_packet(
                 f"claim subject_key {claim.subject_key!r} is not assignment-provided"
             )
         claims_by_key.setdefault(claim.subject_key, []).append(claim)
-        for source_quote in claim.evidence_quotes:
-            _resolve_source_quote_from_sources(sources, source_quote)
-    for source_quote in payload.critical_trap.evidence_quotes:
-        _resolve_source_quote_from_sources(sources, source_quote)
+        for source_span in claim.evidence_spans:
+            _resolve_source_span_from_sources(sources, source_span)
+    for source_span in payload.critical_trap.evidence_spans:
+        _resolve_source_span_from_sources(sources, source_span)
 
     missing_claim_keys = allowed_fact_keys - set(claims_by_key)
     if payload.submission_disposition == "complete" and missing_claim_keys:
@@ -493,40 +535,44 @@ def extract_usage(token_usage_events: tuple[dict[str, Any], ...]) -> BenchmarkUs
     )
 
 
-def compact_claim_quotes(
+def compact_claim_spans(
     payload: BenchmarkSemanticPayloadV1,
-) -> tuple[dict[str, tuple[BenchmarkSourceQuoteV1, ...]], int]:
-    buckets: list[tuple[str, tuple[BenchmarkSourceQuoteV1, ...]]] = []
+) -> tuple[dict[str, tuple[BenchmarkSourceSpanV1, ...]], int]:
+    buckets: list[tuple[str, tuple[BenchmarkSourceSpanV1, ...]]] = []
     provider_reference_count = 0
     for claim in payload.claims:
-        provider_reference_count += len(claim.evidence_quotes)
-        unique: list[BenchmarkSourceQuoteV1] = []
-        seen: set[tuple[str, str]] = set()
-        for source_quote in claim.evidence_quotes:
-            key = (source_quote.source_path, source_quote.quote)
+        provider_reference_count += len(claim.evidence_spans)
+        unique: list[BenchmarkSourceSpanV1] = []
+        seen: set[tuple[str, int, int]] = set()
+        for source_span in claim.evidence_spans:
+            key = (
+                source_span.source_path,
+                source_span.start_line,
+                source_span.end_line,
+            )
             if key in seen:
                 continue
             seen.add(key)
-            unique.append(source_quote)
+            unique.append(source_span)
         if unique:
             buckets.append((claim.claim_id, tuple(unique)))
 
     if len(buckets) > MAX_EVIDENCE_RECORDS:
         raise BenchmarkSemanticValidationError(
-            "claims with source quotes exceed final EvidenceSubmission evidence cap"
+            "claims with source spans exceed final EvidenceSubmission evidence cap"
         )
 
-    selected: dict[str, list[BenchmarkSourceQuoteV1]] = {
-        claim_id: [quotes[0]] for claim_id, quotes in buckets
+    selected: dict[str, list[BenchmarkSourceSpanV1]] = {
+        claim_id: [spans[0]] for claim_id, spans in buckets
     }
     remaining_slots = MAX_EVIDENCE_RECORDS - len(buckets)
     depth = 1
     while remaining_slots > 0:
         progressed = False
-        for claim_id, quotes in buckets:
-            if depth >= len(quotes):
+        for claim_id, spans in buckets:
+            if depth >= len(spans):
                 continue
-            selected[claim_id].append(quotes[depth])
+            selected[claim_id].append(spans[depth])
             remaining_slots -= 1
             progressed = True
             if remaining_slots == 0:
@@ -535,7 +581,7 @@ def compact_claim_quotes(
             break
         depth += 1
 
-    published_reference_count = sum(len(quotes) for quotes in selected.values())
+    published_reference_count = sum(len(spans) for spans in selected.values())
     return (
         {key: tuple(value) for key, value in selected.items()},
         provider_reference_count - published_reference_count,
@@ -573,20 +619,25 @@ def build_evidence_submission(
 
     packet = parse_assignment_packet(packet_bytes)
     sources = _packet_sources(packet)
-    selected_quotes, _omitted_quote_references = compact_claim_quotes(payload)
+    selected_spans, _omitted_span_references = compact_claim_spans(payload)
     evidence_records_list: list[EvidenceRecordV1] = []
-    claim_evidence_ids: dict[tuple[str, str, str], str] = {}
+    claim_evidence_ids: dict[tuple[str, str, int, int], str] = {}
     for claim in payload.claims:
-        for source_quote in selected_quotes.get(claim.claim_id, ()):
-            citation = _resolve_source_quote_from_sources(sources, source_quote)
-            quote_key = (claim.claim_id, source_quote.source_path, source_quote.quote)
+        for source_span in selected_spans.get(claim.claim_id, ()):
+            citation = _resolve_source_span_from_sources(sources, source_span)
+            span_key = (
+                claim.claim_id,
+                source_span.source_path,
+                source_span.start_line,
+                source_span.end_line,
+            )
             evidence_id = (
                 "g6_evidence_"
                 + sha256_hex(
                     f"{claim.claim_id}\0{citation.citation_id}".encode("utf-8")
                 )[:24]
             )
-            claim_evidence_ids[quote_key] = evidence_id
+            claim_evidence_ids[span_key] = evidence_id
             evidence_records_list.append(
                 EvidenceRecordV1(
                     evidence_id=evidence_id,
@@ -636,9 +687,14 @@ def build_evidence_submission(
                 statement=claim.statement,
                 supports_evidence_ids=tuple(
                     claim_evidence_ids[
-                        (claim.claim_id, item.source_path, item.quote)
+                        (
+                            claim.claim_id,
+                            item.source_path,
+                            item.start_line,
+                            item.end_line,
+                        )
                     ]
-                    for item in selected_quotes.get(claim.claim_id, ())
+                    for item in selected_spans.get(claim.claim_id, ())
                 ),
                 opposes_evidence_ids=(),
                 uncertainty_ids=claim.uncertainty_ids,
