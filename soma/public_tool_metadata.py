@@ -191,11 +191,14 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "ssh_action",
             title="Run SSH action",
             description=(
-                "Use this when the user explicitly wants an authorized command, "
-                "script, root shell, administration change, transfer, deployment, "
-                "or profile activation on a registered remote SSH host. It can "
-                "change/remove remote state. For equivalent local-machine "
-                "operations, use run_start."
+                "Use this when the user explicitly wants a change on a registered "
+                "remote SSH host. Prefer action=administration for supported "
+                "structured operations such as service_start/stop/restart/reload/"
+                "enable/disable; use reviewed_script or root_shell only when no "
+                "structured action can express the authorized intent. A rejected "
+                "shell form is not evidence that a structured administration route "
+                "is unavailable. For equivalent local-machine operations, use "
+                "run_start."
             ),
             invoking="Running SSH action...",
             invoked="SSH action submitted",
@@ -285,7 +288,8 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             title="Inspect task",
             description=(
                 "Use this when you need canonical task capabilities, status, result, "
-                "events, links, or quarantine evidence without changing the task."
+                "bounded reasoning evidence, events, links, or quarantine records "
+                "without changing the task."
             ),
             invoking="Inspecting task...",
             invoked="Task evidence ready",
@@ -299,9 +303,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             title="Control task",
             description=(
                 "Use this when the user explicitly wants to start, steer, supply "
-                "input to, cancel, or resolve one canonical task. Task start "
-                "delegates to the durable execution backend and can have "
-                "unrestricted command effects."
+                "input to, cancel, or resolve one canonical task. start launches "
+                "the durable command backend; start_reasoning is available only "
+                "when the owner-activated read-only reasoning backend is enabled. "
+                "Never substitute start_reasoning for ordinary execution."
             ),
             invoking="Updating task...",
             invoked="Task action submitted",

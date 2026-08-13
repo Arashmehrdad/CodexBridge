@@ -40,7 +40,22 @@ def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
     assert "managed Git repository preview" in repo_apply.description
     assert "use run_start" in repo_apply.description
     assert "registered remote SSH host" in ssh_action.description
+    assert "Prefer action=administration" in ssh_action.description
+    assert "service_start/stop/restart/reload/enable/disable" in ssh_action.description
+    assert "rejected shell form" in ssh_action.description
     assert "local-machine operations, use run_start" in ssh_action.description
+
+
+def test_run_and_task_query_descriptions_do_not_cross_route() -> None:
+    run_query = PUBLIC_TOOL_METADATA["run_query"].description
+    task_query = PUBLIC_TOOL_METADATA["task_query"].description
+
+    assert "durable run status" in run_query
+    assert "repository preflight" in run_query
+    assert "canonical task capabilities" not in run_query
+    assert "canonical task capabilities" in task_query
+    assert "bounded reasoning evidence" in task_query
+    assert "durable run status" not in task_query
 
 
 def test_candidate_b_conservative_annotations_are_exact() -> None:
