@@ -485,6 +485,7 @@ def run_real_g6_smoke(
     return output
 
 
+def run_real_g6_trial(
     runtime: G6Runtime,
     *,
     phase: str,
