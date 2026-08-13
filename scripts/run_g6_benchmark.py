@@ -12,6 +12,7 @@ from soma.agent_worker_benchmark_runtime import (
     prepare_g6_runtime,
     provider_model_generations_observed,
     provider_send_boundaries_crossed,
+    run_real_g6_smoke,
     run_real_g6_trial,
 )
 from soma.config import load_config
@@ -20,13 +21,20 @@ from soma.config import load_config
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--mode", choices=("setup", "preflight", "trial", "status"), required=True
+        "--mode",
+        choices=("setup", "preflight", "smoke", "trial", "status"),
+        required=True,
     )
     parser.add_argument(
         "--phase", choices=("screening", "confirmation"), default="screening"
     )
     parser.add_argument("--condition", type=int, choices=(1, 2, 4, 8), default=1)
     parser.add_argument("--repetition", type=int, default=1)
+    parser.add_argument(
+        "--unit",
+        choices=("B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08"),
+        default="B01",
+    )
     parser.add_argument("--model-turn-ceiling", type=int, default=32)
     return parser
 
@@ -50,6 +58,15 @@ def main() -> int:
             "runs_dir": str(runtime.runs_dir),
             "quota": quota,
             "provider": dict(runtime.reasoning_backend.preflight()),
+        }
+    elif args.mode == "smoke":
+        output = {
+            "mode": "smoke",
+            "result": run_real_g6_smoke(
+                runtime,
+                unit_id=args.unit,
+                model_turn_ceiling=args.model_turn_ceiling,
+            ),
         }
     elif args.mode == "trial":
         result = run_real_g6_trial(
