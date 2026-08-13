@@ -80,6 +80,7 @@ from .projections import (
     _envelope,
     finalize,
     compact_task_events,
+    compact_task_evidence,
     compact_task_links,
     compact_task_result,
     compact_task_status,
@@ -181,7 +182,18 @@ class TaskManager:
     def capabilities(self, budget: int = TASK_RESPONSE_BUDGET_BYTES) -> dict[str, Any]:
         schema = self.store.schema_state()
         schema["project_scope"] = self.scope_store.schema_state()
-        return task_capabilities(schema_state=schema, budget=budget)
+        return task_capabilities(
+            schema_state=schema,
+            reasoning_enabled=(
+                self.config.reasoning.enabled and self._reasoning_backend is not None
+            ),
+            reasoning_executor=(
+                self._reasoning_backend.executor
+                if self._reasoning_backend is not None
+                else ""
+            ),
+            budget=budget,
+        )
 
     def list_quarantine(
         self,
@@ -703,6 +715,70 @@ class TaskManager:
             task,
             observation=observation,
             result_source=source,
+            budget=budget,
+            project_scope=scope,
+        )
+
+    def get_evidence(
+        self,
+        task_id: str,
+        *,
+        project_id: str = "",
+        budget: int = 64 * 1024,
+    ) -> dict[str, Any]:
+        try:
+            task, scope = self._load_task_scope(task_id, project_id)
+        except (KeyError, ValueError, ProjectScopeError) as exc:
+            return self._lookup_error("evidence", task_id, exc, budget)
+        if not task.is_terminal:
+            task = self.reconcile_task(task.task_id)
+        if task.backend_kind is not BackendKind.SOMA_REASONING:
+            return task_error(
+                operation="evidence",
+                error_code="reasoning_evidence_not_available",
+                error="Bounded EvidenceSubmission retrieval is available for reasoning Tasks only",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        backend = self._backend_for_task(task)
+        if backend is None or not task.backend_ref:
+            return task_error(
+                operation="evidence",
+                error_code="reasoning_backend_not_configured",
+                error="Reasoning backend evidence is unavailable",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        try:
+            source = backend.evidence_submission(task.backend_ref)
+        except Exception as exc:  # noqa: BLE001 - verified evidence loader owns detail
+            return task_error(
+                operation="evidence",
+                error_code="reasoning_evidence_invalid",
+                error=redact_secret_values(str(exc)),
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        if not source.get("available"):
+            return task_error(
+                operation="evidence",
+                error_code="reasoning_evidence_not_published",
+                error=str(source.get("reason") or "Reasoning evidence is not published"),
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        return compact_task_evidence(
+            task,
+            observation=self._query_task_backend(task),
+            evidence_source=source,
             budget=budget,
             project_scope=scope,
         )

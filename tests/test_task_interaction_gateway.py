@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -142,6 +143,85 @@ def test_server_routes_supply_input_with_exact_checkpoint(monkeypatch) -> None:
     assert secret not in repr(result)
 
 
+def _reasoning_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "operation": "start_reasoning",
+        "controller_request_id": "reasoning-public-1",
+        "project_id": "proj_11111111-1111-1111-1111-111111111111",
+        "repo_name": "sample",
+        "objective": "Inspect canonical Task ownership and cite the source locations.",
+        "instructions": "Stay read-only.",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_reasoning_start_model_is_distinct_and_bounded() -> None:
+    request = ADAPTER.validate_python(_reasoning_payload())
+    assert request.operation == "start_reasoning"
+    assert request.task_kind == "reasoning"
+    assert request.backend_kind == "soma_reasoning"
+    with pytest.raises(ValidationError):
+        ADAPTER.validate_python(_reasoning_payload(project_id=""))
+    with pytest.raises(ValidationError):
+        ADAPTER.validate_python(_reasoning_payload(objective="x" * 16_385))
+
+
+def test_server_reasoning_start_requires_owner_activation(monkeypatch) -> None:
+    monkeypatch.setattr(server, "get_task_manager", lambda *_args: object())
+    monkeypatch.setattr(
+        server,
+        "get_config",
+        lambda: SimpleNamespace(reasoning=SimpleNamespace(enabled=False)),
+    )
+    result = server.task_action(ADAPTER.validate_python(_reasoning_payload()))
+    assert result["ok"] is False
+    assert result["error_code"] == "reasoning_backend_not_activated"
+
+
+def test_server_routes_activated_reasoning_without_provider_specific_payload(
+    monkeypatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+    sentinel_spec = object()
+
+    class FakeManager:
+        def start_reasoning_task(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append(dict(kwargs))
+            return {"ok": True, "operation": "start", "task_kind": "reasoning"}
+
+    config = SimpleNamespace(reasoning=SimpleNamespace(enabled=True))
+    monkeypatch.setattr(server, "get_task_manager", lambda *_args: FakeManager())
+    monkeypatch.setattr(server, "get_config", lambda: config)
+
+    import soma.reasoning.runtime as runtime
+
+    monkeypatch.setattr(
+        runtime,
+        "create_repository_assignment",
+        lambda *_args, **_kwargs: (
+            object(),
+            "reasoning_assignment:" + "a" * 64,
+            "a" * 64,
+            True,
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "configured_repository_spec",
+        lambda *_args, **_kwargs: sentinel_spec,
+    )
+
+    result = server.task_action(ADAPTER.validate_python(_reasoning_payload()))
+    assert result["ok"] is True
+    assert len(calls) == 1
+    assert calls[0]["spec"] is sentinel_spec
+    assert calls[0]["repo_name"] == "sample"
+    assert calls[0]["project_id"] == _reasoning_payload()["project_id"]
+    assert "provider" not in calls[0]
+    assert "model" not in calls[0]
+
+
 def test_capabilities_and_cf1_inventory_publish_the_same_commands() -> None:
     capabilities = task_capabilities(schema_state={})
     commands = capabilities["version_guarded_commands"]
@@ -155,3 +235,23 @@ def test_capabilities_and_cf1_inventory_publish_the_same_commands() -> None:
     operation_names = operation_names_by_gateway()["task_action"]
     assert "steer" in operation_names
     assert "supply_input" in operation_names
+    assert "start_reasoning" in operation_names
+
+
+def test_capabilities_advertise_reasoning_only_after_activation() -> None:
+    inactive = task_capabilities(schema_state={})
+    active = task_capabilities(
+        schema_state={},
+        reasoning_enabled=True,
+        reasoning_executor="reasoning_backend",
+    )
+
+    assert "reasoning" not in inactive["task_kinds"]
+    assert "soma_reasoning" not in {
+        item["backend_kind"] for item in inactive["backends"]
+    }
+    assert "reasoning" in active["task_kinds"]
+    assert "backend" in active["link_types"]
+    assert "soma_reasoning" in {
+        item["backend_kind"] for item in active["backends"]
+    }

@@ -15,7 +15,7 @@ from soma.gateway_models import SystemCapabilityIdentityQuery, SystemQueryReques
 import soma.server as server
 
 
-PUBLIC_SCHEMA_HASH = "6da1fedf86bbb4ee656647503c22acf4413c80f1f0cb687d2254fc6dda2a6cde"
+PUBLIC_SCHEMA_HASH = "f6b6ac6936ce5a424489120e712372906b0f410426e4c43120feb14c13536d8b"
 
 
 def _actions() -> list[dict]:

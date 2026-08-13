@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v19"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v21"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -445,6 +445,22 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "task_query",
+        ("evidence",),
+        "soma.server:task_query -> soma.tasks.manager:TaskManager",
+        "complete bounded reasoning EvidenceSubmission",
+        request_echo=RequestEchoBehavior.IDENTIFIERS_AND_FILTERS,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=64 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Returns the mechanically verified bounded EvidenceSubmission body for "
+            "a reasoning Task. The body is complete-only and never semantically "
+            "truncated; raw provider event streams remain behind subordinate evidence "
+            "references."
+        ),
+    ),
+    _entry(
+        "task_query",
         ("events",),
         "soma.server:task_query -> soma.tasks.manager:TaskManager",
         "bounded canonical task event list",
@@ -536,6 +552,23 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
             "The canonical task row stores only a normalized request hash and "
             "durable-input references; argv, environment, and stdin remain in "
             "the existing durable run input record."
+        ),
+    ),
+    _entry(
+        "task_action",
+        ("start_reasoning",),
+        "soma.server:task_action -> soma.reasoning.runtime -> soma.tasks.manager:TaskManager",
+        "compact canonical reasoning task launch acknowledgement",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Owner-activated read-only repository reasoning. Soma freezes the "
+            "current committed repository revision into a content-addressed "
+            "assignment, then starts a provider-neutral reasoning Task. The worker "
+            "owns semantic analysis and evidence choice; Soma verifies only durable "
+            "identity and source-location mechanics."
         ),
     ),
     _entry(

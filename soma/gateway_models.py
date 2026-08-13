@@ -1328,6 +1328,16 @@ class TaskResultQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class TaskEvidenceQuery(GatewayModel):
+    """Retrieve one complete bounded EvidenceSubmission from a reasoning Task."""
+
+    operation: Literal["evidence"]
+    task_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=64 * 1024, ge=1024, le=64 * 1024)
+
+
 class TaskEventsQuery(GatewayModel):
     operation: Literal["events"]
     task_id: str = Field(min_length=1, max_length=128)
@@ -1361,6 +1371,7 @@ TaskQueryRequest = Annotated[
     TaskCapabilitiesQuery
     | TaskStatusQuery
     | TaskResultQuery
+    | TaskEvidenceQuery
     | TaskEventsQuery
     | TaskLinksQuery
     | TaskQuarantineQuery,
@@ -1393,6 +1404,22 @@ class TaskDurableCommandStart(GatewayModel):
         if self.stdin_text is not None and self.stdin_base64 is not None:
             raise ValueError("Specify either stdin_text or stdin_base64, not both")
         return self
+
+
+class TaskReasoningStart(GatewayModel):
+    """Start one owner-activated read-only repository reasoning task."""
+
+    operation: Literal["start_reasoning"]
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=128)
+    task_kind: Literal["reasoning"] = "reasoning"
+    backend_kind: Literal["soma_reasoning"] = "soma_reasoning"
+    repo_name: str = Field(min_length=1, max_length=128)
+    objective: str = Field(min_length=1, max_length=16_384)
+    instructions: str = Field(default="", max_length=16_384)
+    parent_task_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
 class TaskCancelCommand(GatewayModel):
@@ -1494,6 +1521,7 @@ class TaskQuarantineAdjudicate(GatewayModel):
 
 TaskActionRequest = Annotated[
     TaskDurableCommandStart
+    | TaskReasoningStart
     | TaskCancelCommand
     | TaskSteerCommand
     | TaskSupplyInputCommand
@@ -2051,9 +2079,22 @@ class SSHCommandAction(SSHStructuredExecutionGatewayRequest):
 
 
 class SSHAdministrationAction(SSHStructuredExecutionGatewayRequest):
-    action: Literal["administration"]
+    action: Literal["administration"] = Field(
+        description=(
+            "Canonical structured route for supported remote administration; "
+            "prefer this over reviewed_script or root_shell when it can express the intent."
+        )
+    )
     host_id: str = Field(min_length=1, max_length=128)
-    ssh_action: str = Field(min_length=1, max_length=128)
+    ssh_action: str = Field(
+        min_length=1,
+        max_length=128,
+        description=(
+            "Supported structured action name from ssh_query capabilities. For systemd "
+            "operations use service_start, service_stop, service_restart, service_reload, "
+            "service_enable, or service_disable instead of shelling out to systemctl."
+        ),
+    )
     target: str = Field(default="", max_length=512)
     source: str = Field(default="", max_length=1024)
     destination: str = Field(default="", max_length=1024)

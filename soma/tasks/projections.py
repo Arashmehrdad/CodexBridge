@@ -93,6 +93,13 @@ def result_retrieval(task_id: str, project_id: str = "") -> dict[str, Any]:
     }
 
 
+def evidence_retrieval(task_id: str, project_id: str = "") -> dict[str, Any]:
+    return {
+        "tool": "task_query",
+        "request": _task_request("evidence", task_id, project_id),
+    }
+
+
 def _run_request(operation: str, run_id: str, project_id: str = "") -> dict[str, Any]:
     request = {"operation": operation, "run_id": run_id}
     if project_id:
@@ -226,7 +233,64 @@ def compact_task_result(
             "tool": "run_query",
             "request": complete_request,
         }
+    elif task.backend_kind is BackendKind.SOMA_REASONING:
+        payload["evidence_submission_retrieval"] = evidence_retrieval(
+            task.task_id, project_id
+        )
     return finalize(payload)
+
+
+def compact_task_evidence(
+    task: TaskRecord,
+    *,
+    observation: BackendObservation | None,
+    evidence_source: dict[str, Any],
+    budget: int,
+    project_scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a complete bounded EvidenceSubmission or a budget error; never truncate it."""
+    submission = evidence_source.get("submission")
+    payload: dict[str, Any] = {
+        "ok": True,
+        "operation": "evidence",
+        **_identity_fields(task, observation, project_scope),
+        "evidence_available": bool(evidence_source.get("available")),
+        "evidence_authority": str(evidence_source.get("authority") or ""),
+        "evidence_submission_ref": str(
+            evidence_source.get("evidence_submission_ref") or ""
+        ),
+        "evidence_submission_hash": str(
+            evidence_source.get("evidence_submission_hash") or ""
+        ),
+        "evidence_submission": submission,
+        "raw_provider_events_included": False,
+        "semantic_adjudication_performed_by_soma": False,
+        "error": "",
+        **_envelope(budget),
+    }
+    finalized = finalize(payload)
+    required = response_bytes(finalized)
+    if required <= budget:
+        return finalized
+    return task_error(
+        operation="evidence",
+        error_code="evidence_response_budget_too_small",
+        error="EvidenceSubmission is complete-only and will not be semantically truncated",
+        task_id=task.task_id,
+        state=task.state.value,
+        state_version=task.state_version,
+        budget=budget,
+        extra={
+            "required_response_bytes": required,
+            "maximum_response_budget_bytes": 64 * 1024,
+            "evidence_submission_ref": str(
+                evidence_source.get("evidence_submission_ref") or ""
+            ),
+            "evidence_submission_hash": str(
+                evidence_source.get("evidence_submission_hash") or ""
+            ),
+        },
+    )
 
 
 def compact_task_links(
@@ -324,34 +388,54 @@ def compact_task_events(
 def task_capabilities(
     *,
     schema_state: dict[str, Any],
+    reasoning_enabled: bool = False,
+    reasoning_executor: str = "",
     budget: int = TASK_RESPONSE_BUDGET_BYTES,
 ) -> dict[str, Any]:
+    task_kinds = [TaskKind.DURABLE_COMMAND.value]
+    link_types = [
+        TaskLinkType.PARENT.value,
+        TaskLinkType.CHILD.value,
+        TaskLinkType.BACKEND_RUN.value,
+        TaskLinkType.RELATED.value,
+        TaskLinkType.SUPERSEDES.value,
+    ]
+    backends = [
+        {
+            "backend_kind": BackendKind.SOMA_DURABLE_RUN.value,
+            "executor": "executable_profile",
+            "default": True,
+            "description": (
+                "Existing Soma durable run engine; owns worker, lease, "
+                "cancellation, evidence, result, and recovery authority."
+            ),
+        }
+    ]
+    if reasoning_enabled:
+        task_kinds.append(TaskKind.REASONING.value)
+        link_types.append(TaskLinkType.BACKEND.value)
+        backends.append(
+            {
+                "backend_kind": BackendKind.SOMA_REASONING.value,
+                "executor": reasoning_executor or "configured_reasoning_backend",
+                "default": False,
+                "description": (
+                    "Activated provider-neutral reasoning backend. The worker owns "
+                    "semantic analysis; Soma owns mechanical lifecycle and evidence "
+                    "materialization."
+                ),
+            }
+        )
+
     payload: dict[str, Any] = {
         "ok": True,
         "operation": "capabilities",
-        # Internal reasoning Tasks are not publicly advertised before activation.
-        "task_kinds": [TaskKind.DURABLE_COMMAND.value],
+        "task_kinds": task_kinds,
         "task_states": [state.value for state in TaskState],
         "terminal_task_states": sorted(state.value for state in TERMINAL_TASK_STATES),
-        "link_types": [
-            TaskLinkType.PARENT.value,
-            TaskLinkType.CHILD.value,
-            TaskLinkType.BACKEND_RUN.value,
-            TaskLinkType.RELATED.value,
-            TaskLinkType.SUPERSEDES.value,
-        ],
+        "link_types": link_types,
         "command_kinds": [command.value for command in TaskCommandKind],
-        "backends": [
-            {
-                "backend_kind": BackendKind.SOMA_DURABLE_RUN.value,
-                "executor": "executable_profile",
-                "default": True,
-                "description": (
-                    "Existing Soma durable run engine; owns worker, lease, "
-                    "cancellation, evidence, result, and recovery authority."
-                ),
-            }
-        ],
+        "backends": backends,
         "default_backend_kind": BackendKind.SOMA_DURABLE_RUN.value,
         "idempotency": {
             "keys": ["controller_request_id", "request_hash"],

@@ -2242,6 +2242,10 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
             "execution_mode": "structured",
         }
     )
+    administration_schema = SSHAdministrationAction.model_json_schema()["properties"]
+    assert "Canonical structured route" in administration_schema["action"]["description"]
+    assert "service_start" in administration_schema["ssh_action"]["description"]
+    assert "instead of shelling out to systemctl" in administration_schema["ssh_action"]["description"]
     transfer = TypeAdapter(SSHActionRequest).validate_python(
         {
             "action": "transfer",

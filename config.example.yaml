@@ -231,6 +231,14 @@ external_coder:
   external_coder_require_policy_approval: true
 gemini:
   enabled: false
+# Production repository reasoning workers. Disabled by default: enabling this
+# makes the provider-neutral reasoning Task backend available, but a provider
+# turn is still only started through an explicit task_action start_reasoning.
+reasoning:
+  enabled: false
+  provider: "codex_app_server_repository"
+  model: "gpt-5.6-luna"
+  effort: "low"
 # Shared multi-session Hermes service (H2). Disabled by default; when enabled,
 # run_start operation "hermes_service" routes through one supervised,
 # version-pinned persistent Hermes worker pool instead of paying the H1

@@ -20,13 +20,16 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "403b78fee8d4c8a1b27173933557e4b9d3739c28fa3eb6264454f7696148310e"
+    "caaafde67cedf46fd16eeb90de31184925312002688fc576af140cd8849082d9"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
 )
 PRE_B3_OPERATION_INVENTORY_HASH = (
     "a6f31b3275f074d0660ba4aa48f3886cce2093bf5847cf0e3eae172afae92377"
+)
+CURRENT_OPERATION_INVENTORY_HASH = (
+    "3daa3f0443f7ffaec92fe5791df8a323b6e70a9aeb5375a4583bc53481d19045"
 )
 
 
@@ -122,13 +125,14 @@ def test_cloudflare_permissive_change_is_additive_to_candidate_b_inventory() -> 
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "6da1fedf86bbb4ee656647503c22acf4413c80f1f0cb687d2254fc6dda2a6cde"
+        "f6b6ac6936ce5a424489120e712372906b0f410426e4c43120feb14c13536d8b"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH
     assert _schema_digest(actions, "outputSchema") == PRE_B3_OUTPUT_SCHEMA_HASH
-    assert (
-        server._operation_identity_metadata(actions=actions)["operation_inventory_hash"]
-        == PRE_B3_OPERATION_INVENTORY_HASH
-    )
+    operation_inventory_hash = server._operation_identity_metadata(actions=actions)[
+        "operation_inventory_hash"
+    ]
+    assert operation_inventory_hash == CURRENT_OPERATION_INVENTORY_HASH
+    assert CURRENT_OPERATION_INVENTORY_HASH != PRE_B3_OPERATION_INVENTORY_HASH
     assert server._descriptor_hash_from_actions(actions) != PRE_B3_DESCRIPTOR_HASH

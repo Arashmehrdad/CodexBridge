@@ -201,6 +201,34 @@ class ReasoningTaskBackendAdapter:
             "published_at": result.published_at,
         }
 
+    def evidence_submission(self, backend_ref: str) -> dict[str, Any]:
+        """Return one verified bounded worker submission, never raw provider events."""
+        loader = getattr(self._backend, "load_evidence_submission", None)
+        if not callable(loader):
+            return {
+                "available": False,
+                "authority": "reasoning_backend",
+                "backend_ref": backend_ref,
+                "reason": "evidence_submission_body_unavailable",
+            }
+        submission = loader(backend_ref)
+        result = self._backend.result_reference(backend_ref)
+        if submission is None or result is None:
+            return {
+                "available": False,
+                "authority": "reasoning_backend",
+                "backend_ref": backend_ref,
+                "reason": "evidence_submission_not_published",
+            }
+        return {
+            "available": True,
+            "authority": "reasoning_backend",
+            "backend_ref": backend_ref,
+            "evidence_submission_ref": result.evidence_submission_ref,
+            "evidence_submission_hash": result.evidence_submission_hash,
+            "submission": submission.model_dump(mode="json"),
+        }
+
 
 class DurableRunBackend:
     """Adapter over the existing durable run engine."""

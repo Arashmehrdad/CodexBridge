@@ -1196,6 +1196,15 @@ class TradingConfig(BaseModel):
         return self
 
 
+class ReasoningRuntimeConfig(BaseModel):
+    """Owner-controlled production reasoning route; disabled unless activated."""
+
+    enabled: bool = False
+    provider: Literal["codex_app_server_repository"] = "codex_app_server_repository"
+    model: str = Field(default="gpt-5.6-luna", min_length=1, max_length=128)
+    effort: Literal["low", "medium", "high"] = "low"
+
+
 class AppConfig(BaseModel):
     repos: Dict[str, RepoConfig]
     runs_dir: str = "runs"
@@ -1214,6 +1223,7 @@ class AppConfig(BaseModel):
     )
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+    reasoning: ReasoningRuntimeConfig = Field(default_factory=ReasoningRuntimeConfig)
     hermes_service: HermesServiceConfig = Field(
         default_factory=HermesServiceConfig
     )

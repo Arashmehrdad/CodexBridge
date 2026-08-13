@@ -1049,12 +1049,14 @@ def test_task_gateways_are_discoverable_with_strict_request_unions() -> None:
         "capabilities",
         "status",
         "result",
+        "evidence",
         "events",
         "links",
         "quarantine",
     }
     assert action_ops == {
         "start",
+        "start_reasoning",
         "cancel",
         "steer",
         "supply_input",

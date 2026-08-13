@@ -150,7 +150,7 @@ from .ssh_tools import (
 )
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
-from .tasks import TaskManager
+from .tasks import TaskManager, TaskStore
 from .workflows import WorkflowManager
 from .gateway_models import (
     RepoApplyRequest,
@@ -1158,7 +1158,17 @@ def get_workflow_manager() -> WorkflowManager:
 
 
 def get_task_manager() -> TaskManager:
-    return TaskManager(get_config(), get_config_path())
+    config = get_config()
+    store = TaskStore(config.resolve_runs_dir())
+    from .reasoning.runtime import build_reasoning_backend
+
+    reasoning_backend = build_reasoning_backend(config, task_store=store)
+    return TaskManager(
+        config,
+        get_config_path(),
+        reasoning_backend=reasoning_backend,
+        store=store,
+    )
 
 
 def get_project_scope_store() -> ProjectScopeStore:
@@ -3459,6 +3469,12 @@ def task_query(request: TaskQueryRequest) -> dict:
             project_id=request.project_id,
             budget=request.response_budget_bytes,
         )
+    if request.operation == "evidence":
+        return manager.get_evidence(
+            request.task_id,
+            project_id=request.project_id,
+            budget=request.response_budget_bytes,
+        )
     if request.operation == "events":
         return manager.get_events(
             request.task_id,
@@ -3497,6 +3513,41 @@ def task_action(request: TaskActionRequest) -> dict:
             stdin_text=request.stdin_text,
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
+            parent_task_id=request.parent_task_id,
+            budget=request.response_budget_bytes,
+        )
+    if request.operation == "start_reasoning":
+        config = get_config()
+        if not config.reasoning.enabled:
+            return {
+                "ok": False,
+                "operation": "start_reasoning",
+                "error_code": "reasoning_backend_not_activated",
+                "error": "Production reasoning is disabled by owner configuration",
+            }
+        from .reasoning.runtime import (
+            configured_repository_spec,
+            create_repository_assignment,
+        )
+
+        _assignment, assignment_ref, assignment_hash, _created = (
+            create_repository_assignment(
+                config,
+                repo_name=request.repo_name,
+                objective=request.objective,
+                instructions=request.instructions,
+            )
+        )
+        spec = configured_repository_spec(
+            config,
+            assignment_ref=assignment_ref,
+            assignment_hash=assignment_hash,
+        )
+        return manager.start_reasoning_task(
+            controller_request_id=request.controller_request_id,
+            repo_name=request.repo_name,
+            project_id=request.project_id,
+            spec=spec,
             parent_task_id=request.parent_task_id,
             budget=request.response_budget_bytes,
         )
