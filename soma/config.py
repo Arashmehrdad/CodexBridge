@@ -1196,6 +1196,26 @@ class TradingConfig(BaseModel):
         return self
 
 
+class CompanyKernelRuntimeConfig(BaseModel):
+    """Owner-controlled Company Kernel root capability; inert by default."""
+
+    enabled: bool = False
+    executive_authority_ref: str = Field(default="", max_length=128)
+
+    @model_validator(mode="after")
+    def validate_trusted_executive(self) -> "CompanyKernelRuntimeConfig":
+        authority = self.executive_authority_ref
+        if "\x00" in authority:
+            raise ValueError("company_kernel executive_authority_ref contains an embedded NUL")
+        if authority and not authority.strip():
+            raise ValueError("company_kernel executive_authority_ref cannot be whitespace-only")
+        if self.enabled and not authority:
+            raise ValueError(
+                "company_kernel enabled requires executive_authority_ref"
+            )
+        return self
+
+
 class ReasoningRuntimeConfig(BaseModel):
     """Owner-controlled production reasoning route; disabled unless activated."""
 
@@ -1223,6 +1243,9 @@ class AppConfig(BaseModel):
     )
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+    company_kernel: CompanyKernelRuntimeConfig = Field(
+        default_factory=CompanyKernelRuntimeConfig
+    )
     reasoning: ReasoningRuntimeConfig = Field(default_factory=ReasoningRuntimeConfig)
     hermes_service: HermesServiceConfig = Field(
         default_factory=HermesServiceConfig

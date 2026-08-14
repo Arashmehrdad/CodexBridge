@@ -231,6 +231,13 @@ external_coder:
   external_coder_require_policy_approval: true
 gemini:
   enabled: false
+# Internal Kernel-of-One root capability. Disabled by default; enabling it only
+# authorizes the internal Company/Mission bootstrap service and requires one
+# trusted owner/executive authority reference. It does not expose a public
+# company gateway or activate a reasoning provider.
+company_kernel:
+  enabled: false
+  executive_authority_ref: ""
 # Production repository reasoning workers. Disabled by default: enabling this
 # makes the provider-neutral reasoning Task backend available, but a provider
 # turn is still only started through an explicit task_action start_reasoning.

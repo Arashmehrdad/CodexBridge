@@ -1,9 +1,17 @@
-"""Inactive V3-1B Company Kernel schema and immutable records.
+"""V3-1B Company Kernel records and bounded internal authority services.
 
-Importing this package performs no migration and exposes no company action,
+Importing this package performs no migration and exposes no public company,
 execution, scheduling, projection, acceptance, or reconciliation gateway.
 """
 
+from .bootstrap import (
+    KernelBootstrapConflict,
+    KernelBootstrapError,
+    KernelBootstrapIntegrityError,
+    KernelBootstrapRequestV1,
+    KernelBootstrapResultV1,
+    bootstrap_company_mission,
+)
 from .graph_models import (
     DEPENDENCY_EDGE_ID_DOMAIN,
     DEPENDENCY_PROOF_ID_DOMAIN,
@@ -86,6 +94,11 @@ __all__ = [
     "CompanyKernelStore",
     "DependencySatisfactionProofV1",
     "EvidenceAvailableSatisfactionV1",
+    "KernelBootstrapConflict",
+    "KernelBootstrapError",
+    "KernelBootstrapIntegrityError",
+    "KernelBootstrapRequestV1",
+    "KernelBootstrapResultV1",
     "KernelReconciliationReceipt",
     "Mission",
     "PlanGraphDependencyEdgeV1",
@@ -96,6 +109,7 @@ __all__ = [
     "SettledSatisfactionV1",
     "WorkPackage",
     "WorkPackageAttempt",
+    "bootstrap_company_mission",
     "canonical_hash",
     "canonical_json",
     "derive_identity",
