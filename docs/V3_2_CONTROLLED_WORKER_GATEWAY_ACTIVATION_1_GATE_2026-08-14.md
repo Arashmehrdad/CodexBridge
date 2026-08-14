@@ -1,7 +1,7 @@
 # V3-2-CONTROLLED-WORKER-GATEWAY-ACTIVATION-1 — Loopback Activation Gate
 
 **Date:** 2026-08-14
-**Status:** ACTIVE
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-2 — Role-scoped capability broker
 **Depends on:** accepted worker authority foundation `54bd9c92168a15cc863a55a668063099137895ad` / `33dbcf6b2d5c3df443a8af082a44bfe52925272e` and accepted isolated worker transport source `fd60ef48fa129ff1f280893e552be42741d81321` / `196943167be700bee06664345229b101ac3669d0`
 **Owner/executive public MCP changes:** forbidden
@@ -108,8 +108,49 @@ This gate cannot close without all of:
 - `system_query -> self_check` remains green;
 - repository remains clean except the six protected/unrelated documents already excluded from this lane.
 
-## 7. Exit
+## 7. Acceptance evidence
 
-If the proof passes, close V3-2: workers then have a proven separate positive-allowlist capability boundary without receiving the current owner MCP surface. The next roadmap lane is V3-3 — Interactive executive loop and bounded collaboration.
+This controlled activation gate is **ACCEPTED / CLOSED**.
 
-If any proof fails, keep V3-2 active, preserve evidence, stop the loopback listener, and repair only the failing V3-2 layer before retrying.
+Accepted activation harness:
+
+- `7fd30b7c6ba0b1ed8d226040054c22309894c328` — `Add controlled V3-2 worker gateway activation harness`;
+- harness construction is inert by default and requires explicit `--execute` before live state is touched;
+- Ruff clean in `20260814T195817Z_executable_profile_d4f79e36`;
+- disposable activation harness proof: `2 passed` in `20260814T195817Z_executable_profile_3f0ea33d`;
+- combined activation + transport + authority matrix: `37 passed` in `20260814T195850Z_executable_profile_7317eb28`;
+- independent live owner-MCP discovery before activation confirmed 34 tools and public schema hash `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`.
+
+Controlled live activation:
+
+- durable run `20260814T200010Z_executable_profile_8165405c`, exit code `0`;
+- activation ID `v3_2_worker_gateway_activation_20260814T200013Z_cd1d7faf50`;
+- consistent pre-migration SQLite backup: `runs/v3_2_worker_gateway_activation/backups/soma_pre_worker_authority_20260814T200013Z_cd1d7faf50.sqlite3`, `254877696` bytes, SHA-256 `c3a8ffe4b6a99a4adf0c5913c00cb60a6a20cf1b1aa608b3ed8b2924b46fc206`;
+- worker-authority schema moved through the supported migration from version `0` to accepted version `1`; migration list `[1]`, with no missing tables or triggers afterward;
+- disposable ProjectScope `Project_V32WorkerActivation_cd1d7faf50`, Task `task_20260814T200015Z_a4d64f769333` and Run `20260814T200015Z_worker_activation_486093af` were bound through canonical authorities;
+- real worker listener existed only at `127.0.0.1:60252`, child PID `59424`; no Cloudflare, tunnel, firewall, DNS, reverse-proxy, public-route or external-permission change occurred;
+- malformed authentication returned HTTP `401` before worker execution;
+- authenticated discovery returned exactly one active executable grant;
+- exact grant invocation succeeded and the reviewed handler executed exactly once;
+- wrong parameters failed with `parameter_contract_mismatch` and stale Task state failed with `stale_task_state_version`, both before another handler execution;
+- grant revocation then denied invocation with `grant_revoked` before handler execution;
+- principal revocation then denied authentication with HTTP `401`;
+- public proof results contained no reusable credential or verifier material;
+- disposable principal and grant both have durable revocation evidence;
+- listener teardown completed and independent `LISTENING`-only verification `20260814T200137Z_executable_profile_fc7708f0` reported `PORT_60252_HAS_NO_LISTENER`;
+- the disposable canonical Task and Run are both terminal `completed` with no active process or lock;
+- owner MCP before and after activation remained exactly 34 tools with the accepted public schema hash;
+- post-activation `system_query -> self_check` passed all 10 checks.
+
+Definitive post-activation repository regression:
+
+- run `20260814T200202Z_executable_profile_34c8aac6`;
+- `3205 passed, 35 skipped, 1 xfailed, 0 failed`;
+- pytest duration `913.22s`; durable run duration `914.978s`;
+- exit code `0`.
+
+## 8. Exit / next lane
+
+`V3-2-CONTROLLED-WORKER-GATEWAY-ACTIVATION-1` is **ACCEPTED / CLOSED** and the V3-2 role-scoped capability outcome is complete. Workers now have a proven separate positive-allowlist capability boundary without receiving the current owner/executive MCP surface.
+
+The next roadmap lane is **V3-3 — Interactive executive loop and bounded collaboration**, and it remains **inactive pending explicit owner activation**. A generic `continue` does not activate V3-3 implementation.

@@ -1304,7 +1304,7 @@ Codex should produce a feasibility map and implementation options, not commit co
 3. ChatGPT reconciled both reports without changing the owner-approved destination.
 4. Arash accepted progressive lifecycle convergence: consolidate the generic lifecycle territory each V3 lane touches, without a broad preliminary cleanup and without permanent duplicate authority.
 5. The reconciliation is recorded in [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
-6. Arash explicitly activated `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`; its lane-specific plan is recorded in [`V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md). Later V3 outcomes remain inactive.
+6. `V3-1A`, `V3-1B` and `V3-2` completed their accepted gates. `V3-2 — Role-scoped capability broker` closed on 2026-08-14 after the provider-neutral worker authority foundation, isolated worker transport source and controlled loopback live activation proof all passed while preserving the 34-tool owner/executive MCP surface. `V3-3 — Interactive executive loop and bounded collaboration` is the next roadmap lane and remains inactive pending explicit owner activation.
 
 A generic `continue` does not authorise implementation, provider installation, subscription purchase, customer contact, external publication, deployment or push.
 

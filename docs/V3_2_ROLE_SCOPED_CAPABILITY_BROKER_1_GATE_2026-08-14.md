@@ -1,7 +1,7 @@
 # V3-2-ROLE-SCOPED-CAPABILITY-BROKER-1 — Worker Authority Boundary
 
 **Date:** 2026-08-14
-**Status:** ACTIVE
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-2 — Role-scoped capability broker
 **Depends on:** accepted/live V3-1B Kernel of One
 **Real provider execution:** forbidden
@@ -192,8 +192,18 @@ The authority foundation cannot close without focused proof that:
 - existing ProjectScope, Task, worker substrate, protected broker, Company Kernel and public gateway tests remain green;
 - no owner/public schema identity changes in the foundation package.
 
-## 10. Exit / next package
+## 10. Exit / V3-2 closure
 
-`V3-2-AUTHORITY-FOUNDATION-1` is **ACCEPTED / CLOSED**. The overall V3-2 gate remains **ACTIVE** because no worker-facing transport exists yet.
+`V3-2 — Role-scoped capability broker` is **ACCEPTED / CLOSED**.
 
-Next: open a separately bounded worker-facing gateway/transport **source** package that consumes this authority. It must preserve the current 34-tool owner/executive surface, authenticate before usable worker discovery, expose only grant-shaped worker operations, re-authorize every invocation, and remain inactive until a later live isolation/activation proof passes. No live worker listener or worker-authority schema migration is implied by foundation acceptance.
+Its three sequential proofs are complete:
+
+- authority foundation: implementation `54bd9c92168a15cc863a55a668063099137895ad`, acceptance `33dbcf6b2d5c3df443a8af082a44bfe52925272e`;
+- isolated worker transport source: implementation `fd60ef48fa129ff1f280893e552be42741d81321`, acceptance `196943167be700bee06664345229b101ac3669d0`;
+- controlled loopback activation: gate `a59e8ff0d8a631eaa465d0d76723325f02fc7c9d`, harness `7fd30b7c6ba0b1ed8d226040054c22309894c328`, live proof run `20260814T200010Z_executable_profile_8165405c`.
+
+The live worker-authority schema is accepted at version `1`. The disposable live proof authenticated one worker principal over a separate loopback HTTP endpoint, exposed only its positive grant, re-authorized invocation, proved wrong-parameter/stale-state/revocation denial before further handler execution, revoked all disposable authority, removed the listener, and preserved the owner/executive MCP exactly at 34 tools with public schema hash `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`.
+
+Definitive post-activation regression `20260814T200202Z_executable_profile_34c8aac6` passed `3205` tests with `35 skipped`, `1 xfailed` and `0 failed`.
+
+Next roadmap lane: **V3-3 — Interactive executive loop and bounded collaboration**. It remains inactive pending explicit owner activation; V3-2 closure does not silently authorize V3-3 implementation.

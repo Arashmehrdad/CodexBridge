@@ -3,7 +3,7 @@
 **Date:** 2026-08-14
 **Status:** ACCEPTED / CLOSED
 **Parent:** V3-2 — Role-scoped capability broker
-**Parent status:** ACTIVE — live worker-gateway activation has not occurred
+**Parent status:** ACCEPTED / CLOSED — controlled loopback activation passed
 **Depends on:** accepted `V3-2-AUTHORITY-FOUNDATION-1` at `54bd9c92168a15cc863a55a668063099137895ad` / `33dbcf6b2d5c3df443a8af082a44bfe52925272e`
 **Live worker listener:** forbidden
 **Live worker-authority migration:** forbidden
@@ -151,8 +151,10 @@ Final validation on the accepted source:
 
 The accepted owner/executive public surface remained unchanged at 34 tools with public schema hash `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`. The six protected canonical-memory / patch-auto-repair documents remained excluded from the package and untouched.
 
-## 9. Exit / next gate
+## 9. Exit / parent closure
 
-`V3-2-WORKER-GATEWAY-TRANSPORT-1` is **ACCEPTED / CLOSED**. Overall V3-2 remains **ACTIVE** because no worker-facing transport has been live-activated.
+`V3-2-WORKER-GATEWAY-TRANSPORT-1` is **ACCEPTED / CLOSED**. Its separate controlled activation gate also passed and overall V3-2 is now **ACCEPTED / CLOSED**.
 
-Next: open a separate **V3-2 controlled worker gateway activation gate**. That gate must treat live worker-authority schema installation and listener exposure as explicit activation steps, preserve the existing owner/executive 34-tool surface, use disposable authority for proof, verify revocation and rollback, and must not grant new external access implicitly. No real provider execution is required for the activation proof.
+Controlled activation used a disposable loopback-only worker endpoint, installed the accepted worker-authority schema v1, proved authenticated grant-shaped discovery and per-call re-authorization, revoked all disposable authority, removed the listener, and left the owner/executive 34-tool public surface unchanged.
+
+The next roadmap lane is V3-3 and remains inactive pending explicit owner activation.
