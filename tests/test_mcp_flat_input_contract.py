@@ -37,8 +37,9 @@ GATEWAYS_WITHOUT_REQUEST_MODEL = frozenset({"cancel_run"})
 # These are the ones whose ``oneOf`` is hoisted to the argument root.
 UNION_GATEWAYS = frozenset(
     {
-        "cloudflare_action", "cloudflare_query", "docker_action", "docker_query",
-        "knowledge_action", "knowledge_query", "repo_apply", "repo_commit",
+        "cloudflare_action", "cloudflare_query", "company_action", "company_query",
+        "docker_action", "docker_query", "knowledge_action", "knowledge_query",
+        "repo_apply", "repo_commit",
         "repo_preview", "repo_query", "run_query", "run_start", "ssh_action",
         "ssh_inspect", "ssh_query", "supervisor_action", "supervisor_query",
         "system_action", "system_query", "task_action", "task_query",

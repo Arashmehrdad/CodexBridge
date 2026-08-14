@@ -34,10 +34,13 @@ Implement one discriminated-union mutation surface with operations:
 
 - `bootstrap_kernel`;
 - `accept_plan_revision`;
-- `define_work_package`;
 - `reserve_attempt`;
 - `accept_outcome`;
 - `reconcile_one`.
+
+`accept_plan_revision` is intentionally the public name for the accepted atomic `accept_plan_graph` authority: one request carries the complete bounded WorkPackage DAG and creates/selects its immutable WorkPackages in the same transaction. There is no standalone `define_work_package` operation because the accepted graph architecture has no independent package-definition authority; adding one here would create a second mutation path solely to preserve an older proposal vocabulary.
+
+`reserve_attempt` delegates to the accepted WorkPackage admission authority and therefore remains reasoning-route-specific until another provider-neutral admission authority is separately proven. It must refuse before mutation when the owner-controlled reasoning route is disabled.
 
 Every operation delegates to the existing internal authority that already owns the transition. Gateway code must not reproduce transaction logic, create synthetic Task/Run rows or widen authority.
 

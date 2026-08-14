@@ -20,16 +20,19 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "12b710b27ac94f938e97b0fb534e8b276027fd8ce63ffc45eddf2a02d44e6ef4"
+    "57a79be20db0088ab1b3def6962e8ee4957a951926086380a3519cb36ef9dee9"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
+)
+CURRENT_OUTPUT_SCHEMA_HASH = (
+    "a224fd5bb7391f3a5c97726f079b2e5e26d1bcb2204b3c59944c8870eaa22af2"
 )
 PRE_B3_OPERATION_INVENTORY_HASH = (
     "a6f31b3275f074d0660ba4aa48f3886cce2093bf5847cf0e3eae172afae92377"
 )
 CURRENT_OPERATION_INVENTORY_HASH = (
-    "3daa3f0443f7ffaec92fe5791df8a323b6e70a9aeb5375a4583bc53481d19045"
+    "7b61ecc4ef565357483c11168e55f3fa962e767a295a720453af7ca86f7f731f"
 )
 
 
@@ -58,7 +61,7 @@ def test_registry_metadata_is_the_exact_fastmcp_public_descriptor_authority() ->
     actions = _actions()
     by_name = {action["name"]: action for action in actions}
 
-    assert len(actions) == 32
+    assert len(actions) == 34
     assert set(by_name) == set(PUBLIC_GATEWAY_NAMES)
     assert set(by_name) == set(PUBLIC_TOOL_METADATA)
     for name, metadata in PUBLIC_TOOL_METADATA.items():
@@ -121,15 +124,16 @@ def test_public_registration_name_prefers_explicit_name_over_wrapped_function() 
     )
 
 
-def test_cloudflare_permissive_change_is_additive_to_candidate_b_inventory() -> None:
+def test_current_public_gateway_schema_identity_is_intentional() -> None:
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "f7dc8e9296b62e6f82843ba64a8a67078a4d9ff6dd1ecf7a6659f36097fab4a4"
+        "00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH
-    assert _schema_digest(actions, "outputSchema") == PRE_B3_OUTPUT_SCHEMA_HASH
+    assert _schema_digest(actions, "outputSchema") == CURRENT_OUTPUT_SCHEMA_HASH
+    assert CURRENT_OUTPUT_SCHEMA_HASH != PRE_B3_OUTPUT_SCHEMA_HASH
     operation_inventory_hash = server._operation_identity_metadata(actions=actions)[
         "operation_inventory_hash"
     ]

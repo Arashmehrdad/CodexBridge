@@ -211,6 +211,8 @@ WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
     "run_start",
     "task_query",
     "task_action",
+    "company_query",
+    "company_action",
     "docker_query",
     "docker_action",
     "cloudflare_query",
@@ -235,7 +237,7 @@ PUBLIC_TRADING_ACTIONS = {
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 32
+assert len(EXPECTED_EXPOSED_ACTIONS) == 34
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -1422,6 +1424,8 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "run_start",
             "task_query",
             "task_action",
+            "company_query",
+            "company_action",
             "docker_query",
             "docker_action",
             "cloudflare_query",

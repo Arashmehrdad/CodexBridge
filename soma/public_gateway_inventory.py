@@ -13,7 +13,7 @@ class PublicGatewayInventoryEntry:
     cf1_risk: str
 
 
-PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v1"
+PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v2"
 
 
 def _entry(name: str, family: str, source: str, response_path: str, cf1_risk: str) -> PublicGatewayInventoryEntry:
@@ -35,6 +35,8 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("run_query", "runs", "soma.server", "full row or bounded output", "JSON decoding, request echo, and oversized lists"),
     _entry("task_query", "tasks", "soma.server", "compact canonical task projection", "link, event, and checkpoint growth"),
     _entry("task_action", "tasks", "soma.server", "compact canonical task mutation", "launch acknowledgement and cancellation diagnostic growth"),
+    _entry("company_query", "company", "soma.server", "bounded no-cache Company Kernel projection", "attempt lineage and record projection growth"),
+    _entry("company_action", "company", "soma.server", "bounded delegated Company Kernel mutation", "plan graph and admission evidence growth"),
     _entry("system_query", "system", "soma.server", "direct object", "capability and self-check growth"),
     _entry("system_action", "system", "soma.server", "direct mutation result", "reload diagnostic growth"),
     _entry("supervisor_query", "supervisors", "soma.server", "direct durable snapshot", "linked run and notification growth"),

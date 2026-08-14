@@ -15,7 +15,7 @@ from soma.gateway_models import SystemCapabilityIdentityQuery, SystemQueryReques
 import soma.server as server
 
 
-PUBLIC_SCHEMA_HASH = "f7dc8e9296b62e6f82843ba64a8a67078a4d9ff6dd1ecf7a6659f36097fab4a4"
+PUBLIC_SCHEMA_HASH = "00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9"
 
 
 def _actions() -> list[dict]:
@@ -208,7 +208,7 @@ print(
         assert len(output_lines) == 1, completed.stdout
         results.append(json.loads(output_lines[0]))
 
-    assert [result["tool_count"] for result in results] == [32, 32, 32]
+    assert [result["tool_count"] for result in results] == [34, 34, 34]
     assert [result["public_schema_hash"] for result in results] == [
         PUBLIC_SCHEMA_HASH
     ] * 3

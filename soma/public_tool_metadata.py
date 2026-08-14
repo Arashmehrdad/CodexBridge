@@ -1,4 +1,4 @@
-"""Authoritative human-facing metadata for Soma's public 32-tool surface."""
+"""Authoritative human-facing metadata for Soma's public 34-tool surface."""
 
 from __future__ import annotations
 
@@ -293,6 +293,36 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             destructive=False,
             idempotent=True,
             open_world=False,
+        ),
+        "company_query": _record(
+            "company_query",
+            title="Inspect Company Kernel",
+            description=(
+                "Use this when you need bounded Company Kernel mission, plan, package, "
+                "outcome, acceptance, reconciliation, or capability state without "
+                "changing company state."
+            ),
+            invoking="Inspecting Company Kernel...",
+            invoked="Company evidence ready",
+            read_only=True,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
+        "company_action": _record(
+            "company_action",
+            title="Control Company Kernel",
+            description=(
+                "Use this when the user wants an exact owner/executive Company Kernel "
+                "transition: bootstrap, accept a complete plan DAG, reserve one reasoning "
+                "attempt, accept an outcome, or record one reconciliation receipt."
+            ),
+            invoking="Updating Company Kernel...",
+            invoked="Company action complete",
+            read_only=False,
+            destructive=False,
+            idempotent=False,
+            open_world=True,
         ),
         "task_action": _record(
             "task_action",

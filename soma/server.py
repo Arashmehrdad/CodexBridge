@@ -152,6 +152,7 @@ from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 from .tasks import TaskManager, TaskStore
 from .workflows import WorkflowManager
+from .company_kernel.gateway import company_action_gateway, company_query_gateway
 from .gateway_models import (
     RepoApplyRequest,
     RepoCommitRequest,
@@ -163,6 +164,8 @@ from .gateway_models import (
     DockerQueryRequest,
     CloudflareActionRequest,
     CloudflareQueryRequest,
+    CompanyActionRequest,
+    CompanyQueryRequest,
     SSHActionRequest,
     SSHQueryRequest,
     SystemActionRequest,
@@ -3494,6 +3497,22 @@ def task_query(request: TaskQueryRequest) -> dict:
         project_id=request.project_id,
         limit=request.limit,
         budget=request.response_budget_bytes,
+    )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def company_query(request: CompanyQueryRequest) -> dict:
+    """Read-only gateway for bounded Company Kernel projections and receipts."""
+    return company_query_gateway(get_config(), request)
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def company_action(request: CompanyActionRequest) -> dict:
+    """Owner/executive gateway delegating to exact Company Kernel authorities."""
+    return company_action_gateway(
+        get_config(),
+        request,
+        task_manager_factory=get_task_manager,
     )
 
 

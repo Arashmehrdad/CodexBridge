@@ -7,12 +7,18 @@ validation that executes after a request is accepted.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from hashlib import sha256
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .company_kernel.dependencies import (
+    EvidenceAvailableCandidateV1,
+    PublishedSuccessCandidateV1,
+)
+from .reasoning.models import ReasoningSpecV1
 from .run_query_chunks import encode_list_reference, encode_run_reference
 from .ssh_policy import (
     AutonomyProfile,
@@ -1527,6 +1533,197 @@ TaskActionRequest = Annotated[
     | TaskSupplyInputCommand
     | TaskRecoveryResolve
     | TaskQuarantineAdjudicate,
+    Field(discriminator="operation"),
+]
+
+
+class CompanyCapabilitiesQuery(GatewayModel):
+    operation: Literal["capabilities"]
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class CompanyScopedQuery(GatewayModel):
+    company_id: str = Field(min_length=1, max_length=128)
+    mission_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class CompanyMissionStatusQuery(CompanyScopedQuery):
+    operation: Literal["mission_status"]
+
+
+class CompanyCurrentPlanQuery(CompanyScopedQuery):
+    operation: Literal["current_plan"]
+
+
+class CompanyWorkPackageQuery(CompanyScopedQuery):
+    operation: Literal["work_package"]
+    work_package_id: str = Field(min_length=1, max_length=128)
+
+
+class CompanyOutcomeStatusQuery(CompanyScopedQuery):
+    operation: Literal["outcome_status"]
+    outcome_id: str = Field(min_length=1, max_length=128)
+
+
+class CompanyAcceptanceCommitQuery(CompanyScopedQuery):
+    operation: Literal["acceptance_commit"]
+    acceptance_commit_id: str = Field(min_length=1, max_length=128)
+
+
+class CompanyReconciliationReceiptQuery(CompanyScopedQuery):
+    operation: Literal["reconciliation_receipt"]
+    reconciliation_id: str = Field(min_length=1, max_length=128)
+
+
+CompanyQueryRequest = Annotated[
+    CompanyCapabilitiesQuery
+    | CompanyMissionStatusQuery
+    | CompanyCurrentPlanQuery
+    | CompanyWorkPackageQuery
+    | CompanyOutcomeStatusQuery
+    | CompanyAcceptanceCommitQuery
+    | CompanyReconciliationReceiptQuery,
+    Field(discriminator="operation"),
+]
+
+
+class _CompanyWriteBase(GatewayModel):
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+
+class CompanyBootstrapAction(_CompanyWriteBase):
+    operation: Literal["bootstrap_kernel"]
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    company_key: str = Field(min_length=1, max_length=128)
+    company_display_name: str = Field(min_length=1, max_length=500)
+    mission_key: str = Field(min_length=1, max_length=128)
+    mission_contract: dict[str, Any]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    scope_generation: int = Field(ge=1)
+    executive_authority_ref: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def _bound_mission_contract(self) -> "CompanyBootstrapAction":
+        encoded = json.dumps(
+            self.mission_contract,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        if len(encoded) > 200_000:
+            raise ValueError("mission_contract exceeds 200000 UTF-8 bytes")
+        return self
+
+
+class CompanyAcceptPlanRevisionAction(_CompanyWriteBase):
+    operation: Literal["accept_plan_revision"]
+    company_id: str = Field(min_length=1, max_length=128)
+    mission_id: str = Field(min_length=1, max_length=128)
+    expected_current_plan_revision_id: str | None = Field(default=None, max_length=128)
+    expected_plan_state_version: int = Field(ge=0)
+    expected_kernel_state_version: int = Field(ge=0)
+    project_id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    scope_generation: int = Field(ge=1)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    accepted_by_ref: str = Field(min_length=1, max_length=128)
+    acceptance_basis_ref: str = Field(min_length=1, max_length=2048)
+    plan_contract_base: dict[str, Any]
+    graph_manifest: dict[str, Any]
+    work_package_contracts: dict[str, dict[str, Any]] = Field(max_length=32)
+    deliberation_ref: str = Field(default="", max_length=2048)
+    deliberation_hash: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def _bound_plan_payload(self) -> "CompanyAcceptPlanRevisionAction":
+        for name in ("plan_contract_base", "graph_manifest", "work_package_contracts"):
+            encoded = json.dumps(
+                getattr(self, name),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            if len(encoded) > 500_000:
+                raise ValueError(f"{name} exceeds 500000 UTF-8 bytes")
+        return self
+
+
+class CompanyReserveAttemptAction(_CompanyWriteBase):
+    operation: Literal["reserve_attempt"]
+    company_id: str = Field(min_length=1, max_length=128)
+    mission_id: str = Field(min_length=1, max_length=128)
+    work_package_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    scope_generation: int = Field(ge=1)
+    executive_authority_ref: str = Field(min_length=1, max_length=128)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    expected_plan_revision_id: str | None = Field(default=None, max_length=128)
+    expected_plan_state_version: int | None = Field(default=None, ge=0)
+    repo_name: str = Field(min_length=1, max_length=128)
+    reasoning_spec: ReasoningSpecV1
+    supersedes_attempt_id: str | None = Field(default=None, max_length=128)
+    evidence_candidates: dict[str, EvidenceAvailableCandidateV1] = Field(
+        default_factory=dict, max_length=128
+    )
+    published_success_candidates: dict[str, PublishedSuccessCandidateV1] = Field(
+        default_factory=dict, max_length=128
+    )
+
+
+class CompanyAcceptOutcomeAction(_CompanyWriteBase):
+    operation: Literal["accept_outcome"]
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    company_id: str = Field(min_length=1, max_length=128)
+    mission_id: str = Field(min_length=1, max_length=128)
+    plan_revision_id: str = Field(min_length=1, max_length=128)
+    work_package_id: str = Field(min_length=1, max_length=128)
+    outcome_id: str = Field(min_length=1, max_length=128)
+    attempt_id: str = Field(min_length=1, max_length=128)
+    task_id: str = Field(min_length=1, max_length=128)
+    backend_kind: Literal["soma_durable_run", "soma_reasoning"]
+    backend_ref: str = Field(min_length=1, max_length=256)
+    project_id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    scope_generation: int = Field(ge=1)
+    expected_kernel_state_version: int = Field(ge=0)
+    result_published_hash: str = Field(min_length=64, max_length=64)
+    public_result_source_sha256: str = Field(min_length=64, max_length=64)
+    acceptance_authority_ref: str = Field(min_length=1, max_length=128)
+    acceptance_basis_ref: str = Field(min_length=1, max_length=2048)
+    acceptance_basis_hash: str = Field(min_length=64, max_length=64)
+
+
+class CompanyReconcileOneAction(_CompanyWriteBase):
+    operation: Literal["reconcile_one"]
+    company_id: str = Field(min_length=1, max_length=128)
+    mission_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    scope_generation: int = Field(ge=1)
+    executive_authority_ref: str = Field(min_length=1, max_length=128)
+    trigger_kind: Literal["owner_turn", "package_completion"]
+    trigger_ref: str = Field(min_length=1, max_length=2048)
+    expected_kernel_state_version: int = Field(ge=0)
+    selected_transition: Literal["no_op", "acceptance_candidate_ready"]
+    target_ref: str = Field(default="", max_length=2048)
+    target_hash: str = Field(default="", max_length=64)
+
+
+CompanyActionRequest = Annotated[
+    CompanyBootstrapAction
+    | CompanyAcceptPlanRevisionAction
+    | CompanyReserveAttemptAction
+    | CompanyAcceptOutcomeAction
+    | CompanyReconcileOneAction,
     Field(discriminator="operation"),
 ]
 

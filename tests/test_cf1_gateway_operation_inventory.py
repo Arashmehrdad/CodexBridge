@@ -90,7 +90,7 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     validate_gateway_operation_inventory()
     grouped = operation_inventory_by_gateway()
 
-    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == ("cf1.3.gateway-operations.v21")
+    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == ("cf1.3.gateway-operations.v22")
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
 

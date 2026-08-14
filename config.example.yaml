@@ -231,10 +231,10 @@ external_coder:
   external_coder_require_policy_approval: true
 gemini:
   enabled: false
-# Internal Kernel-of-One root capability. Disabled by default; enabling it only
-# authorizes the internal Company/Mission bootstrap service and requires one
-# trusted owner/executive authority reference. It does not expose a public
-# company gateway or activate a reasoning provider.
+# Owner-controlled Kernel-of-One capability. Disabled by default; enabling it
+# requires one trusted owner/executive authority reference and activates the
+# strict Company Kernel query/action authorities after the public gateway build
+# is live. It does not activate a reasoning provider or scheduled autonomy.
 company_kernel:
   enabled: false
   executive_authority_ref: ""

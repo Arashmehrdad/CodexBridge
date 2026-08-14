@@ -76,6 +76,16 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
         "state_version": 1, "backend_reference": "r1", "created": True,
         "response_budget_bytes": _BUDGET, "response_bytes": 1,
     },
+    "company_query": {
+        "ok": True, "operation": "capabilities", "runtime_enabled": False,
+        "automatic_outcome_acceptance": False,
+        "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
+    "company_action": {
+        "ok": True, "operation": "reconcile_one",
+        "result": {"created": True, "replay_kind": "none"},
+        "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
     "knowledge_query": {
         "ok": True, "operation": "read_wiki", "repo_name": "soma", "sections": ["overview"],
         "response_budget_bytes": _BUDGET, "response_bytes": 1,

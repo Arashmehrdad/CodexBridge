@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v21"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v22"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -400,6 +400,49 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Every operation records its validated request in input_json before "
             "the worker is launched."
+        ),
+    ),
+    _entry(
+        "company_query",
+        (
+            "capabilities",
+            "mission_status",
+            "current_plan",
+            "work_package",
+            "outcome_status",
+            "acceptance_commit",
+            "reconciliation_receipt",
+        ),
+        "soma.server:company_query -> soma.company_kernel.gateway:company_query_gateway",
+        "bounded no-cache Company Kernel projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Queries exact ProjectScope/repository bindings and reconstruct Company Kernel "
+            "facts from canonical stores. Compact WorkPackage attempt lineage is capped; "
+            "contract bodies are never copied into the projection."
+        ),
+    ),
+    _entry(
+        "company_action",
+        (
+            "bootstrap_kernel",
+            "accept_plan_revision",
+            "reserve_attempt",
+            "accept_outcome",
+            "reconcile_one",
+        ),
+        "soma.server:company_action -> soma.company_kernel.gateway:company_action_gateway",
+        "bounded delegated Company Kernel transition result",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Strict owner/executive requests delegate to existing Company Kernel authorities. "
+            "accept_plan_revision carries the complete bounded DAG; reserve_attempt refuses "
+            "before reservation unless the owner-controlled reasoning route is enabled."
         ),
     ),
     _entry(
