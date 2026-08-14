@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane and the future durable organisation around intelligent agents. The production runtime does not yet launch or supervise coding-agent sessions. `RELIABILITY-1 — EXISTING-RUNTIME-HARDENING` is the sole active implementation lane. The V3 interaction-foundation architecture review is preserved but parked, and all larger V3 implementation remains paused until RELIABILITY-1 is owner-reviewed and accepted. Any later reference in this file to interaction commands as an active implementation package is historical and superseded.
+Soma is a local engineering control plane and the future durable organisation around intelligent agents. Reliability hardening and V3-1A are closed. The Agent/Worker core architecture is accepted with production reasoning/provider activation still disabled. The active roadmap package is `V3-1B-BOOTSTRAP-PLAN-AUTHORITY-1`: finish the missing trusted Company/Mission root and internal current-plan/package authority by reusing the accepted Company Kernel and Agent/Worker mechanics. Later V3 outcomes remain inactive until their own bounded gate.
 
 Target operating model:
 - ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
@@ -33,9 +33,9 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: RELIABILITY-1 Existing Runtime Hardening
+## Immediate Priority: V3-1B Bootstrap and Plan Authority
 
-`PLANS.md` is the sole concise source of active plan truth. The active package is [`docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md`](docs/RELIABILITY_1_GATE_AND_BUG_LEDGER_2026-08-01.md). Work is defect-driven: reproduce, classify, fix minimally, add a regression test, validate adjacent authorities, and update the durable ledger. Do not use this lane for speculative redesign or to resume paused V3 interaction implementation.
+`PLANS.md` is the sole concise source of active plan truth. The active package is [`docs/V3_1B_BOOTSTRAP_PLAN_AUTHORITY_1_GATE_2026-08-14.md`](docs/V3_1B_BOOTSTRAP_PLAN_AUTHORITY_1_GATE_2026-08-14.md). Reuse the accepted Company Kernel graph/admission services and canonical ProjectScope/Task/Run authorities. Do not duplicate the Agent/Worker core, create a second lifecycle, or skip ahead to OutcomeAcceptance/public gateways/V3-2.
 
 The preserved `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1` package is parked until RELIABILITY-1 closes. Repository editing now supports corrected handoff states, anchored line ranges, hash-bound whole-file replacement, explicit manual commit mode, exact pending-file reporting, and commit metadata for creation and reversal paths. Markdown section intelligence, typed operation unions, scratch branches, and broader editing ergonomics remain future work unless a reproduced reliability defect makes one necessary.
 
@@ -274,13 +274,13 @@ Avoid relying only on human-readable logs.
 This list is directional, not proof that a feature exists:
 
 0. V3-0 Architecture reconciliation — complete
-1. V3-1A Interactive Worker Substrate — active
-2. V3-1B Kernel of One — planned, inactive
+1. V3-1A Interactive Worker Substrate — accepted and closed
+2. V3-1B Kernel of One — active; schema and Agent/Worker mechanics accepted, product authority closure in progress
 3. V3-2 Role-Scoped Capability Broker — planned, inactive
 4. Interactive collaboration and temporary organisation — planned, inactive
 5. Cortana/dashboard, business bindings, autonomous company trial, and genuine learning — later outcomes
 
-Only V3-1A is active. Do not implement or validate later roadmap outcomes until V3-1A passes its session identity, interaction delivery, non-terminal waiting, explicit recovery, zero-orphan cancellation, raw usage, protocol-drift, compatibility, and authority-delta gates and the owner explicitly advances the plan.
+Only the exact V3-1B package named by `PLANS.md` may change product behavior. Do not skip into V3-2 or later outcomes.
 
 ## Roadmap Documentation Discipline
 
@@ -313,3 +313,8 @@ For prose-only changes such as `PLANS.md`, `AGENTS.md`, README files, roadmap/st
 ## Maintenance Rule
 
 When the user corrects a recurring project rule, update `AGENTS.md` so future coding-agent sessions inherit the correction.
+
+Current owner-specific hard boundaries:
+- Any Codex CLI, App Server, API, model generation, or Codex subagent usage requires a fresh explicit owner request. Never infer authorization from roadmap work.
+- `docs/CANONICAL_PROJECT_MEMORY_CONTRACT.md` is owner work and must not be modified, staged, deleted, renamed, or committed without explicit future authorization.
+- Preserve unrelated concurrent owner files and never include them in a roadmap commit.
