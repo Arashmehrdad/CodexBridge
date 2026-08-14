@@ -411,26 +411,37 @@ class WorkerAuthorityService:
             )
         return principal
 
-    def authorize(
+    def authenticate_active(
         self,
-        request: WorkerAuthorizationRequestV1,
+        principal_id: str,
+        credential: str,
         *,
         now: datetime | None = None,
-    ) -> WorkerAuthorizationDecisionV1:
+    ) -> WorkerPrincipalV1:
         current = self._now(now)
-        principal = self.authenticate(request.principal_id, request.credential)
-        spec = self.registry.require(request.operation_ref)
+        principal = self.authenticate(principal_id, credential)
+        self._require_principal_active(
+            principal,
+            now=current,
+            require_session=False,
+        )
+        return principal
+
+    def _authorize_loaded(
+        self,
+        *,
+        principal: WorkerPrincipalV1,
+        grant: WorkerCapabilityGrantV1,
+        parameters: dict[str, Any],
+        expected_task_state_version: int,
+        current: datetime,
+    ) -> WorkerAuthorizationDecisionV1:
+        spec = self.registry.require(grant.operation_ref)
         task = self._require_principal_active(
             principal,
             now=current,
             require_session=spec.requires_session,
         )
-        try:
-            grant = self.store.get_grant(request.grant_id)
-        except KeyError as exc:
-            raise WorkerAuthorizationDenied(
-                "grant_missing", "positive capability grant does not exist"
-            ) from exc
         if self.store.revocation_for("grant", grant.grant_id) is not None:
             raise WorkerAuthorizationDenied("grant_revoked", "capability grant is revoked")
         if current >= grant.expires_at:
@@ -456,21 +467,6 @@ class WorkerAuthorityService:
                 raise WorkerAuthorizationDenied(
                     "grant_ceiling_mismatch", f"grant {field} differs from principal"
                 )
-        expected = {
-            "role_ref": principal.role_ref,
-            "mandate_ref": principal.mandate_ref,
-            "mandate_hash": principal.mandate_hash,
-            "mandate_version": principal.mandate_version,
-            "intent_ref": grant.intent_ref,
-            "intent_hash": grant.intent_hash,
-            "operation_ref": grant.operation_ref,
-            "operation_hash": grant.operation_hash,
-        }
-        for field, value in expected.items():
-            if getattr(request, field) != value:
-                raise WorkerAuthorizationDenied(
-                    f"{field}_mismatch", f"submitted {field} is not grant-exact"
-                )
         if grant.operation_hash != spec.operation_hash:
             raise WorkerAuthorizationDenied(
                 "operation_registry_drift", "grant operation no longer matches registry"
@@ -480,11 +476,11 @@ class WorkerAuthorityService:
                 "task_state_not_allowed",
                 f"operation does not allow Task state {task.state.value!r}",
             )
-        if task.state_version != request.expected_task_state_version:
+        if task.state_version != expected_task_state_version:
             raise WorkerAuthorizationDenied(
                 "stale_task_state_version", "Task state version differs from request"
             )
-        if canonical_hash(request.parameters) != grant.parameter_contract_hash:
+        if canonical_hash(parameters) != grant.parameter_contract_hash:
             raise WorkerAuthorizationDenied(
                 "parameter_contract_mismatch",
                 "submitted parameters exceed or differ from exact positive grant contract",
@@ -509,6 +505,104 @@ class WorkerAuthorityService:
             parameter_contract_hash=grant.parameter_contract_hash,
             task_state=task.state.value,
             task_state_version=task.state_version,
+        )
+
+    def authorize_authenticated(
+        self,
+        *,
+        principal_id: str,
+        grant_id: str,
+        parameters: dict[str, Any],
+        expected_task_state_version: int,
+        now: datetime | None = None,
+    ) -> WorkerAuthorizationDecisionV1:
+        self._require_installed()
+        current = self._now(now)
+        try:
+            principal = self.store.get_principal(principal_id)
+            grant = self.store.get_grant(grant_id)
+        except KeyError as exc:
+            raise WorkerAuthorizationDenied(
+                "grant_missing", "positive capability grant does not exist"
+            ) from exc
+        return self._authorize_loaded(
+            principal=principal,
+            grant=grant,
+            parameters=parameters,
+            expected_task_state_version=expected_task_state_version,
+            current=current,
+        )
+
+    def usable_grants(
+        self,
+        principal_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> tuple[tuple[WorkerCapabilityGrantV1, WorkerAuthorizationDecisionV1], ...]:
+        self._require_installed()
+        current = self._now(now)
+        try:
+            principal = self.store.get_principal(principal_id)
+        except KeyError as exc:
+            raise WorkerAuthorizationDenied(
+                "principal_missing", "worker principal does not exist"
+            ) from exc
+        self._require_principal_active(
+            principal,
+            now=current,
+            require_session=False,
+        )
+        usable: list[tuple[WorkerCapabilityGrantV1, WorkerAuthorizationDecisionV1]] = []
+        for grant in self.store.grants_for_principal(principal_id):
+            try:
+                task = TaskStore(self.runs_dir).get_task(principal.task_id)
+                decision = self._authorize_loaded(
+                    principal=principal,
+                    grant=grant,
+                    parameters=grant.parameter_contract,
+                    expected_task_state_version=task.state_version,
+                    current=current,
+                )
+            except (KeyError, WorkerAuthorizationDenied):
+                continue
+            usable.append((grant, decision))
+        return tuple(usable)
+
+    def authorize(
+        self,
+        request: WorkerAuthorizationRequestV1,
+        *,
+        now: datetime | None = None,
+    ) -> WorkerAuthorizationDecisionV1:
+        current = self._now(now)
+        principal = self.authenticate(request.principal_id, request.credential)
+        try:
+            grant = self.store.get_grant(request.grant_id)
+        except KeyError as exc:
+            raise WorkerAuthorizationDenied(
+                "grant_missing", "positive capability grant does not exist"
+            ) from exc
+        expected = {
+            "role_ref": principal.role_ref,
+            "mandate_ref": principal.mandate_ref,
+            "mandate_hash": principal.mandate_hash,
+            "mandate_version": principal.mandate_version,
+            "intent_ref": grant.intent_ref,
+            "intent_hash": grant.intent_hash,
+            "operation_ref": grant.operation_ref,
+            "operation_hash": grant.operation_hash,
+        }
+        for field, value in expected.items():
+            if getattr(request, field) != value:
+                raise WorkerAuthorizationDenied(
+                    f"{field}_mismatch", f"submitted {field} is not grant-exact"
+                )
+        return self._authorize_loaded(
+            principal=principal,
+            grant=grant,
+            parameters=request.parameters,
+            expected_task_state_version=request.expected_task_state_version,
+            current=current,
         )
 
     @staticmethod

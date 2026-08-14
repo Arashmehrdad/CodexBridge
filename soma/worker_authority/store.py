@@ -156,6 +156,15 @@ class WorkerAuthorityStore:
             raise KeyError(f"Worker capability grant not found: {grant_id}")
         return self._grant_from_row(row)
 
+    def grants_for_principal(self, principal_id: str) -> tuple[WorkerCapabilityGrantV1, ...]:
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT * FROM worker_capability_grants WHERE principal_id = ? "
+                "ORDER BY created_at, grant_id",
+                (principal_id,),
+            ).fetchall()
+        return tuple(self._grant_from_row(row) for row in rows)
+
     def principal_for_request(self, controller_request_id: str) -> WorkerPrincipalV1 | None:
         with self._read() as conn:
             row = conn.execute(
