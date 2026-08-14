@@ -20,7 +20,7 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "caaafde67cedf46fd16eeb90de31184925312002688fc576af140cd8849082d9"
+    "12b710b27ac94f938e97b0fb534e8b276027fd8ce63ffc45eddf2a02d44e6ef4"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
@@ -125,7 +125,7 @@ def test_cloudflare_permissive_change_is_additive_to_candidate_b_inventory() -> 
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "f6b6ac6936ce5a424489120e712372906b0f410426e4c43120feb14c13536d8b"
+        "f7dc8e9296b62e6f82843ba64a8a67078a4d9ff6dd1ecf7a6659f36097fab4a4"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH
