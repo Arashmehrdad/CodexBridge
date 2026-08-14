@@ -118,6 +118,8 @@ The first source package may implement the durable principal/grant authority and
 
 ## 8. Initial package — V3-2-AUTHORITY-FOUNDATION-1
 
+**Package status:** ACCEPTED / CLOSED
+
 Implement only the provider-neutral authority substrate:
 
 - additive schema/models/store for worker principals, verifier material, immutable grants and revocation evidence;
@@ -128,6 +130,51 @@ Implement only the provider-neutral authority substrate:
 - bounded non-secret projections for tests/future worker discovery.
 
 No public MCP operation, live worker listener, provider launch, protected external mutation or owner-surface change belongs to this package.
+
+### 8.1 Acceptance evidence
+
+Accepted implementation commit:
+
+- `54bd9c92168a15cc863a55a668063099137895ad` — `Implement V3-2 worker authority foundation`.
+
+Implemented internal-only substrate:
+
+- additive `worker_authority` schema v1 with immutable principal, positive-grant and revocation records;
+- explicit/inert migration authority; source acceptance did **not** install the schema into the live Soma database;
+- cryptographically strong one-time worker credentials with only SHA-256 verifier material durably stored and constant-time verifier comparison;
+- immutable principals bound to exact ProjectScope, canonical Task/Run and optional interactive `session_binding_id`, with `role_ref` remaining context rather than authority;
+- reviewed operation registry whose hash covers authority semantics, including approval policy, while excluding documentation-only description wording;
+- immutable positive grants bound to exact intent, operation and parameter contract under the principal's exact scope/Task/Run/session/mandate ceiling;
+- deny-new-action revocation, expiry, Task cancellation precedence, session disposition and ProjectScope generation revalidation;
+- exact issuance replay that continues to converge after later expiry/revocation while changed request material conflicts;
+- `WorkerProtectedAuthorityResolver` that maps accepted grant facts into G4 `ProtectedAuthoritySnapshotV1` without invoking an adapter or creating protected-effect state;
+- reviewed G4 approval-required policy is preserved fail-closed (`approval_required=true`, `approval_valid=false`) until separate approval evidence exists.
+
+Focused authority proof:
+
+- `tests/test_worker_authority_foundation.py`: `18 passed`;
+- proves explicit/inert migration, one-time credential secrecy, replay/conflict behavior, no-grant denial, exact grant authorization, wrong principal/scope/Task/Run/session/role/mandate/intent/operation/parameter/state denial, cancellation/revocation/expiry precedence, provider-local-ID non-authority, restart/reopen durability, description-independent operation identity and G4 snapshot-only resolution.
+
+Post-final-source lint:
+
+- run `20260814T164045Z_executable_profile_922e63ae`;
+- Ruff: `All checks passed!`.
+
+Focused integration matrix:
+
+- run `20260814T164100Z_executable_profile_f7222e0c`;
+- `381 passed, 26 skipped`;
+- exit code `0`;
+- covered ProjectScope, WorkerSubstrate, G4 ProtectedToolBroker, Company public gateway and public metadata/descriptor/inventory/MCP discovery/flat-input/transport contracts.
+
+Definitive full repository regression:
+
+- run `20260814T164219Z_executable_profile_9defd17a`;
+- `3186 passed, 35 skipped, 1 xfailed, 0 failed`;
+- pytest duration `899.39s`; durable run duration `901.215s`;
+- exit code `0`.
+
+The accepted owner/executive public surface remained unchanged at 34 tools with public schema hash `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`. No public/server wiring, live worker listener, worker-authority live migration, provider generation, Codex use, protected external effect, deployment or push occurred. The protected canonical-memory and patch-auto-repair documents remained excluded and untouched.
 
 ## 9. Required proof
 
@@ -147,4 +194,6 @@ The authority foundation cannot close without focused proof that:
 
 ## 10. Exit / next package
 
-Close `V3-2-AUTHORITY-FOUNDATION-1` only after the durable positive-allowlist authority is proven. Then proceed to a separately bounded worker-facing gateway/transport package that consumes this authority and remains inactive until its own live isolation proof passes.
+`V3-2-AUTHORITY-FOUNDATION-1` is **ACCEPTED / CLOSED**. The overall V3-2 gate remains **ACTIVE** because no worker-facing transport exists yet.
+
+Next: open a separately bounded worker-facing gateway/transport **source** package that consumes this authority. It must preserve the current 34-tool owner/executive surface, authenticate before usable worker discovery, expose only grant-shaped worker operations, re-authorize every invocation, and remain inactive until a later live isolation/activation proof passes. No live worker listener or worker-authority schema migration is implied by foundation acceptance.
