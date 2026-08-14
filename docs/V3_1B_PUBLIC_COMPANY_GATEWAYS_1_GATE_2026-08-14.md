@@ -1,7 +1,7 @@
 # V3-1B-PUBLIC-COMPANY-GATEWAYS-1 — Strict Owner/Executive Gateway Gate
 
 **Date:** 2026-08-14
-**Status:** ACTIVE
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-1B Kernel of One
 **Depends on:** accepted bootstrap/plan authority, OutcomeAcceptance, bounded projections and receipt-only `reconcile_one`
 **Live Company Kernel activation:** forbidden
@@ -100,3 +100,23 @@ No Company gateway accepts raw credentials, arbitrary shell, deployment, provide
 ## 8. Exit
 
 Close only when strict public Company gateway source, schema, metadata, delegation and regression evidence are complete while the running service remains intentionally unactivated. Then advance to the separate controlled live Kernel-of-One activation gate for restart/refresh, disposable end-to-end proof and legacy-start measurement.
+
+## 9. Acceptance evidence
+
+Accepted source implementation commit:
+
+- `5335f9f389e2e4d414051af6a3486e578be7e71b` — `Implement strict public Company Kernel gateways`.
+
+Validation evidence:
+
+- final full-repository run `20260814T133409Z_executable_profile_23dfbb94`: exit code `0`; `3167 passed, 35 skipped, 1 xfailed, 0 failed`;
+- fresh focused public Company/descriptor run `20260814T153541Z_executable_profile_9fabaa3d`: exit code `0`; `283 passed, 26 skipped` in `39.06s`;
+- public tool inventory intentionally widened from `32` to `34` with `company_query` and `company_action`;
+- accepted source public schema hash: `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`;
+- accepted input schema digest: `57a79be20db0088ab1b3def6962e8ee4957a951926086380a3519cb36ef9dee9`;
+- accepted output schema digest: `a224fd5bb7391f3a5c97726f079b2e5e26d1bcb2204b3c59944c8870eaa22af2`;
+- accepted operation inventory hash: `7b61ecc4ef565357483c11168e55f3fa962e767a295a720453af7ca86f7f731f`;
+- no Codex/provider generation, live Company activation, deployment or push occurred in this gate;
+- protected `docs/CANONICAL_PROJECT_MEMORY_CONTRACT.md` and `docs/patch-auto-repair-research/*` remained excluded.
+
+The running Soma service is intentionally still on the pre-activation build/schema. The next package is the separate **controlled live Kernel-of-One activation gate**. It must restart/reload the accepted source, prove fresh-process/public-schema convergence, enable only the narrow Company Kernel capability required for a disposable proof, keep reasoning disabled, and measure legacy workflow/supervisor start overlap before any retirement decision.
