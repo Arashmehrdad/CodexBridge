@@ -43,7 +43,7 @@ def _hash(character: str) -> str:
 
 def _prepare_store(tmp_path: Path) -> CompanyKernelStore:
     store = CompanyKernelStore(tmp_path / "runs")
-    assert store.init_db() == [1, 2, 3]
+    assert store.init_db() == [1, 2, 3, 4]
     mission_contract = {"purpose": "prove graph acceptance"}
     with store.connect() as conn:
         conn.execute(

@@ -34,6 +34,7 @@ from .store import CompanyKernelStore
 
 
 ACCEPTANCE_COMMIT_HASH_DOMAIN: Final[str] = "soma.company_kernel.acceptance_commit.v1"
+ACCEPTANCE_COMMIT_HASH_DOMAIN_V2: Final[str] = "soma.company_kernel.acceptance_commit.v2"
 ATTEMPT_SET_HASH_DOMAIN: Final[str] = "soma.company_kernel.attempt_set.v1"
 SETTLEMENT_HASH_DOMAIN: Final[str] = "soma.company_kernel.settlement.v1"
 DEPENDENCY_PROOF_RECORD_PREFIX: Final[str] = "depproof"
@@ -232,8 +233,32 @@ def _proof(
 
 
 def _acceptance_commit_hash(commit: AcceptanceCommit) -> str:
+    if commit.backend_kind == "soma_durable_run":
+        # Preserve the exact v1 content-hash contract for migrated and new
+        # durable-Run acceptances. Provider-neutral v4 added backend_kind/ref to
+        # the record, but changing this derived hash would invalidate immutable
+        # accepted_outcome proofs that already cite the historical v1 digest.
+        legacy_payload = {
+            "acceptance_commit_id": commit.acceptance_commit_id,
+            "company_id": commit.company_id,
+            "mission_id": commit.mission_id,
+            "work_package_id": commit.work_package_id,
+            "outcome_id": commit.outcome_id,
+            "attempt_id": commit.attempt_id,
+            "task_id": commit.task_id,
+            "run_id": commit.run_id,
+            "result_published_hash": commit.result_published_hash,
+            "public_result_source_sha256": commit.public_result_source_sha256,
+            "acceptance_authority_ref": commit.acceptance_authority_ref,
+            "acceptance_basis_ref": commit.acceptance_basis_ref,
+            "acceptance_basis_hash": commit.acceptance_basis_hash,
+            "controller_request_id": commit.controller_request_id,
+            "request_hash": commit.request_hash,
+            "accepted_at": commit.accepted_at,
+        }
+        return _domain_hash(ACCEPTANCE_COMMIT_HASH_DOMAIN, legacy_payload)
     return _domain_hash(
-        ACCEPTANCE_COMMIT_HASH_DOMAIN,
+        ACCEPTANCE_COMMIT_HASH_DOMAIN_V2,
         commit.model_dump(mode="json"),
     )
 

@@ -4,6 +4,14 @@ Importing this package performs no migration and exposes no public company,
 execution, scheduling, projection, acceptance, or reconciliation gateway.
 """
 
+from .acceptance import (
+    OutcomeAcceptanceConflict,
+    OutcomeAcceptanceError,
+    OutcomeAcceptanceIntegrityError,
+    OutcomeAcceptanceRequestV1,
+    OutcomeAcceptanceResultV1,
+    accept_outcome,
+)
 from .bootstrap import (
     KernelBootstrapConflict,
     KernelBootstrapError,
@@ -83,6 +91,11 @@ __all__ = [
     "MAX_PACKAGES_PER_PLAN_GRAPH",
     "MISSION_ID_DOMAIN",
     "OUTCOME_ID_DOMAIN",
+    "OutcomeAcceptanceConflict",
+    "OutcomeAcceptanceError",
+    "OutcomeAcceptanceIntegrityError",
+    "OutcomeAcceptanceRequestV1",
+    "OutcomeAcceptanceResultV1",
     "PLAN_GRAPH_ID_DOMAIN",
     "PLAN_GRAPH_SCHEMA_VERSION",
     "PLAN_REVISION_ID_DOMAIN",
@@ -109,6 +122,7 @@ __all__ = [
     "SettledSatisfactionV1",
     "WorkPackage",
     "WorkPackageAttempt",
+    "accept_outcome",
     "bootstrap_company_mission",
     "canonical_hash",
     "canonical_json",

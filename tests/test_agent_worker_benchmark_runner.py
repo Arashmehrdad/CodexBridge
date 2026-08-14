@@ -112,7 +112,7 @@ def _prepare_kernel_and_scope(tmp_path: Path):
     )
     scope.set_scoped_writes_enabled(True)
     kernel = CompanyKernelStore(config.resolve_runs_dir())
-    assert kernel.init_db() == [1, 2, 3]
+    assert kernel.init_db() == [1, 2, 3, 4]
     mission_contract = {"purpose": "scripted G6 benchmark proof"}
     with kernel.connect() as conn:
         conn.execute(

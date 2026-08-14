@@ -68,7 +68,7 @@ def _prepare_db(tmp_path: Path):
     )
     scope.set_scoped_writes_enabled(True)
     kernel = CompanyKernelStore(runs)
-    assert kernel.init_db() == [1, 2, 3]
+    assert kernel.init_db() == [1, 2, 3, 4]
 
     route = {
         "backend_kind": "soma_reasoning",

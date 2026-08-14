@@ -609,22 +609,52 @@ class ProjectScopeStore:
             raise ProjectScopeMismatch("Task project scope mismatch")
         return scope
 
-    def require_task_attempt(
-        self, project_id: str, task_id: str, run_id: str
+    def require_task_attempt_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        task_id: str,
+        backend_ref: str,
     ) -> ScopeProjection:
-        scope = self.require_task(project_id, task_id)
-        with self._read() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM project_run_attempts "
-                "WHERE project_id = ? AND task_id = ? AND run_id = ? "
-                "AND status != 'quarantined'",
-                (project_id, task_id, run_id),
-            ).fetchone()
+        """Require one exact Task/backend attempt inside a caller-owned transaction."""
+        validate_opaque_id(project_id, "project_id")
+        row = conn.execute(
+            "SELECT task.project_id, task.scope_generation, task.status, "
+            "attempt.resource_id, attempt.scope_generation AS attempt_generation, "
+            "attempt.status AS attempt_status, project.lifecycle_state, "
+            "project.scope_generation AS current_generation "
+            "FROM project_task_reservations task "
+            "JOIN project_run_attempts attempt ON attempt.task_id = task.task_id "
+            "JOIN projects project ON project.project_id = task.project_id "
+            "WHERE task.project_id = ? AND task.task_id = ? AND attempt.run_id = ? "
+            "AND task.status != 'quarantined' AND attempt.status != 'quarantined'",
+            (project_id, task_id, backend_ref),
+        ).fetchone()
         if row is None:
             raise ProjectScopeMismatch(
                 "Task backend reference does not match its scoped run attempt"
             )
-        return scope
+        if (
+            str(row["lifecycle_state"]) != "active"
+            or int(row["scope_generation"]) != int(row["current_generation"])
+            or int(row["attempt_generation"]) != int(row["current_generation"])
+        ):
+            raise ProjectScopeMismatch("Task backend attempt is outside the active ProjectScope generation")
+        return ScopeProjection(
+            binding_status=str(row["status"]),
+            project_id=str(row["project_id"]),
+            resource_id=str(row["resource_id"]),
+            scope_generation=int(row["scope_generation"]),
+            attempt_status=str(row["attempt_status"]),
+        )
+
+    def require_task_attempt(
+        self, project_id: str, task_id: str, run_id: str
+    ) -> ScopeProjection:
+        with self._read() as conn:
+            return self.require_task_attempt_in_connection(
+                conn, project_id, task_id, run_id
+            )
 
     def require_run(self, project_id: str, run_id: str) -> ScopeProjection:
         validate_opaque_id(project_id, "project_id")

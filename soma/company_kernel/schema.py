@@ -1,9 +1,11 @@
 """Ordered additive Company Kernel migrations.
 
 The component lives in the existing ``runs/soma.sqlite3`` database beside
-ProjectScope, canonical Tasks and durable Runs. It creates only company-domain
-facts and immutable relationship constraints. No incumbent row is rewritten,
-backfilled, inferred, or deleted.
+ProjectScope, canonical Tasks, durable Runs and subordinate reasoning evidence.
+It creates only company-domain facts and immutable relationship constraints.
+Migrations preserve exact incumbent facts; v4 deterministically translates the
+historical durable-Run-only acceptance binding into the provider-neutral Task
+backend binding accepted by the Agent/Worker architecture.
 """
 
 from __future__ import annotations
@@ -458,10 +460,88 @@ _MIGRATION_0003: Final[tuple[str, ...]] = (
     """,
 )
 
+_MIGRATION_0004: Final[tuple[str, ...]] = (
+    "DROP TRIGGER acceptance_commits_no_update",
+    "DROP TRIGGER acceptance_commits_no_delete",
+    "ALTER TABLE acceptance_commits RENAME TO acceptance_commits_v3",
+    """
+    CREATE TABLE acceptance_commits (
+        acceptance_commit_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        mission_id TEXT NOT NULL,
+        work_package_id TEXT NOT NULL,
+        outcome_id TEXT NOT NULL UNIQUE,
+        attempt_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        backend_kind TEXT NOT NULL CHECK(backend_kind IN (
+            'soma_durable_run', 'soma_reasoning'
+        )),
+        backend_ref TEXT NOT NULL CHECK(length(backend_ref) > 0),
+        run_id TEXT,
+        result_published_hash TEXT NOT NULL
+            CHECK(length(result_published_hash) = 64),
+        public_result_source_sha256 TEXT NOT NULL
+            CHECK(length(public_result_source_sha256) = 64),
+        acceptance_authority_ref TEXT NOT NULL,
+        acceptance_basis_ref TEXT NOT NULL,
+        acceptance_basis_hash TEXT NOT NULL DEFAULT ''
+            CHECK(length(acceptance_basis_hash) IN (0, 64)),
+        controller_request_id TEXT NOT NULL UNIQUE,
+        request_hash TEXT NOT NULL CHECK(length(request_hash) = 64),
+        accepted_at TEXT NOT NULL,
+        CHECK(
+            (backend_kind = 'soma_durable_run' AND run_id = backend_ref)
+            OR (backend_kind = 'soma_reasoning' AND run_id IS NULL)
+        ),
+        FOREIGN KEY(mission_id, company_id)
+            REFERENCES missions(mission_id, company_id),
+        FOREIGN KEY(
+            work_package_id, mission_id, outcome_id, acceptance_authority_ref
+        ) REFERENCES work_packages(
+            work_package_id, mission_id, outcome_id, acceptance_authority_ref
+        ),
+        FOREIGN KEY(attempt_id, work_package_id, outcome_id, task_id)
+            REFERENCES work_package_attempts(
+                attempt_id, work_package_id, outcome_id, task_id
+            ),
+        FOREIGN KEY(task_id) REFERENCES tasks(task_id),
+        FOREIGN KEY(run_id) REFERENCES runs(run_id)
+    )
+    """,
+    """
+    INSERT INTO acceptance_commits(
+        acceptance_commit_id, company_id, mission_id, work_package_id,
+        outcome_id, attempt_id, task_id, backend_kind, backend_ref, run_id,
+        result_published_hash, public_result_source_sha256,
+        acceptance_authority_ref, acceptance_basis_ref, acceptance_basis_hash,
+        controller_request_id, request_hash, accepted_at
+    )
+    SELECT
+        acceptance_commit_id, company_id, mission_id, work_package_id,
+        outcome_id, attempt_id, task_id, 'soma_durable_run', run_id, run_id,
+        result_published_hash, public_result_source_sha256,
+        acceptance_authority_ref, acceptance_basis_ref, acceptance_basis_hash,
+        controller_request_id, request_hash, accepted_at
+    FROM acceptance_commits_v3
+    """,
+    "DROP TABLE acceptance_commits_v3",
+    """
+    CREATE TRIGGER acceptance_commits_no_update
+    BEFORE UPDATE ON acceptance_commits
+    BEGIN SELECT RAISE(ABORT, 'acceptance commits are immutable'); END
+    """,
+    """
+    CREATE TRIGGER acceptance_commits_no_delete
+    BEFORE DELETE ON acceptance_commits
+    BEGIN SELECT RAISE(ABORT, 'acceptance commits are immutable'); END
+    """,
+)
+
 COMPANY_KERNEL_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "company_kernel_foundation", _MIGRATION_0001),
     (2, "company_kernel_plan_graph", _MIGRATION_0002),
     (3, "company_kernel_dependency_proofs", _MIGRATION_0003),
+    (4, "company_kernel_provider_neutral_acceptance", _MIGRATION_0004),
 )
 
 COMPANY_KERNEL_TABLE_NAMES: Final[tuple[str, ...]] = (

@@ -228,7 +228,7 @@ def _environment(tmp_path: Path, *, fake_case: str = "success"):
     )
     scope.set_scoped_writes_enabled(True)
     kernel = CompanyKernelStore(config.resolve_runs_dir())
-    assert kernel.init_db() == [1, 2, 3]
+    assert kernel.init_db() == [1, 2, 3, 4]
     _insert_kernel_graph(kernel)
     reasoning_store = ReasoningBackendStore(config.resolve_runs_dir())
     fake = FakeReasoningBackend(reasoning_store, case=fake_case)

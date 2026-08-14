@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 COMPANY_KERNEL_SCHEMA_COMPONENT: Final[str] = "company_kernel"
-COMPANY_KERNEL_SCHEMA_VERSION: Final[int] = 3
+COMPANY_KERNEL_SCHEMA_VERSION: Final[int] = 4
 COMPANY_KERNEL_MODEL_VERSION: Final[str] = "company_kernel.v1"
 
 COMPANY_ID_DOMAIN: Final[str] = "soma.company_kernel.company.v1"
@@ -426,12 +426,17 @@ class AcceptanceCommit(_FrozenKernelRecord):
     outcome_id: str
     attempt_id: str
     task_id: str = Field(min_length=1, max_length=128)
-    run_id: str = Field(min_length=1, max_length=128)
+    backend_kind: Literal["soma_durable_run", "soma_reasoning"]
+    backend_ref: str = Field(min_length=1, max_length=256)
+    # Durable-run acceptances preserve the historical Run identity. A reasoning
+    # Task has no canonical Run row; its backend reference remains subordinate
+    # execution evidence beneath the canonical Task.
+    run_id: str | None = Field(default=None, max_length=128)
     result_published_hash: str
     public_result_source_sha256: str
     acceptance_authority_ref: str = Field(min_length=1, max_length=128)
     acceptance_basis_ref: str = Field(min_length=1, max_length=2048)
-    acceptance_basis_hash: str = ""
+    acceptance_basis_hash: str
     controller_request_id: str = Field(min_length=1, max_length=128)
     request_hash: str
     accepted_at: str = Field(min_length=1, max_length=128)
@@ -444,11 +449,21 @@ class AcceptanceCommit(_FrozenKernelRecord):
         validate_kernel_id(self.work_package_id, "work_package_id")
         validate_kernel_id(self.outcome_id, "outcome_id")
         validate_kernel_id(self.attempt_id, "attempt_id")
+        validate_opaque(self.backend_ref, "backend_ref", max_length=256)
+        if self.backend_kind == "soma_durable_run":
+            if self.run_id != self.backend_ref:
+                raise ValueError("durable-run acceptance requires run_id == backend_ref")
+        elif self.run_id is not None:
+            raise ValueError("reasoning acceptance must not fabricate a canonical run_id")
         validate_sha256(self.result_published_hash, "result_published_hash")
         validate_sha256(
             self.public_result_source_sha256,
             "public_result_source_sha256",
         )
+        # Historical v1-v3 rows permitted an empty basis hash. The new
+        # OutcomeAcceptance request model requires a real SHA-256 for every new
+        # commit, while the durable record model remains able to reconstruct
+        # immutable legacy history after the provider-neutral migration.
         validate_sha256(
             self.acceptance_basis_hash,
             "acceptance_basis_hash",

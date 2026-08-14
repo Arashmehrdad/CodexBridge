@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
-from soma.company_kernel.models import AcceptanceCommit
+from soma.company_kernel.models import AcceptanceCommit, canonical_json
 from soma.company_kernel.store import CompanyKernelStore
 from soma.company_kernel.dependencies import (
     DependencyEdgeContextV1,
@@ -71,6 +72,8 @@ def _acceptance(**overrides) -> AcceptanceCommit:
         "outcome_id": UPSTREAM_OUTCOME_ID,
         "attempt_id": ATTEMPT_ID,
         "task_id": "task_acceptance_fixture",
+        "backend_kind": "soma_durable_run",
+        "backend_ref": "run_acceptance_fixture",
         "run_id": "run_acceptance_fixture",
         "result_published_hash": _hash("b"),
         "public_result_source_sha256": _hash("c"),
@@ -95,6 +98,37 @@ def test_accepted_outcome_binds_exact_acceptance_record() -> None:
     assert proof.satisfaction.kind == "accepted_outcome"
     assert proof.satisfaction.acceptance_commit_id == ACCEPTANCE_ID
     assert len(proof.satisfaction.acceptance_commit_hash) == 64
+
+    acceptance = _acceptance()
+    legacy_payload = {
+        key: value
+        for key, value in acceptance.model_dump(mode="json").items()
+        if key not in {"backend_kind", "backend_ref"}
+    }
+    expected_legacy_hash = sha256(
+        (
+            "soma.company_kernel.acceptance_commit.v1\0"
+            + canonical_json(legacy_payload)
+        ).encode("utf-8")
+    ).hexdigest()
+    assert proof.satisfaction.acceptance_commit_hash == expected_legacy_hash
+
+    reasoning = _acceptance(
+        task_id="task_reasoning_fixture",
+        backend_kind="soma_reasoning",
+        backend_ref="reasoning_fixture",
+        run_id=None,
+    )
+    reasoning_proof = evaluate_accepted_outcome(
+        _context("accepted_outcome"), reasoning, observed_at=NOW
+    )
+    expected_reasoning_hash = sha256(
+        (
+            "soma.company_kernel.acceptance_commit.v2\0"
+            + canonical_json(reasoning.model_dump(mode="json"))
+        ).encode("utf-8")
+    ).hexdigest()
+    assert reasoning_proof.satisfaction.acceptance_commit_hash == expected_reasoning_hash
 
     with pytest.raises(DependencyProofEvaluationError, match="exact upstream"):
         evaluate_accepted_outcome(
@@ -242,7 +276,7 @@ def test_settled_requires_terminal_or_explicit_containment() -> None:
 
 def _store_with_edge(tmp_path: Path) -> CompanyKernelStore:
     store = CompanyKernelStore(tmp_path / "runs")
-    assert store.init_db() == [1, 2, 3]
+    assert store.init_db() == [1, 2, 3, 4]
     conn = store.connect()
     try:
         conn.execute("PRAGMA foreign_keys = OFF")

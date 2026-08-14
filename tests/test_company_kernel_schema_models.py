@@ -254,7 +254,7 @@ def test_constructor_is_inert_and_absent_schema_is_honest(tmp_path: Path) -> Non
 
 def test_fresh_migration_is_complete_idempotent_and_inactive(tmp_path: Path) -> None:
     store = CompanyKernelStore(tmp_path / "runs")
-    assert store.init_db() == [1, 2, 3]
+    assert store.init_db() == [1, 2, 3, 4]
     assert store.init_db() == []
     state = store.schema_state()
     assert state["schema_version"] == COMPANY_KERNEL_SCHEMA_VERSION
@@ -330,7 +330,7 @@ def test_migration_preserves_incumbent_rows_and_does_no_legacy_backfill(
             for table in ("projects", "project_resources", "workflows", "supervisors")
         }
     store = CompanyKernelStore(runs_dir)
-    assert store.init_db() == [1, 2, 3]
+    assert store.init_db() == [1, 2, 3, 4]
     with store.connect() as conn:
         after = {
             table: (
@@ -665,6 +665,8 @@ def test_attempt_and_acceptance_relationships_and_one_winner_are_enforced(
             OUTCOME_ID,
             ATTEMPT_ID,
             task_id,
+            BackendKind.SOMA_DURABLE_RUN.value,
+            run_id,
             run_id,
             "a" * 64,
             "b" * 64,
@@ -677,19 +679,19 @@ def test_attempt_and_acceptance_relationships_and_one_winner_are_enforced(
         )
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (*acceptance_values[:6], other_task_id, *acceptance_values[7:]),
             )
         conn.execute(
-            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             acceptance_values,
         )
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "accept_" + "e" * 24,
-                    *acceptance_values[1:13],
+                    *acceptance_values[1:15],
                     "second-acceptance-request",
                     "e" * 64,
                     NOW,
@@ -708,7 +710,7 @@ def test_immutable_facts_reject_update_delete_but_mission_cas_fields_are_open(
         _insert_company_mission_plan_package(conn)
         _insert_attempt(conn, task_id=task_id)
         conn.execute(
-            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ACCEPTANCE_ID,
                 COMPANY_ID,
@@ -717,6 +719,8 @@ def test_immutable_facts_reject_update_delete_but_mission_cas_fields_are_open(
                 OUTCOME_ID,
                 ATTEMPT_ID,
                 task_id,
+                BackendKind.SOMA_DURABLE_RUN.value,
+                run_id,
                 run_id,
                 "a" * 64,
                 "b" * 64,
@@ -902,6 +906,8 @@ def test_models_are_strict_frozen_canonical_and_hash_checked() -> None:
         outcome_id=package.outcome_id,
         attempt_id=ATTEMPT_ID,
         task_id="task_20260802T220000Z_abcdefabcdef",
+        backend_kind="soma_durable_run",
+        backend_ref="20260802T220000Z_fixture_abcdef12",
         run_id="20260802T220000Z_fixture_abcdef12",
         result_published_hash="d" * 64,
         public_result_source_sha256="e" * 64,
@@ -1104,6 +1110,164 @@ def test_dependency_proof_schema_is_immutable_and_fails_closed_on_identity_drift
                 proof_hash="a" * 64,
                 downstream_package_id=downstream_package_id,
             )
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def _prepare_v3_acceptance_for_provider_neutral_migration(
+    tmp_path: Path,
+) -> tuple[CompanyKernelStore, str, str]:
+    runs_dir, run_store, task_store, _scope_store = _prepare_dependencies(tmp_path)
+    store = CompanyKernelStore(runs_dir)
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=COMPANY_KERNEL_MIGRATIONS[:3],
+    ) == [1, 2, 3]
+    task_id, run_id = _make_task_and_run(runs_dir, run_store, task_store)
+    with store.connect() as conn:
+        _insert_company_mission_plan_package(conn)
+        _insert_attempt(conn, task_id=task_id)
+        conn.execute(
+            "INSERT INTO acceptance_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                ACCEPTANCE_ID,
+                COMPANY_ID,
+                MISSION_ID,
+                PACKAGE_ID,
+                OUTCOME_ID,
+                ATTEMPT_ID,
+                task_id,
+                run_id,
+                "a" * 64,
+                "b" * 64,
+                EXECUTIVE,
+                "legacy owner acceptance",
+                "",
+                "legacy-acceptance-request",
+                "d" * 64,
+                NOW,
+            ),
+        )
+    return store, task_id, run_id
+
+
+def test_v3_to_v4_migration_preserves_acceptance_and_binds_durable_backend(
+    tmp_path: Path,
+) -> None:
+    store, task_id, run_id = _prepare_v3_acceptance_for_provider_neutral_migration(
+        tmp_path
+    )
+    with store.connect() as conn:
+        before = dict(
+            conn.execute(
+                "SELECT * FROM acceptance_commits WHERE acceptance_commit_id = ?",
+                (ACCEPTANCE_ID,),
+            ).fetchone()
+        )
+        task_count_before = int(conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+        run_count_before = int(conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+
+    assert apply_company_kernel_migrations(
+        store.connect,
+        migrations=(COMPANY_KERNEL_MIGRATIONS[3],),
+    ) == [4]
+
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM acceptance_commits WHERE acceptance_commit_id = ?",
+            (ACCEPTANCE_ID,),
+        ).fetchone()
+        assert row is not None
+        migrated = dict(row)
+        assert migrated["task_id"] == task_id == before["task_id"]
+        assert migrated["backend_kind"] == "soma_durable_run"
+        assert migrated["backend_ref"] == run_id
+        assert migrated["run_id"] == run_id == before["run_id"]
+        assert migrated["result_published_hash"] == before["result_published_hash"]
+        assert (
+            migrated["public_result_source_sha256"]
+            == before["public_result_source_sha256"]
+        )
+        assert migrated["acceptance_authority_ref"] == before["acceptance_authority_ref"]
+        assert migrated["acceptance_basis_ref"] == before["acceptance_basis_ref"]
+        # V1-v3 permitted this historical field to be empty; v4 preserves the
+        # immutable fact instead of inventing a hash during migration.
+        assert migrated["acceptance_basis_hash"] == before["acceptance_basis_hash"] == ""
+        assert migrated["controller_request_id"] == before["controller_request_id"]
+        assert migrated["request_hash"] == before["request_hash"]
+        assert migrated["accepted_at"] == before["accepted_at"]
+        reconstructed = AcceptanceCommit.model_validate(migrated)
+        assert reconstructed.backend_kind == "soma_durable_run"
+        assert reconstructed.backend_ref == run_id
+        assert reconstructed.run_id == run_id
+        assert reconstructed.acceptance_basis_hash == ""
+        assert int(conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]) == task_count_before
+        assert int(conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == run_count_before
+        assert (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'acceptance_commits_v3'"
+            ).fetchone()
+            is None
+        )
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_failed_v4_migration_restores_exact_v3_acceptance_schema_and_row(
+    tmp_path: Path,
+) -> None:
+    store, _task_id, run_id = _prepare_v3_acceptance_for_provider_neutral_migration(
+        tmp_path
+    )
+    with store.connect() as conn:
+        before = dict(
+            conn.execute(
+                "SELECT * FROM acceptance_commits WHERE acceptance_commit_id = ?",
+                (ACCEPTANCE_ID,),
+            ).fetchone()
+        )
+    version, name, statements = COMPANY_KERNEL_MIGRATIONS[3]
+    broken = ((version, name, (*statements, "SELECT * FROM missing_v4_table")),)
+
+    with pytest.raises(sqlite3.OperationalError):
+        apply_company_kernel_migrations(store.connect, migrations=broken)
+
+    with store.connect() as conn:
+        columns = {
+            str(row[1]) for row in conn.execute("PRAGMA table_info(acceptance_commits)").fetchall()
+        }
+        after = dict(
+            conn.execute(
+                "SELECT * FROM acceptance_commits WHERE acceptance_commit_id = ?",
+                (ACCEPTANCE_ID,),
+            ).fetchone()
+        )
+        marker = conn.execute(
+            "SELECT 1 FROM soma_schema_migrations "
+            "WHERE component = 'company_kernel' AND version = 4"
+        ).fetchone()
+        v3_shadow = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'acceptance_commits_v3'"
+        ).fetchone()
+        triggers = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                "AND name LIKE 'acceptance_commits_%'"
+            ).fetchall()
+        }
+        assert "backend_kind" not in columns
+        assert "backend_ref" not in columns
+        assert after == before
+        assert after["run_id"] == run_id
+        assert marker is None
+        assert v3_shadow is None
+        assert {
+            "acceptance_commits_no_update",
+            "acceptance_commits_no_delete",
+        } <= triggers
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 

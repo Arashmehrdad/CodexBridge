@@ -53,7 +53,7 @@ def _runtime_config(tmp_path: Path, *, enabled: bool = True) -> tuple[AppConfig,
 def _prepared(tmp_path: Path):
     config, repo = _runtime_config(tmp_path)
     store = CompanyKernelStore(config.resolve_runs_dir())
-    assert store.init_db() == [1, 2, 3]
+    assert store.init_db() == [1, 2, 3, 4]
     scope = ProjectScopeStore(config.resolve_runs_dir())
     scope.apply_bootstrap(
         project_id=PROJECT_ID,

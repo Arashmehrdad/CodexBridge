@@ -190,7 +190,7 @@ def _prepare_db(tmp_path: Path) -> tuple[Path, CompanyKernelStore]:
     scope.set_scoped_writes_enabled(True)
 
     kernel = CompanyKernelStore(runs)
-    assert kernel.init_db() == [1, 2, 3]
+    assert kernel.init_db() == [1, 2, 3, 4]
     with kernel.connect() as conn:
         conn.execute(
             "INSERT INTO companies(company_id, company_key, display_name, executive_authority_ref, "
