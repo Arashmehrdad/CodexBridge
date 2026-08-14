@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane and the future durable organisation around intelligent agents. Reliability hardening and V3-1A are closed. The Agent/Worker core architecture is accepted with production reasoning/provider activation still disabled. The active roadmap package is `V3-1B-BOOTSTRAP-PLAN-AUTHORITY-1`: finish the missing trusted Company/Mission root and internal current-plan/package authority by reusing the accepted Company Kernel and Agent/Worker mechanics. Later V3 outcomes remain inactive until their own bounded gate.
+Soma is a local engineering control plane and the future durable organisation around intelligent agents. Reliability hardening and V3-1A are closed. The Agent/Worker core architecture and trusted V3-1B Company/Mission bootstrap + PlanRevision authority are accepted with production reasoning/provider activation still disabled. The active roadmap package is `V3-1B-OUTCOME-ACCEPTANCE-1`: add exact named-authority AcceptanceCommit creation from canonical ProjectScope/Task/Run publication evidence. Later V3 outcomes remain inactive until their own bounded gate.
 
 Target operating model:
 - ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
@@ -33,9 +33,9 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: V3-1B Bootstrap and Plan Authority
+## Immediate Priority: V3-1B Exact Outcome Acceptance
 
-`PLANS.md` is the sole concise source of active plan truth. The active package is [`docs/V3_1B_BOOTSTRAP_PLAN_AUTHORITY_1_GATE_2026-08-14.md`](docs/V3_1B_BOOTSTRAP_PLAN_AUTHORITY_1_GATE_2026-08-14.md). Reuse the accepted Company Kernel graph/admission services and canonical ProjectScope/Task/Run authorities. Do not duplicate the Agent/Worker core, create a second lifecycle, or skip ahead to OutcomeAcceptance/public gateways/V3-2.
+`PLANS.md` is the sole concise source of active plan truth. The active package is [`docs/V3_1B_OUTCOME_ACCEPTANCE_1_GATE_2026-08-14.md`](docs/V3_1B_OUTCOME_ACCEPTANCE_1_GATE_2026-08-14.md). Reuse the accepted Company Kernel, ProjectScope, Task, Run and result-publication authorities. Acceptance is an explicit named-authority act: never infer it from process success, Task completion, publication, evidence confidence, or model judgment. Do not skip ahead to reconcile/public gateways/V3-2.
 
 The preserved `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1` package is parked until RELIABILITY-1 closes. Repository editing now supports corrected handoff states, anchored line ranges, hash-bound whole-file replacement, explicit manual commit mode, exact pending-file reporting, and commit metadata for creation and reversal paths. Markdown section intelligence, typed operation unions, scratch branches, and broader editing ergonomics remain future work unless a reproduced reliability defect makes one necessary.
 

@@ -1,7 +1,7 @@
 # V3-1B-BOOTSTRAP-PLAN-AUTHORITY-1 — Trusted Kernel Root and Plan/Package Authority Gate
 
 **Date:** 2026-08-14  
-**Status:** ACTIVE  
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-1B Kernel of One  
 **Depends on:** accepted V3-1B schema/models and accepted Agent/Worker core  
 **Provider activation:** forbidden  
