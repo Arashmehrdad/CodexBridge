@@ -1,8 +1,9 @@
 # V3-2-WORKER-GATEWAY-TRANSPORT-1 — Isolated Worker MCP Source Gate
 
 **Date:** 2026-08-14
-**Status:** ACTIVE
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-2 — Role-scoped capability broker
+**Parent status:** ACTIVE — live worker-gateway activation has not occurred
 **Depends on:** accepted `V3-2-AUTHORITY-FOUNDATION-1` at `54bd9c92168a15cc863a55a668063099137895ad` / `33dbcf6b2d5c3df443a8af082a44bfe52925272e`
 **Live worker listener:** forbidden
 **Live worker-authority migration:** forbidden
@@ -120,8 +121,38 @@ The source package cannot close without tests proving at least:
 - owner public tool count/schema hash and public discovery tests remain unchanged;
 - accepted worker-authority, ProjectScope, Task, WorkerSubstrate and G4 tests remain green.
 
-## 8. Exit / next gate
+## 8. Acceptance evidence
 
-Close only after the isolated worker MCP source boundary is proven and committed while remaining unmounted/inactive.
+The isolated worker MCP source boundary is **ACCEPTED / CLOSED** at implementation commit:
 
-Then open a separate **V3-2 controlled worker gateway activation gate** for explicit live schema migration, isolated endpoint/listener binding, disposable principal/grant issuance, authenticated network proof, revocation proof, owner-surface isolation proof and rollback evidence. No real provider execution is required for that activation proof.
+- `fd60ef48fa129ff1f280893e552be42741d81321` — `Implement V3-2 isolated worker gateway transport`.
+
+Accepted source behavior:
+
+- separate FastMCP worker application factory; it does not import, register into, mount, start, or mutate `soma.server.mcp`;
+- exactly two static worker transport tools: `worker_capabilities` and `worker_invoke`;
+- transport authentication occurs before usable worker tool execution and resolves only the durable worker principal identity into request context;
+- capability discovery is grant-shaped, principal-specific, revalidates current ProjectScope/Task/Run/session/cancellation/expiry/revocation state, suppresses grants without reviewed handlers, and is bounded in count and parameter-contract size;
+- invocation derives authority from the authenticated principal plus durable grant and re-authorizes every call rather than accepting caller-supplied role/mandate/intent/operation claims;
+- `WorkerOperationDispatchRegistry` is a positive allowlist with no fallback by Python import, shell command, public gateway name, or arbitrary tool name;
+- current owner/executive gateway names are explicitly forbidden as worker dispatch operation names;
+- protected-mutation handlers are excluded from this source package; future protected effects must continue through the accepted G4 boundary;
+- handler cancellation propagates rather than being converted into an ordinary worker failure;
+- worker parameter payloads, discovery projection size, and handler results are bounded;
+- secret-shaped result keys are redacted, binary/unsupported values are projected without arbitrary object stringification, and worker-facing failures remain bounded;
+- app construction remains inert: no worker-authority live migration, socket binding, service start, runtime configuration mutation, provider execution, deployment, or push occurs.
+
+Final validation on the accepted source:
+
+- Ruff run `20260814T192602Z_executable_profile_2106be56`: `All checks passed!`;
+- focused worker transport run `20260814T192602Z_executable_profile_f2695dd7`: `17 passed`;
+- focused integration run `20260814T192637Z_executable_profile_812c6ef8`: `398 passed, 26 skipped`, exit code `0`;
+- definitive full repository run `20260814T192807Z_executable_profile_609c8bb6`: `3203 passed, 35 skipped, 1 xfailed, 0 failed`, pytest duration `931.95s`, durable run duration `933.676s`, exit code `0`.
+
+The accepted owner/executive public surface remained unchanged at 34 tools with public schema hash `00afcf876e27fbc549c1510dd2e946e56c5531f55e13db6595c24a3feacf82a9`. The six protected canonical-memory / patch-auto-repair documents remained excluded from the package and untouched.
+
+## 9. Exit / next gate
+
+`V3-2-WORKER-GATEWAY-TRANSPORT-1` is **ACCEPTED / CLOSED**. Overall V3-2 remains **ACTIVE** because no worker-facing transport has been live-activated.
+
+Next: open a separate **V3-2 controlled worker gateway activation gate**. That gate must treat live worker-authority schema installation and listener exposure as explicit activation steps, preserve the existing owner/executive 34-tool surface, use disposable authority for proof, verify revocation and rollback, and must not grant new external access implicitly. No real provider execution is required for the activation proof.
