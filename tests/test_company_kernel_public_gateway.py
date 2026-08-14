@@ -228,6 +228,28 @@ def test_capabilities_are_honest_while_runtime_is_disabled(tmp_path: Path) -> No
     assert result["automatic_outcome_acceptance"] is False
 
 
+def test_capabilities_report_live_activation_only_after_schema_install(tmp_path: Path) -> None:
+    config, _repo = _config(tmp_path, enabled=True)
+    before = company_query_gateway(
+        config,
+        QUERY_ADAPTER.validate_python({"operation": "capabilities"}),
+    )
+    assert before["runtime_enabled"] is True
+    assert before["schema"]["up_to_date"] is False
+    assert before["live_activation_gate_complete"] is False
+
+    store = CompanyKernelStore(config.resolve_runs_dir())
+    assert store.init_db() == [1, 2, 3, 4]
+    after = company_query_gateway(
+        config,
+        QUERY_ADAPTER.validate_python({"operation": "capabilities"}),
+    )
+    assert after["runtime_enabled"] is True
+    assert after["schema"]["up_to_date"] is True
+    assert after["live_activation_gate_complete"] is True
+    assert after["reasoning_attempt_route_enabled"] is False
+
+
 def test_non_capability_query_refuses_before_live_activation(tmp_path: Path) -> None:
     config, _repo = _config(tmp_path, enabled=False)
     request = QUERY_ADAPTER.validate_python(

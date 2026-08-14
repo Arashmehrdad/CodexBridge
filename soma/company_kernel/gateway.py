@@ -291,6 +291,12 @@ def _compact_work_package(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _capabilities(config: AppConfig) -> dict[str, Any]:
     store = CompanyKernelStore(config.resolve_runs_dir())
+    schema = store.schema_state()
+    live_activation_ready = bool(
+        config.company_kernel.enabled
+        and config.company_kernel.executive_authority_ref
+        and schema.get("up_to_date")
+    )
     return {
         "ok": True,
         "operation": "capabilities",
@@ -306,8 +312,8 @@ def _capabilities(config: AppConfig) -> dict[str, Any]:
         ),
         "scheduled_reconciliation": False,
         "automatic_outcome_acceptance": False,
-        "live_activation_gate_complete": False,
-        "schema": store.schema_state(),
+        "live_activation_gate_complete": live_activation_ready,
+        "schema": schema,
         "authority": {
             "company_root": "company_kernel_bootstrap",
             "plan_and_packages": "accept_plan_graph",
