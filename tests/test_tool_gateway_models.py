@@ -47,6 +47,7 @@ from soma.gateway_models import (
     WorkflowQueryRequest,
 )
 import soma.server as server
+from soma.ssh_tools import SSH_ACTIONS
 
 
 def _assert_compact_envelope(result: dict) -> None:
@@ -2244,8 +2245,14 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     )
     administration_schema = SSHAdministrationAction.model_json_schema()["properties"]
     assert "Canonical structured route" in administration_schema["action"]["description"]
-    assert "service_start" in administration_schema["ssh_action"]["description"]
-    assert "instead of shelling out to systemctl" in administration_schema["ssh_action"]["description"]
+    assert administration_schema["ssh_action"]["enum"] == list(SSH_ACTIONS)
+    assert "service_binary_promote" in administration_schema["ssh_action"]["enum"]
+    assert "hash-pinned binary replacement" in administration_schema["ssh_action"]["description"]
+    assert "staged binary" in administration_schema["source"]["description"]
+    assert "live binary" in administration_schema["destination"]["description"]
+    assert "rollback copy" in administration_schema["path"]["description"]
+    assert "expected_new_sha256" in administration_schema["args"]["description"]
+    assert "ssh_query capabilities" in administration_schema["confirmation"]["description"]
     transfer = TypeAdapter(SSHActionRequest).validate_python(
         {
             "action": "transfer",
@@ -2273,6 +2280,43 @@ def test_ssh_execution_policy_gateway_defaults_and_strictness() -> None:
     assert transfer.execution_mode == "structured"
     assert deployment.autonomy_profile == "permissive"
     assert deployment.execution_mode == "structured"
+
+
+def test_service_binary_promote_gateway_contract_is_complete_before_dispatch() -> None:
+    adapter = TypeAdapter(SSHActionRequest)
+    payload = {
+        "action": "administration",
+        "host_id": "dev",
+        "ssh_action": "service_binary_promote",
+        "target": "api.service",
+        "source": "/srv/staged.bin",
+        "destination": "/usr/local/bin/api",
+        "path": "/usr/local/bin/api.rollback",
+        "args": ["a" * 64, "b" * 64],
+        "confirmation": "CONFIRM_SSH_HIGH_RISK",
+    }
+    request = adapter.validate_python(payload)
+    assert request.ssh_action == "service_binary_promote"
+    for field in ("target", "source", "destination", "path"):
+        broken = dict(payload)
+        broken[field] = ""
+        with pytest.raises(ValidationError, match="service_binary_promote requires"):
+            adapter.validate_python(broken)
+    broken_args = dict(payload)
+    broken_args["args"] = ["a" * 64]
+    with pytest.raises(ValidationError, match="expected_new_sha256"):
+        adapter.validate_python(broken_args)
+    invalid_action = dict(payload)
+    invalid_action["ssh_action"] = "invented_shell_escape"
+    with pytest.raises(ValidationError):
+        adapter.validate_python(invalid_action)
+
+
+def test_shell_fallback_schema_points_back_to_structured_administration() -> None:
+    schema = TypeAdapter(SSHActionRequest).json_schema()
+    encoded = json.dumps(schema, sort_keys=True)
+    assert "structured administration cannot express the intent" in encoded
+    assert "use structured administration for supported remote mutations" in encoded
 
 
 @pytest.mark.parametrize(

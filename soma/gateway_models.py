@@ -1788,7 +1788,7 @@ class SSHStructuredExecutionGatewayRequest(SSHExecutionPolicyGatewayRequest):
 
 
 class SSHReviewedScriptAction(SSHExecutionPolicyGatewayRequest):
-    """Hash-pinned request contract for the reviewed-script launch scaffold."""
+    """Hash-pinned script fallback only when structured administration cannot express the intent."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -1885,7 +1885,7 @@ def validate_reviewed_ssh_script_request(
 
 
 class SSHRootShellAction(SSHExecutionPolicyGatewayRequest):
-    """Hash-pinned unrestricted shell request available only to permissive mode."""
+    """Last-resort unrestricted shell; use structured administration for supported remote mutations."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -2078,6 +2078,37 @@ class SSHCommandAction(SSHStructuredExecutionGatewayRequest):
     command_id: str = Field(min_length=1, max_length=128)
 
 
+SSHAdministrationOperation = Literal[
+    "exec_profile",
+    "service_start",
+    "service_stop",
+    "service_restart",
+    "service_reload",
+    "service_enable",
+    "service_disable",
+    "docker_compose_pull",
+    "docker_compose_build",
+    "docker_compose_up",
+    "docker_compose_down",
+    "docker_compose_restart",
+    "git_fetch",
+    "git_pull_ff",
+    "create_directory",
+    "copy_path",
+    "service_binary_promote",
+    "move_path",
+    "remove_file",
+    "remove_directory",
+    "package_update",
+    "package_upgrade",
+    "package_install",
+    "package_remove",
+    "reboot",
+    "shutdown",
+    "run_argv",
+]
+
+
 class SSHAdministrationAction(SSHStructuredExecutionGatewayRequest):
     action: Literal["administration"] = Field(
         description=(
@@ -2086,26 +2117,75 @@ class SSHAdministrationAction(SSHStructuredExecutionGatewayRequest):
         )
     )
     host_id: str = Field(min_length=1, max_length=128)
-    ssh_action: str = Field(
-        min_length=1,
-        max_length=128,
+    ssh_action: SSHAdministrationOperation = Field(
         description=(
-            "Supported structured action name from ssh_query capabilities. For systemd "
-            "operations use service_start, service_stop, service_restart, service_reload, "
-            "service_enable, or service_disable instead of shelling out to systemctl."
-        ),
+            "Canonical structured SSH operation. Use service_* for systemd state and "
+            "service_binary_promote for a hash-pinned binary replacement with rollback."
+        )
     )
-    target: str = Field(default="", max_length=512)
-    source: str = Field(default="", max_length=1024)
-    destination: str = Field(default="", max_length=1024)
-    path: str = Field(default="", max_length=1024)
+    target: str = Field(
+        default="",
+        max_length=512,
+        description="Systemd service name for service_* and service_binary_promote.",
+    )
+    source: str = Field(
+        default="",
+        max_length=1024,
+        description="Source path; for service_binary_promote this is the staged binary.",
+    )
+    destination: str = Field(
+        default="",
+        max_length=1024,
+        description="Destination path; for service_binary_promote this is the live binary.",
+    )
+    path: str = Field(
+        default="",
+        max_length=1024,
+        description="Primary path; for service_binary_promote this is the rollback copy.",
+    )
     deployment_id: str = Field(default="", max_length=128)
     command_id: str = Field(default="", max_length=128)
     packages: list[str] = Field(default_factory=list, max_length=100)
     executable: str = Field(default="", max_length=256)
-    args: list[str] = Field(default_factory=list, max_length=100)
+    args: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "Operation arguments; service_binary_promote requires exactly "
+            "[expected_new_sha256, expected_current_sha256]."
+        ),
+    )
     force: bool = False
-    confirmation: str = Field(default="", max_length=128)
+    confirmation: str = Field(
+        default="",
+        max_length=128,
+        description=(
+            "High-risk confirmation token published by ssh_query capabilities when required."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_administration_contract(self) -> "SSHAdministrationAction":
+        if self.ssh_action == "service_binary_promote":
+            missing = [
+                name
+                for name, value in (
+                    ("target", self.target),
+                    ("source", self.source),
+                    ("destination", self.destination),
+                    ("path", self.path),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    "service_binary_promote requires " + ", ".join(missing)
+                )
+            if len(self.args) != 2:
+                raise ValueError(
+                    "service_binary_promote requires args=[expected_new_sha256, expected_current_sha256]"
+                )
+        return self
 
 
 class SSHTransferAction(SSHStructuredExecutionGatewayRequest):
