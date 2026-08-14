@@ -1,9 +1,10 @@
 # V3-1B-PROJECTION-RECONCILE-1 — Derived State and One-Shot Reconciliation Gate
 
 **Date:** 2026-08-14
-**Status:** ACTIVE
+**Status:** ACCEPTED / CLOSED
 **Parent:** V3-1B Kernel of One
 **Depends on:** accepted bootstrap/plan authority, Agent/Worker core, accepted provider-neutral OutcomeAcceptance
+**Result:** `docs/V3_1B_PROJECTION_RECONCILE_1_RESULT_2026-08-14.md`
 **Provider activation:** forbidden
 **Public Company gateways:** forbidden
 **Push:** forbidden
@@ -128,4 +129,4 @@ Required proof:
 
 ## 8. Exit
 
-Close only when projection reconstruction and the two receipt-only reconciliation paths are proven deterministic, bounded, fail-closed and mutation-free outside the receipt itself. Then advance to strict owner/executive `company_query` / `company_action` gateways. Live Company Kernel activation remains a separate later gate.
+**Accepted.** Projection reconstruction and the two receipt-only reconciliation paths are proven deterministic, bounded, fail-closed and mutation-free outside the receipt itself. The roadmap advances to `V3-1B-PUBLIC-COMPANY-GATEWAYS-1`; live Company Kernel activation remains a separate later gate.
