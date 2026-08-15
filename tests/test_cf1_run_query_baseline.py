@@ -20,7 +20,7 @@ def test_cf1_current_run_queries_record_column_and_plan_baseline(tmp_path: Path)
     with store.connect() as conn:
         inspections = inspect_current_run_queries(conn)
 
-    assert CF1_RUN_QUERY_BASELINE_VERSION == "cf1.0.run-query.v1"
+    assert CF1_RUN_QUERY_BASELINE_VERSION == "cf1.0.run-query.v2"
     assert tuple(item.name for item in inspections) == tuple(
         spec.name for spec in CURRENT_RUN_QUERY_SPECS
     )
@@ -55,10 +55,15 @@ def test_cf1_query_plan_baseline_captures_current_index_behavior(tmp_path: Path)
     status_plan = " | ".join(inspections["run_status"].query_plan)
     latest_plan = " | ".join(inspections["latest_run"].query_plan)
 
-    assert "idx_runs_created_at" in unfiltered_plan
+    # F1 retained the original created_at index but the accepted stable-order
+    # composite is now the planner's current choice for newest-first scans.
+    assert "idx_runs_created_run_id_desc" in unfiltered_plan
     assert "sqlite_autoindex_runs_1" in status_plan
-    assert "idx_runs_created_at" in filtered_plan or "idx_runs_repo_status" in filtered_plan
-    assert "idx_runs_created_at" in latest_plan
+    assert (
+        "idx_runs_created_run_id_desc" in filtered_plan
+        or "idx_runs_repo_status" in filtered_plan
+    )
+    assert "idx_runs_created_run_id_desc" in latest_plan
 
 
 def test_cf1_query_specs_remain_measurement_only_and_match_public_paths() -> None:

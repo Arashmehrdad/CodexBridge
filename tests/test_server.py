@@ -1577,10 +1577,33 @@ def test_compact_repo_status_honors_response_budget(monkeypatch) -> None:
         "inspect_status_compact",
         lambda _root: {
             "ok": True,
-            "status": "clean",
+            "status": "available",
             "fresh": True,
             "source": "live_git",
-            "changed_files": [f"src/{i:04d}-" + ("x" * 120) for i in range(40)],
+            "complete_status_scan": True,
+            "total_status_entry_count": 40,
+            "returned_entry_count": 40,
+            "collapsed_tool_owned_count": 0,
+            "sampled_tool_owned_count": 0,
+            "unsampled_tool_owned_count": 0,
+            "files": [
+                {
+                    "path": f"src/{i:04d}-" + ("x" * 120),
+                    "size_bytes": 1,
+                    "line_count": 1,
+                    "tool_owned": False,
+                    "index_status": "M",
+                    "worktree_status": " ",
+                }
+                for i in range(40)
+            ],
+            "tool_owned_summary": {
+                "total_bytes": 0,
+                "root_group_counts": {},
+                "sample": [],
+                "truncated": False,
+            },
+            "fallback_tool": "inspect_repo_status",
             "recent_commits": ["commit-" + ("y" * 120) for _ in range(20)],
             "diff_stat": "stat " + ("z" * 2000),
             "recommended_action": "retry " + ("a" * 1000),

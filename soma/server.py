@@ -1763,8 +1763,15 @@ def inspect_repo_status_compact(
     result["has_more"] = False
     result["response_budget_bytes"] = response_budget_bytes
     while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > response_budget_bytes:
-        if result["changed_files"]:
-            result["changed_files"].pop()
+        # The compact Git status contract uses structured `files`; retain
+        # compatibility with the older `changed_files` list while callers
+        # migrate, but never require that legacy field to exist.
+        files = result.get("files")
+        changed_files = result.get("changed_files")
+        if isinstance(files, list) and files:
+            files.pop()
+        elif isinstance(changed_files, list) and changed_files:
+            changed_files.pop()
         elif result["recent_commits"]:
             result["recent_commits"].pop()
         elif result["diff_stat"]:

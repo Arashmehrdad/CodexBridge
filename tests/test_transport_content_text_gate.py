@@ -76,6 +76,22 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
         "state_version": 1, "backend_reference": "r1", "created": True,
         "response_budget_bytes": _BUDGET, "response_bytes": 1,
     },
+    "continuation_query": {
+        "ok": True, "operation": "status", "continuation_id": "cont_1",
+        "lifecycle": "open", "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
+    "continuation_action": {
+        "ok": True, "operation": "checkpoint", "continuation_id": "cont_1",
+        "handoff_id": "handoff_1", "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
+    "skill_query": {
+        "ok": True, "operation": "list", "skills": [],
+        "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
+    "skill_action": {
+        "ok": True, "operation": "enable", "skill_name": "soma-engineering",
+        "state_version": 2, "response_budget_bytes": _BUDGET, "response_bytes": 1,
+    },
     "company_query": {
         "ok": True, "operation": "capabilities", "runtime_enabled": False,
         "automatic_outcome_acceptance": False,

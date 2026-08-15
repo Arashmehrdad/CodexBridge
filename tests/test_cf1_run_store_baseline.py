@@ -32,7 +32,7 @@ def test_cf1_run_store_baseline_partitions_every_persisted_run_column(tmp_path: 
     actual = _table_columns(store)
     classified = set(RUN_SCALAR_SUMMARY_COLUMNS) | set(RUN_JSON_BLOB_COLUMNS) | set(RUN_INTERNAL_ONLY_COLUMNS)
 
-    assert CF1_RUN_STORE_BASELINE_VERSION == "cf1.2.run-store.v3"
+    assert CF1_RUN_STORE_BASELINE_VERSION == "cf1.2.run-store.v4"
     assert classified == actual
     assert not (set(RUN_SCALAR_SUMMARY_COLUMNS) & set(RUN_JSON_BLOB_COLUMNS))
     assert not (set(RUN_SCALAR_SUMMARY_COLUMNS) & set(RUN_INTERNAL_ONLY_COLUMNS))
@@ -63,8 +63,10 @@ def test_cf1_index_inventory_records_measured_index_decisions(tmp_path: Path) ->
     assert actual["idx_runs_created_at"] == ("created_at",)
     assert actual["idx_runs_created_run_id_desc"] == ("created_at", "run_id")
     assert actual["idx_runs_repo_status"] == ("repo_name", "status")
+    assert actual["idx_runs_logical_request"] == ("logical_run_request_id",)
     assert proposals["idx_runs_created_at"].status == "existing"
     assert proposals["idx_runs_repo_status"].status == "existing"
+    assert proposals["idx_runs_logical_request"].status == "existing"
     assert proposals["idx_runs_created_run_id_desc"].status == "measurement_accepted"
     assert (
         proposals["idx_runs_repo_status_created_run_id_desc"].status

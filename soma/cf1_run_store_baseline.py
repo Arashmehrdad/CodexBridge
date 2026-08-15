@@ -4,10 +4,15 @@ from dataclasses import dataclass
 from typing import Final
 
 
-CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.2.run-store.v3"
+CF1_RUN_STORE_BASELINE_VERSION: Final[str] = "cf1.2.run-store.v4"
 
 RUN_SCALAR_SUMMARY_COLUMNS: Final[tuple[str, ...]] = (
     "run_id",
+    # F1 durable single-Run replay identity is bounded mechanical metadata.
+    # It is safe to classify with scalar summary fields; request_hash contains
+    # only the normalized request digest, never the request payload itself.
+    "logical_run_request_id",
+    "request_hash",
     "repo_name",
     "tool",
     "status",
@@ -83,6 +88,15 @@ RUN_STORE_INDEX_PROPOSALS: Final[tuple[RunStoreIndexProposal, ...]] = (
         columns=("repo_name", "status"),
         status="existing",
         rationale="supports current repository and status filtering",
+    ),
+    RunStoreIndexProposal(
+        name="idx_runs_logical_request",
+        columns=("logical_run_request_id",),
+        status="existing",
+        rationale=(
+            "F1 partial unique replay index: one non-empty logical Run request "
+            "identity can own exactly one durable Run"
+        ),
     ),
     RunStoreIndexProposal(
         name="idx_runs_created_run_id_desc",

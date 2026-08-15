@@ -10,7 +10,7 @@ from soma.cf1_run_store_baseline import (
 )
 
 
-CF1_RUN_QUERY_BASELINE_VERSION: Final[str] = "cf1.0.run-query.v1"
+CF1_RUN_QUERY_BASELINE_VERSION: Final[str] = "cf1.0.run-query.v2"
 
 
 @dataclass(frozen=True)
