@@ -2426,7 +2426,9 @@ def test_g1_3_persisted_candidate_diagnostic_remains_bounded(tmp_path: Path) -> 
     )
     evidence = manifest["operations"][0]["candidate_validation"]
 
-    assert preview["ok"] is True
+    assert preview["ok"] is False
+    assert preview["applicable"] is False
+    assert preview["resolution_required"] is True
     assert evidence["candidate_disposition"] == "invalid"
     assert evidence["regression_detected"] is True
     assert len(evidence["diagnostic"]["message"]) <= MAX_CANDIDATE_DIAGNOSTIC_MESSAGE_CHARS

@@ -1419,6 +1419,11 @@ def preview_repo_patch(
     selected_repair_payload: bytes | None = None
     if len(proposal_candidates) == 1:
         selected_proposal, selected_repair_payload = proposal_candidates[0]
+    resolution_required = not errors and any(
+        bool((op.get("candidate_validation") or {}).get("regression_detected"))
+        for op in validated
+    )
+    status_override = "preview_resolution_required" if resolution_required else ""
 
     _write_preview_bundle(
         repo_root,
@@ -1433,10 +1438,17 @@ def preview_repo_patch(
         commit_description=bound_commit_description,
         repair_proposal=selected_proposal,
         repair_payload_bytes=selected_repair_payload,
+        status_override=status_override,
     )
 
     return {
-        "ok": not bool(errors),
+        "ok": not bool(errors) and not resolution_required,
+        "applicable": not bool(errors) and not resolution_required,
+        "resolution_required": resolution_required,
+        "repair_available": selected_proposal is not None,
+        "repair_proposal_id": (
+            str(selected_proposal.get("proposal_id", "")) if selected_proposal else ""
+        ),
         "patch_id": patch_id,
         "repo_name": "",
         "diff": combined_diff,
@@ -1641,14 +1653,17 @@ def apply_repo_patch(
     manifest_path = patch_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    if manifest.get("status") == "applied":
+    status = manifest.get("status")
+    if status == "applied":
         return _idempotent_apply_result(manifest, patch_id)
-    if manifest.get("status") == "reverted":
+    if status == "reverted":
         raise ValueError(f"Patch {patch_id} has been reverted")
-    if manifest.get("status") == "preview_failed":
-        raise ValueError(
-            f"Patch {patch_id} preview had validation errors; cannot apply"
-        )
+    if status != "preview_ok":
+        if status == "preview_failed":
+            raise ValueError(
+                f"Patch {patch_id} preview had validation errors; cannot apply"
+            )
+        raise ValueError(f"Patch {patch_id} is not applicable (status: {status})")
 
     # Recheck git HEAD
     current_head = _git_head(repo_root)
@@ -1798,10 +1813,12 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
         return _idempotent_apply_result(manifest, patch_id)
     if status == "reverted":
         raise ValueError(f"Patch {patch_id} has been reverted")
-    if status == "preview_failed":
-        raise ValueError(
-            f"Patch {patch_id} preview had validation errors; cannot apply"
-        )
+    if status != "preview_ok":
+        if status == "preview_failed":
+            raise ValueError(
+                f"Patch {patch_id} preview had validation errors; cannot apply"
+            )
+        raise ValueError(f"Patch {patch_id} is not applicable (status: {status})")
     if manifest.get("bundle_version") not in {2, 3, 4}:
         raise ValueError(f"Patch {patch_id} does not include an opaque preview bundle")
 
