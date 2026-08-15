@@ -33,13 +33,15 @@ from soma.repo_patch_repair import (
         ("ast_python", "python_ast"),
     ],
 )
-def test_direct_repair_aliases_collapse_to_three_public_primitives(alias: str, expected: str) -> None:
+def test_direct_repair_aliases_collapse_to_three_public_primitives(
+    alias: str, expected: str
+) -> None:
     assert canonical_direct_repair_primitive(alias) == expected
 
 
 def test_single_direct_edit_owns_only_certainly_changed_candidate_bytes() -> None:
     baseline = b"prefix old suffix\n"
-    candidate = b"prefix new}],\"view\":\"full suffix\n"
+    candidate = b'prefix new}],"view":"full suffix\n'
 
     evidence = derive_authored_span_provenance(
         baseline_bytes=baseline,
@@ -56,7 +58,7 @@ def test_single_direct_edit_owns_only_certainly_changed_candidate_bytes() -> Non
     assert evidence.candidate_start_byte is not None
     assert evidence.candidate_end_byte is not None
     span = candidate[evidence.candidate_start_byte : evidence.candidate_end_byte]
-    assert span == b"new}],\"view\":\"full"
+    assert span == b'new}],"view":"full'
     assert evidence.candidate_span_sha256 == hashlib.sha256(span).hexdigest()
 
 
@@ -90,8 +92,8 @@ def test_unsupported_primitive_cannot_claim_authored_bytes() -> None:
 
 
 def test_preexisting_suspicious_bytes_are_outside_owned_changed_span() -> None:
-    baseline = b"fixture = '}],\"view\":\"full'\nvalue = 1\n"
-    candidate = b"fixture = '}],\"view\":\"full'\nvalue = 2\n"
+    baseline = b'fixture = \'}],"view":"full\'\nvalue = 1\n'
+    candidate = b'fixture = \'}],"view":"full\'\nvalue = 2\n'
     evidence = derive_authored_span_provenance(
         baseline_bytes=baseline,
         candidate_bytes=candidate,
@@ -102,7 +104,7 @@ def test_preexisting_suspicious_bytes_are_outside_owned_changed_span() -> None:
 
     assert evidence.disposition == "owned"
     assert evidence.candidate_start_byte is not None
-    assert evidence.candidate_start_byte > candidate.index(b'}],\"view\"')
+    assert evidence.candidate_start_byte > candidate.index(b'}],"view"')
 
 
 def test_no_changed_span_never_claims_ownership() -> None:
@@ -199,10 +201,13 @@ def test_preexisting_signature_outside_owned_span_is_not_detected() -> None:
         operation_count=1,
     )
 
-    assert detect_transport_leak_candidates(
-        candidate_bytes=candidate,
-        provenance=provenance,
-    ) == ()
+    assert (
+        detect_transport_leak_candidates(
+            candidate_bytes=candidate,
+            provenance=provenance,
+        )
+        == ()
+    )
 
 
 def test_ambiguous_multi_operation_provenance_disables_detection() -> None:
@@ -216,17 +221,17 @@ def test_ambiguous_multi_operation_provenance_disables_detection() -> None:
     )
 
     assert provenance.disposition == "ambiguous_composition"
-    assert detect_transport_leak_candidates(
-        candidate_bytes=candidate,
-        provenance=provenance,
-    ) == ()
+    assert (
+        detect_transport_leak_candidates(
+            candidate_bytes=candidate,
+            provenance=provenance,
+        )
+        == ()
+    )
 
 
 def test_multiple_reviewed_signatures_remain_multiple_candidates() -> None:
-    candidate = (
-        b'first = 1}],"view":"full '
-        b'}],"commit_title":"second\n'
-    )
+    candidate = b'first = 1}],"view":"full }],"commit_title":"second\n'
     hits = detect_transport_leak_candidates(
         candidate_bytes=candidate,
         provenance=_owned(candidate),
@@ -242,7 +247,9 @@ def test_multiple_reviewed_signatures_remain_multiple_candidates() -> None:
 LEAK = b'}],"view":"full'
 
 
-def _deletion_for_injected_leak(repaired: bytes, cut: int) -> tuple[bytes, TransportLeakCandidateV1]:
+def _deletion_for_injected_leak(
+    repaired: bytes, cut: int
+) -> tuple[bytes, TransportLeakCandidateV1]:
     candidate = repaired[:cut] + LEAK + repaired[cut:]
     deletion = TransportLeakCandidateV1(
         rule_id=TRAILING_VIEW_RULE_ID,
@@ -269,7 +276,7 @@ def _prove_injected(repaired: bytes, cut: int):
 
 def test_incident_b_passes_logical_newline_gate() -> None:
     baseline = (
-        b'def check(conn):\n'
+        b"def check(conn):\n"
         b'    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"\n'
         b'    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []\n'
     )
@@ -301,17 +308,22 @@ def test_incident_b_passes_logical_newline_gate() -> None:
 
 def test_incident_a_adjacent_string_trap_fails_on_nl() -> None:
     intended = (
-        b'__all__ = [\n'
+        b"__all__ = [\n"
         b'    "SettledSatisfactionV1",\n'
         b'    "WorkPackage",\n'
         b'    "WorkPackageAttempt",\n'
         b'    "canonical_hash",\n'
-        b']\n'
+        b"]\n"
     )
     bad_prefix = b'    "WorkPackage"'
     start = intended.index(b'    "WorkPackage",')
     after_entry = start + len(bad_prefix)
-    candidate = intended[:start] + bad_prefix + b'}],"commit_title":"G1.2 additive Company Kernel graph schema v2' + intended[after_entry + 1 :]
+    candidate = (
+        intended[:start]
+        + bad_prefix
+        + b'}],"commit_title":"G1.2 additive Company Kernel graph schema v2'
+        + intended[after_entry + 1 :]
+    )
     provenance = derive_authored_span_provenance(
         baseline_bytes=intended,
         candidate_bytes=candidate,
@@ -340,18 +352,22 @@ def test_incident_a_adjacent_string_trap_fails_on_nl() -> None:
     ("repaired", "cut_marker", "expected_reason"),
     [
         (b'value = func(\n    "x"\n)\n', b'"x"', "next_token_not_logical_newline"),
-        (b'values = [\n    1\n]\n', b'1\n', "next_token_not_logical_newline"),
-        (b'values = {\n    "a": 1\n}\n', b'1\n', "next_token_not_logical_newline"),
-        (b'values = (\n    1\n)\n', b'1\n', "next_token_not_logical_newline"),
-        (b'values = {\n    1\n}\n', b'1\n', "next_token_not_logical_newline"),
-        (b'values = [x\n    for x in range(3)\n]\n', b'x\n', "next_token_not_logical_newline"),
-        (b'value = 1 + 2\n', b'1', "next_token_not_logical_newline"),
-        (b'value = obj.attr\n', b'obj', "next_token_not_logical_newline"),
-        (b'value = obj[0]\n', b'obj', "next_token_not_logical_newline"),
-        (b'value = 1 \\\n    + 2\n', b'1 ', "non_horizontal_bytes_after_cut"),
-        (b'value = 1  # comment\n', b'1', "next_token_not_logical_newline"),
-        (b'value = 1; other = 2\n', b'1', "next_token_not_logical_newline"),
-        (b'value = f"hello {name}"\n', b'hello ', "next_token_not_logical_newline"),
+        (b"values = [\n    1\n]\n", b"1\n", "next_token_not_logical_newline"),
+        (b'values = {\n    "a": 1\n}\n', b"1\n", "next_token_not_logical_newline"),
+        (b"values = (\n    1\n)\n", b"1\n", "next_token_not_logical_newline"),
+        (b"values = {\n    1\n}\n", b"1\n", "next_token_not_logical_newline"),
+        (
+            b"values = [x\n    for x in range(3)\n]\n",
+            b"x\n",
+            "next_token_not_logical_newline",
+        ),
+        (b"value = 1 + 2\n", b"1", "next_token_not_logical_newline"),
+        (b"value = obj.attr\n", b"obj", "next_token_not_logical_newline"),
+        (b"value = obj[0]\n", b"obj", "next_token_not_logical_newline"),
+        (b"value = 1 \\\n    + 2\n", b"1 ", "non_horizontal_bytes_after_cut"),
+        (b"value = 1  # comment\n", b"1", "next_token_not_logical_newline"),
+        (b"value = 1; other = 2\n", b"1", "next_token_not_logical_newline"),
+        (b'value = f"hello {name}"\n', b"hello ", "next_token_not_logical_newline"),
     ],
 )
 def test_structural_hazards_are_rejected(
@@ -375,7 +391,9 @@ def test_structural_hazards_are_rejected(
     ],
 )
 def test_complete_logical_line_variants_pass(repaired: bytes) -> None:
-    newline_positions = [pos for pos in (repaired.find(b"\r"), repaired.find(b"\n")) if pos >= 0]
+    newline_positions = [
+        pos for pos in (repaired.find(b"\r"), repaired.find(b"\n")) if pos >= 0
+    ]
     cut = min(newline_positions) if newline_positions else len(repaired)
     if cut and repaired[:cut].endswith(b"   "):
         cut -= 3
@@ -454,11 +472,15 @@ def test_incident_b_builds_one_deterministic_repair_proposal() -> None:
     assert first.logical_line_gate.passed is True
     assert first.python_validation_before.candidate_disposition == "invalid"
     assert first.python_validation_after.candidate_disposition == "valid"
-    assert first.repaired_payload_descriptor.sha256 == hashlib.sha256(baseline).hexdigest()
+    assert (
+        first.repaired_payload_descriptor.sha256 == hashlib.sha256(baseline).hexdigest()
+    )
     assert first.repaired_payload_descriptor.size_bytes == len(baseline)
 
 
-def test_incident_a_does_not_build_repair_proposal_even_when_deletion_compiles() -> None:
+def test_incident_a_does_not_build_repair_proposal_even_when_deletion_compiles() -> (
+    None
+):
     baseline = b'items = [\n    "WorkPackage",\n    "Next",\n]\n'
     start = baseline.index(b'    "WorkPackage",')
     bad_prefix = b'    "WorkPackage"'

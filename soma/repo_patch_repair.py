@@ -59,7 +59,9 @@ class AuthoredSpanProvenanceV1(_FrozenRepairModel):
             if self.candidate_start_byte is None or self.candidate_end_byte is None:
                 raise ValueError("owned provenance requires a candidate byte span")
             if self.candidate_end_byte <= self.candidate_start_byte:
-                raise ValueError("owned provenance requires a non-empty candidate byte span")
+                raise ValueError(
+                    "owned provenance requires a non-empty candidate byte span"
+                )
             if self.candidate_span_sha256 is None:
                 raise ValueError("owned provenance requires a candidate span hash")
         elif any(
@@ -70,14 +72,18 @@ class AuthoredSpanProvenanceV1(_FrozenRepairModel):
                 self.candidate_span_sha256,
             )
         ):
-            raise ValueError("non-owned provenance must not claim a candidate byte span")
+            raise ValueError(
+                "non-owned provenance must not claim a candidate byte span"
+            )
         return self
 
 
 class TransportLeakCandidateV1(_FrozenRepairModel):
     """One exact deletion candidate produced by a versioned transport rule."""
 
-    schema_version: Literal[TRANSPORT_LEAK_SCHEMA_VERSION] = TRANSPORT_LEAK_SCHEMA_VERSION
+    schema_version: Literal[TRANSPORT_LEAK_SCHEMA_VERSION] = (
+        TRANSPORT_LEAK_SCHEMA_VERSION
+    )
     rule_id: Literal[
         "repo_preview.patch.trailing_commit_title.v1",
         "repo_preview.patch.trailing_view.v1",
@@ -123,7 +129,9 @@ class PythonValidationSummaryV1(_FrozenRepairModel):
 
 
 class RepairPayloadDescriptorV1(_FrozenRepairModel):
-    file: str = Field(min_length=1, max_length=128, pattern=r"^repair_payload_[a-f0-9]{16}\.bin$")
+    file: str = Field(
+        min_length=1, max_length=128, pattern=r"^repair_payload_[a-f0-9]{16}\.bin$"
+    )
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size_bytes: int = Field(ge=0)
 
@@ -157,7 +165,9 @@ class PatchRepairProposalV1(_FrozenRepairModel):
     created_at: str = Field(min_length=1, max_length=128)
 
 
-def canonical_direct_repair_primitive(operation_type: str) -> DirectRepairPrimitive | None:
+def canonical_direct_repair_primitive(
+    operation_type: str,
+) -> DirectRepairPrimitive | None:
     """Collapse internal aliases without exposing them as repair policy names."""
 
     normalized = operation_type.strip()
@@ -170,7 +180,9 @@ def canonical_direct_repair_primitive(operation_type: str) -> DirectRepairPrimit
     return None
 
 
-def _changed_candidate_span(baseline: bytes, candidate: bytes) -> tuple[int, int] | None:
+def _changed_candidate_span(
+    baseline: bytes, candidate: bytes
+) -> tuple[int, int] | None:
     """Return the minimal byte interval certainly introduced by one edit.
 
     The interval is deliberately narrower than an authored replacement when the
@@ -309,7 +321,9 @@ def detect_transport_leak_candidates(
                 )
             search_at = match + len(marker)
 
-    return tuple(sorted(results, key=lambda item: (item.deletion_start_byte, item.rule_id)))
+    return tuple(
+        sorted(results, key=lambda item: (item.deletion_start_byte, item.rule_id))
+    )
 
 
 def apply_transport_deletion(

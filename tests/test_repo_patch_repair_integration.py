@@ -25,7 +25,9 @@ def _write(path: Path, data: bytes) -> None:
 
 def _manifest(runs: Path, patch_id: str) -> tuple[Path, dict]:
     patch_dir = runs / "managed_patches" / patch_id
-    return patch_dir, json.loads((patch_dir / "manifest.json").read_text(encoding="utf-8"))
+    return patch_dir, json.loads(
+        (patch_dir / "manifest.json").read_text(encoding="utf-8")
+    )
 
 
 def _incident_b(repo: Path, runs: Path) -> tuple[Path, bytes, bytes, list[dict], dict]:
@@ -112,7 +114,9 @@ def test_g2_5_incident_a_requires_resolution_without_proposal(tmp_path: Path) ->
     assert preview["resolution_required"] is True
     assert preview["repair_available"] is False
     assert manifest["status"] == "preview_resolution_required"
-    assert manifest["operations"][0]["candidate_validation"]["regression_detected"] is True
+    assert (
+        manifest["operations"][0]["candidate_validation"]["regression_detected"] is True
+    )
     assert manifest["repair_proposal"] is None
     assert list(patch_dir.glob("repair_payload_*.bin")) == []
     assert target.read_bytes() == baseline
@@ -125,7 +129,7 @@ def test_g2_5_multiple_file_proposals_are_not_guessed(tmp_path: Path) -> None:
     operations = []
     for name in ("one.py", "two.py"):
         target = repo / name
-        baseline = f'{name.replace(".py", "")} = 1\n'.encode()
+        baseline = f"{name.replace('.py', '')} = 1\n".encode()
         cut = baseline.index(b"\n")
         candidate = baseline[:cut] + b'}],"view":"full' + baseline[cut:]
         _write(target, baseline)
@@ -311,7 +315,9 @@ def test_g2_5_unknown_future_status_is_not_freshly_applicable(tmp_path: Path) ->
     )
     patch_dir, manifest = _manifest(runs, preview["patch_id"])
     manifest["status"] = "future_non_applicable_state"
-    (patch_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (patch_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
     with pytest.raises(ValueError, match="not applicable.*future_non_applicable_state"):
         apply_previewed_repo_change(repo, preview["patch_id"], runs)
