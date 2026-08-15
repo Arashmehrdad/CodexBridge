@@ -107,6 +107,7 @@ def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monke
             "stdin_text": launch.stdin_text,
             "environment": {},
             "timeout_seconds": 120,
+            "logical_run_request_id": "",
             "hermes_companion": {
                 "operation": "handshake",
                 "hermes_revision": PINNED_HERMES_REVISION,

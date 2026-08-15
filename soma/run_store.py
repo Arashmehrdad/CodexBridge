@@ -40,6 +40,21 @@ NON_TERMINAL_WAITING_STATUSES: Final[frozenset[str]] = frozenset(
 # new instances can ever be created or relaunched. These identifiers are inert
 # compatibility data and do not advertise a model-agent execution capability.
 LEGACY_READ_ONLY_TOOLS = frozenset({"codex_plan_task", "codex_implement_task"})
+
+
+class RunRequestConflict(ValueError):
+    """One logical Run request identity was reused for different work."""
+
+    def __init__(self, run: dict[str, Any], submitted_hash: str) -> None:
+        super().__init__(
+            "logical_run_request_id "
+            f"{run.get('logical_run_request_id', '')!r} is already bound to run "
+            f"{run.get('run_id', '')} with a different normalized request hash"
+        )
+        self.run = run
+        self.submitted_hash = submitted_hash
+
+
 _UNSET = object()
 _CONDITIONAL_UPDATE_FIELDS = frozenset(
     {
@@ -278,6 +293,19 @@ class RunStore:
                 "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, id)"
             )
             self._ensure_column(
+                conn,
+                "runs",
+                "logical_run_request_id",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            self._ensure_column(
+                conn, "runs", "request_hash", "TEXT NOT NULL DEFAULT ''"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_logical_request "
+                "ON runs(logical_run_request_id) WHERE logical_run_request_id <> ''"
+            )
+            self._ensure_column(
                 conn, "runs", "current_phase", "TEXT NOT NULL DEFAULT ''"
             )
             self._ensure_column(
@@ -371,6 +399,174 @@ class RunStore:
     def journal_mode(self) -> str:
         with self.connect() as conn:
             return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+
+    def find_by_logical_request_in_connection(
+        self, conn: sqlite3.Connection, logical_run_request_id: str
+    ) -> dict[str, Any] | None:
+        logical_id = str(logical_run_request_id or "").strip()
+        if not logical_id:
+            return None
+        if len(logical_id) > 128:
+            raise ValueError("logical_run_request_id must be at most 128 characters")
+        row = conn.execute(
+            "SELECT * FROM runs WHERE logical_run_request_id = ?", (logical_id,)
+        ).fetchone()
+        return None if row is None else self._row_to_run(row)
+
+    def find_by_logical_request(
+        self, logical_run_request_id: str
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            return self.find_by_logical_request_in_connection(
+                conn, logical_run_request_id
+            )
+
+    def reserve_run_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        run_id: str,
+        repo_name: str,
+        tool: str,
+        run_dir: Path,
+        input_data: dict[str, Any],
+        logical_run_request_id: str = "",
+        request_hash: str = "",
+        risk_level: str = "low",
+        requires_human: bool = False,
+        status: str = "launch_pending",
+        worker_lease_token: str = "",
+    ) -> tuple[dict[str, Any], bool]:
+        """Reserve one canonical Run inside a caller-owned SQLite transaction."""
+        validate_run_id(run_id)
+        logical_id = str(logical_run_request_id or "").strip()
+        if len(logical_id) > 128:
+            raise ValueError("logical_run_request_id must be at most 128 characters")
+        normalized_hash = str(request_hash or "")
+        if logical_id:
+            if not re.fullmatch(r"[a-f0-9]{64}", normalized_hash):
+                raise ValueError(
+                    "request_hash must be a lowercase SHA-256 when logical Run identity is supplied"
+                )
+            existing = self.find_by_logical_request_in_connection(conn, logical_id)
+            if existing is not None:
+                if str(existing.get("request_hash") or "") != normalized_hash:
+                    raise RunRequestConflict(existing, normalized_hash)
+                return existing, False
+        elif normalized_hash:
+            raise ValueError(
+                "request_hash must be empty when logical_run_request_id is omitted"
+            )
+
+        created_at = utc_now()
+        try:
+            conn.execute(
+                """
+                INSERT INTO runs (
+                    run_id, repo_name, tool, status, risk_level, requires_human,
+                    created_at, run_dir, current_phase, heartbeat_at, input_json,
+                    worker_lease_token, logical_run_request_id, request_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    repo_name,
+                    tool,
+                    status,
+                    risk_level,
+                    int(requires_human),
+                    created_at,
+                    str(run_dir),
+                    status,
+                    created_at,
+                    dumps(input_data),
+                    worker_lease_token,
+                    logical_id,
+                    normalized_hash,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            if logical_id:
+                existing = self.find_by_logical_request_in_connection(conn, logical_id)
+                if existing is not None:
+                    if str(existing.get("request_hash") or "") != normalized_hash:
+                        raise RunRequestConflict(existing, normalized_hash)
+                    return existing, False
+            raise
+        return self.get_run_in_connection(conn, run_id), True
+
+    def reserve_next_unlocked_launch(
+        self,
+        *,
+        run_id: str,
+        expected_statuses: tuple[str, ...] | list[str] | set[str],
+        expected_state_version: int,
+        expected_lease_token: str,
+        expected_lease_generation: int,
+        new_lease_token: str,
+        input_data: dict[str, Any],
+    ) -> dict[str, int | str] | None:
+        """Reserve one keyed lock-free Run relaunch with a fresh durable lease."""
+        validate_run_id(run_id)
+        statuses = tuple(str(status) for status in expected_statuses)
+        if not statuses:
+            return None
+        now = utc_now()
+        new_generation = int(expected_lease_generation) + 1
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET status = 'launch_pending', current_phase = 'launch_pending',
+                    worker_lease_token = ?, lease_generation = ?,
+                    state_version = state_version + 1,
+                    launch_attempts = launch_attempts + 1,
+                    launcher_pid = NULL, worker_pid = NULL,
+                    worker_identity = '', launcher_identity = '',
+                    worker_claimed_at = NULL, pid = NULL,
+                    heartbeat_at = ?, recovery_reason = '', ended_at = NULL,
+                    input_json = ?
+                WHERE run_id = ? AND state_version = ?
+                  AND worker_lease_token = ? AND lease_generation = ?
+                  AND status IN ("""
+                + ", ".join("?" for _ in statuses)
+                + ")",
+                (
+                    new_lease_token,
+                    new_generation,
+                    now,
+                    dumps(input_data),
+                    run_id,
+                    int(expected_state_version),
+                    expected_lease_token,
+                    int(expected_lease_generation),
+                    *statuses,
+                ),
+            )
+            if int(cursor.rowcount) != 1:
+                conn.rollback()
+                return None
+            row = conn.execute(
+                "SELECT state_version, lease_generation, launch_attempts "
+                "FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "owner_token": new_lease_token,
+            "lease_generation": int(row["lease_generation"]),
+            "state_version": int(row["state_version"]),
+            "launch_attempts": int(row["launch_attempts"]),
+        }
 
     def create_run(
         self,

@@ -2299,3 +2299,355 @@ def test_completion_prevents_late_cancellation(tmp_path: Path, monkeypatch) -> N
     assert cancelled["status"] == "completed"
     assert cancelled["cancelled"] is False
     assert manager.get_result(response["run_id"])["summary"] == "winner"
+
+
+def _configure_f1_powershell(manager: JobManager, tmp_path: Path) -> str:
+    executable = tmp_path / "f1-pwsh.exe"
+    executable.write_bytes(b"f1-powershell-fixture")
+    manager.config.executable_profiles["powershell"] = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        target="local",
+        autonomy_profile="permissive",
+        working_directory_policy="arbitrary",
+        environment_policy="arbitrary",
+        stdin_mode="text",
+        stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact",
+        timeout_seconds=30,
+        cancellation_policy="process_tree",
+        unrestricted_argv=True,
+        unrestricted_paths=True,
+        unrestricted_environment=True,
+        unrestricted_network=True,
+        unrestricted_child_processes=True,
+    )
+    return str(tmp_path / "repo")
+
+
+def test_f1_keyed_local_run_replays_and_changed_effect_conflicts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    request_id = "f1-local-replay"
+    first = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output one"],
+        working_directory=working_directory, stdin_text="alpha",
+        logical_run_request_id=request_id,
+    )
+    replay = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output one"],
+        working_directory=working_directory, stdin_text="alpha",
+        logical_run_request_id=request_id,
+    )
+    changed_argv = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output two"],
+        working_directory=working_directory, stdin_text="alpha",
+        logical_run_request_id=request_id,
+    )
+    changed_stdin = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output one"],
+        working_directory=working_directory, stdin_text="beta",
+        logical_run_request_id=request_id,
+    )
+    assert first["accepted"] is True and first["replayed"] is False
+    assert replay["accepted"] is True and replay["replayed"] is True
+    assert replay["run_id"] == first["run_id"]
+    assert changed_argv["error_code"] == "logical_run_request_hash_conflict"
+    assert changed_stdin["error_code"] == "logical_run_request_hash_conflict"
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_f1_same_effect_replays_across_inline_wait_controls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from soma import server as soma_server
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    monkeypatch.setattr(soma_server, "get_job_manager", lambda: manager)
+    first = soma_server.start_local_powershell_async(
+        "sample", "powershell", ["-Command", "Write-Output one"],
+        working_directory=working_directory,
+        logical_run_request_id="f1-wait-controls",
+        return_when="accepted", wait_seconds=0,
+    )
+    replay = soma_server.start_local_powershell_async(
+        "sample", "powershell", ["-Command", "Write-Output one"],
+        working_directory=working_directory,
+        logical_run_request_id="f1-wait-controls",
+        return_when="terminal_or_timeout", wait_seconds=0,
+    )
+    assert replay["run_id"] == first["run_id"]
+    assert replay["replayed"] is True
+    assert replay["return_when"] == "terminal_or_timeout"
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_f1_concurrent_identical_keyed_local_starts_launch_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    launch_calls: list[str] = []
+    launch_lock = threading.Lock()
+    def spawn(run_id: str, _lease_token: str):
+        with launch_lock:
+            launch_calls.append(run_id)
+        return FakeProcess()
+    monkeypatch.setattr(manager, "_spawn_worker", spawn)
+    barrier = threading.Barrier(8)
+    results: list[dict] = []
+    result_lock = threading.Lock()
+    def start() -> None:
+        barrier.wait()
+        result = manager.start_executable_profile(
+            "sample", "powershell", ["-Command", "Write-Output concurrent"],
+            working_directory=working_directory,
+            logical_run_request_id="f1-concurrent-local",
+        )
+        with result_lock:
+            results.append(result)
+    threads = [threading.Thread(target=start) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 8
+    assert len({result["run_id"] for result in results}) == 1
+    assert sum(not result["replayed"] for result in results) == 1
+    assert len(launch_calls) == 1
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_f1_unrelated_busy_refusal_does_not_consume_logical_request(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    first = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output owner"],
+        working_directory=working_directory, logical_run_request_id="f1-owner",
+    )
+    blocked = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output blocked"],
+        working_directory=working_directory,
+        logical_run_request_id="f1-not-consumed",
+    )
+    assert blocked["accepted"] is False
+    assert blocked["reason"] == "repository busy"
+    assert blocked["logical_request_consumed"] is False
+    assert manager.store.find_by_logical_request("f1-not-consumed") is None
+    owner = manager.store.get_run(first["run_id"])
+    assert manager.locks.release(
+        "sample", first["run_id"], str(owner["worker_lease_token"]),
+        int(owner["lease_generation"]),
+    )
+    retry = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output blocked"],
+        working_directory=working_directory,
+        logical_run_request_id="f1-not-consumed",
+    )
+    assert retry["accepted"] is True and retry["replayed"] is False
+    assert retry["run_id"] != first["run_id"]
+
+
+def test_f1_remote_powershell_replays_one_canonical_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    request_id = "f1-remote-replay"
+    first = manager.start_remote_powershell(
+        "my_vps", "/usr/bin/pwsh",
+        ["-NoProfile", "-Command", "Write-Output one"],
+        logical_run_request_id=request_id,
+    )
+    replay = manager.start_remote_powershell(
+        "my_vps", "/usr/bin/pwsh",
+        ["-NoProfile", "-Command", "Write-Output one"],
+        logical_run_request_id=request_id,
+    )
+    conflict = manager.start_remote_powershell(
+        "my_vps", "/usr/bin/pwsh",
+        ["-NoProfile", "-Command", "Write-Output two"],
+        logical_run_request_id=request_id,
+    )
+    assert replay["run_id"] == first["run_id"] and replay["replayed"] is True
+    assert conflict["error_code"] == "logical_run_request_hash_conflict"
+    assert len(manager.store.list_runs(repo_name="ssh:my_vps")) == 1
+
+
+def test_f1_concurrent_keyed_hermes_companion_is_lock_free_and_single_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    executable = tmp_path / "f1-hermes-python.exe"
+    executable.write_bytes(b"f1-hermes-fixture")
+    manager.config.executable_profiles["hermes_python"] = ExecutableProfileConfig(
+        profile_id="hermes_python", enabled=True, executable_path=str(executable),
+        target="local", autonomy_profile="permissive",
+        working_directory_policy="arbitrary", environment_policy="arbitrary",
+        stdin_mode="text", stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact", timeout_seconds=30,
+        cancellation_policy="process_tree", unrestricted_argv=True,
+        unrestricted_paths=True, unrestricted_environment=True,
+        unrestricted_network=True, unrestricted_child_processes=True,
+    )
+    companion = {
+        "operation": "handshake",
+        "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
+        "checkout": str(tmp_path / "hermes"),
+        "expected_registry_generation": None,
+        "expected_schema_hash": "",
+        "one_request": True,
+    }
+    launch_calls: list[str] = []
+    monkeypatch.setattr(
+        manager, "_spawn_worker",
+        lambda run_id, _lease_token: (launch_calls.append(run_id), FakeProcess())[1],
+    )
+    barrier = threading.Barrier(6)
+    results: list[dict] = []
+    result_lock = threading.Lock()
+    def start() -> None:
+        barrier.wait()
+        result = manager.start_executable_profile(
+            "sample", "hermes_python", ["-m", "soma.hermes_companion"],
+            working_directory=str(tmp_path / "repo"),
+            stdin_text='{"operation":"handshake"}\n', timeout_seconds=30,
+            logical_run_request_id="f1-hermes-concurrent",
+            hermes_companion=companion,
+        )
+        with result_lock:
+            results.append(result)
+    threads = [threading.Thread(target=start) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert all(not thread.is_alive() for thread in threads)
+    assert len({result["run_id"] for result in results}) == 1
+    assert len(launch_calls) == 1
+    assert manager.locks.list_locks("sample") == []
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_f1_crash_after_db_commit_before_artifact_materialization_recovers_same_run(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+
+    def crash_before_materialization(_run: dict, _input_data: dict) -> None:
+        raise KeyboardInterrupt("synthetic hard crash after Run reservation")
+
+    monkeypatch.setattr(
+        manager,
+        "_materialize_logical_run_launch_artifacts",
+        crash_before_materialization,
+    )
+    with pytest.raises(KeyboardInterrupt, match="synthetic hard crash"):
+        manager.start_executable_profile(
+            "sample", "powershell", ["-Command", "Write-Output recover"],
+            working_directory=working_directory, stdin_text="durable input",
+            logical_run_request_id="f1-crash-recovery",
+        )
+
+    reserved = manager.store.find_by_logical_request("f1-crash-recovery")
+    assert reserved is not None and reserved["status"] == "launch_pending"
+    run_dir = Path(str(reserved["run_dir"]))
+    assert not run_dir.exists()
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+    monkeypatch.setattr(
+        manager,
+        "_materialize_logical_run_launch_artifacts",
+        JobManager._materialize_logical_run_launch_artifacts,
+    )
+    manager.reconcile_startup()
+    recovered = manager.store.get_run(reserved["run_id"])
+    assert recovered["status"] in {"queued", "running"}
+    assert recovered["lease_generation"] == 2
+    assert recovered["input"]["staging_manifest"]["lease_generation"] == 2
+    assert run_dir.joinpath("input.json").is_file()
+    assert run_dir.joinpath("inputs", "stdin.bin").read_bytes() == b"durable input"
+
+    replay = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output recover"],
+        working_directory=working_directory, stdin_text="durable input",
+        logical_run_request_id="f1-crash-recovery",
+    )
+    assert replay["run_id"] == reserved["run_id"] and replay["replayed"] is True
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_f1_lock_free_hermes_crash_recovers_without_repository_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    executable = tmp_path / "f1-hermes-recovery.exe"
+    executable.write_bytes(b"f1-hermes-recovery")
+    manager.config.executable_profiles["hermes_python"] = ExecutableProfileConfig(
+        profile_id="hermes_python", enabled=True, executable_path=str(executable),
+        target="local", autonomy_profile="permissive",
+        working_directory_policy="arbitrary", environment_policy="arbitrary",
+        stdin_mode="text", stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact", timeout_seconds=30,
+        cancellation_policy="process_tree", unrestricted_argv=True,
+        unrestricted_paths=True, unrestricted_environment=True,
+        unrestricted_network=True, unrestricted_child_processes=True,
+    )
+    companion = {
+        "operation": "handshake",
+        "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
+        "checkout": str(tmp_path / "hermes"),
+        "expected_registry_generation": None,
+        "expected_schema_hash": "",
+        "one_request": True,
+    }
+
+    def crash_before_materialization(_run: dict, _input_data: dict) -> None:
+        raise KeyboardInterrupt("synthetic lock-free hard crash")
+
+    monkeypatch.setattr(
+        manager,
+        "_materialize_logical_run_launch_artifacts",
+        crash_before_materialization,
+    )
+    with pytest.raises(KeyboardInterrupt, match="lock-free hard crash"):
+        manager.start_executable_profile(
+            "sample", "hermes_python", ["-m", "soma.hermes_companion"],
+            working_directory=str(tmp_path / "repo"),
+            stdin_text='{"operation":"handshake"}\n', timeout_seconds=30,
+            logical_run_request_id="f1-hermes-recovery",
+            hermes_companion=companion,
+        )
+
+    reserved = manager.store.find_by_logical_request("f1-hermes-recovery")
+    assert reserved is not None and reserved["status"] == "launch_pending"
+    assert reserved["input"]["repository_lock_required"] is False
+    assert manager.locks.list_locks("sample") == []
+
+    monkeypatch.setattr(
+        manager,
+        "_materialize_logical_run_launch_artifacts",
+        JobManager._materialize_logical_run_launch_artifacts,
+    )
+    manager.reconcile_startup()
+    recovered = manager.store.get_run(reserved["run_id"])
+    assert recovered["status"] in {"queued", "running"}
+    assert recovered["lease_generation"] == 2
+    assert recovered["input"]["staging_manifest"]["lease_generation"] == 2
+    assert manager.locks.list_locks("sample") == []
+
+    replay = manager.start_executable_profile(
+        "sample", "hermes_python", ["-m", "soma.hermes_companion"],
+        working_directory=str(tmp_path / "repo"),
+        stdin_text='{"operation":"handshake"}\n', timeout_seconds=30,
+        logical_run_request_id="f1-hermes-recovery",
+        hermes_companion=companion,
+    )
+    assert replay["run_id"] == reserved["run_id"] and replay["replayed"] is True
+    assert len(manager.store.list_runs(repo_name="sample")) == 1

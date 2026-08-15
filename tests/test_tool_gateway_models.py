@@ -1882,6 +1882,7 @@ def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None
             "environment": {"VALUE": "a=b c"},
             "stdin_bytes": b"\x00\xff",
             "timeout_seconds": None,
+            "logical_run_request_id": "",
         }
     ]
 
@@ -2125,6 +2126,8 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
         {"operation": "powershell_group", "repo_name": "repo", "children": []},
         {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": [], "stdin_text": "x", "stdin_base64": "eA=="}]},
         {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "repository_lock_policy": "exclusive"},
+        {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "logical_run_request_id": "not-supported"},
+        {"operation": "hermes_service", "session_id": "session", "service_operation": "tool_search", "payload": {}, "expected_registry_generation": 1, "expected_schema_hash": "a" * 64, "logical_run_request_id": "not-supported"},
     )
     for payload in invalid:
         with pytest.raises(ValidationError):

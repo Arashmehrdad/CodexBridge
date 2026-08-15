@@ -1275,6 +1275,7 @@ class ParallelPowerShellStart(GatewayModel):
 class LocalPowerShellStart(GatewayModel):
     operation: Literal["powershell"]
     repo_name: str = Field(min_length=1, max_length=128)
+    logical_run_request_id: str = Field(default="", max_length=128)
     profile_id: str = Field(default="powershell", min_length=1, max_length=128)
     argv: list[str] = Field(default_factory=list, max_length=10_000)
     working_directory: str = Field(default="", max_length=32_768)
@@ -1295,6 +1296,7 @@ class LocalPowerShellStart(GatewayModel):
 class HermesCompanionStart(GatewayModel):
     operation: Literal["hermes_companion"]
     repo_name: str = Field(min_length=1, max_length=128)
+    logical_run_request_id: str = Field(default="", max_length=128)
     profile_id: str = Field(default="", max_length=128)
     checkout: str = Field(min_length=1, max_length=32_768)
     hermes_home: str = Field(default="", max_length=32_768)
@@ -1320,6 +1322,7 @@ class HermesServiceStart(GatewayModel):
 class RemotePowerShellStart(GatewayModel):
     operation: Literal["remote_powershell"]
     host_id: str = Field(min_length=1, max_length=128)
+    logical_run_request_id: str = Field(default="", max_length=128)
     executable_path: str = Field(min_length=1, max_length=32_768)
     argv: list[str] = Field(default_factory=list, max_length=10_000)
     working_directory: str = Field(default="", max_length=32_768)

@@ -119,7 +119,13 @@ def build_companion_launch(
     )
 
 
-def start_companion_request(manager: Any, repo_name: str, launch: HermesCompanionLaunch) -> dict:
+def start_companion_request(
+    manager: Any,
+    repo_name: str,
+    launch: HermesCompanionLaunch,
+    *,
+    logical_run_request_id: str = "",
+) -> dict:
     companion_metadata = {
         "operation": launch.operation,
         "hermes_revision": PINNED_HERMES_REVISION,
@@ -136,6 +142,7 @@ def start_companion_request(manager: Any, repo_name: str, launch: HermesCompanio
         stdin_text=launch.stdin_text,
         environment=dict(launch.environment),
         timeout_seconds=launch.timeout_seconds,
+        logical_run_request_id=logical_run_request_id,
         hermes_companion=companion_metadata,
     )
     result = dict(response)

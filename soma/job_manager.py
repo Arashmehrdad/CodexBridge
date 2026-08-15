@@ -78,6 +78,7 @@ from .run_store import (
     LEGACY_READ_ONLY_TOOLS,
     RUN_SUMMARY_MAX_LIMIT,
     TERMINAL_STATUSES,
+    RunRequestConflict,
     RunStore,
     validate_run_id,
 )
@@ -1002,19 +1003,52 @@ class JobManager:
                 return
             if int(run.get("launch_attempts") or 0) < 2:
                 new_lease_token = uuid4().hex
-                reservation = self.locks.reserve_next_launch(
-                    repo_name=run["repo_name"],
-                    run_id=run_id,
-                    expected_statuses=(status,),
-                    expected_state_version=state_version,
-                    expected_owner_token=lease_token,
-                    expected_lease_generation=lease_generation,
-                    new_owner_token=new_lease_token,
-                    owner_pid=os.getpid(),
+                logical_id = str(run.get("logical_run_request_id") or "")
+                refreshed_input = (
+                    self._rebuild_logical_run_input_for_lease(
+                        run, lease_generation + 1
+                    )
+                    if logical_id
+                    else None
                 )
+                repository_lock_required = bool(
+                    (run.get("input") or {}).get("repository_lock_required", True)
+                )
+                if logical_id and not repository_lock_required:
+                    assert refreshed_input is not None
+                    reservation = self.store.reserve_next_unlocked_launch(
+                        run_id=run_id,
+                        expected_statuses=(status,),
+                        expected_state_version=state_version,
+                        expected_lease_token=str(
+                            run.get("worker_lease_token") or ""
+                        ),
+                        expected_lease_generation=lease_generation,
+                        new_lease_token=new_lease_token,
+                        input_data=refreshed_input,
+                    )
+                else:
+                    reservation = self.locks.reserve_next_launch(
+                        repo_name=run["repo_name"],
+                        run_id=run_id,
+                        expected_statuses=(status,),
+                        expected_state_version=state_version,
+                        expected_owner_token=str(
+                            run.get("worker_lease_token") or ""
+                        ),
+                        expected_lease_generation=lease_generation,
+                        new_owner_token=new_lease_token,
+                        owner_pid=os.getpid(),
+                        input_data=refreshed_input,
+                    )
                 if reservation is None:
                     return
                 try:
+                    if refreshed_input is not None:
+                        refreshed_run = self.store.get_run(run_id)
+                        self._materialize_logical_run_launch_artifacts(
+                            refreshed_run, refreshed_input
+                        )
                     process = self._spawn_worker(run_id, new_lease_token)
                     launcher_identity = capture_launch_identity(process)
                     launched = self.store.record_worker_launch(
@@ -1026,12 +1060,13 @@ class JobManager:
                         expected_lease_generation=int(reservation["lease_generation"]),
                         increment_attempt=False,
                     )
-                    self.locks.heartbeat(
-                        run["repo_name"],
-                        run_id,
-                        new_lease_token,
-                        int(reservation["lease_generation"]),
-                    )
+                    if repository_lock_required:
+                        self.locks.heartbeat(
+                            run["repo_name"],
+                            run_id,
+                            new_lease_token,
+                            int(reservation["lease_generation"]),
+                        )
                     current = launched or self.store.get_run(run_id)
                     if not (
                         str(current.get("worker_lease_token") or "") == new_lease_token
@@ -1153,6 +1188,7 @@ class JobManager:
         stdin_bytes: bytes | None = None,
         timeout_seconds: int | None = None,
         reserved_run_id: str | None = None,
+        logical_run_request_id: str = "",
         hermes_companion: dict | None = None,
     ) -> dict:
         resolve_repo(self.config, repo_name)
@@ -1190,6 +1226,7 @@ class JobManager:
             input_data,
             decision,
             reserved_run_id=reserved_run_id,
+            logical_run_request_id=logical_run_request_id,
         )
         response.setdefault("repo_name", repo_name)
         response["profile_id"] = profile_id
@@ -1708,6 +1745,7 @@ class JobManager:
         environment: dict[str, str] | None = None,
         stdin_bytes: bytes | None = None,
         timeout_seconds: int | None = None,
+        logical_run_request_id: str = "",
     ) -> dict:
         request = build_remote_powershell_request(
             host_id=host_id,
@@ -1734,6 +1772,7 @@ class JobManager:
             f"ssh:{host_id}",
             {"remote_powershell_request": request},
             decision,
+            logical_run_request_id=logical_run_request_id,
         )
         response["host_id"] = host_id
         response["request_fingerprint"] = request["request_fingerprint"]
@@ -2239,6 +2278,417 @@ class JobManager:
         response["high_risk"] = spec.high_risk
         return response
 
+    @staticmethod
+    def _logical_run_request_hash(
+        tool: str, repo_name: str, input_data: dict[str, Any]
+    ) -> str:
+        """Hash only effect-defining normalized inputs, never response controls."""
+        effect_input = dict(input_data)
+        effect_input.pop("requested_repo_name", None)
+        payload = {
+            "tool": str(tool),
+            "repo_name": str(repo_name),
+            "input": effect_input,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _logical_run_replay_response(
+        run: dict[str, Any],
+        decision: PolicyDecision,
+        *,
+        repo_name: str,
+        requested_repo_name: str,
+        logical_run_request_id: str,
+        request_hash: str,
+    ) -> dict:
+        response = decision.to_start_response(
+            run_id=str(run["run_id"]), status=str(run["status"])
+        )
+        response["repo_name"] = repo_name
+        if requested_repo_name != repo_name:
+            response["requested_repo_name"] = requested_repo_name
+        response["logical_run_request_id"] = logical_run_request_id
+        response["request_hash"] = request_hash
+        response["replayed"] = True
+        return response
+
+    @staticmethod
+    def _logical_run_conflict_response(
+        conflict: RunRequestConflict,
+        decision: PolicyDecision,
+        *,
+        logical_run_request_id: str,
+        request_hash: str,
+    ) -> dict:
+        existing = conflict.run
+        return {
+            "run_id": str(existing.get("run_id") or ""),
+            "accepted": False,
+            "status": "conflict",
+            "estimated_duration_minutes": 0,
+            "recommended_check_after_minutes": 0,
+            "risk_level": decision.risk_level,
+            "requires_human": False,
+            "reason": str(conflict),
+            "error_code": "logical_run_request_hash_conflict",
+            "logical_run_request_id": logical_run_request_id,
+            "existing_request_hash": str(existing.get("request_hash") or ""),
+            "submitted_request_hash": request_hash,
+            "replayed": False,
+        }
+
+    @staticmethod
+    def _rebuild_logical_run_input_for_lease(
+        run: dict[str, Any], lease_generation: int
+    ) -> dict[str, Any]:
+        input_data = dict(run.get("input") or {})
+        tool = str(run.get("tool") or "")
+        run_id = str(run.get("run_id") or "")
+        if tool == "executable_profile":
+            input_data["staging_manifest"] = build_executable_staging_manifest(
+                input_data,
+                run_id=run_id,
+                lease_generation=lease_generation,
+            )
+            return input_data
+        if tool == "remote_powershell":
+            request = input_data.get("remote_powershell_request")
+            if not isinstance(request, dict):
+                raise ValueError("Remote PowerShell durable request is missing")
+            return build_remote_powershell_durable_input(
+                request,
+                run_id=run_id,
+                lease_generation=lease_generation,
+            )
+        raise ValueError(f"Unsupported logical Run recovery tool: {tool!r}")
+
+    @staticmethod
+    def _materialize_logical_run_launch_artifacts(
+        run: dict[str, Any], input_data: dict[str, Any]
+    ) -> None:
+        run_dir = Path(str(run["run_dir"]))
+        run_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = ArtifactWriter(run_dir)
+        if str(run.get("tool") or "") == "executable_profile":
+            manifest = input_data.get("staging_manifest")
+            if not isinstance(manifest, dict):
+                raise ValueError("Executable staging manifest is missing")
+            stage_executable_input(run_dir, input_data, dict(manifest))
+        artifacts.write_json("input.json", input_data)
+
+    def _create_and_launch_logical_request(
+        self,
+        tool: str,
+        repo_name: str,
+        input_data: dict[str, Any],
+        decision: PolicyDecision,
+        *,
+        requested_repo_name: str,
+        logical_run_request_id: str,
+        reserved_run_id: str | None = None,
+    ) -> dict:
+        """Atomically admit one keyed single-Run request before worker launch."""
+        logical_id = str(logical_run_request_id or "").strip()
+        if not logical_id:
+            raise ValueError("logical_run_request_id must not be blank")
+        if len(logical_id) > 128:
+            raise ValueError("logical_run_request_id must be at most 128 characters")
+        if tool not in {"executable_profile", "remote_powershell"}:
+            raise ValueError(
+                f"logical Run request identity is unsupported for tool {tool!r}"
+            )
+
+        request_hash = self._logical_run_request_hash(tool, repo_name, input_data)
+        run_id = reserved_run_id or make_run_id(tool)
+        validate_run_id(run_id)
+        lease_token = uuid4().hex
+
+        durable_input = dict(input_data)
+        if tool == "remote_powershell":
+            request = durable_input.get("remote_powershell_request")
+            if not isinstance(request, dict):
+                raise ValueError("Remote PowerShell durable request is missing")
+            durable_input = build_remote_powershell_durable_input(
+                request,
+                run_id=run_id,
+                lease_generation=1,
+            )
+        else:
+            durable_input["staging_manifest"] = build_executable_staging_manifest(
+                durable_input,
+                run_id=run_id,
+                lease_generation=1,
+            )
+
+        repository_lock_required = durable_input.get("repository_lock_required", True)
+        if not isinstance(repository_lock_required, bool):
+            raise ValueError("repository_lock_required must be boolean")
+        if not repository_lock_required and not (
+            tool == "executable_profile"
+            and isinstance(durable_input.get("hermes_companion"), dict)
+        ):
+            raise ValueError(
+                "Only Hermes companion executable runs may disable the repository lock"
+            )
+
+        run_dir = self.config.resolve_runs_dir() / run_id
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = self.store.find_by_logical_request_in_connection(
+                conn, logical_id
+            )
+            if existing is not None:
+                if str(existing.get("request_hash") or "") != request_hash:
+                    raise RunRequestConflict(existing, request_hash)
+                conn.commit()
+                return self._logical_run_replay_response(
+                    existing,
+                    decision,
+                    repo_name=repo_name,
+                    requested_repo_name=requested_repo_name,
+                    logical_run_request_id=logical_id,
+                    request_hash=request_hash,
+                )
+
+            if repository_lock_required:
+                acquisition = self.locks.acquire_in_connection(
+                    conn,
+                    repo_name=repo_name,
+                    tool=tool,
+                    normalized_input=durable_input,
+                    run_id=run_id,
+                    owner_pid=os.getpid(),
+                    owner_token=lease_token,
+                    lease_generation=1,
+                )
+                if not acquisition.acquired:
+                    conn.commit()
+                    return {
+                        "run_id": "",
+                        "accepted": False,
+                        "status": "refused",
+                        "estimated_duration_minutes": 0,
+                        "recommended_check_after_minutes": 0,
+                        "risk_level": decision.risk_level,
+                        "requires_human": False,
+                        "reason": acquisition.reason,
+                        "duplicate": acquisition.duplicate,
+                        "logical_run_request_id": logical_id,
+                        "logical_request_consumed": False,
+                    }
+
+            reserved, created = self.store.reserve_run_in_connection(
+                conn,
+                run_id=run_id,
+                repo_name=repo_name,
+                tool=tool,
+                run_dir=run_dir,
+                input_data=durable_input,
+                logical_run_request_id=logical_id,
+                request_hash=request_hash,
+                risk_level=decision.risk_level,
+                requires_human=decision.requires_human,
+                status="launch_pending",
+                worker_lease_token=lease_token,
+            )
+            if not created:
+                conn.commit()
+                return self._logical_run_replay_response(
+                    reserved,
+                    decision,
+                    repo_name=repo_name,
+                    requested_repo_name=requested_repo_name,
+                    logical_run_request_id=logical_id,
+                    request_hash=request_hash,
+                )
+            if repository_lock_required and not self.locks.bind_run_ownership_in_connection(
+                conn,
+                repo_name=repo_name,
+                run_id=run_id,
+                owner_token=lease_token,
+                lease_generation=1,
+            ):
+                raise RuntimeError(
+                    "Durable run could not bind repository lock ownership"
+                )
+            conn.commit()
+        except RunRequestConflict as exc:
+            conn.rollback()
+            return self._logical_run_conflict_response(
+                exc,
+                decision,
+                logical_run_request_id=logical_id,
+                request_hash=request_hash,
+            )
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        try:
+            accepted_run = self.store.get_run(run_id)
+            self._materialize_logical_run_launch_artifacts(
+                accepted_run, durable_input
+            )
+            artifacts = ArtifactWriter(run_dir)
+            event = self.store.append_event(
+                run_id,
+                level="info",
+                stage="launch_pending",
+                message="Durable worker launch intent recorded",
+                data={
+                    "tool": tool,
+                    "logical_run_request_id": logical_id,
+                },
+            )
+            artifacts.append_event(event)
+            launch_intent = self.store.get_run(run_id)
+            process = self._spawn_worker(run_id, lease_token)
+            launcher_identity = capture_launch_identity(process)
+            launched = self.store.record_worker_launch(
+                run_id,
+                process.pid,
+                launcher_identity=launcher_identity,
+                expected_state_version=int(launch_intent["state_version"]),
+                expected_lease_token=lease_token,
+                expected_lease_generation=int(launch_intent["lease_generation"]),
+            )
+            current = launched or self.store.get_run(run_id)
+            if not (
+                str(current.get("worker_lease_token") or "") == lease_token
+                and int(current.get("lease_generation") or 1) == 1
+                and current["status"] in {"queued", "running"}
+            ):
+                require_identity_scoped_cleanup(
+                    process.pid, launcher_identity, process=process
+                )
+                raise RuntimeError("Initial worker launch lost durable lease ownership")
+            if repository_lock_required:
+                self.locks.heartbeat(repo_name, run_id, lease_token, 1)
+            event = self.store.append_event(
+                run_id,
+                level="info",
+                stage="worker",
+                message="Worker launcher process started",
+                data={"launcher_pid": process.pid},
+            )
+            artifacts.append_event(event)
+        except Exception as exc:
+            reason = f"Worker launch failed after durable acceptance: {exc}"
+            containment_uncertain = (
+                isinstance(exc, LaunchIdentityUnavailable)
+                and not exc.containment.terminal_containment_proven
+            ) or isinstance(exc, ProcessContainmentUncertain)
+            current = self.store.get_run(run_id)
+            if containment_uncertain:
+                containment = (
+                    exc.containment.to_dict()
+                    if isinstance(exc, LaunchIdentityUnavailable)
+                    else exc.report
+                )
+                pending = self.store.mark_recovery_pending(
+                    run_id,
+                    reason,
+                    expected_statuses=(str(current["status"]),),
+                    expected_state_version=int(current["state_version"]),
+                    expected_lease_token=str(current.get("worker_lease_token") or ""),
+                    expected_lease_generation=int(
+                        current.get("lease_generation") or 1
+                    ),
+                    expected_heartbeat_at=current.get("heartbeat_at"),
+                )
+                if pending is not None:
+                    event = self.store.append_event(
+                        run_id,
+                        level="error",
+                        stage="recovery_pending",
+                        message=reason,
+                        data={"containment": containment},
+                        update_run_metadata=False,
+                    )
+                    if run_dir.exists():
+                        ArtifactWriter(run_dir).append_event(event)
+                return {
+                    "run_id": run_id,
+                    "accepted": False,
+                    "status": "recovery_pending",
+                    "estimated_duration_minutes": 0,
+                    "recommended_check_after_minutes": 0,
+                    "risk_level": decision.risk_level,
+                    "requires_human": False,
+                    "reason": reason,
+                    "logical_run_request_id": logical_id,
+                    "request_hash": request_hash,
+                    "replayed": False,
+                }
+
+            failed = self.store.fail_infrastructure(
+                run_id,
+                reason,
+                expected_statuses=(str(current["status"]),),
+                expected_state_version=int(current["state_version"]),
+                expected_lease_token=str(current.get("worker_lease_token") or ""),
+                expected_lease_generation=int(current.get("lease_generation") or 1),
+                expected_heartbeat_at=current.get("heartbeat_at"),
+            )
+            if failed is not None:
+                publication = publish_run_result(self.store, run_id)
+                if not publication["ok"]:
+                    self._append_recovery_event(
+                        current,
+                        level="error",
+                        message="Canonical terminal result publication failed",
+                        data={"error": publication["error"]},
+                    )
+                event = self.store.append_event(
+                    run_id,
+                    level="error",
+                    stage="launch_failed",
+                    message=reason,
+                    data={},
+                    update_run_metadata=False,
+                )
+                if run_dir.exists():
+                    ArtifactWriter(run_dir).append_event(event)
+                if repository_lock_required:
+                    self.locks.release(
+                        repo_name,
+                        run_id,
+                        str(current.get("worker_lease_token") or ""),
+                        int(current.get("lease_generation") or 1),
+                    )
+            return {
+                "run_id": run_id,
+                "accepted": False,
+                "status": "failed",
+                "estimated_duration_minutes": 0,
+                "recommended_check_after_minutes": 0,
+                "risk_level": decision.risk_level,
+                "requires_human": False,
+                "reason": reason,
+                "logical_run_request_id": logical_id,
+                "request_hash": request_hash,
+                "replayed": False,
+            }
+
+        response = decision.to_start_response(run_id=run_id, status="queued")
+        response["repo_name"] = repo_name
+        if requested_repo_name != repo_name:
+            response["requested_repo_name"] = requested_repo_name
+        response["logical_run_request_id"] = logical_id
+        response["request_hash"] = request_hash
+        response["replayed"] = False
+        return response
+
     def _create_and_launch(
         self,
         tool: str,
@@ -2247,6 +2697,7 @@ class JobManager:
         decision,
         *,
         reserved_run_id: str | None = None,
+        logical_run_request_id: str = "",
     ) -> dict:
         if tool in LEGACY_READ_ONLY_TOOLS:
             raise ValueError(
@@ -2278,6 +2729,17 @@ class JobManager:
                 "requires_human": False,
                 "reason": "Async jobs require a config file path",
             }
+
+        if logical_run_request_id:
+            return self._create_and_launch_logical_request(
+                tool,
+                repo_name,
+                input_data,
+                decision,
+                requested_repo_name=requested_repo_name,
+                logical_run_request_id=logical_run_request_id,
+                reserved_run_id=reserved_run_id,
+            )
 
         run_id = reserved_run_id or make_run_id(tool)
         validate_run_id(run_id)

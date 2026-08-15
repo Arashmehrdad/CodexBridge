@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from soma.run_store import RunStore, validate_run_id
+from soma.run_store import RunRequestConflict, RunStore, validate_run_id
 
 
 RUN_ID = "20260427T120000Z_codex_plan_task_abcdef12"
@@ -514,3 +515,140 @@ def test_stale_worker_heartbeat_is_rejected_after_lease_replacement(
     assert current["worker_lease_token"] == "lease-new"
     assert current["lease_generation"] == 2
     assert "stale" not in current["progress"]
+
+
+def test_f1_historical_run_rows_remain_readable_without_logical_identity(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    created = store.create_run(
+        run_id=RUN_ID,
+        repo_name="sample",
+        tool="project_command",
+        run_dir=tmp_path / "runs" / RUN_ID,
+        input_data={"legacy": True},
+    )
+    assert created["logical_run_request_id"] == ""
+    assert created["request_hash"] == ""
+    reloaded = RunStore(tmp_path / "runs").get_run(RUN_ID)
+    assert reloaded["logical_run_request_id"] == ""
+    assert reloaded["input"]["legacy"] is True
+
+
+def test_f1_existing_pre_idempotency_database_migrates_additively(
+    tmp_path: Path,
+) -> None:
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    db_path = runs_dir / "soma.sqlite3"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE runs (
+                run_id TEXT PRIMARY KEY,
+                repo_name TEXT NOT NULL,
+                tool TEXT NOT NULL,
+                status TEXT NOT NULL,
+                risk_level TEXT NOT NULL DEFAULT 'low',
+                requires_human INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                ended_at TEXT,
+                duration_seconds REAL,
+                pid INTEGER,
+                worker_pid INTEGER,
+                exit_code INTEGER,
+                run_dir TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                safety_failure INTEGER NOT NULL DEFAULT 0,
+                input_json TEXT NOT NULL DEFAULT '{}',
+                result_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO runs (run_id, repo_name, tool, status, created_at, run_dir) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (RUN_ID, "sample", "project_command", "completed", "2026-04-27T12:00:00+00:00", str(runs_dir / RUN_ID)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = RunStore(runs_dir)
+    migrated = store.get_run(RUN_ID)
+    assert migrated["logical_run_request_id"] == ""
+    assert migrated["request_hash"] == ""
+    with store.connect() as verify:
+        columns = {str(row[1]) for row in verify.execute("PRAGMA table_info(runs)")}
+        indexes = {str(row[1]) for row in verify.execute("PRAGMA index_list(runs)")}
+    assert {"logical_run_request_id", "request_hash"} <= columns
+    assert "idx_runs_logical_request" in indexes
+
+
+def test_f1_connection_scoped_run_reservation_replays_and_conflicts(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs")
+    request_id = "f1-run-request"
+    request_hash = "a" * 64
+    run_dir = tmp_path / "runs" / RUN_ID
+    conn = store.connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        first, created = store.reserve_run_in_connection(
+            conn,
+            run_id=RUN_ID,
+            repo_name="sample",
+            tool="executable_profile",
+            run_dir=run_dir,
+            input_data={"argv": ["one"]},
+            logical_run_request_id=request_id,
+            request_hash=request_hash,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert created is True
+    assert first["logical_run_request_id"] == request_id
+
+    other_run_id = "20260427T120001Z_executable_profile_abcdef13"
+    conn = store.connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        replay, created = store.reserve_run_in_connection(
+            conn,
+            run_id=other_run_id,
+            repo_name="sample",
+            tool="executable_profile",
+            run_dir=tmp_path / "runs" / other_run_id,
+            input_data={"argv": ["one"]},
+            logical_run_request_id=request_id,
+            request_hash=request_hash,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert created is False
+    assert replay["run_id"] == RUN_ID
+
+    conn = store.connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        with pytest.raises(RunRequestConflict):
+            store.reserve_run_in_connection(
+                conn,
+                run_id=other_run_id,
+                repo_name="sample",
+                tool="executable_profile",
+                run_dir=tmp_path / "runs" / other_run_id,
+                input_data={"argv": ["changed"]},
+                logical_run_request_id=request_id,
+                request_hash="b" * 64,
+            )
+        conn.rollback()
+    finally:
+        conn.close()
+    assert len(store.list_runs(repo_name="sample")) == 1

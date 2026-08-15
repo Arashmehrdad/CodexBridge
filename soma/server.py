@@ -3299,6 +3299,7 @@ def start_local_powershell_async(
     stdin_text: str | None = None,
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
+    logical_run_request_id: str = "",
     return_when: str = "accepted",
     wait_seconds: float = 0.0,
 ) -> dict:
@@ -3319,6 +3320,7 @@ def start_local_powershell_async(
         stdin_text=stdin_text,
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
+        logical_run_request_id=logical_run_request_id,
     )
     response.setdefault(
         "polling",
@@ -3346,6 +3348,7 @@ def start_remote_powershell_async(
     environment: dict[str, str] | None = None,
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
+    logical_run_request_id: str = "",
 ) -> dict:
     """Write async tool: launch unrestricted PowerShell on a registered permissive remote host."""
     stdin_bytes = None
@@ -3362,6 +3365,7 @@ def start_remote_powershell_async(
         environment=environment,
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
+        logical_run_request_id=logical_run_request_id,
     )
 
 
@@ -3420,7 +3424,12 @@ def run_start(request: RunStartRequest) -> dict:
             hermes_home=request.hermes_home or None,
             timeout_seconds=request.timeout_seconds,
         )
-        return start_companion_request(get_job_manager(), request.repo_name, launch)
+        return start_companion_request(
+            get_job_manager(),
+            request.repo_name,
+            launch,
+            logical_run_request_id=request.logical_run_request_id,
+        )
     if request.operation == "remote_powershell":
         return start_remote_powershell_async(
             request.host_id,
@@ -3430,6 +3439,7 @@ def run_start(request: RunStartRequest) -> dict:
             environment=request.environment,
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
+            logical_run_request_id=request.logical_run_request_id,
         )
     if request.operation == "powershell_group":
         return start_local_powershell_group_async(
@@ -3449,6 +3459,7 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_text=request.stdin_text,
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
+            logical_run_request_id=request.logical_run_request_id,
             return_when=request.return_when,
             wait_seconds=request.wait_seconds,
         )

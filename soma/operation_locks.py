@@ -135,6 +135,25 @@ class OperationLockStore:
             raise RuntimeError("Repository lock decision-version binding lost a race")
         return True
 
+    @classmethod
+    def bind_run_ownership_in_connection(
+        cls,
+        conn,
+        *,
+        repo_name: str,
+        run_id: str,
+        owner_token: str,
+        lease_generation: int,
+    ) -> bool:
+        """Bind a reserved Run to its lock inside a caller-owned transaction."""
+        return cls._bind_run_ownership_in_connection(
+            conn,
+            repo_name=repo_name,
+            run_id=run_id,
+            owner_token=owner_token,
+            lease_generation=lease_generation,
+        )
+
     def bind_run_ownership(
         self,
         repo_name: str,
@@ -159,6 +178,93 @@ class OperationLockStore:
             raise
         finally:
             conn.close()
+
+    def acquire_in_connection(
+        self,
+        conn,
+        *,
+        repo_name: str,
+        tool: str,
+        normalized_input: dict[str, Any],
+        run_id: str,
+        owner_pid: int | None = None,
+        owner_token: str = "",
+        lease_generation: int = 1,
+    ) -> LockAcquisition:
+        """Acquire one operation lock inside a caller-owned SQLite transaction."""
+        fingerprint = normalize_input_fingerprint(normalized_input)
+        now = utc_now()
+        row = conn.execute(
+            "SELECT * FROM operation_locks WHERE repo_name = ?",
+            (repo_name,),
+        ).fetchone()
+        if row is not None:
+            existing = dict(row)
+            if self._is_stale(conn, existing):
+                cursor = conn.execute(
+                    "DELETE FROM operation_locks WHERE repo_name = ?",
+                    (repo_name,),
+                )
+                if int(cursor.rowcount) == 1:
+                    self._bump_run_state_version(conn, str(existing["run_id"]))
+            else:
+                duplicate = (
+                    existing["tool"] == tool
+                    and existing["input_fingerprint"] == fingerprint
+                )
+                run = conn.execute(
+                    "SELECT status, state_version FROM runs WHERE run_id = ?",
+                    (existing["run_id"],),
+                ).fetchone()
+                owner_lock = {
+                    "repo_name": str(existing["repo_name"]),
+                    "tool": str(existing["tool"]),
+                    "run_id": str(existing["run_id"]),
+                    "owner_pid": int(existing["owner_pid"] or 0),
+                    "lease_generation": int(existing["lease_generation"] or 1),
+                    "acquired_at": str(existing["acquired_at"]),
+                    "heartbeat_at": str(existing["heartbeat_at"]),
+                    "stale": False,
+                    "run_status": str(run["status"] or "") if run else "",
+                    "run_state_version": int(run["state_version"] or 0)
+                    if run
+                    else 0,
+                }
+                return LockAcquisition(
+                    acquired=False,
+                    duplicate=duplicate,
+                    repo_name=repo_name,
+                    lock_key=repo_name,
+                    reason="duplicate active task" if duplicate else "repository busy",
+                    fingerprint=fingerprint,
+                    owner_lock=owner_lock,
+                )
+        conn.execute(
+            """
+            INSERT INTO operation_locks (
+                repo_name, tool, input_fingerprint, run_id, owner_pid,
+                owner_token, lease_generation, acquired_at, heartbeat_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                repo_name,
+                tool,
+                fingerprint,
+                run_id,
+                owner_pid,
+                owner_token,
+                int(lease_generation),
+                now,
+                now,
+            ),
+        )
+        return LockAcquisition(
+            acquired=True,
+            duplicate=False,
+            repo_name=repo_name,
+            lock_key=repo_name,
+            fingerprint=fingerprint,
+        )
 
     def acquire(
         self,
@@ -362,6 +468,7 @@ class OperationLockStore:
         expected_lease_generation: int,
         new_owner_token: str,
         owner_pid: int | None,
+        input_data: dict[str, Any] | None = None,
     ) -> dict[str, int | str] | None:
         statuses = tuple(str(status) for status in expected_statuses)
         if not statuses:
@@ -379,8 +486,10 @@ class OperationLockStore:
                     state_version = state_version + 1,
                     launch_attempts = launch_attempts + 1,
                     launcher_pid = NULL, worker_pid = NULL,
-                    worker_identity = '', worker_claimed_at = NULL, pid = NULL,
-                    heartbeat_at = ?, recovery_reason = '', ended_at = NULL
+                    worker_identity = '', launcher_identity = '',
+                    worker_claimed_at = NULL, pid = NULL,
+                    heartbeat_at = ?, recovery_reason = '', ended_at = NULL,
+                    input_json = CASE WHEN ? IS NULL THEN input_json ELSE ? END
                 WHERE run_id = ? AND state_version = ?
                   AND worker_lease_token = ? AND lease_generation = ?
                   AND status IN ("""
@@ -390,6 +499,10 @@ class OperationLockStore:
                     new_owner_token,
                     new_generation,
                     now,
+                    None if input_data is None else 1,
+                    None if input_data is None else json.dumps(
+                        input_data, sort_keys=True
+                    ),
                     run_id,
                     int(expected_state_version),
                     expected_owner_token,
