@@ -6,8 +6,11 @@ import pytest
 
 from soma.repo_patch_repair import (
     AUTHORED_SPAN_SCHEMA_VERSION,
+    TRAILING_COMMIT_TITLE_RULE_ID,
+    TRAILING_VIEW_RULE_ID,
     canonical_direct_repair_primitive,
     derive_authored_span_provenance,
+    detect_transport_leak_candidates,
 )
 
 
@@ -117,3 +120,113 @@ def test_provenance_requires_positive_operation_count() -> None:
             operation_type="exact_text",
             operation_count=0,
         )
+
+
+def _owned(candidate: bytes, baseline: bytes = b"safe\n"):
+    return derive_authored_span_provenance(
+        baseline_bytes=baseline,
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("candidate", "rule_id", "deleted"),
+    [
+        (
+            b'assert ready == "ok"}],"view":"full\nnext_call()\n',
+            TRAILING_VIEW_RULE_ID,
+            b'}],"view":"full',
+        ),
+        (
+            b'"WorkPackage"}],"commit_title":"G1.2 additive Company Kernel graph schema v2\n"Next",\n',
+            TRAILING_COMMIT_TITLE_RULE_ID,
+            b'}],"commit_title":"G1.2 additive Company Kernel graph schema v2',
+        ),
+    ],
+)
+def test_recovered_transport_signatures_are_detected_exactly(
+    candidate: bytes, rule_id: str, deleted: bytes
+) -> None:
+    provenance = _owned(candidate)
+    hits = detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=provenance,
+    )
+
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.rule_id == rule_id
+    assert candidate[hit.deletion_start_byte : hit.deletion_end_byte] == deleted
+    assert hit.operation_index == 0
+    assert hit.primitive == "exact_text"
+
+
+@pytest.mark.parametrize(
+    "lookalike",
+    [
+        b'assert ready == "ok"}],"commit_description":"not-a-v1-rule\n',
+        b'assert ready == "ok"}],"expected_sha256":"abc\n',
+        b'assert ready == "ok"}],"View":"full\n',
+    ],
+)
+def test_unreviewed_outer_field_lookalikes_do_not_match(lookalike: bytes) -> None:
+    hits = detect_transport_leak_candidates(
+        candidate_bytes=lookalike,
+        provenance=_owned(lookalike),
+    )
+
+    assert hits == ()
+
+
+def test_preexisting_signature_outside_owned_span_is_not_detected() -> None:
+    baseline = b'fixture = "}],\\"view\\":\\"full"\nvalue = 1\n'
+    candidate = b'fixture = "}],\\"view\\":\\"full"\nvalue = 2\n'
+    provenance = derive_authored_span_provenance(
+        baseline_bytes=baseline,
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=1,
+    )
+
+    assert detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=provenance,
+    ) == ()
+
+
+def test_ambiguous_multi_operation_provenance_disables_detection() -> None:
+    candidate = b'assert ready == "ok"}],"view":"full\n'
+    provenance = derive_authored_span_provenance(
+        baseline_bytes=b'assert ready == "ok"\n',
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=2,
+    )
+
+    assert provenance.disposition == "ambiguous_composition"
+    assert detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=provenance,
+    ) == ()
+
+
+def test_multiple_reviewed_signatures_remain_multiple_candidates() -> None:
+    candidate = (
+        b'first = 1}],"view":"full '
+        b'}],"commit_title":"second\n'
+    )
+    hits = detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=_owned(candidate),
+    )
+
+    assert len(hits) == 2
+    assert {hit.rule_id for hit in hits} == {
+        TRAILING_VIEW_RULE_ID,
+        TRAILING_COMMIT_TITLE_RULE_ID,
+    }
