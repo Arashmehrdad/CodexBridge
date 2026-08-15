@@ -22,11 +22,9 @@ from typing import Any, Callable, Final, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from soma.company_kernel.admission import (
-    AdmissionRequestV1,
-    admit_reasoning_work_package,
-)
+from soma.company_kernel.admission import AdmissionRequestV1, admit_work_package
 from soma.company_kernel.models import work_package_contract_hash
+from soma.company_kernel.task_routes import ReasoningTaskRequestV1
 from soma.company_kernel.store import CompanyKernelStore
 from soma.reasoning.codex_g6_backend import (
     CODEX_G6_EXECUTION_CONTRACT_REF,
@@ -690,7 +688,7 @@ def run_g6_trial(
             work_package_id=item.work_package_id,
             controller_request_id=item.controller_request_id,
             repo_name=repo_name,
-            reasoning_spec=spec,
+            task_request=ReasoningTaskRequestV1(reasoning_spec=spec),
             expected_plan_revision_id=context.plan_revision_id,
             expected_plan_state_version=context.plan_state_version,
             supersedes_attempt_id=item.supersedes_attempt_id,
@@ -704,7 +702,7 @@ def run_g6_trial(
 
         unit_started = time.monotonic()
         try:
-            result = admit_reasoning_work_package(
+            result = admit_work_package(
                 task_manager,
                 request,
                 _after_commit_hook=after_commit,

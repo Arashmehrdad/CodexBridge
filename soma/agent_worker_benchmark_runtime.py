@@ -30,11 +30,9 @@ from soma.agent_worker_benchmark_runner import (
     validate_g6_plan,
 )
 from soma.company_kernel import MISSION_ID_DOMAIN, canonical_hash, canonical_json
-from soma.company_kernel.admission import (
-    AdmissionRequestV1,
-    admit_reasoning_work_package,
-)
+from soma.company_kernel.admission import AdmissionRequestV1, admit_work_package
 from soma.company_kernel.service import accept_plan_graph
+from soma.company_kernel.task_routes import ReasoningTaskRequestV1
 from soma.company_kernel.store import CompanyKernelStore
 from soma.config import AppConfig
 from soma.project_scope import ProjectScopeStore
@@ -480,12 +478,12 @@ def run_real_g6_smoke(
         work_package_id=prepared.work_package_id,
         controller_request_id=prepared.controller_request_id,
         repo_name=runtime.repo_name,
-        reasoning_spec=spec,
+        task_request=ReasoningTaskRequestV1(reasoning_spec=spec),
         expected_plan_revision_id=context.plan_revision_id,
         expected_plan_state_version=context.plan_state_version,
         supersedes_attempt_id=prepared.supersedes_attempt_id,
     )
-    admission = admit_reasoning_work_package(runtime.task_manager, request)
+    admission = admit_work_package(runtime.task_manager, request)
     task = runtime.task_store.get_task(admission.task_id)
     observation = runtime.reasoning_store.query(task.backend_ref)
     submission = runtime.reasoning_backend.load_evidence_submission(task.backend_ref)

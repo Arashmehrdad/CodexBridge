@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,15 +12,20 @@ from soma.company_kernel.admission import (
     MAX_ADMISSION_BATCH,
     AdmissionError,
     AdmissionRequestV1,
-    admit_reasoning_batch,
-    admit_reasoning_work_package,
+    _replay_existing_attempt,
+    admit_work_package as admit_reasoning_work_package,
+    admit_work_package_batch as admit_reasoning_batch,
 )
 from soma.company_kernel.coordinator import (
     AdmitReadyWorkRequestV1,
-    PreparedReasoningAdmissionV1,
+    PreparedTaskAdmissionV1 as PreparedReasoningAdmissionV1,
     admit_ready_work,
 )
 from soma.company_kernel.store import CompanyKernelStore
+from soma.company_kernel.task_routes import (
+    DurableCommandTaskRequestV1,
+    ReasoningTaskRequestV1,
+)
 from soma.config import AppConfig, load_config
 from soma.company_kernel.dependencies import EvidenceAvailableCandidateV1
 from soma.project_scope import ProjectScopeStore
@@ -28,7 +34,6 @@ from soma.reasoning.fake import FakeReasoningBackend
 from soma.reasoning.models import ReasoningBudgetsV1, ReasoningSpecV1
 from soma.reasoning.store import ReasoningBackendStore
 from soma.tasks.manager import TaskManager
-from soma.tasks.models import normalize_reasoning_request, normalized_request_hash
 from soma.tasks.store import TaskStore
 
 COMPANY_ID = "company_" + "1" * 24
@@ -54,8 +59,7 @@ def _config(tmp_path: Path) -> tuple[AppConfig, Path, Path]:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
     (repo / ".git").mkdir()
-    executable = tmp_path / "fake-pwsh.exe"
-    executable.write_bytes(b"admission-fixture")
+    executable = Path(sys.executable)
     runs_dir = tmp_path / "runs"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -256,9 +260,95 @@ def _request(
         work_package_id=package_id,
         controller_request_id=controller_request_id,
         repo_name="sample",
-        reasoning_spec=_spec(),
+        task_request=ReasoningTaskRequestV1(reasoning_spec=_spec()),
         evidence_candidates=evidence,
     )
+
+
+def test_company_durable_route_does_not_require_reasoning_backend(tmp_path: Path) -> None:
+    config, config_path, repo = _config(tmp_path)
+    TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    scope.apply_bootstrap(
+        project_id=PROJECT_ID,
+        project_key="admission",
+        resource_id=RESOURCE_ID,
+        repo_name="sample",
+        repository_root=repo,
+        access_mode="exclusive",
+    )
+    scope.set_scoped_writes_enabled(True)
+    kernel = CompanyKernelStore(config.resolve_runs_dir())
+    assert kernel.init_db() == [1, 2, 3, 4]
+    _insert_kernel_graph(kernel)
+    manager = TaskManager(config, config_path, scope_store=scope)
+    assert manager._reasoning_backend is None
+
+    request = AdmissionRequestV1(
+        mission_id=MISSION_ID,
+        work_package_id=ROOT_PACKAGE_ID,
+        controller_request_id="admit-durable-without-reasoning",
+        repo_name="sample",
+        task_request=DurableCommandTaskRequestV1(
+            profile_id="powershell",
+            argv=("-c", "print('company-route-neutral')"),
+            working_directory=str(repo),
+        ),
+    )
+    result = admit_reasoning_work_package(manager, request)
+    task = manager.store.get_task(result.task_id)
+
+    assert result.created is True
+    assert result.task_start["ok"] is True
+    assert task.task_kind.value == "durable_command"
+    assert task.backend_kind.value == "soma_durable_run"
+    assert task.backend_identity["work_package_attempt_ref"] == result.attempt_id
+    with kernel.connect() as conn:
+        attempt = conn.execute(
+            "SELECT route_descriptor_json FROM work_package_attempts WHERE attempt_id = ?",
+            (result.attempt_id,),
+        ).fetchone()
+    route = json.loads(str(attempt["route_descriptor_json"]))
+    assert route["schema"] == "work_package_attempt_route.v2"
+    assert route["task_route"]["task_kind"] == "durable_command"
+    assert route["task_route"]["backend_kind"] == "soma_durable_run"
+    assert "reasoning_spec" not in route
+
+
+def test_explicit_reasoning_route_fails_without_reasoning_backend_without_reservation(
+    tmp_path: Path,
+) -> None:
+    config, config_path, repo = _config(tmp_path)
+    TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    scope.apply_bootstrap(
+        project_id=PROJECT_ID,
+        project_key="admission",
+        resource_id=RESOURCE_ID,
+        repo_name="sample",
+        repository_root=repo,
+        access_mode="exclusive",
+    )
+    scope.set_scoped_writes_enabled(True)
+    kernel = CompanyKernelStore(config.resolve_runs_dir())
+    assert kernel.init_db() == [1, 2, 3, 4]
+    _insert_kernel_graph(kernel)
+    manager = TaskManager(config, config_path, scope_store=scope)
+    request = AdmissionRequestV1(
+        mission_id=MISSION_ID,
+        work_package_id=ROOT_PACKAGE_ID,
+        controller_request_id="admit-explicit-reasoning-without-backend",
+        repo_name="sample",
+        task_request=ReasoningTaskRequestV1(reasoning_spec=_spec()),
+    )
+
+    with pytest.raises(AdmissionError, match="soma_reasoning"):
+        admit_reasoning_work_package(manager, request)
+    with kernel.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM work_package_attempts").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
 
 def test_root_package_admission_reserves_attempt_task_scope_then_starts(
@@ -339,27 +429,24 @@ def test_downstream_admission_freezes_proof_into_attempt_and_task_identity(
             (DOWNSTREAM_PACKAGE_ID,),
         ).fetchone()
 
-    final_spec = request.reasoning_spec.model_copy(
+    final_spec = request.task_request.reasoning_spec.model_copy(
         update={
             "assignment_ref": f"work-package:{DOWNSTREAM_PACKAGE_ID}",
             "assignment_hash": str(target["contract_hash"]),
             "dependency_proof_refs": result.proof_refs,
         }
     )
-    normalized = normalize_reasoning_request(
-        reasoning_spec_ref=reasoning_spec_ref(final_spec),
-        reasoning_spec_hash=reasoning_spec_hash(final_spec),
-        project_id=PROJECT_ID,
-        resource_id=RESOURCE_ID,
-        scope_generation=1,
-        work_package_attempt_ref=result.attempt_id,
-        work_package_attempt_hash=result.attempt_hash,
-        dependency_proof_refs=[
-            {"ref": item.ref, "hash": item.hash} for item in result.proof_refs
-        ],
-    )
     task = manager.store.get_task(result.task_id)
-    assert task.request_hash == normalized_request_hash(normalized)
+    assert route["task_route"] == {
+        "task_kind": "reasoning",
+        "backend_kind": "soma_reasoning",
+        "request_hash": route["task_route"]["request_hash"],
+        "reasoning_spec": {
+            "ref": reasoning_spec_ref(final_spec),
+            "hash": reasoning_spec_hash(final_spec),
+        },
+    }
+    assert task.request_hash != route["task_route"]["request_hash"]
     assert task.backend_identity["work_package_attempt_ref"] == result.attempt_id
     assert task.backend_identity["work_package_attempt_hash"] == result.attempt_hash
 
@@ -423,6 +510,37 @@ def test_response_loss_after_reservation_commit_replays_same_attempt_and_task(
             ).fetchone()[0]
             == 1
         )
+
+
+def test_legacy_reasoning_coupled_route_v1_is_frozen_and_non_replayable(
+    tmp_path: Path,
+) -> None:
+    manager, fake, _kernel, _scope = _environment(tmp_path)
+    request = _request(ROOT_PACKAGE_ID, "legacy-v1-frozen")
+    binding, effective_repo_name = manager._resolve_repository_binding(
+        project_id=PROJECT_ID,
+        repo_name="sample",
+        working_directory="",
+    )
+    legacy_attempt = {
+        "work_package_id": ROOT_PACKAGE_ID,
+        "route_descriptor_json": json.dumps(
+            {
+                "schema": "work_package_attempt_route.v1",
+                "dependency_proof_refs": [],
+            }
+        ),
+    }
+
+    with pytest.raises(AdmissionError, match="frozen and non-replayable"):
+        _replay_existing_attempt(
+            manager,
+            request,
+            binding=binding,
+            effective_repo_name=effective_repo_name,
+            existing_attempt=legacy_attempt,
+        )
+    assert fake.provider_create_calls == 0
 
 
 def test_old_plan_package_cannot_be_newly_admitted_after_replan(tmp_path: Path) -> None:
@@ -522,7 +640,7 @@ def _prepared(
     return PreparedReasoningAdmissionV1(
         work_package_id=package_id,
         repo_name=request.repo_name,
-        reasoning_spec=request.reasoning_spec,
+        task_request=request.task_request,
         supersedes_attempt_id=supersedes_attempt_id,
         evidence_candidates=request.evidence_candidates,
         published_success_candidates=request.published_success_candidates,

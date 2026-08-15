@@ -1669,6 +1669,8 @@ class CompanyReserveAttemptAction(_CompanyWriteBase):
     expected_plan_revision_id: str | None = Field(default=None, max_length=128)
     expected_plan_state_version: int | None = Field(default=None, ge=0)
     repo_name: str = Field(min_length=1, max_length=128)
+    # Frozen legacy wire field only. The public reserve_attempt route is disabled;
+    # this field does not define the corrected provider-neutral Company architecture.
     reasoning_spec: ReasoningSpecV1
     supersedes_attempt_id: str | None = Field(default=None, max_length=128)
     evidence_candidates: dict[str, EvidenceAvailableCandidateV1] = Field(

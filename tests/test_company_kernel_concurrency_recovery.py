@@ -14,10 +14,11 @@ import pytest
 
 from soma.company_kernel.coordinator import (
     AdmitReadyWorkRequestV1,
-    PreparedReasoningAdmissionV1,
+    PreparedTaskAdmissionV1,
     admit_ready_work,
 )
 from soma.company_kernel.store import CompanyKernelStore
+from soma.company_kernel.task_routes import ReasoningTaskRequestV1
 from soma.config import AppConfig, load_config
 from soma.project_scope import ProjectScopeStore
 from soma.reasoning.fake import FakeReasoningBackend
@@ -278,13 +279,13 @@ def _restart(
     return manager, fake
 
 
-def _prepared_routes() -> tuple[PreparedReasoningAdmissionV1, ...]:
+def _prepared_routes() -> tuple[PreparedTaskAdmissionV1, ...]:
     # Deliberately reverse caller order; the coordinator must use package_key order.
     return tuple(
-        PreparedReasoningAdmissionV1(
+        PreparedTaskAdmissionV1(
             work_package_id=package_id,
             repo_name="sample",
-            reasoning_spec=_spec(),
+            task_request=ReasoningTaskRequestV1(reasoning_spec=_spec()),
         )
         for package_id in reversed(PACKAGE_IDS)
     )

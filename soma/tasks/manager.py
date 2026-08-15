@@ -1192,6 +1192,198 @@ class TaskManager:
         response["ok"] = not launch_error
         return response
 
+    def start_reserved_task(
+        self,
+        *,
+        task_id: str,
+        project_id: str,
+        expected_request_hash: str,
+        launch_spec: DurableCommandSpec | ReasoningSpecV1,
+        budget: int = TASK_RESPONSE_BUDGET_BYTES,
+    ) -> dict[str, Any]:
+        """Launch one already-reserved canonical Task without changing its route.
+
+        Company admission uses this only after its shared Attempt/Task reservation
+        transaction commits. Backend choice is read from the canonical Task; the
+        Company layer never substitutes a provider or executor here.
+        """
+
+        try:
+            task = self.store.get_task(task_id)
+            if task.request_hash != expected_request_hash:
+                raise ValueError("reserved Task request hash differs from frozen route")
+            binding, _ = self._resolve_repository_binding(
+                project_id=project_id,
+                repo_name=task.workspace_ref,
+                working_directory="",
+            )
+            self.scope_store.require_task_attempt(
+                binding.project_id,
+                task.task_id,
+                task.backend_ref,
+            )
+        except (KeyError, ValueError, ProjectScopeError) as exc:
+            return task_error(
+                operation="start",
+                error_code="reserved_task_binding_invalid",
+                error=redact_secret_values(str(exc)),
+                task_id=task_id,
+                budget=budget,
+            )
+
+        backend = self._backend_for_task(task)
+        if backend is None:
+            return task_error(
+                operation="start",
+                error_code="backend_not_configured",
+                error=f"Backend {task.backend_kind.value} is not configured",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+        if task.task_kind is TaskKind.DURABLE_COMMAND:
+            if not isinstance(launch_spec, DurableCommandSpec):
+                return task_error(
+                    operation="start",
+                    error_code="reserved_task_spec_mismatch",
+                    error="Reserved durable-command Task requires DurableCommandSpec",
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+            if (
+                launch_spec.repo_name != task.workspace_ref
+                or str(task.backend_identity.get("profile_id") or "")
+                != launch_spec.profile_id
+            ):
+                return task_error(
+                    operation="start",
+                    error_code="reserved_task_spec_mismatch",
+                    error="Durable launch spec differs from frozen canonical Task route",
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+        elif task.task_kind is TaskKind.REASONING:
+            if not isinstance(launch_spec, ReasoningSpecV1):
+                return task_error(
+                    operation="start",
+                    error_code="reserved_task_spec_mismatch",
+                    error="Reserved reasoning Task requires ReasoningSpecV1",
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+            if (
+                str(task.backend_identity.get("reasoning_spec_ref") or "")
+                != reasoning_spec_ref(launch_spec)
+                or str(task.backend_identity.get("reasoning_spec_hash") or "")
+                != reasoning_spec_hash(launch_spec)
+            ):
+                return task_error(
+                    operation="start",
+                    error_code="reserved_task_spec_mismatch",
+                    error="Reasoning launch spec differs from frozen canonical Task route",
+                    task_id=task.task_id,
+                    state=task.state.value,
+                    state_version=task.state_version,
+                    budget=budget,
+                )
+        else:  # pragma: no cover - TaskKind vocabulary is closed
+            return task_error(
+                operation="start",
+                error_code="unsupported_task_kind",
+                error=f"Unsupported reserved Task kind {task.task_kind.value}",
+                task_id=task.task_id,
+                state=task.state.value,
+                state_version=task.state_version,
+                budget=budget,
+            )
+
+        launch: dict[str, Any] = {}
+        launch_error = ""
+        observation = self._query_task_backend(task)
+        should_start = not observation.exists or (
+            task.backend_kind is BackendKind.SOMA_REASONING
+            and observation.status == "launch_pending"
+        )
+        launch_attempted = bool(not task.is_terminal and should_start)
+        if launch_attempted:
+            try:
+                self.scope_store.require_launchable_attempt(
+                    binding=binding,
+                    task_id=task.task_id,
+                    run_id=task.backend_ref,
+                )
+                launch = backend.start(launch_spec, task.backend_ref)
+                if not launch.get("accepted", True):
+                    launch_error = redact_secret_values(str(launch.get("reason") or ""))
+            except Exception as exc:  # noqa: BLE001 - persisted/reconciled evidence
+                launch_error = f"{type(exc).__name__}: {redact_secret_values(str(exc))}"
+
+        if launch_error:
+            self.store.append_event(
+                task.task_id,
+                level=TaskEventLevel.WARNING,
+                stage="reserved_backend_start",
+                message="Reserved canonical Task backend start requires recovery",
+                state=task.state.value,
+                state_version=task.state_version,
+                data={"error": launch_error},
+            )
+        try:
+            self.scope_store.attach_attempt(
+                task.backend_ref,
+                backend_kind=task.backend_kind.value,
+            )
+        except ProjectScopeError as exc:
+            self.scope_store.mark_attempt_recovery_pending(
+                task.backend_ref, "backend_attachment_incomplete"
+            )
+            self.store.append_event(
+                task.task_id,
+                level=TaskEventLevel.WARNING,
+                stage="project_scope_attachment",
+                message="Reserved backend attachment requires reconciliation",
+                state=task.state.value,
+                state_version=task.state_version,
+                data={"error": redact_secret_values(str(exc))},
+            )
+
+        task = self.reconcile_task(task.task_id, stage="reserved_backend_attachment")
+        scope_projection = self.scope_store.scope_for_task(task.task_id).to_dict()
+        response = compact_task_status(
+            task,
+            observation=self._query_task_backend(task),
+            open_checkpoint_count=self.store.open_checkpoint_count(task.task_id),
+            link_counts=self._link_counts(task.task_id),
+            operation="start",
+            budget=budget,
+            project_scope=scope_projection,
+            extra={
+                "created": False,
+                "idempotent_replay": not should_start,
+                "request_hash": task.request_hash,
+                "backend_launch_attempted": launch_attempted,
+                "backend_launch_accepted": not launch_error,
+                "backend_launch_error": launch_error,
+                "polling": {
+                    "tool": "task_query",
+                    "request": {
+                        "operation": "status",
+                        "task_id": task.task_id,
+                        "project_id": binding.project_id,
+                    },
+                },
+            },
+        )
+        response["ok"] = not launch_error
+        return response
+
     def start_reasoning_task(
         self,
         *,

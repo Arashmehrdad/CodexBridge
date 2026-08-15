@@ -7,8 +7,8 @@ internal authorities and never reproduce their transactions.
 
 Registration is intentionally separate from runtime activation. Except for the
 capability query, Company operations refuse while ``config.company_kernel`` is
-disabled. The reasoning-backed attempt route additionally refuses before any
-reservation when the owner-controlled reasoning provider is disabled.
+disabled. WorkPackageAttempt execution admission remains frozen until the owner
+explicitly activates the corrected provider-neutral canonical Task route.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from soma.public_projection_contract import (
 )
 
 from .acceptance import OutcomeAcceptanceRequestV1, accept_outcome
-from .admission import AdmissionRequestV1, admit_reasoning_work_package
 from .bootstrap import KernelBootstrapRequestV1, bootstrap_company_mission
 from .models import AcceptanceCommit, KernelReconciliationReceipt
 from .projections import (
@@ -209,7 +208,9 @@ def _require_scoped_query(
     if str(mission["company_id"]) != company_id:
         raise CompanyGatewayError("Mission does not belong to the asserted Company")
     if str(mission["project_id"]) != project_id:
-        raise CompanyGatewayError("Mission does not belong to the asserted ProjectScope")
+        raise CompanyGatewayError(
+            "Mission does not belong to the asserted ProjectScope"
+        )
     binding = conn.execute(
         "SELECT resource_id, identity_hash FROM project_repository_bindings "
         "WHERE project_id = ? AND repo_name = ?",
@@ -307,9 +308,10 @@ def _capabilities(config: AppConfig) -> dict[str, Any]:
         "trusted_executive_configured": bool(
             config.company_kernel.executive_authority_ref
         ),
-        "reasoning_attempt_route_enabled": bool(
-            config.company_kernel.enabled and config.reasoning.enabled
-        ),
+        "attempt_admission_enabled": False,
+        "canonical_task_route_model": "provider_neutral",
+        "reasoning_attempt_route_enabled": False,
+        "optional_reasoning_route_configured": bool(config.reasoning.enabled),
         "scheduled_reconciliation": False,
         "automatic_outcome_acceptance": False,
         "live_activation_gate_complete": live_activation_ready,
@@ -361,12 +363,16 @@ def company_query_gateway(config: AppConfig, request: Any) -> dict[str, Any]:
                     ).fetchone()[0]
                 )
                 data = (
-                    project_plan_revision_in_connection(conn, current).model_dump(mode="json")
+                    project_plan_revision_in_connection(conn, current).model_dump(
+                        mode="json"
+                    )
                     if current
                     else None
                 )
             elif operation == "work_package":
-                value = project_work_package_in_connection(conn, request.work_package_id)
+                value = project_work_package_in_connection(
+                    conn, request.work_package_id
+                )
                 if value.mission_id != request.mission_id:
                     raise CompanyGatewayError(
                         "WorkPackage does not belong to the asserted Mission"
@@ -406,7 +412,9 @@ def company_query_gateway(config: AppConfig, request: Any) -> dict[str, Any]:
                     raise CompanyGatewayError(
                         "exact AcceptanceCommit identity is unavailable"
                     )
-                data = AcceptanceCommit.model_validate(dict(row)).model_dump(mode="json")
+                data = AcceptanceCommit.model_validate(dict(row)).model_dump(
+                    mode="json"
+                )
             elif operation == "reconciliation_receipt":
                 row = conn.execute(
                     "SELECT receipt.* FROM kernel_reconciliation_receipts receipt "
@@ -427,7 +435,9 @@ def company_query_gateway(config: AppConfig, request: Any) -> dict[str, Any]:
                     mode="json"
                 )
             else:  # pragma: no cover - discriminated public schema is closed
-                raise CompanyGatewayError(f"unsupported company_query operation: {operation}")
+                raise CompanyGatewayError(
+                    f"unsupported company_query operation: {operation}"
+                )
             payload = {
                 "ok": True,
                 "operation": operation,
@@ -560,34 +570,11 @@ def company_action_gateway(
             if view == "full":
                 data["edge_ids"] = list(result.edge_ids)
         elif operation == "reserve_attempt":
-            if not config.reasoning.enabled:
-                raise CompanyGatewayError(
-                    "reserve_attempt is unavailable because owner-controlled reasoning is disabled"
-                )
             _require_public_attempt_authority(config, request)
-            internal_payload = {
-                key: value
-                for key, value in payload.items()
-                if key
-                not in {
-                    "company_id",
-                    "project_id",
-                    "resource_id",
-                    "scope_generation",
-                    "executive_authority_ref",
-                }
-            }
-            result = admit_reasoning_work_package(
-                task_manager_factory(),
-                AdmissionRequestV1.model_validate(internal_payload),
+            raise CompanyGatewayError(
+                "reserve_attempt remains frozen pending explicit owner activation of "
+                "the corrected provider-neutral canonical Task admission route"
             )
-            data = _compact_admission(result)
-            if view == "full":
-                data["task_start"] = result.task_start
-                data["proof_refs"] = [
-                    item.model_dump(mode="json") for item in result.proof_refs
-                ]
-                data["proof_refs_truncated"] = False
         elif operation == "accept_outcome":
             _require_trusted_executive(config, request.acceptance_authority_ref)
             result = accept_outcome(
@@ -609,7 +596,9 @@ def company_action_gateway(
                 "receipt": result.receipt.model_dump(mode="json"),
             }
         else:  # pragma: no cover - discriminated public schema is closed
-            raise CompanyGatewayError(f"unsupported company_action operation: {operation}")
+            raise CompanyGatewayError(
+                f"unsupported company_action operation: {operation}"
+            )
         return _finalize(
             {"ok": True, "operation": operation, "result": data},
             operation=operation,

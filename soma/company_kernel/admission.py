@@ -9,6 +9,7 @@ transaction. It is not a scheduler loop.
 from __future__ import annotations
 
 import json
+from base64 import b64decode
 from datetime import datetime, timezone
 from typing import Any, Final, Mapping, Sequence
 
@@ -37,18 +38,26 @@ from soma.company_kernel.dependencies import (
 )
 from soma.reasoning.backends import reasoning_spec_hash, reasoning_spec_ref
 from soma.reasoning.models import ReasoningHashedReferenceV1, ReasoningSpecV1
+from soma.tasks.backends import DurableCommandSpec
 from soma.tasks.models import (
     BackendKind,
-    REASONING_EXECUTOR,
     TaskKind,
     make_task_id,
-    normalize_reasoning_request,
+    normalize_scoped_durable_command_request,
     normalized_request_hash,
+    run_input_reference,
+)
+
+from .task_routes import (
+    CompanyTaskRequestV1,
+    DurableCommandTaskRequestV1,
+    ReasoningTaskRequestV1,
 )
 
 
 MAX_ADMISSION_BATCH: Final[int] = 8
-ATTEMPT_ROUTE_SCHEMA: Final[str] = "work_package_attempt_route.v1"
+LEGACY_ATTEMPT_ROUTE_SCHEMA: Final[str] = "work_package_attempt_route.v1"
+ATTEMPT_ROUTE_SCHEMA: Final[str] = "work_package_attempt_route.v2"
 
 
 class AdmissionError(ValueError):
@@ -63,6 +72,11 @@ class _FrozenAdmissionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class AdmissionHashedReferenceV1(_FrozenAdmissionModel):
+    ref: str = Field(min_length=1, max_length=2048)
+    hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class AdmissionRequestV1(_FrozenAdmissionModel):
     mission_id: str
     work_package_id: str
@@ -70,7 +84,7 @@ class AdmissionRequestV1(_FrozenAdmissionModel):
     expected_plan_revision_id: str | None = None
     expected_plan_state_version: int | None = Field(default=None, ge=0)
     repo_name: str = Field(min_length=1, max_length=128)
-    reasoning_spec: ReasoningSpecV1
+    task_request: CompanyTaskRequestV1
     supersedes_attempt_id: str | None = None
     evidence_candidates: Mapping[str, EvidenceAvailableCandidateV1] = Field(
         default_factory=dict
@@ -87,7 +101,7 @@ class AdmissionResultV1(_FrozenAdmissionModel):
     attempt_id: str
     attempt_hash: str
     task_id: str
-    proof_refs: tuple[ReasoningHashedReferenceV1, ...]
+    proof_refs: tuple[AdmissionHashedReferenceV1, ...]
     created: bool
     task_start: dict[str, Any]
 
@@ -127,7 +141,9 @@ def _existing_controller_attempt(conn, controller_request_id: str):
     return rows[0] if rows else None
 
 
-def _proof_refs_from_route(conn, route_descriptor: Mapping[str, Any]):
+def _proof_refs_from_route(
+    conn, route_descriptor: Mapping[str, Any]
+) -> tuple[AdmissionHashedReferenceV1, ...]:
     raw_refs = route_descriptor.get("dependency_proof_refs", [])
     if not isinstance(raw_refs, list):
         raise AdmissionError(
@@ -135,7 +151,7 @@ def _proof_refs_from_route(conn, route_descriptor: Mapping[str, Any]):
         )
     refs = tuple(
         sorted(
-            (ReasoningHashedReferenceV1.model_validate(item) for item in raw_refs),
+            (AdmissionHashedReferenceV1.model_validate(item) for item in raw_refs),
             key=lambda item: (item.ref, item.hash),
         )
     )
@@ -161,11 +177,113 @@ def _proof_refs_from_route(conn, route_descriptor: Mapping[str, Any]):
     return refs
 
 
+def _reasoning_proof_refs(
+    proof_refs: tuple[AdmissionHashedReferenceV1, ...],
+) -> tuple[ReasoningHashedReferenceV1, ...]:
+    return tuple(
+        ReasoningHashedReferenceV1(ref=item.ref, hash=item.hash) for item in proof_refs
+    )
+
+
+def _prepare_task_route(
+    request: AdmissionRequestV1,
+    *,
+    target,
+    binding,
+    effective_repo_name: str,
+    proof_refs: tuple[AdmissionHashedReferenceV1, ...],
+) -> tuple[dict[str, Any], DurableCommandSpec | ReasoningSpecV1]:
+    task_request = request.task_request
+    if isinstance(task_request, DurableCommandTaskRequestV1):
+        normalized = normalize_scoped_durable_command_request(
+            project_id=binding.project_id,
+            resource_id=binding.resource_id,
+            repo_name=effective_repo_name,
+            profile_id=task_request.profile_id,
+            argv=list(task_request.argv),
+            working_directory=task_request.working_directory,
+            environment=dict(task_request.environment),
+            stdin_text=task_request.stdin_text,
+            stdin_base64=task_request.stdin_base64,
+            timeout_seconds=task_request.timeout_seconds,
+            parent_task_id=task_request.parent_task_id,
+        )
+        route = {
+            "task_kind": TaskKind.DURABLE_COMMAND.value,
+            "backend_kind": BackendKind.SOMA_DURABLE_RUN.value,
+            "request_hash": normalized_request_hash(normalized),
+        }
+        launch_spec = DurableCommandSpec(
+            repo_name=effective_repo_name,
+            profile_id=task_request.profile_id,
+            argv=list(task_request.argv),
+            working_directory=task_request.working_directory,
+            environment=dict(task_request.environment),
+            stdin_text=task_request.stdin_text,
+            stdin_bytes=(
+                b64decode(task_request.stdin_base64, validate=True)
+                if task_request.stdin_base64 is not None
+                else None
+            ),
+            timeout_seconds=task_request.timeout_seconds,
+        )
+        return route, launch_spec
+
+    if isinstance(task_request, ReasoningTaskRequestV1):
+        final_spec = task_request.reasoning_spec.model_copy(
+            update={
+                "assignment_ref": f"work-package:{request.work_package_id}",
+                "assignment_hash": str(target["contract_hash"]),
+                "dependency_proof_refs": _reasoning_proof_refs(proof_refs),
+            }
+        )
+        spec_ref = reasoning_spec_ref(final_spec)
+        spec_hash = reasoning_spec_hash(final_spec)
+        route = {
+            "task_kind": TaskKind.REASONING.value,
+            "backend_kind": BackendKind.SOMA_REASONING.value,
+            "request_hash": normalized_request_hash(
+                {
+                    "task_kind": TaskKind.REASONING.value,
+                    "backend_kind": BackendKind.SOMA_REASONING.value,
+                    "reasoning_spec_ref": spec_ref,
+                    "reasoning_spec_hash": spec_hash,
+                    "parent_task_id": task_request.parent_task_id,
+                }
+            ),
+            "reasoning_spec": {"ref": spec_ref, "hash": spec_hash},
+        }
+        return route, final_spec
+
+    raise AdmissionError("unsupported Company canonical Task request")
+
+
+def _company_task_request_hash(
+    *,
+    attempt_id: str,
+    attempt_hash: str,
+    task_route: Mapping[str, Any],
+    proof_refs: tuple[AdmissionHashedReferenceV1, ...],
+) -> str:
+    return normalized_request_hash(
+        {
+            "hash_domain": "soma.company.work_package_task_request.v1",
+            "work_package_attempt_ref": attempt_id,
+            "work_package_attempt_hash": attempt_hash,
+            "task_route": dict(task_route),
+            "dependency_proof_refs": [
+                {"ref": item.ref, "hash": item.hash} for item in proof_refs
+            ],
+        }
+    )
+
+
 def _replay_existing_attempt(
     task_manager,
     request: AdmissionRequestV1,
     *,
     binding,
+    effective_repo_name: str,
     existing_attempt,
 ) -> AdmissionResultV1:
     if str(existing_attempt["work_package_id"]) != request.work_package_id:
@@ -191,21 +309,26 @@ def _replay_existing_attempt(
     finally:
         conn.close()
 
-    final_spec = request.reasoning_spec.model_copy(
-        update={
-            "assignment_ref": f"work-package:{request.work_package_id}",
-            "assignment_hash": str(target["contract_hash"]),
-            "dependency_proof_refs": proof_refs,
-        }
-    )
-    stored_spec = route_descriptor.get("reasoning_spec")
-    expected_spec = {
-        "ref": reasoning_spec_ref(final_spec),
-        "hash": reasoning_spec_hash(final_spec),
-    }
-    if stored_spec != expected_spec:
+    route_schema = str(route_descriptor.get("schema") or "")
+    if route_schema == LEGACY_ATTEMPT_ROUTE_SCHEMA:
         raise AdmissionError(
-            "controller replay reasoning assignment differs from the frozen WorkPackageAttempt"
+            "legacy reasoning-coupled WorkPackageAttempt route v1 is frozen and non-replayable"
+        )
+    if route_schema != ATTEMPT_ROUTE_SCHEMA:
+        raise AdmissionError(
+            f"unsupported WorkPackageAttempt route schema: {route_schema}"
+        )
+
+    expected_task_route, launch_spec = _prepare_task_route(
+        request,
+        target=target,
+        binding=binding,
+        effective_repo_name=effective_repo_name,
+        proof_refs=proof_refs,
+    )
+    if route_descriptor.get("task_route") != expected_task_route:
+        raise AdmissionError(
+            "controller replay canonical Task route differs from the frozen WorkPackageAttempt"
         )
     stored_scope = route_descriptor.get("project_scope")
     if stored_scope != {
@@ -243,13 +366,31 @@ def _replay_existing_attempt(
             "controller replay does not match the frozen WorkPackageAttempt identity"
         )
     task_id = str(existing_attempt["task_id"])
-    task_start = task_manager.start_reasoning_task(
-        controller_request_id=request.controller_request_id,
-        repo_name=request.repo_name,
+    expected_task_hash = _company_task_request_hash(
+        attempt_id=attempt_id,
+        attempt_hash=attempt_hash,
+        task_route=expected_task_route,
+        proof_refs=proof_refs,
+    )
+    try:
+        task = task_manager.store.get_task(task_id)
+    except KeyError as exc:
+        raise AdmissionError(
+            "replayed WorkPackageAttempt canonical Task is missing"
+        ) from exc
+    if (
+        task.request_hash != expected_task_hash
+        or task.task_kind.value != str(expected_task_route["task_kind"])
+        or task.backend_kind.value != str(expected_task_route["backend_kind"])
+    ):
+        raise AdmissionError(
+            "replayed canonical Task differs from the frozen WorkPackageAttempt route"
+        )
+    task_start = task_manager.start_reserved_task(
+        task_id=task_id,
         project_id=binding.project_id,
-        spec=final_spec,
-        work_package_attempt_ref=attempt_id,
-        work_package_attempt_hash=attempt_hash,
+        expected_request_hash=expected_task_hash,
+        launch_spec=launch_spec,
     )
     return AdmissionResultV1(
         mission_id=request.mission_id,
@@ -519,17 +660,14 @@ def _evaluate_and_persist_proofs(
     return tuple(persisted)
 
 
-def admit_reasoning_work_package(
+def admit_work_package(
     task_manager,
     request: AdmissionRequestV1,
     *,
     _after_commit_hook=None,
 ) -> AdmissionResultV1:
-    """Admit one current-plan reasoning WorkPackageAttempt, then start outside tx."""
+    """Admit one current-plan WorkPackageAttempt with one exact canonical Task route."""
 
-    backend = task_manager._reasoning_backend
-    if backend is None:
-        raise AdmissionError("reasoning backend is not configured")
     observed_at = _utc_now()
 
     # Resolve ProjectScope from the immutable target WorkPackage identity.
@@ -557,16 +695,24 @@ def admit_reasoning_work_package(
             task_manager,
             request,
             binding=binding,
+            effective_repo_name=effective_repo_name,
             existing_attempt=existing_attempt,
         )
 
-    backend_ref = None
+    selected_backend_kind = BackendKind(request.task_request.backend_kind)
+    selected_backend = task_manager._backend_for_kind(selected_backend_kind)
+    if selected_backend is None:
+        raise AdmissionError(
+            "selected canonical Task backend is not configured: "
+            f"{selected_backend_kind.value}"
+        )
+
     task_id = None
-    created = False
-    final_spec = request.reasoning_spec
     attempt_id = ""
     attempt_hash = ""
-    proof_refs: tuple[ReasoningHashedReferenceV1, ...] = ()
+    task_request_hash = ""
+    launch_spec: DurableCommandSpec | ReasoningSpecV1 | None = None
+    proof_refs: tuple[AdmissionHashedReferenceV1, ...] = ()
 
     conn = task_manager.store.connect()
     try:
@@ -622,7 +768,7 @@ def admit_reasoning_work_package(
         proof_refs = tuple(
             sorted(
                 (
-                    ReasoningHashedReferenceV1(
+                    AdmissionHashedReferenceV1(
                         ref=f"dependency-proof:{item.proof_id}",
                         hash=item.proof.proof_hash,
                     )
@@ -631,15 +777,13 @@ def admit_reasoning_work_package(
                 key=lambda item: (item.ref, item.hash),
             )
         )
-        final_spec = request.reasoning_spec.model_copy(
-            update={
-                "assignment_ref": f"work-package:{request.work_package_id}",
-                "assignment_hash": str(target["contract_hash"]),
-                "dependency_proof_refs": proof_refs,
-            }
+        task_route, launch_spec = _prepare_task_route(
+            request,
+            target=target,
+            binding=binding,
+            effective_repo_name=effective_repo_name,
+            proof_refs=proof_refs,
         )
-        spec_ref = reasoning_spec_ref(final_spec)
-        spec_hash = reasoning_spec_hash(final_spec)
         route_descriptor = {
             "schema": ATTEMPT_ROUTE_SCHEMA,
             "work_package_id": request.work_package_id,
@@ -649,7 +793,7 @@ def admit_reasoning_work_package(
                 "resource_id": binding.resource_id,
                 "scope_generation": binding.scope_generation,
             },
-            "reasoning_spec": {"ref": spec_ref, "hash": spec_hash},
+            "task_route": task_route,
             "dependency_proof_refs": [
                 {"ref": item.ref, "hash": item.hash} for item in proof_refs
             ],
@@ -671,52 +815,73 @@ def admit_reasoning_work_package(
             raise AdmissionError(
                 "identical WorkPackageAttempt already exists under a different controller request"
             )
+
+        backend_kind = BackendKind(str(task_route["backend_kind"]))
+        if backend_kind is not selected_backend_kind:
+            raise AdmissionError("prepared canonical Task route changed backend kind")
+        backend = selected_backend
         backend_ref = backend.reserve()
         task_id = make_task_id()
-        normalized = normalize_reasoning_request(
-            reasoning_spec_ref=spec_ref,
-            reasoning_spec_hash=spec_hash,
-            project_id=binding.project_id,
-            resource_id=binding.resource_id,
-            scope_generation=binding.scope_generation,
-            work_package_attempt_ref=attempt_id,
-            work_package_attempt_hash=attempt_hash,
-            dependency_proof_refs=[
-                {"ref": item.ref, "hash": item.hash} for item in proof_refs
-            ],
+        task_request_hash = _company_task_request_hash(
+            attempt_id=attempt_id,
+            attempt_hash=attempt_hash,
+            task_route=task_route,
+            proof_refs=proof_refs,
         )
-        task_request_hash = normalized_request_hash(normalized)
+        parent_task_id = request.task_request.parent_task_id
         task_manager.scope_store.reserve_task_attempt(
             conn,
             binding=binding,
             task_id=task_id,
             run_id=backend_ref,
-            parent_task_id="",
+            parent_task_id=parent_task_id,
         )
+
+        backend_identity: dict[str, Any] = {
+            "engine": backend_kind.value,
+            "work_package_attempt_ref": attempt_id,
+            "work_package_attempt_hash": attempt_hash,
+            "project_id": binding.project_id,
+            "resource_id": binding.resource_id,
+            "scope_generation": binding.scope_generation,
+        }
+        if isinstance(request.task_request, DurableCommandTaskRequestV1):
+            backend_identity.update(
+                {
+                    "run_tool": backend.executor,
+                    "repo_name": effective_repo_name,
+                    "profile_id": request.task_request.profile_id,
+                }
+            )
+            objective_ref = run_input_reference(backend_ref)
+            constraints_ref = run_input_reference(backend_ref)
+        else:
+            assert isinstance(launch_spec, ReasoningSpecV1)
+            reasoning_identity = task_route.get("reasoning_spec") or {}
+            backend_identity.update(
+                {
+                    "reasoning_spec_ref": str(reasoning_identity.get("ref") or ""),
+                    "reasoning_spec_hash": str(reasoning_identity.get("hash") or ""),
+                }
+            )
+            objective_ref = launch_spec.assignment_ref
+            constraints_ref = launch_spec.authority_ref
+
         task_manager.store.reserve_task_in_connection(
             conn,
             task_id=task_id,
-            task_kind=TaskKind.REASONING.value,
+            task_kind=str(task_route["task_kind"]),
             controller_request_id=request.controller_request_id,
             request_hash=task_request_hash,
-            backend_kind=BackendKind.SOMA_REASONING.value,
-            backend_executor=REASONING_EXECUTOR,
+            backend_kind=backend_kind.value,
+            backend_executor=backend.executor,
             backend_ref=backend_ref,
-            backend_identity={
-                "engine": BackendKind.SOMA_REASONING.value,
-                "reasoning_spec_ref": spec_ref,
-                "reasoning_spec_hash": spec_hash,
-                "work_package_attempt_ref": attempt_id,
-                "work_package_attempt_hash": attempt_hash,
-                "project_id": binding.project_id,
-                "resource_id": binding.resource_id,
-                "scope_generation": binding.scope_generation,
-            },
-            objective_ref=final_spec.assignment_ref,
-            constraints_ref=final_spec.authority_ref,
+            backend_identity=backend_identity,
+            objective_ref=objective_ref,
+            constraints_ref=constraints_ref,
             workspace_kind="repository",
             workspace_ref=effective_repo_name,
-            parent_task_id="",
+            parent_task_id=parent_task_id,
         )
         task_manager.scope_store.attach_task(conn, task_id)
         conn.execute(
@@ -743,7 +908,6 @@ def admit_reasoning_work_package(
             ),
         )
         conn.commit()
-        created = True
     except BaseException:
         if conn.in_transaction:
             conn.rollback()
@@ -751,19 +915,17 @@ def admit_reasoning_work_package(
     finally:
         conn.close()
 
-    if task_id is None:
-        raise AdmissionError("admission did not resolve a canonical Task identity")
+    if task_id is None or launch_spec is None:
+        raise AdmissionError("admission did not resolve a canonical Task route")
     if _after_commit_hook is not None:
         _after_commit_hook(attempt_id, task_id)
 
-    # Provider/backend start occurs only after the bounded reservation transaction.
-    task_start = task_manager.start_reasoning_task(
-        controller_request_id=request.controller_request_id,
-        repo_name=request.repo_name,
+    # TaskManager, not Company, owns backend launch after the shared reservation commits.
+    task_start = task_manager.start_reserved_task(
+        task_id=task_id,
         project_id=binding.project_id,
-        spec=final_spec,
-        work_package_attempt_ref=attempt_id,
-        work_package_attempt_hash=attempt_hash,
+        expected_request_hash=task_request_hash,
+        launch_spec=launch_spec,
     )
     return AdmissionResultV1(
         mission_id=request.mission_id,
@@ -773,12 +935,12 @@ def admit_reasoning_work_package(
         attempt_hash=attempt_hash,
         task_id=task_id,
         proof_refs=proof_refs,
-        created=created,
+        created=True,
         task_start=task_start,
     )
 
 
-def admit_reasoning_batch(
+def admit_work_package_batch(
     task_manager,
     requests: Sequence[AdmissionRequestV1],
     *,
@@ -798,6 +960,4 @@ def admit_reasoning_batch(
             item.controller_request_id,
         ),
     )
-    return tuple(
-        admit_reasoning_work_package(task_manager, request) for request in ordered
-    )
+    return tuple(admit_work_package(task_manager, request) for request in ordered)

@@ -23,15 +23,15 @@ from soma.company_kernel.dependencies import (
     PublishedSuccessCandidateV1,
 )
 from soma.company_kernel.models import validate_kernel_id, validate_opaque
-from soma.reasoning.models import ReasoningSpecV1
 
 from .admission import (
     AdmissionError,
     AdmissionNotReady,
     AdmissionRequestV1,
     AdmissionResultV1,
-    admit_reasoning_work_package,
+    admit_work_package,
 )
+from .task_routes import CompanyTaskRequestV1
 
 
 MAX_COORDINATOR_PACKAGES = 32
@@ -42,10 +42,10 @@ class _FrozenCoordinatorModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class PreparedReasoningAdmissionV1(_FrozenCoordinatorModel):
+class PreparedTaskAdmissionV1(_FrozenCoordinatorModel):
     work_package_id: str
     repo_name: str = Field(min_length=1, max_length=128)
-    reasoning_spec: ReasoningSpecV1
+    task_request: CompanyTaskRequestV1
     supersedes_attempt_id: str | None = None
     evidence_candidates: Mapping[str, EvidenceAvailableCandidateV1] = Field(
         default_factory=dict
@@ -69,7 +69,7 @@ class AdmitReadyWorkRequestV1(_FrozenCoordinatorModel):
     controller_request_id: str = Field(min_length=1, max_length=128)
     max_new_attempts: int = Field(ge=0, le=MAX_COORDINATOR_PACKAGES)
     canonical_concurrency_limit: Literal[1, 2, 4, 8]
-    prepared_admissions: tuple[PreparedReasoningAdmissionV1, ...] = Field(
+    prepared_admissions: tuple[PreparedTaskAdmissionV1, ...] = Field(
         default=(), max_length=MAX_COORDINATOR_PACKAGES
     )
 
@@ -111,7 +111,7 @@ class AdmitReadyWorkResultV1(_FrozenCoordinatorModel):
 
 
 class _PreparedRow:
-    def __init__(self, package_key: str, prepared: PreparedReasoningAdmissionV1):
+    def __init__(self, package_key: str, prepared: PreparedTaskAdmissionV1):
         self.package_key = package_key
         self.prepared = prepared
 
@@ -173,7 +173,7 @@ def _existing_package_controller_attempt(conn, controller_request_id: str):
 
 def _admission_request(
     request: AdmitReadyWorkRequestV1,
-    prepared: PreparedReasoningAdmissionV1,
+    prepared: PreparedTaskAdmissionV1,
 ) -> AdmissionRequestV1:
     return AdmissionRequestV1(
         mission_id=request.mission_id,
@@ -185,7 +185,7 @@ def _admission_request(
         expected_plan_revision_id=request.expected_plan_revision_id,
         expected_plan_state_version=request.expected_plan_state_version,
         repo_name=prepared.repo_name,
-        reasoning_spec=prepared.reasoning_spec,
+        task_request=prepared.task_request,
         supersedes_attempt_id=prepared.supersedes_attempt_id,
         evidence_candidates=prepared.evidence_candidates,
         published_success_candidates=prepared.published_success_candidates,
@@ -246,7 +246,7 @@ def admit_ready_work(
         prepared = item.prepared
         package_request = _admission_request(request, prepared)
         if existing_by_package[prepared.work_package_id]:
-            replayed.append(admit_reasoning_work_package(task_manager, package_request))
+            replayed.append(admit_work_package(task_manager, package_request))
             continue
         if len(admitted) >= new_limit:
             deferred.append(
@@ -259,7 +259,7 @@ def admit_ready_work(
             )
             continue
         try:
-            result = admit_reasoning_work_package(task_manager, package_request)
+            result = admit_work_package(task_manager, package_request)
         except AdmissionNotReady as exc:
             deferred.append(
                 CoordinatorDeferredV1(

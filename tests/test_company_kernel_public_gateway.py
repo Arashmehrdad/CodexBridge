@@ -385,70 +385,23 @@ def test_scoped_queries_reject_wrong_project_or_repository(tmp_path: Path) -> No
     assert "repo" in wrong_repo["error"].lower()
 
 
-def test_reserve_attempt_refuses_before_task_manager_when_reasoning_is_disabled(
+@pytest.mark.parametrize("reasoning_enabled", [False, True])
+def test_public_reserve_attempt_stays_frozen_independent_of_reasoning_provider(
     tmp_path: Path,
-) -> None:
-    config, _repo, _store = _prepared(tmp_path)
-    called = False
-
-    def task_manager_factory():
-        nonlocal called
-        called = True
-        raise AssertionError("TaskManager must not be constructed")
-
-    request = ACTION_ADAPTER.validate_python(
-        {
-            "operation": "reserve_attempt",
-            "company_id": "company_" + "1" * 24,
-            "mission_id": "mission_" + "2" * 24,
-            "work_package_id": "workpkg_" + "3" * 24,
-            "project_id": PROJECT_ID,
-            "resource_id": RESOURCE_ID,
-            "scope_generation": 1,
-            "executive_authority_ref": OWNER,
-            "controller_request_id": "public-attempt-disabled",
-            "repo_name": "sample",
-            "reasoning_spec": _reasoning_spec().model_dump(mode="json"),
-        }
-    )
-    result = company_action_gateway(
-        config,
-        request,
-        task_manager_factory=task_manager_factory,
-    )
-    assert result["ok"] is False
-    assert "reasoning is disabled" in result["error"]
-    assert called is False
-
-
-def test_enabled_public_reserve_attempt_strips_gateway_only_authority_fields_before_delegation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    reasoning_enabled: bool,
 ) -> None:
     config, _repo, _store = _prepared(tmp_path)
     bootstrap = _bootstrap(config)
     company_id = bootstrap["result"]["company"]["company_id"]
     mission_id = bootstrap["result"]["mission"]["mission_id"]
-    config.reasoning.enabled = True
-    captured: dict[str, Any] = {}
-    manager = object()
+    config.reasoning.enabled = reasoning_enabled
+    called = False
 
-    def fake_admit(observed_manager: object, request: object):
-        captured["manager"] = observed_manager
-        captured["request"] = request
-        return SimpleNamespace(
-            mission_id=mission_id,
-            plan_revision_id="planrev_" + "8" * 24,
-            work_package_id="workpkg_" + "9" * 24,
-            attempt_id="wpattempt_" + "a" * 24,
-            attempt_hash="b" * 64,
-            task_id="task-public-company",
-            proof_refs=(),
-            created=True,
-            task_start={"status": "accepted"},
-        )
+    def task_manager_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("frozen reserve_attempt must not construct TaskManager")
 
-    monkeypatch.setattr(company_gateway, "admit_reasoning_work_package", fake_admit)
     request = ACTION_ADAPTER.validate_python(
         {
             "operation": "reserve_attempt",
@@ -459,7 +412,7 @@ def test_enabled_public_reserve_attempt_strips_gateway_only_authority_fields_bef
             "resource_id": RESOURCE_ID,
             "scope_generation": 1,
             "executive_authority_ref": OWNER,
-            "controller_request_id": "public-attempt-enabled",
+            "controller_request_id": f"public-attempt-frozen-{reasoning_enabled}",
             "repo_name": "sample",
             "reasoning_spec": _reasoning_spec().model_dump(mode="json"),
         }
@@ -467,19 +420,14 @@ def test_enabled_public_reserve_attempt_strips_gateway_only_authority_fields_bef
     result = company_action_gateway(
         config,
         request,
-        task_manager_factory=lambda: manager,
+        task_manager_factory=task_manager_factory,
     )
 
-    assert result["ok"] is True
-    assert captured["manager"] is manager
-    delegated = captured["request"].model_dump(mode="python")
-    assert delegated["mission_id"] == mission_id
-    assert delegated["work_package_id"] == request.work_package_id
-    assert delegated["repo_name"] == "sample"
-    assert "company_id" not in delegated
-    assert "project_id" not in delegated
-    assert "resource_id" not in delegated
-    assert "executive_authority_ref" not in delegated
+    assert result["ok"] is False
+    assert "remains frozen" in result["error"]
+    assert "provider-neutral canonical Task admission route" in result["error"]
+    assert "reasoning is disabled" not in result["error"]
+    assert called is False
 
 
 def test_accept_outcome_public_boundary_delegates_exact_internal_request(
