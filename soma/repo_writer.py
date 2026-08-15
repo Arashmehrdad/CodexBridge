@@ -138,6 +138,9 @@ def _resolve_and_validate_write(repo_root: Path, relative_path: str) -> Path:
     additional write-blocked extensions and names.
     """
     absolute = _resolve_and_validate(repo_root, relative_path)
+    lexical_path = repo_root / relative_path
+    if lexical_path.is_symlink():
+        raise ValueError(f"Symlinks are not allowed: {relative_path}")
     name_lower = Path(relative_path).name.lower()
     suffix_lower = Path(relative_path).suffix.lower()
 
