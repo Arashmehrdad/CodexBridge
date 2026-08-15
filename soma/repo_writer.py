@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from .repo_candidate_validation import (
     CandidateValidationBudget,
+    validate_json_candidate,
     validate_python_candidate,
 )
 from .repo_patch_repair import (
@@ -1349,8 +1350,16 @@ def _validate_operations(
         candidate_bytes = new_content.encode("utf-8")
         changed_bytes = abs(len(candidate_bytes) - len(state["current_bytes"]))
         candidate_validation = None
-        if Path(path_str).suffix.lower() == ".py":
+        candidate_suffix = Path(path_str).suffix.lower()
+        if candidate_suffix == ".py":
             candidate_validation = validate_python_candidate(
+                path=path_str,
+                baseline_bytes=state["current_bytes"],
+                candidate_bytes=candidate_bytes,
+                budget=candidate_validation_budget,
+            ).model_dump(mode="json")
+        elif candidate_suffix == ".json":
+            candidate_validation = validate_json_candidate(
                 path=path_str,
                 baseline_bytes=state["current_bytes"],
                 candidate_bytes=candidate_bytes,
@@ -1367,7 +1376,10 @@ def _validate_operations(
         ).model_dump(mode="json")
         repair_proposal = None
         repair_payload_bytes = None
-        if candidate_validation is not None:
+        if (
+            candidate_validation is not None
+            and candidate_validation.get("language") == "python"
+        ):
             proposal_model, repaired_bytes = build_patch_repair_proposal(
                 path=path_str,
                 candidate_bytes=candidate_bytes,
@@ -1568,9 +1580,17 @@ def preview_repo_file_creation(
     validation_errors: list[str] = []
     diff_text = ""
     size_bytes = 0
+    candidate_validation = None
 
     try:
         _, size_bytes = _validate_create_target(repo_root, path, content)
+        candidate_bytes = content.encode("utf-8")
+        if Path(path).suffix.lower() == ".json":
+            candidate_validation = validate_json_candidate(
+                path=path,
+                baseline_bytes=None,
+                candidate_bytes=candidate_bytes,
+            ).model_dump(mode="json")
         diff_text = _unified_diff_for_op("", content, path)
         changed_lines = _count_changed_lines(diff_text)
         bundle_operations = [
@@ -1579,6 +1599,7 @@ def preview_repo_file_creation(
                 "path": path,
                 "current_sha256": "",
                 "payload_text": content,
+                "candidate_validation": candidate_validation,
                 "changed_lines": changed_lines,
                 "changed_bytes": size_bytes,
             }
@@ -1602,6 +1623,9 @@ def preview_repo_file_creation(
 
     return {
         "ok": not bool(validation_errors),
+        "candidate_validation_status": _candidate_validation_status(
+            bundle_operations if not validation_errors else []
+        ),
         "patch_id": patch_id,
         "repo_name": "",
         "diff": diff_text,
