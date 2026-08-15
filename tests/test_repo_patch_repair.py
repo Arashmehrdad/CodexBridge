@@ -5,12 +5,15 @@ import random
 
 import pytest
 
+from soma.repo_candidate_validation import validate_python_candidate
 from soma.repo_patch_repair import (
     AUTHORED_SPAN_SCHEMA_VERSION,
     TRAILING_COMMIT_TITLE_RULE_ID,
     TRAILING_VIEW_RULE_ID,
+    PATCH_REPAIR_PROPOSAL_SCHEMA_VERSION,
     TransportLeakCandidateV1,
     apply_transport_deletion,
+    build_patch_repair_proposal,
     canonical_direct_repair_primitive,
     derive_authored_span_provenance,
     detect_transport_leak_candidates,
@@ -402,3 +405,134 @@ def test_fixed_seed_adversarial_corpus_is_deterministic_and_bounded() -> None:
             rejected += 1
 
     assert (accepted, rejected) == (32, 32)
+
+
+def _proposal_inputs(baseline: bytes, candidate: bytes):
+    validation = validate_python_candidate(
+        path="proposal.py",
+        baseline_bytes=baseline,
+        candidate_bytes=candidate,
+    )
+    provenance = derive_authored_span_provenance(
+        baseline_bytes=baseline,
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=1,
+    )
+    return validation, provenance
+
+
+def test_incident_b_builds_one_deterministic_repair_proposal() -> None:
+    baseline = b'assert ready == "ok"\nnext_call()\n'
+    cut = baseline.index(b"\n")
+    candidate = baseline[:cut] + LEAK + baseline[cut:]
+    validation, provenance = _proposal_inputs(baseline, candidate)
+
+    first, repaired = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:00Z",
+    )
+    replay, replay_bytes = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:01Z",
+    )
+
+    assert first is not None
+    assert replay is not None
+    assert repaired == baseline
+    assert replay_bytes == baseline
+    assert first.schema_version == PATCH_REPAIR_PROPOSAL_SCHEMA_VERSION
+    assert first.proposal_id == replay.proposal_id
+    assert first.rule_id == TRAILING_VIEW_RULE_ID
+    assert first.logical_line_gate.passed is True
+    assert first.python_validation_before.candidate_disposition == "invalid"
+    assert first.python_validation_after.candidate_disposition == "valid"
+    assert first.repaired_payload_descriptor.sha256 == hashlib.sha256(baseline).hexdigest()
+    assert first.repaired_payload_descriptor.size_bytes == len(baseline)
+
+
+def test_incident_a_does_not_build_repair_proposal_even_when_deletion_compiles() -> None:
+    baseline = b'items = [\n    "WorkPackage",\n    "Next",\n]\n'
+    start = baseline.index(b'    "WorkPackage",')
+    bad_prefix = b'    "WorkPackage"'
+    candidate = (
+        baseline[:start]
+        + bad_prefix
+        + b'}],"commit_title":"unsafe'
+        + baseline[start + len(bad_prefix) + 1 :]
+    )
+    validation, provenance = _proposal_inputs(baseline, candidate)
+
+    proposal, repaired = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:00Z",
+    )
+
+    assert validation.regression_detected is True
+    assert proposal is None
+    assert repaired is None
+
+
+def test_multiple_plausible_transport_deletions_emit_no_proposal() -> None:
+    baseline = b"value = 1\n"
+    candidate = b'value = 1}],"view":"full }],"commit_title":"also\n'
+    validation, provenance = _proposal_inputs(baseline, candidate)
+
+    proposal, repaired = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:00Z",
+    )
+
+    assert proposal is None
+    assert repaired is None
+
+
+def test_non_regression_never_builds_proposal() -> None:
+    baseline = b"value = (\n"
+    candidate = b'value = (}],"view":"full\n'
+    validation, provenance = _proposal_inputs(baseline, candidate)
+
+    proposal, repaired = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:00Z",
+    )
+
+    assert validation.regression_detected is False
+    assert proposal is None
+    assert repaired is None
+
+
+def test_proposal_deleted_excerpt_is_bounded() -> None:
+    baseline = b'assert ready == "ok"\n'
+    cut = baseline.index(b"\n")
+    leak = b'}],"view":"' + (b"x" * 2000)
+    candidate = baseline[:cut] + leak + baseline[cut:]
+    validation, provenance = _proposal_inputs(baseline, candidate)
+
+    proposal, repaired = build_patch_repair_proposal(
+        path="proposal.py",
+        candidate_bytes=candidate,
+        candidate_validation=validation,
+        provenance=provenance,
+        created_at="2026-08-15T00:00:00Z",
+    )
+
+    assert proposal is not None
+    assert repaired == baseline
+    assert len(proposal.deleted_excerpt_bounded) == 256

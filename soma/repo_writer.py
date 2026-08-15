@@ -27,7 +27,10 @@ from .repo_candidate_validation import (
     CandidateValidationBudget,
     validate_python_candidate,
 )
-from .repo_patch_repair import derive_authored_span_provenance
+from .repo_patch_repair import (
+    build_patch_repair_proposal,
+    derive_authored_span_provenance,
+)
 from .repo_reader import (
     _is_binary,
     _resolve_and_validate,
@@ -459,6 +462,9 @@ def _write_preview_bundle(
     warnings: list[str] | None = None,
     commit_title: str = "",
     commit_description: str = "",
+    repair_proposal: dict[str, Any] | None = None,
+    repair_payload_bytes: bytes | None = None,
+    status_override: str = "",
 ) -> Path:
     patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
     patch_dir.mkdir(parents=True, exist_ok=True)
@@ -474,6 +480,30 @@ def _write_preview_bundle(
                 ".soma_payload_tmp",
             )
 
+    if (repair_proposal is None) != (repair_payload_bytes is None):
+        raise ValueError("repair proposal and payload bytes must be provided together")
+    if repair_proposal is not None and repair_payload_bytes is not None:
+        descriptor = repair_proposal.get("repaired_payload_descriptor")
+        if not isinstance(descriptor, dict):
+            raise ValueError("repair proposal is missing payload descriptor")
+        filename = str(descriptor.get("file", ""))
+        if (
+            not filename.startswith("repair_payload_")
+            or not filename.endswith(".bin")
+            or Path(filename).name != filename
+        ):
+            raise ValueError("repair proposal has invalid payload filename")
+        expected_sha = str(descriptor.get("sha256", ""))
+        if hashlib.sha256(repair_payload_bytes).hexdigest() != expected_sha:
+            raise ValueError("repair proposal payload hash mismatch")
+        if len(repair_payload_bytes) != int(descriptor.get("size_bytes", -1)):
+            raise ValueError("repair proposal payload size mismatch")
+        _atomic_write_bytes(
+            patch_dir / filename,
+            repair_payload_bytes,
+            ".soma_repair_payload_tmp",
+        )
+
     manifest = {
         "patch_id": patch_id,
         "bundle_version": 4,
@@ -481,12 +511,13 @@ def _write_preview_bundle(
         "repo_root": "",
         "repo_fingerprint": _repo_fingerprint(repo_root),
         "git_head_at_preview": git_head,
-        "status": "preview_failed" if errors else "preview_ok",
+        "status": status_override or ("preview_failed" if errors else "preview_ok"),
         "operations": [],
         "errors": errors,
         "warnings": list(warnings or []),
         "commit_title": commit_title,
         "commit_description": commit_description,
+        "repair_proposal": repair_proposal,
     }
     for index, op in enumerate(operations):
         entry = {
@@ -1264,6 +1295,19 @@ def _validate_operations(
             operation_type=str(first_validation["type"]),
             operation_count=operation_count,
         ).model_dump(mode="json")
+        repair_proposal = None
+        repair_payload_bytes = None
+        if candidate_validation is not None:
+            proposal_model, repaired_bytes = build_patch_repair_proposal(
+                path=path_str,
+                candidate_bytes=candidate_bytes,
+                candidate_validation=candidate_validation,
+                provenance=authored_span_provenance,
+                created_at=_utc_now(),
+            )
+            if proposal_model is not None and repaired_bytes is not None:
+                repair_proposal = proposal_model.model_dump(mode="json")
+                repair_payload_bytes = repaired_bytes
         total_changed_lines += changed_lines
         total_changed_bytes += changed_bytes
         validated.append(
@@ -1284,6 +1328,8 @@ def _validate_operations(
                 "validation_results": list(state["validation_results"]),
                 "candidate_validation": candidate_validation,
                 "authored_span_provenance": authored_span_provenance,
+                "repair_proposal": repair_proposal,
+                "repair_payload_bytes": repair_payload_bytes,
             }
         )
 
@@ -1336,6 +1382,7 @@ def preview_repo_patch(
     bundle_operations: list[dict[str, Any]] = []
     newline_diagnostics: list[dict[str, Any]] = []
     warnings: list[str] = []
+    proposal_candidates: list[tuple[dict[str, Any], bytes]] = []
 
     for op in validated:
         combined_diff += op["diff"]
@@ -1359,9 +1406,19 @@ def preview_repo_patch(
                 "newline_only_changed_lines": op["newline_only_changed_lines"],
                 "newline_diagnostic": op["newline_diagnostic"],
                 "candidate_validation": op.get("candidate_validation"),
+                "authored_span_provenance": op.get("authored_span_provenance"),
                 "changed_bytes": op["changed_bytes"],
             }
         )
+        proposal = op.get("repair_proposal")
+        repair_payload = op.get("repair_payload_bytes")
+        if isinstance(proposal, dict) and isinstance(repair_payload, bytes):
+            proposal_candidates.append((proposal, repair_payload))
+
+    selected_proposal: dict[str, Any] | None = None
+    selected_repair_payload: bytes | None = None
+    if len(proposal_candidates) == 1:
+        selected_proposal, selected_repair_payload = proposal_candidates[0]
 
     _write_preview_bundle(
         repo_root,
@@ -1374,6 +1431,8 @@ def preview_repo_patch(
         warnings=warnings,
         commit_title=commit_title,
         commit_description=bound_commit_description,
+        repair_proposal=selected_proposal,
+        repair_payload_bytes=selected_repair_payload,
     )
 
     return {

@@ -14,12 +14,15 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .repo_candidate_validation import CandidateValidationV1
+
 
 AUTHORED_SPAN_SCHEMA_VERSION: Final[str] = "repo_authored_span_provenance.v1"
 TRANSPORT_LEAK_SCHEMA_VERSION: Final[str] = "repo_transport_leak_candidate.v1"
 PYTHON_LOGICAL_LINE_PROOF_SCHEMA_VERSION: Final[str] = (
     "repo_python_logical_line_proof.v1"
 )
+PATCH_REPAIR_PROPOSAL_SCHEMA_VERSION: Final[str] = "repo_patch_repair_proposal.v1"
 TRAILING_COMMIT_TITLE_RULE_ID: Final[str] = (
     "repo_preview.patch.trailing_commit_title.v1"
 )
@@ -110,6 +113,48 @@ class PythonLogicalLineProofV1(_FrozenRepairModel):
     horizontal_whitespace_only: bool
     next_token_name: str | None = Field(default=None, max_length=64)
     repaired_candidate_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class PythonValidationSummaryV1(_FrozenRepairModel):
+    baseline_disposition: str = Field(min_length=1, max_length=32)
+    candidate_disposition: str = Field(min_length=1, max_length=32)
+    regression_detected: bool
+    diagnostic_code: str = Field(default="", max_length=128)
+
+
+class RepairPayloadDescriptorV1(_FrozenRepairModel):
+    file: str = Field(min_length=1, max_length=128, pattern=r"^repair_payload_[a-f0-9]{16}\.bin$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size_bytes: int = Field(ge=0)
+
+
+class PatchRepairProposalV1(_FrozenRepairModel):
+    """One deterministic deletion-only proposal; never an apply decision."""
+
+    schema_version: Literal[PATCH_REPAIR_PROPOSAL_SCHEMA_VERSION] = (
+        PATCH_REPAIR_PROPOSAL_SCHEMA_VERSION
+    )
+    proposal_id: str = Field(pattern=r"^repair_[a-f0-9]{16}$")
+    rule_id: Literal[
+        "repo_preview.patch.trailing_commit_title.v1",
+        "repo_preview.patch.trailing_view.v1",
+    ]
+    rule_version: Literal["v1"] = "v1"
+    path: str = Field(min_length=1, max_length=1024)
+    operation_index: int = Field(ge=0)
+    primitive: DirectRepairPrimitive
+    original_candidate_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    repaired_candidate_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    replacement_span_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    deletion_start_byte: int = Field(ge=0)
+    deletion_end_byte: int = Field(gt=0)
+    deleted_bytes_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    deleted_excerpt_bounded: str = Field(max_length=MAX_TRANSPORT_DELETED_EXCERPT_CHARS)
+    python_validation_before: PythonValidationSummaryV1
+    python_validation_after: PythonValidationSummaryV1
+    logical_line_gate: PythonLogicalLineProofV1
+    repaired_payload_descriptor: RepairPayloadDescriptorV1
+    created_at: str = Field(min_length=1, max_length=128)
 
 
 def canonical_direct_repair_primitive(operation_type: str) -> DirectRepairPrimitive | None:
@@ -445,3 +490,119 @@ def prove_python_logical_line_deletion(
         next_token_name=token_name,
         **base,
     )
+
+
+def _validation_summary(validation: CandidateValidationV1) -> PythonValidationSummaryV1:
+    return PythonValidationSummaryV1(
+        baseline_disposition=validation.baseline_disposition,
+        candidate_disposition=validation.candidate_disposition,
+        regression_detected=validation.regression_detected,
+        diagnostic_code=(validation.diagnostic.code if validation.diagnostic else ""),
+    )
+
+
+def build_patch_repair_proposal(
+    *,
+    path: str,
+    candidate_bytes: bytes,
+    candidate_validation: CandidateValidationV1 | dict,
+    provenance: AuthoredSpanProvenanceV1 | dict,
+    created_at: str,
+) -> tuple[PatchRepairProposalV1 | None, bytes | None]:
+    """Build at most one mechanically proven proposal for one candidate.
+
+    Any ambiguity or failed gate returns ``(None, None)``. The original invalid
+    candidate remains authoritative source-preview evidence.
+    """
+
+    try:
+        validation = (
+            candidate_validation
+            if isinstance(candidate_validation, CandidateValidationV1)
+            else CandidateValidationV1.model_validate(candidate_validation)
+        )
+        authored = (
+            provenance
+            if isinstance(provenance, AuthoredSpanProvenanceV1)
+            else AuthoredSpanProvenanceV1.model_validate(provenance)
+        )
+        if not validation.regression_detected:
+            return None, None
+        if validation.baseline_disposition != "valid":
+            return None, None
+        if validation.candidate_disposition != "invalid":
+            return None, None
+        if authored.disposition != "owned" or authored.candidate_span_sha256 is None:
+            return None, None
+
+        detections = detect_transport_leak_candidates(
+            candidate_bytes=candidate_bytes,
+            provenance=authored,
+        )
+        if len(detections) != 1:
+            return None, None
+        deletion = detections[0]
+        proof = prove_python_logical_line_deletion(
+            path=path,
+            candidate_bytes=candidate_bytes,
+            deletion=deletion,
+        )
+        if not proof.passed:
+            return None, None
+        repaired = apply_transport_deletion(candidate_bytes, deletion)
+        repaired_sha = hashlib.sha256(repaired).hexdigest()
+        if repaired_sha != proof.repaired_candidate_sha256:
+            return None, None
+
+        original_sha = hashlib.sha256(candidate_bytes).hexdigest()
+        identity = "\0".join(
+            (
+                "soma.repo_patch_repair_proposal.v1",
+                deletion.rule_id,
+                path,
+                str(deletion.operation_index),
+                deletion.primitive,
+                original_sha,
+                repaired_sha,
+                authored.candidate_span_sha256,
+                str(deletion.deletion_start_byte),
+                str(deletion.deletion_end_byte),
+                deletion.deleted_bytes_sha256,
+            )
+        ).encode("utf-8")
+        suffix = hashlib.sha256(identity).hexdigest()[:16]
+        proposal_id = f"repair_{suffix}"
+        descriptor = RepairPayloadDescriptorV1(
+            file=f"repair_payload_{suffix}.bin",
+            sha256=repaired_sha,
+            size_bytes=len(repaired),
+        )
+        before = _validation_summary(validation)
+        after = PythonValidationSummaryV1(
+            baseline_disposition=validation.baseline_disposition,
+            candidate_disposition="valid",
+            regression_detected=False,
+            diagnostic_code="",
+        )
+        proposal = PatchRepairProposalV1(
+            proposal_id=proposal_id,
+            rule_id=deletion.rule_id,
+            path=path,
+            operation_index=deletion.operation_index,
+            primitive=deletion.primitive,
+            original_candidate_sha256=original_sha,
+            repaired_candidate_sha256=repaired_sha,
+            replacement_span_hash=authored.candidate_span_sha256,
+            deletion_start_byte=deletion.deletion_start_byte,
+            deletion_end_byte=deletion.deletion_end_byte,
+            deleted_bytes_sha256=deletion.deleted_bytes_sha256,
+            deleted_excerpt_bounded=deletion.deleted_excerpt_bounded,
+            python_validation_before=before,
+            python_validation_after=after,
+            logical_line_gate=proof,
+            repaired_payload_descriptor=descriptor,
+            created_at=created_at,
+        )
+        return proposal, repaired
+    except (TypeError, ValueError):
+        return None, None
