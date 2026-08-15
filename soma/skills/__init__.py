@@ -1,5 +1,6 @@
 """Mechanical portable Agent Skills library primitives."""
 
+from .query import SkillQueryService
 from .library import (
     PackageIntegrityMismatch,
     SkillLibrary,
@@ -16,6 +17,7 @@ from .library import (
 )
 
 __all__ = [
+    "SkillQueryService",
     "PackageIntegrityMismatch",
     "SkillLibrary",
     "SkillLibraryError",

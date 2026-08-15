@@ -4,9 +4,9 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import ANNOTATION_KEYS, PUBLIC_TOOL_METADATA
 
 
-def test_public_metadata_matches_the_36_tool_inventory() -> None:
+def test_public_metadata_matches_the_37_tool_inventory() -> None:
     assert set(PUBLIC_TOOL_METADATA) == set(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_TOOL_METADATA) == 36
+    assert len(PUBLIC_TOOL_METADATA) == 37
     assert len(PUBLIC_TOOL_METADATA) == len(set(PUBLIC_TOOL_METADATA))
     assert not set(PUBLIC_TOOL_METADATA) - set(PUBLIC_GATEWAY_NAMES)
 
@@ -77,6 +77,20 @@ def test_continuation_metadata_preserves_the_no_second_brain_contract() -> None:
     }
     assert dict(action.annotations) == {
         "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+def test_skill_query_metadata_preserves_retrieval_only_authority() -> None:
+    query = PUBLIC_TOOL_METADATA["skill_query"]
+    assert "reusable Soma Skills" in query.description
+    assert "does not execute Skill scripts" in query.description
+    assert "choose a Skill" in query.description
+    assert "grant permissions" in query.description
+    assert dict(query.annotations) == {
+        "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
         "openWorldHint": False,

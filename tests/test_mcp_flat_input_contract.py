@@ -38,7 +38,7 @@ GATEWAYS_WITHOUT_REQUEST_MODEL = frozenset({"cancel_run"})
 UNION_GATEWAYS = frozenset(
     {
         "cloudflare_action", "cloudflare_query", "company_action", "company_query",
-        "continuation_action", "continuation_query",
+        "continuation_action", "continuation_query", "skill_query",
         "docker_action", "docker_query", "knowledge_action", "knowledge_query",
         "repo_apply", "repo_commit",
         "repo_preview", "repo_query", "run_query", "run_start", "ssh_action",

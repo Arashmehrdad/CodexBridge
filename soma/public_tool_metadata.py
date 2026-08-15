@@ -1,4 +1,4 @@
-"""Authoritative human-facing metadata for Soma's public 36-tool surface."""
+"""Authoritative human-facing metadata for Soma's public tool surface."""
 
 from __future__ import annotations
 
@@ -320,6 +320,21 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             invoking="Updating continuation...",
             invoked="Continuation updated",
             read_only=False,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
+        "skill_query": _record(
+            "skill_query",
+            title="Read reusable Skill",
+            description=(
+                "Use this when you need to discover or read reusable Soma Skills and their "
+                "referenced resources. It does not execute Skill scripts, choose a Skill "
+                "for you, or grant permissions described by a Skill."
+            ),
+            invoking="Reading Skill library...",
+            invoked="Skill evidence ready",
+            read_only=True,
             destructive=False,
             idempotent=True,
             open_world=False,

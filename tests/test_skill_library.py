@@ -10,6 +10,8 @@ from soma.config import SkillLibraryConfig
 from soma.skills import (
     PackageIntegrityMismatch,
     SkillLibrary,
+    SkillLibraryError,
+    SkillNotFound,
     SkillPackageInvalid,
     SkillRequestConflict,
     StaleSkillState,
@@ -452,3 +454,36 @@ def test_orphaned_immutable_materialization_is_safe_to_retry(tmp_path: Path, mon
     assert recovered["created"] is True
     assert len(library.history("research-helper")) == 1
     assert library.get_revision(str(recovered["skill_ref"]))["package_hash"] == recovered["package_hash"]
+
+
+def test_read_only_open_requires_existing_library_without_creating_it(tmp_path: Path) -> None:
+    root = tmp_path / "absent-library"
+    with pytest.raises(SkillNotFound, match="not initialized"):
+        SkillLibrary(root, read_only=True)
+    assert not root.exists()
+
+
+def test_read_only_library_reads_exact_revision_and_refuses_all_mutations(tmp_path: Path) -> None:
+    library = _library(tmp_path)
+    revision = library.import_revision(
+        _package(), controller_request_id="readonly-source", make_current=True
+    )
+    readonly = SkillLibrary(library.root, read_only=True)
+    assert readonly.get_revision(str(revision["skill_ref"]))["package_hash"] == revision["package_hash"]
+
+    with pytest.raises(SkillLibraryError, match="opened read-only"):
+        readonly.import_revision(_package(extra=b"new"), controller_request_id="readonly-import")
+    with pytest.raises(SkillLibraryError, match="opened read-only"):
+        readonly.set_current(
+            str(revision["skill_ref"]),
+            expected_state_version=1,
+            controller_request_id="readonly-current",
+        )
+    with pytest.raises(SkillLibraryError, match="opened read-only"):
+        readonly.set_enabled(
+            "research-helper",
+            False,
+            expected_state_version=1,
+            controller_request_id="readonly-disable",
+        )
+    assert len(library.history("research-helper")) == 1

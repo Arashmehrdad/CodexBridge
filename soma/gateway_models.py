@@ -1618,6 +1618,61 @@ TaskActionRequest = Annotated[
 ]
 
 
+class SkillCapabilitiesQuery(GatewayModel):
+    operation: Literal["capabilities"]
+
+
+class SkillListQuery(GatewayModel):
+    operation: Literal["list"]
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+class SkillSearchQuery(GatewayModel):
+    operation: Literal["search"]
+    query: str = Field(min_length=1, max_length=512)
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+class SkillGetQuery(GatewayModel):
+    operation: Literal["get"]
+    skill_ref: str = Field(default="", max_length=256)
+    name: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "SkillGetQuery":
+        if bool(self.skill_ref) == bool(self.name):
+            raise ValueError("Specify exactly one of skill_ref or name")
+        return self
+
+
+class SkillHistoryQuery(GatewayModel):
+    operation: Literal["history"]
+    skill_name: str = Field(min_length=1, max_length=64)
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+class SkillResourceQuery(GatewayModel):
+    operation: Literal["resource"]
+    skill_ref: str = Field(min_length=1, max_length=256)
+    relative_path: str = Field(min_length=1, max_length=4096)
+    max_bytes: int = Field(default=64 * 1024, ge=1, le=256 * 1024)
+    cursor: str = Field(default="", max_length=2048)
+
+
+SkillQueryRequest = Annotated[
+    SkillCapabilitiesQuery
+    | SkillListQuery
+    | SkillSearchQuery
+    | SkillGetQuery
+    | SkillHistoryQuery
+    | SkillResourceQuery,
+    Field(discriminator="operation"),
+]
+
+
 class ContinuationCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
 

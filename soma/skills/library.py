@@ -182,20 +182,32 @@ class SkillLibrary:
         max_files: int = 256,
         max_total_bytes: int = 16 * 1024 * 1024,
         max_file_bytes: int = 4 * 1024 * 1024,
+        read_only: bool = False,
     ) -> None:
         self.root = Path(root).resolve()
         self.max_files = int(max_files)
         self.max_total_bytes = int(max_total_bytes)
         self.max_file_bytes = int(max_file_bytes)
+        self.read_only = bool(read_only)
         self.revisions_root = self.root / "revisions"
         self.staging_root = self.root / ".staging"
         self.db_path = self.root / "registry.sqlite3"
+        if self.read_only:
+            if not self.root.is_dir() or not self.db_path.is_file():
+                raise SkillNotFound("Skill library is not initialized")
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         self.revisions_root.mkdir(parents=True, exist_ok=True)
         self.staging_root.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            uri = f"file:{self.db_path.as_posix()}?mode=ro"
+            conn = sqlite3.connect(uri, timeout=5, uri=True)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            return conn
         conn = sqlite3.connect(self.db_path, timeout=5)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -255,6 +267,8 @@ class SkillLibrary:
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
+        if self.read_only:
+            raise SkillLibraryError("Skill library was opened read-only")
         conn = self.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -293,6 +307,10 @@ class SkillLibrary:
         if len(ref) > 32_768:
             raise SkillPackageInvalid("Skill source_ref is too long")
         return kind, ref
+
+    def _require_writable(self) -> None:
+        if self.read_only:
+            raise SkillLibraryError("Skill library was opened read-only")
 
     def _request_id(self, controller_request_id: str) -> str:
         value = str(controller_request_id or "").strip()
@@ -333,6 +351,7 @@ class SkillLibrary:
         )
 
     def _materialize(self, name: str, files: Mapping[str, bytes], package_hash: str) -> Path:
+        self._require_writable()
         destination = self._revision_path(name, package_hash)
         if destination.exists():
             self._verify_path(name, package_hash, destination)
@@ -366,6 +385,7 @@ class SkillLibrary:
         make_current: bool = False,
         expected_state_version: int | None = None,
     ) -> dict[str, object]:
+        self._require_writable()
         request_id = self._request_id(controller_request_id)
         source_kind, source_ref = self._source(source_kind, source_ref)
         bounded = self._bounded_files(files)
@@ -475,6 +495,7 @@ class SkillLibrary:
         make_current: bool = False,
         expected_state_version: int | None = None,
     ) -> dict[str, object]:
+        self._require_writable()
         package_root = Path(package_root)
         if package_root.is_symlink():
             raise SkillPackageInvalid("symlinks are not allowed in canonical v1 Skill packages")
@@ -590,6 +611,7 @@ class SkillLibrary:
         expected_state_version: int,
         controller_request_id: str,
     ) -> dict[str, object]:
+        self._require_writable()
         name, package_hash = parse_skill_ref(skill_ref)
         # A mutable pointer may never bless bytes that fail the immutable
         # revision's stored identity.  This keeps drift detection in front of
@@ -638,6 +660,7 @@ class SkillLibrary:
         expected_state_version: int,
         controller_request_id: str,
     ) -> dict[str, object]:
+        self._require_writable()
         request_id = self._request_id(controller_request_id)
         request_hash = _canonical_hash(
             {

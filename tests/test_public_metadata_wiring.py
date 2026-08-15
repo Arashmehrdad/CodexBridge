@@ -20,19 +20,19 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "c5b2db1add23790ece8b208fa6263f047369601d5fd87b844b68507a9031a121"
+    "c2bbaa43b7a3d20e11715894266283e089ba2e081da3474a7bb5a67ac8ebd3cd"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
 )
 CURRENT_OUTPUT_SCHEMA_HASH = (
-    "d482baa253584213a1922641c84664b1a079899b1bdd88f5231c1d043a890c63"
+    "f73fbf432d0eb71ea7e9a82f816b01aa578bd6b35e1a6f348eb54330294c773e"
 )
 PRE_B3_OPERATION_INVENTORY_HASH = (
     "a6f31b3275f074d0660ba4aa48f3886cce2093bf5847cf0e3eae172afae92377"
 )
 CURRENT_OPERATION_INVENTORY_HASH = (
-    "07724723b5bfd4ebc2d6cef405bd39d8d0dfeece70a61c42f0c9e297c0f80e30"
+    "d88463538eb6602ea140c200cdcce2a7d7fc95cccf7fb6b4505997688309de5d"
 )
 
 
@@ -61,7 +61,7 @@ def test_registry_metadata_is_the_exact_fastmcp_public_descriptor_authority() ->
     actions = _actions()
     by_name = {action["name"]: action for action in actions}
 
-    assert len(actions) == 36
+    assert len(actions) == 37
     assert set(by_name) == set(PUBLIC_GATEWAY_NAMES)
     assert set(by_name) == set(PUBLIC_TOOL_METADATA)
     for name, metadata in PUBLIC_TOOL_METADATA.items():
@@ -128,7 +128,7 @@ def test_current_public_gateway_schema_identity_is_intentional() -> None:
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "d0f8937730423a528e11dd6ad3a434402974f7aacb64e33a181ec3a28b5f64ec"
+        "026aecea8830371c0525bd5d2991ce14887aa8a7625af23c3b1215c99e39e944"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH

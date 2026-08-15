@@ -159,6 +159,13 @@ from .continuations import (
     ContinuationService,
     StaleContinuationContract,
 )
+from .skills import (
+    PackageIntegrityMismatch,
+    SkillLibrary,
+    SkillLibraryError,
+    SkillNotFound,
+    SkillQueryService,
+)
 from .workflows import WorkflowManager
 from .company_kernel.gateway import company_action_gateway, company_query_gateway
 from .gateway_models import (
@@ -185,6 +192,7 @@ from .gateway_models import (
     TaskQueryRequest,
     ContinuationActionRequest,
     ContinuationQueryRequest,
+    SkillQueryRequest,
     TradingActionSubmitRequest,
     TradingCompanionActionRequest,
     TradingQueryRequest,
@@ -1187,6 +1195,22 @@ def get_task_manager() -> TaskManager:
 def get_continuation_service() -> ContinuationService:
     """Return the mechanical semantic-continuation service for the main store."""
     return ContinuationService(get_config().resolve_runs_dir())
+
+
+def get_skill_query_service() -> SkillQueryService:
+    """Open the portable Skill library without mutating it from a read gateway."""
+    config = get_config()
+    root = config.skill_library.resolve_library_root(config.resolve_runs_dir())
+    if not (root / "registry.sqlite3").is_file():
+        return SkillQueryService(None)
+    library = SkillLibrary(
+        root,
+        max_files=config.skill_library.max_files,
+        max_total_bytes=config.skill_library.max_total_bytes,
+        max_file_bytes=config.skill_library.max_file_bytes,
+        read_only=True,
+    )
+    return SkillQueryService(library)
 
 
 def get_project_scope_store() -> ProjectScopeStore:
@@ -3531,6 +3555,63 @@ def task_query(request: TaskQueryRequest) -> dict:
         limit=request.limit,
         budget=request.response_budget_bytes,
     )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def skill_query(request: SkillQueryRequest) -> dict:
+    """Discover and read immutable reusable Skills without executing package resources."""
+    service = get_skill_query_service()
+    try:
+        if request.operation == "capabilities":
+            return service.capabilities()
+        if request.operation == "list":
+            return service.list_skills(limit=request.limit, cursor=request.cursor)
+        if request.operation == "search":
+            return service.search(
+                request.query,
+                limit=request.limit,
+                cursor=request.cursor,
+            )
+        if request.operation == "get":
+            return service.get(skill_ref=request.skill_ref, name=request.name)
+        if request.operation == "history":
+            return service.history(
+                request.skill_name,
+                limit=request.limit,
+                cursor=request.cursor,
+            )
+        return service.resource(
+            request.skill_ref,
+            request.relative_path,
+            max_bytes=request.max_bytes,
+            cursor=request.cursor,
+        )
+    except PackageIntegrityMismatch as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "package_integrity_mismatch",
+            "error": str(exc),
+        }
+    except SkillNotFound as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "skill_not_found",
+            "error": str(exc),
+        }
+    except (SkillLibraryError, ValueError) as exc:
+        code = (
+            "package_integrity_mismatch"
+            if str(exc) == "package_integrity_mismatch"
+            else "invalid_skill_query"
+        )
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": code,
+            "error": str(exc),
+        }
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)

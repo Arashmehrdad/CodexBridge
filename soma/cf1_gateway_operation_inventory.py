@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v24"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v25"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -495,6 +495,60 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "All writes are record-level replay protected. Contract updates use current-revision CAS; "
             "checkpoint text stays free-form; complete/cancel preserve history. No operation executes a Task/Run."
+        ),
+    ),
+    _entry(
+        "skill_query",
+        ("capabilities",),
+        "soma.server:skill_query -> soma.skills.query:SkillQueryService",
+        "small static Skill-query capability projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        maximum_response_bytes=16 * 1024,
+        notes=(
+            "Capability metadata declares retrieval-only semantics, current-enabled discovery defaults, "
+            "exact historical-ref support, and the absence of execution, permission, routing, or reasoning authority."
+        ),
+    ),
+    _entry(
+        "skill_query",
+        ("get",),
+        "soma.server:skill_query -> soma.skills.query:SkillQueryService",
+        "bounded immutable Skill metadata and instruction projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        maximum_response_bytes=384 * 1024,
+        notes=(
+            "get returns one exact immutable revision with at most 48 KiB of source SKILL.md bytes, a manifest "
+            "projection bounded by both item count and serialized bytes, and bounded provenance summary metadata. "
+            "Exact historical refs remain readable; name lookup never guesses from historical revisions."
+        ),
+    ),
+    _entry(
+        "skill_query",
+        ("list", "search", "history"),
+        "soma.server:skill_query -> soma.skills.query:SkillQueryService",
+        "cursor-paged Skill metadata projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CURSOR,
+        default_item_limit=20,
+        maximum_item_limit=100,
+        maximum_response_bytes=256 * 1024,
+        notes=(
+            "Normal list/search expose current enabled revisions only. Deterministic search indexes name and "
+            "description; historical revisions require explicit history/get and no model router selects results."
+        ),
+    ),
+    _entry(
+        "skill_query",
+        ("resource",),
+        "soma.server:skill_query -> soma.skills.query:SkillQueryService",
+        "checksum-bound chunked immutable Skill resource projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CHUNK_CURSOR,
+        default_response_bytes=96 * 1024,
+        maximum_response_bytes=384 * 1024,
+        notes=(
+            "Resource reads are exact-revision/path bound and capped at 256 KiB of source bytes per chunk. "
+            "Text is returned as UTF-8 when possible, binary as base64; scripts are never executed and locators grant no authority."
         ),
     ),
     _entry(
