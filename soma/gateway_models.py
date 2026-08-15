@@ -8,6 +8,7 @@ validation that executes after a request is accepted.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from hashlib import sha256
 from typing import Annotated, Any, Literal
@@ -1144,11 +1145,36 @@ class RepoCleanupPreview(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 
 
+class RepoResolvePatchPreview(GatewayModel):
+    operation: Literal["resolve_patch"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    source_patch_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^\d{8}T\d{6}Z_patch_[0-9a-f]{8}$",
+    )
+    resolution_request_id: str = Field(min_length=1, max_length=128)
+    decision: Literal["accept_repair", "accept_original"]
+    proposal_id: str = Field(default="", max_length=128)
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_resolution_selection(self) -> "RepoResolvePatchPreview":
+        if self.decision == "accept_repair":
+            if not re.fullmatch(r"repair_[0-9a-f]{16}", self.proposal_id):
+                raise ValueError("accept_repair requires an exact proposal_id")
+        elif self.proposal_id:
+            raise ValueError("accept_original forbids proposal_id")
+        return self
+
+
 RepoPreviewRequest = Annotated[
     RepoPatchPreview
     | RepoCreateFilePreview
     | RepoRemoveFilePreview
-    | RepoCleanupPreview,
+    | RepoCleanupPreview
+    | RepoResolvePatchPreview,
     Field(discriminator="operation"),
 ]
 
