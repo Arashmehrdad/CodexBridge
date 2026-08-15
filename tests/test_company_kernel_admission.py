@@ -13,12 +13,12 @@ from soma.company_kernel.admission import (
     AdmissionError,
     AdmissionRequestV1,
     _replay_existing_attempt,
-    admit_work_package as admit_reasoning_work_package,
-    admit_work_package_batch as admit_reasoning_batch,
+    admit_work_package,
+    admit_work_package_batch,
 )
 from soma.company_kernel.coordinator import (
     AdmitReadyWorkRequestV1,
-    PreparedTaskAdmissionV1 as PreparedReasoningAdmissionV1,
+    PreparedTaskAdmissionV1,
     admit_ready_work,
 )
 from soma.company_kernel.store import CompanyKernelStore
@@ -296,7 +296,7 @@ def test_company_durable_route_does_not_require_reasoning_backend(tmp_path: Path
             working_directory=str(repo),
         ),
     )
-    result = admit_reasoning_work_package(manager, request)
+    result = admit_work_package(manager, request)
     task = manager.store.get_task(result.task_id)
 
     assert result.created is True
@@ -345,7 +345,7 @@ def test_explicit_reasoning_route_fails_without_reasoning_backend_without_reserv
     )
 
     with pytest.raises(AdmissionError, match="soma_reasoning"):
-        admit_reasoning_work_package(manager, request)
+        admit_work_package(manager, request)
     with kernel.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM work_package_attempts").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
@@ -355,7 +355,7 @@ def test_root_package_admission_reserves_attempt_task_scope_then_starts(
     tmp_path: Path,
 ) -> None:
     manager, fake, kernel, scope = _environment(tmp_path)
-    result = admit_reasoning_work_package(
+    result = admit_work_package(
         manager, _request(ROOT_PACKAGE_ID, "admit-root")
     )
 
@@ -384,7 +384,7 @@ def test_root_package_admission_reserves_attempt_task_scope_then_starts(
 def test_downstream_without_required_evidence_is_not_admitted(tmp_path: Path) -> None:
     manager, fake, kernel, _scope = _environment(tmp_path)
     with pytest.raises(AdmissionError, match="evidence candidate is missing"):
-        admit_reasoning_work_package(
+        admit_work_package(
             manager, _request(DOWNSTREAM_PACKAGE_ID, "admit-blocked")
         )
     assert fake.provider_create_calls == 0
@@ -406,7 +406,7 @@ def test_downstream_admission_freezes_proof_into_attempt_and_task_identity(
 ) -> None:
     manager, fake, kernel, _scope = _environment(tmp_path)
     request = _request(DOWNSTREAM_PACKAGE_ID, "admit-downstream", with_evidence=True)
-    result = admit_reasoning_work_package(manager, request)
+    result = admit_work_package(manager, request)
 
     assert result.created is True
     assert len(result.proof_refs) == 1
@@ -453,7 +453,7 @@ def test_downstream_admission_freezes_proof_into_attempt_and_task_identity(
     replay_without_current_candidate = request.model_copy(
         update={"evidence_candidates": {}}
     )
-    replay = admit_reasoning_work_package(manager, replay_without_current_candidate)
+    replay = admit_work_package(manager, replay_without_current_candidate)
     assert replay.created is False
     assert replay.attempt_id == result.attempt_id
     assert replay.task_id == result.task_id
@@ -493,9 +493,9 @@ def test_response_loss_after_reservation_commit_replays_same_attempt_and_task(
         raise RuntimeError("response-lost-after-admission-commit")
 
     with pytest.raises(RuntimeError, match="response-lost"):
-        admit_reasoning_work_package(manager, request, _after_commit_hook=crash)
+        admit_work_package(manager, request, _after_commit_hook=crash)
 
-    replay = admit_reasoning_work_package(manager, request)
+    replay = admit_work_package(manager, request)
     assert replay.created is False
     assert replay.task_start["state"] == "completed"
     assert fake.provider_create_calls == 1
@@ -556,7 +556,7 @@ def test_old_plan_package_cannot_be_newly_admitted_after_replan(tmp_path: Path) 
             (new_plan, MISSION_ID),
         )
     with pytest.raises(AdmissionError, match="not in the current PlanRevision"):
-        admit_reasoning_work_package(
+        admit_work_package(
             manager, _request(ROOT_PACKAGE_ID, "admit-old-plan")
         )
     assert fake.provider_create_calls == 0
@@ -566,12 +566,12 @@ def test_existing_attempt_requires_explicit_successor_lineage_for_new_request(
     tmp_path: Path,
 ) -> None:
     manager, fake, _kernel, _scope = _environment(tmp_path)
-    first = admit_reasoning_work_package(
+    first = admit_work_package(
         manager, _request(ROOT_PACKAGE_ID, "admit-first")
     )
     assert first.task_start["state"] == "completed"
     with pytest.raises(AdmissionError, match="explicitly supersede"):
-        admit_reasoning_work_package(manager, _request(ROOT_PACKAGE_ID, "admit-second"))
+        admit_work_package(manager, _request(ROOT_PACKAGE_ID, "admit-second"))
     assert fake.provider_create_calls == 1
 
 
@@ -579,7 +579,7 @@ def test_single_active_blocks_new_route_until_prior_attempt_is_terminal_or_conta
     tmp_path: Path,
 ) -> None:
     manager, fake, _kernel, _scope = _environment(tmp_path, fake_case="long_running")
-    first = admit_reasoning_work_package(
+    first = admit_work_package(
         manager, _request(ROOT_PACKAGE_ID, "admit-active-first")
     )
     assert first.task_start["state"] == "running"
@@ -587,7 +587,7 @@ def test_single_active_blocks_new_route_until_prior_attempt_is_terminal_or_conta
         update={"supersedes_attempt_id": first.attempt_id}
     )
     with pytest.raises(AdmissionError, match="single_active"):
-        admit_reasoning_work_package(manager, second)
+        admit_work_package(manager, second)
     assert fake.provider_create_calls == 1
 
 
@@ -598,7 +598,7 @@ def test_changed_proof_set_can_create_explicit_successor_after_terminal_attempt(
     first_request = _request(
         DOWNSTREAM_PACKAGE_ID, "admit-proof-first", with_evidence=True
     )
-    first = admit_reasoning_work_package(manager, first_request)
+    first = admit_work_package(manager, first_request)
     assert first.task_start["state"] == "completed"
 
     changed_candidate = EvidenceAvailableCandidateV1(
@@ -615,7 +615,7 @@ def test_changed_proof_set_can_create_explicit_successor_after_terminal_attempt(
             "evidence_candidates": {EDGE_ID: changed_candidate},
         }
     )
-    successor = admit_reasoning_work_package(manager, successor_request)
+    successor = admit_work_package(manager, successor_request)
 
     assert successor.created is True
     assert successor.attempt_id != first.attempt_id
@@ -635,9 +635,9 @@ def _prepared(
     *,
     with_evidence: bool = False,
     supersedes_attempt_id: str | None = None,
-) -> PreparedReasoningAdmissionV1:
+) -> PreparedTaskAdmissionV1:
     request = _request(package_id, "prepared-template", with_evidence=with_evidence)
-    return PreparedReasoningAdmissionV1(
+    return PreparedTaskAdmissionV1(
         work_package_id=package_id,
         repo_name=request.repo_name,
         task_request=request.task_request,
@@ -648,7 +648,7 @@ def _prepared(
 
 
 def _coordinator_request(
-    *prepared: PreparedReasoningAdmissionV1,
+    *prepared: PreparedTaskAdmissionV1,
     controller_request_id: str = "coordinator-fixture",
     concurrency: int = 1,
     max_new_attempts: int = 8,
@@ -747,6 +747,6 @@ def test_batch_is_bounded_and_never_turns_into_scheduler_loop(tmp_path: Path) ->
         for index in range(MAX_ADMISSION_BATCH + 1)
     )
     with pytest.raises(AdmissionError, match="exceeds this bounded pass"):
-        admit_reasoning_batch(manager, too_many)
+        admit_work_package_batch(manager, too_many)
     with pytest.raises(AdmissionError, match="within 1"):
-        admit_reasoning_batch(manager, (), max_batch=MAX_ADMISSION_BATCH + 1)
+        admit_work_package_batch(manager, (), max_batch=MAX_ADMISSION_BATCH + 1)
