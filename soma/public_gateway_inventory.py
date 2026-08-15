@@ -13,7 +13,7 @@ class PublicGatewayInventoryEntry:
     cf1_risk: str
 
 
-PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v4"
+PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v5"
 
 
 def _entry(name: str, family: str, source: str, response_path: str, cf1_risk: str) -> PublicGatewayInventoryEntry:
@@ -38,6 +38,7 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("continuation_query", "continuations", "soma.server", "bounded semantic re-entry projection", "handoff, effect, and canonical result projection growth"),
     _entry("continuation_action", "continuations", "soma.server", "durable continuation mutation acknowledgement", "controller instruction and handoff input growth"),
     _entry("skill_query", "skills", "soma.server", "bounded progressive-disclosure Skill projection", "metadata, manifest, and resource chunk growth"),
+    _entry("skill_action", "skills", "soma.server", "bounded Skill lifecycle mutation", "direct package ingestion and lifecycle state mutation"),
     _entry("company_query", "company", "soma.server", "bounded no-cache Company Kernel projection", "attempt lineage and record projection growth"),
     _entry("company_action", "company", "soma.server", "bounded delegated Company Kernel mutation", "plan graph and admission evidence growth"),
     _entry("system_query", "system", "soma.server", "direct object", "capability and self-check growth"),

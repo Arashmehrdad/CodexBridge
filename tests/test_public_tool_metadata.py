@@ -4,9 +4,9 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import ANNOTATION_KEYS, PUBLIC_TOOL_METADATA
 
 
-def test_public_metadata_matches_the_37_tool_inventory() -> None:
+def test_public_metadata_matches_the_38_tool_inventory() -> None:
     assert set(PUBLIC_TOOL_METADATA) == set(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_TOOL_METADATA) == 37
+    assert len(PUBLIC_TOOL_METADATA) == 38
     assert len(PUBLIC_TOOL_METADATA) == len(set(PUBLIC_TOOL_METADATA))
     assert not set(PUBLIC_TOOL_METADATA) - set(PUBLIC_GATEWAY_NAMES)
 
@@ -92,6 +92,19 @@ def test_skill_query_metadata_preserves_retrieval_only_authority() -> None:
     assert dict(query.annotations) == {
         "readOnlyHint": True,
         "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+def test_skill_action_metadata_matches_mutating_lifecycle_semantics() -> None:
+    action = PUBLIC_TOOL_METADATA["skill_action"]
+    assert "import a bounded Skill revision" in action.description
+    assert "never executes Skill scripts" in action.description
+    assert "grants permissions" in action.description
+    assert dict(action.annotations) == {
+        "readOnlyHint": False,
+        "destructiveHint": True,
         "idempotentHint": True,
         "openWorldHint": False,
     }

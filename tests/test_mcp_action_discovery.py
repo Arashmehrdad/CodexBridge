@@ -214,6 +214,7 @@ WORKFLOW_AND_KNOWLEDGE_ACTIONS = {
     "continuation_query",
     "continuation_action",
     "skill_query",
+    "skill_action",
     "company_query",
     "company_action",
     "docker_query",
@@ -240,7 +241,7 @@ PUBLIC_TRADING_ACTIONS = {
 EXPECTED_EXPOSED_ACTIONS = (
     EXPECTED_EXPOSED_ACTIONS - RETIRED_DIRECT_ACTIONS
 ) | WORKFLOW_AND_KNOWLEDGE_ACTIONS | PUBLIC_TRADING_ACTIONS
-assert len(EXPECTED_EXPOSED_ACTIONS) == 37
+assert len(EXPECTED_EXPOSED_ACTIONS) == 38
 
 REALISTIC_ACTION_OUTPUTS = {
     "list_capabilities": {
@@ -1430,6 +1431,7 @@ def test_realistic_outputs_validate_against_public_action_output_schemas() -> No
             "continuation_query",
             "continuation_action",
             "skill_query",
+            "skill_action",
             "company_query",
             "company_action",
             "docker_query",

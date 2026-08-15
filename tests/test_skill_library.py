@@ -434,6 +434,29 @@ def test_import_never_executes_bundled_script(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+def test_staging_failure_leaves_no_half_current_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    library = _library(tmp_path)
+
+    def fail_atomic_materialization(*args, **kwargs):
+        raise OSError("simulated staging move failure")
+
+    monkeypatch.setattr("soma.skills.library.os.replace", fail_atomic_materialization)
+    with pytest.raises(OSError, match="simulated staging move failure"):
+        library.import_revision(
+            _package(),
+            controller_request_id="staging-failure",
+            make_current=True,
+        )
+
+    assert library.history("research-helper") == []
+    with pytest.raises(SkillNotFound):
+        library.get_state("research-helper")
+    assert list(library.staging_root.iterdir()) == []
+    assert list(library.revisions_root.rglob("research-helper")) == []
+
+
 def test_orphaned_immutable_materialization_is_safe_to_retry(tmp_path: Path, monkeypatch) -> None:
     library = _library(tmp_path)
     original = library._record_request

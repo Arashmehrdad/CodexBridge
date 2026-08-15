@@ -339,6 +339,21 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             idempotent=True,
             open_world=False,
         ),
+        "skill_action": _record(
+            "skill_action",
+            title="Update reusable Skill",
+            description=(
+                "Use this when the user explicitly wants to import a bounded Skill revision, "
+                "change its current revision, roll back, enable, or disable it. This manages "
+                "library state only; it never executes Skill scripts or grants permissions."
+            ),
+            invoking="Updating Skill library...",
+            invoked="Skill library updated",
+            read_only=False,
+            destructive=True,
+            idempotent=True,
+            open_world=False,
+        ),
         "company_query": _record(
             "company_query",
             title="Inspect Company Kernel",

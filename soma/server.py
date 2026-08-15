@@ -164,7 +164,10 @@ from .skills import (
     SkillLibrary,
     SkillLibraryError,
     SkillNotFound,
+    SkillPackageInvalid,
     SkillQueryService,
+    SkillRequestConflict,
+    StaleSkillState,
 )
 from .workflows import WorkflowManager
 from .company_kernel.gateway import company_action_gateway, company_query_gateway
@@ -193,6 +196,7 @@ from .gateway_models import (
     ContinuationActionRequest,
     ContinuationQueryRequest,
     SkillQueryRequest,
+    SkillActionRequest,
     TradingActionSubmitRequest,
     TradingCompanionActionRequest,
     TradingQueryRequest,
@@ -1211,6 +1215,20 @@ def get_skill_query_service() -> SkillQueryService:
         read_only=True,
     )
     return SkillQueryService(library)
+
+
+def get_skill_action_library(*, initialize: bool) -> SkillLibrary:
+    """Open the canonical owner Skill library for an explicit lifecycle mutation."""
+    config = get_config()
+    root = config.skill_library.resolve_library_root(config.resolve_runs_dir())
+    if not initialize and not (root / "registry.sqlite3").is_file():
+        raise SkillNotFound("Skill library is not initialized")
+    return SkillLibrary(
+        root,
+        max_files=config.skill_library.max_files,
+        max_total_bytes=config.skill_library.max_total_bytes,
+        max_file_bytes=config.skill_library.max_file_bytes,
+    )
 
 
 def get_project_scope_store() -> ProjectScopeStore:
@@ -3610,6 +3628,100 @@ def skill_query(request: SkillQueryRequest) -> dict:
             "ok": False,
             "operation": request.operation,
             "error_code": code,
+            "error": str(exc),
+        }
+
+
+def _decode_skill_import_files(files: list[Any]) -> dict[str, bytes]:
+    decoded: dict[str, bytes] = {}
+    for item in files:
+        relative_path = str(item.relative_path)
+        if relative_path in decoded:
+            raise SkillPackageInvalid(f"duplicate package path: {relative_path!r}")
+        if item.text is not None:
+            content = item.text.encode("utf-8")
+        else:
+            try:
+                content = base64.b64decode(item.base64_bytes, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise SkillPackageInvalid(
+                    f"invalid base64_bytes for {relative_path!r}"
+                ) from exc
+        decoded[relative_path] = content
+    return decoded
+
+
+@mcp.tool(
+    output_schema=GENERIC_OBJECT_OUTPUT,
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def skill_action(request: SkillActionRequest) -> dict:
+    """Mutate portable Skill-library lifecycle state without executing Skill resources."""
+    try:
+        if request.operation == "import_revision":
+            library = get_skill_action_library(initialize=True)
+            result = library.import_revision(
+                _decode_skill_import_files(request.files),
+                controller_request_id=request.controller_request_id,
+                source_kind=request.source_kind,
+                source_ref=request.source_ref,
+                make_current=request.make_current,
+                expected_state_version=request.expected_state_version,
+            )
+        elif request.operation in {"set_current", "rollback"}:
+            library = get_skill_action_library(initialize=False)
+            result = library.set_current(
+                request.skill_ref,
+                expected_state_version=request.expected_state_version,
+                controller_request_id=request.controller_request_id,
+            )
+        else:
+            library = get_skill_action_library(initialize=False)
+            result = library.set_enabled(
+                request.skill_name,
+                request.operation == "enable",
+                expected_state_version=request.expected_state_version,
+                controller_request_id=request.controller_request_id,
+            )
+        return {**result, "ok": True, "operation": request.operation}
+    except PackageIntegrityMismatch as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "package_integrity_mismatch",
+            "error": str(exc),
+        }
+    except SkillNotFound as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "skill_not_found",
+            "error": str(exc),
+        }
+    except SkillRequestConflict as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "skill_request_conflict",
+            "error": str(exc),
+        }
+    except StaleSkillState as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "stale_skill_state",
+            "error": str(exc),
+        }
+    except (SkillLibraryError, ValueError) as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "invalid_skill_action",
             "error": str(exc),
         }
 

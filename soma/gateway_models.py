@@ -1673,6 +1673,66 @@ SkillQueryRequest = Annotated[
 ]
 
 
+class SkillImportFile(GatewayModel):
+    relative_path: str = Field(min_length=1, max_length=4096)
+    text: str | None = Field(default=None, max_length=4 * 1024 * 1024)
+    base64_bytes: str | None = Field(default=None, max_length=6 * 1024 * 1024)
+
+    @model_validator(mode="after")
+    def validate_content_encoding(self) -> "SkillImportFile":
+        if (self.text is None) == (self.base64_bytes is None):
+            raise ValueError("Specify exactly one of text or base64_bytes")
+        return self
+
+
+class SkillImportRevisionAction(GatewayModel):
+    operation: Literal["import_revision"]
+    files: list[SkillImportFile] = Field(min_length=1, max_length=256)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    source_kind: Literal["owner_local_import", "imported_source"] = "owner_local_import"
+    source_ref: str = Field(default="", max_length=32_768)
+    make_current: bool = False
+    expected_state_version: int | None = Field(default=None, ge=0)
+
+
+class SkillSetCurrentAction(GatewayModel):
+    operation: Literal["set_current"]
+    skill_ref: str = Field(min_length=1, max_length=256)
+    expected_state_version: int = Field(ge=0)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillRollbackAction(GatewayModel):
+    operation: Literal["rollback"]
+    skill_ref: str = Field(min_length=1, max_length=256)
+    expected_state_version: int = Field(ge=0)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillEnableAction(GatewayModel):
+    operation: Literal["enable"]
+    skill_name: str = Field(min_length=1, max_length=64)
+    expected_state_version: int = Field(ge=0)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillDisableAction(GatewayModel):
+    operation: Literal["disable"]
+    skill_name: str = Field(min_length=1, max_length=64)
+    expected_state_version: int = Field(ge=0)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+SkillActionRequest = Annotated[
+    SkillImportRevisionAction
+    | SkillSetCurrentAction
+    | SkillRollbackAction
+    | SkillEnableAction
+    | SkillDisableAction,
+    Field(discriminator="operation"),
+]
+
+
 class ContinuationCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
 

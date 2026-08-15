@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v25"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v26"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -549,6 +549,20 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Resource reads are exact-revision/path bound and capped at 256 KiB of source bytes per chunk. "
             "Text is returned as UTF-8 when possible, binary as base64; scripts are never executed and locators grant no authority."
+        ),
+    ),
+    _entry(
+        "skill_action",
+        ("import_revision", "set_current", "rollback", "enable", "disable"),
+        "soma.server:skill_action -> soma.skills.library:SkillLibrary",
+        "bounded replay-protected Skill lifecycle mutation",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        maximum_response_bytes=64 * 1024,
+        notes=(
+            "Direct Chat import accepts bounded text/base64 package files and never executes them. Pointer and enabled-state "
+            "changes use state-version CAS; controller request IDs make exact retries stable. Rollback only repoints current "
+            "to an existing immutable revision; no purge or Skill execution authority exists."
         ),
     ),
     _entry(
