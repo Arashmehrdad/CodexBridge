@@ -120,23 +120,28 @@ function Start-SomaServer {
 }
 
 function Start-SomaTunnel {
-    if (-not (Test-Path $TunnelConfig)) {
-        throw "Tunnel config not found: $TunnelConfig"
+    $manager = Join-Path $ProjectRoot "scripts\manage_soma_service.ps1"
+    if (-not (Test-Path -LiteralPath $manager -PathType Leaf)) {
+        throw "Soma service manager not found: $manager"
     }
-    $logDir = Join-Path $ProjectRoot "runs\service_logs"
-    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    $stdout = Join-Path $logDir "soma-mcp-tunnel.out.log"
-    $stderr = Join-Path $logDir "soma-mcp-tunnel.err.log"
-    $arguments = @("tunnel", "--config", $TunnelConfig, "run")
-    $process = Start-Process -FilePath "cloudflared" -ArgumentList $arguments -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-    Write-Step "Started SomaMCP tunnel PID $($process.Id)."
-}
-
-function Has-SomaMcpTunnelProcess {
-    $escaped = [regex]::Escape($TunnelConfig)
-    $matches = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match $escaped }
-    return [bool]$matches
+    $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+    $arguments = @(
+        "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $manager,
+        "-Action", "tunnel-start",
+        "-ProjectRoot", $ProjectRoot,
+        "-Config", $Config,
+        "-HostName", $HostName,
+        "-Port", "$Port",
+        "-McpPath", $McpPath,
+        "-TunnelConfig", $TunnelConfig,
+        "-PublicMcpUrl", $PublicMcpUrl,
+        "-StartupTimeoutSeconds", "$TunnelStartupTimeoutSeconds"
+    )
+    Write-Step "Reconciling SomaMCP tunnel through the canonical service manager."
+    & $powershell @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Soma service manager tunnel reconciliation failed with exit code $LASTEXITCODE."
+    }
 }
 
 $localUrl = "http://$HostName`:$Port$McpPath"
@@ -165,12 +170,8 @@ if (-not $NoTunnel) {
     Write-Step "Checking public MCP endpoint $PublicMcpUrl."
     $public = Test-McpEndpoint -Url $PublicMcpUrl
     if (-not $public.Ok) {
-        if (-not (Has-SomaMcpTunnelProcess)) {
-            Write-Step "Public endpoint is not ready and SomaMCP tunnel process is not running. Starting tunnel."
-            Start-SomaTunnel
-        } else {
-            Write-Step "SomaMCP tunnel process is already running. Rechecking public endpoint."
-        }
+        Write-Step "Public endpoint is not ready. Asking the canonical service manager to reconcile the tunnel."
+        Start-SomaTunnel
         Write-Step "Waiting up to $TunnelStartupTimeoutSeconds seconds for public MCP readiness."
         $public = Wait-McpEndpoint -Url $PublicMcpUrl -TimeoutSeconds $TunnelStartupTimeoutSeconds -IntervalSeconds $ProbeIntervalSeconds
     }

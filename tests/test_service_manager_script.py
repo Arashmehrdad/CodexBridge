@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MANAGER = ROOT / "scripts" / "manage_soma_service.ps1"
+STARTER = ROOT / "scripts" / "start_soma_mcp.ps1"
 LAUNCHER = ROOT / "soma-service.cmd"
 README = ROOT / "README.md"
 WINDOWS = sys.platform == "win32"
@@ -197,6 +198,103 @@ def test_manager_verifies_identity_and_protects_unrelated_port_owner() -> None:
     assert "Verified PIDs:" in text
     assert "unrelated process" in text
     assert "will not be killed" in text
+
+
+def test_tunnel_manager_pins_http2_and_persists_process_ownership() -> None:
+    text = MANAGER.read_text(encoding="utf-8")
+    assert '$TunnelProtocol = "http2"' in text
+    assert (
+        '@("tunnel", "--protocol", $TunnelProtocol, "--config", $TunnelConfig, "run")'
+        in text
+    )
+    assert "soma-mcp-tunnel.identity.json" in text
+    assert "soma.cloudflared.ownership.v1" in text
+    assert "process_creation_utc" in text
+    assert "Test-TunnelOwnershipRecordMatchesProcess" in text
+    assert "Public MCP route is healthy but no local tunnel can be verified" in text
+    assert "Replacing configured Cloudflare tunnel because" in text
+    assert "$keeper.Count" not in text
+
+
+@pytest.mark.skipif(
+    not WINDOWS or not POWERSHELL_5,
+    reason="Windows PowerShell 5 is required for JSON DateTime coercion regression coverage",
+)
+def test_blank_wmi_tunnel_identity_recovers_from_durable_ownership(
+    tmp_path: Path,
+) -> None:
+    tunnel_config = tmp_path / "soma-mcp.yml"
+    tunnel_config.write_text("tunnel: test\nprotocol: http2\n", encoding="utf-8")
+    identity_file = tmp_path / "soma-mcp-tunnel.identity.json"
+
+    def ps_literal(value: Path) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    command = f"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$manager = {ps_literal(MANAGER)}
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($manager, [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) {{ throw 'Manager parse failed' }}
+$needed = @('Get-ProcessCreationStamp', 'Get-TunnelOwnershipRecord', 'Test-TunnelOwnershipRecordMatchesProcess', 'Test-TunnelProcessIdentity')
+foreach ($name in $needed) {{
+    $functionAst = $ast.Find({{ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }}, $true)
+    if (-not $functionAst) {{ throw "Missing function $name" }}
+    Invoke-Expression $functionAst.Extent.Text
+}}
+$TunnelConfig = [System.IO.Path]::GetFullPath({ps_literal(tunnel_config)})
+$TunnelIdentityFile = {ps_literal(identity_file)}
+$creation = [datetime]'2026-08-15T10:04:10.6428580Z'
+[ordered]@{{
+    schema_version = 'soma.cloudflared.ownership.v1'
+    process_id = 95312
+    process_creation_utc = '2026-08-15T10:04:10.6428580Z'
+    tunnel_config = $TunnelConfig
+    protocol = 'http2'
+}} | ConvertTo-Json | Set-Content -LiteralPath $TunnelIdentityFile -Encoding UTF8
+$blank = [pscustomobject]@{{ Name = 'cloudflared.exe'; CommandLine = ''; ProcessId = 95312; CreationDate = $creation }}
+if (-not (Test-TunnelProcessIdentity -Process $blank)) {{ throw 'Blank-WMI owned tunnel was not recognized' }}
+$wrongCreation = [pscustomobject]@{{ Name = 'cloudflared.exe'; CommandLine = ''; ProcessId = 95312; CreationDate = $creation.AddSeconds(1) }}
+if (Test-TunnelProcessIdentity -Process $wrongCreation) {{ throw 'Creation-time mismatch was accepted' }}
+$wrongPid = [pscustomobject]@{{ Name = 'cloudflared.exe'; CommandLine = ''; ProcessId = 95313; CreationDate = $creation }}
+if (Test-TunnelProcessIdentity -Process $wrongPid) {{ throw 'PID mismatch was accepted' }}
+Write-Host 'BLANK_WMI_OWNERSHIP_FALLBACK_OK'
+"""
+    result = subprocess.run(
+        [
+            str(POWERSHELL_5),
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "BLANK_WMI_OWNERSHIP_FALLBACK_OK" in output
+
+
+def test_tunnel_manager_uses_per_launch_logs_and_legacy_launcher_delegates() -> None:
+    manager = MANAGER.read_text(encoding="utf-8")
+    starter = STARTER.read_text(encoding="utf-8")
+    assert '"soma-mcp-tunnel.$launchId.out.log"' in manager
+    assert '"soma-mcp-tunnel.$launchId.err.log"' in manager
+    assert "Get-TunnelLogPaths" in manager
+    assert 'Join-Path $ProjectRoot "scripts\\manage_soma_service.ps1"' in starter
+    assert '"-Action", "tunnel-start"' in starter
+    assert "Has-SomaMcpTunnelProcess" not in starter
+    assert (
+        "Public endpoint is not ready. Asking the canonical service manager" in starter
+    )
 
 
 def test_manager_supports_bounded_uac_and_route_readiness() -> None:

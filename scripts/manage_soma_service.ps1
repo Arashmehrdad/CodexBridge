@@ -51,6 +51,8 @@ $TunnelStdoutLog = Join-Path $LogDirectory "soma-mcp-tunnel.out.log"
 $TunnelStderrLog = Join-Path $LogDirectory "soma-mcp-tunnel.err.log"
 $ServerPidFile = Join-Path $LogDirectory "soma-server.pid"
 $TunnelPidFile = Join-Path $LogDirectory "soma-mcp-tunnel.pid"
+$TunnelIdentityFile = Join-Path $LogDirectory "soma-mcp-tunnel.identity.json"
+$TunnelProtocol = "http2"
 $LocalMcpUrl = "http://$HostName`:$Port$McpPath"
 
 function Write-Info {
@@ -73,12 +75,9 @@ function Ensure-ControlDirectory {
 }
 
 function Get-ServiceLogPaths {
-    return @(
-        $ServerStdoutLog,
-        $ServerStderrLog,
-        $TunnelStdoutLog,
-        $TunnelStderrLog
-    )
+    $paths = @($ServerStdoutLog, $ServerStderrLog)
+    $paths += @(Get-TunnelLogPaths)
+    return @($paths)
 }
 
 function Invoke-ServiceLogRollover {
@@ -159,19 +158,131 @@ function Test-ServerProcessIdentity {
     )
 }
 
-function Test-TunnelProcessIdentity {
+function Get-ProcessCreationStamp {
     param([object]$Process)
-    if (-not $Process -or [string]::IsNullOrWhiteSpace([string]$Process.CommandLine)) {
+    if (-not $Process) { return "" }
+    $property = $Process.PSObject.Properties["CreationDate"]
+    if (-not $property -or $null -eq $property.Value) { return "" }
+    try {
+        return ([datetime]$property.Value).ToUniversalTime().ToString("o")
+    } catch {
+        return ""
+    }
+}
+
+function Get-TunnelOwnershipRecord {
+    if (-not (Test-Path -LiteralPath $TunnelIdentityFile -PathType Leaf)) { return $null }
+    try {
+        $record = Get-Content -LiteralPath $TunnelIdentityFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        foreach ($required in @("schema_version", "process_id", "process_creation_utc", "tunnel_config", "protocol")) {
+            if (-not $record.PSObject.Properties[$required]) { return $null }
+        }
+        if ([string]$record.schema_version -ne "soma.cloudflared.ownership.v1") { return $null }
+        return $record
+    } catch {
+        return $null
+    }
+}
+
+function Remove-TunnelOwnershipRecord {
+    Remove-Item -LiteralPath $TunnelIdentityFile -Force -ErrorAction SilentlyContinue
+}
+
+function Test-TunnelOwnershipRecordMatchesProcess {
+    param([object]$Process, [object]$Record = $null)
+    if (-not $Process -or [string]$Process.Name -ine "cloudflared.exe") { return $false }
+    if (-not $Record) { $Record = Get-TunnelOwnershipRecord }
+    if (-not $Record) { return $false }
+    if ([int]$Record.process_id -ne [int]$Process.ProcessId) { return $false }
+    $recordConfig = [System.IO.Path]::GetFullPath([string]$Record.tunnel_config)
+    if (-not $recordConfig.Equals($TunnelConfig, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    try {
+        $processCreationProperty = $Process.PSObject.Properties["CreationDate"]
+        if (-not $processCreationProperty -or $null -eq $processCreationProperty.Value) { return $false }
+        $processCreation = ([datetime]$processCreationProperty.Value).ToUniversalTime()
+        $recordCreation = ([datetime]$Record.process_creation_utc).ToUniversalTime()
+        return $processCreation.Ticks -eq $recordCreation.Ticks
+    } catch {
         return $false
     }
-    $name = [string]$Process.Name
-    $line = ([string]$Process.CommandLine).Replace('/', '\')
-    $expectedConfig = $TunnelConfig.Replace('/', '\')
+}
+
+function Write-TunnelOwnershipRecord {
+    param(
+        [object]$Process,
+        [string]$ExecutablePath,
+        [string]$LaunchId,
+        [string]$LaunchOrigin,
+        [string]$StdoutLog = "",
+        [string]$StderrLog = ""
+    )
+    Ensure-ControlDirectory
+    $current = Get-ProcessInfo -ProcessId ([int]$Process.ProcessId)
+    if (-not $current) { throw "Tunnel process PID $($Process.ProcessId) exited before ownership could be recorded." }
+    $creation = Get-ProcessCreationStamp -Process $current
+    if ([string]::IsNullOrWhiteSpace($creation)) {
+        throw "Unable to record creation identity for tunnel PID $($Process.ProcessId)."
+    }
+    $record = [ordered]@{
+        schema_version = "soma.cloudflared.ownership.v1"
+        process_id = [int]$current.ProcessId
+        process_creation_utc = $creation
+        executable_path = [System.IO.Path]::GetFullPath($ExecutablePath)
+        tunnel_config = $TunnelConfig
+        protocol = $TunnelProtocol
+        launch_id = $LaunchId
+        launch_origin = $LaunchOrigin
+        stdout_log = $StdoutLog
+        stderr_log = $StderrLog
+        recorded_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    $temporary = "$TunnelIdentityFile.tmp"
+    $record | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $temporary -Encoding UTF8
+    Move-Item -LiteralPath $temporary -Destination $TunnelIdentityFile -Force
+}
+
+function Get-TunnelLogPaths {
+    $record = Get-TunnelOwnershipRecord
+    if ($record) {
+        $paths = @()
+        foreach ($propertyName in @("stdout_log", "stderr_log")) {
+            $property = $record.PSObject.Properties[$propertyName]
+            if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+                $paths += [string]$property.Value
+            }
+        }
+        if ($paths.Count -gt 0) { return @($paths) }
+    }
+    return @($TunnelStdoutLog, $TunnelStderrLog)
+}
+
+function Test-TunnelProcessIdentity {
+    param([object]$Process)
+    if (-not $Process -or [string]$Process.Name -ine "cloudflared.exe") {
+        return $false
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Process.CommandLine)) {
+        $line = ([string]$Process.CommandLine).Replace('/', '\')
+        $expectedConfig = $TunnelConfig.Replace('/', '\')
+        return (
+            $line -match '(?i)\btunnel\b' -and
+            $line -match '(?i)\brun\b' -and
+            $line.IndexOf($expectedConfig, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+        )
+    }
+    return Test-TunnelOwnershipRecordMatchesProcess -Process $Process
+}
+
+function Test-TunnelProcessUsesConfiguredProtocol {
+    param([object]$Process)
+    if (-not (Test-TunnelProcessIdentity -Process $Process)) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Process.CommandLine)) {
+        return ([string]$Process.CommandLine -match '(?i)--protocol(?:=|\s+)http2(?:\s|$)')
+    }
+    $record = Get-TunnelOwnershipRecord
     return (
-        $name -ieq "cloudflared.exe" -and
-        $line -match '(?i)\btunnel\b' -and
-        $line -match '(?i)\brun\b' -and
-        $line.IndexOf($expectedConfig, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+        (Test-TunnelOwnershipRecordMatchesProcess -Process $Process -Record $record) -and
+        [string]$record.protocol -ieq $TunnelProtocol
     )
 }
 
@@ -451,12 +562,6 @@ function Restart-SomaServer {
 
 function Start-SomaTunnel {
     Ensure-ControlDirectory
-    $verified = @(Get-VerifiedTunnelProcesses)
-    if ($verified.Count -gt 0) {
-        Write-PidFile -Path $TunnelPidFile -ProcessId ([int]$verified[0].ProcessId)
-        Write-Success "Configured Cloudflare tunnel is already running (PID $($verified[0].ProcessId))."
-        return
-    }
     if (-not (Test-Path -LiteralPath $TunnelConfig -PathType Leaf)) {
         throw "Tunnel config not found: $TunnelConfig"
     }
@@ -464,28 +569,84 @@ function Start-SomaTunnel {
     if (-not $cloudflared) {
         throw "cloudflared was not found on PATH."
     }
-    Invoke-ServiceLogRollover -Path $TunnelStdoutLog
-    Invoke-ServiceLogRollover -Path $TunnelStderrLog
 
-    $arguments = @("tunnel", "--config", $TunnelConfig, "run")
-    Write-Info "Starting Cloudflare tunnel hidden."
+    $verified = @(Get-VerifiedTunnelProcesses)
+    $probe = Test-EndpointReadiness -Url $PublicMcpUrl
+    $configured = @($verified | Where-Object { Test-TunnelProcessUsesConfiguredProtocol -Process $_ })
+
+    if ($probe.Ready -and $configured.Count -gt 0) {
+        $owner = Get-TunnelOwnershipRecord
+        $keeper = $null
+        if ($owner) {
+            $keeper = $configured | Where-Object { Test-TunnelOwnershipRecordMatchesProcess -Process $_ -Record $owner } | Select-Object -First 1
+        }
+        if (-not $keeper) {
+            $keeper = $configured | Sort-Object ProcessId -Descending | Select-Object -First 1
+        }
+        foreach ($process in $verified) {
+            if ([int]$process.ProcessId -ne [int]$keeper.ProcessId) {
+                Stop-VerifiedProcess -Process $process -InternalAction "elevated-stop-tunnel"
+            }
+        }
+        $executablePath = if (-not [string]::IsNullOrWhiteSpace([string]$keeper.ExecutablePath)) {
+            [string]$keeper.ExecutablePath
+        } else {
+            $cloudflared.Source
+        }
+        Write-TunnelOwnershipRecord -Process $keeper -ExecutablePath $executablePath `
+            -LaunchId "adopted-$($keeper.ProcessId)" -LaunchOrigin "verified-existing"
+        Write-PidFile -Path $TunnelPidFile -ProcessId ([int]$keeper.ProcessId)
+        Write-Success "Configured HTTP/2 Cloudflare tunnel is already healthy (PID $($keeper.ProcessId))."
+        return
+    }
+
+    if ($probe.Ready -and $verified.Count -eq 0) {
+        Write-WarningMessage "Public MCP route is healthy but no local tunnel can be verified. Refusing to spawn a duplicate tunnel."
+        return
+    }
+
+    if ($verified.Count -gt 0) {
+        $reason = if ($probe.Ready) { "managed tunnel is not pinned to HTTP/2" } else { "public route is unhealthy" }
+        Write-WarningMessage "Replacing configured Cloudflare tunnel because $reason."
+        foreach ($process in $verified) {
+            Stop-VerifiedProcess -Process $process -InternalAction "elevated-stop-tunnel"
+        }
+        Remove-PidFile -Path $TunnelPidFile
+        Remove-TunnelOwnershipRecord
+    }
+
+    $launchId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ") + "-" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
+    $stdoutLog = Join-Path $LogDirectory "soma-mcp-tunnel.$launchId.out.log"
+    $stderrLog = Join-Path $LogDirectory "soma-mcp-tunnel.$launchId.err.log"
+    $arguments = @("tunnel", "--protocol", $TunnelProtocol, "--config", $TunnelConfig, "run")
+    Write-Info "Starting Cloudflare tunnel hidden with protocol $TunnelProtocol."
     $process = Start-Process -FilePath $cloudflared.Source -ArgumentList $arguments `
         -WorkingDirectory $ProjectRoot -WindowStyle Hidden `
-        -RedirectStandardOutput $TunnelStdoutLog -RedirectStandardError $TunnelStderrLog -PassThru
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    $processInfo = Get-ProcessInfo -ProcessId $process.Id
+    Write-TunnelOwnershipRecord -Process $processInfo -ExecutablePath $cloudflared.Source `
+        -LaunchId $launchId -LaunchOrigin "manage_soma_service" -StdoutLog $stdoutLog -StderrLog $stderrLog
     Write-PidFile -Path $TunnelPidFile -ProcessId $process.Id
 
     $probe = Wait-EndpointReadiness -Url $PublicMcpUrl -TimeoutSeconds $StartupTimeoutSeconds
     if (-not $probe.Ready) {
-        Show-LogTail -Path $TunnelStderrLog -Lines 40
+        Show-LogTail -Path $stderrLog -Lines 40
+        $current = Get-ProcessInfo -ProcessId $process.Id
+        if ($current -and (Test-TunnelProcessIdentity -Process $current)) {
+            Stop-VerifiedProcess -Process $current -InternalAction "elevated-stop-tunnel"
+        }
+        Remove-PidFile -Path $TunnelPidFile
+        Remove-TunnelOwnershipRecord
         throw "Tunnel process started (PID $($process.Id)), but the public MCP route was not ready within $StartupTimeoutSeconds seconds."
     }
-    Write-Success "Cloudflare tunnel started hidden (PID $($process.Id)); public route returned expected HTTP 406."
+    Write-Success "Cloudflare tunnel started hidden (PID $($process.Id), protocol $TunnelProtocol); public route returned expected HTTP 406."
 }
 
 function Stop-SomaTunnel {
     $verified = @(Get-VerifiedTunnelProcesses)
     if ($verified.Count -eq 0) {
         Remove-PidFile -Path $TunnelPidFile
+        Remove-TunnelOwnershipRecord
         Write-Info "Configured Cloudflare tunnel is already stopped."
         return
     }
@@ -493,6 +654,7 @@ function Stop-SomaTunnel {
         Stop-VerifiedProcess -Process $process -InternalAction "elevated-stop-tunnel"
     }
     Remove-PidFile -Path $TunnelPidFile
+    Remove-TunnelOwnershipRecord
 }
 
 function Show-ServerStatus {
@@ -534,30 +696,34 @@ function Show-TunnelStatus {
     Write-Host "Cloudflare tunnel"
     Write-Host "  URL:       $PublicMcpUrl"
     Write-Host "  Ready:     $($probe.Ready) (HTTP $($probe.StatusCode))"
+    Write-Host "  Protocol:  $TunnelProtocol"
     if ($verified.Count -gt 0) {
         Write-Host "  PID:       $($verified[0].ProcessId)"
         Write-Host "  Config:    $TunnelConfig"
+        $verifiedIds = @($verified | ForEach-Object { [int]$_.ProcessId } | Sort-Object -Unique)
+        Write-Host "  Verified PIDs: $($verifiedIds -join ', ')"
     } else {
         Write-Host "  PID:       not found"
     }
+    Write-Host "  Ownership: $TunnelIdentityFile"
 }
 
 function Show-RecentLogs {
-    Show-LogTail -Path $ServerStdoutLog
-    Show-LogTail -Path $ServerStderrLog
-    Show-LogTail -Path $TunnelStdoutLog
-    Show-LogTail -Path $TunnelStderrLog
+    foreach ($path in Get-ServiceLogPaths) {
+        Show-LogTail -Path $path
+    }
 }
 
 function Follow-ServiceLogs {
     Ensure-ControlDirectory
-    foreach ($path in @($ServerStdoutLog, $ServerStderrLog, $TunnelStdoutLog, $TunnelStderrLog)) {
+    $paths = @(Get-ServiceLogPaths)
+    foreach ($path in $paths) {
         if (-not (Test-Path -LiteralPath $path)) {
             New-Item -ItemType File -Path $path -Force | Out-Null
         }
     }
-    Write-Info "Following server and tunnel logs. Press Ctrl+C to stop following; managed services will keep running."
-    Get-Content -Path @($ServerStdoutLog, $ServerStderrLog, $TunnelStdoutLog, $TunnelStderrLog) -Tail $Tail -Wait
+    Write-Info "Following server and current tunnel logs. Press Ctrl+C to stop following; managed services will keep running."
+    Get-Content -Path $paths -Tail $Tail -Wait
 }
 
 function Open-ServiceLogDirectory {
@@ -773,6 +939,8 @@ function Show-Diagnostics {
     Write-Host "  Log directory:      $LogDirectory"
     Write-Host "  Server PID file:    $ServerPidFile"
     Write-Host "  Tunnel PID file:    $TunnelPidFile"
+    Write-Host "  Tunnel ownership:   $TunnelIdentityFile"
+    Write-Host "  Tunnel protocol:    $TunnelProtocol"
     Show-ServiceLogGrowth
 
     $listener = Get-ListenerOwner
