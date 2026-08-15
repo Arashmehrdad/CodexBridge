@@ -1431,6 +1431,14 @@ class TaskDurableCommandStart(GatewayModel):
     stdin_base64: str | None = Field(default=None, max_length=2_700_000)
     timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
     parent_task_id: str = Field(default="", max_length=128)
+    continuation_context_ref: str = Field(
+        default="",
+        max_length=128,
+        description=(
+            "Optional current open continuation contract revision identity; "
+            "records mechanical provenance only and is not an authorization token."
+        ),
+    )
     view: Literal["compact", "full"] = "compact"
     response_budget_bytes: int = Field(default=12 * 1024, ge=1024, le=64 * 1024)
 

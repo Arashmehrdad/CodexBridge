@@ -346,6 +346,20 @@ def normalize_reasoning_request(
     }
 
 
+def normalize_continuation_origin_request(
+    normalized: dict[str, Any], continuation_context_ref: str = ""
+) -> dict[str, Any]:
+    """Bind an optional continuation origin without changing legacy request hashes."""
+    context_ref = str(continuation_context_ref or "").strip()
+    if not context_ref:
+        return normalized
+    return {
+        "hash_domain": "soma.continuation.task_origin.v1",
+        "continuation_context_ref": context_ref,
+        "request": normalized,
+    }
+
+
 def normalized_request_hash(normalized: dict[str, Any]) -> str:
     return sha256(canonical_json(normalized).encode("utf-8")).hexdigest()
 

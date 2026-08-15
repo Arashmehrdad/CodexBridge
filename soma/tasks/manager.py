@@ -23,6 +23,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from soma.config import AppConfig, resolve_repo_identity
+from soma.continuations.store import (
+    ContinuationClosed,
+    ContinuationRequestConflict,
+    ContinuationStore,
+    EffectOriginConflict,
+    StaleContinuationContract,
+)
 from soma.job_manager import JobManager
 from soma.project_scope import (
     ProjectScopeError,
@@ -63,6 +70,7 @@ from .models import (
     TERMINAL_TASK_STATES,
     make_task_id,
     map_backend_status,
+    normalize_continuation_origin_request,
     normalize_durable_command_request,
     normalize_reasoning_request,
     normalize_scoped_durable_command_request,
@@ -110,6 +118,7 @@ class TaskManager:
         reasoning_backend: ReasoningBackend | None = None,
         store: TaskStore | None = None,
         scope_store: ProjectScopeStore | None = None,
+        continuation_store: ContinuationStore | None = None,
         interaction_transport: InteractionTransport | None = None,
     ):
         self.config = config
@@ -123,6 +132,7 @@ class TaskManager:
         )
         self.store = store or TaskStore(config.resolve_runs_dir())
         self.scope_store = scope_store or ProjectScopeStore(config.resolve_runs_dir())
+        self._continuation_store = continuation_store
         self._interaction_transport = interaction_transport
         self._interaction_dispatcher: Any | None = None
 
@@ -141,6 +151,13 @@ class TaskManager:
         if self._backend is None:
             self._backend = DurableRunBackend(self.job_manager)
         return self._backend
+
+    @property
+    def continuation_store(self) -> ContinuationStore:
+        """Lazily bind continuation persistence only when Task origin is requested."""
+        if self._continuation_store is None:
+            self._continuation_store = ContinuationStore(self.config.resolve_runs_dir())
+        return self._continuation_store
 
     def _backend_for_kind(self, backend_kind: BackendKind):
         if backend_kind is BackendKind.SOMA_DURABLE_RUN:
@@ -844,6 +861,7 @@ class TaskManager:
         timeout_seconds: int | None = None,
         parent_task_id: str = "",
         project_id: str = "",
+        continuation_context_ref: str = "",
         budget: int = TASK_RESPONSE_BUDGET_BYTES,
     ) -> dict[str, Any]:
         """Idempotently create a canonical task backed by one durable run."""
@@ -859,6 +877,9 @@ class TaskManager:
                 stdin_base64=stdin_base64,
                 timeout_seconds=timeout_seconds,
                 parent_task_id=parent_task_id,
+            )
+            legacy_normalized = normalize_continuation_origin_request(
+                legacy_normalized, continuation_context_ref
             )
         except (ValueError, TypeError) as exc:
             return task_error(
@@ -902,6 +923,7 @@ class TaskManager:
                         stdin_base64=stdin_base64,
                         timeout_seconds=timeout_seconds,
                         parent_task_id=parent_task_id,
+                        continuation_context_ref=continuation_context_ref,
                     )
                 except (ValueError, ProjectScopeError):
                     return self._scope_conflict_response(budget=budget)
@@ -951,6 +973,7 @@ class TaskManager:
                     stdin_base64=stdin_base64,
                     timeout_seconds=timeout_seconds,
                     parent_task_id=parent_task_id,
+                    continuation_context_ref=continuation_context_ref,
                 )
             except (ValueError, ProjectScopeError) as exc:
                 return task_error(
@@ -960,8 +983,43 @@ class TaskManager:
                     budget=budget,
                 )
 
-        # The backend reference is reserved before the task row is committed so
-        # the durable run identity is owned by exactly one canonical task.
+        if continuation_context_ref:
+            try:
+                self.continuation_store.require_current_open_context(
+                    continuation_context_ref
+                )
+            except StaleContinuationContract as exc:
+                return task_error(
+                    operation="start",
+                    error_code="stale_continuation_contract",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
+            except ContinuationClosed as exc:
+                return task_error(
+                    operation="start",
+                    error_code="continuation_closed",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
+            except KeyError as exc:
+                return task_error(
+                    operation="start",
+                    error_code="continuation_context_not_found",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
+            except ValueError as exc:
+                return task_error(
+                    operation="start",
+                    error_code="invalid_continuation_context_ref",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
+
+        # Reserving the backend identity does not execute work. For C4 starts,
+        # the durable Task row and immutable continuation origin are committed
+        # together before this identity is ever launched.
         backend_ref = self.backend.reserve()
         task_id = make_task_id()
         try:
@@ -985,7 +1043,61 @@ class TaskManager:
                 "workspace_ref": effective_repo_name,
                 "parent_task_id": parent_task_id,
             }
-            if binding is None:
+            if continuation_context_ref:
+                with self.store.transaction() as conn:
+                    concurrent = self.store.find_by_controller_request_in_connection(
+                        conn, controller_request_id
+                    )
+                    if concurrent is not None:
+                        concurrent_scope = self.scope_store.scope_for_task(
+                            concurrent.task_id
+                        )
+                        if binding is None:
+                            if concurrent_scope.project_id:
+                                raise _ControllerRequestScopeConflict(
+                                    "Concurrent request belongs to a project"
+                                )
+                        else:
+                            if (
+                                not concurrent_scope.project_id
+                                or concurrent_scope.project_id != binding.project_id
+                            ):
+                                raise _ControllerRequestScopeConflict(
+                                    "Concurrent request belongs to another project"
+                                )
+                            self.scope_store.require_task_attempt(
+                                binding.project_id,
+                                concurrent.task_id,
+                                concurrent.backend_ref,
+                            )
+                        if concurrent.request_hash != request_hash:
+                            raise TaskRequestConflict(concurrent, request_hash)
+                        task, created = concurrent, False
+                    else:
+                        self.continuation_store.require_current_open_context_in_connection(
+                            conn, continuation_context_ref
+                        )
+                        if binding is not None:
+                            self.scope_store.reserve_task_attempt(
+                                conn,
+                                binding=binding,
+                                task_id=task_id,
+                                run_id=backend_ref,
+                                parent_task_id=parent_task_id,
+                            )
+                        task, created = self.store.reserve_task_in_connection(
+                            conn, **task_kwargs
+                        )
+                        if binding is not None:
+                            self.scope_store.attach_task(conn, task.task_id)
+                        self.continuation_store.insert_effect_link_in_connection(
+                            conn,
+                            continuation_context_ref=continuation_context_ref,
+                            effect_kind="task",
+                            effect_id=task.task_id,
+                            controller_request_id=controller_request_id,
+                        )
+            elif binding is None:
                 task, created = self.store.reserve_task(**task_kwargs)
             else:
                 with self.store.transaction() as conn:
@@ -1036,11 +1148,49 @@ class TaskManager:
                 error=redact_secret_values(str(exc)),
                 budget=budget,
             )
-        except sqlite3.IntegrityError:
-            # A concurrent identical request won the reservation. Never launch
-            # a second backend run: return whatever the winner created.
+        except StaleContinuationContract as exc:
+            return task_error(
+                operation="start",
+                error_code="stale_continuation_contract",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except ContinuationClosed as exc:
+            return task_error(
+                operation="start",
+                error_code="continuation_closed",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except (ContinuationRequestConflict, EffectOriginConflict) as exc:
+            return task_error(
+                operation="start",
+                error_code="continuation_origin_conflict",
+                error=redact_secret_values(str(exc)),
+                budget=budget,
+            )
+        except KeyError as exc:
+            if continuation_context_ref:
+                return task_error(
+                    operation="start",
+                    error_code="continuation_context_not_found",
+                    error=redact_secret_values(str(exc)),
+                    budget=budget,
+                )
+            raise
+        except sqlite3.IntegrityError as exc:
+            # Context-bearing reservations are serialized by BEGIN IMMEDIATE;
+            # an integrity failure with no winning Task is an atomic origin
+            # reservation failure, not permission to leave an orphan Task.
             existing = self.store.find_by_controller_request(controller_request_id)
             if existing is None:
+                if continuation_context_ref:
+                    return task_error(
+                        operation="start",
+                        error_code="continuation_origin_reservation_failed",
+                        error=redact_secret_values(str(exc)),
+                        budget=budget,
+                    )
                 raise
             existing_scope = self.scope_store.scope_for_task(existing.task_id)
             if binding is None:
@@ -2503,6 +2653,7 @@ class TaskManager:
         stdin_base64: str | None,
         timeout_seconds: int | None,
         parent_task_id: str,
+        continuation_context_ref: str = "",
     ) -> str:
         normalized = normalize_scoped_durable_command_request(
             project_id=binding.project_id,
@@ -2516,6 +2667,9 @@ class TaskManager:
             stdin_base64=stdin_base64,
             timeout_seconds=timeout_seconds,
             parent_task_id=parent_task_id,
+        )
+        normalized = normalize_continuation_origin_request(
+            normalized, continuation_context_ref
         )
         return normalized_request_hash(normalized)
 

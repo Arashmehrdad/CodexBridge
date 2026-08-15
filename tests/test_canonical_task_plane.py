@@ -21,6 +21,7 @@ from fastmcp import Client
 
 import soma.server as server
 from soma.config import AppConfig, load_config
+from soma.continuations.store import ContinuationStore
 from soma.job_manager import JobManager
 from soma.run_store import RunStore
 from soma.tasks.backends import BackendObservation
@@ -33,6 +34,7 @@ from soma.tasks.models import (
     TaskRecord,
     TaskState,
     make_task_id,
+    normalize_continuation_origin_request,
     normalize_durable_command_request,
     normalized_request_hash,
 )
@@ -1215,6 +1217,302 @@ def test_normalized_hash_treats_equivalent_stdin_forms_as_one_request() -> None:
     assert normalized_request_hash(text_form) == normalized_request_hash(base64_form)
     assert text_form["stdin"]["present"] is True
     assert "payload" not in json.dumps(text_form)
+
+
+# ---------------------------------------------------------------------------
+# C4: atomic continuation origin association
+# ---------------------------------------------------------------------------
+
+
+def _open_c4_continuation(
+    manager: TaskManager, request_id: str = "c4-open"
+) -> tuple[ContinuationStore, object, object]:
+    store = ContinuationStore(manager.config.resolve_runs_dir())
+    continuation, revision, created = store.open_continuation(
+        label="C4 Task origin",
+        instruction_text="Continue under the current owner instruction.",
+        provenance_class="controller_submitted_text",
+        controller_request_id=request_id,
+    )
+    assert created is True
+    return store, continuation, revision
+
+
+def test_c4_task_start_without_context_preserves_legacy_hash_and_no_origin(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    expected_hash = normalized_request_hash(
+        normalize_durable_command_request(
+            repo_name="sample",
+            profile_id="powershell",
+            argv=["-NoProfile", "-Command", "Write-Output ok"],
+            working_directory=str(Path(manager.config.repos["sample"].path)),
+        )
+    )
+
+    response = _started(manager, "c4-no-context")
+
+    assert response["ok"] is True
+    assert response["request_hash"] == expected_hash
+    assert manager.store.get_task(response["task_id"]).request_hash == expected_hash
+    assert backend.started == [response["backend_reference"]]
+    with sqlite3.connect(manager.store.db_path) as conn:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='continuation_effect_links'"
+        ).fetchone()
+    assert table is None
+
+
+def test_c4_current_open_context_creates_one_atomic_task_origin(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    continuation_store, continuation, revision = _open_c4_continuation(manager)
+
+    response = _started(
+        manager,
+        "c4-linked",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+
+    assert response["ok"] is True
+    assert response["created"] is True
+    links = continuation_store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1
+    link = links[0]
+    assert link.effect_kind.value == "task"
+    assert link.effect_id == response["task_id"]
+    assert link.contract_revision_id == revision.contract_revision_id
+    assert backend.started == [response["backend_reference"]]
+
+
+def test_c4_stale_and_closed_contexts_reject_before_task_reservation_or_launch(
+    tmp_path: Path,
+) -> None:
+    for mode in ("stale", "closed"):
+        backend = FakeBackend()
+        manager = _manager(tmp_path / mode, backend)
+        store, continuation, revision = _open_c4_continuation(
+            manager, f"c4-{mode}-open"
+        )
+        context_ref = revision.contract_revision_id
+        if mode == "stale":
+            store.append_contract_revision(
+                continuation_context_ref=context_ref,
+                instruction_text="A newer governing instruction.",
+                provenance_class="controller_submitted_text",
+                controller_request_id="c4-stale-revision",
+            )
+            expected_code = "stale_continuation_contract"
+        else:
+            store.close_continuation(
+                continuation_id=continuation.continuation_id,
+                lifecycle="completed",
+                controller_request_id="c4-close",
+            )
+            expected_code = "continuation_closed"
+
+        response = _started(
+            manager,
+            f"c4-{mode}-start",
+            continuation_context_ref=context_ref,
+        )
+
+        assert response["ok"] is False
+        assert response["error_code"] == expected_code
+        assert manager.store.find_by_controller_request(f"c4-{mode}-start") is None
+        assert backend.reserved == []
+        assert backend.started == []
+        assert store.list_effect_links(continuation.continuation_id) == []
+
+
+def test_c4_same_task_request_and_context_replays_one_task_and_one_origin(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    store, continuation, revision = _open_c4_continuation(manager)
+    kwargs = {"continuation_context_ref": revision.contract_revision_id}
+
+    first = _started(manager, "c4-replay", **kwargs)
+    second = _started(manager, "c4-replay", **kwargs)
+
+    assert second["task_id"] == first["task_id"]
+    assert second["created"] is False
+    assert second["idempotent_replay"] is True
+    assert len(store.list_effect_links(continuation.continuation_id)) == 1
+    assert backend.started == [first["backend_reference"]]
+
+
+def test_c4_replay_with_changed_or_missing_origin_conflicts_without_relink(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    first_store, first_continuation, first_revision = _open_c4_continuation(
+        manager, "c4-first-open"
+    )
+    second_store, second_continuation, second_revision = _open_c4_continuation(
+        manager, "c4-second-open"
+    )
+    first = _started(
+        manager,
+        "c4-origin-conflict",
+        continuation_context_ref=first_revision.contract_revision_id,
+    )
+    original_link = first_store.list_effect_links(first_continuation.continuation_id)[0]
+
+    missing = _started(manager, "c4-origin-conflict")
+    changed = _started(
+        manager,
+        "c4-origin-conflict",
+        continuation_context_ref=second_revision.contract_revision_id,
+    )
+
+    for response in (missing, changed):
+        assert response["ok"] is False
+        assert response["error_code"] == "controller_request_hash_conflict"
+        assert response["task_id"] == first["task_id"]
+    assert first_store.list_effect_links(first_continuation.continuation_id) == [
+        original_link
+    ]
+    assert second_store.list_effect_links(second_continuation.continuation_id) == []
+    assert backend.started == [first["backend_reference"]]
+
+
+def test_c4_concurrent_same_task_request_creates_one_task_link_and_launch(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    store, continuation, revision = _open_c4_continuation(manager)
+    barrier = threading.Barrier(6)
+    responses: list[dict] = []
+    response_lock = threading.Lock()
+
+    def submit() -> None:
+        barrier.wait()
+        response = _started(
+            manager,
+            "c4-concurrent",
+            continuation_context_ref=revision.contract_revision_id,
+        )
+        with response_lock:
+            responses.append(response)
+
+    threads = [threading.Thread(target=submit) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(responses) == 6
+    assert len({response["task_id"] for response in responses}) == 1
+    assert sum(1 for response in responses if response.get("created")) == 1
+    assert len(store.list_effect_links(continuation.continuation_id)) == 1
+    assert len(backend.started) == 1
+
+
+def test_c4_crash_after_atomic_commit_before_backend_launch_preserves_task_and_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    store, continuation, revision = _open_c4_continuation(manager)
+    original_append_event = manager.store.append_event
+
+    def crash_before_launch(*_args, **_kwargs):
+        raise KeyboardInterrupt("synthetic post-commit crash")
+
+    monkeypatch.setattr(manager.store, "append_event", crash_before_launch)
+    with pytest.raises(KeyboardInterrupt, match="post-commit crash"):
+        _started(
+            manager,
+            "c4-post-commit-crash",
+            continuation_context_ref=revision.contract_revision_id,
+        )
+    monkeypatch.setattr(manager.store, "append_event", original_append_event)
+
+    task = manager.store.find_by_controller_request("c4-post-commit-crash")
+    assert task is not None
+    links = store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1
+    assert links[0].effect_id == task.task_id
+    assert backend.started == []
+
+    replay = _started(
+        manager,
+        "c4-post-commit-crash",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+    assert replay["task_id"] == task.task_id
+    assert replay["created"] is False
+    assert replay["backend_launch_attempted_on_replay"] is False
+    assert len(store.list_effect_links(continuation.continuation_id)) == 1
+    assert backend.started == []
+
+
+def test_c4_link_insertion_failure_rolls_back_task_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    store, continuation, revision = _open_c4_continuation(manager)
+
+    def fail_link(*_args, **_kwargs):
+        raise sqlite3.IntegrityError("synthetic C4 link failure")
+
+    monkeypatch.setattr(store, "insert_effect_link_in_connection", fail_link)
+    manager._continuation_store = store
+    response = _started(
+        manager,
+        "c4-link-failure",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+
+    assert response["ok"] is False
+    assert response["error_code"] == "continuation_origin_reservation_failed"
+    assert manager.store.find_by_controller_request("c4-link-failure") is None
+    assert store.list_effect_links(continuation.continuation_id) == []
+    assert backend.started == []
+
+
+def test_c4_task_state_changes_never_mutate_immutable_origin_link(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    manager = _manager(tmp_path, backend)
+    store, continuation, revision = _open_c4_continuation(manager)
+    response = _started(
+        manager,
+        "c4-state-change",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+    before = store.list_effect_links(continuation.continuation_id)[0].model_dump()
+
+    backend.advance(response["backend_reference"], "running")
+    manager.get_status(response["task_id"])
+    backend.finish(response["backend_reference"], status="completed", exit_code=0)
+    manager.get_status(response["task_id"])
+
+    after = store.list_effect_links(continuation.continuation_id)[0].model_dump()
+    assert after == before
+
+
+def test_c4_continuation_origin_hash_wrapper_is_optional_and_identity_bound() -> None:
+    base = normalize_durable_command_request(
+        repo_name="sample", profile_id="powershell", argv=["x"]
+    )
+    assert normalize_continuation_origin_request(base, "") is base
+    first = normalize_continuation_origin_request(base, "contrev_a")
+    second = normalize_continuation_origin_request(base, "contrev_b")
+    assert first["hash_domain"] == "soma.continuation.task_origin.v1"
+    assert normalized_request_hash(first) != normalized_request_hash(second)
+    assert normalized_request_hash(base) != normalized_request_hash(first)
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import pytest
 
 import soma.server as server
 from soma.config import AppConfig, load_config
+from soma.continuations.store import ContinuationStore
 from soma.gateway_models import (
     RunEventsQuery,
     RunInputQuery,
@@ -564,6 +565,65 @@ def test_scope_and_incumbent_task_are_committed_before_backend_handoff(
 
     assert result["ok"] is True, result["backend_launch_error"]
     assert backend.started == [result["backend_reference"]]
+
+
+def test_c4_project_scope_task_and_continuation_origin_commit_before_backend_handoff(
+    tmp_path: Path,
+) -> None:
+    config, config_path, repo = _make_config(tmp_path)
+    task_store = TaskStore(config.resolve_runs_dir())
+    scope = ProjectScopeStore(config.resolve_runs_dir())
+    scope.init_db()
+    _bootstrap(scope, repo)
+    scope.set_scoped_writes_enabled(True)
+    continuation_store = ContinuationStore(config.resolve_runs_dir())
+    continuation, revision, created = continuation_store.open_continuation(
+        label="C4 scoped origin",
+        instruction_text="Continue the scoped Task under this instruction.",
+        provenance_class="controller_submitted_text",
+        controller_request_id="c4-scoped-open",
+    )
+    assert created is True
+
+    class InspectingBackend(StoredRunBackend):
+        def start(self, spec, backend_ref: str) -> dict:
+            task = task_store.find_by_backend_ref(self.kind, backend_ref)
+            assert task is not None
+            scope_binding = scope.require_task_attempt(
+                PROJECT_ALPHA,
+                task.task_id,
+                backend_ref,
+            )
+            assert scope_binding.binding_status == "attached"
+            assert scope_binding.attempt_status == "reserved"
+            links = continuation_store.list_effect_links(continuation.continuation_id)
+            assert len(links) == 1
+            assert links[0].effect_id == task.task_id
+            assert links[0].contract_revision_id == revision.contract_revision_id
+            return super().start(spec, backend_ref)
+
+    backend = InspectingBackend(config.resolve_runs_dir())
+    manager = TaskManager(
+        config,
+        config_path,
+        backend=backend,
+        store=task_store,
+        scope_store=scope,
+        continuation_store=continuation_store,
+    )
+    result = manager.start_durable_command(
+        controller_request_id="c4-scoped-task",
+        project_id=PROJECT_ALPHA,
+        repo_name="sample",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+
+    assert result["ok"] is True, result.get("backend_launch_error")
+    assert result["project_id"] == PROJECT_ALPHA
+    assert backend.started == [result["backend_reference"]]
+    links = continuation_store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1
+    assert links[0].effect_id == result["task_id"]
 
 
 def test_active_scope_rejects_unknown_ambiguous_parent_and_external_path(

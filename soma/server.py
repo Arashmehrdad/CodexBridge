@@ -3702,6 +3702,7 @@ def task_action(request: TaskActionRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
             parent_task_id=request.parent_task_id,
+            continuation_context_ref=request.continuation_context_ref,
             budget=request.response_budget_bytes,
         )
     if request.operation == "start_reasoning":

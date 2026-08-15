@@ -37,6 +37,7 @@ from soma.gateway_models import (
     MAX_REVIEWED_SSH_SCRIPT_ARGS_BYTES,
     SupervisorActionRequest,
     SupervisorQueryRequest,
+    TaskActionRequest,
     TradingCompanionActionRequest,
     TradingQueryRequest,
     TradingSignalCancelRequest,
@@ -119,6 +120,34 @@ def test_gateway_model_requires_operation_specific_fields() -> None:
         except ValidationError:
             continue
         raise AssertionError("invalid payload was accepted")
+
+
+def test_c4_task_origin_field_is_strictly_limited_to_durable_task_start() -> None:
+    adapter = TypeAdapter(TaskActionRequest)
+    context_ref = "contrev_20260815T120000Z_012345abcdef"
+    start = adapter.validate_python(
+        {
+            "operation": "start",
+            "controller_request_id": "c4-public-start",
+            "repo_name": "soma",
+            "continuation_context_ref": context_ref,
+        }
+    )
+    assert start.continuation_context_ref == context_ref
+    field = type(start).model_fields["continuation_context_ref"]
+    assert "not an authorization token" in str(field.description)
+
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {
+                "operation": "start_reasoning",
+                "controller_request_id": "c4-reasoning",
+                "project_id": "Project_Alpha",
+                "repo_name": "soma",
+                "objective": "Inspect the repository.",
+                "continuation_context_ref": context_ref,
+            }
+        )
 
 
 def test_ssh_gateway_matches_internal_environment_probe(monkeypatch) -> None:
