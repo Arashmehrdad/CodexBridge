@@ -29,3 +29,6 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["soma*"]
 exclude = ["runs*", "tests*"]
+
+[tool.setuptools.package-data]
+soma = ["skills/seed_packages/*/SKILL.md"]

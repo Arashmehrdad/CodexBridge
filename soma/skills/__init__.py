@@ -1,5 +1,11 @@
 """Mechanical portable Agent Skills library primitives."""
 
+from .builtin import (
+    BUILTIN_SKILL_SEED_NAMES,
+    BUILTIN_SKILL_SEED_SOURCE_PREFIX,
+    builtin_skill_seed_path,
+    import_builtin_skill_seed,
+)
 from .query import SkillQueryService
 from .library import (
     PackageIntegrityMismatch,
@@ -17,6 +23,10 @@ from .library import (
 )
 
 __all__ = [
+    "BUILTIN_SKILL_SEED_NAMES",
+    "BUILTIN_SKILL_SEED_SOURCE_PREFIX",
+    "builtin_skill_seed_path",
+    "import_builtin_skill_seed",
     "SkillQueryService",
     "PackageIntegrityMismatch",
     "SkillLibrary",
