@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Soma is a local engineering control plane and the future durable organisation around intelligent agents. Reliability hardening and V3-1A are closed. The Agent/Worker core architecture and trusted V3-1B Company/Mission bootstrap + PlanRevision authority are accepted with production reasoning/provider activation still disabled. The active roadmap package is `V3-1B-OUTCOME-ACCEPTANCE-1`: add exact named-authority AcceptanceCommit creation from canonical ProjectScope/Task/Run publication evidence. Later V3 outcomes remain inactive until their own bounded gate.
+Soma is a local engineering control plane and the future durable organisation around intelligent agents. The current accepted runtime also includes durable semantic continuation/re-entry and a portable Skill layer; these remain mechanical support for the connected controller rather than a second semantic planner. The Autonomous Company roadmap is frozen. `PLANS.md` is the sole concise source of current lane activation truth.
 
 Target operating model:
 - ChatGPT/Cortana decides strategy, creates bounded work packages, reviews results, and resolves normal engineering decisions.
@@ -33,9 +33,9 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
-## Immediate Priority: V3-1B Exact Outcome Acceptance
+## Current Plan Authority
 
-`PLANS.md` is the sole concise source of active plan truth. The active package is [`docs/V3_1B_OUTCOME_ACCEPTANCE_1_GATE_2026-08-14.md`](docs/V3_1B_OUTCOME_ACCEPTANCE_1_GATE_2026-08-14.md). Reuse the accepted Company Kernel, ProjectScope, Task, Run and result-publication authorities. Acceptance is an explicit named-authority act: never infer it from process success, Task completion, publication, evidence confidence, or model judgment. Do not skip ahead to reconcile/public gateways/V3-2.
+`PLANS.md` is the sole concise source of active plan truth. No Company package is currently activated. The semantic-continuation + portable-Skill programme is completed/accepted; Patch Auto-Repair remains the next intended lane but still requires its own owner opening instruction. Historical V3/Agent-Worker material below remains compatibility and architecture history, not permission to resume a frozen lane.
 
 The preserved `V3-1A-INTERACTION-FOUNDATION-ARCH-REVIEW-1` package is parked until RELIABILITY-1 closes. Repository editing now supports corrected handoff states, anchored line ranges, hash-bound whole-file replacement, explicit manual commit mode, exact pending-file reporting, and commit metadata for creation and reversal paths. Markdown section intelligence, typed operation unions, scratch branches, and broader editing ergonomics remain future work unless a reproduced reliability defect makes one necessary.
 
@@ -124,9 +124,11 @@ Durability changes must add tests for the exact failure boundaries they close. A
 
 Prefer deterministic fakes for most cases, plus at least one Windows subprocess integration test for real PID/lease behavior.
 
-## Local Agent Direction
+## Legacy Local Agent Direction - Inactive Routing Path
 
-The local agent should handle:
+This section describes retained legacy/source-history behavior. It is not the current public semantic-routing architecture and must not be used to resurrect objective classification or automatic next-action selection. The connected controller remains the semantic decision maker.
+
+The legacy local agent was designed to handle:
 - repo inspection
 - task classification
 - command/test running through allowlisted profiles

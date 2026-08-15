@@ -224,6 +224,15 @@ ssh:
           writes_remote: true
           watchdog_eligible: false
 runs_dir: "runs"
+# Portable Agent Skill library. The empty-root development default resolves to
+# <runs_dir>/skills. For an owner-selected external private library, set
+# skill_library_kind: external_private_library and provide an absolute root.
+skill_library:
+  skill_library_root: ""
+  skill_library_kind: "runs_internal_development"
+  max_files: 256
+  max_total_bytes: 16777216
+  max_file_bytes: 4194304
 # Provider-neutral external-coder handoffs (manual use only; Soma never
 # launches a coding agent).
 external_coder:

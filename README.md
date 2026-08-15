@@ -8,10 +8,12 @@ Soma is Windows-first today, while most of its Python core remains platform-neut
 
 ## Current state
 
-The current public surface contains **32 consolidated MCP gateways**. The major completed milestones are:
+The current public surface contains **38 consolidated MCP gateways**. The major completed milestones are:
 
 - durable run ownership, restart reconciliation, process-tree cancellation, locks, and atomic terminal publication;
 - a canonical task plane and exact ProjectScope bindings for shared cross-controller identity;
+- durable semantic continuation/re-entry for normal Chat, including fresh-Chat resume and immutable Task/Run origin association;
+- a portable immutable Skill library with progressive retrieval, explicit lifecycle mutation, and reviewed built-in seed packaging;
 - unrestricted owner-authorized local PowerShell, including parallel command groups;
 - compact `cf1.v1` public projections with exact authoritative evidence retrieval;
 - hash-bound managed repository previews, applies, rollback evidence, and selected-file commits;
@@ -24,12 +26,12 @@ The current public surface contains **32 consolidated MCP gateways**. The major 
 - strict Trading Lab companion steps for research, decision, model review, and demo-only execution;
 - hidden Windows logon startup for both the Soma server and Cloudflare tunnel.
 
-The pre-Roadmap V3 bridge is evidence-led. Completed work, prepared pilots, and the currently selected lane are recorded in [`PLANS.md`](PLANS.md); nothing in the README implicitly activates a deferred pilot.
+The pre-Roadmap V3 bridge is evidence-led. Completed work, prepared pilots, and the currently selected lane are recorded in [`PLANS.md`](PLANS.md); nothing in the README implicitly activates a deferred pilot. See [`docs/semantic-continuation-and-skills.md`](docs/semantic-continuation-and-skills.md) for the active continuation/Skill architecture and operator contract.
 
 ## Design principles
 
 1. **Durable before powerful.** Accepted asynchronous work is persisted before launch and remains recoverable across server restarts.
-2. **One controller, no hidden second agent.** Hermes is a searchable tool runtime, not a delegated model loop.
+2. **Controller owns semantics; no hidden second agent.** The connected controller chooses meaning and next actions. Continuation is re-entry, Skills are guidance, and Hermes is a tool runtime rather than a delegated semantic loop.
 3. **Inspect before mutation.** Repository reads, previews, applies, validation, and commits are separate operations.
 4. **Preserve once, disclose progressively.** Compact responses are the default; complete authoritative inputs, outputs, results, and artifacts stay retrievable by explicit evidence operations.
 5. **Owner-controlled execution.** The local PowerShell path is intentionally unrestricted in permissive mode. Correctness comes from exact identity, leases, idempotency, cancellation, evidence, and reconciliation—not pretend permission prompts.
@@ -48,6 +50,8 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- repository inspection and hash-bound managed changes
   +-- durable local and remote execution
   +-- canonical task, run, workflow and supervisor state
+  +-- semantic continuation/re-entry and mechanical Task/Run origin lineage
+  +-- portable Skill discovery, immutable revisions and explicit lifecycle
   +-- exact ProjectScope identity and repository bindings
   +-- repository wiki, scoped memory and source-grounded research
   +-- Hermes one-request companion / shared worker service
@@ -60,6 +64,7 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- runs/supervisors/              supervisor artifacts and resume prompts
   +-- runs/trading/                  Trading Lab journals and state
   +-- runs/research/                 raw-source archive and research overlay
+  +-- runs/skills/                   safe development Skill-library fallback
   +-- <repo>/.soma/wiki/             generated repository knowledge
 ```
 
@@ -292,13 +297,16 @@ After a tool-surface change, refresh or reconnect the MCP client so its cached s
 
 ## Public MCP surface
 
-The public API is deliberately consolidated into 32 gateways. Use `system_query` with `operation: "capabilities"` as the source of truth for live schemas.
+The public API is deliberately consolidated into 38 gateways. Use `system_query` with `operation: "capabilities"` as the source of truth for live schemas.
 
 | Area | Public gateways |
 | --- | --- |
 | System | `system_query`, `system_action` |
 | Durable runs | `run_start`, `run_query`, `cancel_run` |
 | Canonical tasks | `task_query`, `task_action` |
+| Semantic continuation | `continuation_query`, `continuation_action` |
+| Portable Skills | `skill_query`, `skill_action` |
+| Company Kernel | `company_query`, `company_action` |
 | Repositories | `repo_query`, `repo_preview`, `repo_apply`, `repo_commit` |
 | Workflows | `workflow_query`, `workflow_action` |
 | Supervisors | `supervisor_query`, `supervisor_action` |

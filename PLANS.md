@@ -20,6 +20,20 @@ The current owner correction is:
 
 No Company implementation resumes without a new explicit owner instruction naming the Company lane to reopen.
 
+## Completed lane - Sol semantic continuation + portable Skills
+
+**Status:** COMPLETED / ACCEPTED on 2026-08-15.
+
+**Authority and evidence:**
+
+- [`docs/SOL_CONTINUATION_AND_SOMA_SKILL_LAYER_IMPLEMENTATION_PLAN_2026-08-15.md`](docs/SOL_CONTINUATION_AND_SOMA_SKILL_LAYER_IMPLEMENTATION_PLAN_2026-08-15.md)
+- [`docs/sol-agentic-loop-realignment-research/I1_INTEGRATED_NORMAL_CHAT_ACCEPTANCE_2026-08-15.md`](docs/sol-agentic-loop-realignment-research/I1_INTEGRATED_NORMAL_CHAT_ACCEPTANCE_2026-08-15.md)
+- [`docs/semantic-continuation-and-skills.md`](docs/semantic-continuation-and-skills.md)
+
+Owner-selected final scope: durable semantic continuation/re-entry plus the portable Skill layer and existing Soma tools. The previously discussed additional normal-Chat agentic-reasoning add-on was explicitly withdrawn by the owner before final acceptance and is not an unfinished requirement of this programme.
+
+The accepted public runtime has 38 consolidated gateways. Continuation does not choose next actions; Skills do not semantically route requests or execute bundled scripts. Repository-local `.agents/skills` content is not automatically ingested.
+
 ## Next intended implementation lane - Patch Auto-Repair
 
 **Status:** READY / NOT STARTED.
@@ -142,7 +156,7 @@ Prior retirement and measurement work remains historical evidence. No compatibil
 - Generated plans, gates, and acceptance records are project memory and engineering evidence, not substitutes for owner authority where owner activation is required.
 - Soma remains the durable project-aware control plane. One authority owns each concern.
 - Failures and uncertainty must be recorded honestly rather than converted into apparent success.
-- Keep the owner/executive public MCP surface at the accepted 34-tool boundary unless a separately reviewed compatibility change requires otherwise.
+- Keep the owner/executive public MCP surface at the accepted 38-gateway boundary unless a separately reviewed compatibility change requires otherwise.
 - Public schema changes require explicit schema identity and connector/runtime convergence evidence.
 
 ## Legacy and evidence
