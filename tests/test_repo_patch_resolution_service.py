@@ -72,6 +72,36 @@ def _incident_b(repo: Path, runs: Path, name: str = "incident_b.py") -> tuple[Pa
     return target, baseline, candidate, preview
 
 
+def _incident_a_no_proposal(repo: Path, runs: Path) -> dict:
+    target = repo / "incident_a.py"
+    baseline = b'items = [\n    "WorkPackage",\n    "Next",\n]\n'
+    start = baseline.index(b'    "WorkPackage",')
+    prefix = b'    "WorkPackage"'
+    candidate = (
+        baseline[:start]
+        + prefix
+        + b'}],"commit_title":"unsafe'
+        + baseline[start + len(prefix) + 1 :]
+    )
+    _write(target, baseline)
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "type": "exact_text",
+                "path": "incident_a.py",
+                "expected_sha256": _sha(target),
+                "old_text": baseline.decode(),
+                "new_text": candidate.decode(),
+            }
+        ],
+        runs,
+    )
+    assert preview["resolution_required"] is True
+    assert preview["repair_available"] is False
+    return preview
+
+
 def test_accept_repair_selects_preserved_payload_without_rerunning_detector(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,6 +216,26 @@ def test_wrong_proposal_rejects_without_claiming_source(tmp_path: Path) -> None:
             resolution_request_id="wrong-proposal",
             decision="accept_repair",
             proposal_id="repair_ffffffffffffffff",
+        )
+    manifest = _manifest(runs, source["patch_id"])
+    assert manifest["status"] == "preview_resolution_required"
+    assert "resolution_pending" not in manifest
+
+
+def test_accept_repair_without_proposal_fails_without_claiming_source(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    runs = tmp_path / "runs"
+    source = _incident_a_no_proposal(repo, runs)
+
+    with pytest.raises(ValueError, match="has no repair proposal"):
+        resolve_patch_preview(
+            repo,
+            runs,
+            source_patch_id=source["patch_id"],
+            resolution_request_id="no-proposal",
+            decision="accept_repair",
+            proposal_id="repair_0123456789abcdef",
         )
     manifest = _manifest(runs, source["patch_id"])
     assert manifest["status"] == "preview_resolution_required"
@@ -370,6 +420,21 @@ def test_resolution_rechecks_path_operation_payload_and_size_safety(tmp_path: Pa
             decision="accept_original",
         )
 
+    _, _, _, count_source = _incident_b(repo, runs, "count_case.py")
+    manifest = _manifest(runs, count_source["patch_id"])
+    manifest["operations"] = [
+        dict(manifest["operations"][0]) for _ in range(rw.MAX_PATCH_FILES + 1)
+    ]
+    _write_manifest(runs, count_source["patch_id"], manifest)
+    with pytest.raises(ValueError, match="file limit"):
+        resolve_patch_preview(
+            repo,
+            runs,
+            source_patch_id=count_source["patch_id"],
+            resolution_request_id="too-many-files",
+            decision="accept_original",
+        )
+
     _, _, _, size_source = _incident_b(repo, runs, "size_case.py")
     manifest = _manifest(runs, size_source["patch_id"])
     source_dir = _patch_dir(runs, size_source["patch_id"])
@@ -452,6 +517,8 @@ def test_source_and_child_status_remain_independent(tmp_path: Path) -> None:
     assert child_status["source_patch_id"] == source["patch_id"]
     assert child_status["decision"] == "accept_repair"
     assert child_status["proposal_id"] == proposal_id
+    with pytest.raises(ValueError, match="not applicable.*resolved"):
+        apply_previewed_repo_change(repo, source["patch_id"], runs)
     apply_previewed_repo_change(repo, child["patch_id"], runs)
     assert target.read_bytes() == baseline
     assert get_patch_status(repo, source["patch_id"], runs)["status"] == "resolved"
