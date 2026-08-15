@@ -23,6 +23,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .repo_candidate_validation import (
+    CandidateValidationBudget,
+    validate_python_candidate,
+)
 from .repo_reader import (
     _is_binary,
     _resolve_and_validate,
@@ -1197,6 +1201,7 @@ def _validate_operations(
             )
             continue
 
+    candidate_validation_budget = CandidateValidationBudget()
     validated: list[dict] = []
     total_changed_lines = 0
     total_changed_bytes = 0
@@ -1237,9 +1242,16 @@ def _validate_operations(
                 f"preserve_newlines is enabled"
             )
             continue
-        changed_bytes = abs(
-            len(new_content.encode("utf-8")) - len(state["current_bytes"])
-        )
+        candidate_bytes = new_content.encode("utf-8")
+        changed_bytes = abs(len(candidate_bytes) - len(state["current_bytes"]))
+        candidate_validation = None
+        if Path(path_str).suffix.lower() == ".py":
+            candidate_validation = validate_python_candidate(
+                path=path_str,
+                baseline_bytes=state["current_bytes"],
+                candidate_bytes=candidate_bytes,
+                budget=candidate_validation_budget,
+            ).model_dump(mode="json")
         total_changed_lines += changed_lines
         total_changed_bytes += changed_bytes
         validated.append(
@@ -1258,6 +1270,7 @@ def _validate_operations(
                 "changed_bytes": changed_bytes,
                 "operation_count": len(state["validation_results"]),
                 "validation_results": list(state["validation_results"]),
+                "candidate_validation": candidate_validation,
             }
         )
 

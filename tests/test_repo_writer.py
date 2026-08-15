@@ -2239,6 +2239,151 @@ def test_python_ast_allows_explicit_legacy_newline_normalization(
 
 
 # ---------------------------------------------------------------------------
+# Candidate validation integration
+# ---------------------------------------------------------------------------
+
+
+def test_patch_validation_attaches_final_python_candidate_evidence_without_mutation(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    target = write_file(repo / "candidate.py", "value = 1\n")
+    before = target.read_bytes()
+    operation = {
+        "path": "candidate.py",
+        "expected_sha256": sha256_file(target),
+        "old_text": "value = 1",
+        "new_text": "value = 2",
+    }
+
+    validated, errors = rw._validate_operations(repo, [operation])
+
+    assert errors == []
+    assert len(validated) == 1
+    result = validated[0]
+    evidence = result["candidate_validation"]
+    assert evidence["path"] == "candidate.py"
+    assert evidence["language"] == "python"
+    assert evidence["baseline_disposition"] == "valid"
+    assert evidence["candidate_disposition"] == "valid"
+    assert evidence["regression_detected"] is False
+    assert evidence["candidate_sha256"] == sha256_of(result["new_content"])
+    assert result["current_sha256"] == sha256_bytes(before)
+    assert "-value = 1" in result["diff"]
+    assert "+value = 2" in result["diff"]
+    assert target.read_bytes() == before
+
+
+def test_g1_2_keeps_candidate_validation_out_of_preview_and_bundle_v3(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "internal_only.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "internal_only.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    manifest = json.loads(
+        (runs / "managed_patches" / preview["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert preview["ok"] is True
+    assert "candidate_validation" not in preview
+    assert manifest["bundle_version"] == 3
+    assert "candidate_validation" not in manifest["operations"][0]
+
+
+def test_same_file_operations_validate_only_once_on_final_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = make_repo(tmp_path)
+    target = write_file(repo / "composed.py", "alpha = 1\nbeta = 2\n")
+    expected_sha = sha256_file(target)
+    calls: list[dict] = []
+    real_validate = rw.validate_python_candidate
+
+    def capture_validation(**kwargs):
+        calls.append(kwargs)
+        return real_validate(**kwargs)
+
+    monkeypatch.setattr(rw, "validate_python_candidate", capture_validation)
+    operations = [
+        {
+            "path": "composed.py",
+            "expected_sha256": expected_sha,
+            "old_text": "alpha = 1",
+            "new_text": "alpha = 10",
+        },
+        {
+            "path": "composed.py",
+            "expected_sha256": expected_sha,
+            "old_text": "beta = 2",
+            "new_text": "beta = 20",
+        },
+    ]
+
+    validated, errors = rw._validate_operations(repo, operations)
+
+    assert errors == []
+    assert len(validated) == 1
+    assert validated[0]["operation_count"] == 2
+    expected_baseline = f"alpha = 1{os.linesep}beta = 2{os.linesep}".encode()
+    expected_candidate = f"alpha = 10{os.linesep}beta = 20{os.linesep}".encode()
+    assert validated[0]["new_content"].encode() == expected_candidate
+    assert len(calls) == 1
+    assert calls[0]["baseline_bytes"] == expected_baseline
+    assert calls[0]["candidate_bytes"] == expected_candidate
+
+
+def test_candidate_budget_exhaustion_does_not_bypass_patch_safety(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = make_repo(tmp_path)
+    valid_target = write_file(repo / "budget.py", "value = 1\n")
+    stale_target = write_file(repo / "stale.py", "safe = True\n")
+    budget_type = rw.CandidateValidationBudget
+    monkeypatch.setattr(
+        rw,
+        "CandidateValidationBudget",
+        lambda: budget_type(max_files=0, clock=lambda: 0.0),
+    )
+    operations = [
+        {
+            "path": "budget.py",
+            "expected_sha256": sha256_file(valid_target),
+            "old_text": "value = 1",
+            "new_text": "value = 2",
+        },
+        {
+            "path": "stale.py",
+            "expected_sha256": "0" * 64,
+            "old_text": "safe = True",
+            "new_text": "safe = False",
+        },
+    ]
+
+    validated, errors = rw._validate_operations(repo, operations)
+
+    assert len(validated) == 1
+    evidence = validated[0]["candidate_validation"]
+    assert evidence["candidate_disposition"] == "budget_skipped"
+    assert evidence["diagnostic"]["code"] == "candidate_file_count_budget_exhausted"
+    assert any("stale hash" in error for error in errors)
+    assert stale_target.read_text(encoding="utf-8") == "safe = True\n"
+
+
+# ---------------------------------------------------------------------------
 # No CodexRunner or local model invocation
 # ---------------------------------------------------------------------------
 
