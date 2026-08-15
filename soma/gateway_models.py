@@ -1566,6 +1566,121 @@ TaskActionRequest = Annotated[
 ]
 
 
+class ContinuationCapabilitiesQuery(GatewayModel):
+    operation: Literal["capabilities"]
+
+
+class ContinuationListQuery(GatewayModel):
+    operation: Literal["list"]
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+class ContinuationStatusQuery(GatewayModel):
+    operation: Literal["status"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+
+
+class ContinuationResumeQuery(GatewayModel):
+    operation: Literal["resume"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+    effect_limit: int = Field(default=20, ge=1, le=100)
+
+
+class ContinuationHandoffsQuery(GatewayModel):
+    operation: Literal["handoffs"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+class ContinuationEffectsQuery(GatewayModel):
+    operation: Literal["effects"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str = Field(default="", max_length=2048)
+
+
+ContinuationQueryRequest = Annotated[
+    ContinuationCapabilitiesQuery
+    | ContinuationListQuery
+    | ContinuationStatusQuery
+    | ContinuationResumeQuery
+    | ContinuationHandoffsQuery
+    | ContinuationEffectsQuery,
+    Field(discriminator="operation"),
+]
+
+
+class ContinuationOpenAction(GatewayModel):
+    operation: Literal["open"]
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    label: str = Field(default="", max_length=512)
+    instruction_text: str = Field(default="", max_length=262_144)
+    instruction_ref: str = Field(default="", max_length=32_768)
+    provenance_class: str = Field(min_length=1, max_length=128)
+    provenance_ref: str = Field(default="", max_length=32_768)
+
+    @model_validator(mode="after")
+    def validate_instruction_source(self) -> "ContinuationOpenAction":
+        if bool(self.instruction_text) == bool(self.instruction_ref):
+            raise ValueError("Specify exactly one of instruction_text or instruction_ref")
+        return self
+
+
+class ContinuationUpdateContractAction(GatewayModel):
+    operation: Literal["update_contract"]
+    continuation_context_ref: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Current continuation contract revision identity; not an authorization token.",
+    )
+    controller_request_id: str = Field(min_length=1, max_length=128)
+    instruction_text: str = Field(default="", max_length=262_144)
+    instruction_ref: str = Field(default="", max_length=32_768)
+    provenance_class: str = Field(min_length=1, max_length=128)
+    provenance_ref: str = Field(default="", max_length=32_768)
+
+    @model_validator(mode="after")
+    def validate_instruction_source(self) -> "ContinuationUpdateContractAction":
+        if bool(self.instruction_text) == bool(self.instruction_ref):
+            raise ValueError("Specify exactly one of instruction_text or instruction_ref")
+        return self
+
+
+class ContinuationCheckpointAction(GatewayModel):
+    operation: Literal["checkpoint"]
+    continuation_context_ref: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Current continuation contract revision identity; not an authorization token.",
+    )
+    freeform_handoff_text: str = Field(min_length=1, max_length=262_144)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+class ContinuationCompleteAction(GatewayModel):
+    operation: Literal["complete"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+class ContinuationCancelAction(GatewayModel):
+    operation: Literal["cancel"]
+    continuation_id: str = Field(min_length=1, max_length=128)
+    controller_request_id: str = Field(min_length=1, max_length=128)
+
+
+ContinuationActionRequest = Annotated[
+    ContinuationOpenAction
+    | ContinuationUpdateContractAction
+    | ContinuationCheckpointAction
+    | ContinuationCompleteAction
+    | ContinuationCancelAction,
+    Field(discriminator="operation"),
+]
+
+
 class CompanyCapabilitiesQuery(GatewayModel):
     operation: Literal["capabilities"]
     view: Literal["compact", "full"] = "compact"

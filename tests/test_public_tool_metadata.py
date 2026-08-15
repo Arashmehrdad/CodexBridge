@@ -4,9 +4,9 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import ANNOTATION_KEYS, PUBLIC_TOOL_METADATA
 
 
-def test_public_metadata_matches_the_34_tool_inventory() -> None:
+def test_public_metadata_matches_the_36_tool_inventory() -> None:
     assert set(PUBLIC_TOOL_METADATA) == set(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_TOOL_METADATA) == 34
+    assert len(PUBLIC_TOOL_METADATA) == 36
     assert len(PUBLIC_TOOL_METADATA) == len(set(PUBLIC_TOOL_METADATA))
     assert not set(PUBLIC_TOOL_METADATA) - set(PUBLIC_GATEWAY_NAMES)
 
@@ -59,6 +59,28 @@ def test_run_and_task_query_descriptions_do_not_cross_route() -> None:
     assert "canonical task capabilities" in task_query
     assert "bounded reasoning evidence" in task_query
     assert "durable run status" not in task_query
+
+
+def test_continuation_metadata_preserves_the_no_second_brain_contract() -> None:
+    query = PUBLIC_TOOL_METADATA["continuation_query"]
+    action = PUBLIC_TOOL_METADATA["continuation_action"]
+    assert "semantic re-entry" in query.description
+    assert "does not reason" in query.description
+    assert "choose the next action" in query.description
+    assert "not authorization" in action.description
+    assert "does not reason" in action.description
+    assert dict(query.annotations) == {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+    assert dict(action.annotations) == {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
 
 
 def test_candidate_b_conservative_annotations_are_exact() -> None:

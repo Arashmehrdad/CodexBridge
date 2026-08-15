@@ -121,6 +121,127 @@ class ContinuationService:
         if len(db_paths) != 1:
             raise ValueError("Continuation, Task, and Run readers must share soma.sqlite3")
 
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "capability": "sol_semantic_continuation",
+            "model_version": "continuation.v1",
+            "resume_projection_version": CONTINUATION_RESUME_PROJECTION_VERSION,
+            "history_cursor_version": CONTINUATION_HISTORY_CURSOR_VERSION,
+            "query_operations": [
+                "capabilities",
+                "list",
+                "status",
+                "resume",
+                "handoffs",
+                "effects",
+            ],
+            "action_operations": [
+                "open",
+                "update_contract",
+                "checkpoint",
+                "complete",
+                "cancel",
+            ],
+            "semantic_reentry_only": True,
+            "runs_reasoning": False,
+            "chooses_next_action": False,
+            "continuation_context_ref_is_authorization": False,
+            "default_history_limit": CONTINUATION_HISTORY_DEFAULT_LIMIT,
+            "maximum_history_limit": CONTINUATION_HISTORY_MAX_LIMIT,
+        }
+
+    def status(self, continuation_id: str) -> dict[str, Any]:
+        continuation = self.continuation_store.get_continuation(continuation_id)
+        current_revision = self.continuation_store.get_contract_revision(
+            continuation.current_contract_revision_id
+        )
+        latest = self.continuation_store.latest_handoff(continuation_id)
+        return {
+            "ok": True,
+            "continuation": self._continuation_projection(continuation),
+            "continuation_context_ref": current_revision.contract_revision_id,
+            "current_contract": {
+                "contract_revision_id": current_revision.contract_revision_id,
+                "revision_number": current_revision.revision_number,
+                "content_hash": current_revision.content_hash,
+                "provenance_class": current_revision.provenance_class,
+                "provenance_ref": current_revision.provenance_ref,
+                "created_at": current_revision.created_at,
+            },
+            "latest_handoff": (
+                None
+                if latest is None
+                else {
+                    "handoff_id": latest.handoff_id,
+                    "contract_revision_id": latest.contract_revision_id,
+                    "sequence_number": latest.sequence_number,
+                    "content_hash": latest.content_hash,
+                    "created_at": latest.created_at,
+                }
+            ),
+            "handoff_count": self.continuation_store.count_handoffs(continuation_id),
+            "effect_count": self.continuation_store.count_effect_links(continuation_id),
+        }
+
+    def list_continuations(
+        self,
+        *,
+        limit: int = CONTINUATION_HISTORY_DEFAULT_LIMIT,
+        cursor: str = "",
+    ) -> dict[str, Any]:
+        bounded = _bounded_limit(limit)
+        before_updated_at = ""
+        before_continuation_id = ""
+        if cursor:
+            position = _decode_cursor(
+                cursor, continuation_id="*", collection="continuations"
+            )
+            if set(position) != {"before_updated_at", "before_continuation_id"}:
+                raise ValueError("Invalid continuation list cursor position")
+            before_updated_at = position["before_updated_at"]
+            before_continuation_id = position["before_continuation_id"]
+            if not isinstance(before_updated_at, str) or not before_updated_at:
+                raise ValueError("Invalid continuation list cursor position")
+            if not isinstance(before_continuation_id, str) or not before_continuation_id:
+                raise ValueError("Invalid continuation list cursor position")
+
+        items, has_more = self.continuation_store.page_continuations(
+            before_updated_at=before_updated_at,
+            before_continuation_id=before_continuation_id,
+            limit=bounded,
+        )
+        next_cursor = ""
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(
+                continuation_id="*",
+                collection="continuations",
+                position={
+                    "before_updated_at": last.updated_at,
+                    "before_continuation_id": last.continuation_id,
+                },
+            )
+        return {
+            "items": [self._continuation_projection(item) for item in items],
+            "count": len(items),
+            "total_count": self.continuation_store.count_continuations(),
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }
+
+    @staticmethod
+    def _continuation_projection(continuation: Any) -> dict[str, Any]:
+        return {
+            "continuation_id": continuation.continuation_id,
+            "label": continuation.label,
+            "lifecycle": continuation.lifecycle.value,
+            "continuation_context_ref": continuation.current_contract_revision_id,
+            "created_at": continuation.created_at,
+            "updated_at": continuation.updated_at,
+            "closed_at": continuation.closed_at,
+        }
+
     def resume(
         self,
         continuation_id: str,

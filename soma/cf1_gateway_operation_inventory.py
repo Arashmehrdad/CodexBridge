@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v23"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v24"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -443,6 +443,58 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
             "Strict owner/executive requests delegate to existing Company Kernel authorities. "
             "accept_plan_revision carries the complete bounded DAG; reserve_attempt refuses "
             "before reservation unless the owner-controlled reasoning route is enabled."
+        ),
+    ),
+    _entry(
+        "continuation_query",
+        ("capabilities", "status"),
+        "soma.server:continuation_query -> soma.continuations.service:ContinuationService",
+        "bounded mechanical continuation projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        notes=(
+            "Returns only durable continuation identity, lifecycle, revision provenance, "
+            "and mechanical counts. It never recommends a next action or runs reasoning."
+        ),
+    ),
+    _entry(
+        "continuation_query",
+        ("resume",),
+        "soma.server:continuation_query -> soma.continuations.service:ContinuationService",
+        "bounded semantic re-entry bundle with current canonical effect projections",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=20,
+        maximum_item_limit=100,
+        notes=(
+            "Resume returns the current contract, newest free-form Sol handoff, deterministic "
+            "contract-change flag, and one bounded page of current Task/Run truth. Deeper "
+            "effect history remains behind the effects cursor; Soma does not interpret semantics."
+        ),
+    ),
+    _entry(
+        "continuation_query",
+        ("list", "handoffs", "effects"),
+        "soma.server:continuation_query -> soma.continuations.service:ContinuationService",
+        "cursor-paged continuation or immutable history projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CURSOR,
+        default_item_limit=20,
+        maximum_item_limit=100,
+        notes=(
+            "Opaque checksum-bound cursors preserve continuation identity and collection type. "
+            "Handoff history is immutable; effect history resolves current Task/Run truth without copying it."
+        ),
+    ),
+    _entry(
+        "continuation_action",
+        ("open", "update_contract", "checkpoint", "complete", "cancel"),
+        "soma.server:continuation_action -> soma.continuations.store:ContinuationStore",
+        "durable continuation mutation acknowledgement",
+        request_echo=RequestEchoBehavior.NONE,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        notes=(
+            "All writes are record-level replay protected. Contract updates use current-revision CAS; "
+            "checkpoint text stays free-form; complete/cancel preserve history. No operation executes a Task/Run."
         ),
     ),
     _entry(

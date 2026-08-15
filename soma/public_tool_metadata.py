@@ -1,4 +1,4 @@
-"""Authoritative human-facing metadata for Soma's public 34-tool surface."""
+"""Authoritative human-facing metadata for Soma's public 36-tool surface."""
 
 from __future__ import annotations
 
@@ -290,6 +290,36 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             invoking="Inspecting task...",
             invoked="Task evidence ready",
             read_only=True,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
+        "continuation_query": _record(
+            "continuation_query",
+            title="Resume continuation",
+            description=(
+                "Use this when durable semantic re-entry is needed after interruption, "
+                "compaction, or a fresh Chat. It only retrieves continuation, handoff, "
+                "and current Task/Run facts; it does not reason or choose the next action."
+            ),
+            invoking="Reading continuation...",
+            invoked="Continuation evidence ready",
+            read_only=True,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
+        "continuation_action": _record(
+            "continuation_action",
+            title="Update continuation",
+            description=(
+                "Use this when the user wants to open, update, checkpoint, complete, or "
+                "cancel durable semantic continuation state. A continuation_context_ref "
+                "is a revision identity, not authorization, and Soma does not reason."
+            ),
+            invoking="Updating continuation...",
+            invoked="Continuation updated",
+            read_only=False,
             destructive=False,
             idempotent=True,
             open_world=False,

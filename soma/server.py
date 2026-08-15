@@ -152,6 +152,13 @@ from .ssh_tools import (
 from .local_agent.models import LocalModelStatus
 from .local_agent.ollama_adapter import OllamaChatAdapter
 from .tasks import TaskManager, TaskStore
+from .continuations import (
+    ContinuationClosed,
+    ContinuationLifecycleConflict,
+    ContinuationRequestConflict,
+    ContinuationService,
+    StaleContinuationContract,
+)
 from .workflows import WorkflowManager
 from .company_kernel.gateway import company_action_gateway, company_query_gateway
 from .gateway_models import (
@@ -176,6 +183,8 @@ from .gateway_models import (
     SupervisorQueryRequest,
     TaskActionRequest,
     TaskQueryRequest,
+    ContinuationActionRequest,
+    ContinuationQueryRequest,
     TradingActionSubmitRequest,
     TradingCompanionActionRequest,
     TradingQueryRequest,
@@ -1173,6 +1182,11 @@ def get_task_manager() -> TaskManager:
         reasoning_backend=reasoning_backend,
         store=store,
     )
+
+
+def get_continuation_service() -> ContinuationService:
+    """Return the mechanical semantic-continuation service for the main store."""
+    return ContinuationService(get_config().resolve_runs_dir())
 
 
 def get_project_scope_store() -> ProjectScopeStore:
@@ -3510,6 +3524,149 @@ def task_query(request: TaskQueryRequest) -> dict:
         limit=request.limit,
         budget=request.response_budget_bytes,
     )
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def continuation_query(request: ContinuationQueryRequest) -> dict:
+    """Read-only gateway for durable semantic continuation re-entry material."""
+    service = get_continuation_service()
+    try:
+        if request.operation == "capabilities":
+            return service.capabilities()
+        if request.operation == "list":
+            return service.list_continuations(limit=request.limit, cursor=request.cursor)
+        if request.operation == "status":
+            return service.status(request.continuation_id)
+        if request.operation == "resume":
+            return service.resume(
+                request.continuation_id,
+                effect_limit=request.effect_limit,
+            )
+        if request.operation == "handoffs":
+            return service.handoff_history(
+                request.continuation_id,
+                limit=request.limit,
+                cursor=request.cursor,
+            )
+        return service.effect_history(
+            request.continuation_id,
+            limit=request.limit,
+            cursor=request.cursor,
+        )
+    except KeyError as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "continuation_not_found",
+            "error": str(exc),
+        }
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "error_code": "invalid_continuation_query",
+            "error": str(exc),
+        }
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def continuation_action(request: ContinuationActionRequest) -> dict:
+    """Mutation gateway for durable continuation contracts, checkpoints, and closure."""
+    service = get_continuation_service()
+    store = service.continuation_store
+    try:
+        if request.operation == "open":
+            continuation, revision, created = store.open_continuation(
+                label=request.label,
+                instruction_text=request.instruction_text,
+                instruction_ref=request.instruction_ref,
+                provenance_class=request.provenance_class,
+                provenance_ref=request.provenance_ref,
+                controller_request_id=request.controller_request_id,
+            )
+            return {
+                "ok": True,
+                "operation": "open",
+                "created": created,
+                "continuation": service.status(continuation.continuation_id)[
+                    "continuation"
+                ],
+                "continuation_context_ref": revision.contract_revision_id,
+                "contract_revision_number": revision.revision_number,
+            }
+        if request.operation == "update_contract":
+            revision, created = store.append_contract_revision(
+                continuation_context_ref=request.continuation_context_ref,
+                instruction_text=request.instruction_text,
+                instruction_ref=request.instruction_ref,
+                provenance_class=request.provenance_class,
+                provenance_ref=request.provenance_ref,
+                controller_request_id=request.controller_request_id,
+            )
+            return {
+                "ok": True,
+                "operation": "update_contract",
+                "created": created,
+                "continuation_id": revision.continuation_id,
+                "continuation_context_ref": revision.contract_revision_id,
+                "parent_revision_id": revision.parent_revision_id,
+                "revision_number": revision.revision_number,
+                "content_hash": revision.content_hash,
+                "created_at": revision.created_at,
+            }
+        if request.operation == "checkpoint":
+            handoff, created = store.append_handoff(
+                continuation_context_ref=request.continuation_context_ref,
+                handoff_text=request.freeform_handoff_text,
+                controller_request_id=request.controller_request_id,
+            )
+            return {
+                "ok": True,
+                "operation": "checkpoint",
+                "created": created,
+                "continuation_id": handoff.continuation_id,
+                "continuation_context_ref": handoff.contract_revision_id,
+                "handoff_id": handoff.handoff_id,
+                "sequence_number": handoff.sequence_number,
+                "content_hash": handoff.content_hash,
+                "created_at": handoff.created_at,
+            }
+        lifecycle = "completed" if request.operation == "complete" else "cancelled"
+        continuation, changed = store.close_continuation(
+            continuation_id=request.continuation_id,
+            lifecycle=lifecycle,
+            controller_request_id=request.controller_request_id,
+        )
+        return {
+            "ok": True,
+            "operation": request.operation,
+            "changed": changed,
+            "continuation": service.status(continuation.continuation_id)["continuation"],
+        }
+    except StaleContinuationContract as exc:
+        code = "stale_continuation_contract"
+        message = str(exc)
+    except ContinuationClosed as exc:
+        code = "continuation_closed"
+        message = str(exc)
+    except ContinuationRequestConflict as exc:
+        code = "continuation_request_hash_conflict"
+        message = str(exc)
+    except ContinuationLifecycleConflict as exc:
+        code = "continuation_lifecycle_conflict"
+        message = str(exc)
+    except KeyError as exc:
+        code = "continuation_not_found"
+        message = str(exc)
+    except ValueError as exc:
+        code = "invalid_continuation_request"
+        message = str(exc)
+    return {
+        "ok": False,
+        "operation": request.operation,
+        "error_code": code,
+        "error": message,
+    }
 
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
