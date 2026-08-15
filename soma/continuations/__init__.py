@@ -11,6 +11,13 @@ from .models import (
     ContinuationRecord,
     ContractRevisionRecord,
 )
+from .service import (
+    CONTINUATION_HISTORY_CURSOR_VERSION,
+    CONTINUATION_HISTORY_DEFAULT_LIMIT,
+    CONTINUATION_HISTORY_MAX_LIMIT,
+    CONTINUATION_RESUME_PROJECTION_VERSION,
+    ContinuationService,
+)
 from .store import (
     ContinuationClosed,
     ContinuationLifecycleConflict,
@@ -21,6 +28,10 @@ from .store import (
 )
 
 __all__ = [
+    "CONTINUATION_HISTORY_CURSOR_VERSION",
+    "CONTINUATION_HISTORY_DEFAULT_LIMIT",
+    "CONTINUATION_HISTORY_MAX_LIMIT",
+    "CONTINUATION_RESUME_PROJECTION_VERSION",
     "CONTINUATION_MODEL_VERSION",
     "CONTINUATION_SCHEMA_COMPONENT",
     "CONTINUATION_SCHEMA_VERSION",
@@ -32,6 +43,7 @@ __all__ = [
     "ContinuationLifecycleConflict",
     "ContinuationRecord",
     "ContinuationRequestConflict",
+    "ContinuationService",
     "ContinuationStore",
     "ContractRevisionRecord",
     "EffectOriginConflict",

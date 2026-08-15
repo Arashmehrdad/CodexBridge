@@ -680,6 +680,81 @@ class ContinuationStore:
             ).fetchall()
         return [self._effect_link(row) for row in rows]
 
+    def count_handoffs(self, continuation_id: str) -> int:
+        validate_continuation_id(continuation_id)
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM continuation_handoffs WHERE continuation_id = ?",
+                (continuation_id,),
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def page_handoffs(
+        self,
+        continuation_id: str,
+        *,
+        before_sequence: int | None = None,
+        limit: int = 20,
+    ) -> tuple[list[ContinuationHandoffRecord], bool]:
+        """Return one newest-first immutable handoff page and whether more exist."""
+        validate_continuation_id(continuation_id)
+        bounded = max(1, min(int(limit), 100))
+        params: list[Any] = [continuation_id]
+        sql = "SELECT * FROM continuation_handoffs WHERE continuation_id = ?"
+        if before_sequence is not None:
+            sequence = int(before_sequence)
+            if sequence < 1:
+                raise ValueError("before_sequence must be positive")
+            sql += " AND sequence_number < ?"
+            params.append(sequence)
+        sql += " ORDER BY sequence_number DESC LIMIT ?"
+        params.append(bounded + 1)
+        with self._read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        has_more = len(rows) > bounded
+        return [self._handoff(row) for row in rows[:bounded]], has_more
+
+    def count_effect_links(self, continuation_id: str) -> int:
+        validate_continuation_id(continuation_id)
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM continuation_effect_links "
+                "WHERE continuation_id = ?",
+                (continuation_id,),
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def page_effect_links(
+        self,
+        continuation_id: str,
+        *,
+        before_created_at: str = "",
+        before_link_id: str = "",
+        limit: int = 20,
+    ) -> tuple[list[ContinuationEffectLinkRecord], bool]:
+        """Return one newest-first immutable origin-link page and whether more exist."""
+        validate_continuation_id(continuation_id)
+        bounded = max(1, min(int(limit), 100))
+        created_at = str(before_created_at or "")
+        link_id = str(before_link_id or "")
+        if bool(created_at) != bool(link_id):
+            raise ValueError(
+                "before_created_at and before_link_id must be supplied together"
+            )
+        params: list[Any] = [continuation_id]
+        sql = "SELECT * FROM continuation_effect_links WHERE continuation_id = ?"
+        if created_at:
+            sql += (
+                " AND (created_at < ? OR (created_at = ? AND link_id < ?))"
+            )
+            params.extend([created_at, created_at, link_id])
+        sql += " ORDER BY created_at DESC, link_id DESC LIMIT ?"
+        params.append(bounded + 1)
+        with self._read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        has_more = len(rows) > bounded
+        return [self._effect_link(row) for row in rows[:bounded]], has_more
+
     def close_continuation(
         self,
         *,
