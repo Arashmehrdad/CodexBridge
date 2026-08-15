@@ -96,7 +96,9 @@ def resolution_request_hash(request: PatchResolutionRequestV1) -> str:
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
-    return hashlib.sha256(b"soma.repo_patch.resolution_request.v1\0" + encoded).hexdigest()
+    return hashlib.sha256(
+        b"soma.repo_patch.resolution_request.v1\0" + encoded
+    ).hexdigest()
 
 
 def resolution_child_patch_id(source_patch_id: str, request_hash: str) -> str:

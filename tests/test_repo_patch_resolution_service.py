@@ -45,7 +45,9 @@ def _write_manifest(runs: Path, patch_id: str, manifest: dict) -> None:
     )
 
 
-def _incident_b(repo: Path, runs: Path, name: str = "incident_b.py") -> tuple[Path, bytes, bytes, dict]:
+def _incident_b(
+    repo: Path, runs: Path, name: str = "incident_b.py"
+) -> tuple[Path, bytes, bytes, dict]:
     target = repo / name
     baseline = b'assert ready == "ok"\nnext_call()\n'
     cut = baseline.index(b"\n")
@@ -136,7 +138,10 @@ def test_accept_repair_selects_preserved_payload_without_rerunning_detector(
     assert child_manifest["status"] == "preview_ok"
     assert child_manifest["resolution_role"] == "child"
     assert child_manifest["resolution"]["source_patch_id"] == source_id
-    assert child_manifest["resolution"]["source_repair_proposal"]["proposal_id"] == proposal_id
+    assert (
+        child_manifest["resolution"]["source_repair_proposal"]["proposal_id"]
+        == proposal_id
+    )
     source_payload = (
         _patch_dir(runs, source_id) / source_manifest["operations"][0]["payload_file"]
     ).read_bytes()
@@ -146,7 +151,9 @@ def test_accept_repair_selects_preserved_payload_without_rerunning_detector(
     ).read_bytes()
     assert source_payload == candidate
     assert child_payload == baseline
-    assert source_manifest["repair_proposal"] == source_manifest_before["repair_proposal"]
+    assert (
+        source_manifest["repair_proposal"] == source_manifest_before["repair_proposal"]
+    )
 
 
 def test_exact_resolution_replay_returns_same_child(tmp_path: Path) -> None:
@@ -177,7 +184,9 @@ def test_exact_resolution_replay_returns_same_child(tmp_path: Path) -> None:
     assert replay["idempotent_replay"] is True
 
 
-def test_same_request_id_changed_decision_conflicts_after_resolution(tmp_path: Path) -> None:
+def test_same_request_id_changed_decision_conflicts_after_resolution(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     runs = tmp_path / "runs"
@@ -222,7 +231,9 @@ def test_wrong_proposal_rejects_without_claiming_source(tmp_path: Path) -> None:
     assert "resolution_pending" not in manifest
 
 
-def test_accept_repair_without_proposal_fails_without_claiming_source(tmp_path: Path) -> None:
+def test_accept_repair_without_proposal_fails_without_claiming_source(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     runs = tmp_path / "runs"
@@ -259,7 +270,10 @@ def test_accept_original_creates_explicit_override_child_and_normal_apply_revert
     )
     child_manifest = _manifest(runs, child["patch_id"])
     assert child_manifest["candidate_validation_override"] == "accept_original"
-    assert child_manifest["resolution"]["candidate_validation_override"] == "accept_original"
+    assert (
+        child_manifest["resolution"]["candidate_validation_override"]
+        == "accept_original"
+    )
     assert (
         _patch_dir(runs, child["patch_id"])
         / child_manifest["operations"][0]["payload_file"]
@@ -275,7 +289,9 @@ def test_accept_original_creates_explicit_override_child_and_normal_apply_revert
     assert _manifest(runs, source["patch_id"])["status"] == "resolved"
 
 
-def test_unknown_wrong_repo_non_resolution_and_stale_source_fail(tmp_path: Path) -> None:
+def test_unknown_wrong_repo_non_resolution_and_stale_source_fail(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     runs = tmp_path / "runs"
@@ -376,7 +392,9 @@ def test_deterministic_child_collision_fails_closed(tmp_path: Path) -> None:
         )
 
 
-def test_resolution_rechecks_path_operation_payload_and_size_safety(tmp_path: Path) -> None:
+def test_resolution_rechecks_path_operation_payload_and_size_safety(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     runs = tmp_path / "runs"
@@ -409,7 +427,10 @@ def test_resolution_rechecks_path_operation_payload_and_size_safety(tmp_path: Pa
 
     _, _, _, payload_source = _incident_b(repo, runs, "payload_case.py")
     manifest = _manifest(runs, payload_source["patch_id"])
-    payload = _patch_dir(runs, payload_source["patch_id"]) / manifest["operations"][0]["payload_file"]
+    payload = (
+        _patch_dir(runs, payload_source["patch_id"])
+        / manifest["operations"][0]["payload_file"]
+    )
     payload.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="payload verification failed"):
         resolve_patch_preview(
@@ -459,19 +480,25 @@ def test_resolution_rechecks_git_head_when_available(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Soma Test"], cwd=repo, check=True)
     runs = tmp_path / "runs"
     _incident_b(repo, runs, "head_case.py")
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-m", "baseline"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "baseline"], cwd=repo, check=True, capture_output=True
+    )
 
     target, baseline, candidate, source = _incident_b(repo, runs, "head_case.py")
     # The helper rewrites the same baseline and source is now bound to the baseline commit.
     assert target.read_bytes() == baseline
     (repo / "unrelated.txt").write_text("new head\n", encoding="utf-8")
     subprocess.run(["git", "add", "unrelated.txt"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-m", "move head"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "move head"], cwd=repo, check=True, capture_output=True
+    )
     assert candidate != baseline
 
     with pytest.raises(ValueError, match="Git HEAD has changed"):

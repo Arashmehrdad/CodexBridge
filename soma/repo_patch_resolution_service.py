@@ -26,7 +26,11 @@ _RESOLUTION_RECORD_VERSION = "repo_patch_resolution_record.v1"
 
 def _read_manifest(patch_dir: Path, patch_id: str) -> tuple[Path, dict[str, Any]]:
     manifest_path = patch_dir / "manifest.json"
-    if not manifest_path.exists() or manifest_path.is_symlink() or not manifest_path.is_file():
+    if (
+        not manifest_path.exists()
+        or manifest_path.is_symlink()
+        or not manifest_path.is_file()
+    ):
         raise ValueError(f"Patch {patch_id} is missing a regular manifest")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -142,7 +146,9 @@ def _load_repair_payload(
     try:
         proposal = PatchRepairProposalV1.model_validate(raw)
     except Exception as exc:
-        raise ValueError(f"Patch {source_patch_id} has invalid repair proposal metadata") from exc
+        raise ValueError(
+            f"Patch {source_patch_id} has invalid repair proposal metadata"
+        ) from exc
     if proposal.proposal_id != proposal_id:
         raise ValueError(
             f"Patch {source_patch_id} repair proposal mismatch: expected {proposal.proposal_id}"
@@ -214,7 +220,9 @@ def _preflight_selected_child(
         absolute = rw._resolve_and_validate_write(repo_root, path_str)
         normalized_path = os.path.normcase(os.path.normpath(str(absolute.resolve())))
         if normalized_path in seen_paths:
-            raise ValueError(f"Patch {source_patch_id} includes duplicate paths: {path_str}")
+            raise ValueError(
+                f"Patch {source_patch_id} includes duplicate paths: {path_str}"
+            )
         seen_paths.add(normalized_path)
         if not absolute.exists():
             raise ValueError(f"File does not exist: {path_str}")
@@ -243,9 +251,16 @@ def _preflight_selected_child(
             and selected_proposal.operation_index == index
         ):
             if repair_bytes is None:
-                raise ValueError(f"Patch {source_patch_id} is missing selected repair bytes")
-            if hashlib.sha256(original_payload).hexdigest() != selected_proposal.original_candidate_sha256:
-                raise ValueError(f"Patch {source_patch_id} proposal/source payload mismatch")
+                raise ValueError(
+                    f"Patch {source_patch_id} is missing selected repair bytes"
+                )
+            if (
+                hashlib.sha256(original_payload).hexdigest()
+                != selected_proposal.original_candidate_sha256
+            ):
+                raise ValueError(
+                    f"Patch {source_patch_id} proposal/source payload mismatch"
+                )
             selected_payload = repair_bytes
             selected_repair_found = True
 
@@ -253,11 +268,13 @@ def _preflight_selected_child(
             current_text = current_bytes.decode("utf-8")
             selected_text = selected_payload.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ValueError(f"Patch {source_patch_id} contains non-UTF-8 patch payload") from exc
+            raise ValueError(
+                f"Patch {source_patch_id} contains non-UTF-8 patch payload"
+            ) from exc
 
         diff_text = rw._unified_diff_for_op(current_text, selected_text, path_str)
-        changed_lines, logical_changed_lines, newline_only_changed_lines = rw._change_line_counts(
-            current_text, selected_text, path_str
+        changed_lines, logical_changed_lines, newline_only_changed_lines = (
+            rw._change_line_counts(current_text, selected_text, path_str)
         )
         newline_diagnostic = rw._newline_diagnostic(current_text, selected_text)
         changed_bytes = abs(len(selected_payload) - len(current_bytes))
@@ -304,7 +321,9 @@ def _preflight_selected_child(
         )
 
     if selected_proposal is not None and not selected_repair_found:
-        raise ValueError(f"Patch {source_patch_id} repair proposal does not select a source operation")
+        raise ValueError(
+            f"Patch {source_patch_id} repair proposal does not select a source operation"
+        )
     if total_changed_lines > rw.MAX_PATCH_LINES:
         raise ValueError(
             f"Patch exceeds {rw.MAX_PATCH_LINES} changed-line limit ({total_changed_lines} lines)"
@@ -315,7 +334,9 @@ def _preflight_selected_child(
         )
 
     proposal_evidence = (
-        selected_proposal.model_dump(mode="json") if selected_proposal is not None else None
+        selected_proposal.model_dump(mode="json")
+        if selected_proposal is not None
+        else None
     )
     return child_ops, combined_diff, source_validations, proposal_evidence
 
@@ -378,9 +399,13 @@ def resolve_patch_preview(
         raise ValueError(f"Unknown source patch_id: {source_patch_id}")
     source_manifest_path, source_manifest = _read_manifest(source_dir, source_patch_id)
     if source_manifest.get("bundle_version") != 4:
-        raise ValueError(f"Patch {source_patch_id} is not a resolvable v4 source preview")
+        raise ValueError(
+            f"Patch {source_patch_id} is not a resolvable v4 source preview"
+        )
     expected_fingerprint = source_manifest.get("repo_fingerprint", "")
-    if not expected_fingerprint or expected_fingerprint != rw._repo_fingerprint(repo_root):
+    if not expected_fingerprint or expected_fingerprint != rw._repo_fingerprint(
+        repo_root
+    ):
         raise ValueError(
             f"Patch {source_patch_id} does not belong to the requested repository"
         )
@@ -431,7 +456,9 @@ def resolve_patch_preview(
             f"Patch {source_patch_id} is not resolution-required (status: {status})"
         )
     if source_manifest.get("applied_at") or source_manifest.get("apply_result"):
-        raise ValueError(f"Patch {source_patch_id} source has apply evidence and cannot resolve")
+        raise ValueError(
+            f"Patch {source_patch_id} source has apply evidence and cannot resolve"
+        )
 
     pending = source_manifest.get("resolution_pending")
     pending_record = {
@@ -459,13 +486,15 @@ def resolve_patch_preview(
                 f"Patch {source_patch_id} already has a different resolution request in progress"
             )
 
-    child_ops, combined_diff, source_validations, proposal_evidence = _preflight_selected_child(
-        repo_root=repo_root,
-        source_dir=source_dir,
-        source_patch_id=source_patch_id,
-        source_manifest=source_manifest,
-        decision=decision,
-        proposal_id=proposal_id,
+    child_ops, combined_diff, source_validations, proposal_evidence = (
+        _preflight_selected_child(
+            repo_root=repo_root,
+            source_dir=source_dir,
+            source_patch_id=source_patch_id,
+            source_manifest=source_manifest,
+            decision=decision,
+            proposal_id=proposal_id,
+        )
     )
 
     if pending is None:
@@ -484,7 +513,9 @@ def resolve_patch_preview(
         "selected_payloads": [
             {
                 "path": op["path"],
-                "sha256": hashlib.sha256(op["payload_text"].encode("utf-8")).hexdigest(),
+                "sha256": hashlib.sha256(
+                    op["payload_text"].encode("utf-8")
+                ).hexdigest(),
                 "size_bytes": len(op["payload_text"].encode("utf-8")),
             }
             for op in child_ops

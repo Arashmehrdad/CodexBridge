@@ -60,11 +60,17 @@ def test_source_identity_excludes_mutable_resolution_lifecycle() -> None:
 
 def test_source_identity_binds_payload_and_proposal_material() -> None:
     original = source_manifest_identity_hash(SOURCE_MANIFEST)
-    changed = {**SOURCE_MANIFEST, "operations": [dict(SOURCE_MANIFEST["operations"][0])]}
+    changed = {
+        **SOURCE_MANIFEST,
+        "operations": [dict(SOURCE_MANIFEST["operations"][0])],
+    }
     changed["operations"][0]["payload_sha256"] = "f" * 64
     assert source_manifest_identity_hash(changed) != original
 
-    changed_proposal = {**SOURCE_MANIFEST, "repair_proposal": dict(SOURCE_MANIFEST["repair_proposal"])}
+    changed_proposal = {
+        **SOURCE_MANIFEST,
+        "repair_proposal": dict(SOURCE_MANIFEST["repair_proposal"]),
+    }
     changed_proposal["repair_proposal"]["proposal_id"] = "repair_fedcba9876543210"
     assert source_manifest_identity_hash(changed_proposal) != original
 
