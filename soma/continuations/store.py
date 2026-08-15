@@ -520,6 +520,40 @@ class ContinuationStore:
             ).fetchone()
         return None if row is None else self._handoff(row)
 
+    def count_continuations(self) -> int:
+        with self._read() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM controller_continuations").fetchone()
+        return int(row[0])
+
+    def page_continuations(
+        self,
+        *,
+        before_updated_at: str = "",
+        before_continuation_id: str = "",
+        limit: int = 20,
+    ) -> tuple[list[ContinuationRecord], bool]:
+        bounded = max(1, min(int(limit), 100))
+        if bool(before_updated_at) != bool(before_continuation_id):
+            raise ValueError(
+                "before_updated_at and before_continuation_id must appear together"
+            )
+        sql = "SELECT * FROM controller_continuations"
+        params: list[Any] = []
+        if before_updated_at:
+            sql += (
+                " WHERE updated_at < ? OR "
+                "(updated_at = ? AND continuation_id < ?)"
+            )
+            params.extend(
+                [before_updated_at, before_updated_at, before_continuation_id]
+            )
+        sql += " ORDER BY updated_at DESC, continuation_id DESC LIMIT ?"
+        params.append(bounded + 1)
+        with self._read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        has_more = len(rows) > bounded
+        return [self._continuation(row) for row in rows[:bounded]], has_more
+
     def list_contract_history(
         self, continuation_id: str, *, limit: int = 100
     ) -> list[ContractRevisionRecord]:
