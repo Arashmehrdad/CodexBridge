@@ -938,6 +938,36 @@ class CanonicalMemoryConfig(BaseModel):
         return runs_dir / "knowledge" / "projects" / project_id / "vault"
 
 
+class SkillLibraryConfig(BaseModel):
+    """Canonical portable Agent Skills library location and package bounds.
+
+    Production intent is an owner-configured absolute external private root.
+    The runs-internal location exists only as an explicit development fallback;
+    it is never presented as the production canonical location.
+    """
+
+    skill_library_root: str = ""
+    skill_library_kind: str = Field(
+        default="runs_internal_development",
+        pattern=r"^(runs_internal_development|external_private_library)$",
+    )
+    max_files: int = Field(default=256, ge=1, le=4096)
+    max_total_bytes: int = Field(default=16 * 1024 * 1024, ge=1, le=512 * 1024 * 1024)
+    max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1, le=128 * 1024 * 1024)
+
+    def resolve_library_root(self, runs_dir: Path) -> Path:
+        if self.skill_library_root:
+            root = Path(self.skill_library_root).expanduser()
+            if not root.is_absolute():
+                raise ValueError("skill_library_root must be an absolute path")
+            return root.resolve()
+        if self.skill_library_kind == "external_private_library":
+            raise ValueError(
+                "external_private_library requires an absolute skill_library_root"
+            )
+        return (runs_dir / "skills").resolve()
+
+
 class MemoryConfig(BaseModel):
     memory_enabled: bool = True
     memory_db_path: str | None = None
@@ -1252,6 +1282,7 @@ class AppConfig(BaseModel):
     )
     return_loop: ReturnLoopConfig = Field(default_factory=ReturnLoopConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    skill_library: SkillLibraryConfig = Field(default_factory=SkillLibraryConfig)
     canonical_memory: CanonicalMemoryConfig = Field(
         default_factory=CanonicalMemoryConfig
     )
@@ -1314,6 +1345,9 @@ class AppConfig(BaseModel):
                 path = self.config_dir / path
             return path.resolve()
         return self.resolve_runs_dir() / "hermes-service-state.json"
+
+    def resolve_skill_library_root(self) -> Path:
+        return self.skill_library.resolve_library_root(self.resolve_runs_dir())
 
     def resolve_memory_db_path(self) -> Path:
         if self.memory.memory_db_path:
