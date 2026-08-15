@@ -2274,17 +2274,17 @@ def test_patch_validation_attaches_final_python_candidate_evidence_without_mutat
     assert target.read_bytes() == before
 
 
-def test_g1_2_keeps_candidate_validation_out_of_preview_and_bundle_v3(
+def test_g1_3_stores_candidate_validation_in_bundle_v4_and_status_reads_it(
     tmp_path: Path,
 ) -> None:
     repo = make_repo(tmp_path)
     runs = tmp_path / "runs"
-    target = write_file(repo / "internal_only.py", "value = 1\n")
+    target = write_file(repo / "durable_validation.py", "value = 1\n")
     preview = preview_repo_patch(
         repo,
         [
             {
-                "path": "internal_only.py",
+                "path": "durable_validation.py",
                 "expected_sha256": sha256_file(target),
                 "old_text": "value = 1",
                 "new_text": "value = 2",
@@ -2297,11 +2297,139 @@ def test_g1_2_keeps_candidate_validation_out_of_preview_and_bundle_v3(
             encoding="utf-8"
         )
     )
+    entry = manifest["operations"][0]
+    evidence = entry["candidate_validation"]
+    status = rw.get_patch_status(repo, preview["patch_id"], runs)
 
     assert preview["ok"] is True
     assert "candidate_validation" not in preview
-    assert manifest["bundle_version"] == 3
-    assert "candidate_validation" not in manifest["operations"][0]
+    assert manifest["bundle_version"] == 4
+    assert evidence["schema_version"] == "repo_candidate_validation.v1"
+    assert evidence["candidate_disposition"] == "valid"
+    assert evidence["candidate_sha256"] == entry["payload_sha256"]
+    assert status["status"] == "preview_ok"
+    assert status["changed_files"] == ["durable_validation.py"]
+
+
+@pytest.mark.parametrize("legacy_bundle_version", [2, 3])
+def test_g1_3_retains_v2_v3_apply_compatibility(
+    tmp_path: Path, legacy_bundle_version: int
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "legacy_compatible.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "legacy_compatible.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["bundle_version"] = legacy_bundle_version
+    manifest["operations"][0].pop("candidate_validation", None)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    assert applied["ok"] is True
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+
+
+def test_g1_3_validation_metadata_cannot_select_different_payload_bytes(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "metadata_only.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "metadata_only.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    manifest_path = runs / "managed_patches" / preview["patch_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entry = manifest["operations"][0]
+    selected_payload_sha = entry["payload_sha256"]
+    entry["candidate_validation"]["candidate_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    applied = apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    assert applied["ok"] is True
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert sha256_file(target) == selected_payload_sha
+
+
+def test_g1_3_v4_payload_hash_verification_matches_existing_strength(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "v4_tamper.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "v4_tamper.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    patch_dir = runs / "managed_patches" / preview["patch_id"]
+    manifest = json.loads((patch_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["bundle_version"] == 4
+    (patch_dir / "payload_0.bin").write_text("value = 999\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="payload verification failed"):
+        apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+
+def test_g1_3_persisted_candidate_diagnostic_remains_bounded(tmp_path: Path) -> None:
+    from soma.repo_candidate_validation import MAX_CANDIDATE_DIAGNOSTIC_MESSAGE_CHARS
+
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "invalid_candidate.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "invalid_candidate.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = (",
+            }
+        ],
+        runs,
+    )
+    manifest = json.loads(
+        (runs / "managed_patches" / preview["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    evidence = manifest["operations"][0]["candidate_validation"]
+
+    assert preview["ok"] is True
+    assert evidence["candidate_disposition"] == "invalid"
+    assert evidence["regression_detected"] is True
+    assert len(evidence["diagnostic"]["message"]) <= MAX_CANDIDATE_DIAGNOSTIC_MESSAGE_CHARS
 
 
 def test_same_file_operations_validate_only_once_on_final_candidate(

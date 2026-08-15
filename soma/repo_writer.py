@@ -475,7 +475,7 @@ def _write_preview_bundle(
 
     manifest = {
         "patch_id": patch_id,
-        "bundle_version": 3,
+        "bundle_version": 4,
         "created_at": _utc_now(),
         "repo_root": "",
         "repo_fingerprint": _repo_fingerprint(repo_root),
@@ -504,6 +504,7 @@ def _write_preview_bundle(
             "newline_only_changed_lines": op.get("newline_only_changed_lines", 0),
             "newline_diagnostic": op.get("newline_diagnostic", {}),
             "warnings": list(op.get("warnings") or []),
+            "candidate_validation": op.get("candidate_validation"),
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
@@ -1345,6 +1346,7 @@ def preview_repo_patch(
                 "logical_changed_lines": op["logical_changed_lines"],
                 "newline_only_changed_lines": op["newline_only_changed_lines"],
                 "newline_diagnostic": op["newline_diagnostic"],
+                "candidate_validation": op.get("candidate_validation"),
                 "changed_bytes": op["changed_bytes"],
             }
         )
@@ -1729,7 +1731,7 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
         raise ValueError(
             f"Patch {patch_id} preview had validation errors; cannot apply"
         )
-    if manifest.get("bundle_version") not in {2, 3}:
+    if manifest.get("bundle_version") not in {2, 3, 4}:
         raise ValueError(f"Patch {patch_id} does not include an opaque preview bundle")
 
     expected_repo_fingerprint = manifest.get("repo_fingerprint", "")
