@@ -1912,6 +1912,7 @@ def test_run_start_accepts_and_dispatches_remote_powershell(monkeypatch) -> None
             "stdin_bytes": b"\x00\xff",
             "timeout_seconds": None,
             "logical_run_request_id": "",
+            "continuation_context_ref": "",
         }
     ]
 
@@ -2118,6 +2119,18 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
     assert powershell.argv[-1] == "Write-Output 'a b'"
     assert powershell.return_when == "accepted"
     assert powershell.wait_seconds == 0.0
+    associated = adapter.validate_python(
+        {
+            "operation": "powershell",
+            "repo_name": "repo",
+            "logical_run_request_id": "c5-public-run",
+            "continuation_context_ref": "contrev_20260815T120000Z_012345abcdef",
+        }
+    )
+    assert associated.continuation_context_ref.startswith("contrev_")
+    assert "not an authorization token" in str(
+        type(associated).model_fields["continuation_context_ref"].description
+    )
     inline = adapter.validate_python(
         {
             "operation": "powershell",
@@ -2155,8 +2168,13 @@ def test_run_start_models_reject_cross_operation_fields() -> None:
         {"operation": "powershell_group", "repo_name": "repo", "children": []},
         {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": [], "stdin_text": "x", "stdin_base64": "eA=="}]},
         {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "repository_lock_policy": "exclusive"},
+        {"operation": "powershell", "repo_name": "repo", "continuation_context_ref": "contrev_missing_logical"},
+        {"operation": "remote_powershell", "host_id": "host", "executable_path": "pwsh", "continuation_context_ref": "contrev_missing_logical"},
+        {"operation": "hermes_companion", "repo_name": "repo", "checkout": "C:/hermes", "companion_operation": "handshake", "continuation_context_ref": "contrev_missing_logical"},
         {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "logical_run_request_id": "not-supported"},
+        {"operation": "powershell_group", "repo_name": "repo", "children": [{"argv": []}], "continuation_context_ref": "not-supported"},
         {"operation": "hermes_service", "session_id": "session", "service_operation": "tool_search", "payload": {}, "expected_registry_generation": 1, "expected_schema_hash": "a" * 64, "logical_run_request_id": "not-supported"},
+        {"operation": "hermes_service", "session_id": "session", "service_operation": "tool_search", "payload": {}, "expected_registry_generation": 1, "expected_schema_hash": "a" * 64, "continuation_context_ref": "not-supported"},
     )
     for payload in invalid:
         with pytest.raises(ValidationError):

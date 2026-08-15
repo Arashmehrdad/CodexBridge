@@ -125,6 +125,7 @@ def start_companion_request(
     launch: HermesCompanionLaunch,
     *,
     logical_run_request_id: str = "",
+    continuation_context_ref: str = "",
 ) -> dict:
     companion_metadata = {
         "operation": launch.operation,
@@ -143,6 +144,7 @@ def start_companion_request(
         environment=dict(launch.environment),
         timeout_seconds=launch.timeout_seconds,
         logical_run_request_id=logical_run_request_id,
+        continuation_context_ref=continuation_context_ref,
         hermes_companion=companion_metadata,
     )
     result = dict(response)

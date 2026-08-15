@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from .cloudflare_tools import authorize_cloudflare_profile, build_cloudflare_action
@@ -127,6 +127,9 @@ from .ssh_watchdog import (
     validate_monitored_command_start,
 )
 from .ssh_tools import build_ssh_action, validate_remote_path
+
+if TYPE_CHECKING:
+    from .continuations.store import ContinuationStore
 
 
 def _sha256_file(path: Path) -> str:
@@ -548,8 +551,18 @@ class JobManager:
         self.config_path = config_path
         self.store = RunStore(config.resolve_runs_dir())
         self.locks = OperationLockStore(config.resolve_runs_dir())
+        self._continuation_store: "ContinuationStore | None" = None
         self._remote_reconciliation_lock = threading.Lock()
         self._remote_reconciliation_pollers: set[str] = set()
+
+    @property
+    def continuation_store(self) -> "ContinuationStore":
+        """Lazily initialize continuation persistence only for associated Runs."""
+        if self._continuation_store is None:
+            from .continuations.store import ContinuationStore
+
+            self._continuation_store = ContinuationStore(self.config.resolve_runs_dir())
+        return self._continuation_store
 
     def _require_active_ssh_autonomy_profile(self, autonomy_profile: str) -> None:
         if autonomy_profile != "permissive":
@@ -1189,6 +1202,7 @@ class JobManager:
         timeout_seconds: int | None = None,
         reserved_run_id: str | None = None,
         logical_run_request_id: str = "",
+        continuation_context_ref: str = "",
         hermes_companion: dict | None = None,
     ) -> dict:
         resolve_repo(self.config, repo_name)
@@ -1227,6 +1241,7 @@ class JobManager:
             decision,
             reserved_run_id=reserved_run_id,
             logical_run_request_id=logical_run_request_id,
+            continuation_context_ref=continuation_context_ref,
         )
         response.setdefault("repo_name", repo_name)
         response["profile_id"] = profile_id
@@ -1746,6 +1761,7 @@ class JobManager:
         stdin_bytes: bytes | None = None,
         timeout_seconds: int | None = None,
         logical_run_request_id: str = "",
+        continuation_context_ref: str = "",
     ) -> dict:
         request = build_remote_powershell_request(
             host_id=host_id,
@@ -1773,6 +1789,7 @@ class JobManager:
             {"remote_powershell_request": request},
             decision,
             logical_run_request_id=logical_run_request_id,
+            continuation_context_ref=continuation_context_ref,
         )
         response["host_id"] = host_id
         response["request_fingerprint"] = request["request_fingerprint"]
@@ -2307,6 +2324,7 @@ class JobManager:
         requested_repo_name: str,
         logical_run_request_id: str,
         request_hash: str,
+        continuation_context_ref: str = "",
     ) -> dict:
         response = decision.to_start_response(
             run_id=str(run["run_id"]), status=str(run["status"])
@@ -2316,8 +2334,35 @@ class JobManager:
             response["requested_repo_name"] = requested_repo_name
         response["logical_run_request_id"] = logical_run_request_id
         response["request_hash"] = request_hash
+        if continuation_context_ref:
+            response["continuation_context_ref"] = continuation_context_ref
         response["replayed"] = True
         return response
+
+    @staticmethod
+    def _logical_run_origin_error_response(
+        decision: PolicyDecision,
+        *,
+        logical_run_request_id: str,
+        continuation_context_ref: str,
+        error_code: str,
+        reason: str,
+        existing_run: dict[str, Any] | None = None,
+    ) -> dict:
+        return {
+            "run_id": "" if existing_run is None else str(existing_run.get("run_id") or ""),
+            "accepted": False,
+            "status": "conflict" if error_code == "continuation_origin_conflict" else "refused",
+            "estimated_duration_minutes": 0,
+            "recommended_check_after_minutes": 0,
+            "risk_level": decision.risk_level,
+            "requires_human": False,
+            "reason": reason,
+            "error_code": error_code,
+            "logical_run_request_id": logical_run_request_id,
+            "continuation_context_ref": continuation_context_ref,
+            "replayed": False,
+        }
 
     @staticmethod
     def _logical_run_conflict_response(
@@ -2392,14 +2437,27 @@ class JobManager:
         *,
         requested_repo_name: str,
         logical_run_request_id: str,
+        continuation_context_ref: str = "",
         reserved_run_id: str | None = None,
     ) -> dict:
         """Atomically admit one keyed single-Run request before worker launch."""
+        from .continuations.store import (
+            ContinuationClosed,
+            ContinuationRequestConflict,
+            ContinuationStore,
+            EffectOriginConflict,
+            StaleContinuationContract,
+        )
+
         logical_id = str(logical_run_request_id or "").strip()
         if not logical_id:
             raise ValueError("logical_run_request_id must not be blank")
         if len(logical_id) > 128:
             raise ValueError("logical_run_request_id must be at most 128 characters")
+        context_ref = str(continuation_context_ref or "").strip()
+        if len(context_ref) > 128:
+            raise ValueError("continuation_context_ref must be at most 128 characters")
+        continuation_store = self.continuation_store if context_ref else None
         if tool not in {"executable_profile", "remote_powershell"}:
             raise ValueError(
                 f"logical Run request identity is unsupported for tool {tool!r}"
@@ -2448,6 +2506,29 @@ class JobManager:
             if existing is not None:
                 if str(existing.get("request_hash") or "") != request_hash:
                     raise RunRequestConflict(existing, request_hash)
+                existing_link = ContinuationStore.find_effect_link_in_connection(
+                    conn,
+                    effect_kind="run",
+                    effect_id=str(existing["run_id"]),
+                )
+                if context_ref:
+                    if existing_link is None:
+                        raise EffectOriginConflict(
+                            f"run {existing['run_id']} was originally unassociated; "
+                            "continuation origin cannot be attached after the fact"
+                        )
+                    if existing_link.contract_revision_id != context_ref:
+                        raise EffectOriginConflict(
+                            f"run {existing['run_id']} already has continuation origin "
+                            f"{existing_link.continuation_id}/"
+                            f"{existing_link.contract_revision_id}"
+                        )
+                elif existing_link is not None:
+                    raise EffectOriginConflict(
+                        f"run {existing['run_id']} was originally associated with "
+                        f"{existing_link.continuation_id}/"
+                        f"{existing_link.contract_revision_id}; origin cannot be omitted on replay"
+                    )
                 conn.commit()
                 return self._logical_run_replay_response(
                     existing,
@@ -2456,6 +2537,12 @@ class JobManager:
                     requested_repo_name=requested_repo_name,
                     logical_run_request_id=logical_id,
                     request_hash=request_hash,
+                    continuation_context_ref=context_ref,
+                )
+
+            if continuation_store is not None:
+                continuation_store.require_current_open_context_in_connection(
+                    conn, context_ref
                 )
 
             if repository_lock_required:
@@ -2519,6 +2606,14 @@ class JobManager:
                 raise RuntimeError(
                     "Durable run could not bind repository lock ownership"
                 )
+            if continuation_store is not None:
+                continuation_store.insert_effect_link_in_connection(
+                    conn,
+                    continuation_context_ref=context_ref,
+                    effect_kind="run",
+                    effect_id=run_id,
+                    controller_request_id=logical_id,
+                )
             conn.commit()
         except RunRequestConflict as exc:
             conn.rollback()
@@ -2527,6 +2622,43 @@ class JobManager:
                 decision,
                 logical_run_request_id=logical_id,
                 request_hash=request_hash,
+            )
+        except StaleContinuationContract as exc:
+            conn.rollback()
+            return self._logical_run_origin_error_response(
+                decision,
+                logical_run_request_id=logical_id,
+                continuation_context_ref=context_ref,
+                error_code="stale_continuation_contract",
+                reason=str(exc),
+            )
+        except ContinuationClosed as exc:
+            conn.rollback()
+            return self._logical_run_origin_error_response(
+                decision,
+                logical_run_request_id=logical_id,
+                continuation_context_ref=context_ref,
+                error_code="continuation_closed",
+                reason=str(exc),
+            )
+        except (EffectOriginConflict, ContinuationRequestConflict) as exc:
+            conn.rollback()
+            return self._logical_run_origin_error_response(
+                decision,
+                logical_run_request_id=logical_id,
+                continuation_context_ref=context_ref,
+                error_code="continuation_origin_conflict",
+                reason=str(exc),
+                existing_run=self.store.find_by_logical_request(logical_id),
+            )
+        except KeyError as exc:
+            conn.rollback()
+            return self._logical_run_origin_error_response(
+                decision,
+                logical_run_request_id=logical_id,
+                continuation_context_ref=context_ref,
+                error_code="continuation_context_not_found",
+                reason=str(exc),
             )
         except Exception:
             conn.rollback()
@@ -2686,6 +2818,8 @@ class JobManager:
             response["requested_repo_name"] = requested_repo_name
         response["logical_run_request_id"] = logical_id
         response["request_hash"] = request_hash
+        if context_ref:
+            response["continuation_context_ref"] = context_ref
         response["replayed"] = False
         return response
 
@@ -2698,6 +2832,7 @@ class JobManager:
         *,
         reserved_run_id: str | None = None,
         logical_run_request_id: str = "",
+        continuation_context_ref: str = "",
     ) -> dict:
         if tool in LEGACY_READ_ONLY_TOOLS:
             raise ValueError(
@@ -2730,6 +2865,18 @@ class JobManager:
                 "reason": "Async jobs require a config file path",
             }
 
+        context_ref = str(continuation_context_ref or "").strip()
+        if context_ref and not logical_run_request_id:
+            return self._logical_run_origin_error_response(
+                decision,
+                logical_run_request_id="",
+                continuation_context_ref=context_ref,
+                error_code="continuation_context_requires_logical_run_request_id",
+                reason=(
+                    "continuation_context_ref requires logical_run_request_id so Run "
+                    "origin replay remains immutable and recoverable"
+                ),
+            )
         if logical_run_request_id:
             return self._create_and_launch_logical_request(
                 tool,
@@ -2738,6 +2885,7 @@ class JobManager:
                 decision,
                 requested_repo_name=requested_repo_name,
                 logical_run_request_id=logical_run_request_id,
+                continuation_context_ref=context_ref,
                 reserved_run_id=reserved_run_id,
             )
 

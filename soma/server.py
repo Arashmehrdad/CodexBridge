@@ -3314,6 +3314,7 @@ def start_local_powershell_async(
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
     logical_run_request_id: str = "",
+    continuation_context_ref: str = "",
     return_when: str = "accepted",
     wait_seconds: float = 0.0,
 ) -> dict:
@@ -3335,6 +3336,7 @@ def start_local_powershell_async(
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
         logical_run_request_id=logical_run_request_id,
+        continuation_context_ref=continuation_context_ref,
     )
     response.setdefault(
         "polling",
@@ -3363,6 +3365,7 @@ def start_remote_powershell_async(
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
     logical_run_request_id: str = "",
+    continuation_context_ref: str = "",
 ) -> dict:
     """Write async tool: launch unrestricted PowerShell on a registered permissive remote host."""
     stdin_bytes = None
@@ -3380,6 +3383,7 @@ def start_remote_powershell_async(
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
         logical_run_request_id=logical_run_request_id,
+        continuation_context_ref=continuation_context_ref,
     )
 
 
@@ -3443,6 +3447,7 @@ def run_start(request: RunStartRequest) -> dict:
             request.repo_name,
             launch,
             logical_run_request_id=request.logical_run_request_id,
+            continuation_context_ref=request.continuation_context_ref,
         )
     if request.operation == "remote_powershell":
         return start_remote_powershell_async(
@@ -3454,6 +3459,7 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
             logical_run_request_id=request.logical_run_request_id,
+            continuation_context_ref=request.continuation_context_ref,
         )
     if request.operation == "powershell_group":
         return start_local_powershell_group_async(
@@ -3474,6 +3480,7 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
             logical_run_request_id=request.logical_run_request_id,
+            continuation_context_ref=request.continuation_context_ref,
             return_when=request.return_when,
             wait_seconds=request.wait_seconds,
         )

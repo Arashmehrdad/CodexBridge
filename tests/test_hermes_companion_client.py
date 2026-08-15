@@ -108,6 +108,7 @@ def test_start_request_reuses_durable_executable_lifecycle(tmp_path: Path, monke
             "environment": {},
             "timeout_seconds": 120,
             "logical_run_request_id": "",
+            "continuation_context_ref": "",
             "hermes_companion": {
                 "operation": "handshake",
                 "hermes_revision": PINNED_HERMES_REVISION,

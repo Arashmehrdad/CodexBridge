@@ -580,6 +580,32 @@ class ContinuationStore:
             ).fetchall()
         return [self._handoff(row) for row in rows]
 
+    @classmethod
+    def find_effect_link_in_connection(
+        cls,
+        conn: sqlite3.Connection,
+        *,
+        effect_kind: str,
+        effect_id: str,
+    ) -> ContinuationEffectLinkRecord | None:
+        """Return immutable Task/Run origin without creating continuation state."""
+        kind = ContinuationEffectKind(str(effect_kind))
+        target_id = str(effect_id or "").strip()
+        if not target_id:
+            raise ValueError("effect_id must be non-empty")
+        table_row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'continuation_effect_links'"
+        ).fetchone()
+        if table_row is None:
+            return None
+        row = conn.execute(
+            "SELECT * FROM continuation_effect_links "
+            "WHERE effect_kind = ? AND effect_id = ?",
+            (kind.value, target_id),
+        ).fetchone()
+        return None if row is None else cls._effect_link(row)
+
     def insert_effect_link_in_connection(
         self,
         conn: sqlite3.Connection,

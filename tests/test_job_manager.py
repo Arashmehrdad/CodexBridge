@@ -2651,3 +2651,320 @@ def test_f1_lock_free_hermes_crash_recovers_without_repository_lock(
     )
     assert replay["run_id"] == reserved["run_id"] and replay["replayed"] is True
     assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+# ---------------------------------------------------------------------------
+# C5: atomic/recoverable direct single-Run continuation origin association
+# ---------------------------------------------------------------------------
+
+
+def _open_c5_continuation(manager: JobManager, request_id: str = "c5-open"):
+    from soma.continuations.store import ContinuationStore
+
+    store = ContinuationStore(manager.config.resolve_runs_dir())
+    continuation, revision, created = store.open_continuation(
+        label="C5 Run origin",
+        instruction_text="Continue under this current controller instruction.",
+        provenance_class="controller_submitted_text",
+        controller_request_id=request_id,
+    )
+    assert created is True
+    manager._continuation_store = store
+    return store, continuation, revision
+
+
+def test_c5_context_requires_logical_run_request_identity(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager)
+    response = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output missing-key"],
+        working_directory=working_directory,
+        continuation_context_ref=revision.contract_revision_id,
+    )
+    assert response["accepted"] is False
+    assert response["error_code"] == "continuation_context_requires_logical_run_request_id"
+    assert manager.store.list_runs(repo_name="sample") == []
+    assert store.list_effect_links(continuation.continuation_id) == []
+
+
+def test_c5_same_local_request_and_context_replays_same_run_and_link(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager)
+    kwargs = {
+        "working_directory": working_directory,
+        "logical_run_request_id": "c5-local-replay",
+        "continuation_context_ref": revision.contract_revision_id,
+    }
+    first = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output c5"], **kwargs
+    )
+    replay = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output c5"], **kwargs
+    )
+    assert first["accepted"] is True and first["replayed"] is False
+    assert replay["accepted"] is True and replay["replayed"] is True
+    assert replay["run_id"] == first["run_id"]
+    links = store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1
+    assert links[0].effect_kind.value == "run"
+    assert links[0].effect_id == first["run_id"]
+    assert links[0].contract_revision_id == revision.contract_revision_id
+
+
+def test_c5_unassociated_run_cannot_gain_origin_on_retry(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    first = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output plain"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-add-origin",
+    )
+    store, continuation, revision = _open_c5_continuation(manager)
+    conflict = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output plain"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-add-origin",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+    assert first["accepted"] is True
+    assert conflict["error_code"] == "continuation_origin_conflict"
+    assert conflict["run_id"] == first["run_id"]
+    assert store.list_effect_links(continuation.continuation_id) == []
+    assert len(manager.store.list_runs(repo_name="sample")) == 1
+
+
+def test_c5_associated_run_cannot_omit_or_change_origin_on_retry(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    first_store, first_continuation, first_revision = _open_c5_continuation(
+        manager, "c5-first-open"
+    )
+    first = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output origin"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-origin-immutable",
+        continuation_context_ref=first_revision.contract_revision_id,
+    )
+    second_store, second_continuation, second_revision = _open_c5_continuation(
+        manager, "c5-second-open"
+    )
+    omitted = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output origin"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-origin-immutable",
+    )
+    changed = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output origin"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-origin-immutable",
+        continuation_context_ref=second_revision.contract_revision_id,
+    )
+    assert first["accepted"] is True
+    for conflict in (omitted, changed):
+        assert conflict["error_code"] == "continuation_origin_conflict"
+        assert conflict["run_id"] == first["run_id"]
+    assert len(first_store.list_effect_links(first_continuation.continuation_id)) == 1
+    assert second_store.list_effect_links(second_continuation.continuation_id) == []
+
+
+@pytest.mark.parametrize("mode", ["stale", "closed"])
+def test_c5_stale_or_closed_context_rejects_before_run_or_lock(
+    tmp_path: Path, monkeypatch, mode: str
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager, f"c5-{mode}-open")
+    context_ref = revision.contract_revision_id
+    if mode == "stale":
+        store.append_contract_revision(
+            continuation_context_ref=context_ref,
+            instruction_text="New C5 governing instruction.",
+            provenance_class="controller_submitted_text",
+            controller_request_id="c5-stale-revision",
+        )
+        expected_code = "stale_continuation_contract"
+    else:
+        store.close_continuation(
+            continuation_id=continuation.continuation_id,
+            lifecycle="completed",
+            controller_request_id="c5-close",
+        )
+        expected_code = "continuation_closed"
+    response = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output rejected"],
+        working_directory=working_directory,
+        logical_run_request_id=f"c5-{mode}-run",
+        continuation_context_ref=context_ref,
+    )
+    assert response["error_code"] == expected_code
+    assert manager.store.find_by_logical_request(f"c5-{mode}-run") is None
+    assert manager.locks.list_locks("sample") == []
+    assert store.list_effect_links(continuation.continuation_id) == []
+
+
+def test_c5_concurrent_same_context_creates_one_run_link_and_launch(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager)
+    launch_calls: list[str] = []
+    launch_lock = threading.Lock()
+
+    def spawn(run_id: str, _lease_token: str) -> FakeProcess:
+        with launch_lock:
+            launch_calls.append(run_id)
+        return FakeProcess()
+
+    monkeypatch.setattr(manager, "_spawn_worker", spawn)
+    barrier = threading.Barrier(6)
+    results: list[dict] = []
+    result_lock = threading.Lock()
+
+    def start() -> None:
+        barrier.wait()
+        response = manager.start_executable_profile(
+            "sample", "powershell", ["-Command", "Write-Output concurrent-c5"],
+            working_directory=working_directory,
+            logical_run_request_id="c5-concurrent",
+            continuation_context_ref=revision.contract_revision_id,
+        )
+        with result_lock:
+            results.append(response)
+
+    threads = [threading.Thread(target=start) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 6
+    assert len({result["run_id"] for result in results}) == 1
+    assert sum(not result["replayed"] for result in results) == 1
+    assert len(launch_calls) == 1
+    assert len(store.list_effect_links(continuation.continuation_id)) == 1
+
+
+def test_c5_link_failure_rolls_back_run_and_repository_lock(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager)
+
+    def fail_link(*_args, **_kwargs):
+        raise RuntimeError("synthetic C5 link failure")
+
+    monkeypatch.setattr(store, "insert_effect_link_in_connection", fail_link)
+    with pytest.raises(RuntimeError, match="synthetic C5 link failure"):
+        manager.start_executable_profile(
+            "sample", "powershell", ["-Command", "Write-Output rollback"],
+            working_directory=working_directory,
+            logical_run_request_id="c5-link-failure",
+            continuation_context_ref=revision.contract_revision_id,
+        )
+    assert manager.store.find_by_logical_request("c5-link-failure") is None
+    assert manager.locks.list_locks("sample") == []
+    assert store.list_effect_links(continuation.continuation_id) == []
+
+
+def test_c5_post_commit_crash_preserves_run_link_and_replays_after_close(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    store, continuation, revision = _open_c5_continuation(manager)
+
+    def crash_before_materialization(_run: dict, _input_data: dict) -> None:
+        raise KeyboardInterrupt("synthetic C5 hard crash")
+
+    monkeypatch.setattr(manager, "_materialize_logical_run_launch_artifacts", crash_before_materialization)
+    with pytest.raises(KeyboardInterrupt, match="synthetic C5 hard crash"):
+        manager.start_executable_profile(
+            "sample", "powershell", ["-Command", "Write-Output recover-c5"],
+            working_directory=working_directory,
+            logical_run_request_id="c5-crash-recovery",
+            continuation_context_ref=revision.contract_revision_id,
+        )
+    reserved = manager.store.find_by_logical_request("c5-crash-recovery")
+    assert reserved is not None and reserved["status"] == "launch_pending"
+    links = store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1 and links[0].effect_id == reserved["run_id"]
+    monkeypatch.setattr(
+        manager, "_materialize_logical_run_launch_artifacts",
+        JobManager._materialize_logical_run_launch_artifacts,
+    )
+    manager.reconcile_startup()
+    recovered = manager.store.get_run(reserved["run_id"])
+    assert recovered["status"] in {"queued", "running"}
+    assert recovered["lease_generation"] == 2
+    store.close_continuation(
+        continuation_id=continuation.continuation_id,
+        lifecycle="completed",
+        controller_request_id="c5-close-after-accept",
+    )
+    replay = manager.start_executable_profile(
+        "sample", "powershell", ["-Command", "Write-Output recover-c5"],
+        working_directory=working_directory,
+        logical_run_request_id="c5-crash-recovery",
+        continuation_context_ref=revision.contract_revision_id,
+    )
+    assert replay["run_id"] == reserved["run_id"] and replay["replayed"] is True
+    assert len(store.list_effect_links(continuation.continuation_id)) == 1
+
+
+def test_c5_remote_powershell_replays_same_run_and_origin(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    store, continuation, revision = _open_c5_continuation(manager)
+    kwargs = {
+        "logical_run_request_id": "c5-remote-replay",
+        "continuation_context_ref": revision.contract_revision_id,
+    }
+    first = manager.start_remote_powershell(
+        "my_vps", "/usr/bin/pwsh", ["-Command", "Write-Output c5"], **kwargs
+    )
+    replay = manager.start_remote_powershell(
+        "my_vps", "/usr/bin/pwsh", ["-Command", "Write-Output c5"], **kwargs
+    )
+    assert replay["run_id"] == first["run_id"] and replay["replayed"] is True
+    links = store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1 and links[0].effect_id == first["run_id"]
+
+
+def test_c5_hermes_companion_remains_lock_free_with_one_origin(tmp_path: Path, monkeypatch) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    executable = tmp_path / "c5-hermes-python.exe"
+    executable.write_bytes(b"c5-hermes-fixture")
+    manager.config.executable_profiles["hermes_python"] = ExecutableProfileConfig(
+        profile_id="hermes_python", enabled=True, executable_path=str(executable),
+        target="local", autonomy_profile="permissive",
+        working_directory_policy="arbitrary", environment_policy="arbitrary",
+        stdin_mode="text", stdout_mode="protected_artifact",
+        stderr_mode="protected_artifact", timeout_seconds=30,
+        cancellation_policy="process_tree", unrestricted_argv=True,
+        unrestricted_paths=True, unrestricted_environment=True,
+        unrestricted_network=True, unrestricted_child_processes=True,
+    )
+    companion = {
+        "operation": "handshake",
+        "hermes_revision": "862b1b37bf0aadba3a98b3756c7d71779379b53b",
+        "checkout": str(tmp_path / "hermes"),
+        "expected_registry_generation": None,
+        "expected_schema_hash": "",
+        "one_request": True,
+    }
+    store, continuation, revision = _open_c5_continuation(manager)
+    kwargs = {
+        "working_directory": str(tmp_path / "repo"),
+        "stdin_text": '{"operation":"handshake"}\n',
+        "timeout_seconds": 30,
+        "logical_run_request_id": "c5-hermes-replay",
+        "continuation_context_ref": revision.contract_revision_id,
+        "hermes_companion": companion,
+    }
+    first = manager.start_executable_profile(
+        "sample", "hermes_python", ["-m", "soma.hermes_companion"], **kwargs
+    )
+    replay = manager.start_executable_profile(
+        "sample", "hermes_python", ["-m", "soma.hermes_companion"], **kwargs
+    )
+    assert replay["run_id"] == first["run_id"] and replay["replayed"] is True
+    assert manager.locks.list_locks("sample") == []
+    links = store.list_effect_links(continuation.continuation_id)
+    assert len(links) == 1 and links[0].effect_id == first["run_id"]

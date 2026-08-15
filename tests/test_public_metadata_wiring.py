@@ -20,7 +20,7 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "08378ecb0d817df9c1a96562ae0a802c00284a9ac45c1e592cc3dff061ac67d7"
+    "c5b2db1add23790ece8b208fa6263f047369601d5fd87b844b68507a9031a121"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
@@ -128,7 +128,7 @@ def test_current_public_gateway_schema_identity_is_intentional() -> None:
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "0a8619fdfb568afd3721c35cbd6f8ac6163387021d3d9a8e99b290151abf7852"
+        "d0f8937730423a528e11dd6ad3a434402974f7aacb64e33a181ec3a28b5f64ec"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH

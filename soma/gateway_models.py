@@ -1276,6 +1276,14 @@ class LocalPowerShellStart(GatewayModel):
     operation: Literal["powershell"]
     repo_name: str = Field(min_length=1, max_length=128)
     logical_run_request_id: str = Field(default="", max_length=128)
+    continuation_context_ref: str = Field(
+        default="",
+        max_length=128,
+        description=(
+            "Optional current continuation contract revision identity for this keyed Run; "
+            "records immutable mechanical origin and is not an authorization token."
+        ),
+    )
     profile_id: str = Field(default="powershell", min_length=1, max_length=128)
     argv: list[str] = Field(default_factory=list, max_length=10_000)
     working_directory: str = Field(default="", max_length=32_768)
@@ -1290,6 +1298,10 @@ class LocalPowerShellStart(GatewayModel):
     def validate_stdin_mode(self) -> "LocalPowerShellStart":
         if self.stdin_text is not None and self.stdin_base64 is not None:
             raise ValueError("Specify either stdin_text or stdin_base64, not both")
+        if self.continuation_context_ref and not self.logical_run_request_id:
+            raise ValueError(
+                "continuation_context_ref requires logical_run_request_id for immutable Run replay"
+            )
         return self
 
 
@@ -1297,6 +1309,14 @@ class HermesCompanionStart(GatewayModel):
     operation: Literal["hermes_companion"]
     repo_name: str = Field(min_length=1, max_length=128)
     logical_run_request_id: str = Field(default="", max_length=128)
+    continuation_context_ref: str = Field(
+        default="",
+        max_length=128,
+        description=(
+            "Optional current continuation contract revision identity for this keyed Run; "
+            "records immutable mechanical origin and is not an authorization token."
+        ),
+    )
     profile_id: str = Field(default="", max_length=128)
     checkout: str = Field(min_length=1, max_length=32_768)
     hermes_home: str = Field(default="", max_length=32_768)
@@ -1307,6 +1327,14 @@ class HermesCompanionStart(GatewayModel):
     expected_registry_generation: int | None = Field(default=None, ge=0)
     expected_schema_hash: str = Field(default="", max_length=64)
     timeout_seconds: int = Field(default=120, ge=1, le=600)
+
+    @model_validator(mode="after")
+    def validate_continuation_origin(self) -> "HermesCompanionStart":
+        if self.continuation_context_ref and not self.logical_run_request_id:
+            raise ValueError(
+                "continuation_context_ref requires logical_run_request_id for immutable Run replay"
+            )
+        return self
 
 
 class HermesServiceStart(GatewayModel):
@@ -1323,12 +1351,28 @@ class RemotePowerShellStart(GatewayModel):
     operation: Literal["remote_powershell"]
     host_id: str = Field(min_length=1, max_length=128)
     logical_run_request_id: str = Field(default="", max_length=128)
+    continuation_context_ref: str = Field(
+        default="",
+        max_length=128,
+        description=(
+            "Optional current continuation contract revision identity for this keyed Run; "
+            "records immutable mechanical origin and is not an authorization token."
+        ),
+    )
     executable_path: str = Field(min_length=1, max_length=32_768)
     argv: list[str] = Field(default_factory=list, max_length=10_000)
     working_directory: str = Field(default="", max_length=32_768)
     environment: dict[str, str] = Field(default_factory=dict, max_length=10_000)
     stdin_base64: str | None = Field(default=None, max_length=2_700_000)
     timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+
+    @model_validator(mode="after")
+    def validate_continuation_origin(self) -> "RemotePowerShellStart":
+        if self.continuation_context_ref and not self.logical_run_request_id:
+            raise ValueError(
+                "continuation_context_ref requires logical_run_request_id for immutable Run replay"
+            )
+        return self
 
 
 RunStartRequest = Annotated[
