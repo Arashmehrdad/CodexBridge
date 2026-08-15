@@ -368,11 +368,46 @@ def get_patch_status(repo_root: Path, patch_id: str, runs_dir: Path) -> dict[str
         raise ValueError(
             f"Patch {patch_id} does not belong to the requested repository"
         )
+    status = str(manifest.get("status", "unknown"))
+    repair_proposal = manifest.get("repair_proposal")
+    repair_available = isinstance(repair_proposal, dict) and bool(
+        repair_proposal.get("proposal_id")
+    )
+    resolution = dict(manifest.get("resolution") or {})
+    resolution_choices: list[str] = []
+    if status == "preview_resolution_required":
+        resolution_choices.append("accept_original")
+        if repair_available:
+            resolution_choices.insert(0, "accept_repair")
     return {
         "ok": True,
         "patch_id": patch_id,
-        "status": str(manifest.get("status", "unknown")),
+        "bundle_version": manifest.get("bundle_version"),
+        "status": status,
+        "applicable": status == "preview_ok",
+        "resolution_required": status == "preview_resolution_required",
+        "repair_available": repair_available,
+        "repair_proposal_id": (
+            str(repair_proposal.get("proposal_id", "")) if repair_available else ""
+        ),
+        "resolution_choices": resolution_choices,
+        "resolution_role": str(manifest.get("resolution_role", "source")),
+        "source_patch_id": str(resolution.get("source_patch_id", "")),
+        "child_patch_id": str(resolution.get("child_patch_id", "")),
+        "resolution_request_id": str(resolution.get("resolution_request_id", "")),
+        "resolution_request_hash": str(
+            resolution.get("resolution_request_hash", "")
+        ),
+        "decision": str(resolution.get("decision", "")),
+        "proposal_id": str(resolution.get("proposal_id", "")),
+        "candidate_validation_override": str(
+            resolution.get(
+                "candidate_validation_override",
+                manifest.get("candidate_validation_override", ""),
+            )
+        ),
         "created_at": str(manifest.get("created_at", "")),
+        "resolved_at": str(manifest.get("resolved_at", "")),
         "applied_at": str(manifest.get("applied_at", "")),
         "reverted_at": str(manifest.get("reverted_at", "")),
         "changed_files": [

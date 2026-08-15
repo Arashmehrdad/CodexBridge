@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -423,7 +424,12 @@ def test_source_and_child_status_remain_independent(tmp_path: Path) -> None:
     repo.mkdir()
     runs = tmp_path / "runs"
     target, baseline, _, source = _incident_b(repo, runs)
-    proposal_id = _manifest(runs, source["patch_id"])["repair_proposal"]["proposal_id"]
+    source_before = get_patch_status(repo, source["patch_id"], runs)
+    assert source_before["status"] == "preview_resolution_required"
+    assert source_before["resolution_required"] is True
+    assert source_before["repair_available"] is True
+    assert source_before["resolution_choices"] == ["accept_repair", "accept_original"]
+    proposal_id = source_before["repair_proposal_id"]
     child = resolve_patch_preview(
         repo,
         runs,
@@ -433,8 +439,19 @@ def test_source_and_child_status_remain_independent(tmp_path: Path) -> None:
         proposal_id=proposal_id,
     )
 
-    assert get_patch_status(repo, source["patch_id"], runs)["status"] == "resolved"
-    assert get_patch_status(repo, child["patch_id"], runs)["status"] == "preview_ok"
+    source_status = get_patch_status(repo, source["patch_id"], runs)
+    child_status = get_patch_status(repo, child["patch_id"], runs)
+    assert source_status["status"] == "resolved"
+    assert source_status["applicable"] is False
+    assert source_status["child_patch_id"] == child["patch_id"]
+    assert source_status["decision"] == "accept_repair"
+    assert source_status["resolution_request_id"] == "lifecycle"
+    assert child_status["status"] == "preview_ok"
+    assert child_status["applicable"] is True
+    assert child_status["resolution_role"] == "child"
+    assert child_status["source_patch_id"] == source["patch_id"]
+    assert child_status["decision"] == "accept_repair"
+    assert child_status["proposal_id"] == proposal_id
     apply_previewed_repo_change(repo, child["patch_id"], runs)
     assert target.read_bytes() == baseline
     assert get_patch_status(repo, source["patch_id"], runs)["status"] == "resolved"
@@ -442,6 +459,54 @@ def test_source_and_child_status_remain_independent(tmp_path: Path) -> None:
     revert_managed_patch(repo, child["patch_id"], runs)
     assert get_patch_status(repo, source["patch_id"], runs)["status"] == "resolved"
     assert get_patch_status(repo, child["patch_id"], runs)["status"] == "reverted"
+
+
+def test_resolution_status_recovers_from_managed_files_in_fresh_process(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    runs = tmp_path / "runs"
+    _, _, _, source = _incident_b(repo, runs, "restart_case.py")
+    proposal_id = _manifest(runs, source["patch_id"])["repair_proposal"]["proposal_id"]
+    child = resolve_patch_preview(
+        repo,
+        runs,
+        source_patch_id=source["patch_id"],
+        resolution_request_id="fresh-process",
+        decision="accept_repair",
+        proposal_id=proposal_id,
+    )
+
+    project_root = Path(__file__).resolve().parents[1]
+    script = (
+        "import json,sys; from pathlib import Path; "
+        "from soma.repo_writer import get_patch_status; "
+        "repo=Path(sys.argv[1]); runs=Path(sys.argv[2]); "
+        "print(json.dumps([get_patch_status(repo,sys.argv[3],runs),"
+        "get_patch_status(repo,sys.argv[4],runs)]))"
+    )
+    recovered = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(repo),
+            str(runs),
+            source["patch_id"],
+            child["patch_id"],
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    source_status, child_status = json.loads(recovered.stdout)
+    assert source_status["status"] == "resolved"
+    assert source_status["child_patch_id"] == child["patch_id"]
+    assert child_status["status"] == "preview_ok"
+    assert child_status["source_patch_id"] == source["patch_id"]
+    assert child_status["resolution_request_id"] == "fresh-process"
 
 
 def test_symlink_and_binary_rechecks_fail_closed_when_supported(tmp_path: Path) -> None:

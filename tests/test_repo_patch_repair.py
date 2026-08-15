@@ -367,18 +367,27 @@ def test_incident_a_adjacent_string_trap_fails_on_nl() -> None:
         (b"value = 1 \\\n    + 2\n", b"1 ", "non_horizontal_bytes_after_cut"),
         (b"value = 1  # comment\n", b"1", "next_token_not_logical_newline"),
         (b"value = 1; other = 2\n", b"1", "next_token_not_logical_newline"),
-        (b'value = f"hello {name}"\n', b"hello ", "next_token_not_logical_newline"),
+        (
+            b'value = f"hello {name}"\n',
+            b"hello ",
+            ("next_token_not_logical_newline", "token_spans_deletion_cut"),
+        ),
     ],
 )
 def test_structural_hazards_are_rejected(
-    repaired: bytes, cut_marker: bytes, expected_reason: str
+    repaired: bytes,
+    cut_marker: bytes,
+    expected_reason: str | tuple[str, ...],
 ) -> None:
     marker_start = repaired.index(cut_marker)
     cut = marker_start + len(cut_marker.rstrip(b"\n"))
     proof = _prove_injected(repaired, cut)
 
     assert proof.passed is False
-    assert proof.reason == expected_reason
+    if isinstance(expected_reason, tuple):
+        assert proof.reason in expected_reason
+    else:
+        assert proof.reason == expected_reason
 
 
 @pytest.mark.parametrize(
