@@ -86,6 +86,7 @@ from .public_tool_metadata import fastmcp_registration_kwargs
 from . import reconciliation_status
 from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
+from .repo_patch_resolution_service import resolve_patch_preview as _resolve_patch_preview
 from .repo_wiki import mark_repo_wiki_stale
 from .run_query_chunks import decode_run_reference
 from .service_reload import (
@@ -6279,6 +6280,34 @@ def preview_repo_file_removal(
     return result
 
 
+@_internal_tool(output_schema=PREVIEW_PATCH_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def resolve_repo_patch_preview(
+    repo_name: str,
+    source_patch_id: str,
+    resolution_request_id: str,
+    decision: Literal["accept_repair", "accept_original"],
+    proposal_id: str = "",
+) -> dict:
+    """Read-only repository resolution: select one deterministic child preview."""
+    canonical_name, repo_root, requested_name = _repo_context(repo_name)
+    result = _resolve_patch_preview(
+        repo_root,
+        _get_runs_dir(),
+        source_patch_id=source_patch_id,
+        resolution_request_id=resolution_request_id,
+        decision=decision,
+        proposal_id=proposal_id,
+    )
+    result["repo_name"] = canonical_name
+    result["selected_child_patch_id"] = result.get("child_patch_id", result.get("patch_id", ""))
+    result["candidate_validation_status"] = (
+        "overridden" if decision == "accept_original" else "valid"
+    )
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
 @_internal_tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
 def get_patch_status(
     repo_name: str,
@@ -6305,7 +6334,18 @@ def get_patch_status(
         "ok": result.get("ok", False),
         "repo_name": result.get("repo_name", canonical_name),
         "patch_id": result.get("patch_id", patch_id),
+        "bundle_version": result.get("bundle_version"),
         "status": result.get("status", "unknown"),
+        "applicable": bool(result.get("applicable", False)),
+        "resolution_required": bool(result.get("resolution_required", False)),
+        "repair_available": bool(result.get("repair_available", False)),
+        "repair_proposal_id": result.get("repair_proposal_id", ""),
+        "source_patch_id": result.get("source_patch_id", ""),
+        "resolution_decision": result.get("resolution_decision", ""),
+        "selected_child_patch_id": result.get("selected_child_patch_id", ""),
+        "candidate_validation_status": result.get(
+            "candidate_validation_status", "not_applicable"
+        ),
         "created_at": result.get("created_at", ""),
         "applied_at": result.get("applied_at", ""),
         "reverted_at": result.get("reverted_at", ""),
@@ -6671,7 +6711,10 @@ def _bounded_repo_preview_response(result: dict[str, Any], budget: int) -> dict[
             "ok", "operation", "patch_id", "cleanup_id", "repo_name", "requested_repo_name",
             "git_head", "changed_lines", "logical_changed_lines",
             "newline_only_changed_lines", "changed_bytes", "commit_title",
-            "error",
+            "applicable", "candidate_validation_status", "resolution_required",
+            "repair_available", "repair_proposal_id", "source_patch_id",
+            "selected_child_patch_id", "decision", "resolution_request_id",
+            "proposal_id", "idempotent_replay", "error",
         )
         if key in result
     }
@@ -6721,6 +6764,14 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
             request.expected_sha256,
             request.commit_title,
             request.commit_description,
+        )
+    elif request.operation == "resolve_patch":
+        result = resolve_repo_patch_preview(
+            request.repo_name,
+            request.source_patch_id,
+            request.resolution_request_id,
+            request.decision,
+            request.proposal_id,
         )
     else:
         result = preview_managed_artifact_cleanup(request.repo_name, request.roots)

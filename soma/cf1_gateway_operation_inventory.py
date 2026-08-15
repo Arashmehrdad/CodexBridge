@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v22"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v23"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1497,6 +1497,22 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         notes=(
             "Request content is capped at 2,000,000 characters; compact response "
             "metadata is UTF-8 bounded and view=full preserves complete diff evidence."
+        ),
+    ),
+    _entry(
+        "repo_preview",
+        ("resolve_patch",),
+        "soma.server:repo_preview -> soma.repo_patch_resolution_service:resolve_patch_preview",
+        "bounded compact deterministic child-preview resolution",
+        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "An explicit accept_repair or accept_original decision selects one "
+            "deterministic child preview from durable v4 source evidence; compact "
+            "responses expose bounded resolution continuity only, and view=full "
+            "preserves bounded resolution evidence without payload bodies."
         ),
     ),
     _entry(

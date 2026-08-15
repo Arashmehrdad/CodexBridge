@@ -356,6 +356,28 @@ def _preview_payload_sha(op: dict[str, Any]) -> str:
     return ""
 
 
+def _candidate_validation_status(records: list[dict[str, Any]]) -> str:
+    validations: list[dict[str, Any]] = []
+    for record in records:
+        candidate = record.get("candidate_validation")
+        if isinstance(candidate, dict):
+            validations.append(candidate)
+        elif "candidate_disposition" in record:
+            validations.append(record)
+    if not validations:
+        return "not_applicable"
+    if any(bool(item.get("regression_detected")) for item in validations):
+        return "regression_detected"
+    dispositions = {str(item.get("candidate_disposition", "")) for item in validations}
+    if "budget_skipped" in dispositions:
+        return "budget_skipped"
+    if "invalid" in dispositions:
+        return "invalid"
+    if "valid" in dispositions:
+        return "valid"
+    return "not_applicable"
+
+
 def get_patch_status(repo_root: Path, patch_id: str, runs_dir: Path) -> dict[str, Any]:
     """Return repository-bound patch lifecycle state without modifying files."""
     patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
@@ -374,6 +396,11 @@ def get_patch_status(repo_root: Path, patch_id: str, runs_dir: Path) -> dict[str
         repair_proposal.get("proposal_id")
     )
     resolution = dict(manifest.get("resolution") or {})
+    resolution_role = str(manifest.get("resolution_role", "source"))
+    source_patch_id = str(resolution.get("source_patch_id", ""))
+    if resolution_role == "source" and not source_patch_id:
+        source_patch_id = patch_id
+    selected_child_patch_id = str(resolution.get("child_patch_id", ""))
     resolution_choices: list[str] = []
     if status == "preview_resolution_required":
         resolution_choices.append("accept_original")
@@ -390,15 +417,20 @@ def get_patch_status(repo_root: Path, patch_id: str, runs_dir: Path) -> dict[str
         "repair_proposal_id": (
             str(repair_proposal.get("proposal_id", "")) if repair_available else ""
         ),
+        "candidate_validation_status": _candidate_validation_status(
+            list(manifest.get("operations") or [])
+        ),
         "resolution_choices": resolution_choices,
-        "resolution_role": str(manifest.get("resolution_role", "source")),
-        "source_patch_id": str(resolution.get("source_patch_id", "")),
-        "child_patch_id": str(resolution.get("child_patch_id", "")),
+        "resolution_role": resolution_role,
+        "source_patch_id": source_patch_id,
+        "child_patch_id": selected_child_patch_id,
+        "selected_child_patch_id": selected_child_patch_id,
         "resolution_request_id": str(resolution.get("resolution_request_id", "")),
         "resolution_request_hash": str(
             resolution.get("resolution_request_hash", "")
         ),
         "decision": str(resolution.get("decision", "")),
+        "resolution_decision": str(resolution.get("decision", "")),
         "proposal_id": str(resolution.get("proposal_id", "")),
         "candidate_validation_override": str(
             resolution.get(
@@ -1482,12 +1514,15 @@ def preview_repo_patch(
     return {
         "ok": not bool(errors) and not resolution_required,
         "applicable": not bool(errors) and not resolution_required,
+        "candidate_validation_status": _candidate_validation_status(validated),
         "resolution_required": resolution_required,
         "repair_available": selected_proposal is not None,
         "repair_proposal_id": (
             str(selected_proposal.get("proposal_id", "")) if selected_proposal else ""
         ),
         "patch_id": patch_id,
+        "source_patch_id": patch_id if resolution_required else "",
+        "selected_child_patch_id": "",
         "repo_name": "",
         "diff": combined_diff,
         "changed_files": changed_files,

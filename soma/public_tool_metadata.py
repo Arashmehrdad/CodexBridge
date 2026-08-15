@@ -538,13 +538,12 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
         ),
         "repo_preview": _record(
             "repo_preview",
-            title="Prepare repository change",
+            title="Prepare or resolve repository change",
             description=(
                 "Use this when the user asks to change Git repository source/files "
-                "and needs a durable hash-bound preview or cleanup plan. It does not "
-                "modify repository files. Do not use it for OS/service configs, "
-                "watchdog/service/process changes, or arbitrary machine commands; "
-                "use run_start for those."
+                "and needs a durable hash-bound preview, cleanup plan, or explicit "
+                "managed-patch resolution. It does not modify repository files. Do not "
+                "use it for OS/service configs or machine commands; use run_start for those."
             ),
             invoking="Preparing change preview...",
             invoked="Change preview ready",
