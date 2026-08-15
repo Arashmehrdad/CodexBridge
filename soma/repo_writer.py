@@ -27,6 +27,7 @@ from .repo_candidate_validation import (
     CandidateValidationBudget,
     validate_python_candidate,
 )
+from .repo_patch_repair import derive_authored_span_provenance
 from .repo_reader import (
     _is_binary,
     _resolve_and_validate,
@@ -505,6 +506,7 @@ def _write_preview_bundle(
             "newline_diagnostic": op.get("newline_diagnostic", {}),
             "warnings": list(op.get("warnings") or []),
             "candidate_validation": op.get("candidate_validation"),
+            "authored_span_provenance": op.get("authored_span_provenance"),
             "changed_bytes": op["changed_bytes"],
         }
         payload_text = op.get("payload_text")
@@ -1253,6 +1255,15 @@ def _validate_operations(
                 candidate_bytes=candidate_bytes,
                 budget=candidate_validation_budget,
             ).model_dump(mode="json")
+        operation_count = len(state["validation_results"])
+        first_validation = state["validation_results"][0]
+        authored_span_provenance = derive_authored_span_provenance(
+            baseline_bytes=state["current_bytes"],
+            candidate_bytes=candidate_bytes,
+            operation_index=int(first_validation["index"]),
+            operation_type=str(first_validation["type"]),
+            operation_count=operation_count,
+        ).model_dump(mode="json")
         total_changed_lines += changed_lines
         total_changed_bytes += changed_bytes
         validated.append(
@@ -1269,9 +1280,10 @@ def _validate_operations(
                 "newline_diagnostic": newline_diagnostic,
                 "warnings": warnings,
                 "changed_bytes": changed_bytes,
-                "operation_count": len(state["validation_results"]),
+                "operation_count": operation_count,
                 "validation_results": list(state["validation_results"]),
                 "candidate_validation": candidate_validation,
+                "authored_span_provenance": authored_span_provenance,
             }
         )
 
