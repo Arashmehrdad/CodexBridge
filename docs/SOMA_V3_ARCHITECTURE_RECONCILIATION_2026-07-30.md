@@ -224,8 +224,8 @@ The following remain lane-specific decisions rather than implied activation:
 - company-global memory and third-party personal-data authority;
 - timing and objective for the later A/B/C organisation comparison.
 
-## 12. Implementation authority
+## 12. Implementation authority - 2026-08-15 provenance correction
 
-Arash explicitly activated `V3-1A — INTERACTIVE-WORKER-SUBSTRATE-1`. Its authoritative lane contract is [`V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md`](V3_1A_INTERACTIVE_WORKER_SUBSTRATE_PLAN_2026-07-30.md).
+This reconciliation originally recorded that Arash explicitly activated `V3-1A - INTERACTIVE-WORKER-SUBSTRATE-1`. A later owner review on 2026-08-15 did not accept the generated Company gate chain as sufficient proof that the Autonomous Company roadmap had been unfrozen. This historical statement therefore must not be reused as independent owner-authorisation evidence for later Company implementation.
 
-The active package is the documentation-only [`V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md`](V3_1A_INTERACTION_FOUNDATION_ARCHITECTURE_REVIEW_2026-07-31.md). Interaction product implementation is paused until independent acceptance and explicit reactivation through `PLANS.md`.
+`V3-1A`, `V3-1B`, and `V3-2` implementation/evidence remain preserved repository history. The owner specifically disputes the activation provenance of `V3-1B` / `V3-2`. The Autonomous Company roadmap is now frozen. No `V3-3` or later Company implementation may begin unless the owner explicitly names and reopens that Company lane. Current sequencing authority is the corrected root [`PLANS.md`](../PLANS.md).

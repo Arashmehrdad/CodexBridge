@@ -1,7 +1,7 @@
 # SOMA-V3-ARCH-1 — Autonomous Company Architecture
 
 **Date:** 2026-07-30  
-**Status:** owner-accepted architecture amended by the 2026-07-31 hierarchical-intelligence organisational contract; sequencing remains controlled through `PLANS.md`.
+**Status:** preserved owner-accepted Company architecture; implementation progression is FROZEN by the 2026-08-15 owner correction in `PLANS.md`. Historical implementation evidence does not authorise a later Company lane.
 **Decision level:** C — foundational company authority, autonomy, safety and product-direction boundary.  
 **Owner:** Arash.  
 **Executive design authority:** ChatGPT/Cortana, subject to owner approval and the review process below.  
@@ -1304,7 +1304,7 @@ Codex should produce a feasibility map and implementation options, not commit co
 3. ChatGPT reconciled both reports without changing the owner-approved destination.
 4. Arash accepted progressive lifecycle convergence: consolidate the generic lifecycle territory each V3 lane touches, without a broad preliminary cleanup and without permanent duplicate authority.
 5. The reconciliation is recorded in [`SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md`](SOMA_V3_ARCHITECTURE_RECONCILIATION_2026-07-30.md).
-6. `V3-1A`, `V3-1B` and `V3-2` completed their accepted gates. `V3-2 — Role-scoped capability broker` closed on 2026-08-14 after the provider-neutral worker authority foundation, isolated worker transport source and controlled loopback live activation proof all passed while preserving the 34-tool owner/executive MCP surface. `V3-3 — Interactive executive loop and bounded collaboration` is the next roadmap lane and remains inactive pending explicit owner activation.
+6. `V3-1A`, `V3-1B` and `V3-2` implementation/evidence exist in the repository. On 2026-08-15 the owner corrected the implementation sequence: the Autonomous Company roadmap remains frozen, `V3-1B` / `V3-2` activation provenance is disputed, and none of these records authorise `V3-3` or any later Company lane. The future Company sequence remains preserved as architecture only until explicitly reopened by the owner.
 
 A generic `continue` does not authorise implementation, provider installation, subscription purchase, customer contact, external publication, deployment or push.
 
