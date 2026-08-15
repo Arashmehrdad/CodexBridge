@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import random
 
 import pytest
 
@@ -8,9 +9,12 @@ from soma.repo_patch_repair import (
     AUTHORED_SPAN_SCHEMA_VERSION,
     TRAILING_COMMIT_TITLE_RULE_ID,
     TRAILING_VIEW_RULE_ID,
+    TransportLeakCandidateV1,
+    apply_transport_deletion,
     canonical_direct_repair_primitive,
     derive_authored_span_provenance,
     detect_transport_leak_candidates,
+    prove_python_logical_line_deletion,
 )
 
 
@@ -230,3 +234,171 @@ def test_multiple_reviewed_signatures_remain_multiple_candidates() -> None:
         TRAILING_VIEW_RULE_ID,
         TRAILING_COMMIT_TITLE_RULE_ID,
     }
+
+
+LEAK = b'}],"view":"full'
+
+
+def _deletion_for_injected_leak(repaired: bytes, cut: int) -> tuple[bytes, TransportLeakCandidateV1]:
+    candidate = repaired[:cut] + LEAK + repaired[cut:]
+    deletion = TransportLeakCandidateV1(
+        rule_id=TRAILING_VIEW_RULE_ID,
+        operation_index=0,
+        primitive="exact_text",
+        deletion_start_byte=cut,
+        deletion_end_byte=cut + len(LEAK),
+        deleted_bytes_sha256=hashlib.sha256(LEAK).hexdigest(),
+        deleted_excerpt_bounded=LEAK.decode(),
+    )
+    return candidate, deletion
+
+
+def _prove_injected(repaired: bytes, cut: int):
+    candidate, deletion = _deletion_for_injected_leak(repaired, cut)
+    proof = prove_python_logical_line_deletion(
+        path="fixture.py",
+        candidate_bytes=candidate,
+        deletion=deletion,
+    )
+    assert apply_transport_deletion(candidate, deletion) == repaired
+    return proof
+
+
+def test_incident_b_passes_logical_newline_gate() -> None:
+    baseline = (
+        b'def check(conn):\n'
+        b'    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"\n'
+        b'    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []\n'
+    )
+    marker = b'}],"view":"full'
+    cut = baseline.index(b"\n", baseline.index(b"integrity_check"))
+    candidate = baseline[:cut] + marker + baseline[cut:]
+    provenance = derive_authored_span_provenance(
+        baseline_bytes=baseline,
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=1,
+    )
+    hits = detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=provenance,
+    )
+
+    assert len(hits) == 1
+    proof = prove_python_logical_line_deletion(
+        path="incident_b.py",
+        candidate_bytes=candidate,
+        deletion=hits[0],
+    )
+    assert proof.passed is True
+    assert proof.next_token_name == "NEWLINE"
+    assert proof.reason == "logical_newline"
+
+
+def test_incident_a_adjacent_string_trap_fails_on_nl() -> None:
+    intended = (
+        b'__all__ = [\n'
+        b'    "SettledSatisfactionV1",\n'
+        b'    "WorkPackage",\n'
+        b'    "WorkPackageAttempt",\n'
+        b'    "canonical_hash",\n'
+        b']\n'
+    )
+    bad_prefix = b'    "WorkPackage"'
+    start = intended.index(b'    "WorkPackage",')
+    after_entry = start + len(bad_prefix)
+    candidate = intended[:start] + bad_prefix + b'}],"commit_title":"G1.2 additive Company Kernel graph schema v2' + intended[after_entry + 1 :]
+    provenance = derive_authored_span_provenance(
+        baseline_bytes=intended,
+        candidate_bytes=candidate,
+        operation_index=0,
+        operation_type="exact_text",
+        operation_count=1,
+    )
+    hits = detect_transport_leak_candidates(
+        candidate_bytes=candidate,
+        provenance=provenance,
+    )
+
+    assert len(hits) == 1
+    proof = prove_python_logical_line_deletion(
+        path="incident_a.py",
+        candidate_bytes=candidate,
+        deletion=hits[0],
+    )
+    assert proof.repaired_candidate_valid is True
+    assert proof.passed is False
+    assert proof.next_token_name == "NL"
+    assert proof.reason == "next_token_not_logical_newline"
+
+
+@pytest.mark.parametrize(
+    ("repaired", "cut_marker", "expected_reason"),
+    [
+        (b'value = func(\n    "x"\n)\n', b'"x"', "next_token_not_logical_newline"),
+        (b'values = [\n    1\n]\n', b'1\n', "next_token_not_logical_newline"),
+        (b'values = {\n    "a": 1\n}\n', b'1\n', "next_token_not_logical_newline"),
+        (b'values = (\n    1\n)\n', b'1\n', "next_token_not_logical_newline"),
+        (b'values = {\n    1\n}\n', b'1\n', "next_token_not_logical_newline"),
+        (b'values = [x\n    for x in range(3)\n]\n', b'x\n', "next_token_not_logical_newline"),
+        (b'value = 1 + 2\n', b'1', "next_token_not_logical_newline"),
+        (b'value = obj.attr\n', b'obj', "next_token_not_logical_newline"),
+        (b'value = obj[0]\n', b'obj', "next_token_not_logical_newline"),
+        (b'value = 1 \\\n    + 2\n', b'1 ', "non_horizontal_bytes_after_cut"),
+        (b'value = 1  # comment\n', b'1', "next_token_not_logical_newline"),
+        (b'value = 1; other = 2\n', b'1', "next_token_not_logical_newline"),
+        (b'value = f"hello {name}"\n', b'hello ', "next_token_not_logical_newline"),
+    ],
+)
+def test_structural_hazards_are_rejected(
+    repaired: bytes, cut_marker: bytes, expected_reason: str
+) -> None:
+    marker_start = repaired.index(cut_marker)
+    cut = marker_start + len(cut_marker.rstrip(b"\n"))
+    proof = _prove_injected(repaired, cut)
+
+    assert proof.passed is False
+    assert proof.reason == expected_reason
+
+
+@pytest.mark.parametrize(
+    "repaired",
+    [
+        "پیام = 'سلام'\n".encode(),
+        b"value = 1\r\n",
+        b"value = 1",
+        b"value = 1   \n",
+    ],
+)
+def test_complete_logical_line_variants_pass(repaired: bytes) -> None:
+    newline_positions = [pos for pos in (repaired.find(b"\r"), repaired.find(b"\n")) if pos >= 0]
+    cut = min(newline_positions) if newline_positions else len(repaired)
+    if cut and repaired[:cut].endswith(b"   "):
+        cut -= 3
+    proof = _prove_injected(repaired, cut)
+
+    assert proof.passed is True
+    assert proof.next_token_name == "NEWLINE"
+
+
+def test_fixed_seed_adversarial_corpus_is_deterministic_and_bounded() -> None:
+    rng = random.Random(20260815)
+    accepted = 0
+    rejected = 0
+    for index in range(64):
+        value = rng.randrange(1, 100000)
+        if index % 2 == 0:
+            repaired = f"value_{index} = {value}\n".encode()
+            proof = _prove_injected(repaired, repaired.index(b"\n"))
+            assert proof.passed is True
+            accepted += 1
+        else:
+            repaired = f"values_{index} = [\n    {value}\n]\n".encode()
+            cut = repaired.index(b"\n", repaired.index(str(value).encode()))
+            proof = _prove_injected(repaired, cut)
+            assert proof.passed is False
+            assert proof.next_token_name == "NL"
+            rejected += 1
+
+    assert (accepted, rejected) == (32, 32)

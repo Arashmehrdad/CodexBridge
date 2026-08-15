@@ -7,6 +7,9 @@ bytes or chooses a repair on behalf of a controller.
 from __future__ import annotations
 
 import hashlib
+import io
+import token
+import tokenize
 from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,6 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 AUTHORED_SPAN_SCHEMA_VERSION: Final[str] = "repo_authored_span_provenance.v1"
 TRANSPORT_LEAK_SCHEMA_VERSION: Final[str] = "repo_transport_leak_candidate.v1"
+PYTHON_LOGICAL_LINE_PROOF_SCHEMA_VERSION: Final[str] = (
+    "repo_python_logical_line_proof.v1"
+)
 TRAILING_COMMIT_TITLE_RULE_ID: Final[str] = (
     "repo_preview.patch.trailing_commit_title.v1"
 )
@@ -86,6 +92,24 @@ class TransportLeakCandidateV1(_FrozenRepairModel):
         if self.deletion_end_byte <= self.deletion_start_byte:
             raise ValueError("transport deletion range must be non-empty")
         return self
+
+
+class PythonLogicalLineProofV1(_FrozenRepairModel):
+    """Mechanical proof that one deletion lands on a Python logical-line end."""
+
+    schema_version: Literal[PYTHON_LOGICAL_LINE_PROOF_SCHEMA_VERSION] = (
+        PYTHON_LOGICAL_LINE_PROOF_SCHEMA_VERSION
+    )
+    passed: bool
+    reason: str = Field(min_length=1, max_length=128)
+    deletion_start_byte: int = Field(ge=0)
+    deletion_end_byte: int = Field(gt=0)
+    original_candidate_invalid: bool
+    repaired_candidate_valid: bool
+    token_spans_cut: bool
+    horizontal_whitespace_only: bool
+    next_token_name: str | None = Field(default=None, max_length=64)
+    repaired_candidate_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 def canonical_direct_repair_primitive(operation_type: str) -> DirectRepairPrimitive | None:
@@ -241,3 +265,183 @@ def detect_transport_leak_candidates(
             search_at = match + len(marker)
 
     return tuple(sorted(results, key=lambda item: (item.deletion_start_byte, item.rule_id)))
+
+
+def apply_transport_deletion(
+    candidate_bytes: bytes,
+    deletion: TransportLeakCandidateV1,
+) -> bytes:
+    """Delete exactly the detected byte interval and nothing else."""
+
+    start = deletion.deletion_start_byte
+    end = deletion.deletion_end_byte
+    if end > len(candidate_bytes):
+        raise ValueError("transport deletion exceeds candidate size")
+    deleted = candidate_bytes[start:end]
+    if hashlib.sha256(deleted).hexdigest() != deletion.deleted_bytes_sha256:
+        raise ValueError("transport deletion bytes do not match detector evidence")
+    return candidate_bytes[:start] + candidate_bytes[end:]
+
+
+def _python_compiles(source: bytes, path: str) -> bool:
+    try:
+        compile(source, path, "exec", dont_inherit=True, optimize=0)
+    except (SyntaxError, UnicodeError, ValueError):
+        return False
+    return True
+
+
+def _line_byte_starts(text: str) -> tuple[list[str], list[int]]:
+    lines = text.splitlines(keepends=True)
+    if not lines and text == "":
+        lines = [""]
+    starts: list[int] = []
+    offset = 0
+    for line in lines:
+        starts.append(offset)
+        offset += len(line.encode("utf-8"))
+    return lines, starts
+
+
+def _token_position_to_byte(
+    lines: list[str],
+    starts: list[int],
+    row: int,
+    column: int,
+    source_size: int,
+) -> int:
+    if row < 1:
+        return 0
+    if row > len(lines):
+        return source_size
+    line = lines[row - 1]
+    bounded_column = min(max(column, 0), len(line))
+    return starts[row - 1] + len(line[:bounded_column].encode("utf-8"))
+
+
+def prove_python_logical_line_deletion(
+    *,
+    path: str,
+    candidate_bytes: bytes,
+    deletion: TransportLeakCandidateV1,
+) -> PythonLogicalLineProofV1:
+    """Apply the exact G2.3 Python structural gate to one detected deletion."""
+
+    original_invalid = not _python_compiles(candidate_bytes, path)
+    try:
+        repaired = apply_transport_deletion(candidate_bytes, deletion)
+    except ValueError:
+        repaired = candidate_bytes
+    repaired_sha = hashlib.sha256(repaired).hexdigest()
+    repaired_valid = _python_compiles(repaired, path)
+
+    base = {
+        "deletion_start_byte": deletion.deletion_start_byte,
+        "deletion_end_byte": deletion.deletion_end_byte,
+        "original_candidate_invalid": original_invalid,
+        "repaired_candidate_valid": repaired_valid,
+        "repaired_candidate_sha256": repaired_sha,
+    }
+    if not original_invalid:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="original_candidate_valid",
+            token_spans_cut=False,
+            horizontal_whitespace_only=False,
+            next_token_name=None,
+            **base,
+        )
+    if not repaired_valid:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="repaired_candidate_invalid",
+            token_spans_cut=False,
+            horizontal_whitespace_only=False,
+            next_token_name=None,
+            **base,
+        )
+
+    try:
+        text = repaired.decode("utf-8")
+        lines, starts = _line_byte_starts(text)
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (UnicodeDecodeError, IndentationError, tokenize.TokenError, SyntaxError):
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="tokenize_failed",
+            token_spans_cut=False,
+            horizontal_whitespace_only=False,
+            next_token_name=None,
+            **base,
+        )
+
+    cut = deletion.deletion_start_byte
+    positioned: list[tuple[tokenize.TokenInfo, int, int]] = []
+    for info in tokens:
+        start = _token_position_to_byte(
+            lines, starts, info.start[0], info.start[1], len(repaired)
+        )
+        end = _token_position_to_byte(
+            lines, starts, info.end[0], info.end[1], len(repaired)
+        )
+        positioned.append((info, start, end))
+
+    spans_cut = any(start < cut < end for _, start, end in positioned)
+    if spans_cut:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="token_spans_deletion_cut",
+            token_spans_cut=True,
+            horizontal_whitespace_only=False,
+            next_token_name=None,
+            **base,
+        )
+
+    next_token: tuple[tokenize.TokenInfo, int, int] | None = None
+    for positioned_token in positioned:
+        info, start, _ = positioned_token
+        if info.type == token.ENDMARKER and start < cut:
+            continue
+        if start >= cut:
+            next_token = positioned_token
+            break
+    if next_token is None:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="no_token_after_deletion_cut",
+            token_spans_cut=False,
+            horizontal_whitespace_only=False,
+            next_token_name=None,
+            **base,
+        )
+
+    info, token_start, _ = next_token
+    gap = repaired[cut:token_start]
+    horizontal_only = all(byte in b" \t\f" for byte in gap)
+    token_name = token.tok_name.get(info.type, str(info.type))
+    if not horizontal_only:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="non_horizontal_bytes_after_cut",
+            token_spans_cut=False,
+            horizontal_whitespace_only=False,
+            next_token_name=token_name,
+            **base,
+        )
+    if info.type != token.NEWLINE:
+        return PythonLogicalLineProofV1(
+            passed=False,
+            reason="next_token_not_logical_newline",
+            token_spans_cut=False,
+            horizontal_whitespace_only=True,
+            next_token_name=token_name,
+            **base,
+        )
+    return PythonLogicalLineProofV1(
+        passed=True,
+        reason="logical_newline",
+        token_spans_cut=False,
+        horizontal_whitespace_only=True,
+        next_token_name=token_name,
+        **base,
+    )
