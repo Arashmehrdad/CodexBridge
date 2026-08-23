@@ -5,6 +5,7 @@ param(
         "menu", "start", "stop", "restart", "status", "logs", "follow-logs",
         "open-logs", "validate-config", "diagnostics", "profiles", "profile-status",
         "profile-set", "tunnel-start", "tunnel-stop", "tunnel-restart", "tunnel-status",
+        "route-status", "route-proxy", "route-direct", "v2ray-open",
         "start-all", "stop-all", "elevated-stop-server", "elevated-stop-tunnel"
     )]
     [string]$Action = "menu",
@@ -14,6 +15,12 @@ param(
     [int]$Port = 8000,
     [string]$McpPath = "/mcp",
     [string]$TunnelConfig = "$env:USERPROFILE\.cloudflared\soma-mcp.yml",
+    [string]$ProxyBridgeRoot = "D:\Tools\cloudflared-socks-bridge",
+    [ValidateRange(1, 65535)]
+    [int]$ProxyBridgePort = 17844,
+    [ValidateRange(1, 65535)]
+    [int]$ProxySocksPort = 10808,
+    [string]$V2RayRoot = "D:\Services\Network-Stability\v2rayN",
     [string]$PublicMcpUrl = "https://mcp.spaceshipgames.win/mcp",
     [string]$PythonExecutable = "",
     [string]$Profile = "",
@@ -52,7 +59,17 @@ $TunnelStderrLog = Join-Path $LogDirectory "soma-mcp-tunnel.err.log"
 $ServerPidFile = Join-Path $LogDirectory "soma-server.pid"
 $TunnelPidFile = Join-Path $LogDirectory "soma-mcp-tunnel.pid"
 $TunnelIdentityFile = Join-Path $LogDirectory "soma-mcp-tunnel.identity.json"
-$TunnelProtocol = "http2"
+$ProxyBridgeRoot = [System.IO.Path]::GetFullPath($ProxyBridgeRoot)
+$ProxyRouteModeFile = Join-Path $ProxyBridgeRoot "route-mode.txt"
+$V2RayRoot = [System.IO.Path]::GetFullPath($V2RayRoot)
+$V2RayExecutable = Join-Path $V2RayRoot "v2rayN.exe"
+$TunnelProtocol = "auto"
+if (Test-Path -LiteralPath $TunnelConfig -PathType Leaf) {
+    $tunnelConfigurationText = Get-Content -LiteralPath $TunnelConfig -Raw -ErrorAction Stop
+    if ($tunnelConfigurationText -match '(?im)^\s*protocol\s*:\s*http2\s*$') {
+        $TunnelProtocol = "http2"
+    }
+}
 $LocalMcpUrl = "http://$HostName`:$Port$McpPath"
 $FastMcpStatelessHttp = "true"
 $McpReadinessStatus = 405
@@ -279,7 +296,9 @@ function Test-TunnelProcessUsesConfiguredProtocol {
     param([object]$Process)
     if (-not (Test-TunnelProcessIdentity -Process $Process)) { return $false }
     if (-not [string]::IsNullOrWhiteSpace([string]$Process.CommandLine)) {
-        return ([string]$Process.CommandLine -match '(?i)--protocol(?:=|\s+)http2(?:\s|$)')
+        $usesForcedHttp2 = [string]$Process.CommandLine -match '(?i)--protocol(?:=|\s+)http2(?:\s|$)'
+        if ($TunnelProtocol -eq "http2") { return $usesForcedHttp2 }
+        return -not $usesForcedHttp2
     }
     $record = Get-TunnelOwnershipRecord
     return (
@@ -579,6 +598,140 @@ function Restart-SomaServer {
     Start-SomaServer
 }
 
+function Get-TunnelRouteMode {
+    if (Test-Path -LiteralPath $ProxyRouteModeFile -PathType Leaf) {
+        $selected = (Get-Content -LiteralPath $ProxyRouteModeFile -Raw -ErrorAction SilentlyContinue).Trim().ToLowerInvariant()
+        if ($selected -in @("proxy", "direct")) { return $selected }
+    }
+    if ($TunnelProtocol -eq "http2") { return "proxy" }
+    return "direct"
+}
+
+function Set-TunnelConfigProtocol {
+    param([ValidateSet("http2", "auto")][string]$Protocol)
+    if (-not (Test-Path -LiteralPath $TunnelConfig -PathType Leaf)) {
+        throw "Tunnel config not found: $TunnelConfig"
+    }
+
+    $content = [System.IO.File]::ReadAllText($TunnelConfig)
+    $updated = $content
+    if ($Protocol -eq "http2") {
+        if ($updated -match '(?im)^\s*protocol\s*:') {
+            $updated = [regex]::Replace($updated, '(?im)^\s*protocol\s*:\s*\S+\s*$', 'protocol: http2')
+        } else {
+            $newline = if ($updated.Contains("`r`n")) { "`r`n" } else { "`n" }
+            $updated = [regex]::Replace(
+                $updated,
+                '(?im)^(\s*tunnel\s*:\s*\S+\s*)$',
+                ('$1' + $newline + 'protocol: http2'),
+                1
+            )
+        }
+    } else {
+        $updated = [regex]::Replace($updated, '(?im)^\s*protocol\s*:\s*\S+\s*(?:\r?\n)?', '')
+    }
+    if ($updated -eq $content) { return $false }
+
+    $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+    Copy-Item -LiteralPath $TunnelConfig -Destination "$TunnelConfig.pre-route-$stamp" -ErrorAction Stop
+    $temporary = "$TunnelConfig.tmp.$([guid]::NewGuid().ToString('N'))"
+    try {
+        [System.IO.File]::WriteAllText($temporary, $updated, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $TunnelConfig -Force
+    } finally {
+        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+    return $true
+}
+
+function Set-ProxyRouteModeFile {
+    param([ValidateSet("proxy", "direct")][string]$Mode)
+    if (-not (Test-Path -LiteralPath $ProxyBridgeRoot -PathType Container)) {
+        throw "Transparent bridge directory not found: $ProxyBridgeRoot"
+    }
+    $temporary = "$ProxyRouteModeFile.tmp.$([guid]::NewGuid().ToString('N'))"
+    try {
+        [System.IO.File]::WriteAllText($temporary, "$Mode`n", [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $ProxyRouteModeFile -Force
+    } finally {
+        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-RouteComponentStatus {
+    $bridge = Get-NetTCPConnection -LocalPort $ProxyBridgePort -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    $socks = Get-NetTCPConnection -LocalPort $ProxySocksPort -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    $v2ray = Get-CimInstance Win32_Process -Filter "Name = 'v2rayN.exe'" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    return [pscustomobject]@{
+        Mode = Get-TunnelRouteMode
+        Protocol = $TunnelProtocol
+        BridgeReady = $null -ne $bridge
+        BridgePid = if ($bridge) { [int]$bridge.OwningProcess } else { 0 }
+        SocksReady = $null -ne $socks
+        SocksPid = if ($socks) { [int]$socks.OwningProcess } else { 0 }
+        V2RayRunning = $null -ne $v2ray
+        V2RayPid = if ($v2ray) { [int]$v2ray.ProcessId } else { 0 }
+    }
+}
+
+function Assert-ProxyRouteReady {
+    $status = Get-RouteComponentStatus
+    if (-not $status.BridgeReady) {
+        throw "Transparent bridge is not listening on TCP $ProxyBridgePort. Start $ProxyBridgeRoot\start-bridge.ps1 as administrator."
+    }
+    if (-not $status.SocksReady) {
+        throw "v2rayN SOCKS/mixed endpoint is not listening on TCP $ProxySocksPort. Open $V2RayExecutable first."
+    }
+}
+
+function Show-RouteStatus {
+    $status = Get-RouteComponentStatus
+    Write-Host "Cloudflare network route" -ForegroundColor Cyan
+    Write-Host "  Mode:       $($status.Mode)"
+    Write-Host "  Protocol:   $($status.Protocol)"
+    Write-Host "  Bridge:     $($status.BridgeReady) (TCP $ProxyBridgePort; PID $($status.BridgePid))"
+    Write-Host "  SOCKS:      $($status.SocksReady) (TCP $ProxySocksPort; PID $($status.SocksPid))"
+    Write-Host "  v2rayN:     $($status.V2RayRunning) (PID $($status.V2RayPid))"
+    Write-Host "  v2ray path: $V2RayExecutable"
+    if ($status.Mode -eq "proxy") {
+        Write-Host "  Behavior:   cloudflared HTTP/2 is transparently routed through the active v2rayN profile."
+    } else {
+        Write-Host "  Behavior:   cloudflared uses the normal network and chooses its own protocol."
+    }
+}
+
+function Open-V2RayProfileSelector {
+    if (-not (Test-Path -LiteralPath $V2RayExecutable -PathType Leaf)) {
+        throw "v2rayN executable not found: $V2RayExecutable"
+    }
+    Start-Process -FilePath $V2RayExecutable -WorkingDirectory $V2RayRoot | Out-Null
+    Write-Success "Opened the exact v2rayN used by Soma routing: $V2RayExecutable"
+    Write-Info "Choose Set as active server in v2rayN. If TCP $ProxySocksPort stays listening, cloudflared retries automatically; no Soma restart is needed."
+}
+
+function Set-TunnelRouteMode {
+    param([ValidateSet("proxy", "direct")][string]$Mode)
+    if ($Mode -eq "proxy") { Assert-ProxyRouteReady }
+
+    Stop-SomaTunnel
+    if ($Mode -eq "proxy") {
+        [void](Set-TunnelConfigProtocol -Protocol "http2")
+        Set-ProxyRouteModeFile -Mode "proxy"
+        $script:TunnelProtocol = "http2"
+        Write-Info "Proxy ON: transparent v2rayN route enabled and Cloudflare forced to HTTP/2."
+    } else {
+        [void](Set-TunnelConfigProtocol -Protocol "auto")
+        Set-ProxyRouteModeFile -Mode "direct"
+        $script:TunnelProtocol = "auto"
+        Write-Info "Proxy OFF: transparent routing bypassed and Cloudflare protocol selection restored to default."
+    }
+    Start-Sleep -Milliseconds 500
+    Start-SomaTunnel
+}
+
 function Start-SomaTunnel {
     Ensure-ControlDirectory
     if (-not (Test-Path -LiteralPath $TunnelConfig -PathType Leaf)) {
@@ -593,7 +746,7 @@ function Start-SomaTunnel {
     $probe = Test-EndpointReadiness -Url $PublicMcpUrl
     $configured = @($verified | Where-Object { Test-TunnelProcessUsesConfiguredProtocol -Process $_ })
 
-    if ($probe.Ready -and $configured.Count -gt 0) {
+    if ($configured.Count -gt 0) {
         $owner = Get-TunnelOwnershipRecord
         $keeper = $null
         if ($owner) {
@@ -615,7 +768,11 @@ function Start-SomaTunnel {
         Write-TunnelOwnershipRecord -Process $keeper -ExecutablePath $executablePath `
             -LaunchId "adopted-$($keeper.ProcessId)" -LaunchOrigin "verified-existing"
         Write-PidFile -Path $TunnelPidFile -ProcessId ([int]$keeper.ProcessId)
-        Write-Success "Configured HTTP/2 Cloudflare tunnel is already healthy (PID $($keeper.ProcessId))."
+        if ($probe.Ready) {
+            Write-Success "Configured $TunnelProtocol Cloudflare tunnel is already healthy (PID $($keeper.ProcessId))."
+        } else {
+            Write-WarningMessage "Configured $TunnelProtocol Cloudflare tunnel is running (PID $($keeper.ProcessId)) and retrying; the public route is not ready yet."
+        }
         return
     }
 
@@ -625,7 +782,7 @@ function Start-SomaTunnel {
     }
 
     if ($verified.Count -gt 0) {
-        $reason = if ($probe.Ready) { "managed tunnel is not pinned to HTTP/2" } else { "public route is unhealthy" }
+        $reason = "managed tunnel does not match route protocol $TunnelProtocol"
         Write-WarningMessage "Replacing configured Cloudflare tunnel because $reason."
         foreach ($process in $verified) {
             Stop-VerifiedProcess -Process $process -InternalAction "elevated-stop-tunnel"
@@ -637,8 +794,14 @@ function Start-SomaTunnel {
     $launchId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ") + "-" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
     $stdoutLog = Join-Path $LogDirectory "soma-mcp-tunnel.$launchId.out.log"
     $stderrLog = Join-Path $LogDirectory "soma-mcp-tunnel.$launchId.err.log"
-    $arguments = @("tunnel", "--protocol", $TunnelProtocol, "--config", $TunnelConfig, "run")
-    Write-Info "Starting Cloudflare tunnel hidden with protocol $TunnelProtocol."
+    $arguments = @("tunnel")
+    if ($TunnelProtocol -eq "http2") {
+        $arguments += @("--protocol", "http2")
+        Write-Info "Starting Cloudflare tunnel hidden with forced HTTP/2 for proxy mode."
+    } else {
+        Write-Info "Starting Cloudflare tunnel hidden with Cloudflare's default protocol selection."
+    }
+    $arguments += @("--config", $TunnelConfig, "run")
     $process = Start-Process -FilePath $cloudflared.Source -ArgumentList $arguments `
         -WorkingDirectory $ProjectRoot -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
@@ -652,11 +815,12 @@ function Start-SomaTunnel {
         Show-LogTail -Path $stderrLog -Lines 40
         $current = Get-ProcessInfo -ProcessId $process.Id
         if ($current -and (Test-TunnelProcessIdentity -Process $current)) {
-            Stop-VerifiedProcess -Process $current -InternalAction "elevated-stop-tunnel"
+            Write-WarningMessage "Tunnel PID $($process.Id) is still running and will keep retrying. Public MCP is not ready yet; select another v2rayN profile or use route status."
+            return
         }
         Remove-PidFile -Path $TunnelPidFile
         Remove-TunnelOwnershipRecord
-        throw "Tunnel process started (PID $($process.Id)), but the public MCP route was not ready within $StartupTimeoutSeconds seconds."
+        throw "Tunnel process PID $($process.Id) exited before the public MCP route became ready."
     }
     Write-Success "Cloudflare tunnel started hidden (PID $($process.Id), protocol $TunnelProtocol); public route returned expected HTTP $McpReadinessStatus."
 }
@@ -712,10 +876,19 @@ function Show-ServerStatus {
 function Show-TunnelStatus {
     $verified = @(Get-VerifiedTunnelProcesses)
     $probe = Test-EndpointReadiness -Url $PublicMcpUrl
+    $edgeConnections = 0
+    foreach ($process in $verified) {
+        $edgeConnections += @(
+            Get-NetTCPConnection -OwningProcess ([int]$process.ProcessId) -State Established -ErrorAction SilentlyContinue |
+                Where-Object { $_.RemotePort -eq 7844 }
+        ).Count
+    }
     Write-Host "Cloudflare tunnel"
     Write-Host "  URL:       $PublicMcpUrl"
     Write-Host "  Ready:     $($probe.Ready) (HTTP $($probe.StatusCode))"
+    Write-Host "  Route:     $(Get-TunnelRouteMode)"
     Write-Host "  Protocol:  $TunnelProtocol"
+    Write-Host "  Edge TCP:  $edgeConnections established session(s)"
     if ($verified.Count -gt 0) {
         Write-Host "  PID:       $($verified[0].ProcessId)"
         Write-Host "  Config:    $TunnelConfig"
@@ -725,6 +898,8 @@ function Show-TunnelStatus {
         Write-Host "  PID:       not found"
     }
     Write-Host "  Ownership: $TunnelIdentityFile"
+    Write-Host ""
+    Show-RouteStatus
 }
 
 function Show-RecentLogs {
@@ -1020,6 +1195,10 @@ function Invoke-ServiceAction {
         "tunnel-stop" { Stop-SomaTunnel }
         "tunnel-restart" { Stop-SomaTunnel; Start-SomaTunnel }
         "tunnel-status" { Show-TunnelStatus }
+        "route-status" { Show-RouteStatus }
+        "route-proxy" { Set-TunnelRouteMode -Mode "proxy" }
+        "route-direct" { Set-TunnelRouteMode -Mode "direct" }
+        "v2ray-open" { Open-V2RayProfileSelector }
         "start-all" { Start-SomaServer; Start-SomaTunnel }
         "stop-all" { Stop-SomaTunnel; Stop-SomaServer }
         "elevated-stop-server" { Invoke-InternalElevatedStop -Kind "server" }
@@ -1046,11 +1225,16 @@ function Show-ServiceMenu {
         "14" = @("Tunnel status", "tunnel-status")
         "15" = @("Start server and tunnel", "start-all")
         "16" = @("Stop tunnel and server", "stop-all")
+        "20" = @("Proxy ON - active v2rayN profile + HTTP/2", "route-proxy")
+        "21" = @("Proxy OFF - normal network + Cloudflare auto", "route-direct")
+        "22" = @("Open v2rayN profile selector", "v2ray-open")
+        "23" = @("Proxy bridge and SOCKS status", "route-status")
     }
     $sections = @(
         [pscustomobject]@{ Title = "Server and policy"; Keys = @("1", "2", "3", "4", "5", "6", "7") },
         [pscustomobject]@{ Title = "Logs"; Keys = @("8", "9", "10") },
         [pscustomobject]@{ Title = "Cloudflare tunnel"; Keys = @("11", "12", "13", "14") },
+        [pscustomobject]@{ Title = "Network route"; Keys = @("20", "21", "22", "23") },
         [pscustomobject]@{ Title = "Combined"; Keys = @("15", "16") }
     )
 
@@ -1059,12 +1243,14 @@ function Show-ServiceMenu {
         $profileConfiguration = Get-SupervisorProfileConfiguration
         $serverState = if (@(Get-VerifiedServerProcesses).Count -gt 0) { "running" } else { "stopped" }
         $tunnelState = if (@(Get-VerifiedTunnelProcesses).Count -gt 0) { "running" } else { "stopped" }
+        $routeStatus = Get-RouteComponentStatus
 
         Write-Host "Soma Service Controller" -ForegroundColor Cyan
         Write-Host "Processes stay hidden and keep running when this menu exits."
         Write-Host ""
         Write-Host "  Profile: $($profileConfiguration.DefaultProfile)" -ForegroundColor Green
         Write-Host "  Server:  $serverState    Tunnel: $tunnelState"
+        Write-Host "  Route:   $($routeStatus.Mode) / $($routeStatus.Protocol)    Bridge: $($routeStatus.BridgeReady)    SOCKS: $($routeStatus.SocksReady)"
 
         foreach ($section in $sections) {
             Write-Host ""

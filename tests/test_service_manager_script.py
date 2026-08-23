@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MANAGER = ROOT / "scripts" / "manage_soma_service.ps1"
 STARTER = ROOT / "scripts" / "start_soma_mcp.ps1"
@@ -168,6 +167,10 @@ def test_manager_exposes_complete_action_surface() -> None:
         "tunnel-stop",
         "tunnel-restart",
         "tunnel-status",
+        "route-status",
+        "route-proxy",
+        "route-direct",
+        "v2ray-open",
         "start-all",
         "stop-all",
     }
@@ -200,13 +203,14 @@ def test_manager_verifies_identity_and_protects_unrelated_port_owner() -> None:
     assert "will not be killed" in text
 
 
-def test_tunnel_manager_pins_http2_and_persists_process_ownership() -> None:
+def test_tunnel_manager_supports_proxy_http2_and_direct_auto_routing() -> None:
     text = MANAGER.read_text(encoding="utf-8")
-    assert '$TunnelProtocol = "http2"' in text
-    assert (
-        '@("tunnel", "--protocol", $TunnelProtocol, "--config", $TunnelConfig, "run")'
-        in text
-    )
+    assert '$TunnelProtocol = "auto"' in text
+    assert '$arguments += @("--protocol", "http2")' in text
+    assert '$arguments += @("--config", $TunnelConfig, "run")' in text
+    assert "Set-TunnelRouteMode" in text
+    assert 'Set-TunnelConfigProtocol -Protocol "auto"' in text
+    assert "will keep retrying" in text
     assert "soma-mcp-tunnel.identity.json" in text
     assert "soma.cloudflared.ownership.v1" in text
     assert "process_creation_utc" in text
@@ -356,10 +360,12 @@ def test_direct_server_start_restart_stop_on_isolated_port(tmp_path: Path) -> No
 
         status = _run_manager(engine, "status", tmp_path, config, port)
         assert status.returncode == 0, status.stdout + status.stderr
-        assert "Ready:     True (HTTP 406" in status.stdout
+        assert "Ready:     True (HTTP 405" in status.stdout
         assert "PID:       not found" not in status.stdout
         pid_line = next(
-            line for line in status.stdout.splitlines() if line.strip().startswith("PID:")
+            line
+            for line in status.stdout.splitlines()
+            if line.strip().startswith("PID:")
         )
         reported_pid = int(pid_line.split(":", 1)[1].strip())
         assert reported_pid != first_pid
@@ -418,7 +424,10 @@ def test_server_start_rolls_oversized_logs_and_prunes_archives(tmp_path: Path) -
             archive.read_text(encoding="utf-8") == "oversized stdout evidence"
             for archive in stdout_archives
         )
-        assert stderr_archives[0].read_text(encoding="utf-8") == "oversized stderr evidence"
+        assert (
+            stderr_archives[0].read_text(encoding="utf-8")
+            == "oversized stderr evidence"
+        )
 
         diagnostics = _run_manager(
             engine,
@@ -523,6 +532,11 @@ def test_manager_tui_exposes_profile_selection_and_runtime_state() -> None:
     assert "[active]" in text
     assert "Profile: $($profileConfiguration.DefaultProfile)" in text
     assert "Server:  $serverState    Tunnel: $tunnelState" in text
+    assert "Proxy ON - active v2rayN profile + HTTP/2" in text
+    assert "Proxy OFF - normal network + Cloudflare auto" in text
+    assert "Open v2rayN profile selector" in text
+    assert "D:\\Services\\Network-Stability\\v2rayN" in text
+    assert "Bridge: $($routeStatus.BridgeReady)" in text
     assert "Profile update was rolled back because validation failed" in text
 
 
@@ -530,7 +544,50 @@ POWERSHELL = POWERSHELL_5 or POWERSHELL_7
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
-def test_profile_status_and_set_actions_update_only_selected_config(tmp_path: Path) -> None:
+def test_route_status_reports_selected_mode_without_mutating_it(tmp_path: Path) -> None:
+    config = _write_isolated_config(tmp_path)
+    bridge_root = tmp_path / "bridge"
+    v2ray_root = tmp_path / "v2rayN"
+    bridge_root.mkdir()
+    v2ray_root.mkdir()
+    (bridge_root / "route-mode.txt").write_text("proxy\n", encoding="utf-8")
+    tunnel_config = tmp_path / "unused-tunnel.yml"
+    tunnel_config.write_text(
+        "tunnel: test\nprotocol: http2\ningress:\n  - service: http_status:404\n",
+        encoding="utf-8",
+    )
+
+    result = _run_manager(
+        str(POWERSHELL),
+        "route-status",
+        tmp_path,
+        config,
+        _unused_local_port(),
+        extra_args=[
+            "-ProxyBridgeRoot",
+            str(bridge_root),
+            "-ProxyBridgePort",
+            str(_unused_local_port()),
+            "-ProxySocksPort",
+            str(_unused_local_port()),
+            "-V2RayRoot",
+            str(v2ray_root),
+        ],
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert "Mode:       proxy" in output
+    assert "Protocol:   http2" in output
+    assert "Bridge:     False" in output
+    assert "SOCKS:      False" in output
+    assert (bridge_root / "route-mode.txt").read_text(encoding="utf-8") == "proxy\n"
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_profile_status_and_set_actions_update_only_selected_config(
+    tmp_path: Path,
+) -> None:
     config = tmp_path / "config.yaml"
     config.write_text(
         """repos: {}
@@ -583,7 +640,9 @@ supervisors:
         check=False,
     )
     assert changed.returncode == 0, changed.stderr or changed.stdout
-    assert "Supervisor profile changed from 'permissive' to 'balanced'" in changed.stdout
+    assert (
+        "Supervisor profile changed from 'permissive' to 'balanced'" in changed.stdout
+    )
 
     updated = config.read_text(encoding="utf-8")
     assert 'default_autonomy_profile: "balanced"' in updated
