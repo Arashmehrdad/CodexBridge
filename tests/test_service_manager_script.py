@@ -303,7 +303,9 @@ def test_manager_supports_bounded_uac_and_route_readiness() -> None:
     assert "ExpectedProcessId" in text
     assert "elevated-stop-server" in text
     assert "elevated-stop-tunnel" in text
-    assert "406" in text
+    assert '$FastMcpStatelessHttp = "true"' in text
+    assert "$McpReadinessStatus = 405" in text
+    assert '"FASTMCP_STATELESS_HTTP"' in text
     assert "not a full MCP handshake" in text
     assert "Get-HttpStatusCodeFromException" in text
     assert '$Exception.PSObject.Properties["Response"]' in text

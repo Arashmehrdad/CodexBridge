@@ -54,6 +54,8 @@ $TunnelPidFile = Join-Path $LogDirectory "soma-mcp-tunnel.pid"
 $TunnelIdentityFile = Join-Path $LogDirectory "soma-mcp-tunnel.identity.json"
 $TunnelProtocol = "http2"
 $LocalMcpUrl = "http://$HostName`:$Port$McpPath"
+$FastMcpStatelessHttp = "true"
+$McpReadinessStatus = 405
 
 function Write-Info {
     param([string]$Message)
@@ -393,7 +395,7 @@ function Test-EndpointReadiness {
         $statusCode = Get-HttpStatusCodeFromException -Exception $_.Exception
     }
     return [pscustomobject]@{
-        Ready = ($statusCode -eq 406)
+        Ready = ($statusCode -eq $McpReadinessStatus)
         StatusCode = $statusCode
         Error = $errorText
     }
@@ -435,7 +437,7 @@ function Start-SomaServer {
     if ($verified.Count -gt 0) {
         Write-PidFile -Path $ServerPidFile -ProcessId ([int]$verified[0].ProcessId)
         if ($probe.Ready) {
-            Write-Success "Soma is already running (PID $($verified[0].ProcessId)); route returned expected HTTP 406."
+            Write-Success "Soma is already running (PID $($verified[0].ProcessId)); stateless route returned expected HTTP $McpReadinessStatus."
             return
         }
         throw "A verified Soma process is running (PID $($verified[0].ProcessId)), but $LocalMcpUrl is not ready. Check logs instead of starting a duplicate."
@@ -459,9 +461,26 @@ function Start-SomaServer {
         "--path", $McpPath
     )
     Write-Info "Starting Soma hidden with $python"
-    $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $ProjectRoot `
-        -WindowStyle Hidden -RedirectStandardOutput $ServerStdoutLog `
-        -RedirectStandardError $ServerStderrLog -PassThru
+    $previousFastMcpStatelessHttp = [Environment]::GetEnvironmentVariable(
+        "FASTMCP_STATELESS_HTTP",
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        "FASTMCP_STATELESS_HTTP",
+        $FastMcpStatelessHttp,
+        [EnvironmentVariableTarget]::Process
+    )
+    try {
+        $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $ProjectRoot `
+            -WindowStyle Hidden -RedirectStandardOutput $ServerStdoutLog `
+            -RedirectStandardError $ServerStderrLog -PassThru
+    } finally {
+        [Environment]::SetEnvironmentVariable(
+            "FASTMCP_STATELESS_HTTP",
+            $previousFastMcpStatelessHttp,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
     Write-PidFile -Path $ServerPidFile -ProcessId $process.Id
 
     $probe = Wait-EndpointReadiness -Url $LocalMcpUrl -TimeoutSeconds $StartupTimeoutSeconds
@@ -472,7 +491,7 @@ function Start-SomaServer {
         Show-LogTail -Path $ServerStderrLog -Lines 40
         throw "Soma failed to become ready within $StartupTimeoutSeconds seconds. Status=$($probe.StatusCode) Error=$($probe.Error)"
     }
-    Write-Success "Soma started hidden (PID $($process.Id)). Plain GET returned expected HTTP 406; this is route readiness, not a full MCP handshake."
+    Write-Success "Soma started hidden (PID $($process.Id)). Plain GET returned expected HTTP $McpReadinessStatus; this is stateless route readiness, not a full MCP handshake."
 }
 
 function ConvertTo-PowerShellLiteral {
@@ -639,7 +658,7 @@ function Start-SomaTunnel {
         Remove-TunnelOwnershipRecord
         throw "Tunnel process started (PID $($process.Id)), but the public MCP route was not ready within $StartupTimeoutSeconds seconds."
     }
-    Write-Success "Cloudflare tunnel started hidden (PID $($process.Id), protocol $TunnelProtocol); public route returned expected HTTP 406."
+    Write-Success "Cloudflare tunnel started hidden (PID $($process.Id), protocol $TunnelProtocol); public route returned expected HTTP $McpReadinessStatus."
 }
 
 function Stop-SomaTunnel {
@@ -664,7 +683,7 @@ function Show-ServerStatus {
     $probe = Test-EndpointReadiness -Url $LocalMcpUrl
     Write-Host "Soma server"
     Write-Host "  URL:       $LocalMcpUrl"
-    Write-Host "  Ready:     $($probe.Ready) (HTTP $($probe.StatusCode); 406 means route ready only)"
+    Write-Host "  Ready:     $($probe.Ready) (HTTP $($probe.StatusCode); $McpReadinessStatus means stateless route ready only)"
     if ($listenerIsServer) {
         Write-Host "  PID:       $($listener.ProcessId)"
         Write-Host "  PID role:  listener"
