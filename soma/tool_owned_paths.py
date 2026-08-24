@@ -22,6 +22,7 @@ from pathlib import Path
 #: significant: a prefix matches the directory itself and anything beneath it,
 #: never a sibling that merely shares a name prefix.
 TOOL_OWNED_PREFIXES: tuple[str, ...] = (
+    ".soma/",
     ".claude/worktrees/",
     ".codex-pytest-temp/",
     ".codex-tmp/",

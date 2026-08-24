@@ -154,6 +154,7 @@ def test_list_repo_files_skips_symlinked_directory(tmp_path: Path) -> None:
     "blocked",
     [
         ".git/config",
+        ".soma/research-map/index/db.rdb",
         ".venv/lib/site.py",
         "venv/bin/python",
         "__pycache__/mod.cpython-311.pyc",
@@ -171,6 +172,24 @@ def test_list_repo_files_excludes_blocked_names(tmp_path: Path, blocked: str) ->
     result = list_repo_files(repo)
     assert blocked not in result["files"]
     assert not any(p.startswith(blocked.split("/")[0]) for p in result["files"])
+
+
+def test_read_repo_file_refuses_soma_runtime_namespace(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / ".soma" / "research-map" / "CURRENT.json", "{}\n")
+
+    with pytest.raises(ValueError, match="not allowed"):
+        read_repo_file(repo, ".soma/research-map/CURRENT.json")
+
+
+def test_read_repo_file_allows_tracked_research_map_sidecar(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    write(repo / "docs" / "research" / "_soma_map" / "001.json", '{"reviewed":true}\n')
+
+    result = read_repo_file(repo, "docs/research/_soma_map/001.json")
+
+    assert result["ok"] is True
+    assert '"reviewed":true' in result["content"]
 
 
 @pytest.mark.parametrize(

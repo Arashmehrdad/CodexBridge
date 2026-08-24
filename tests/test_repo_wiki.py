@@ -241,6 +241,9 @@ def test_refresh_falls_back_to_filesystem_when_git_discovery_fails(
 ) -> None:
     (tmp_path / ".git").mkdir()
     _make_python_repo(tmp_path)
+    runtime_file = tmp_path / ".soma" / "research-map" / "index" / "state.json"
+    runtime_file.parent.mkdir(parents=True)
+    runtime_file.write_text('{"must_not_index":true}\n', encoding="utf-8")
     service = RepoWikiService(tmp_path, "demo")
 
     monkeypatch.setattr(
@@ -267,6 +270,31 @@ def test_refresh_falls_back_to_filesystem_when_git_discovery_fails(
     assert "src/demo/service.py" in indexed_paths
     assert ".pulse-chrome-profile/extension.js" not in indexed_paths
     assert "demo.egg-info/SOURCES.txt" not in indexed_paths
+    assert ".soma/research-map/index/state.json" not in indexed_paths
+
+
+def test_refresh_excludes_tracked_research_map_sidecars_from_code_wiki(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _make_python_repo(tmp_path)
+    source = tmp_path / "docs" / "research" / "001_result.md"
+    sidecar = tmp_path / "docs" / "research" / "_soma_map" / "001_result.json"
+    source.parent.mkdir(parents=True)
+    sidecar.parent.mkdir(parents=True)
+    source.write_text("# Research 001\n", encoding="utf-8")
+    sidecar.write_text('{"schema_version":"soma.research-map.v2"}\n', encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+
+    service = RepoWikiService(tmp_path, "demo")
+    service.refresh()
+    current = json.loads(service.current_path.read_text(encoding="utf-8"))
+    source_index = json.loads(
+        (service.generations_root / current["generation_id"] / "machine" / "source-index.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "docs/research/001_result.md" in source_index
+    assert "docs/research/_soma_map/001_result.json" not in source_index
 
 
 def _legacy_wiki(service: RepoWikiService, marker: str = "legacy marker") -> None:

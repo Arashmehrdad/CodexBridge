@@ -48,6 +48,7 @@ _SEARCH_SNIPPET_CHARS = 800
 _BLOCKED_NAMES: frozenset[str] = frozenset(
     [
         ".git",
+        ".soma",
         ".venv",
         "venv",
         "__pycache__",

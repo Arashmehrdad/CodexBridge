@@ -36,6 +36,8 @@ _GENERATION_ID_RE = re.compile(r"^\d{8}T\d{12}Z-[0-9a-f]{7}-[0-9a-f]{7}$")
 
 _BLOCKED_DIRS = {
     ".git",
+    ".soma",
+    "_soma_map",
     ".pulse-chrome-profile",
     ".venv",
     "venv",

@@ -1857,6 +1857,23 @@ def test_create_repo_file_rejects_blocked_extension(tmp_path: Path) -> None:
         create_repo_file(repo, "cert.pem", "data\n")
 
 
+def test_generic_repo_writer_rejects_soma_runtime_namespace(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+
+    with pytest.raises(ValueError, match="not allowed"):
+        create_repo_file(repo, ".soma/research-map/CURRENT.json", "{}\n")
+
+    preview = preview_repo_file_creation(
+        repo,
+        ".soma/research-map/CURRENT.json",
+        "{}\n",
+        runs,
+    )
+    assert preview["ok"] is False
+    assert "not allowed" in preview["error"]
+
+
 def test_create_repo_file_rejects_oversized(tmp_path: Path, monkeypatch) -> None:
     repo = make_repo(tmp_path)
     monkeypatch.setattr(rw, "MAX_CREATE_BYTES", 5)

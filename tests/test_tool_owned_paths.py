@@ -12,6 +12,9 @@ from soma.tool_owned_paths import TOOL_OWNED_PREFIXES, is_tool_owned_path
 @pytest.mark.parametrize(
     "path",
     [
+        ".soma",
+        ".soma/wiki/CURRENT.json",
+        ".soma/research-map/index/db.rdb",
         ".codex-tmp",
         ".codex-tmp/scratch.txt",
         ".codex-tmp/cf1-performance-200-1/runs/result.json",
@@ -89,6 +92,8 @@ def test_wiki_relative_path_exclusion_matches_prefixes(tmp_path: Path) -> None:
     repo.mkdir()
     service = _wiki(repo)
 
+    assert service._is_excluded_relative_path(".soma/wiki/CURRENT.json") is True
+    assert service._is_excluded_relative_path("docs/research/_soma_map/001.json") is True
     assert service._is_excluded_relative_path(".codex-tmp/a/b.txt") is True
     assert service._is_excluded_relative_path("_pytest-cf1-temp/x.yaml") is True
     assert service._is_excluded_relative_path(".claude/worktrees/w/m.py") is True
