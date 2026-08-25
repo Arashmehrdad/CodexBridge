@@ -1168,7 +1168,22 @@ class ResearchMapAdoptAction(GatewayModel):
     roots: list[ResearchMapAdoptRoot] = Field(default_factory=list, max_length=64)
 
 
-ResearchMapActionRequest = ResearchMapAdoptAction
+class ResearchMapSyncAction(GatewayModel):
+    action: Literal["sync"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+
+
+class ResearchMapRebuildAction(GatewayModel):
+    action: Literal["rebuild"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+
+
+ResearchMapActionRequest = Annotated[
+    ResearchMapAdoptAction | ResearchMapSyncAction | ResearchMapRebuildAction,
+    Field(discriminator="action"),
+]
 
 
 class RepoPatchPreview(GatewayModel):

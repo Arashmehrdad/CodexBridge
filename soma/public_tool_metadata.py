@@ -660,18 +660,18 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
         ),
         "research_map_action": _record(
             "research_map_action",
-            title="Adopt research map",
+            title="Manage research map",
             description=(
-                "Use this when the user explicitly wants to adopt or attach one "
-                "exactly scoped repository to the research-map lifecycle. Adoption "
-                "may create the portable manifest and local runtime, but never "
-                "creates semantic sidecars or builds an index."
+                "Use this when the user explicitly wants to adopt/attach, synchronize, "
+                "or deterministically rebuild one exactly scoped repository research map. "
+                "Sync/rebuild publish only reopen-verified immutable generations and never "
+                "generate semantic sidecars."
             ),
-            invoking="Adopting research map...",
-            invoked="Research map adoption complete",
+            invoking="Updating research map...",
+            invoked="Research map update complete",
             read_only=False,
             destructive=False,
-            idempotent=True,
+            idempotent=False,
             open_world=False,
         ),
         "knowledge_query": _record(

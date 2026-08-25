@@ -4,14 +4,13 @@ import asyncio
 import hashlib
 import json
 
-import soma.server as server
+from soma import server
 from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import (
     ANNOTATION_KEYS,
     PUBLIC_TOOL_METADATA,
     fastmcp_registration_kwargs,
 )
-
 
 PRE_B3_DESCRIPTOR_HASH = (
     "4480a27354c0f140ed2931904dfe1c786f3c8c30b01ca7e69384965ecaaa1c49"
@@ -20,7 +19,7 @@ PRE_B3_INPUT_SCHEMA_HASH = (
     "bb32b7c07dba1d71f90dda396ed11e92ddf1192e9c76460f6d0bc0ed3ea0b176"
 )
 CURRENT_INPUT_SCHEMA_HASH = (
-    "87bb4ec172a903a45b131ceadaf1d929b527fbc15bf1ff483c617f8d099a4f88"
+    "5513e3bd3bce5edd38f47295ec7027f1cfdadc0c79d1d2c29126e5c4deaaf6c9"
 )
 PRE_B3_OUTPUT_SCHEMA_HASH = (
     "247aa7e6a7958ca51decb7f8e5a68119315ed949a54315e4b671a8e35ad91bde"
@@ -32,7 +31,7 @@ PRE_B3_OPERATION_INVENTORY_HASH = (
     "a6f31b3275f074d0660ba4aa48f3886cce2093bf5847cf0e3eae172afae92377"
 )
 CURRENT_OPERATION_INVENTORY_HASH = (
-    "4fc5ced416c4c47b81340386b8341c9020475e767f1f67f6ab0cce03fb761376"
+    "b5308c14459684fbd5601846e81a40a3731a9d7aad4eb1c26897604749066aad"
 )
 
 
@@ -128,7 +127,7 @@ def test_current_public_gateway_schema_identity_is_intentional() -> None:
     actions = _actions()
 
     assert server._input_schema_hash_from_actions(actions) == (
-        "2bd41e87b1a537af14b934b8776b162484d1cd1280f9b0c2256d5713410bed44"
+        "ebb3e321a991058d1f4f96e566b462e585c42bbf8e098cca76a486f592ae6828"
     )
     assert _schema_digest(actions, "inputSchema") == CURRENT_INPUT_SCHEMA_HASH
     assert CURRENT_INPUT_SCHEMA_HASH != PRE_B3_INPUT_SCHEMA_HASH

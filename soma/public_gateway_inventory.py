@@ -58,7 +58,7 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("repo_apply", "repository", "soma.server", "direct mutation result", "patch lifecycle diagnostic growth"),
     _entry("repo_commit", "repository", "soma.server", "direct mutation result", "commit diagnostic growth"),
     _entry("research_map_query", "research_map", "soma.server", "bounded exact-project research-map projection", "coverage pagination and reviewed relation payload growth"),
-    _entry("research_map_action", "research_map", "soma.server", "bounded exact-project adoption mutation", "explicit root configuration and local runtime lifecycle diagnostics"),
+    _entry("research_map_action", "research_map", "soma.server", "bounded exact-project adoption/sync/rebuild mutation", "explicit roots plus immutable generation and backend reconciliation diagnostics"),
     _entry("knowledge_query", "knowledge", "soma.knowledge_tools_integration", "direct knowledge object", "wiki and search result growth"),
     _entry("knowledge_action", "knowledge", "soma.knowledge_tools_integration", "direct mutation result", "decision and wiki payload growth"),
 )

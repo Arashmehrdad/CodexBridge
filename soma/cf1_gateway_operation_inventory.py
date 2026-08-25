@@ -1708,17 +1708,18 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "research_map_action",
-        ("adopt",),
-        "soma.server:research_map_action -> soma.research_map.adoption:adopt_research_map",
-        "bounded exact-project research-map adoption result",
+        ("adopt", "sync", "rebuild"),
+        "soma.server:research_map_action -> soma.research_map.adoption|sync",
+        "bounded exact-project research-map adoption/sync/rebuild result",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes=(
-            "Explicit adoption requires exact ProjectScope, creates a portable "
-            "manifest only when absent, preserves an existing repository_uid on "
-            "clone attach, ensures local /.soma/ exclusion, initializes empty "
-            "repo-local runtime, and never generates sidecars or an index."
+            "Explicit adoption requires exact ProjectScope and initializes portable/local "
+            "state without generating sidecars. Sync/rebuild require complete reviewed "
+            "semantic state and publish only immutable generations that pass exact relation "
+            "read-back, explicit persistence, close/reopen verification, and atomic CURRENT "
+            "publication. No action auto-generates semantic sidecars."
         ),
     ),
     _entry(

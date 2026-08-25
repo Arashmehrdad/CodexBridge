@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from copy import deepcopy
+from pathlib import Path
 
-from pydantic import TypeAdapter
 import pytest
+from pydantic import TypeAdapter
 
+from soma import server
 from soma.gateway_models import SystemCapabilityIdentityQuery, SystemQueryRequest
-import soma.server as server
 
-
-PUBLIC_SCHEMA_HASH = "2bd41e87b1a537af14b934b8776b162484d1cd1280f9b0c2256d5713410bed44"
+PUBLIC_SCHEMA_HASH = "ebb3e321a991058d1f4f96e566b462e585c42bbf8e098cca76a486f592ae6828"
 
 
 def _actions() -> list[dict]:

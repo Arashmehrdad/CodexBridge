@@ -41,7 +41,7 @@ UNION_GATEWAYS = frozenset(
         "continuation_action", "continuation_query", "skill_action", "skill_query",
         "docker_action", "docker_query", "knowledge_action", "knowledge_query",
         "repo_apply", "repo_commit",
-        "repo_preview", "repo_query", "research_map_query", "run_query", "run_start", "ssh_action",
+        "repo_preview", "repo_query", "research_map_action", "research_map_query", "run_query", "run_start", "ssh_action",
         "ssh_inspect", "ssh_query", "supervisor_action", "supervisor_query",
         "system_action", "system_query", "task_action", "task_query",
         "trading_companion_action",
@@ -54,7 +54,6 @@ UNION_GATEWAYS = frozenset(
 # ``oneOf`` to hoist.
 SINGLE_MODEL_GATEWAYS = frozenset(
     {
-        "research_map_action",
         "trading_action_submit", "trading_runtime_control",
         "trading_signal_cancel_before_entry", "trading_signal_get",
         "trading_signal_list", "trading_signal_submit",

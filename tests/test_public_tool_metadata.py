@@ -124,13 +124,14 @@ def test_research_map_query_metadata_is_strictly_read_only() -> None:
 
 def test_research_map_action_metadata_is_explicit_and_nonsemantic() -> None:
     action = PUBLIC_TOOL_METADATA["research_map_action"]
-    assert "adopt or attach" in action.description
-    assert "portable manifest and local runtime" in action.description
-    assert "never creates semantic sidecars or builds an index" in action.description
+    assert "adopt/attach, synchronize" in action.description
+    assert "deterministically rebuild" in action.description
+    assert "reopen-verified immutable generations" in action.description
+    assert "never generate semantic sidecars" in action.description
     assert dict(action.annotations) == {
         "readOnlyHint": False,
         "destructiveHint": False,
-        "idempotentHint": True,
+        "idempotentHint": False,
         "openWorldHint": False,
     }
 

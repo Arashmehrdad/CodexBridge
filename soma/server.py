@@ -90,6 +90,7 @@ from .repo_patch_resolution_service import resolve_patch_preview as _resolve_pat
 from .repo_wiki import mark_repo_wiki_stale
 from .research_map.adoption import ResearchMapAdoptionError, adopt_research_map
 from .research_map.gateway import research_map_query_gateway
+from .research_map.sync import ResearchMapSyncError, sync_research_map
 from .run_query_chunks import decode_run_reference
 from .service_reload import (
     apply_reloaded_config,
@@ -7059,7 +7060,7 @@ def research_map_query(request: ResearchMapQueryRequest) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def research_map_action(request: ResearchMapActionRequest) -> dict:
-    """Explicitly adopt or attach one exact project's repository research map."""
+    """Explicitly adopt, synchronize, or rebuild one exact project's research map."""
     try:
         canonical_name, repo_root, requested_name = _repo_context(request.repo_name)
     except ValueError as exc:
@@ -7099,7 +7100,8 @@ def research_map_action(request: ResearchMapActionRequest) -> dict:
         }
 
     roots = [
-        item.model_dump(mode="json", exclude_none=True) for item in request.roots
+        item.model_dump(mode="json", exclude_none=True)
+        for item in getattr(request, "roots", [])
     ]
     try:
         with repository_operation_lock(
@@ -7112,13 +7114,21 @@ def research_map_action(request: ResearchMapActionRequest) -> dict:
                 "roots": roots,
             },
         ):
-            result = adopt_research_map(
-                repo_root,
-                project_id=binding.project_id,
-                repo_name=binding.repo_name,
-                roots=roots,
-            )
-    except ResearchMapAdoptionError as exc:
+            if request.action == "adopt":
+                result = adopt_research_map(
+                    repo_root,
+                    project_id=binding.project_id,
+                    repo_name=binding.repo_name,
+                    roots=roots,
+                )
+            else:
+                result = sync_research_map(
+                    repo_root,
+                    project_id=binding.project_id,
+                    repo_name=binding.repo_name,
+                    action=request.action,
+                )
+    except (ResearchMapAdoptionError, ResearchMapSyncError) as exc:
         return {
             "ok": False,
             "action": request.action,

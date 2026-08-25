@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_json_bytes, canonical_json_sha256
+from .generation import ResearchMapGenerationError, load_current_generation
+from .graphiti_backend import graphiti_projection_contract_sha256
 from .service import ResearchMapHealthState, ResearchMapScan, scan_research_map
 from .sidecars import SidecarState
 
@@ -72,15 +74,37 @@ def _coverage_state(scan: ResearchMapScan) -> str:
     return "incomplete"
 
 
-def _sync_state(scan: ResearchMapScan) -> str:
+def _publication_state(
+    repository_root: str | Path,
+    scan: ResearchMapScan,
+) -> tuple[str, str, str | None, str | None]:
     if scan.health_state is ResearchMapHealthState.NOT_ADOPTED:
-        return "not_applicable"
+        return "not_applicable", "unavailable", None, None
     if scan.manifest_state.value != "valid":
-        return "unknown"
-    return "not_initialized"
+        return "unknown", "unavailable", None, None
+    try:
+        current = load_current_generation(repository_root)
+    except ResearchMapGenerationError:
+        return "degraded", "not_checked", None, None
+    if current is None:
+        return "missing", "unavailable", None, None
+
+    expected_projection = graphiti_projection_contract_sha256()
+    stale = (
+        current.repository_uid != scan.repository_uid
+        or current.semantic_desired_state_sha256 != scan.semantic_desired_state_sha256
+        or current.projection_contract_sha256 != expected_projection
+    )
+    return (
+        "stale" if stale else "published_verified",
+        "not_checked",
+        current.generation,
+        current.projection_contract_sha256,
+    )
 
 
 def _health_payload(
+    repository_root: str | Path,
     scan: ResearchMapScan,
     *,
     project_id: str,
@@ -88,6 +112,10 @@ def _health_payload(
 ) -> dict[str, Any]:
     counts = scan.coverage.counts
     issue_codes = sorted({issue.code for issue in scan.issues})
+    sync_state, backend_state, published_generation, projection_contract = _publication_state(
+        repository_root,
+        scan,
+    )
     return {
         "ok": True,
         "operation": "health",
@@ -97,12 +125,12 @@ def _health_payload(
         "adoption_state": _adoption_state(scan),
         "manifest_state": scan.manifest_state.value,
         "coverage_state": _coverage_state(scan),
-        "sync_state": _sync_state(scan),
-        "backend_state": "unavailable",
+        "sync_state": sync_state,
+        "backend_state": backend_state,
         "repository_uid": scan.repository_uid,
         "semantic_desired_state_sha256": scan.semantic_desired_state_sha256,
-        "published_generation": None,
-        "projection_contract_sha256": None,
+        "published_generation": published_generation,
+        "projection_contract_sha256": projection_contract,
         "coverage_counts": counts,
         "stale_sidecar_count": counts.get("stale", 0),
         "unreviewed_count": counts.get("unreviewed", 0),
@@ -123,6 +151,7 @@ def query_health(
     repo_name: str,
 ) -> dict[str, Any]:
     return _health_payload(
+        repository_root,
         scan_research_map(repository_root),
         project_id=project_id,
         repo_name=repo_name,
@@ -139,7 +168,12 @@ def query_coverage(
     response_budget_bytes: int,
 ) -> dict[str, Any]:
     scan = scan_research_map(repository_root)
-    health = _health_payload(scan, project_id=project_id, repo_name=repo_name)
+    health = _health_payload(
+        repository_root,
+        scan,
+        project_id=project_id,
+        repo_name=repo_name,
+    )
     desired_state = scan.semantic_desired_state_sha256 or ""
     if scan.manifest_state.value != "valid" or scan.health_state in {
         ResearchMapHealthState.NOT_ADOPTED,
@@ -245,7 +279,12 @@ def query_relation(
     response_budget_bytes: int,
 ) -> dict[str, Any]:
     scan = scan_research_map(repository_root)
-    health = _health_payload(scan, project_id=project_id, repo_name=repo_name)
+    health = _health_payload(
+        repository_root,
+        scan,
+        project_id=project_id,
+        repo_name=repo_name,
+    )
     if scan.manifest_state.value != "valid" or scan.health_state in {
         ResearchMapHealthState.NOT_ADOPTED,
         ResearchMapHealthState.DISABLED,
@@ -381,7 +420,12 @@ def query_search_unavailable(
     response_budget_bytes: int,
 ) -> dict[str, Any]:
     scan = scan_research_map(repository_root)
-    health = _health_payload(scan, project_id=project_id, repo_name=repo_name)
+    health = _health_payload(
+        repository_root,
+        scan,
+        project_id=project_id,
+        repo_name=repo_name,
+    )
     return {
         **health,
         "ok": False,
