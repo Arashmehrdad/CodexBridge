@@ -1,7 +1,7 @@
 # Soma Hybrid Research Map — Canonical Implementation Plan
 
 Date: 2026-08-24  
-Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM4 ACCEPTED; RM5 NEXT
+Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM5 ACCEPTED; RM6 NEXT
 Repository: `D:\Github\Soma`  
 Planning branch observed: `rollback/pre-core-hardening-20260823`  
 Planning HEAD observed: `7e7450e08331aeed744867be955feb42149b18f4`  
@@ -1572,6 +1572,10 @@ Actual rebuild remains an explicit `sync`/`rebuild` operation.
 Implement backend protocol first.
 
 Then implement Graphiti adapter behind lazy optional imports.
+
+Production runtime policy after RM5 conformance: Docker is not a normal Soma or Research Map runtime dependency. Backend processes must remain lazy/on-demand and independent of Soma startup. Disposable Docker may be used for bounded conformance testing only; production storage may use an on-demand local runtime such as WSL or another conforming local server behind the same backend protocol.
+
+Native FalkorDB Lite is not required on Windows. If the pinned Lite implementation is not host-compatible, preserve the same protocol and use a conforming server-backed local FalkorDB transport instead.
 
 ## Conformance corpus
 
