@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -36,6 +37,16 @@ def _normalized_roots(roots: list[dict[str, Any]]) -> tuple[ResearchRootConfig, 
 
 def _roots_payload(roots: tuple[ResearchRootConfig, ...]) -> list[dict[str, Any]]:
     return [item.model_dump(mode="json", exclude_none=True) for item in roots]
+
+
+def _roots_sha256(roots: tuple[ResearchRootConfig, ...]) -> str:
+    payload = json.dumps(
+        _roots_payload(roots),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _manifest_bytes(manifest: ProjectManifest) -> bytes:
@@ -173,7 +184,8 @@ def adopt_research_map(
         "manifest_state": "created" if manifest_created else "existing",
         "manifest_created": manifest_created,
         "research_map_enabled": manifest.research_map.enabled,
-        "roots": _roots_payload(existing_roots),
+        "root_count": len(existing_roots),
+        "roots_sha256": _roots_sha256(existing_roots),
         "git_exclude_rule": LOCAL_GIT_EXCLUDE_RULE,
         "git_exclude_changed": exclude_changed,
         "runtime_path": RESEARCH_MAP_RUNTIME_PATH,

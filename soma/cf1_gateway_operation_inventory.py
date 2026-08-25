@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v27"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v28"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1705,6 +1705,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=64 * 1024,
         notes="Search is intentionally schema-visible in RM3 so later backend activation does not require a second public-contract change; until RM7 it returns backend_unavailable without indexing or provider access.",
+    ),
+    _entry(
+        "research_map_action",
+        ("adopt",),
+        "soma.server:research_map_action -> soma.research_map.adoption:adopt_research_map",
+        "bounded exact-project research-map adoption result",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes=(
+            "Explicit adoption requires exact ProjectScope, creates a portable "
+            "manifest only when absent, preserves an existing repository_uid on "
+            "clone attach, ensures local /.soma/ exclusion, initializes empty "
+            "repo-local runtime, and never generates sidecars or an index."
+        ),
     ),
     _entry(
         "knowledge_query",

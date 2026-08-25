@@ -1153,6 +1153,24 @@ ResearchMapQueryRequest = Annotated[
 ]
 
 
+class ResearchMapAdoptRoot(GatewayModel):
+    path: str = Field(min_length=1, max_length=1024)
+    sidecar_dir: str = Field(default="_soma_map", min_length=1, max_length=256)
+    include: list[str] = Field(
+        default_factory=lambda: ["*.md"], min_length=1, max_length=32
+    )
+
+
+class ResearchMapAdoptAction(GatewayModel):
+    action: Literal["adopt"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    roots: list[ResearchMapAdoptRoot] = Field(default_factory=list, max_length=64)
+
+
+ResearchMapActionRequest = ResearchMapAdoptAction
+
+
 class RepoPatchPreview(GatewayModel):
     operation: Literal["patch"]
     repo_name: str = Field(min_length=1, max_length=128)

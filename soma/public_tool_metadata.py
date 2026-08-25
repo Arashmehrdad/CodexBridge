@@ -658,6 +658,22 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             idempotent=True,
             open_world=False,
         ),
+        "research_map_action": _record(
+            "research_map_action",
+            title="Adopt research map",
+            description=(
+                "Use this when the user explicitly wants to adopt or attach one "
+                "exactly scoped repository to the research-map lifecycle. Adoption "
+                "may create the portable manifest and local runtime, but never "
+                "creates semantic sidecars or builds an index."
+            ),
+            invoking="Adopting research map...",
+            invoked="Research map adoption complete",
+            read_only=False,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
         "knowledge_query": _record(
             "knowledge_query",
             title="Access project knowledge",

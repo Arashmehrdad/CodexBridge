@@ -51,6 +51,12 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
         "backend_state": "unavailable", "repository_uid": None,
         "semantic_desired_state_sha256": None,
     },
+    "research_map_action": {
+        "ok": True, "action": "adopt", "project_id": "proj_rm4",
+        "repo_name": "soma", "status": "attached",
+        "repository_uid": "srepo_0123456789abcdef", "manifest_created": False,
+        "database_state": "missing", "sidecars_generated": False, "index_built": False,
+    },
     "run_start": {"ok": True, "run_id": "r1", "operation": "launch", "status": "running"},
     "run_query": {
         "ok": True, "operation": "summary_list",

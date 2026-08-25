@@ -54,6 +54,7 @@ UNION_GATEWAYS = frozenset(
 # ``oneOf`` to hoist.
 SINGLE_MODEL_GATEWAYS = frozenset(
     {
+        "research_map_action",
         "trading_action_submit", "trading_runtime_control",
         "trading_signal_cancel_before_entry", "trading_signal_get",
         "trading_signal_list", "trading_signal_submit",

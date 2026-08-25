@@ -4,9 +4,9 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import ANNOTATION_KEYS, PUBLIC_TOOL_METADATA
 
 
-def test_public_metadata_matches_the_39_tool_inventory() -> None:
+def test_public_metadata_matches_the_40_tool_inventory() -> None:
     assert set(PUBLIC_TOOL_METADATA) == set(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_TOOL_METADATA) == 39
+    assert len(PUBLIC_TOOL_METADATA) == 40
     assert len(PUBLIC_TOOL_METADATA) == len(set(PUBLIC_TOOL_METADATA))
     assert not set(PUBLIC_TOOL_METADATA) - set(PUBLIC_GATEWAY_NAMES)
 
@@ -116,6 +116,19 @@ def test_research_map_query_metadata_is_strictly_read_only() -> None:
     assert "never creates sidecars, runtime state, or an index" in query.description
     assert dict(query.annotations) == {
         "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+def test_research_map_action_metadata_is_explicit_and_nonsemantic() -> None:
+    action = PUBLIC_TOOL_METADATA["research_map_action"]
+    assert "adopt or attach" in action.description
+    assert "portable manifest and local runtime" in action.description
+    assert "never creates semantic sidecars or builds an index" in action.description
+    assert dict(action.annotations) == {
+        "readOnlyHint": False,
         "destructiveHint": False,
         "idempotentHint": True,
         "openWorldHint": False,

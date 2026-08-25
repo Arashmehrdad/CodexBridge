@@ -336,7 +336,7 @@ async def test_worker_app_construction_is_inert_and_isolated(tmp_path: Path) -> 
     tool_names = {tool.name for tool in tools}
     assert tool_names == {"worker_capabilities", "worker_invoke"}
     assert tool_names.isdisjoint(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_GATEWAY_NAMES) == 39
+    assert len(PUBLIC_GATEWAY_NAMES) == 40
     assert service.store.is_installed() is False
     assert (runs / "soma.sqlite3").exists() is False
 

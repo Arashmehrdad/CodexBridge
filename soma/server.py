@@ -88,6 +88,7 @@ from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_patch_resolution_service import resolve_patch_preview as _resolve_patch_preview
 from .repo_wiki import mark_repo_wiki_stale
+from .research_map.adoption import ResearchMapAdoptionError, adopt_research_map
 from .research_map.gateway import research_map_query_gateway
 from .run_query_chunks import decode_run_reference
 from .service_reload import (
@@ -177,6 +178,7 @@ from .gateway_models import (
     RepoCommitRequest,
     RepoPreviewRequest,
     RepoQueryRequest,
+    ResearchMapActionRequest,
     ResearchMapQueryRequest,
     RunStartRequest,
     RunQueryRequest,
@@ -7048,6 +7050,84 @@ def research_map_query(request: ResearchMapQueryRequest) -> dict:
         view=getattr(request, "view", "compact"),
         response_budget_bytes=getattr(request, "response_budget_bytes", 12 * 1024),
     )
+    result["resource_id"] = binding.resource_id
+    result["scope_generation"] = binding.scope_generation
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
+def research_map_action(request: ResearchMapActionRequest) -> dict:
+    """Explicitly adopt or attach one exact project's repository research map."""
+    try:
+        canonical_name, repo_root, requested_name = _repo_context(request.repo_name)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "action": request.action,
+            "project_id": request.project_id,
+            "repo_name": request.repo_name,
+            "status": "invalid_repo_resolution",
+            "error": str(exc),
+        }
+
+    scope_store = get_project_scope_store()
+    if not scope_store.is_installed():
+        return {
+            "ok": False,
+            "action": request.action,
+            "project_id": request.project_id,
+            "repo_name": canonical_name,
+            "status": "project_scope_unavailable",
+            "error": "ProjectScope authority is not installed",
+        }
+    try:
+        binding = scope_store.resolve_repository(
+            project_id=request.project_id,
+            repo_name=canonical_name,
+            repository_root=repo_root,
+        )
+    except ProjectScopeError as exc:
+        return {
+            "ok": False,
+            "action": request.action,
+            "project_id": request.project_id,
+            "repo_name": canonical_name,
+            "status": "scope_mismatch",
+            "error": str(exc),
+        }
+
+    roots = [
+        item.model_dump(mode="json", exclude_none=True) for item in request.roots
+    ]
+    try:
+        with repository_operation_lock(
+            get_config().resolve_runs_dir(),
+            repo_name=canonical_name,
+            tool="research_map_action",
+            normalized_input={
+                "action": request.action,
+                "project_id": binding.project_id,
+                "roots": roots,
+            },
+        ):
+            result = adopt_research_map(
+                repo_root,
+                project_id=binding.project_id,
+                repo_name=binding.repo_name,
+                roots=roots,
+            )
+    except ResearchMapAdoptionError as exc:
+        return {
+            "ok": False,
+            "action": request.action,
+            "project_id": binding.project_id,
+            "repo_name": binding.repo_name,
+            "status": exc.code,
+            "error": str(exc),
+        }
+
     result["resource_id"] = binding.resource_id
     result["scope_generation"] = binding.scope_generation
     if requested_name != canonical_name:
