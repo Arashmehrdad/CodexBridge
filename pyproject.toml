@@ -19,6 +19,12 @@ dev = [
   "pytest",
   "ruff",
 ]
+research-map = [
+  "graphiti-core==0.29.3",
+  "fastembed==0.8.0",
+  "falkordb==1.7.1",
+  "httpx==0.28.1",
+]
 pulse = [
   "playwright",
 ]
