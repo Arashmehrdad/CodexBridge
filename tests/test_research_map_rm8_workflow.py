@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from pydantic import TypeAdapter
 
+from soma import server
+from soma.gateway_models import ResearchMapActionRequest, ResearchMapQueryRequest
 from soma.research_map import canonical_text_sha256, relation_id
 from soma.research_map.backend import (
     BackendPersistResult,
@@ -383,3 +388,96 @@ def test_rm8_reviewed_no_material_finishing_touch_closes_coverage(tmp_path: Path
     )
     assert after["coverage_state"] == "complete"
     assert after["sync_state"] == "published_verified"
+
+
+def test_rm8_public_project_scoped_surfaces_compose_sync_and_readback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_manifest(tmp_path)
+    source_text = "# Research 005\npublic exact anchor\n"
+    assert _create_report_once(tmp_path, "005_public.md", source_text) is True
+    rid = _write_reviewed_sidecar(
+        tmp_path,
+        "005_public.md",
+        source_text,
+        subject_key="finding:public",
+        object_key="claim:public",
+        anchor="public exact anchor",
+    )
+    assert rid is not None
+
+    store = _WorkflowBackendStore()
+    binding = SimpleNamespace(
+        project_id="proj_rm8",
+        repo_name="repo",
+        resource_id="res_rm8",
+        scope_generation=8,
+    )
+    scope = SimpleNamespace(
+        is_installed=lambda: True,
+        resolve_repository=lambda **_kwargs: binding,
+    )
+    monkeypatch.setattr(server, "_repo_context", lambda _name: ("repo", tmp_path, "repo"))
+    monkeypatch.setattr(server, "get_project_scope_store", lambda: scope)
+    monkeypatch.setattr(
+        server,
+        "get_config",
+        lambda: SimpleNamespace(resolve_runs_dir=lambda: tmp_path / "runs"),
+    )
+    monkeypatch.setattr(server, "repository_operation_lock", lambda *_args, **_kwargs: nullcontext())
+
+    def public_sync(
+        repo_root: Path,
+        *,
+        project_id: str,
+        repo_name: str,
+        action: str,
+    ) -> dict[str, object]:
+        return sync_research_map(
+            repo_root,
+            project_id=project_id,
+            repo_name=repo_name,
+            action=action,  # type: ignore[arg-type]
+            backend_factory=store.factory,
+            projection_contract_sha256=PROJECTION_HASH,
+        )
+
+    monkeypatch.setattr(server, "sync_research_map", public_sync)
+    action_adapter = TypeAdapter(ResearchMapActionRequest)
+    query_adapter = TypeAdapter(ResearchMapQueryRequest)
+
+    synced = server.research_map_action(
+        action_adapter.validate_python(
+            {"action": "sync", "project_id": "proj_rm8", "repo_name": "repo"}
+        )
+    )
+    assert synced["ok"] is True
+    assert synced["status"] == "synchronized"
+    assert synced["resource_id"] == "res_rm8"
+    assert synced["scope_generation"] == 8
+
+    health = server.research_map_query(
+        query_adapter.validate_python(
+            {"operation": "health", "project_id": "proj_rm8", "repo_name": "repo"}
+        )
+    )
+    assert health["coverage_state"] == "complete"
+    assert health["sync_state"] == "published_verified"
+    assert health["resource_id"] == "res_rm8"
+    assert health["scope_generation"] == 8
+
+    readback = server.research_map_query(
+        query_adapter.validate_python(
+            {
+                "operation": "relation",
+                "project_id": "proj_rm8",
+                "repo_name": "repo",
+                "relation_id": rid,
+            }
+        )
+    )
+    assert readback["status"] == "found"
+    assert readback["relation"]["locator"]["anchor"] == "public exact anchor"
+    assert readback["resource_id"] == "res_rm8"
+    assert readback["scope_generation"] == 8
