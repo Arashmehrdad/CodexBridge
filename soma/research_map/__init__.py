@@ -1,4 +1,4 @@
-"""Backend-independent contracts for Soma's reviewed research map."""
+"""Backend-independent contracts and scanners for Soma's reviewed research map."""
 
 from .canonical import (
     canonical_json_bytes,
@@ -10,6 +10,15 @@ from .canonical import (
     record_version_id,
     relation_id,
 )
+from .coverage import CoverageEntry, CoverageState, CoverageSummary, classify_coverage
+from .desired_state import (
+    DesiredStateResult,
+    EffectiveRelation,
+    GovernanceAnalysis,
+    analyze_governance,
+    build_desired_state,
+)
+from .manifest import ManifestLoadResult, ManifestState, load_project_manifest
 from .models import (
     EpistemicClass,
     Materiality,
@@ -24,26 +33,56 @@ from .models import (
     ReviewState,
     SourceEnvelope,
 )
+from .service import ResearchMapHealthState, ResearchMapScan, scan_research_map
+from .sidecars import (
+    ResearchMapIssue,
+    ScannedResearchRecord,
+    SidecarScanResult,
+    SidecarState,
+    expected_sidecar_path,
+    scan_research_sidecars,
+)
 
 __all__ = [
+    "CoverageEntry",
+    "CoverageState",
+    "CoverageSummary",
+    "DesiredStateResult",
+    "EffectiveRelation",
     "EpistemicClass",
+    "GovernanceAnalysis",
+    "ManifestLoadResult",
+    "ManifestState",
     "Materiality",
     "Predicate",
     "ProjectManifest",
     "RelationLifecycle",
     "ResearchMapConfig",
+    "ResearchMapHealthState",
+    "ResearchMapIssue",
     "ResearchMapRelation",
+    "ResearchMapScan",
     "ResearchMapSidecar",
     "ResearchRootConfig",
     "ReviewEnvelope",
     "ReviewState",
+    "ScannedResearchRecord",
+    "SidecarScanResult",
+    "SidecarState",
     "SourceEnvelope",
+    "analyze_governance",
+    "build_desired_state",
     "canonical_json_bytes",
     "canonical_json_sha256",
     "canonical_text_sha256",
+    "classify_coverage",
+    "expected_sidecar_path",
+    "load_project_manifest",
     "logical_record_id",
     "normalize_canonical_text",
     "normalize_repo_relative_path",
     "record_version_id",
     "relation_id",
+    "scan_research_map",
+    "scan_research_sidecars",
 ]
