@@ -1105,6 +1105,54 @@ RepoQueryRequest = Annotated[
 ]
 
 
+class ResearchMapHealthQuery(GatewayModel):
+    operation: Literal["health"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+
+
+class ResearchMapCoverageQuery(GatewayModel):
+    operation: Literal["coverage"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=50, ge=1, le=200)
+    cursor: str = Field(default="", max_length=2048)
+    response_budget_bytes: int = Field(default=12 * 1024, ge=4 * 1024, le=64 * 1024)
+
+
+class ResearchMapRelationQuery(GatewayModel):
+    operation: Literal["relation"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    relation_id: str = Field(pattern=r"^rel_[A-Fa-f0-9]{64}$")
+    view: Literal["compact", "full"] = "compact"
+    response_budget_bytes: int = Field(default=32 * 1024, ge=4 * 1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def normalize_relation_identity(self) -> "ResearchMapRelationQuery":
+        self.relation_id = self.relation_id.casefold()
+        return self
+
+
+class ResearchMapSearchQuery(GatewayModel):
+    operation: Literal["search"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=10_000)
+    limit: int = Field(default=5, ge=1, le=20)
+    include_noncurrent: bool = False
+    response_budget_bytes: int = Field(default=12 * 1024, ge=4 * 1024, le=64 * 1024)
+
+
+ResearchMapQueryRequest = Annotated[
+    ResearchMapHealthQuery
+    | ResearchMapCoverageQuery
+    | ResearchMapRelationQuery
+    | ResearchMapSearchQuery,
+    Field(discriminator="operation"),
+]
+
+
 class RepoPatchPreview(GatewayModel):
     operation: Literal["patch"]
     repo_name: str = Field(min_length=1, max_length=128)

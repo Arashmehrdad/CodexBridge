@@ -43,6 +43,14 @@ _REPRESENTATIVE_RESULTS: dict[str, dict] = {
     "repo_preview": {"ok": True, "preview_id": "p1", "patch_id": "x", "files": ["a.py"]},
     "repo_apply": {"ok": True, "patch_id": "x", "status": "applied", "error": ""},
     "repo_commit": {"ok": True, "commit": "deadbeef", "status": "committed", "error": ""},
+    "research_map_query": {
+        "ok": True, "operation": "health", "project_id": "proj_rm3",
+        "repo_name": "soma", "status": "not_adopted",
+        "adoption_state": "not_adopted", "manifest_state": "missing",
+        "coverage_state": "not_adopted", "sync_state": "not_applicable",
+        "backend_state": "unavailable", "repository_uid": None,
+        "semantic_desired_state_sha256": None,
+    },
     "run_start": {"ok": True, "run_id": "r1", "operation": "launch", "status": "running"},
     "run_query": {
         "ok": True, "operation": "summary_list",

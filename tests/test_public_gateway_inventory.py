@@ -38,7 +38,7 @@ def test_inventory_exactly_covers_current_public_gateway_surface() -> None:
 
 
 def test_inventory_entries_are_versioned_unique_and_actionable() -> None:
-    assert PUBLIC_GATEWAY_INVENTORY_VERSION == "cf1.0.v5"
+    assert PUBLIC_GATEWAY_INVENTORY_VERSION == "cf1.0.v6"
     assert len(PUBLIC_GATEWAY_NAMES) == len(PUBLIC_GATEWAY_INVENTORY)
 
     for entry in PUBLIC_GATEWAY_INVENTORY:
@@ -61,6 +61,7 @@ def test_inventory_covers_every_required_cf1_gateway_family() -> None:
         "docker",
         "knowledge",
         "repository",
+        "research_map",
         "runs",
         "skills",
         "ssh",

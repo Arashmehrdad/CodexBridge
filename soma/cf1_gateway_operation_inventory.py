@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v26"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v27"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1659,6 +1659,52 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=12 * 1024,
         notes="create_branch atomically creates and checks out the requested branch and reports the verified current branch; compact commit results retain operation, status, identity, and changed-file projection under a UTF-8 budget; view=full remains explicit complete mutation metadata access.",
+    ),
+    _entry(
+        "research_map_query",
+        ("health",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_health",
+        "bounded exact-project research-map health projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        notes="Read-only health requires exact ProjectScope and reports adoption, manifest, coverage, sync, backend, semantic desired-state, and bounded issue dimensions without creating runtime state.",
+    ),
+    _entry(
+        "research_map_query",
+        ("coverage",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_coverage",
+        "bounded deterministic source coverage page",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.CURSOR,
+        default_item_limit=50,
+        maximum_item_limit=200,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes="Coverage is independent of sync/backend state; opaque cursors bind to semantic desired-state identity so a changed tracked map cannot silently continue an old page.",
+    ),
+    _entry(
+        "research_map_query",
+        ("relation",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_relation",
+        "bounded exact reviewed relation projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=32 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes="Exact relation lookup reads only currently valid tracked sidecars and exposes declared/effective successor-owned lifecycle plus the canonical full-relation content hash; oversized text is explicitly marked truncated.",
+    ),
+    _entry(
+        "research_map_query",
+        ("search",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_search_unavailable",
+        "bounded backend-unavailable semantic search acknowledgement",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=5,
+        maximum_item_limit=20,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes="Search is intentionally schema-visible in RM3 so later backend activation does not require a second public-contract change; until RM7 it returns backend_unavailable without indexing or provider access.",
     ),
     _entry(
         "knowledge_query",

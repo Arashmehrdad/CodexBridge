@@ -13,7 +13,7 @@ class PublicGatewayInventoryEntry:
     cf1_risk: str
 
 
-PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v5"
+PUBLIC_GATEWAY_INVENTORY_VERSION: Final[str] = "cf1.0.v6"
 
 
 def _entry(name: str, family: str, source: str, response_path: str, cf1_risk: str) -> PublicGatewayInventoryEntry:
@@ -57,6 +57,7 @@ PUBLIC_GATEWAY_INVENTORY: Final[tuple[PublicGatewayInventoryEntry, ...]] = (
     _entry("repo_preview", "repository", "soma.server", "opaque preview object", "patch and file-content echo growth"),
     _entry("repo_apply", "repository", "soma.server", "direct mutation result", "patch lifecycle diagnostic growth"),
     _entry("repo_commit", "repository", "soma.server", "direct mutation result", "commit diagnostic growth"),
+    _entry("research_map_query", "research_map", "soma.server", "bounded exact-project research-map projection", "coverage pagination and reviewed relation payload growth"),
     _entry("knowledge_query", "knowledge", "soma.knowledge_tools_integration", "direct knowledge object", "wiki and search result growth"),
     _entry("knowledge_action", "knowledge", "soma.knowledge_tools_integration", "direct mutation result", "decision and wiki payload growth"),
 )

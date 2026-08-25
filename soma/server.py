@@ -88,6 +88,7 @@ from . import repo_reader as _repo_reader
 from . import repo_writer as _repo_writer
 from .repo_patch_resolution_service import resolve_patch_preview as _resolve_patch_preview
 from .repo_wiki import mark_repo_wiki_stale
+from .research_map.gateway import research_map_query_gateway
 from .run_query_chunks import decode_run_reference
 from .service_reload import (
     apply_reloaded_config,
@@ -176,6 +177,7 @@ from .gateway_models import (
     RepoCommitRequest,
     RepoPreviewRequest,
     RepoQueryRequest,
+    ResearchMapQueryRequest,
     RunStartRequest,
     RunQueryRequest,
     DockerActionRequest,
@@ -6987,6 +6989,67 @@ def create_git_branch(repo_name: str, branch_name: str) -> dict:
     ):
         result = _git_create_branch(repo_root, branch_name)
     result["repo_name"] = canonical_name
+    if requested_name != canonical_name:
+        result["requested_repo_name"] = requested_name
+    return result
+
+
+@mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=READ_ONLY_ANNOTATIONS)
+def research_map_query(request: ResearchMapQueryRequest) -> dict:
+    """Read-only gateway for one exact project's tracked reviewed research map."""
+    try:
+        canonical_name, repo_root, requested_name = _repo_context(request.repo_name)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "project_id": request.project_id,
+            "repo_name": request.repo_name,
+            "status": "invalid_repo_resolution",
+            "error": str(exc),
+        }
+
+    scope_store = get_project_scope_store()
+    if not scope_store.is_installed():
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "project_id": request.project_id,
+            "repo_name": canonical_name,
+            "status": "project_scope_unavailable",
+            "error": "ProjectScope authority is not installed",
+        }
+    try:
+        binding = scope_store.resolve_repository(
+            project_id=request.project_id,
+            repo_name=canonical_name,
+            repository_root=repo_root,
+        )
+    except ProjectScopeError as exc:
+        return {
+            "ok": False,
+            "operation": request.operation,
+            "project_id": request.project_id,
+            "repo_name": canonical_name,
+            "status": "scope_mismatch",
+            "error": str(exc),
+        }
+
+    result = research_map_query_gateway(
+        repo_root,
+        project_id=binding.project_id,
+        repo_name=binding.repo_name,
+        operation=request.operation,
+        relation_id=getattr(request, "relation_id", ""),
+        query=getattr(request, "query", ""),
+        limit=getattr(request, "limit", 50),
+        cursor=getattr(request, "cursor", ""),
+        include_noncurrent=getattr(request, "include_noncurrent", False),
+        view=getattr(request, "view", "compact"),
+        response_budget_bytes=getattr(request, "response_budget_bytes", 12 * 1024),
+    )
+    result["resource_id"] = binding.resource_id
+    result["scope_generation"] = binding.scope_generation
     if requested_name != canonical_name:
         result["requested_repo_name"] = requested_name
     return result

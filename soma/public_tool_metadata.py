@@ -643,6 +643,21 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             idempotent=False,
             open_world=False,
         ),
+        "research_map_query": _record(
+            "research_map_query",
+            title="Inspect research map",
+            description=(
+                "Use this when you need read-only health, coverage, exact reviewed "
+                "relations, or semantic-search availability for one explicitly scoped "
+                "project research map. It never creates sidecars, runtime state, or an index."
+            ),
+            invoking="Inspecting research map...",
+            invoked="Research map inspection ready",
+            read_only=True,
+            destructive=False,
+            idempotent=True,
+            open_world=False,
+        ),
         "knowledge_query": _record(
             "knowledge_query",
             title="Access project knowledge",

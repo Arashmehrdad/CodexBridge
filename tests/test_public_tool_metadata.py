@@ -4,9 +4,9 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_tool_metadata import ANNOTATION_KEYS, PUBLIC_TOOL_METADATA
 
 
-def test_public_metadata_matches_the_38_tool_inventory() -> None:
+def test_public_metadata_matches_the_39_tool_inventory() -> None:
     assert set(PUBLIC_TOOL_METADATA) == set(PUBLIC_GATEWAY_NAMES)
-    assert len(PUBLIC_TOOL_METADATA) == 38
+    assert len(PUBLIC_TOOL_METADATA) == 39
     assert len(PUBLIC_TOOL_METADATA) == len(set(PUBLIC_TOOL_METADATA))
     assert not set(PUBLIC_TOOL_METADATA) - set(PUBLIC_GATEWAY_NAMES)
 
@@ -105,6 +105,18 @@ def test_skill_action_metadata_matches_mutating_lifecycle_semantics() -> None:
     assert dict(action.annotations) == {
         "readOnlyHint": False,
         "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+def test_research_map_query_metadata_is_strictly_read_only() -> None:
+    query = PUBLIC_TOOL_METADATA["research_map_query"]
+    assert "read-only health, coverage, exact reviewed relations" in query.description
+    assert "never creates sidecars, runtime state, or an index" in query.description
+    assert dict(query.annotations) == {
+        "readOnlyHint": True,
+        "destructiveHint": False,
         "idempotentHint": True,
         "openWorldHint": False,
     }
