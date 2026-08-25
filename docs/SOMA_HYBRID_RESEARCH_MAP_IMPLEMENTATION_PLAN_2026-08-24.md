@@ -1,7 +1,7 @@
 # Soma Hybrid Research Map — Canonical Implementation Plan
 
 Date: 2026-08-24  
-Status: FINAL IMPLEMENTATION AUTHORITY — RESEARCH COMPLETE; PRODUCTION SOURCE IMPLEMENTATION NOT YET STARTED  
+Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM4 ACCEPTED; RM5 NEXT
 Repository: `D:\Github\Soma`  
 Planning branch observed: `rollback/pre-core-hardening-20260823`  
 Planning HEAD observed: `7e7450e08331aeed744867be955feb42149b18f4`  
@@ -138,10 +138,8 @@ semantic routing model
 Graphiti LLM extraction path
 Graphiti contradiction adjudication as truth
 provider-native subagent path
-Codex integration
 ```
 
-Codex integration remains explicitly forbidden by owner authority.
 
 ## 3.4 Continuation remains unchanged
 
@@ -1110,7 +1108,7 @@ telemetry
   GRAPHITI_TELEMETRY_ENABLED=false
 ```
 
-Do not consume OpenAI, Anthropic, Gemini, Groq, OpenCode, Codex, or other provider credentials.
+Do not consume external model/provider credentials; the RM5 backend must remain locally self-contained.
 
 Do not call:
 
@@ -1347,7 +1345,7 @@ RM6 immutable-generation sync/rebuild
 RM7 semantic search activation + crash/read-only acceptance
             |
             v
-RM8 research workflow/Skill integration
+RM8 research workflow integration acceptance
             |
             v
 RM9 NSDN controlled rollout
@@ -1726,17 +1724,19 @@ A stale/missing source invalidates that candidate's current verification status.
 
 ---
 
-# 30. RM8 — canonical `arash-research` workflow / Skill integration
+# 30. RM8 — research workflow integration acceptance
 
-After RM7 acceptance, make the reusable `arash-research` Skill the canonical controller workflow for research-map-aware technical research so every adopted project thread follows the same start/re-entry and finishing-touch discipline.
+After RM7 acceptance, validate the controller-visible end-to-end research-map workflow so every adopted project thread can follow the same start/re-entry and finishing-touch discipline through the accepted public surfaces.
 
-This is controller guidance, not hidden routing. Soma does not choose what is scientifically relevant, generate semantic relations automatically, or mark research complete on Sol's behalf.
+RM8 does **not** publish or modify `arash-research`. Reusable Skill publication is explicitly deferred until after RM11 and full Research Map roadmap acceptance.
 
-## Required Skill activation behavior
+This is controller workflow validation, not hidden routing. Soma does not choose what is scientifically relevant, generate semantic relations automatically, or mark research complete on Sol's behalf.
 
-Publish a new current revision of `arash-research` that preserves its existing evidence-first rules and adds the research-map workflow below.
+## Required workflow behavior
 
-The Skill must remain capability-aware so the same revision is safe both before and after research-map production activation:
+Validate and document the research-map workflow below without changing the reusable research Skill.
+
+The controller workflow must remain capability-aware so the same research process is safe both before and after research-map production activation:
 
 ```text
 research-map feature unavailable or repo not adopted
@@ -1792,7 +1792,7 @@ If sync fails, preserve the report and sidecar state, expose the degraded/pendin
 
 ## Interruption/duplicate safety
 
-The Skill must explicitly check existing research records before creating a new numbered iteration. After a stream cut, it must inspect whether each stage already exists before repeating it:
+The RM8 acceptance workflow must explicitly check existing research records before creating a new numbered iteration. After a stream cut, it must inspect whether each stage already exists before repeating it:
 
 ```text
 research report
@@ -1804,9 +1804,13 @@ Repeating a sidecar/sync operation must converge on the same desired state rathe
 
 ## Research-map trust rule
 
-Retrieved graph relations are candidate context only. `arash-research` must always reopen exact source Markdown before a retrieved prior finding materially affects a conclusion, design decision, falsification, or next research action.
+Retrieved graph relations are candidate context only. The controller must always reopen exact source Markdown before a retrieved prior finding materially affects a conclusion, design decision, falsification, or next research action.
 
-Do not revive `soma.research.v1`, RAGFlow, or query-time context-packet persistence to satisfy this Skill.
+Do not revive `soma.research.v1`, RAGFlow, or query-time context-packet persistence to satisfy this workflow.
+
+## Post-roadmap Skill finishing touch
+
+Only after RM11 is accepted and the full Research Map roadmap is complete, publish a new current revision of `arash-research` that incorporates the accepted finishing-touch workflow. That post-roadmap Skill revision is not part of RM8 acceptance and must not be activated earlier.
 
 ---
 
@@ -1899,7 +1903,6 @@ If incremental update is too slow, optimize the derived projection path without 
 - NSDN rollout evidence is preserved;
 - Axon partial/full coverage state is honestly reported;
 - no continuation change;
-- no Codex integration;
 - no RAGFlow dependency;
 - no old research subsystem repair performed merely for this programme.
 
@@ -1915,7 +1918,7 @@ Do not route new research-map calls through it.
 |---|---|---|
 | A01 | Research docs authoritative | search result always returns source path/hash/anchor + verification-required flag |
 | A02 | Sol semantic authority | no automatic LLM extraction/contradiction path in ingestion |
-| A03 | No Codex | dependency/source scan contains no new Codex integration |
+| A03 | No external provider dependency | backend conformance requires no external model/provider credentials |
 | A04 | Continuation unchanged | continuation source/schema diff absent |
 | A05 | `.soma/` protected | repo reader/writer/wiki/tool-owned tests pass |
 | A06 | Sidecars tracked | `_soma_map` visible to Git/repo reads and excluded only from wiki |
@@ -1966,7 +1969,6 @@ RAGFlow revival
 legacy research context-packet repair
 continuation redesign
 semantic next-action engine
-Codex integration
 provider/subagent research routing
 automatic Git commit/push of sidecars
 automatic historical backfill without Sol review
