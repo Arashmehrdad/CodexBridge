@@ -5,7 +5,7 @@ param(
         "menu", "start", "stop", "restart", "status", "logs", "follow-logs",
         "open-logs", "validate-config", "diagnostics", "profiles", "profile-status",
         "profile-set", "tunnel-start", "tunnel-stop", "tunnel-restart", "tunnel-status",
-        "route-status", "route-proxy", "route-direct", "v2ray-open",
+        "route-status", "route-proxy", "route-direct", "route-direct-http2", "v2ray-open",
         "start-all", "stop-all", "elevated-stop-server", "elevated-stop-tunnel"
     )]
     [string]$Action = "menu",
@@ -698,6 +698,8 @@ function Show-RouteStatus {
     Write-Host "  v2ray path: $V2RayExecutable"
     if ($status.Mode -eq "proxy") {
         Write-Host "  Behavior:   cloudflared HTTP/2 is transparently routed through the active v2rayN profile."
+    } elseif ($status.Protocol -eq "http2") {
+        Write-Host "  Behavior:   cloudflared uses the normal network with HTTP/2 forced; QUIC startup is skipped."
     } else {
         Write-Host "  Behavior:   cloudflared uses the normal network and chooses its own protocol."
     }
@@ -713,7 +715,7 @@ function Open-V2RayProfileSelector {
 }
 
 function Set-TunnelRouteMode {
-    param([ValidateSet("proxy", "direct")][string]$Mode)
+    param([ValidateSet("proxy", "direct", "direct-http2")][string]$Mode)
     if ($Mode -eq "proxy") { Assert-ProxyRouteReady }
 
     Stop-SomaTunnel
@@ -722,6 +724,11 @@ function Set-TunnelRouteMode {
         Set-ProxyRouteModeFile -Mode "proxy"
         $script:TunnelProtocol = "http2"
         Write-Info "Proxy ON: transparent v2rayN route enabled and Cloudflare forced to HTTP/2."
+    } elseif ($Mode -eq "direct-http2") {
+        [void](Set-TunnelConfigProtocol -Protocol "http2")
+        Set-ProxyRouteModeFile -Mode "direct"
+        $script:TunnelProtocol = "http2"
+        Write-Info "Direct HTTP/2: transparent routing bypassed and Cloudflare forced to HTTP/2, skipping QUIC startup delay."
     } else {
         [void](Set-TunnelConfigProtocol -Protocol "auto")
         Set-ProxyRouteModeFile -Mode "direct"
@@ -1198,6 +1205,7 @@ function Invoke-ServiceAction {
         "route-status" { Show-RouteStatus }
         "route-proxy" { Set-TunnelRouteMode -Mode "proxy" }
         "route-direct" { Set-TunnelRouteMode -Mode "direct" }
+        "route-direct-http2" { Set-TunnelRouteMode -Mode "direct-http2" }
         "v2ray-open" { Open-V2RayProfileSelector }
         "start-all" { Start-SomaServer; Start-SomaTunnel }
         "stop-all" { Stop-SomaTunnel; Stop-SomaServer }
@@ -1229,12 +1237,13 @@ function Show-ServiceMenu {
         "21" = @("Proxy OFF - normal network + Cloudflare auto", "route-direct")
         "22" = @("Open v2rayN profile selector", "v2ray-open")
         "23" = @("Proxy bridge and SOCKS status", "route-status")
+        "24" = @("Direct HTTP/2 - skip QUIC startup delay", "route-direct-http2")
     }
     $sections = @(
         [pscustomobject]@{ Title = "Server and policy"; Keys = @("1", "2", "3", "4", "5", "6", "7") },
         [pscustomobject]@{ Title = "Logs"; Keys = @("8", "9", "10") },
         [pscustomobject]@{ Title = "Cloudflare tunnel"; Keys = @("11", "12", "13", "14") },
-        [pscustomobject]@{ Title = "Network route"; Keys = @("20", "21", "22", "23") },
+        [pscustomobject]@{ Title = "Network route"; Keys = @("20", "21", "24", "22", "23") },
         [pscustomobject]@{ Title = "Combined"; Keys = @("15", "16") }
     )
 

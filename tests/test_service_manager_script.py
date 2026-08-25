@@ -170,6 +170,7 @@ def test_manager_exposes_complete_action_surface() -> None:
         "route-status",
         "route-proxy",
         "route-direct",
+        "route-direct-http2",
         "v2ray-open",
         "start-all",
         "stop-all",
@@ -210,6 +211,8 @@ def test_tunnel_manager_supports_proxy_http2_and_direct_auto_routing() -> None:
     assert '$arguments += @("--config", $TunnelConfig, "run")' in text
     assert "Set-TunnelRouteMode" in text
     assert 'Set-TunnelConfigProtocol -Protocol "auto"' in text
+    assert 'Set-TunnelRouteMode -Mode "direct-http2"' in text
+    assert "skipping QUIC startup delay" in text
     assert "will keep retrying" in text
     assert "soma-mcp-tunnel.identity.json" in text
     assert "soma.cloudflared.ownership.v1" in text
@@ -534,6 +537,8 @@ def test_manager_tui_exposes_profile_selection_and_runtime_state() -> None:
     assert "Server:  $serverState    Tunnel: $tunnelState" in text
     assert "Proxy ON - active v2rayN profile + HTTP/2" in text
     assert "Proxy OFF - normal network + Cloudflare auto" in text
+    assert "Direct HTTP/2 - skip QUIC startup delay" in text
+    assert "normal network with HTTP/2 forced" in text
     assert "Open v2rayN profile selector" in text
     assert "D:\\Services\\Network-Stability\\v2rayN" in text
     assert "Bridge: $($routeStatus.BridgeReady)" in text
