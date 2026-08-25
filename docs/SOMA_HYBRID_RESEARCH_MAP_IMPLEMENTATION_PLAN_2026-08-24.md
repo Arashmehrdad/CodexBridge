@@ -1,7 +1,7 @@
 # Soma Hybrid Research Map — Canonical Implementation Plan
 
 Date: 2026-08-24  
-Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM5 ACCEPTED; RM6 NEXT
+Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM6 ACCEPTED; RM7 NEXT
 Repository: `D:\Github\Soma`  
 Planning branch observed: `rollback/pre-core-hardening-20260823`  
 Planning HEAD observed: `7e7450e08331aeed744867be955feb42149b18f4`  
