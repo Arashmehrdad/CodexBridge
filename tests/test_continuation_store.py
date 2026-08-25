@@ -31,7 +31,7 @@ def _open(store: ContinuationStore, request_id: str = "open-1"):
 def test_c1_fresh_database_creates_exact_four_continuation_tables(tmp_path: Path) -> None:
     store = ContinuationStore(tmp_path / "runs")
     state = store.schema_state()
-    assert state["schema_version"] == 1
+    assert state["schema_version"] == 2
     assert state["up_to_date"] is True
     assert state["tables"] == [
         "controller_continuations",
@@ -75,7 +75,29 @@ def test_c1_migration_replay_is_empty_and_restart_safe(tmp_path: Path) -> None:
     assert store.init_db() == []
     assert apply_continuation_migrations(store.connect) == []
     restarted = ContinuationStore(tmp_path / "runs")
-    assert restarted.schema_version() == 1
+    assert restarted.schema_version() == 2
+
+
+def test_c1_activity_timestamp_migration_backfills_existing_handoff_activity(
+    tmp_path: Path,
+) -> None:
+    store = ContinuationStore(tmp_path / "runs")
+    continuation, revision, _ = _open(store)
+    handoff, _ = store.append_handoff(
+        continuation_context_ref=revision.contract_revision_id,
+        handoff_text="newer durable activity",
+        controller_request_id="migration-handoff",
+    )
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE controller_continuations SET updated_at = ? WHERE continuation_id = ?",
+            (continuation.created_at, continuation.continuation_id),
+        )
+        conn.execute("DELETE FROM soma_schema_migrations WHERE version = 2")
+        conn.commit()
+
+    assert apply_continuation_migrations(store.connect) == [2]
+    assert store.get_continuation(continuation.continuation_id).updated_at == handoff.created_at
 
 
 def test_c1_open_continuation_and_first_revision_are_atomic_and_idempotent(
@@ -226,6 +248,7 @@ def test_c1_handoff_is_free_form_immutable_replayable_and_conflict_safe(
 ) -> None:
     store = ContinuationStore(tmp_path / "runs")
     continuation, revision, _ = _open(store)
+    before_updated_at = continuation.updated_at
     text = "No headings required. Weird structure is fine.\n- unfinished: C2\n??? uncertainty"
     handoff, created = store.append_handoff(
         continuation_context_ref=revision.contract_revision_id,
@@ -237,6 +260,7 @@ def test_c1_handoff_is_free_form_immutable_replayable_and_conflict_safe(
     assert handoff.sequence_number == 1
     assert handoff.contract_revision_id == revision.contract_revision_id
     assert store.latest_handoff(continuation.continuation_id) == handoff
+    assert store.get_continuation(continuation.continuation_id).updated_at > before_updated_at
 
     replay, replay_created = store.append_handoff(
         continuation_context_ref=revision.contract_revision_id,
@@ -348,6 +372,7 @@ def test_c1_effect_link_is_origin_only_and_close_does_not_mutate_run(tmp_path: P
     )
     store = ContinuationStore(runs_dir)
     continuation, revision, _ = _open(store)
+    before_updated_at = continuation.updated_at
     link, created = store.insert_effect_link(
         continuation_context_ref=revision.contract_revision_id,
         effect_kind="run",
@@ -358,6 +383,7 @@ def test_c1_effect_link_is_origin_only_and_close_does_not_mutate_run(tmp_path: P
     assert link.effect_id == RUN_ID
     assert link.continuation_id == continuation.continuation_id
     assert not hasattr(link, "status")
+    assert store.get_continuation(continuation.continuation_id).updated_at > before_updated_at
     before = run_store.get_run(RUN_ID)
 
     store.close_continuation(

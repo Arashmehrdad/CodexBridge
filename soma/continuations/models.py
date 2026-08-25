@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 CONTINUATION_SCHEMA_COMPONENT: Final[str] = "sol_semantic_continuation"
-CONTINUATION_SCHEMA_VERSION: Final[int] = 1
+CONTINUATION_SCHEMA_VERSION: Final[int] = 2
 CONTINUATION_MODEL_VERSION: Final[str] = "continuation.v1"
 
 CONTINUATION_ID_PATTERN: Final[re.Pattern[str]] = re.compile(

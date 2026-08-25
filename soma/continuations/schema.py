@@ -116,8 +116,34 @@ _MIGRATION_0001: Final[tuple[str, ...]] = (
     "ON continuation_effect_links(continuation_id, created_at, link_id)",
 )
 
+_MIGRATION_0002: Final[tuple[str, ...]] = (
+    """
+    UPDATE controller_continuations
+    SET updated_at = MAX(
+        updated_at,
+        COALESCE(
+            (SELECT MAX(created_at) FROM continuation_contract_revisions
+             WHERE continuation_id = controller_continuations.continuation_id),
+            updated_at
+        ),
+        COALESCE(
+            (SELECT MAX(created_at) FROM continuation_handoffs
+             WHERE continuation_id = controller_continuations.continuation_id),
+            updated_at
+        ),
+        COALESCE(
+            (SELECT MAX(created_at) FROM continuation_effect_links
+             WHERE continuation_id = controller_continuations.continuation_id),
+            updated_at
+        ),
+        COALESCE(closed_at, updated_at)
+    )
+    """,
+)
+
 CONTINUATION_MIGRATIONS: Final[tuple[tuple[int, str, tuple[str, ...]], ...]] = (
     (1, "minimal_sol_semantic_continuation", _MIGRATION_0001),
+    (2, "continuation_activity_timestamp_backfill", _MIGRATION_0002),
 )
 
 CONTINUATION_TABLE_NAMES: Final[tuple[str, ...]] = (

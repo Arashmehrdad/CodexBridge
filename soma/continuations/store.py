@@ -501,6 +501,11 @@ class ContinuationStore:
                     now,
                 ),
             )
+            conn.execute(
+                "UPDATE controller_continuations SET updated_at = ? "
+                "WHERE continuation_id = ? AND lifecycle = 'open'",
+                (now, continuation.continuation_id),
+            )
             row = conn.execute(
                 "SELECT * FROM continuation_handoffs WHERE handoff_id = ?",
                 (handoff_id,),
@@ -683,6 +688,11 @@ class ContinuationStore:
                 request_hash,
                 now,
             ),
+        )
+        conn.execute(
+            "UPDATE controller_continuations SET updated_at = ? "
+            "WHERE continuation_id = ? AND lifecycle = 'open'",
+            (now, continuation.continuation_id),
         )
         row = conn.execute(
             "SELECT * FROM continuation_effect_links WHERE link_id = ?",

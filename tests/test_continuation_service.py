@@ -62,6 +62,26 @@ def _walk_keys(value: Any):
             yield from _walk_keys(child)
 
 
+def test_c2_list_orders_by_latest_checkpoint_activity(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ContinuationStore(runs_dir)
+    first, first_revision, _ = _open(store, request_id="c2-list-first")
+    second, _, _ = _open(store, request_id="c2-list-second")
+    service = ContinuationService(runs_dir, continuation_store=store)
+
+    assert service.list_continuations(limit=10)["items"][0]["continuation_id"] == second.continuation_id
+
+    handoff, _ = store.append_handoff(
+        continuation_context_ref=first_revision.contract_revision_id,
+        handoff_text="first continuation is active again",
+        controller_request_id="c2-list-first-checkpoint",
+    )
+    listed = service.list_continuations(limit=10)["items"]
+
+    assert listed[0]["continuation_id"] == first.continuation_id
+    assert listed[0]["updated_at"] == handoff.created_at
+
+
 def test_c2_resume_empty_continuation_is_bounded_and_mechanical(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     store = ContinuationStore(runs_dir)
