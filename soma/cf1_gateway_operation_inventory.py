@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v28"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v29"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1696,15 +1696,15 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "research_map_query",
         ("search",),
-        "soma.server:research_map_query -> soma.research_map.gateway:query_search_unavailable",
-        "bounded backend-unavailable semantic search acknowledgement",
+        "soma.server:research_map_query -> soma.research_map.gateway:query_search",
+        "bounded verified published-generation semantic search projection",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         pagination=PaginationBehavior.LIMIT_ONLY,
         default_item_limit=5,
         maximum_item_limit=20,
         default_response_bytes=12 * 1024,
         maximum_response_bytes=64 * 1024,
-        notes="Search is intentionally schema-visible in RM3 so later backend activation does not require a second public-contract change; until RM7 it returns backend_unavailable without indexing or provider access.",
+        notes="RM7 search is read-only and exact-ProjectScope-bound: it requires a current verified immutable generation, read-verifies the live backend relation manifest, resolves hits only through the published RELATIONS artifact, verifies current source hash and exact anchor, and never performs hidden sync, rebuild, sidecar generation, or backend startup-policy mutation.",
     ),
     _entry(
         "research_map_action",

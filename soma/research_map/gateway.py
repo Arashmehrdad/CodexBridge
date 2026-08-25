@@ -9,6 +9,8 @@ from typing import Any
 from .canonical import canonical_json_bytes, canonical_json_sha256
 from .generation import ResearchMapGenerationError, load_current_generation
 from .graphiti_backend import graphiti_projection_contract_sha256
+from .search import BackendFactory as SearchBackendFactory
+from .search import ResearchMapSearchError, search_published_generation
 from .service import ResearchMapHealthState, ResearchMapScan, scan_research_map
 from .sidecars import SidecarState
 
@@ -409,7 +411,22 @@ def query_relation(
     return result
 
 
-def query_search_unavailable(
+def _search_candidate_payload(candidate: Any) -> tuple[dict[str, Any], bool]:
+    payload = candidate.as_dict()
+    truncated_fields: list[str] = []
+    statement = str(payload.get("statement") or "")
+    anchor = str(payload.get("source_anchor") or "")
+    if len(statement) > 2_000:
+        payload["statement"] = statement[:2_000]
+        truncated_fields.append("statement")
+    if len(anchor) > 1_000:
+        payload["source_anchor"] = anchor[:1_000]
+        truncated_fields.append("source_anchor")
+    payload["truncated_fields"] = truncated_fields
+    return payload, bool(truncated_fields)
+
+
+def query_search(
     repository_root: str | Path,
     *,
     project_id: str,
@@ -418,6 +435,7 @@ def query_search_unavailable(
     limit: int,
     include_noncurrent: bool,
     response_budget_bytes: int,
+    backend_factory: SearchBackendFactory | None = None,
 ) -> dict[str, Any]:
     scan = scan_research_map(repository_root)
     health = _health_payload(
@@ -426,20 +444,85 @@ def query_search_unavailable(
         project_id=project_id,
         repo_name=repo_name,
     )
-    return {
+    query_preview = query[:512]
+    query_hash = canonical_json_sha256({"query": query})
+    try:
+        current, candidates = search_published_generation(
+            repository_root,
+            scan,
+            query=query,
+            limit=limit,
+            include_noncurrent=include_noncurrent,
+            backend_factory=backend_factory,
+        )
+    except ResearchMapSearchError as exc:
+        if exc.code == "backend_drift":
+            backend_state = "drifted"
+        elif exc.code == "source_verification_failed":
+            backend_state = "verified"
+        elif exc.code.startswith("backend"):
+            backend_state = "unavailable"
+        else:
+            backend_state = "not_checked"
+        error_text = str(exc)
+        public_error = error_text[:1_000]
+        result = {
+            **health,
+            "ok": False,
+            "operation": "search",
+            "status": exc.code,
+            "query_preview": query_preview,
+            "query_sha256": query_hash,
+            "query_truncated": len(query) > len(query_preview),
+            "limit": limit,
+            "include_noncurrent": include_noncurrent,
+            "results": [],
+            "count": 0,
+            "matched_count": 0,
+            "backend_state": backend_state,
+            "response_budget_bytes": response_budget_bytes,
+            "truncated": len(public_error) < len(error_text),
+            "error": public_error,
+        }
+        while _json_bytes(result) > response_budget_bytes and result["error"]:
+            result["error"] = result["error"][: max(0, len(result["error"]) // 2)]
+            result["truncated"] = True
+        result["response_bytes"] = _json_bytes(result)
+        return result
+
+    results: list[dict[str, Any]] = []
+    field_truncated = False
+    for candidate in candidates:
+        payload, was_truncated = _search_candidate_payload(candidate)
+        results.append(payload)
+        field_truncated = field_truncated or was_truncated
+    matched_count = len(results)
+    result = {
         **health,
-        "ok": False,
+        "ok": True,
         "operation": "search",
-        "status": "backend_unavailable",
-        "query": query,
+        "status": "found" if results else "empty",
+        "query_preview": query_preview,
+        "query_sha256": query_hash,
+        "query_truncated": len(query) > len(query_preview),
         "limit": limit,
         "include_noncurrent": include_noncurrent,
-        "results": [],
-        "count": 0,
-        "backend_state": "unavailable",
+        "results": results,
+        "count": len(results),
+        "matched_count": matched_count,
+        "backend_state": "verified",
+        "published_generation": current.generation,
+        "database": current.database,
         "response_budget_bytes": response_budget_bytes,
-        "error": "semantic_search_backend_unavailable_until_rm7",
+        "truncated": field_truncated,
+        "error": "",
     }
+    while _json_bytes(result) > response_budget_bytes and result["results"]:
+        result["results"].pop()
+        result["count"] = len(result["results"])
+        result["truncated"] = True
+    result["response_bytes"] = _json_bytes(result)
+    return result
 
 
 def research_map_query_gateway(
@@ -455,6 +538,7 @@ def research_map_query_gateway(
     include_noncurrent: bool = False,
     view: str = "compact",
     response_budget_bytes: int = 12 * 1024,
+    search_backend_factory: SearchBackendFactory | None = None,
 ) -> dict[str, Any]:
     if operation == "health":
         return query_health(repository_root, project_id=project_id, repo_name=repo_name)
@@ -477,7 +561,7 @@ def research_map_query_gateway(
             response_budget_bytes=response_budget_bytes,
         )
     if operation == "search":
-        return query_search_unavailable(
+        return query_search(
             repository_root,
             project_id=project_id,
             repo_name=repo_name,
@@ -485,5 +569,6 @@ def research_map_query_gateway(
             limit=limit,
             include_noncurrent=include_noncurrent,
             response_budget_bytes=response_budget_bytes,
+            backend_factory=search_backend_factory,
         )
     raise ResearchMapQueryError(f"unsupported_operation:{operation}")

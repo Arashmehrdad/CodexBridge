@@ -212,7 +212,7 @@ def test_rm3_exact_relation_and_search_unavailable_do_not_create_runtime(tmp_pat
         limit=5,
     )
     assert search["ok"] is False
-    assert search["status"] == "backend_unavailable"
+    assert search["status"] == "published_generation_missing"
     assert search["results"] == []
     assert _snapshot(tmp_path) == before
     assert not (tmp_path / ".soma").exists()

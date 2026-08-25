@@ -113,7 +113,8 @@ def test_skill_action_metadata_matches_mutating_lifecycle_semantics() -> None:
 def test_research_map_query_metadata_is_strictly_read_only() -> None:
     query = PUBLIC_TOOL_METADATA["research_map_query"]
     assert "read-only health, coverage, exact reviewed relations" in query.description
-    assert "never creates sidecars, runtime state, or an index" in query.description
+    assert "verified published-generation semantic search" in query.description
+    assert "never sync, rebuild, create sidecars" in query.description
     assert dict(query.annotations) == {
         "readOnlyHint": True,
         "destructiveHint": False,
