@@ -15,7 +15,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from soma.config import AppConfig, RepoConfig
 from soma.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
@@ -589,21 +589,20 @@ def test_rebuild_refuses_while_completeness_is_unprovable(gateway):
     assert "memory_sync_provider" in refused["error"]
 
 
-def test_memory_and_research_remain_separate_authorities(gateway):
-    """A memory note must not surface as reviewed research."""
+def test_legacy_research_query_is_not_a_memory_authority(gateway):
+    """The retired research gateway cannot be reached through canonical memory."""
     mcp, _config, _vault = gateway
     action(mcp, save_payload())
 
-    research = query(
-        mcp,
-        {
-            "operation": "search_research",
-            "project_id": PROJECT_ID,
-            "repo_name": "soma",
-            "query": "ALPHACANARY",
-        },
-    )
-    assert research.get("records", []) == [] or research["ok"] is False
+    with pytest.raises(ValidationError):
+        TypeAdapter(KnowledgeQueryRequest).validate_python(
+            {
+                "operation": "search_research",
+                "project_id": PROJECT_ID,
+                "repo_name": "soma",
+                "query": "ALPHACANARY",
+            }
+        )
 
 
 # ----------------------------------------------------------------------

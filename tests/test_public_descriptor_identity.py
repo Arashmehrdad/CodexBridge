@@ -14,7 +14,7 @@ from pydantic import TypeAdapter
 from soma import server
 from soma.gateway_models import SystemCapabilityIdentityQuery, SystemQueryRequest
 
-PUBLIC_SCHEMA_HASH = "ebb3e321a991058d1f4f96e566b462e585c42bbf8e098cca76a486f592ae6828"
+PUBLIC_SCHEMA_HASH = "cb261ccc2387db1192c48ce88b23a7a213e13ffac31cfd434b10824504f510c7"
 
 
 def _actions() -> list[dict]:

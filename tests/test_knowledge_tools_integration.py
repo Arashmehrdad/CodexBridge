@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-import sys
 import json
-import hashlib
+import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
+import pytest
+from pydantic import TypeAdapter, ValidationError
+
 from soma.config import AppConfig, RepoConfig
+from soma.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
 from soma.knowledge_tools_integration import (
     _bounded_knowledge_action,
     _bounded_knowledge_search,
     _bounded_wiki_page,
     register_knowledge_tools,
 )
-from soma.gateway_models import KnowledgeActionRequest, KnowledgeQueryRequest
 from soma.memory.repository import ProjectMemoryRepository
 from soma.project_scope import ProjectScopeStore
 from soma.repo_wiki import RepoWikiService
-from pydantic import TypeAdapter
 
 
 class FakeMCP:
@@ -260,138 +261,51 @@ def test_project_knowledge_gateway_saves_searches_and_reports_health(
     assert health["status"] == "healthy"
 
 
-def test_research_gateway_preserves_source_grounded_chatgpt_packet(
-    tmp_path: Path, monkeypatch
-) -> None:
-    repo = tmp_path / "Soma"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-    config = AppConfig(
-        repos={"soma": RepoConfig(path=str(repo))},
-        runs_dir=str(tmp_path / "runs"),
-        config_dir=tmp_path,
-    )
-    project_id = _activate_project_scope(config, repo, repo_name="soma")
-    mcp = FakeMCP()
-    runtime_module = ModuleType("soma_test_research_platform_server")
-    runtime_module.mcp = mcp
-    runtime_module.get_config = lambda: config
-    monkeypatch.setitem(sys.modules, runtime_module.__name__, runtime_module)
-    register_knowledge_tools(mcp)
-    action = mcp.tools["knowledge_action"]["function"]
-    query = mcp.tools["knowledge_query"]["function"]
+def test_legacy_research_gateway_variants_are_retired() -> None:
+    query_adapter = TypeAdapter(KnowledgeQueryRequest)
+    action_adapter = TypeAdapter(KnowledgeActionRequest)
 
-    imported = action(
-        TypeAdapter(KnowledgeActionRequest).validate_python(
-            {
-                "action": "import_research_source",
-                "project_id": project_id,
-                "repo_name": "soma",
-                "canonical_uri": "https://example.test/leases",
-                "title": "Lease evidence",
-                "source_type": "webpage",
-                "retrieved_at": "2026-07-28T12:00:00Z",
-                "origin_namespace": "manual_url",
-                "original_name": "leases.txt",
-                "content_text": "One durable lease authority prevents duplicate ownership.",
-            }
-        )
-    )
-    fingerprint = hashlib.sha256(
-        b"One durable lease authority prevents duplicate ownership."
-    ).hexdigest()
-    preserved = action(
-        TypeAdapter(KnowledgeActionRequest).validate_python(
-            {
-                "action": "preserve_research_packet",
-                "project_id": project_id,
-                "repo_name": "soma",
-                "packet": {
-                    "idempotency_key": "chatgpt:leases:1",
-                    "title": "Lease research",
-                    "research_question": "How should Soma own leases?",
-                    "synthesis": "Use one authority and preserve the caveat.",
-                    "submitted_by": "chatgpt",
-                    "claims": [
-                        {
-                            "claim_key": "claim:lease",
-                            "statement": "One durable lease authority prevents duplicate ownership.",
-                            "status": "supported",
-                            "confidence": 0.9,
-                            "review_state": "reviewed",
-                        }
-                    ],
-                    "evidence": [
-                        {
-                            "claim_ref": "claim:lease",
-                            "source_version_id": imported["source_version_id"],
-                            "chunk_fingerprint": fingerprint,
-                            "role": "supports",
-                            "exact_quote": "One durable lease authority prevents duplicate ownership.",
-                            "locator": "paragraph 1",
-                            "review_state": "reviewed",
-                        },
-                        {
-                            "claim_ref": "claim:lease",
-                            "source_version_id": imported["source_version_id"],
-                            "chunk_fingerprint": fingerprint,
-                            "role": "contradicts",
-                            "exact_quote": "A shared authority may be an availability bottleneck.",
-                            "locator": "owner caveat",
-                            "review_state": "reviewed",
-                        },
-                    ],
-                    "questions": [
-                        {
-                            "question": "What failover preserves safety?",
-                            "missing_evidence": "A restart drill.",
-                        }
-                    ],
-                    "decisions": [
-                        {
-                            "title": "Reuse Soma lifecycle",
-                            "statement": "Index rebuilds use the existing task/run authority.",
-                            "target_component": "execution",
-                            "status": "accepted",
-                            "reviewed_by": "Arash",
-                        }
-                    ],
-                },
-            }
-        )
-    )
-    context = query(
-        TypeAdapter(KnowledgeQueryRequest).validate_python(
-            {
-                "operation": "build_context_packet",
-                "project_id": project_id,
-                "repo_name": "soma",
-                "query": "durable lease authority",
-            }
-        )
-    )
-    health = query(
-        TypeAdapter(KnowledgeQueryRequest).validate_python(
-            {
-                "operation": "research_health",
-                "project_id": project_id,
-                "repo_name": "soma",
-            }
-        )
-    )
+    for payload in (
+        {
+            "operation": "search_research",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+            "query": "legacy",
+        },
+        {
+            "operation": "build_context_packet",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+            "query": "legacy",
+        },
+        {
+            "operation": "research_health",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            query_adapter.validate_python(payload)
 
-    assert imported["ok"] is True
-    assert Path(imported["archive_path"]).is_file()
-    assert preserved["ok"] is True
-    assert preserved["entity_counts"]["evidence"] == 2
-    assert {item["role"] for item in context["evidence"]} == {
-        "supports",
-        "contradicts",
-    }
-    assert context["questions"] and context["decisions"]
-    assert context["content_sha256"]
-    assert health["archive"]["status"] == "healthy"
-    assert health["index"]["status"] == "not_configured"
+    for payload in (
+        {
+            "action": "import_research_source",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+        },
+        {
+            "action": "preserve_research_packet",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+        },
+        {
+            "action": "rebuild_research_index",
+            "project_id": "proj_soma",
+            "repo_name": "soma",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            action_adapter.validate_python(payload)
 
 
 def test_knowledge_search_full_view_preserves_complete_hits(

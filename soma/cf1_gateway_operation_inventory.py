@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v29"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v30"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1771,27 +1771,6 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     _entry(
         "knowledge_query",
         (
-            "get_research_source",
-            "get_claim_evidence",
-            "list_research_questions",
-            "list_research_decisions",
-            "search_research",
-            "build_context_packet",
-            "research_health",
-        ),
-        "soma.knowledge_tools_integration:knowledge_query",
-        "bounded source-grounded research projection",
-        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        pagination=PaginationBehavior.CURSOR,
-        default_item_limit=12,
-        maximum_item_limit=100,
-        default_response_bytes=12 * 1024,
-        maximum_response_bytes=12 * 1024,
-        notes="Research reads preserve exact project scope, archive/source-version citations, reviewed evidence, and reproducible context hashes while trimming lists to the public byte budget.",
-    ),
-    _entry(
-        "knowledge_query",
-        (
             "memory_scope",
             "memory_search",
             "memory_get",
@@ -1862,21 +1841,6 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         maximum_response_bytes=12 * 1024,
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
         notes="Project knowledge mutations return only stable identity, lifecycle, provenance counts, and rebuild health; canonical Markdown remains exact evidence.",
-    ),
-    _entry(
-        "knowledge_action",
-        (
-            "import_research_source",
-            "preserve_research_packet",
-            "rebuild_research_index",
-        ),
-        "soma.knowledge_tools_integration:knowledge_action",
-        "bounded research archive and overlay acknowledgement",
-        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
-        default_response_bytes=12 * 1024,
-        maximum_response_bytes=12 * 1024,
-        request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,
-        notes="Manual imports archive explicit source material before recording provenance; completed research packets are atomic overlay writes; index rebuild affects only the replaceable RAGFlow layer.",
     ),
 )
 

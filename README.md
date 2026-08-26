@@ -2,13 +2,13 @@
 
 Soma is a local-first, project-aware coordination and execution runtime for ChatGPT, Claude Code, Hermes, and other MCP-capable controllers. It gives them one durable control plane for project identity, tasks, runs, tools, research, evidence, and continuity.
 
-The connected AI remains the reasoning controller. Soma does not replace ChatGPT, Claude Code, or Hermes; it provides the shared runtime beneath them: recoverable execution, exact project scope, cancellation, repository operations, infrastructure gateways, source-grounded research preservation, and bounded context.
+The connected AI remains the reasoning controller. Soma does not replace ChatGPT, Claude Code, or Hermes; it provides the shared runtime beneath them: recoverable execution, exact project scope, cancellation, repository operations, infrastructure gateways, reviewed Research Map persistence/retrieval, and bounded context.
 
 Soma is Windows-first today, while most of its Python core remains platform-neutral.
 
 ## Current state
 
-The current public surface contains **38 consolidated MCP gateways**. The major completed milestones are:
+The current public surface contains **40 consolidated MCP gateways**. The major completed milestones are:
 
 - durable run ownership, restart reconciliation, process-tree cancellation, locks, and atomic terminal publication;
 - a canonical task plane and exact ProjectScope bindings for shared cross-controller identity;
@@ -20,7 +20,7 @@ The current public surface contains **38 consolidated MCP gateways**. The major 
 - shared multi-session Hermes service with a one-request companion fallback;
 - durable workflows and supervisors;
 - repository wiki and scoped decision memory;
-- a manual, source-grounded research platform with immutable raw artifacts, structured claims and evidence, decisions, and reproducible context packets;
+- a repository-local Research Map with reviewed sidecars, complete coverage gating, immutable published generations, and verified semantic retrieval;
 - bounded Docker, Cloudflare, and SSH providers;
 - Trading Lab extracted into its own package and wired back through one adapter;
 - strict Trading Lab companion steps for research, decision, model review, and demo-only execution;
@@ -53,7 +53,7 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- semantic continuation/re-entry and mechanical Task/Run origin lineage
   +-- portable Skill discovery, immutable revisions and explicit lifecycle
   +-- exact ProjectScope identity and repository bindings
-  +-- repository wiki, scoped memory and source-grounded research
+  +-- repository wiki, scoped memory and repository-local Research Map
   +-- Hermes one-request companion / shared worker service
   +-- Docker, Cloudflare and SSH domain gateways
   +-- Trading Lab adapter
@@ -63,7 +63,6 @@ Soma FastMCP server  http://127.0.0.1:8000/mcp
   +-- runs/workflows/                workflow artifacts
   +-- runs/supervisors/              supervisor artifacts and resume prompts
   +-- runs/trading/                  Trading Lab journals and state
-  +-- runs/research/                 raw-source archive and research overlay
   +-- runs/skills/                   safe development Skill-library fallback
   +-- <repo>/.soma/wiki/             generated repository knowledge
 ```
@@ -460,9 +459,6 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 - `save_knowledge` — preserve a sourced fact, decision, document, research note, lesson, or question as canonical Markdown;
 - `supersede_knowledge` — preserve a replacement without deleting the historical record;
 - `rebuild_knowledge` — rebuild the derived project catalog from canonical Markdown.
-- `import_research_source` — manually archive a URL capture, local file, or already captured artifact and record an immutable source version;
-- `preserve_research_packet` — atomically preserve a completed controller research packet with claims, evidence, questions, candidates, and decisions;
-- `rebuild_research_index` — rebuild the replaceable RAGFlow projection from verified raw archive objects.
 
 `knowledge_query`:
 
@@ -471,20 +467,27 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 - `search_knowledge` — run bounded literal English/Persian project search;
 - `get_knowledge` — retrieve one exact record and its source locators;
 - `knowledge_health` — compare canonical Markdown with the rebuildable catalog.
-- `get_research_source` — retrieve exact logical-source or immutable-version provenance;
-- `get_claim_evidence` — inspect supporting, contradictory, qualifying, and replication evidence;
-- `list_research_questions` and `list_research_decisions` — recover unresolved questions and prior reviewed choices;
-- `search_research` — search the configured derived RAGFlow index with source-version citations;
-- `build_context_packet` — assemble a reproducible research packet for a later conversation;
-- `research_health` — inspect raw archive, structured overlay, index, and projection health independently.
+
+`research_map_query` is the sole research retrieval gateway:
+
+- `health` — inspect adoption, coverage, publication, and backend state;
+- `coverage` — page through reviewed/unreviewed/stale source coverage;
+- `relation` — retrieve one exact reviewed relation;
+- `search` — semantic search only over a verified published generation, with source-hash and exact-anchor verification before results are returned.
+
+`research_map_action` is the sole research mutation gateway:
+
+- `adopt` — explicitly create the portable repository manifest and local ignored runtime;
+- `sync` — publish a complete reviewed map to the rebuildable Graphiti/FalkorDB projection.
 
 The wiki is a generated cache, not the source of truth. Check its freshness fields and verify architecture-sensitive claims against live source before editing.
 
 Project knowledge operations require an exact active `project_id` and its bound
 `repo_name`. The generic Markdown catalog remains a compatible note projection.
-For research, immutable source artifacts under `runs/research/` and the
-project-scoped SQLite overlay are canonical; Markdown is not. RAGFlow remains a
-replaceable derived parser, OCR, chunk, embedding, and retrieval service.
+For research, tracked repository Markdown plus reviewed `_soma_map/*.json`
+sidecars are authoritative. `.soma/research-map/` is repository-local ignored
+runtime state, and Graphiti/FalkorDB is a rebuildable derived projection. The
+legacy RAGFlow research archive/context-packet service has been retired.
 
 See [`docs/repository-knowledge.md`](docs/repository-knowledge.md) and
 [`docs/SOMA_KNOWLEDGE_LAYER.md`](docs/SOMA_KNOWLEDGE_LAYER.md).
