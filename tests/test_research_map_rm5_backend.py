@@ -20,7 +20,9 @@ from soma.research_map.backend import (
     build_backend_projection,
 )
 from soma.research_map.graphiti_backend import (
+    FALKOR_QUERY_TIMEOUT_MS,
     GraphitiFalkorBackend,
+    _bounded_falkor_driver_type,
     _client_types,
     _load_dependencies,
     graphiti_backend_dependency_status,
@@ -179,6 +181,47 @@ def test_rm5_missing_optional_backend_is_bounded(monkeypatch: pytest.MonkeyPatch
     )
     with pytest.raises(ResearchMapBackendError, match="dependencies are unavailable"):
         _load_dependencies()
+
+
+def test_rm5_falkor_driver_uses_soma_bounded_query_timeout() -> None:
+    calls: list[tuple[str, dict[str, object], int | None]] = []
+
+    class FakeResult:
+        header = [(0, "value")]
+        result_set = [["ok"]]
+
+    class FakeGraph:
+        async def query(
+            self,
+            query: str,
+            params: dict[str, object],
+            timeout: int | None = None,
+        ) -> FakeResult:
+            calls.append((query, params, timeout))
+            return FakeResult()
+
+    class FakeBaseDriver:
+        def __init__(self) -> None:
+            self._database = "test"
+            self._graph = FakeGraph()
+
+        def _get_graph(self, database: str) -> FakeGraph:
+            assert database == "test"
+            return self._graph
+
+    driver_module = SimpleNamespace(
+        FalkorDriver=FakeBaseDriver,
+        convert_datetimes_to_strings=lambda value: value,
+        _strip_nul_bytes=lambda value: value,
+    )
+    driver_type = _bounded_falkor_driver_type(driver_module)
+    driver = driver_type()
+    records, header, summary = asyncio.run(driver.execute_query("RETURN $value", value="ok"))
+
+    assert calls == [("RETURN $value", {"value": "ok"}, FALKOR_QUERY_TIMEOUT_MS)]
+    assert records == [{"value": "ok"}]
+    assert header == ["value"]
+    assert summary is None
 
 
 class _FakeClient:

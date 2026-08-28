@@ -26,6 +26,7 @@ FALKORDB_CLIENT_VERSION = "1.7.1"
 HTTPX_VERSION = "0.28.1"
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIMENSION = 384
+FALKOR_QUERY_TIMEOUT_MS = 5000
 GRAPHITI_PROJECTION_VERSION = "soma.research-map.graphiti-falkor.v1"
 _REQUIRED_MODULES = ("graphiti_core", "fastembed", "falkordb")
 _REQUIRED_DISTRIBUTIONS = {
@@ -65,6 +66,7 @@ def graphiti_backend_dependency_status() -> dict[str, object]:
         "httpx_version": HTTPX_VERSION,
         "embedding_model": EMBEDDING_MODEL,
         "embedding_dimension": EMBEDDING_DIMENSION,
+        "falkor_query_timeout_ms": FALKOR_QUERY_TIMEOUT_MS,
     }
 
 
@@ -90,6 +92,40 @@ def graphiti_projection_contract_sha256() -> str:
             ],
         }
     )
+
+
+def _bounded_falkor_driver_type(driver_module: Any) -> type:
+    base_driver = driver_module.FalkorDriver
+    convert_datetimes = driver_module.convert_datetimes_to_strings
+    strip_nul_bytes = driver_module._strip_nul_bytes
+
+    class BoundedFalkorDriver(base_driver):
+        async def execute_query(self, cypher_query_: str, **kwargs: Any) -> Any:
+            graph = self._get_graph(self._database)
+            params = strip_nul_bytes(convert_datetimes(dict(kwargs)))
+            try:
+                result = await graph.query(
+                    cypher_query_,
+                    params,
+                    timeout=FALKOR_QUERY_TIMEOUT_MS,
+                )
+            except Exception as exc:
+                if "already indexed" in str(exc):
+                    return None
+                raise
+
+            header = [item[1] for item in result.header]
+            records = []
+            for row in result.result_set:
+                records.append(
+                    {
+                        field_name: row[index] if index < len(row) else None
+                        for index, field_name in enumerate(header)
+                    }
+                )
+            return records, header, None
+
+    return BoundedFalkorDriver
 
 
 def _load_dependencies() -> dict[str, Any]:
@@ -119,7 +155,7 @@ def _load_dependencies() -> dict[str, Any]:
         "EmbedderClient": embedder_module.EmbedderClient,
         "CrossEncoderClient": cross_encoder_module.CrossEncoderClient,
         "LLMClient": llm_module.LLMClient,
-        "FalkorDriver": driver_module.FalkorDriver,
+        "FalkorDriver": _bounded_falkor_driver_type(driver_module),
         "EntityNode": nodes_module.EntityNode,
         "EntityEdge": edges_module.EntityEdge,
         "TextEmbedding": fastembed_module.TextEmbedding,
