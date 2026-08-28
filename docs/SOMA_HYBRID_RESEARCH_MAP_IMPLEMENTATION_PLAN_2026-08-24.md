@@ -1,7 +1,7 @@
 # Soma Hybrid Research Map — Canonical Implementation Plan
 
 Date: 2026-08-24  
-Status: ACTIVE IMPLEMENTATION AUTHORITY — RM0–RM8 ACCEPTED; RM9 NEXT
+Status: **COMPLETE — RM0–RM11 ACCEPTED (2026-08-28)**
 Repository: `D:\Github\Soma`  
 Planning branch observed: `rollback/pre-core-hardening-20260823`  
 Planning HEAD observed: `7e7450e08331aeed744867be955feb42149b18f4`  
@@ -1818,7 +1818,7 @@ Only after RM11 is accepted and the full Research Map roadmap is complete, publi
 
 ---
 
-# 31. RM9 — controlled NSDN rollout
+# 31. RM9 — controlled NSDN rollout — ACCEPTED
 
 NSDN is the first real adoption because its corpus is smaller and already has a fixed semantic benchmark.
 
@@ -1851,7 +1851,7 @@ new research incremental update succeeds
 
 ---
 
-# 32. RM10 — Axon rollout and scale acceptance
+# 32. RM10 — Axon rollout and scale acceptance — ACCEPTED
 
 Axon is the complexity/scale proving ground, not the first implementation target.
 
@@ -1893,7 +1893,7 @@ If incremental update is too slow, optimize the derived projection path without 
 
 ---
 
-# 33. RM11 — final rollout, documentation and legacy boundary
+# 33. RM11 — final rollout, documentation and legacy boundary — ACCEPTED
 
 ## Required final state
 
@@ -2032,16 +2032,22 @@ The system must always report whether Axon coverage is partial or complete.
 
 ---
 
-# 38. Exact next action
+# 38. Closure and post-roadmap action
 
-The next action after owner approval of this plan is:
+RM0–RM11 are accepted. There is no remaining Research Map implementation stage.
+
+Final acceptance authority:
+
+`docs/soma-knowledge-carry-forward-research/RM9_RM10_RM11_FINAL_RESEARCH_MAP_ACCEPTANCE_2026-08-28.md`
+
+The accepted ownership boundary is permanent for v1: Soma owns the engine; each project lane owns its own scientific materiality, sidecars, lineage and ongoing Research Map finishing touches.
+
+The next eligible activity is the previously deferred **post-roadmap** finishing touch:
 
 ```text
-RM0 — authority freeze and implementation preflight only
+publish a new current arash-research Skill revision
+that requires each research project lane to maintain its own Research Map
+as the final step of completed research iterations
 ```
 
-RM0 performs no production source mutation.
-
-After RM0 acceptance, implementation begins with RM1.
-
-Do not jump directly to Graphiti dependency installation or Axon/NSDN backfill.
+That Skill change is outside RM0–RM11 and may occur only after this roadmap-completion seal.

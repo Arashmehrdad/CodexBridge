@@ -473,12 +473,15 @@ Both reuse the same durable run substrate. They must not introduce a second repo
 - `health` — inspect adoption, coverage, publication, and backend state;
 - `coverage` — page through reviewed/unreviewed/stale source coverage;
 - `relation` — retrieve one exact reviewed relation;
-- `search` — semantic search only over a verified published generation, with source-hash and exact-anchor verification before results are returned.
+- `search` — semantic search only over a verified published generation, with source-hash and exact-anchor verification before results are returned;
+- `authoring_contract` — return the live sidecar-v2 schema, configured roots, placement/hash rules, predicate registry, identity contract, and project/Soma authoring boundary;
+- `relation_id` — generate the canonical deterministic relation identity without requiring project threads to inspect Soma source.
 
 `research_map_action` is the sole research mutation gateway:
 
-- `adopt` — explicitly create the portable repository manifest and local ignored runtime;
-- `sync` — publish a complete reviewed map to the rebuildable Graphiti/FalkorDB projection.
+- `adopt` — explicitly create/attach the portable repository manifest and local ignored runtime;
+- `sync` — publish a complete reviewed map to the rebuildable Graphiti/FalkorDB projection;
+- `rebuild` — deterministically reconstruct the derived projection from tracked manifest/sidecars and publish only after reopen verification.
 
 The wiki is a generated cache, not the source of truth. Check its freshness fields and verify architecture-sensitive claims against live source before editing.
 
@@ -489,7 +492,8 @@ sidecars are authoritative. `.soma/research-map/` is repository-local ignored
 runtime state, and Graphiti/FalkorDB is a rebuildable derived projection. The
 legacy RAGFlow research archive/context-packet service has been retired.
 
-See [`docs/repository-knowledge.md`](docs/repository-knowledge.md) and
+See [`docs/research-map.md`](docs/research-map.md),
+[`docs/repository-knowledge.md`](docs/repository-knowledge.md), and
 [`docs/SOMA_KNOWLEDGE_LAYER.md`](docs/SOMA_KNOWLEDGE_LAYER.md).
 
 ## Compact projections and authoritative evidence
