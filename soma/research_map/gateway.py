@@ -3,18 +3,33 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .canonical import canonical_json_bytes, canonical_json_sha256
+from .canonical import (
+    canonical_json_bytes,
+    canonical_json_sha256,
+    normalize_repo_relative_path,
+)
+from .canonical import (
+    relation_id as canonical_relation_id,
+)
 from .generation import ResearchMapGenerationError, load_current_generation
 from .graphiti_backend import graphiti_projection_contract_sha256
+from .manifest import ManifestState, load_project_manifest
+from .models import (
+    PREDICATE_REGISTRY_VERSION,
+    RESEARCH_MAP_SCHEMA_VERSION,
+    Predicate,
+    ProjectManifest,
+    ResearchMapSidecar,
+)
 from .search import BackendFactory as SearchBackendFactory
 from .search import ResearchMapSearchError, search_published_generation
 from .service import ResearchMapHealthState, ResearchMapScan, scan_research_map
-from .sidecars import SidecarState
+from .sidecars import SidecarState, expected_sidecar_path
 
-RESEARCH_MAP_QUERY_GATEWAY_VERSION = "soma.research-map.query.v1"
+RESEARCH_MAP_QUERY_GATEWAY_VERSION = "soma.research-map.query.v2"
 
 
 class ResearchMapQueryError(ValueError):
@@ -525,6 +540,211 @@ def query_search(
     return result
 
 
+def _load_authoring_manifest(
+    repository_root: str | Path,
+    *,
+    project_id: str,
+    repo_name: str,
+    operation: str,
+) -> tuple[ProjectManifest | None, dict[str, Any] | None]:
+    manifest_result = load_project_manifest(repository_root)
+    if manifest_result.state is ManifestState.MISSING:
+        return None, {
+            "ok": False,
+            "operation": operation,
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "not_adopted",
+            "error": "research map is not adopted for this repository",
+        }
+    if not manifest_result.valid or manifest_result.manifest is None:
+        return None, {
+            "ok": False,
+            "operation": operation,
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "manifest_malformed",
+            "error": manifest_result.error_code or "manifest_malformed",
+        }
+    if not manifest_result.manifest.research_map.enabled:
+        return None, {
+            "ok": False,
+            "operation": operation,
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "disabled",
+            "error": "research map is disabled for this repository",
+        }
+    return manifest_result.manifest, None
+
+
+def query_authoring_contract(
+    repository_root: str | Path,
+    *,
+    project_id: str,
+    repo_name: str,
+    response_budget_bytes: int,
+) -> dict[str, Any]:
+    manifest, error = _load_authoring_manifest(
+        repository_root,
+        project_id=project_id,
+        repo_name=repo_name,
+        operation="authoring_contract",
+    )
+    if error is not None or manifest is None:
+        return error or {}
+
+    sidecar_schema = ResearchMapSidecar.model_json_schema()
+    result = {
+        "ok": True,
+        "operation": "authoring_contract",
+        "status": "available",
+        "project_id": project_id,
+        "repo_name": repo_name,
+        "schema_version": RESEARCH_MAP_SCHEMA_VERSION,
+        "predicate_registry_version": PREDICATE_REGISTRY_VERSION,
+        "sidecar_json_schema": sidecar_schema,
+        "sidecar_json_schema_sha256": canonical_json_sha256(sidecar_schema),
+        "roots": [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in sorted(manifest.research_map.roots, key=lambda root: root.path)
+        ],
+        "source_hash_contract": {
+            "algorithm": "sha256",
+            "encoding": "strict UTF-8",
+            "line_endings": "normalize CRLF and CR to LF before hashing",
+            "field": "source.canonical_text_sha256",
+        },
+        "sidecar_placement": {
+            "rule": "<root.path>/<root.sidecar_dir>/<source-relative-stem>.json",
+            "tracked": True,
+            "source_must_be_owned_by_configured_root": True,
+        },
+        "relation_identity": {
+            "helper_operation": "relation_id",
+            "identity_fields": ["source_path", "subject_key", "predicate", "object_key"],
+            "normalization": {
+                "source_path": "normalized repository-relative POSIX path",
+                "subject_key": "strip surrounding whitespace",
+                "predicate": "registered predicate value",
+                "object_key": "strip surrounding whitespace",
+            },
+            "digest": "SHA-256 of NUL-separated UTF-8 identity fields, prefixed with rel_",
+            "statement_in_identity": False,
+            "labels_in_identity": False,
+            "anchor_in_identity": False,
+        },
+        "authoring_boundary": {
+            "materiality_owner": "project scientific/research controller",
+            "semantic_relation_selection": "project-owned",
+            "soma_role": "mechanical schema, identity, validation, sync, rebuild, and search",
+            "auto_generate_semantics": False,
+        },
+        "response_budget_bytes": response_budget_bytes,
+        "error": "",
+    }
+    required_bytes = _json_bytes(result)
+    if required_bytes > response_budget_bytes:
+        return {
+            "ok": False,
+            "operation": "authoring_contract",
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "response_budget_too_small",
+            "required_response_bytes": required_bytes,
+            "response_budget_bytes": response_budget_bytes,
+            "error": "authoring contract does not fit the requested response budget",
+        }
+    result["response_bytes"] = required_bytes
+    return result
+
+
+def _owned_research_root(manifest: ProjectManifest, source_path: str):
+    candidate = PurePosixPath(source_path)
+    for root in sorted(manifest.research_map.roots, key=lambda item: item.path):
+        root_path = PurePosixPath(root.path)
+        try:
+            relative = candidate.relative_to(root_path)
+        except ValueError:
+            continue
+        if not relative.parts:
+            continue
+        sidecar_parts = PurePosixPath(root.sidecar_dir).parts
+        if relative.parts[: len(sidecar_parts)] == sidecar_parts:
+            continue
+        if any(relative.match(pattern) for pattern in root.include):
+            return root
+    return None
+
+
+def query_relation_id(
+    repository_root: str | Path,
+    *,
+    project_id: str,
+    repo_name: str,
+    source_path: str,
+    subject_key: str,
+    predicate: str,
+    object_key: str,
+) -> dict[str, Any]:
+    manifest, error = _load_authoring_manifest(
+        repository_root,
+        project_id=project_id,
+        repo_name=repo_name,
+        operation="relation_id",
+    )
+    if error is not None or manifest is None:
+        return error or {}
+    try:
+        normalized_source = normalize_repo_relative_path(source_path)
+        predicate_value = Predicate(str(predicate)).value
+    except (TypeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "operation": "relation_id",
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "invalid_identity",
+            "error": str(exc),
+        }
+
+    owner = _owned_research_root(manifest, normalized_source)
+    if owner is None:
+        return {
+            "ok": False,
+            "operation": "relation_id",
+            "project_id": project_id,
+            "repo_name": repo_name,
+            "status": "source_not_owned",
+            "source_path": normalized_source,
+            "error": "source path is not owned by an adopted research root/include rule",
+        }
+
+    generated = canonical_relation_id(
+        normalized_source,
+        subject_key,
+        predicate_value,
+        object_key,
+    )
+    return {
+        "ok": True,
+        "operation": "relation_id",
+        "status": "generated",
+        "project_id": project_id,
+        "repo_name": repo_name,
+        "source_path": normalized_source,
+        "expected_sidecar_path": expected_sidecar_path(owner, normalized_source),
+        "relation_id": generated,
+        "identity": {
+            "subject_key": subject_key.strip(),
+            "predicate": predicate_value,
+            "object_key": object_key.strip(),
+        },
+        "statement_in_identity": False,
+        "error": "",
+    }
+
+
 def research_map_query_gateway(
     repository_root: str | Path,
     *,
@@ -533,6 +753,10 @@ def research_map_query_gateway(
     operation: str,
     relation_id: str = "",
     query: str = "",
+    source_path: str = "",
+    subject_key: str = "",
+    predicate: str = "",
+    object_key: str = "",
     limit: int = 50,
     cursor: str = "",
     include_noncurrent: bool = False,
@@ -570,5 +794,22 @@ def research_map_query_gateway(
             include_noncurrent=include_noncurrent,
             response_budget_bytes=response_budget_bytes,
             backend_factory=search_backend_factory,
+        )
+    if operation == "authoring_contract":
+        return query_authoring_contract(
+            repository_root,
+            project_id=project_id,
+            repo_name=repo_name,
+            response_budget_bytes=response_budget_bytes,
+        )
+    if operation == "relation_id":
+        return query_relation_id(
+            repository_root,
+            project_id=project_id,
+            repo_name=repo_name,
+            source_path=source_path,
+            subject_key=subject_key,
+            predicate=predicate,
+            object_key=object_key,
         )
     raise ResearchMapQueryError(f"unsupported_operation:{operation}")

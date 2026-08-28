@@ -20,6 +20,7 @@ from .company_kernel.dependencies import (
     PublishedSuccessCandidateV1,
 )
 from .reasoning.models import ReasoningSpecV1
+from .research_map.models import Predicate
 from .run_query_chunks import encode_list_reference, encode_run_reference
 from .ssh_policy import (
     AutonomyProfile,
@@ -1144,11 +1145,30 @@ class ResearchMapSearchQuery(GatewayModel):
     response_budget_bytes: int = Field(default=12 * 1024, ge=4 * 1024, le=64 * 1024)
 
 
+class ResearchMapAuthoringContractQuery(GatewayModel):
+    operation: Literal["authoring_contract"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    response_budget_bytes: int = Field(default=32 * 1024, ge=16 * 1024, le=64 * 1024)
+
+
+class ResearchMapRelationIdQuery(GatewayModel):
+    operation: Literal["relation_id"]
+    project_id: str = Field(min_length=1, max_length=128)
+    repo_name: str = Field(min_length=1, max_length=128)
+    source_path: str = Field(min_length=1, max_length=1024)
+    subject_key: str = Field(min_length=1, max_length=512)
+    predicate: Predicate
+    object_key: str = Field(min_length=1, max_length=512)
+
+
 ResearchMapQueryRequest = Annotated[
     ResearchMapHealthQuery
     | ResearchMapCoverageQuery
     | ResearchMapRelationQuery
-    | ResearchMapSearchQuery,
+    | ResearchMapSearchQuery
+    | ResearchMapAuthoringContractQuery
+    | ResearchMapRelationIdQuery,
     Field(discriminator="operation"),
 ]
 

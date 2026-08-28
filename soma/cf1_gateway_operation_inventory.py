@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v30"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v31"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1682,6 +1682,26 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_response_bytes=12 * 1024,
         maximum_response_bytes=64 * 1024,
         notes="Coverage is independent of sync/backend state; opaque cursors bind to semantic desired-state identity so a changed tracked map cannot silently continue an old page.",
+    ),
+    _entry(
+        "research_map_query",
+        ("authoring_contract",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_authoring_contract",
+        "bounded exact-project mechanical sidecar-authoring contract",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=32 * 1024,
+        maximum_response_bytes=64 * 1024,
+        notes="Read-only authoring support exposes the exact v2 sidecar JSON schema, adopted roots, canonical source-hash rule, placement rule, relation-identity rule, and project-owned semantic boundary without creating sidecars or choosing materiality.",
+    ),
+    _entry(
+        "research_map_query",
+        ("relation_id",),
+        "soma.server:research_map_query -> soma.research_map.gateway:query_relation_id",
+        "bounded deterministic relation identity derivation",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=4 * 1024,
+        maximum_response_bytes=4 * 1024,
+        notes="Read-only helper validates an adopted owned source path and registered predicate, then delegates to the canonical relation identity function; statement, labels, and anchors never participate in identity.",
     ),
     _entry(
         "research_map_query",

@@ -648,9 +648,9 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             title="Inspect research map",
             description=(
                 "Use this when you need read-only health, coverage, exact reviewed "
-                "relations, or verified published-generation semantic search for one "
-                "explicitly scoped project. Queries never sync, rebuild, create sidecars, "
-                "or mutate the published research-map generation."
+                "relations, verified published-generation semantic search, or mechanical "
+                "sidecar authoring/ID rules for one scoped project. Queries never sync, "
+                "rebuild, create sidecars, choose materiality, or mutate the published map."
             ),
             invoking="Inspecting research map...",
             invoked="Research map inspection ready",
