@@ -32,6 +32,7 @@ JSON_CANDIDATE_VALIDATOR_VERSION: Final[str] = (
 JSON_ENCODING_POLICY: Final[str] = "utf-8-strict"
 JSON_DUPLICATE_KEY_POLICY: Final[str] = "reject"
 JSON_NONFINITE_NUMBER_POLICY: Final[str] = "reject"
+MAX_JSON_CANDIDATE_NESTING_DEPTH: Final[int] = 512
 
 MAX_CANDIDATE_VALIDATION_FILE_BYTES: Final[int] = 512 * 1024
 MAX_CANDIDATE_VALIDATION_TOTAL_BYTES: Final[int] = 2 * 1024 * 1024
@@ -190,6 +191,10 @@ class _InvalidJsonConstant(ValueError):
     pass
 
 
+class _ExcessiveJsonNesting(ValueError):
+    pass
+
+
 def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -201,6 +206,31 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, ob
 
 def _reject_nonfinite_json_constant(value: str) -> object:
     raise _InvalidJsonConstant(value)
+
+
+def _reject_excessive_json_nesting(text: str) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_JSON_CANDIDATE_NESTING_DEPTH:
+                raise _ExcessiveJsonNesting(
+                    f"JSON nesting exceeds {MAX_JSON_CANDIDATE_NESTING_DEPTH} levels"
+                )
+        elif char in "]}":
+            depth = max(0, depth - 1)
 
 
 def _json_diagnostic(exc: BaseException) -> CandidateDiagnosticV1:
@@ -222,7 +252,7 @@ def _json_diagnostic(exc: BaseException) -> CandidateDiagnosticV1:
             message="JSON candidate contains a non-finite numeric constant",
             exception_type=type(exc).__name__,
         )
-    if isinstance(exc, RecursionError):
+    if isinstance(exc, (RecursionError, _ExcessiveJsonNesting)):
         return CandidateDiagnosticV1(
             code="json_nesting_error",
             message="JSON candidate nesting exceeds parser limits",
@@ -251,6 +281,7 @@ def _json_disposition(
 ) -> tuple[Literal["valid", "invalid"], CandidateDiagnosticV1 | None]:
     try:
         text = source.decode("utf-8", errors="strict")
+        _reject_excessive_json_nesting(text)
         json.loads(
             text,
             object_pairs_hook=_reject_duplicate_json_keys,
@@ -263,6 +294,7 @@ def _json_disposition(
         json.JSONDecodeError,
         _DuplicateJsonKey,
         _InvalidJsonConstant,
+        _ExcessiveJsonNesting,
         RecursionError,
     ) as exc:
         return "invalid", _json_diagnostic(exc)

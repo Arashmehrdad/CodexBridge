@@ -37,7 +37,7 @@ class RunQueryInspection:
 CURRENT_RUN_QUERY_SPECS: Final[tuple[RunQuerySpec, ...]] = (
     RunQuerySpec(
         name="run_list_unfiltered",
-        sql="SELECT * FROM runs ORDER BY created_at DESC LIMIT ?",
+        sql="SELECT * FROM runs ORDER BY created_at DESC, run_id DESC LIMIT ?",
         parameters=(20,),
         public_path="run_query(list)",
     ),
@@ -45,7 +45,7 @@ CURRENT_RUN_QUERY_SPECS: Final[tuple[RunQuerySpec, ...]] = (
         name="run_list_repo_status",
         sql=(
             "SELECT * FROM runs WHERE lower(repo_name) = lower(?) AND status = ? "
-            "ORDER BY created_at DESC LIMIT ?"
+            "ORDER BY created_at DESC, run_id DESC LIMIT ?"
         ),
         parameters=("soma", "completed", 20),
         public_path="run_query(list, repo_name, status)",
@@ -58,7 +58,7 @@ CURRENT_RUN_QUERY_SPECS: Final[tuple[RunQuerySpec, ...]] = (
     ),
     RunQuerySpec(
         name="latest_run",
-        sql="SELECT * FROM runs WHERE lower(repo_name) = lower(?) ORDER BY created_at DESC LIMIT 1",
+        sql="SELECT * FROM runs WHERE lower(repo_name) = lower(?) ORDER BY created_at DESC, run_id DESC LIMIT 1",
         parameters=("soma",),
         public_path="latest result lookup",
     ),

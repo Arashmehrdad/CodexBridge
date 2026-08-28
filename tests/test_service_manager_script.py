@@ -29,6 +29,13 @@ def _unused_local_port() -> int:
         return int(listener.getsockname()[1])
 
 
+def _isolated_service_env() -> dict[str, str]:
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) if not existing else str(ROOT) + os.pathsep + existing
+    return env
+
+
 def _write_isolated_config(root: Path) -> Path:
     config = root / "config.yaml"
     config.write_text(
@@ -118,6 +125,7 @@ def _run_manager(
             text=True,
             timeout=timeout,
             check=False,
+            env=_isolated_service_env(),
         )
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", newline="") as output:
@@ -129,6 +137,7 @@ def _run_manager(
             text=True,
             timeout=timeout,
             check=False,
+            env=_isolated_service_env(),
         )
         output.flush()
         output.seek(0)
@@ -499,6 +508,7 @@ def test_tui_start_restart_stop_on_isolated_port(tmp_path: Path) -> None:
                 text=True,
                 timeout=150,
                 check=False,
+                env=_isolated_service_env(),
             )
             tui_output.flush()
             tui_output.seek(0)

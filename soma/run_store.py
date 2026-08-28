@@ -710,7 +710,7 @@ class RunStore:
         sql = "SELECT * FROM runs"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY created_at DESC LIMIT ?"
+        sql += " ORDER BY created_at DESC, run_id DESC LIMIT ?"
         params.append(limit)
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
@@ -730,7 +730,7 @@ class RunStore:
         sql = "SELECT * FROM runs"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY created_at DESC LIMIT 1"
+        sql += " ORDER BY created_at DESC, run_id DESC LIMIT 1"
         with self.connect() as conn:
             row = conn.execute(sql, params).fetchone()
         if row is None:

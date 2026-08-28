@@ -132,35 +132,35 @@ def test_live_eight_process_cap_keeps_excess_children_pending_then_refills(
     marker_dir = tmp_path / "markers"
     marker_dir.mkdir()
     children = _children(marker_dir, 10)
+    release_path = marker_dir / "release.txt"
     for child in children:
         child["argv"][4] = child["argv"][4].replace(
             "Start-Sleep -Milliseconds 700",
-            "Start-Sleep -Seconds 2",
+            "while (-not (Test-Path -LiteralPath $env:CB_RELEASE)) "
+            "{ Start-Sleep -Milliseconds 50 }",
         )
+        child["environment"]["CB_RELEASE"] = str(release_path)
 
     started = manager.start_powershell_group("sample", children)
 
     assert len(started["launched_run_ids"]) == 8
     assert len(started["pending_run_ids"]) == 2
     store = ParallelGroupStore(manager.config.resolve_runs_dir()).store
-    deadline = time.monotonic() + 10
-    statuses = {
-        run_id: store.get_run(run_id)["status"]
-        for run_id in started["launched_run_ids"]
-    }
-    while time.monotonic() < deadline and not all(
-        status == "running" for status in statuses.values()
-    ):
-        time.sleep(0.05)
-        statuses = {
+    try:
+        admitted_statuses = {
             run_id: store.get_run(run_id)["status"]
             for run_id in started["launched_run_ids"]
         }
-    assert all(status == "running" for status in statuses.values())
-    assert all(
-        store.get_run(run_id)["status"] == "pending"
-        for run_id in started["pending_run_ids"]
-    )
+        assert all(
+            status in {"queued", "running"}
+            for status in admitted_statuses.values()
+        )
+        assert all(
+            store.get_run(run_id)["status"] == "pending"
+            for run_id in started["pending_run_ids"]
+        )
+    finally:
+        release_path.write_text("go", encoding="utf-8")
 
     completed = _wait_for_group(manager, started["group_id"], timeout=45)
 

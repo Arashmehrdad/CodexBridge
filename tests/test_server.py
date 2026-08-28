@@ -1531,6 +1531,7 @@ def test_repo_status_has_bounded_compact_and_explicit_full_views(monkeypatch) ->
 def test_patch_status_has_bounded_compact_and_explicit_full_views(monkeypatch) -> None:
     changed = [f"src/{index:04d}-" + ("x" * 160) + ".py" for index in range(40)]
     monkeypatch.setattr(server, "_repo_context", lambda name: (name, object(), name))
+    monkeypatch.setattr(server, "_get_runs_dir", lambda: Path("runs"))
     monkeypatch.setattr(
         server,
         "_repo_writer",
