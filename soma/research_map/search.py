@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
+from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -26,7 +29,11 @@ from .graphiti_backend import GraphitiFalkorBackend, graphiti_projection_contrac
 from .service import ResearchMapHealthState, ResearchMapScan
 from .sidecars import MAX_SOURCE_BYTES
 
-RESEARCH_MAP_SEARCH_VERSION = "soma.research-map.search.v1"
+RESEARCH_MAP_SEARCH_VERSION = "soma.research-map.search.v2"
+_SEARCH_TOKEN_RE = re.compile(r"[^\W_]+", flags=re.UNICODE)
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+_SEMANTIC_RANK_WEIGHT = 0.5
 
 
 class ResearchMapSearchError(RuntimeError):
@@ -88,6 +95,100 @@ class SearchCandidate:
 
 def _default_backend_factory(repository_uid: str, database: str) -> ResearchMapBackend:
     return GraphitiFalkorBackend(repository_uid=repository_uid, database=database)
+
+
+def _search_tokens(text: str) -> tuple[str, ...]:
+    return tuple(token for token in _SEARCH_TOKEN_RE.findall(text.casefold()) if len(token) > 1)
+
+
+def _relation_search_text(relation: PublishedRelation) -> str:
+    return (
+        f"{relation.statement} {relation.source_anchor} {relation.source_key} "
+        f"{relation.target_key} {relation.predicate}"
+    )
+
+
+def _rerank_backend_hits(
+    query: str,
+    hits: tuple[object, ...],
+    relations: dict[str, PublishedRelation],
+) -> tuple[object, ...]:
+    """Blend backend semantic order with deterministic BM25 over immutable relation text."""
+    deduped: list[object] = []
+    seen: set[str] = set()
+    for hit in hits:
+        relation_id = str(getattr(hit, "relation_id", "")).casefold()
+        if relation_id not in relations:
+            raise ResearchMapSearchError(
+                "backend_drift",
+                f"backend returned a relation outside the published generation: {relation_id}",
+            )
+        if relation_id in seen:
+            continue
+        seen.add(relation_id)
+        deduped.append(hit)
+    if len(deduped) < 2:
+        return tuple(deduped)
+
+    query_tokens = _search_tokens(query)
+    if not query_tokens:
+        return tuple(deduped)
+
+    corpus_tokens = {
+        relation_id: _search_tokens(_relation_search_text(relation))
+        for relation_id, relation in relations.items()
+    }
+    document_count = len(corpus_tokens)
+    if document_count == 0:
+        return tuple(deduped)
+    average_length = max(
+        sum(len(tokens) for tokens in corpus_tokens.values()) / document_count,
+        1.0,
+    )
+    document_frequency: Counter[str] = Counter()
+    for tokens in corpus_tokens.values():
+        document_frequency.update(set(tokens))
+
+    lexical_scores: dict[str, float] = {}
+    for hit in deduped:
+        relation_id = str(hit.relation_id).casefold()
+        tokens = corpus_tokens[relation_id]
+        term_frequency = Counter(tokens)
+        document_length = len(tokens)
+        score = 0.0
+        for term in query_tokens:
+            frequency = term_frequency.get(term, 0)
+            if not frequency:
+                continue
+            frequency_docs = document_frequency.get(term, 0)
+            inverse_document_frequency = math.log(
+                1.0 + (document_count - frequency_docs + 0.5) / (frequency_docs + 0.5)
+            )
+            denominator = frequency + _BM25_K1 * (
+                1.0 - _BM25_B + _BM25_B * document_length / average_length
+            )
+            score += inverse_document_frequency * (
+                frequency * (_BM25_K1 + 1.0) / denominator
+            )
+        lexical_scores[relation_id] = score
+
+    maximum_lexical = max(lexical_scores.values(), default=0.0)
+    if maximum_lexical <= 0.0:
+        return tuple(deduped)
+
+    candidate_count = len(deduped)
+    scored: list[tuple[float, int, object]] = []
+    for index, hit in enumerate(deduped):
+        relation_id = str(hit.relation_id).casefold()
+        semantic_rank_score = 1.0 - index / (candidate_count - 1)
+        lexical_score = lexical_scores[relation_id] / maximum_lexical
+        combined = (
+            _SEMANTIC_RANK_WEIGHT * semantic_rank_score
+            + (1.0 - _SEMANTIC_RANK_WEIGHT) * lexical_score
+        )
+        scored.append((combined, index, hit))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return tuple(item[2] for item in scored)
 
 
 def _require_published_current(
@@ -285,9 +386,10 @@ async def search_published_generation_async(
         with suppress(ResearchMapBackendError, OSError, RuntimeError):
             await backend.close()
 
+    ordered_hits = _rerank_backend_hits(query, hits, relations)
     selected: list[SearchCandidate] = []
     seen: set[str] = set()
-    for hit in hits:
+    for hit in ordered_hits:
         relation_id = hit.relation_id.casefold()
         if relation_id in seen:
             continue
