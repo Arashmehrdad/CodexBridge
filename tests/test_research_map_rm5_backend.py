@@ -187,8 +187,9 @@ def test_rm5_falkor_driver_uses_soma_bounded_query_timeout() -> None:
     calls: list[tuple[str, dict[str, object], int | None]] = []
 
     class FakeResult:
-        header = [(0, "value")]
-        result_set = [["ok"]]
+        def __init__(self) -> None:
+            self.header = [(0, "value")]
+            self.result_set = [["ok"]]
 
     class FakeGraph:
         async def query(
