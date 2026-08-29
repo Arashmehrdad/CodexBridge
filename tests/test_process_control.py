@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -14,15 +16,42 @@ def test_process_group_popen_kwargs_are_platform_specific(monkeypatch) -> None:
     assert process_control.process_group_popen_kwargs() == {"start_new_session": True}
 
     monkeypatch.setattr(process_control, "_is_windows", lambda: True)
-    monkeypatch.setattr(
-        process_control.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False
+    result = process_control.process_group_popen_kwargs()
+    assert result["creationflags"] == int(
+        getattr(process_control.subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
     )
-    monkeypatch.setattr(
-        process_control.subprocess, "CREATE_NO_WINDOW", 134217728, raising=False
+    assert result["startupinfo"].dwFlags & int(
+        getattr(process_control.subprocess, "STARTF_USESHOWWINDOW", 1)
     )
-    assert process_control.process_group_popen_kwargs() == {
-        "creationflags": 134218240
-    }
+    assert result["startupinfo"].wShowWindow == int(
+        getattr(process_control.subprocess, "SW_HIDE", 0)
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows console inheritance contract")
+def test_hidden_console_is_inherited_by_console_descendant() -> None:
+    child_code = (
+        "import ctypes; "
+        "print(int(ctypes.windll.kernel32.GetConsoleWindow()))"
+    )
+    root_code = (
+        "import ctypes,json,subprocess,sys; "
+        "root=int(ctypes.windll.kernel32.GetConsoleWindow()); "
+        f"child=int(subprocess.check_output([sys.executable,'-c',{child_code!r}], "
+        "text=True).strip()); "
+        "print(json.dumps({'root':root,'child':child}))"
+    )
+    completed = process_control.subprocess.run(
+        [sys.executable, "-c", root_code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+        **process_control.process_group_popen_kwargs(),
+    )
+    handles = json.loads(completed.stdout.strip())
+    assert handles["root"] != 0
+    assert handles["child"] == handles["root"]
 
 
 def test_process_identity_matching_is_exact(monkeypatch) -> None:

@@ -196,11 +196,16 @@ def test_job_still_owns_descendants_after_the_root_exits(tmp_path: Path):
             time.sleep(0.2)
         assert process.poll() is not None, "root did not exit"
 
-        # Parent-table enumeration from the dead root proves nothing...
-        assert list_descendants(process.pid) == []
-        # ...while the kernel still owns everything it started.
-        assigned = job.assigned_pids()
+        # Parent-table enumeration from the dead root is incomplete. A hidden
+        # console host may remain linked to the exited root, but the actual
+        # worker descendants have already escaped that parent walk.
+        enumerated = set(list_descendants(process.pid))
+        assigned = set(job.assigned_pids())
         assert len(assigned) >= 2, f"job lost the orphaned descendants: {assigned}"
+        assert enumerated < assigned, (
+            "parent enumeration unexpectedly matched the kernel-owned tree: "
+            f"enumerated={enumerated}, assigned={assigned}"
+        )
 
         job.terminate()
         deadline = time.monotonic() + 30
@@ -355,8 +360,8 @@ def test_containment_failure_at_launch_leaves_nothing_running(monkeypatch, tmp_p
     assert not process_is_running(started[0]), "unassignable process was released"
 
 
-def test_contained_launch_uses_no_window_flag(monkeypatch):
-    """Contained Windows roots stay background-only while retaining suspension."""
+def test_contained_launch_uses_hidden_inherited_console(monkeypatch):
+    """Contained Windows roots hide a console descendants can safely inherit."""
     captured: dict[str, object] = {}
 
     class FakeJob:
@@ -388,6 +393,7 @@ def test_contained_launch_uses_no_window_flag(monkeypatch):
 
     def fake_popen(*args, **kwargs):
         captured["creationflags"] = kwargs["creationflags"]
+        captured["startupinfo"] = kwargs["startupinfo"]
         return FakeProcess()
 
     process, _job = containment_module.launch_contained(
@@ -400,5 +406,8 @@ def test_contained_launch_uses_no_window_flag(monkeypatch):
     assert captured["assigned_pid"] == 4242
     assert captured["resumed_pid"] == 4242
     assert captured["creationflags"] == (
-        containment_module.CREATE_SUSPENDED | containment_module.CREATE_NO_WINDOW
+        containment_module.CREATE_SUSPENDED | containment_module.CREATE_NEW_CONSOLE
     )
+    startupinfo = captured["startupinfo"]
+    assert startupinfo.dwFlags & int(getattr(subprocess, "STARTF_USESHOWWINDOW", 1))
+    assert startupinfo.wShowWindow == int(getattr(subprocess, "SW_HIDE", 0))

@@ -14,12 +14,32 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
+def windows_hidden_console_popen_kwargs(*, extra_creationflags: int = 0) -> dict[str, Any]:
+    """Create a hidden Windows console that ordinary descendants can inherit.
+
+    ``CREATE_NO_WINDOW`` suppresses the root console entirely. That looks ideal
+    until the root (for example PowerShell) launches another console program:
+    with no console available to inherit, Windows is free to allocate a fresh
+    console host for that descendant, which can surface as a Windows Terminal
+    window. A hidden inherited console avoids both the root popup and that
+    descendant popup class.
+    """
+    if not _is_windows():
+        raise RuntimeError("Hidden Windows console options require Windows")
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 1))
+    startupinfo.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0))
+    new_console = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010))
+    return {
+        "creationflags": new_console | int(extra_creationflags),
+        "startupinfo": startupinfo,
+    }
+
+
 def process_group_popen_kwargs() -> dict[str, Any]:
     """Return platform-specific Popen options for a background-owned process tree."""
     if _is_windows():
-        new_group = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return {"creationflags": new_group | no_window}
+        return windows_hidden_console_popen_kwargs()
     return {"start_new_session": True}
 
 

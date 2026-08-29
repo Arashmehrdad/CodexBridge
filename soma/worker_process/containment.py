@@ -42,6 +42,8 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from typing import Any, Final
 
+from ..process_control import windows_hidden_console_popen_kwargs
+
 
 IS_WINDOWS: Final[bool] = os.name == "nt"
 
@@ -52,7 +54,7 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Final[int] = 0x00002000
 PROCESS_SET_QUOTA: Final[int] = 0x0100
 PROCESS_TERMINATE: Final[int] = 0x0001
 CREATE_SUSPENDED: Final[int] = 0x00000004
-CREATE_NO_WINDOW: Final[int] = 0x08000000
+CREATE_NEW_CONSOLE: Final[int] = 0x00000010
 THREAD_SUSPEND_RESUME: Final[int] = 0x0002
 TH32CS_SNAPTHREAD: Final[int] = 0x00000004
 MAX_TRACKED_PROCESSES: Final[int] = 1024
@@ -330,7 +332,9 @@ def launch_contained(
             stdin=stdin,
             stdout=stdout,
             stderr=stderr,
-            creationflags=CREATE_SUSPENDED | CREATE_NO_WINDOW,
+            **windows_hidden_console_popen_kwargs(
+                extra_creationflags=CREATE_SUSPENDED
+            ),
         )
     except BaseException:
         job.close()
