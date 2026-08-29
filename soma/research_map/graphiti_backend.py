@@ -257,11 +257,27 @@ class GraphitiFalkorBackend:
         await self._graphiti.build_indices_and_constraints(delete_existing=True)
 
     async def clone_from_current(self, source: object) -> None:
-        del source
-        raise ResearchMapBackendError(
-            "Graphiti/FalkorDB clone_from_current is not activated in RM5; "
-            "RM6 may select a verified copy strategy or full rebuild"
+        await self._open()
+        source_database = ""
+        if isinstance(source, str):
+            source_database = source
+        elif isinstance(source, dict):
+            source_database = str(source.get("database") or "")
+        else:
+            source_database = str(getattr(source, "database", "") or "")
+        if not source_database:
+            raise ResearchMapBackendError("source generation does not expose a database")
+        if source_database == self.database:
+            raise ResearchMapBackendError("source and destination databases must differ")
+        client = getattr(self._driver, "client", None)
+        execute_command = getattr(client, "execute_command", None)
+        if execute_command is None:
+            raise ResearchMapBackendError("FalkorDB client does not expose GRAPH.COPY")
+        reply = await _maybe_await(
+            execute_command("GRAPH.COPY", source_database, self.database)
         )
+        if not reply:
+            raise ResearchMapBackendError("FalkorDB GRAPH.COPY did not report success")
 
     async def upsert_nodes(self, nodes: tuple[ProjectedNode, ...]) -> None:
         if not nodes:

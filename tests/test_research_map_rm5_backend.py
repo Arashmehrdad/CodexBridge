@@ -244,6 +244,15 @@ class _FakeDriver:
         self.closed = True
 
 
+class _FakeCopyClient:
+    def __init__(self) -> None:
+        self.commands: list[tuple[object, ...]] = []
+
+    async def execute_command(self, *args: object) -> object:
+        self.commands.append(args)
+        return "OK"
+
+
 class _FakeGraphiti:
     def __init__(self) -> None:
         self.group_ids: object = "not-called"
@@ -284,6 +293,19 @@ def test_rm5_server_backend_requires_explicit_save() -> None:
     failing._driver = _FakeDriver(_FakeClient(False))
     with pytest.raises(ResearchMapBackendError, match="SAVE did not report success"):
         asyncio.run(failing.persist())
+
+
+def test_rm5_clone_from_current_uses_graph_copy() -> None:
+    backend = GraphitiFalkorBackend(
+        repository_uid="srepo_0123456789abcdef",
+        database="rm5_destination",
+    )
+    client = _FakeCopyClient()
+    backend._driver = _FakeDriver(client)
+
+    asyncio.run(backend.clone_from_current(SimpleNamespace(database="rm5_source")))
+
+    assert client.commands == [("GRAPH.COPY", "rm5_source", "rm5_destination")]
 
 
 def test_rm5_search_deliberately_avoids_group_id_filter() -> None:
