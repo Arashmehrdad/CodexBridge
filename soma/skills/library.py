@@ -11,12 +11,12 @@ import json
 import os
 import shutil
 import sqlite3
-import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Iterator, Mapping
+from uuid import uuid4
 
 import yaml
 
@@ -350,13 +350,30 @@ class SkillLibrary:
             (controller_request_id, operation, request_hash, _canonical_json(result), utc_now()),
         )
 
+    def _create_staging_parent(self) -> Path:
+        """Create collision-safe staging with the Skill store's inherited ACL."""
+        for _attempt in range(100):
+            candidate = self.staging_root / f"skill-{uuid4().hex}"
+            try:
+                # Do not use tempfile.mkdtemp here. Python creates mkdtemp
+                # directories with creator-private 0o700 permissions; on
+                # Windows a same-volume os.replace preserves that ACL when the
+                # directory becomes a durable revision, which can lock out a
+                # later Soma service identity. Normal mkdir inherits the
+                # canonical Skill-store ACL instead.
+                candidate.mkdir()
+            except FileExistsError:
+                continue
+            return candidate
+        raise FileExistsError("unable to allocate unique Skill staging directory")
+
     def _materialize(self, name: str, files: Mapping[str, bytes], package_hash: str) -> Path:
         self._require_writable()
         destination = self._revision_path(name, package_hash)
         if destination.exists():
             self._verify_path(name, package_hash, destination)
             return destination
-        temp_parent = Path(tempfile.mkdtemp(prefix="skill-", dir=self.staging_root))
+        temp_parent = self._create_staging_parent()
         package_root = temp_parent / name
         try:
             package_root.mkdir()

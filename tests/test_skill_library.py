@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 from pathlib import Path
 
@@ -76,6 +77,25 @@ def test_minimal_skill_import_materializes_standard_parent_directory(tmp_path: P
     assert (package_root / "SKILL.md").read_bytes() == _skill_md()
     assert library.get_state("research-helper")["current_skill_ref"] == result["skill_ref"]
     assert library.db_path.parent == library.root
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL regression")
+def test_materialized_revision_inherits_skill_store_acl_on_windows(tmp_path: Path) -> None:
+    library = _library(tmp_path)
+    result = library.import_revision(
+        {"SKILL.md": _skill_md()},
+        controller_request_id="windows-inherited-acl",
+    )
+
+    package_root = Path(str(result["package_root"]))
+    completed = subprocess.run(
+        ["icacls", str(package_root)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "(I)" in completed.stdout
 
 
 def test_whole_package_manifest_includes_every_regular_file_and_any_change_revises_hash(tmp_path: Path) -> None:
