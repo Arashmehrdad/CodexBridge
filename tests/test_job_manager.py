@@ -1356,6 +1356,135 @@ def test_reconcile_startup_relaunches_stranded_queued_worker_once(
     assert internal["lease_generation"] == 2
 
 
+def test_reconcile_startup_relaunches_legacy_no_lock_group_child(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    store = ParallelGroupStore(manager.config.resolve_runs_dir())
+    run_id = "20260829T180000Z_executable_profile_a1b2c3d4"
+    group_id = "20260829T180000Z_powershell_group_b2c3d4e5"
+    run_dir = manager.config.resolve_runs_dir() / run_id
+    run_dir.mkdir(parents=True)
+    store.reserve_group(
+        group_id=group_id,
+        repo_name="sample",
+        repository_lock_policy="none",
+        children=[
+            {
+                "run_id": run_id,
+                "idempotency_key": "legacy-no-lock",
+                "run_dir": run_dir,
+                "worker_lease_token": "lease-one",
+                "initial_status": "launch_pending",
+                "input_data": {"profile_id": "powershell"},
+            }
+        ],
+    )
+    manager.store.update_run(
+        run_id,
+        status="queued",
+        current_phase="worker",
+        launcher_pid=None,
+        launcher_identity="",
+        launch_attempts=1,
+    )
+    assert manager.locks.find_lock("sample", run_id) is None
+
+    manager._reconcile_run(manager.store.get_run(run_id))
+
+    current = manager.store.get_run(run_id)
+    assert current["status"] == "queued"
+    assert current["launch_attempts"] == 2
+    assert current["lease_generation"] == 2
+    assert current["launcher_pid"] == _FAKE_LAUNCHER_PID
+    assert manager.locks.find_lock("sample", run_id) is None
+
+
+def test_reconcile_startup_does_not_trust_reused_launcher_pid(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_git_readonly("sample", "status")
+    launcher_pid = int(manager.store.get_run(response["run_id"])["launcher_pid"])
+    monkeypatch.setattr(
+        "soma.job_manager.process_is_running", lambda pid: pid == launcher_pid
+    )
+    monkeypatch.setattr(
+        "soma.job_manager.process_matches_identity", lambda _pid, _identity: False
+    )
+
+    manager._reconcile_run(manager.store.get_run(response["run_id"]))
+
+    current = manager.store.get_run(response["run_id"])
+    assert current["launch_attempts"] == 2
+    assert current["lease_generation"] == 2
+
+
+def test_reconcile_startup_expires_old_never_started_group_without_replay(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    store = ParallelGroupStore(manager.config.resolve_runs_dir())
+    run_id = "20260829T180001Z_executable_profile_c3d4e5f6"
+    group_id = "20260829T180001Z_powershell_group_d4e5f6a7"
+    run_dir = manager.config.resolve_runs_dir() / run_id
+    run_dir.mkdir(parents=True)
+    store.reserve_group(
+        group_id=group_id,
+        repo_name="sample",
+        repository_lock_policy="none",
+        children=[
+            {
+                "run_id": run_id,
+                "idempotency_key": "expired-no-lock",
+                "run_dir": run_dir,
+                "worker_lease_token": "lease-old",
+                "initial_status": "launch_pending",
+                "input_data": {"profile_id": "powershell"},
+            }
+        ],
+    )
+    manager.store.update_run(
+        run_id,
+        status="queued",
+        current_phase="worker",
+        created_at="2000-01-01T00:00:00+00:00",
+        heartbeat_at="2000-01-01T00:00:00+00:00",
+        launcher_pid=None,
+        launcher_identity="",
+        launch_attempts=1,
+    )
+    launches: list[str] = []
+    monkeypatch.setattr(
+        manager,
+        "_spawn_worker",
+        lambda child_run_id, _lease: launches.append(child_run_id) or FakeProcess(),
+    )
+
+    manager._reconcile_run(manager.store.get_run(run_id))
+
+    current = manager.store.get_run(run_id)
+    assert current["status"] == "failed"
+    assert launches == []
+    assert "bounded startup replay window" in current["error"]
+    assert store.get_group(group_id)["status"] == "failed"
+
+
+def test_reconcile_startup_fails_unchanged_reservation_refusal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    response = manager.start_git_readonly("sample", "status")
+    manager.store.update_run(response["run_id"], launcher_pid=None, launcher_identity="")
+    monkeypatch.setattr(manager.locks, "reserve_next_launch", lambda **_kwargs: None)
+
+    manager._reconcile_run(manager.store.get_run(response["run_id"]))
+
+    current = manager.store.get_run(response["run_id"])
+    assert current["status"] == "failed"
+    assert "could not reserve the stranded launch intent" in current["error"]
+
+
 def test_reconcile_startup_records_failure_and_retains_lock(
     tmp_path: Path, monkeypatch
 ) -> None:

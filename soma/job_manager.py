@@ -544,6 +544,7 @@ def _fit_output_response(response: dict, response_budget_bytes: int) -> None:
 
 
 STARTUP_TERMINAL_ARTIFACT_AUDIT_LIMIT = 100
+STARTUP_NEVER_STARTED_REPLAY_MAX_AGE_SECONDS = 300.0
 
 
 class JobManager:
@@ -749,6 +750,13 @@ class JobManager:
             lease_generation,
         )
         self._append_recovery_event(run, level="error", message=reason)
+        group_store = ParallelGroupStore(self.config.resolve_runs_dir())
+        try:
+            group = group_store.get_group_for_child(run["run_id"])
+        except KeyError:
+            pass
+        else:
+            group_store.refresh_group(str(group["group_id"]))
         return True
 
     def _reconcile_run(self, run: dict) -> None:
@@ -761,9 +769,10 @@ class JobManager:
         worker_pid = int(run.get("worker_pid") or 0)
         worker_identity = str(run.get("worker_identity") or "")
         launcher_pid = int(run.get("launcher_pid") or 0)
+        launcher_identity = str(run.get("launcher_identity") or "")
         child_pid = int(run.get("pid") or 0)
         worker_verified = process_matches_identity(worker_pid, worker_identity)
-        launcher_running = process_is_running(launcher_pid)
+        launcher_verified = process_matches_identity(launcher_pid, launcher_identity)
         child_running = process_is_running(child_pid)
 
         if worker_verified:
@@ -1009,12 +1018,36 @@ class JobManager:
                 if contained is not None:
                     self._append_recovery_event(run, level="warning", message=reason)
                 return
-            if launcher_running:
+            if launcher_verified:
                 self._append_recovery_event(
                     run,
                     level="warning",
-                    message="Launcher remains active; awaiting canonical worker claim",
+                    message="Launcher identity remains active; awaiting canonical worker claim",
                     data={"launcher_pid": launcher_pid},
+                )
+                return
+            try:
+                created_at = datetime.fromisoformat(str(run.get("created_at") or ""))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                replay_age_seconds = max(
+                    0.0,
+                    (
+                        datetime.now(timezone.utc)
+                        - created_at.astimezone(timezone.utc)
+                    ).total_seconds(),
+                )
+            except ValueError:
+                self._fail_recovery(
+                    run,
+                    "Never-started run has invalid creation time; refusing startup replay",
+                )
+                return
+            if replay_age_seconds > STARTUP_NEVER_STARTED_REPLAY_MAX_AGE_SECONDS:
+                self._fail_recovery(
+                    run,
+                    "Never-started run exceeded the bounded startup replay window; "
+                    "refusing delayed execution",
                 )
                 return
             if int(run.get("launch_attempts") or 0) < 2:
@@ -1027,11 +1060,10 @@ class JobManager:
                     if logical_id
                     else None
                 )
-                repository_lock_required = bool(
-                    (run.get("input") or {}).get("repository_lock_required", True)
+                repository_lock_required = repository_lock_required_for_run(
+                    run, self.config.resolve_runs_dir()
                 )
-                if logical_id and not repository_lock_required:
-                    assert refreshed_input is not None
+                if not repository_lock_required:
                     reservation = self.store.reserve_next_unlocked_launch(
                         run_id=run_id,
                         expected_statuses=(status,),
@@ -1058,6 +1090,18 @@ class JobManager:
                         input_data=refreshed_input,
                     )
                 if reservation is None:
+                    current = self.store.get_run(run_id)
+                    if (
+                        str(current.get("status") or "") == status
+                        and int(current.get("state_version") or 0) == state_version
+                        and str(current.get("worker_lease_token") or "") == lease_token
+                        and int(current.get("lease_generation") or 1)
+                        == lease_generation
+                    ):
+                        self._fail_recovery(
+                            current,
+                            "Startup recovery could not reserve the stranded launch intent",
+                        )
                     return
                 try:
                     if refreshed_input is not None:
