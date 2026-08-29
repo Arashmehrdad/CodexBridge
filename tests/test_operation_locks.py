@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 import pytest
 
-import soma.operation_locks as operation_locks
+from soma import operation_locks
 from soma.operation_locks import (
     OperationLockStore,
     RepositoryBusyError,
     repository_operation_lock,
 )
-
 
 RUN_ID = "20260706T120000Z_project_command_deadbeef"
 
@@ -162,6 +163,66 @@ def test_repository_busy_error_exposes_verified_owner_without_releasing_it(
     assert error.lock["run_status"] == "running"
     assert error.lock["stale"] is False
     assert store.find_lock("sample", RUN_ID) is not None
+
+
+def test_orphan_synchronous_lock_expires_even_when_server_pid_is_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store = OperationLockStore(tmp_path / "runs")
+    owner_id = "sync_123_deadbeefcafe"
+    acquired = store.acquire(
+        repo_name="sample",
+        tool="research_map_action",
+        normalized_input={"action": "sync"},
+        run_id=owner_id,
+        owner_pid=123,
+        owner_token="sync-token",
+    )
+    assert acquired.acquired is True
+    with store.store.connect() as conn:
+        conn.execute(
+            "UPDATE operation_locks SET heartbeat_at = ? WHERE repo_name = ?",
+            ("2000-01-01T00:00:00+00:00", "sample"),
+        )
+    monkeypatch.setattr(operation_locks, "_pid_is_running", lambda _pid: True)
+
+    lock = store.find_lock("sample", owner_id)
+    assert lock is not None
+    assert lock["stale"] is True
+    assert store.recover_stale() == 1
+    assert store.find_lock("sample", owner_id) is None
+
+
+def test_repository_operation_lock_renews_sync_lease_while_active(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    monkeypatch.setattr(operation_locks, "_SYNC_LOCK_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(operation_locks, "_SYNC_LOCK_STALE_AFTER_SECONDS", 1.0)
+
+    with repository_operation_lock(
+        runs_dir,
+        repo_name="sample",
+        tool="research_map_action",
+        normalized_input={"action": "sync"},
+    ) as owner_id:
+        store = OperationLockStore(runs_dir)
+        first = store.find_lock("sample", owner_id)
+        assert first is not None
+        first_heartbeat = first["heartbeat_at"]
+        deadline = time.monotonic() + 1.0
+        second = first
+        while time.monotonic() < deadline and second["heartbeat_at"] == first_heartbeat:
+            time.sleep(0.01)
+            refreshed = store.find_lock("sample", owner_id)
+            assert refreshed is not None
+            second = refreshed
+        assert second["heartbeat_at"] != first_heartbeat
+        assert second["owner_pid"] == os.getpid()
+        assert second["stale"] is False
+        assert store.recover_stale() == 0
+
+    assert OperationLockStore(runs_dir).find_lock("sample", owner_id) is None
 
 
 def test_operation_lock_release_allows_next_task(tmp_path: Path) -> None:

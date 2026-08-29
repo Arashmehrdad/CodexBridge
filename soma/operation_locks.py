@@ -3,15 +3,20 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from uuid import uuid4
 
 from .process_control import process_is_running, process_matches_identity
 from .run_store import TERMINAL_STATUSES, RunStore, utc_now
+
+_SYNC_LOCK_HEARTBEAT_INTERVAL_SECONDS = 2.0
+_SYNC_LOCK_STALE_AFTER_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -568,7 +573,6 @@ class OperationLockStore:
         if repo_name:
             where = " WHERE lower(repo_name) = lower(?)"
             params = (repo_name,)
-        now = datetime.now(timezone.utc)
         results: list[dict[str, Any]] = []
         with self.store.connect() as conn:
             rows = conn.execute(
@@ -587,7 +591,7 @@ class OperationLockStore:
                     """,
                     (lock["run_id"],),
                 ).fetchone()
-                heartbeat = datetime.fromisoformat(str(lock["heartbeat_at"]))
+                heartbeat_age = self._heartbeat_age_seconds(lock)
                 results.append(
                     {
                         "repo_name": str(lock["repo_name"]),
@@ -597,8 +601,8 @@ class OperationLockStore:
                         "lease_generation": int(lock["lease_generation"] or 1),
                         "acquired_at": str(lock["acquired_at"]),
                         "heartbeat_at": str(lock["heartbeat_at"]),
-                        "heartbeat_age_seconds": round(
-                            max(0.0, (now - heartbeat).total_seconds()), 3
+                        "heartbeat_age_seconds": (
+                            round(heartbeat_age, 3) if heartbeat_age is not None else None
                         ),
                         "stale": stale,
                         "run_status": str(run["status"] or "") if run else "",
@@ -653,6 +657,16 @@ class OperationLockStore:
                     removed += removed_now
         return removed
 
+    @staticmethod
+    def _heartbeat_age_seconds(row: dict[str, Any]) -> float | None:
+        try:
+            heartbeat = datetime.fromisoformat(str(row["heartbeat_at"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if heartbeat.tzinfo is None or heartbeat.utcoffset() is None:
+            return None
+        return max(0.0, (datetime.now(timezone.utc) - heartbeat).total_seconds())
+
     def _is_stale(self, conn, row: dict[str, Any]) -> bool:
         run = conn.execute(
             """
@@ -663,7 +677,15 @@ class OperationLockStore:
         ).fetchone()
         if run is None:
             owner_pid = row.get("owner_pid")
-            return not bool(owner_pid and _pid_is_running(int(owner_pid)))
+            if not bool(owner_pid and _pid_is_running(int(owner_pid))):
+                return True
+            if str(row.get("run_id") or "").startswith("sync_"):
+                heartbeat_age = self._heartbeat_age_seconds(row)
+                return bool(
+                    heartbeat_age is not None
+                    and heartbeat_age > _SYNC_LOCK_STALE_AFTER_SECONDS
+                )
+            return False
 
         status = str(run["status"] or "")
         worker_pid = int(run["worker_pid"] or 0)
@@ -681,6 +703,30 @@ class OperationLockStore:
         # Non-terminal ownership is retained until JobManager reconciliation makes
         # a process-aware recovery or terminal decision.
         return False
+
+
+def _heartbeat_synchronous_lock(
+    store: OperationLockStore,
+    *,
+    repo_name: str,
+    owner_id: str,
+    owner_token: str,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.wait(_SYNC_LOCK_HEARTBEAT_INTERVAL_SECONDS):
+        try:
+            renewed = store.heartbeat(
+                repo_name,
+                owner_id,
+                owner_token=owner_token,
+                lease_generation=1,
+            )
+        except Exception:
+            continue
+        if not renewed:
+            return
+
+
 @contextmanager
 def repository_operation_lock(
     runs_dir: Path,
@@ -689,22 +735,49 @@ def repository_operation_lock(
     tool: str,
     normalized_input: dict[str, Any],
 ) -> Iterator[str]:
-    """Use the durable repository lock for synchronous mutating operations."""
+    """Use one leased durable repository lock for synchronous mutations."""
     store = OperationLockStore(runs_dir)
     owner_id = f"sync_{os.getpid()}_{uuid4().hex[:12]}"
+    owner_token = uuid4().hex
     acquisition = store.acquire(
         repo_name=repo_name,
         tool=tool,
         normalized_input=normalized_input,
         run_id=owner_id,
         owner_pid=os.getpid(),
+        owner_token=owner_token,
+        lease_generation=1,
     )
     if not acquisition.acquired:
         raise RepositoryBusyError(acquisition)
+
+    stop_event = threading.Event()
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_synchronous_lock,
+        kwargs={
+            "store": store,
+            "repo_name": repo_name,
+            "owner_id": owner_id,
+            "owner_token": owner_token,
+            "stop_event": stop_event,
+        },
+        name=f"soma-sync-lock-{owner_id[-12:]}",
+        daemon=True,
+    )
+    try:
+        heartbeat_thread.start()
+    except Exception:
+        store.release(repo_name, owner_id, owner_token, 1)
+        raise
+
     try:
         yield owner_id
     finally:
-        store.release(repo_name, owner_id)
+        stop_event.set()
+        heartbeat_thread.join(
+            timeout=max(1.0, _SYNC_LOCK_HEARTBEAT_INTERVAL_SECONDS * 2.0)
+        )
+        store.release(repo_name, owner_id, owner_token, 1)
 
 
 def _pid_is_running(pid: int) -> bool:
