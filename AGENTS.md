@@ -246,14 +246,38 @@ Current expected command profiles:
 
 ## Testing and Validation
 
-For normal implementation batches, run:
+Soma uses **tiered validation by default**. The full pytest suite is not the normal inner-loop validation command for ordinary fixes or small implementation batches.
 
-```powershell
-python -m pytest -q
-python -m pip check
+1. **Tier 0 — smoke / exact reproduction**
+   - Run the exact failing test or smallest deterministic reproduction first.
+   - Use fast import/config/contract checks when they directly cover the changed surface.
+
+2. **Tier 1 — touched subsystem**
+   - Run the test file(s), marker(s), or narrowly related subsystem tests that own the changed behavior.
+   - Use `python -m pytest -n 12 -q ...` by default whenever those tests are safe under xdist.
+   - If a specific test genuinely requires serialization, serialize only that test or smallest necessary scope; do not drop the project-wide 12-worker default.
+
+3. **Tier 2 — related integration slice**
+   - For durability, lifecycle, gateway, storage, or cross-module changes, run the directly related integration/acceptance slice after Tier 1.
+   - Examples include the relevant restart, cancellation, lock, workflow, supervisor, process-control, Research Map, or service tests.
+   - Run `python -m pip check` and the relevant Ruff/static checks before commit.
+
+4. **Tier 3 — full suite**
+   - `python -m pytest -n 12 -q` is reserved for explicit full-suite stabilization, release/release-candidate validation, major cross-cutting core changes, or when the user specifically asks for it.
+   - Do **not** automatically run the full suite after an ordinary bug fix merely because the targeted and related integration gates passed.
+   - A failure discovered only by a Tier 3 run must be classified separately; do not silently expand the current fix into unrelated cleanup.
+
+Default normal-fix sequence:
+
+```text
+exact failing test
+→ touched subsystem tests (-n 12 when compatible)
+→ related integration slice when warranted
+→ pip check + relevant Ruff/static checks
+→ commit
 ```
 
-For durability batches, also run targeted restart, cancellation, lock, workflow, supervisor, and process-control tests. If a validation command cannot run, report why.
+For durability batches, include the exact crash/restart/lease boundary being changed in the targeted or related integration slice. If a validation command cannot run, report why.
 
 All new behavior should include tests. Tests should prefer fakes/monkeypatching for subprocess, HTTP, model calls, browser calls, and long-running jobs, but process identity and restart adoption require at least one real subprocess integration path. Prefer tests before claiming success.
 
