@@ -3367,6 +3367,7 @@ def start_local_powershell_async(
     stdin_text: str | None = None,
     stdin_base64: str | None = None,
     timeout_seconds: int | None = None,
+    resource_class: str = "none",
     logical_run_request_id: str = "",
     continuation_context_ref: str = "",
     return_when: str = "accepted",
@@ -3389,6 +3390,7 @@ def start_local_powershell_async(
         stdin_text=stdin_text,
         stdin_bytes=stdin_bytes,
         timeout_seconds=timeout_seconds,
+        resource_class=resource_class,
         logical_run_request_id=logical_run_request_id,
         continuation_context_ref=continuation_context_ref,
     )
@@ -3533,6 +3535,7 @@ def run_start(request: RunStartRequest) -> dict:
             stdin_text=request.stdin_text,
             stdin_base64=request.stdin_base64,
             timeout_seconds=request.timeout_seconds,
+            resource_class=request.resource_class,
             logical_run_request_id=request.logical_run_request_id,
             continuation_context_ref=request.continuation_context_ref,
             return_when=request.return_when,
@@ -4749,6 +4752,8 @@ def run_query(request: RunQueryRequest) -> dict:
         return list_runs(request.repo_name, request.status, request.limit)
     if request.operation == "preflight":
         return get_repository_preflight(request.repo_name, request.include_stale)
+    if request.operation == "resource_queue":
+        return get_job_manager().get_cuda_queue_status(limit=request.limit)
     return list_operation_locks(
         request.repo_name,
         request.include_stale,

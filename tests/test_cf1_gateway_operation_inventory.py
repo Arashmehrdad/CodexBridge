@@ -155,6 +155,7 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     control = _entry_for("run_query", "control")
     events = _entry_for("run_query", "events")
     terminal = _entry_for("run_query", "terminal")
+    resource_queue = _entry_for("run_query", "resource_queue")
     assert summary.default_response_bytes == 6 * 1024
     assert summary.maximum_response_bytes == 6 * 1024
     assert summary_list.default_response_bytes == 12 * 1024
@@ -187,6 +188,10 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
     assert terminal.pagination is PaginationBehavior.NONE
     assert "source-hash" in terminal.notes
     assert "result_json" in terminal.notes
+    assert resource_queue.default_response_bytes == 12 * 1024
+    assert resource_queue.maximum_response_bytes == 12 * 1024
+    assert resource_queue.default_item_limit == 50
+    assert resource_queue.maximum_item_limit == 200
 
     compact_operations = {
         "summary",
@@ -198,6 +203,7 @@ def test_cf1_inventory_records_compact_run_envelope_byte_budgets() -> None:
         "terminal",
         "locks",
         "preflight",
+        "resource_queue",
         "group_status",
         "group_result",
         "repo_apply",

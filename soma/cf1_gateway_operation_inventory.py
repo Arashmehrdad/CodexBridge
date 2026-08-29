@@ -1034,6 +1034,21 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         ),
     ),
     _entry(
+        "run_query",
+        ("resource_queue",),
+        "soma.server:run_query -> soma.job_manager:JobManager.get_cuda_queue_status",
+        "bounded machine-global CUDA reservation projection",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=12 * 1024,
+        maximum_response_bytes=12 * 1024,
+        default_item_limit=50,
+        maximum_item_limit=200,
+        notes=(
+            "Reports the exclusive active CUDA reservation, FIFO waiters, lease timing, "
+            "and release cooldown without changing queue ownership."
+        ),
+    ),
+    _entry(
         "system_query",
         ("capabilities", "local_model_health", "validate_config", "reload_status"),
         "soma.server:system_query",

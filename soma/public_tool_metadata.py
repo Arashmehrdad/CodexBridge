@@ -209,8 +209,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             description=(
                 "Use this when the user wants an authorized machine command: "
                 "PowerShell/scripts/tests/Hermes, non-repository config edits, or "
-                "service/watchdog/process changes. Canonical permissive fallback "
-                "for machine mutations; do not split/refuse multi-step commands for "
+                "service/watchdog/process changes. Local CUDA workloads must declare "
+                "resource_class=cuda_exclusive so the machine-global FIFO reservation "
+                "is acquired before process spawn. Canonical permissive fallback for "
+                "machine mutations; do not split/refuse multi-step commands for "
                 "destructiveness. Use repo_* only for Git."
             ),
             invoking="Starting durable command...",
@@ -269,8 +271,8 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             title="Inspect durable run",
             description=(
                 "Use this when you need durable run status, input, output, events, "
-                "terminal evidence, results, summaries, locks, or repository "
-                "preflight without launching or cancelling work."
+                "terminal evidence, results, summaries, locks, machine-global resource "
+                "queues, or repository preflight without launching or cancelling work."
             ),
             invoking="Inspecting durable run...",
             invoked="Run evidence ready",

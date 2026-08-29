@@ -206,6 +206,12 @@ class RunPreflightQuery(GatewayModel):
     include_stale: bool = False
 
 
+class RunResourceQueueQuery(GatewayModel):
+    operation: Literal["resource_queue"]
+    resource: Literal["cuda"] = "cuda"
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 RunQueryRequest = Annotated[
     RunStatusQuery
     | RunInputQuery
@@ -220,7 +226,8 @@ RunQueryRequest = Annotated[
     | RunSummaryListQuery
     | RunListQuery
     | RunLocksQuery
-    | RunPreflightQuery,
+    | RunPreflightQuery
+    | RunResourceQueueQuery,
     Field(discriminator="operation"),
 ]
 
@@ -1405,6 +1412,7 @@ class LocalPowerShellStart(GatewayModel):
     stdin_text: str | None = Field(default=None, max_length=2_000_000)
     stdin_base64: str | None = Field(default=None, max_length=2_700_000)
     timeout_seconds: int | None = Field(default=None, ge=1, le=604_800)
+    resource_class: Literal["none", "cuda_exclusive"] = "none"
     return_when: Literal["accepted", "terminal_or_timeout"] = "accepted"
     wait_seconds: float = Field(default=0.0, ge=0.0, le=20.0)
 

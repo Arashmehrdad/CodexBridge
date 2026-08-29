@@ -105,6 +105,14 @@ The following execution invariants are permanent requirements for every new loca
    - Parsers may match command prefixes case-insensitively, but must preserve run, job, workflow, supervisor, host, and profile identifiers exactly as supplied.
    - Never lowercase an opaque identifier before process ownership, lock, database, or artifact lookup.
 
+11. **Machine-global CUDA arbitration**
+   - Every local Soma-launched workload that can initialize or execute CUDA must use `run_start(operation="powershell", resource_class="cuda_exclusive", ...)`.
+   - Checking `nvidia-smi`, GPU utilization, free VRAM, or `torch.cuda.is_available()` is diagnostic only and never grants launch permission.
+   - The CUDA reservation must be acquired before the child process is spawned and held until the canonical CUDA child is terminal or safely contained. CUDA commands must not detach GPU subprocesses outside canonical Run ownership.
+   - Unrelated repositories and Chats share the same FIFO CUDA queue; do not create per-repository GPU locks or bypass the queue because the device appears idle.
+   - Queue leases require heartbeat, worker process identity, stale/dead-owner recovery, cancellation-safe release, and a short post-release cooldown before the next grant.
+   - Default GPU jobs are exclusive. Shared/VRAM-packed GPU scheduling requires a separately accepted design and must not be inferred automatically.
+
 ## Required Crash-Window Tests
 
 Durability changes must add tests for the exact failure boundaries they close. At minimum cover:

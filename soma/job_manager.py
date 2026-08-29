@@ -27,6 +27,7 @@ from .command_profiles import (
     resolve_command_profile,
 )
 from .config import AppConfig, resolve_repo, resolve_repo_config
+from .cuda_queue import CUDA_RESOURCE_CLASS, CudaQueueStore
 from .docker_tools import build_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .external_fixtures import validate_fixture_request
@@ -551,6 +552,7 @@ class JobManager:
         self.config_path = config_path
         self.store = RunStore(config.resolve_runs_dir())
         self.locks = OperationLockStore(config.resolve_runs_dir())
+        self.cuda_queue = CudaQueueStore(config.resolve_runs_dir())
         self._continuation_store: "ContinuationStore | None" = None
         self._remote_reconciliation_lock = threading.Lock()
         self._remote_reconciliation_pollers: set[str] = set()
@@ -631,6 +633,7 @@ class JobManager:
                 )
             reconciled += 1
         self.locks.recover_stale()
+        reconciled += self.cuda_queue.recover_stale()
         reconciled += len(
             refill_powershell_groups(
                 config=self.config,
@@ -1200,6 +1203,7 @@ class JobManager:
         stdin_text: str | None = None,
         stdin_bytes: bytes | None = None,
         timeout_seconds: int | None = None,
+        resource_class: str = "none",
         reserved_run_id: str | None = None,
         logical_run_request_id: str = "",
         continuation_context_ref: str = "",
@@ -1216,6 +1220,7 @@ class JobManager:
             stdin_text=stdin_text,
             stdin_bytes=stdin_bytes,
             timeout_seconds=timeout_seconds,
+            resource_class=resource_class,
         )
         timeout = request.get("timeout_seconds")
         estimated_minutes = 1 if timeout is None else max(1, (int(timeout) + 59) // 60)
@@ -1234,18 +1239,39 @@ class JobManager:
                 raise ValueError("Hermes companion metadata must be a mapping")
             input_data["hermes_companion"] = dict(hermes_companion)
             input_data["repository_lock_required"] = False
-        response = self._create_and_launch(
-            "executable_profile",
-            repo_name,
-            input_data,
-            decision,
-            reserved_run_id=reserved_run_id,
-            logical_run_request_id=logical_run_request_id,
-            continuation_context_ref=continuation_context_ref,
-        )
+        selected_run_id = reserved_run_id
+        cuda_prequeued = request.get("resource_class") == CUDA_RESOURCE_CLASS
+        if cuda_prequeued:
+            selected_run_id = selected_run_id or make_run_id("executable_profile")
+            self.cuda_queue.enqueue(
+                selected_run_id,
+                repo_name,
+                requested_at=time.time(),
+            )
+        try:
+            response = self._create_and_launch(
+                "executable_profile",
+                repo_name,
+                input_data,
+                decision,
+                reserved_run_id=selected_run_id,
+                logical_run_request_id=logical_run_request_id,
+                continuation_context_ref=continuation_context_ref,
+            )
+        except Exception:
+            if cuda_prequeued and selected_run_id:
+                self.cuda_queue.cancel_waiting(selected_run_id)
+            raise
+        if cuda_prequeued and selected_run_id:
+            if str(response.get("run_id") or "") != selected_run_id or not response.get("accepted"):
+                self.cuda_queue.cancel_waiting(selected_run_id)
         response.setdefault("repo_name", repo_name)
         response["profile_id"] = profile_id
+        response["resource_class"] = str(request.get("resource_class") or "none")
         return response
+
+    def get_cuda_queue_status(self, *, limit: int = 50) -> dict[str, object]:
+        return self.cuda_queue.snapshot(limit=limit)
 
     def wait_for_terminal_or_timeout(
         self, start_response: dict, wait_seconds: float

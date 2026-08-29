@@ -37,6 +37,11 @@ from .config import (
     resolve_repo,
     resolve_repo_config,
 )
+from .cuda_queue import (
+    CUDA_HEARTBEAT_INTERVAL_SECONDS,
+    CUDA_RESOURCE_CLASS,
+    CudaQueueStore,
+)
 from .docker_tools import build_docker_action, run_docker_action
 from .events import ArtifactWriter, redact_and_truncate
 from .executable_profiles import resolve_verified_local_executable
@@ -1134,7 +1139,115 @@ class JobWorker:
                     self.worker_lease_generation,
                 )
 
+    def _cuda_wait_cancelled(self) -> bool:
+        current = self.store.get_run(self.run_id)
+        if str(current.get("status") or "") != "running":
+            return True
+        progress = current.get("progress")
+        return isinstance(progress, dict) and bool(progress.get("cancellation_requested_at"))
+
     def _execute_executable_profile(self, started_at: str, input_data: dict) -> dict:
+        resource_class = str(input_data.get("resource_class") or "none")
+        if resource_class == "none":
+            return self._execute_executable_profile_inner(started_at, input_data)
+        if resource_class != CUDA_RESOURCE_CLASS:
+            raise ValueError("Unsupported executable resource_class")
+
+        owner_pid = os.getpid()
+        owner_identity = process_identity(owner_pid)
+        if not owner_identity:
+            raise RuntimeError("CUDA queue could not capture worker process identity")
+        owner_key = sha256(
+            f"{self.run_id}:{self.worker_lease_generation}:{self.worker_lease_token}".encode("utf-8")
+        ).hexdigest()
+        queue = CudaQueueStore(self.config.resolve_runs_dir())
+        self.event(
+            "info",
+            "resource_queue",
+            "CUDA reservation queued",
+            {"resource_class": resource_class},
+        )
+        wait_started = time.monotonic()
+        reservation = queue.wait_for_turn(
+            self.run_id,
+            repo_name=str(self.run.get("repo_name") or ""),
+            owner_pid=owner_pid,
+            owner_identity=owner_identity,
+            owner_key=owner_key,
+            requested_at=self.run.get("created_at"),
+            cancelled=self._cuda_wait_cancelled,
+        )
+        wait_seconds = time.monotonic() - wait_started
+        lease_generation = int(reservation["lease_generation"])
+        self.event(
+            "info",
+            "resource_queue",
+            "CUDA reservation acquired",
+            {
+                "resource_class": resource_class,
+                "request_id": reservation["request_id"],
+                "lease_generation": lease_generation,
+                "wait_seconds": round(wait_seconds, 3),
+            },
+        )
+
+        heartbeat_stop = threading.Event()
+        heartbeat_errors: list[str] = []
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(CUDA_HEARTBEAT_INTERVAL_SECONDS):
+                try:
+                    if not queue.heartbeat(
+                        self.run_id,
+                        owner_key=owner_key,
+                        lease_generation=lease_generation,
+                    ):
+                        heartbeat_errors.append("reservation ownership was lost")
+                        return
+                except Exception as exc:
+                    heartbeat_errors.append(str(exc))
+
+        heartbeat_thread = threading.Thread(
+            target=heartbeat,
+            name=f"soma-cuda-lease-{self.run_id}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
+        self._cuda_reservation_context = (queue, owner_key, lease_generation)
+        try:
+            result = self._execute_executable_profile_inner(started_at, input_data)
+            result["resource_class"] = resource_class
+            result["resource_wait_seconds"] = round(wait_seconds, 3)
+            result["cuda_reservation"] = {
+                "request_id": reservation["request_id"],
+                "lease_generation": lease_generation,
+            }
+            if heartbeat_errors:
+                result["cuda_queue_heartbeat_warnings"] = heartbeat_errors[-3:]
+            return result
+        finally:
+            self._cuda_reservation_context = None
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=3.0)
+            released = queue.release(
+                self.run_id,
+                owner_key=owner_key,
+                lease_generation=lease_generation,
+            )
+            self.event(
+                "info" if released else "error",
+                "resource_queue",
+                "CUDA reservation released" if released else "CUDA reservation release failed",
+                {
+                    "resource_class": resource_class,
+                    "request_id": reservation["request_id"],
+                    "lease_generation": lease_generation,
+                },
+            )
+            if not released:
+                raise RuntimeError("CUDA reservation ownership was not released safely")
+
+    def _execute_executable_profile_inner(self, started_at: str, input_data: dict) -> dict:
         profile, executable_identity = resolve_verified_local_executable(
             self.config,
             str(input_data["profile_id"]),
@@ -1236,6 +1349,27 @@ class JobWorker:
         # identity is unterminable under the no-raw-PID rule, so it must not
         # reach a healthy attachment.
         child_identity = capture_launch_identity(process)
+        cuda_context = getattr(self, "_cuda_reservation_context", None)
+        if cuda_context is not None:
+            cuda_queue, cuda_owner_key, cuda_lease_generation = cuda_context
+            try:
+                cuda_bound = cuda_queue.bind_child(
+                    self.run_id,
+                    owner_key=cuda_owner_key,
+                    lease_generation=cuda_lease_generation,
+                    child_pid=process.pid,
+                    child_identity=child_identity,
+                )
+            except Exception:
+                require_identity_scoped_cleanup(
+                    process.pid, child_identity, process=process
+                )
+                raise
+            if not cuda_bound:
+                require_identity_scoped_cleanup(
+                    process.pid, child_identity, process=process
+                )
+                raise RuntimeError("CUDA reservation was lost before child binding")
         try:
             attached = self.store.attach_child_pid(
                 self.run_id,

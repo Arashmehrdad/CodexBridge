@@ -150,6 +150,7 @@ def build_local_executable_run_request(
     stdin_text: str | None = None,
     stdin_bytes: bytes | None = None,
     timeout_seconds: int | None = None,
+    resource_class: str = "none",
     default_working_directory: str = "",
 ) -> dict[str, object]:
     profile, executable_identity = resolve_verified_local_executable(config, profile_id)
@@ -177,6 +178,9 @@ def build_local_executable_run_request(
         selected_timeout = int(selected_timeout)
         if selected_timeout < 1 or selected_timeout > 604800:
             raise ValueError("Executable timeout_seconds must be between 1 and 604800")
+    selected_resource_class = str(resource_class or "none")
+    if selected_resource_class not in {"none", "cuda_exclusive"}:
+        raise ValueError("Executable resource_class must be none or cuda_exclusive")
     return {
         "profile_id": profile.profile_id,
         "executable_identity": executable_identity,
@@ -198,6 +202,7 @@ def build_local_executable_run_request(
         "stdout_mode": profile.stdout_mode,
         "stderr_mode": profile.stderr_mode,
         "timeout_seconds": selected_timeout,
+        "resource_class": selected_resource_class,
         "cancellation_policy": profile.cancellation_policy,
         "public_output_max_bytes": profile.public_output_max_bytes,
         "preserve_protected_artifacts": profile.preserve_protected_artifacts,
