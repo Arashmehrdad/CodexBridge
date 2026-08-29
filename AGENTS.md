@@ -33,6 +33,30 @@ Future coding-agent sessions must inspect the repository before assuming any roa
 - Never reset, clean, discard, amend, rebase, or rewrite existing work/history.
 - Use PowerShell snippets in docs.
 
+## Architectural Conformance Gate
+
+Owner-approved architecture, explicit owner constraints, and accepted architecture/acceptance records are hard implementation requirements, not advisory context.
+
+For every implementation batch:
+- Identify the exact architectural seam being changed and preserve all surrounding accepted boundaries.
+- Treat passing unit/integration tests as necessary but not sufficient; acceptance also requires proving that the resulting runtime architecture still matches the owner-approved design.
+- Do not convert a temporary test, conformance, migration, benchmark, or debugging dependency into a normal runtime dependency unless the owner explicitly authorizes that architectural change.
+- Do not let implementation convenience, an already-running service, or an available dependency silently redefine the accepted operating model.
+- When a roadmap item can be implemented in multiple ways, choose only an approach consistent with existing owner constraints and accepted architecture records. If those sources conflict or the compliant path is unclear, stop and surface the conflict before implementation.
+- Cross-cutting runtime, storage, lifecycle, dependency, authority, or serving changes require an explicit before/after architecture check covering component ownership, persistent dependencies, startup/restart behavior, failure/rollback behavior, and which subsystem is authoritative.
+- A batch that starts requiring unrelated architectural changes must be split or re-authorized rather than expanded opportunistically.
+- After the owner corrects a recurring architectural or operational rule, update `AGENTS.md` in the same workstream before continuing implementation so later sessions cannot lose the correction.
+- Never declare a roadmap or acceptance milestone closed while a known implementation detail contradicts an accepted owner boundary, even if its functional tests pass.
+
+### Docker Runtime Boundary
+
+- Docker Desktop and Docker containers are disposable conformance/test infrastructure for Soma unless the owner explicitly authorizes a different use.
+- Normal Soma operation must remain functional with Docker Desktop stopped.
+- No normal Soma or Research Map runtime path may acquire Docker as a persistent service, storage, startup, or availability dependency without explicit owner authorization and a dedicated architecture acceptance step.
+- Research Map conformance may use a pinned disposable FalkorDB container, but that container must not become the accepted normal backend merely because it is already available.
+- Conformance work that starts Docker must tear down its disposable containers and leave Docker stopped when the proof is complete, unless another explicitly authorized task still owns Docker.
+- Docker-specific cleanup, prune, volume deletion, and other destructive operations remain subject to the Safety and Autonomy Policy below.
+
 ## Current Plan Authority
 
 `PLANS.md` is the sole concise source of active plan truth. No Company package is currently activated. The semantic-continuation + portable-Skill programme is completed/accepted; Patch Auto-Repair remains the next intended lane but still requires its own owner opening instruction. Historical V3/Agent-Worker material below remains compatibility and architecture history, not permission to resume a frozen lane.
