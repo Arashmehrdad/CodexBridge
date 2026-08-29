@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import importlib.metadata
 import importlib.util
@@ -27,6 +28,7 @@ HTTPX_VERSION = "0.28.1"
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIMENSION = 384
 FALKOR_QUERY_TIMEOUT_MS = 5000
+FALKOR_WRITE_CONCURRENCY = 8
 GRAPHITI_PROJECTION_VERSION = "soma.research-map.graphiti-falkor.v1"
 _REQUIRED_MODULES = ("graphiti_core", "fastembed", "falkordb")
 _REQUIRED_DISTRIBUTIONS = {
@@ -257,27 +259,11 @@ class GraphitiFalkorBackend:
         await self._graphiti.build_indices_and_constraints(delete_existing=True)
 
     async def clone_from_current(self, source: object) -> None:
-        await self._open()
-        source_database = ""
-        if isinstance(source, str):
-            source_database = source
-        elif isinstance(source, dict):
-            source_database = str(source.get("database") or "")
-        else:
-            source_database = str(getattr(source, "database", "") or "")
-        if not source_database:
-            raise ResearchMapBackendError("source generation does not expose a database")
-        if source_database == self.database:
-            raise ResearchMapBackendError("source and destination databases must differ")
-        client = getattr(self._driver, "client", None)
-        execute_command = getattr(client, "execute_command", None)
-        if execute_command is None:
-            raise ResearchMapBackendError("FalkorDB client does not expose GRAPH.COPY")
-        reply = await _maybe_await(
-            execute_command("GRAPH.COPY", source_database, self.database)
+        del source
+        raise ResearchMapBackendError(
+            "Graphiti/FalkorDB clone_from_current is disabled; the live FalkorDB "
+            "v4.20.4 backend crashed on GRAPH.COPY during conformance probing"
         )
-        if not reply:
-            raise ResearchMapBackendError("FalkorDB GRAPH.COPY did not report success")
 
     async def upsert_nodes(self, nodes: tuple[ProjectedNode, ...]) -> None:
         if not nodes:
@@ -286,7 +272,9 @@ class GraphitiFalkorBackend:
         names = [node.key for node in nodes]
         embeddings = await self._embedder.create_batch(names)
         entity_node = self._deps["EntityNode"]
-        for node, embedding in zip(nodes, embeddings, strict=True):
+        semaphore = asyncio.Semaphore(FALKOR_WRITE_CONCURRENCY)
+
+        async def save_one(node: ProjectedNode, embedding: list[float]) -> None:
             stored = entity_node(
                 uuid=node.uuid,
                 name=node.key,
@@ -295,7 +283,12 @@ class GraphitiFalkorBackend:
                 name_embedding=embedding,
                 attributes={"semantic_label": node.label},
             )
-            await stored.save(self._driver)
+            async with semaphore:
+                await stored.save(self._driver)
+
+        await asyncio.gather(
+            *(save_one(node, embedding) for node, embedding in zip(nodes, embeddings, strict=True))
+        )
 
     async def upsert_relations(self, relations: tuple[ProjectedRelation, ...]) -> None:
         if not relations:
@@ -305,7 +298,9 @@ class GraphitiFalkorBackend:
             [relation.statement for relation in relations]
         )
         entity_edge = self._deps["EntityEdge"]
-        for relation, embedding in zip(relations, embeddings, strict=True):
+        semaphore = asyncio.Semaphore(FALKOR_WRITE_CONCURRENCY)
+
+        async def save_one(relation: ProjectedRelation, embedding: list[float]) -> None:
             stored = entity_edge(
                 uuid=relation.uuid,
                 group_id=self.repository_uid,
@@ -330,7 +325,15 @@ class GraphitiFalkorBackend:
                     "authority": "research_doc",
                 },
             )
-            await stored.save(self._driver)
+            async with semaphore:
+                await stored.save(self._driver)
+
+        await asyncio.gather(
+            *(
+                save_one(relation, embedding)
+                for relation, embedding in zip(relations, embeddings, strict=True)
+            )
+        )
 
     async def remove_relations(self, relation_ids: tuple[str, ...]) -> None:
         if not relation_ids:

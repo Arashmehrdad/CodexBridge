@@ -1,23 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
 from .backend import (
     BackendProjection,
-    ProjectedNode,
-    ProjectedRelation,
     ResearchMapBackend,
     ResearchMapBackendError,
     build_backend_projection,
 )
 from .generation import (
-    RELATIONS_FILENAME,
     CurrentGeneration,
     ResearchMapGenerationError,
     SyncWriterLock,
@@ -25,7 +20,6 @@ from .generation import (
     current_payload,
     desired_artifact_payload,
     generation_database_name,
-    generation_directory,
     health_payload,
     load_current_generation,
     new_generation_id,
@@ -119,83 +113,6 @@ async def _verify_existing_current(
         await backend.close()
 
 
-def _additive_delta_from_current(
-    repository_root: Path,
-    current: CurrentGeneration,
-    projection: BackendProjection,
-) -> tuple[
-    tuple[ProjectedNode, ...],
-    tuple[ProjectedRelation, ...],
-    tuple[str, ...],
-] | None:
-    """Return a safe append-only delta, otherwise require a full rebuild."""
-    path = generation_directory(repository_root, current.generation) / RELATIONS_FILENAME
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8", errors="strict"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ResearchMapGenerationError(
-            "published RELATIONS.json cannot be decoded for incremental sync"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ResearchMapGenerationError(
-            "published RELATIONS.json must be an object for incremental sync"
-        )
-    expected_metadata = {
-        "repository_uid": current.repository_uid,
-        "semantic_desired_state_sha256": current.semantic_desired_state_sha256,
-        "projection_contract_sha256": current.projection_contract_sha256,
-        "database": current.database,
-    }
-    for key, expected in expected_metadata.items():
-        if payload.get(key) != expected:
-            raise ResearchMapGenerationError(
-                f"published RELATIONS.json metadata mismatch for incremental sync: {key}"
-            )
-    raw_nodes = payload.get("nodes")
-    raw_relations = payload.get("relations")
-    if not isinstance(raw_nodes, list) or not isinstance(raw_relations, list):
-        raise ResearchMapGenerationError(
-            "published RELATIONS.json is missing node/relation arrays"
-        )
-    if len(raw_relations) != current.relation_count:
-        raise ResearchMapGenerationError(
-            "published RELATIONS.json relation count does not match CURRENT"
-        )
-
-    prior_nodes: dict[str, dict[str, object]] = {}
-    for raw in raw_nodes:
-        if not isinstance(raw, dict) or not isinstance(raw.get("uuid"), str):
-            raise ResearchMapGenerationError("published node entry is invalid")
-        uuid = str(raw["uuid"])
-        if uuid in prior_nodes:
-            raise ResearchMapGenerationError("published node UUIDs are not unique")
-        prior_nodes[uuid] = raw
-
-    prior_relations: dict[str, dict[str, object]] = {}
-    for raw in raw_relations:
-        if not isinstance(raw, dict) or not isinstance(raw.get("relation_id"), str):
-            raise ResearchMapGenerationError("published relation entry is invalid")
-        relation_id = str(raw["relation_id"])
-        if relation_id in prior_relations:
-            raise ResearchMapGenerationError("published relation IDs are not unique")
-        prior_relations[relation_id] = raw
-
-    desired_nodes = {item.uuid: asdict(item) for item in projection.nodes}
-    desired_relations = {item.relation_id: asdict(item) for item in projection.relations}
-    if any(desired_nodes.get(key) != value for key, value in prior_nodes.items()):
-        return None
-    if any(
-        desired_relations.get(key) != value for key, value in prior_relations.items()
-    ):
-        return None
-
-    added_nodes = tuple(item for item in projection.nodes if item.uuid not in prior_nodes)
-    added_relations = tuple(
-        item for item in projection.relations if item.relation_id not in prior_relations
-    )
-    return added_nodes, added_relations, tuple(sorted(prior_relations))
-
-
 async def _build_generation(
     repository_root: Path,
     *,
@@ -205,9 +122,6 @@ async def _build_generation(
     projection_contract_sha256: str,
     backend_factory: BackendFactory,
     failure_point: str | None,
-    source_current: CurrentGeneration | None = None,
-    added_nodes: tuple[ProjectedNode, ...] = (),
-    added_relations: tuple[ProjectedRelation, ...] = (),
 ) -> dict[str, object]:
     expected_relation_ids = tuple(relation.relation_id for relation in projection.relations)
     generation = new_generation_id(
@@ -240,20 +154,14 @@ async def _build_generation(
     backend = backend_factory(repository_uid, database)
     published = False
     try:
-        if source_current is None:
-            await backend.build_empty()
-            await backend.upsert_nodes(projection.nodes)
-            if failure_point == "mid_relation_writes" and projection.relations:
-                split = max(1, len(projection.relations) // 2)
-                await backend.upsert_relations(projection.relations[:split])
-                _inject(failure_point, "mid_relation_writes")
-            else:
-                await backend.upsert_relations(projection.relations)
-                _inject(failure_point, "mid_relation_writes")
+        await backend.build_empty()
+        await backend.upsert_nodes(projection.nodes)
+        if failure_point == "mid_relation_writes" and projection.relations:
+            split = max(1, len(projection.relations) // 2)
+            await backend.upsert_relations(projection.relations[:split])
+            _inject(failure_point, "mid_relation_writes")
         else:
-            await backend.clone_from_current(source_current)
-            await backend.upsert_nodes(added_nodes)
-            await backend.upsert_relations(added_relations)
+            await backend.upsert_relations(projection.relations)
             _inject(failure_point, "mid_relation_writes")
 
         actual_before_save = tuple(sorted(await backend.read_relation_manifest()))
@@ -313,17 +221,8 @@ async def _build_generation(
             "projection_contract_sha256": projection_contract_sha256,
             "published": True,
             "reopen_verified": True,
-            "build_strategy": (
-                "full_rebuild" if source_current is None else "additive_clone"
-            ),
-            "added_node_count": (
-                len(projection.nodes) if source_current is None else len(added_nodes)
-            ),
-            "added_relation_count": (
-                len(projection.relations)
-                if source_current is None
-                else len(added_relations)
-            ),
+            "build_strategy": "full_rebuild_bounded_parallel",
+            "node_count": len(projection.nodes),
         }
     finally:
         if not published:
@@ -389,29 +288,6 @@ async def sync_research_map_async(
                     "error": "",
                 }
 
-        source_current: CurrentGeneration | None = None
-        added_nodes: tuple[ProjectedNode, ...] = ()
-        added_relations: tuple[ProjectedRelation, ...] = ()
-        if (
-            action == "sync"
-            and current is not None
-            and current.repository_uid == manifest.repository_uid
-            and current.projection_contract_sha256 == projection_hash
-        ):
-            additive_delta = _additive_delta_from_current(root, current, projection)
-            if additive_delta is not None:
-                candidate_nodes, candidate_relations, current_relation_ids = additive_delta
-                source_verified = await _verify_existing_current(
-                    current,
-                    current_relation_ids,
-                    repository_uid=manifest.repository_uid,
-                    backend_factory=backend_factory,
-                )
-                if source_verified:
-                    source_current = current
-                    added_nodes = candidate_nodes
-                    added_relations = candidate_relations
-
         built = await _build_generation(
             root,
             repository_uid=manifest.repository_uid,
@@ -420,9 +296,6 @@ async def sync_research_map_async(
             projection_contract_sha256=projection_hash,
             backend_factory=backend_factory,
             failure_point=failure_point,
-            source_current=source_current,
-            added_nodes=added_nodes,
-            added_relations=added_relations,
         )
         return {
             "ok": True,

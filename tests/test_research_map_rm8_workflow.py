@@ -129,7 +129,6 @@ class _WorkflowBackendStore:
         self.live: dict[str, set[str]] = {}
         self.search_hits: list[str] = []
         self.fail_persist = False
-        self.clone_calls = 0
 
     def factory(self, _repository_uid: str, database: str) -> _WorkflowBackend:
         return _WorkflowBackend(self, database)
@@ -145,12 +144,8 @@ class _WorkflowBackend:
         self.store.live[self.database] = set()
 
     async def clone_from_current(self, source: object) -> None:
-        source_database = str(getattr(source, "database", ""))
-        assert source_database
-        self.store.clone_calls += 1
-        self.store.live[self.database] = set(
-            self.store.persisted.get(source_database, set())
-        )
+        del source
+        raise AssertionError("RM8 workflow acceptance must not clone")
 
     async def upsert_nodes(self, nodes: tuple[ProjectedNode, ...]) -> None:
         del nodes
@@ -283,8 +278,7 @@ def test_rm8_adopted_workflow_is_markdown_first_source_verified_and_idempotent(
     assert new_rid is not None
     second = _sync(tmp_path, store)
     assert second["status"] == "synchronized"
-    assert second["build_strategy"] == "additive_clone"
-    assert store.clone_calls == 1
+    assert second["build_strategy"] == "full_rebuild_bounded_parallel"
 
     health = research_map_query_gateway(
         tmp_path,

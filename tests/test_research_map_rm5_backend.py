@@ -21,6 +21,7 @@ from soma.research_map.backend import (
 )
 from soma.research_map.graphiti_backend import (
     FALKOR_QUERY_TIMEOUT_MS,
+    FALKOR_WRITE_CONCURRENCY,
     GraphitiFalkorBackend,
     _bounded_falkor_driver_type,
     _client_types,
@@ -244,15 +245,6 @@ class _FakeDriver:
         self.closed = True
 
 
-class _FakeCopyClient:
-    def __init__(self) -> None:
-        self.commands: list[tuple[object, ...]] = []
-
-    async def execute_command(self, *args: object) -> object:
-        self.commands.append(args)
-        return "OK"
-
-
 class _FakeGraphiti:
     def __init__(self) -> None:
         self.group_ids: object = "not-called"
@@ -295,17 +287,54 @@ def test_rm5_server_backend_requires_explicit_save() -> None:
         asyncio.run(failing.persist())
 
 
-def test_rm5_clone_from_current_uses_graph_copy() -> None:
+def test_rm5_clone_from_current_is_disabled_after_live_copy_crash() -> None:
     backend = GraphitiFalkorBackend(
         repository_uid="srepo_0123456789abcdef",
         database="rm5_destination",
     )
-    client = _FakeCopyClient()
-    backend._driver = _FakeDriver(client)
+    with pytest.raises(ResearchMapBackendError, match="clone_from_current is disabled"):
+        asyncio.run(backend.clone_from_current(SimpleNamespace(database="rm5_source")))
 
-    asyncio.run(backend.clone_from_current(SimpleNamespace(database="rm5_source")))
 
-    assert client.commands == [("GRAPH.COPY", "rm5_source", "rm5_destination")]
+def test_rm5_node_writes_use_bounded_parallelism() -> None:
+    active = 0
+    max_active = 0
+    saved: list[str] = []
+
+    class FakeEmbedder:
+        async def create_batch(self, values: list[str]) -> list[list[float]]:
+            return [[float(index)] for index, _value in enumerate(values)]
+
+    class FakeEntityNode:
+        def __init__(self, **kwargs: object) -> None:
+            self.uuid = str(kwargs["uuid"])
+
+        async def save(self, _driver: object) -> None:
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            try:
+                await asyncio.sleep(0.01)
+                saved.append(self.uuid)
+            finally:
+                active -= 1
+
+    backend = GraphitiFalkorBackend(
+        repository_uid="srepo_0123456789abcdef",
+        database="rm5_parallel",
+    )
+    backend._driver = object()
+    backend._embedder = FakeEmbedder()
+    backend._deps = {"EntityNode": FakeEntityNode}
+    nodes = tuple(
+        SimpleNamespace(uuid=f"node-{index}", key=f"key-{index}", label=f"label-{index}")
+        for index in range(FALKOR_WRITE_CONCURRENCY * 3)
+    )
+
+    asyncio.run(backend.upsert_nodes(nodes))  # type: ignore[arg-type]
+
+    assert len(saved) == len(nodes)
+    assert 1 < max_active <= FALKOR_WRITE_CONCURRENCY
 
 
 def test_rm5_search_deliberately_avoids_group_id_filter() -> None:

@@ -120,15 +120,6 @@ class _FakeBackendStore:
         return _FakeBackend(self, database)
 
 
-class _CloneBackendStore(_FakeBackendStore):
-    def __init__(self) -> None:
-        super().__init__()
-        self.clone_calls = 0
-
-    def factory(self, _repository_uid: str, database: str) -> _CloneBackend:
-        return _CloneBackend(self, database)
-
-
 class _SlowBackendStore(_FakeBackendStore):
     def factory(self, _repository_uid: str, database: str) -> _SlowBackend:
         return _SlowBackend(self, database)
@@ -182,18 +173,6 @@ class _FakeBackend:
         )
 
 
-class _CloneBackend(_FakeBackend):
-    store: _CloneBackendStore
-
-    async def clone_from_current(self, source: object) -> None:
-        source_database = str(getattr(source, "database", ""))
-        assert source_database
-        self.store.clone_calls += 1
-        self.store.live[self.database] = set(
-            self.store.persisted.get(source_database, set())
-        )
-
-
 class _SlowBackend(_FakeBackend):
     async def build_empty(self) -> None:
         await asyncio.sleep(0.1)
@@ -244,50 +223,6 @@ def test_rm6_unchanged_sync_verifies_backend_without_republishing(tmp_path: Path
     assert second["generation"] == first["generation"]
     assert second["published"] is False
     assert sorted((tmp_path / RUNTIME_RELATIVE_PATH / "generations").iterdir()) == generations_before
-
-
-def test_rm6_append_only_sync_clones_verified_current_and_writes_only_delta(
-    tmp_path: Path,
-) -> None:
-    first_rid = _write_reviewed_repo(tmp_path)
-    store = _CloneBackendStore()
-    first = _sync(tmp_path, store)
-
-    sidecar_path = tmp_path / "docs/research/_soma_map/001_rm6.json"
-    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    second_rid = relation_id(
-        "docs/research/001_rm6.md",
-        "finding:rm6:additive",
-        "SUPPORTS",
-        "claim:rm6:additive",
-    )
-    sidecar["relations"].append(
-        {
-            "relation_id": second_rid,
-            "subject": {"key": "finding:rm6:additive", "label": "RM6 additive finding"},
-            "predicate": "SUPPORTS",
-            "object": {"key": "claim:rm6:additive", "label": "RM6 additive claim"},
-            "statement": "RM6 additive statement",
-            "locator": {"anchor": "immutable anchor"},
-            "epistemic_class": "observed",
-            "lifecycle": "current",
-            "supersedes": [],
-            "facets": {"stage": ["RM6"]},
-            "qualifiers": {"scope": ["additive clone"]},
-        }
-    )
-    sidecar_path.write_text(json.dumps(sidecar, ensure_ascii=False), encoding="utf-8")
-
-    second = _sync(tmp_path, store)
-    current = load_current_generation(tmp_path)
-
-    assert second["status"] == "synchronized"
-    assert second["generation"] != first["generation"]
-    assert second["build_strategy"] == "additive_clone"
-    assert second["added_relation_count"] == 1
-    assert store.clone_calls == 1
-    assert current is not None
-    assert store.persisted[current.database] == {first_rid, second_rid}
 
 
 def test_rm6_sync_timeout_bounds_live_synchronous_operation(
