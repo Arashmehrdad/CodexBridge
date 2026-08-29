@@ -23,6 +23,9 @@ HEALTH_FILENAME = "HEALTH.json"
 CURRENT_SCHEMA = "soma.research-map.current.v1"
 GENERATION_SCHEMA = "soma.research-map.generation.v1"
 HEALTH_SCHEMA = "soma.research-map.generation-health.v1"
+LEGACY_STORAGE_MODE = "generation_database_v1"
+VERSIONED_STORAGE_MODE = "versioned_repository_database_v2"
+_STORAGE_MODES = {LEGACY_STORAGE_MODE, VERSIONED_STORAGE_MODE}
 _GENERATION_RE = re.compile(r"^gen_[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12}_[0-9a-f]{8}$")
 _DATABASE_RE = re.compile(r"^srm_[0-9a-f]{32}$")
 _REPOSITORY_UID_RE = re.compile(r"^srepo_[0-9a-f]{16,64}$")
@@ -44,6 +47,7 @@ class CurrentGeneration:
     desired_sha256: str
     relations_sha256: str
     health_sha256: str
+    storage_mode: str = LEGACY_STORAGE_MODE
 
 
 def _try_lock_handle(handle: Any) -> None:
@@ -218,13 +222,17 @@ def relations_artifact_payload(
     projection: BackendProjection,
     projection_contract_sha256: str,
     database: str,
+    storage_mode: str = LEGACY_STORAGE_MODE,
 ) -> dict[str, object]:
+    if storage_mode not in _STORAGE_MODES:
+        raise ResearchMapGenerationError("invalid research-map storage mode")
     return {
         "schema": GENERATION_SCHEMA,
         "repository_uid": projection.repository_uid,
         "semantic_desired_state_sha256": projection.semantic_desired_state_sha256,
         "projection_contract_sha256": projection_contract_sha256,
         "database": database,
+        "storage_mode": storage_mode,
         "nodes": [asdict(item) for item in projection.nodes],
         "relations": [asdict(item) for item in projection.relations],
     }
@@ -261,7 +269,10 @@ def current_payload(
     desired_sha256: str,
     relations_sha256: str,
     health_sha256: str,
+    storage_mode: str = LEGACY_STORAGE_MODE,
 ) -> dict[str, object]:
+    if storage_mode not in _STORAGE_MODES:
+        raise ResearchMapGenerationError("invalid research-map storage mode")
     return {
         "schema": CURRENT_SCHEMA,
         "generation": generation,
@@ -273,6 +284,7 @@ def current_payload(
         "desired_sha256": desired_sha256,
         "relations_sha256": relations_sha256,
         "health_sha256": health_sha256,
+        "storage_mode": storage_mode,
     }
 
 
@@ -287,7 +299,10 @@ def health_payload(
     actual_relation_ids: tuple[str, ...],
     persisted: bool,
     reopen_verified: bool,
+    storage_mode: str = LEGACY_STORAGE_MODE,
 ) -> dict[str, object]:
+    if storage_mode not in _STORAGE_MODES:
+        raise ResearchMapGenerationError("invalid research-map storage mode")
     return {
         "schema": HEALTH_SCHEMA,
         "status": "verified" if persisted and reopen_verified and expected_relation_ids == actual_relation_ids else "degraded",
@@ -296,6 +311,7 @@ def health_payload(
         "repository_uid": repository_uid,
         "semantic_desired_state_sha256": semantic_desired_state_sha256,
         "projection_contract_sha256": projection_contract_sha256,
+        "storage_mode": storage_mode,
         "relation_count": len(expected_relation_ids),
         "expected_relation_ids": list(expected_relation_ids),
         "actual_relation_ids": list(actual_relation_ids),
@@ -347,6 +363,9 @@ def load_current_generation(repository_root: str | Path) -> CurrentGeneration | 
             raise ResearchMapGenerationError(f"invalid CURRENT.json hash field: {key}")
     if payload["relation_count"] < 0:
         raise ResearchMapGenerationError("invalid CURRENT.json relation_count")
+    storage_mode = payload.get("storage_mode", LEGACY_STORAGE_MODE)
+    if not isinstance(storage_mode, str) or storage_mode not in _STORAGE_MODES:
+        raise ResearchMapGenerationError("invalid CURRENT.json storage_mode")
 
     current = CurrentGeneration(
         generation=payload["generation"],
@@ -358,6 +377,7 @@ def load_current_generation(repository_root: str | Path) -> CurrentGeneration | 
         desired_sha256=payload["desired_sha256"],
         relations_sha256=payload["relations_sha256"],
         health_sha256=payload["health_sha256"],
+        storage_mode=storage_mode,
     )
     directory = generation_directory(repository_root, current.generation)
     artifacts = {
@@ -388,4 +408,9 @@ def load_current_generation(repository_root: str | Path) -> CurrentGeneration | 
             raise ResearchMapGenerationError(
                 f"published generation health metadata mismatch: {key}"
             )
+    health_storage_mode = health.get("storage_mode", LEGACY_STORAGE_MODE)
+    if health_storage_mode != current.storage_mode:
+        raise ResearchMapGenerationError(
+            "published generation health metadata mismatch: storage_mode"
+        )
     return current

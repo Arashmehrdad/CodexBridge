@@ -20,6 +20,7 @@ from .canonical import (
 from .generation import (
     GENERATION_SCHEMA,
     RELATIONS_FILENAME,
+    VERSIONED_STORAGE_MODE,
     CurrentGeneration,
     ResearchMapGenerationError,
     generation_directory,
@@ -48,6 +49,7 @@ BackendFactory = Callable[[str, str], ResearchMapBackend]
 @dataclass(frozen=True, slots=True)
 class PublishedRelation:
     relation_id: str
+    backend_uuid: str
     source_key: str
     target_key: str
     predicate: str
@@ -270,6 +272,12 @@ def _load_published_relations(
                 "published_relation_artifact_invalid",
                 f"published RELATIONS.json metadata mismatch: {key}",
             )
+    payload_storage_mode = payload.get("storage_mode", current.storage_mode)
+    if payload_storage_mode != current.storage_mode:
+        raise ResearchMapSearchError(
+            "published_relation_artifact_invalid",
+            "published RELATIONS.json storage mode does not match CURRENT",
+        )
     raw_relations = payload.get("relations")
     if not isinstance(raw_relations, list) or len(raw_relations) != current.relation_count:
         raise ResearchMapSearchError(
@@ -307,6 +315,7 @@ def _load_published_relations(
             )
         relations[relation_id] = PublishedRelation(
             relation_id=relation_id,
+            backend_uuid=_required_string(raw, "uuid"),
             source_key=_required_string(raw, "source_key"),
             target_key=_required_string(raw, "target_key"),
             predicate=_required_string(raw, "predicate"),
@@ -368,14 +377,32 @@ async def search_published_generation_async(
     expected_manifest = tuple(sorted(relations))
     backend = (backend_factory or _default_backend_factory)(current.repository_uid, current.database)
     try:
-        actual_manifest = tuple(sorted(await backend.read_relation_manifest()))
+        edge_uuids = tuple(sorted(relation.backend_uuid for relation in relations.values()))
+        if current.storage_mode == VERSIONED_STORAGE_MODE:
+            filtered_manifest = getattr(backend, "read_relation_manifest_for_uuids", None)
+            filtered_search = getattr(backend, "search_relation_versions", None)
+            if not callable(filtered_manifest) or not callable(filtered_search):
+                raise ResearchMapSearchError(
+                    "versioned_backend_unsupported",
+                    "published generation requires exact version-filtered backend reads",
+                )
+            actual_manifest = tuple(sorted(await filtered_manifest(edge_uuids)))
+        else:
+            actual_manifest = tuple(sorted(await backend.read_relation_manifest()))
         if actual_manifest != expected_manifest:
             raise ResearchMapSearchError(
                 "backend_drift",
                 "live backend relation manifest does not match the published generation",
             )
         fetch_limit = min(100, max(limit * 4, 20))
-        hits = await backend.search(query, limit=fetch_limit)
+        if current.storage_mode == VERSIONED_STORAGE_MODE:
+            hits = await filtered_search(  # type: ignore[misc]
+                query,
+                edge_uuids=edge_uuids,
+                limit=fetch_limit,
+            )
+        else:
+            hits = await backend.search(query, limit=fetch_limit)
     except ResearchMapSearchError:
         raise
     except ResearchMapBackendError as exc:

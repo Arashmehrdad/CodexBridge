@@ -14,10 +14,12 @@ from .backend import (
     ResearchMapBackendError,
     build_backend_projection,
 )
+from .embedding_cache import EMBEDDING_CACHE_FILENAME
 from .generation import (
-    CurrentGeneration,
     HEALTH_FILENAME,
     RUNTIME_RELATIVE_PATH,
+    VERSIONED_STORAGE_MODE,
+    CurrentGeneration,
     ResearchMapGenerationError,
     SyncWriterLock,
     create_generation_directory,
@@ -33,12 +35,17 @@ from .generation import (
     write_generation_health,
     write_generation_inputs,
 )
-from .embedding_cache import EMBEDDING_CACHE_FILENAME
-from .graphiti_backend import GraphitiFalkorBackend, graphiti_projection_contract_sha256
+from .graphiti_backend import (
+    EMBEDDING_CACHE_NAMESPACE,
+    LEGACY_V1_PROJECTION_SHA256,
+    GraphitiFalkorBackend,
+    graphiti_projection_contract_sha256,
+)
 from .manifest import load_project_manifest
 from .service import ResearchMapHealthState, scan_research_map
+from .versioned_sync import build_versioned_generation, verify_versioned_current
 
-RESEARCH_MAP_SYNC_VERSION = "soma.research-map.sync.v1"
+RESEARCH_MAP_SYNC_VERSION = "soma.research-map.sync.v2"
 RESEARCH_MAP_SYNC_TIMEOUT_SECONDS = 900.0
 RESEARCH_MAP_REBUILD_TIMEOUT_SECONDS = 1800.0
 _FAILURE_POINTS = {
@@ -70,6 +77,7 @@ def _default_backend_factory(
     repository_root: Path,
     projection_contract_sha256: str,
 ) -> BackendFactory:
+    del projection_contract_sha256
     cache_path = repository_root / RUNTIME_RELATIVE_PATH / EMBEDDING_CACHE_FILENAME
 
     def factory(repository_uid: str, database: str) -> ResearchMapBackend:
@@ -77,7 +85,7 @@ def _default_backend_factory(
             repository_uid=repository_uid,
             database=database,
             embedding_cache_path=cache_path,
-            embedding_cache_namespace=projection_contract_sha256,
+            embedding_cache_namespace=EMBEDDING_CACHE_NAMESPACE,
         )
 
     return factory
@@ -137,12 +145,20 @@ def _current_expected_relation_ids(
 
 
 async def _verify_existing_current(
+    repository_root: Path,
     current: CurrentGeneration,
     expected_relation_ids: tuple[str, ...],
     *,
     repository_uid: str,
     backend_factory: BackendFactory,
 ) -> bool:
+    if current.storage_mode == VERSIONED_STORAGE_MODE:
+        return await verify_versioned_current(
+            repository_root,
+            current,
+            repository_uid=repository_uid,
+            backend_factory=backend_factory,
+        )
     backend = backend_factory(repository_uid, current.database)
     try:
         verification = await backend.reopen_and_verify(expected_relation_ids)
@@ -358,6 +374,7 @@ async def sync_research_map_async(
         ):
             started = time.perf_counter()
             verified = await _verify_existing_current(
+                root,
                 current,
                 expected_relation_ids,
                 repository_uid=manifest.repository_uid,
@@ -387,8 +404,10 @@ async def sync_research_map_async(
         cache_seed: dict[str, object] = {"verified": False, "seeded": 0}
         if (
             current is not None
+            and current.storage_mode != VERSIONED_STORAGE_MODE
             and current.repository_uid == manifest.repository_uid
-            and current.projection_contract_sha256 == projection_hash
+            and current.projection_contract_sha256
+            in {projection_hash, LEGACY_V1_PROJECTION_SHA256}
         ):
             started = time.perf_counter()
             cache_seed = await _seed_embedding_cache_from_current(
@@ -399,15 +418,32 @@ async def sync_research_map_async(
             )
             phase_timings["seed_embedding_cache"] = time.perf_counter() - started
 
-        built = await _build_generation(
+        built = await build_versioned_generation(
             root,
             repository_uid=manifest.repository_uid,
             desired_state=scan.desired_state,
             projection=projection,
             projection_contract_sha256=projection_hash,
             backend_factory=backend_factory,
+            current=current,
+            force_rebuild=action == "rebuild",
             failure_point=failure_point,
         )
+        if built is None:
+            if current is not None and current.storage_mode == VERSIONED_STORAGE_MODE:
+                raise ResearchMapSyncError(
+                    "versioned_backend_unsupported",
+                    "current Research Map generation requires exact version-filtered backend reads",
+                )
+            built = await _build_generation(
+                root,
+                repository_uid=manifest.repository_uid,
+                desired_state=scan.desired_state,
+                projection=projection,
+                projection_contract_sha256=projection_hash,
+                backend_factory=backend_factory,
+                failure_point=failure_point,
+            )
         build_phases = built.get("phase_timings_seconds")
         if isinstance(build_phases, dict):
             phase_timings.update(

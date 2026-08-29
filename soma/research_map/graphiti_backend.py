@@ -30,7 +30,9 @@ EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIMENSION = 384
 FALKOR_QUERY_TIMEOUT_MS = 5000
 FALKOR_WRITE_CONCURRENCY = 8
-GRAPHITI_PROJECTION_VERSION = "soma.research-map.graphiti-falkor.v1"
+GRAPHITI_PROJECTION_VERSION = "soma.research-map.graphiti-falkor.v2"
+LEGACY_V1_PROJECTION_SHA256 = "be63837b95386551f19b11db67cadce32171875786290c9e39ddd6d63543c953"
+EMBEDDING_CACHE_NAMESPACE = LEGACY_V1_PROJECTION_SHA256
 _REQUIRED_MODULES = ("graphiti_core", "fastembed", "falkordb")
 _REQUIRED_DISTRIBUTIONS = {
     "graphiti-core": GRAPHITI_CORE_VERSION,
@@ -83,7 +85,10 @@ def graphiti_projection_contract_sha256() -> str:
             "httpx_version": HTTPX_VERSION,
             "embedding_model": EMBEDDING_MODEL,
             "embedding_dimension": EMBEDDING_DIMENSION,
-            "project_isolation": "one_database_per_repository",
+            "embedding_cache_namespace": EMBEDDING_CACHE_NAMESPACE,
+            "project_isolation": "append_only_versioned_repository_lineage",
+            "object_versioning": "content_addressed_v1",
+            "published_search_filter": "exact_edge_uuids",
             "group_id_search_filter": False,
             "llm_ingestion": False,
             "cross_encoder_required": False,
@@ -152,6 +157,7 @@ def _load_dependencies() -> dict[str, Any]:
     driver_module = importlib.import_module("graphiti_core.driver.falkordb_driver")
     nodes_module = importlib.import_module("graphiti_core.nodes")
     edges_module = importlib.import_module("graphiti_core.edges")
+    search_filters_module = importlib.import_module("graphiti_core.search.search_filters")
     fastembed_module = importlib.import_module("fastembed")
     return {
         "Graphiti": graphiti_module.Graphiti,
@@ -161,6 +167,7 @@ def _load_dependencies() -> dict[str, Any]:
         "FalkorDriver": _bounded_falkor_driver_type(driver_module),
         "EntityNode": nodes_module.EntityNode,
         "EntityEdge": edges_module.EntityEdge,
+        "SearchFilters": search_filters_module.SearchFilters,
         "TextEmbedding": fastembed_module.TextEmbedding,
     }
 
@@ -459,6 +466,56 @@ class GraphitiFalkorBackend:
             if record.get("relation_id")
         ]
         return tuple(sorted(relation_ids))
+
+    async def read_relation_manifest_for_uuids(
+        self,
+        edge_uuids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if not edge_uuids:
+            return ()
+        await self._open()
+        records, _header, _summary = await self._driver.execute_query(
+            "MATCH ()-[r:RELATES_TO]->() "
+            "WHERE r.uuid IN $edge_uuids AND r.relation_id IS NOT NULL "
+            "RETURN r.relation_id AS relation_id ORDER BY relation_id",
+            edge_uuids=list(edge_uuids),
+        )
+        return tuple(
+            sorted(
+                str(record["relation_id"])
+                for record in records
+                if record.get("relation_id")
+            )
+        )
+
+    async def search_relation_versions(
+        self,
+        query: str,
+        *,
+        edge_uuids: tuple[str, ...],
+        limit: int = 5,
+    ) -> tuple[BackendSearchHit, ...]:
+        if not query.strip():
+            raise ValueError("research-map search query must not be blank")
+        if limit < 1 or limit > 100:
+            raise ValueError("research-map search limit must be between 1 and 100")
+        if not edge_uuids:
+            return ()
+        await self._open()
+        search_filter = self._deps["SearchFilters"](edge_uuids=list(edge_uuids))
+        edges = await self._graphiti.search(
+            query,
+            group_ids=None,
+            num_results=limit,
+            search_filter=search_filter,
+        )
+        hits: list[BackendSearchHit] = []
+        for edge in edges:
+            attributes = getattr(edge, "attributes", {}) or {}
+            relation_id = str(attributes.get("relation_id", ""))
+            if relation_id:
+                hits.append(BackendSearchHit(relation_id=relation_id))
+        return tuple(hits)
 
     async def search(
         self,
