@@ -19,6 +19,7 @@ from soma.research_map.backend import (
     ResearchMapProjectionError,
     build_backend_projection,
 )
+from soma.research_map.embedding_cache import EmbeddingCache
 from soma.research_map.graphiti_backend import (
     FALKOR_QUERY_TIMEOUT_MS,
     FALKOR_WRITE_CONCURRENCY,
@@ -348,3 +349,97 @@ def test_rm5_search_deliberately_avoids_group_id_filter() -> None:
     hits = asyncio.run(backend.search("governing constraint", limit=5))
     assert graphiti.group_ids is None
     assert [hit.relation_id for hit in hits] == ["rel_" + "a" * 64]
+
+
+def test_rm5_embedding_cache_reuses_exact_text_and_isolates_namespace(tmp_path: Path) -> None:
+    path = tmp_path / "embedding-cache.sqlite3"
+    calls: list[list[str]] = []
+
+    def compute(texts: list[str]) -> list[list[float]]:
+        calls.append(list(texts))
+        return [[float(index), float(index + 1)] for index, _text in enumerate(texts)]
+
+    first_cache = EmbeddingCache(path, namespace="contract-a", dimension=2)
+    first = first_cache.resolve(["alpha", "beta"], compute)
+    second = first_cache.resolve(["alpha", "beta"], compute)
+
+    assert first.hits == 0
+    assert first.misses == 2
+    assert second.hits == 2
+    assert second.misses == 0
+    assert calls == [["alpha", "beta"]]
+    assert second.vectors == first.vectors
+
+    isolated = EmbeddingCache(path, namespace="contract-b", dimension=2)
+    third = isolated.resolve(["alpha"], compute)
+    assert third.hits == 0
+    assert third.misses == 1
+    assert calls[-1] == ["alpha"]
+
+
+def test_rm5_cache_hit_does_not_initialize_fastembed_model(tmp_path: Path) -> None:
+    path = tmp_path / "embedding-cache.sqlite3"
+    cache = EmbeddingCache(path, namespace="contract-a", dimension=2)
+    cache.store_many([("alpha", [0.25, 0.75])])
+    initialized = 0
+
+    class FakeTextEmbedding:
+        def __init__(self, **_kwargs: object) -> None:
+            nonlocal initialized
+            initialized += 1
+
+        def embed(self, _texts: list[str]):
+            raise AssertionError("cache hit must not initialize or call FastEmbed")
+
+    deps = {
+        "EmbedderClient": object,
+        "LLMClient": object,
+        "CrossEncoderClient": object,
+        "TextEmbedding": FakeTextEmbedding,
+    }
+    metrics: dict[str, float | int | bool] = {}
+    local_embedder, _no_llm, _no_cross = _client_types(deps, None, cache, metrics)
+    vectors = asyncio.run(local_embedder().create_batch(["alpha"]))
+
+    assert vectors == [[0.25, 0.75]]
+    assert initialized == 0
+    assert metrics["embedding_cache_hits"] == 1
+    assert metrics["embedding_cache_misses"] == 0
+    assert metrics.get("embedding_model_initializations", 0) == 0
+
+
+def test_rm5_verified_graph_can_seed_repo_embedding_cache(tmp_path: Path) -> None:
+    cache_path = tmp_path / "embedding-cache.sqlite3"
+    namespace = "contract-a"
+    vector = [0.125] * 384
+
+    class SeedDriver:
+        async def execute_query(self, query: str, **kwargs: object):
+            assert kwargs == {"group_id": "srepo_0123456789abcdef"}
+            if "ReviewedResearchEntity" in query:
+                return ([{"text": "finding:rm5", "embedding": vector}], [], None)
+            return ([{"text": "RM5 reviewed statement", "embedding": vector}], [], None)
+
+        async def close(self) -> None:
+            return None
+
+    backend = GraphitiFalkorBackend(
+        repository_uid="srepo_0123456789abcdef",
+        database="rm5_seed",
+        embedding_cache_path=cache_path,
+        embedding_cache_namespace=namespace,
+    )
+    backend._driver = SeedDriver()
+
+    seeded = asyncio.run(backend.seed_embedding_cache_from_graph())
+    assert seeded == 2
+
+    cache = EmbeddingCache(cache_path, namespace=namespace, dimension=384)
+
+    def must_not_compute(_texts: list[str]) -> list[list[float]]:
+        raise AssertionError("seeded embeddings must be reusable without recomputation")
+
+    resolved = cache.resolve(["finding:rm5", "RM5 reviewed statement"], must_not_compute)
+    assert resolved.hits == 2
+    assert resolved.misses == 0
+    assert backend.diagnostics()["embedding_cache_seeded"] == 2

@@ -206,6 +206,13 @@ def test_rm6_first_sync_publishes_only_reopen_verified_generation(tmp_path: Path
     assert current.relation_count == 1
     assert store.persisted[current.database] == {rid}
     assert store.persist_calls[current.database] == 1
+    timings = result["phase_timings_seconds"]
+    assert isinstance(timings, dict)
+    assert timings["prepare_projection"] >= 0.0
+    assert timings["build.upsert_nodes"] >= 0.0
+    assert timings["build.upsert_relations"] >= 0.0
+    assert timings["build.reopen_verify"] >= 0.0
+    assert timings["total"] >= timings["prepare_projection"]
     assert (tmp_path / RUNTIME_RELATIVE_PATH / ".sync.lock").is_file()
     with SyncWriterLock(tmp_path):
         pass
@@ -327,6 +334,8 @@ def test_rm6_statement_drift_with_same_relation_id_makes_old_generation_stale_an
     assert second["generation"] != first["generation"]
     assert new is not None
     assert new.semantic_desired_state_sha256 == live_scan.semantic_desired_state_sha256
+    assert second["embedding_cache_seed"] == {"verified": True, "seeded": 0}
+    assert second["phase_timings_seconds"]["seed_embedding_cache"] >= 0.0
 
     corrected = research_map_query_gateway(
         tmp_path,

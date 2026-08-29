@@ -20,6 +20,7 @@ from .backend import (
     ResearchMapBackendUnavailable,
 )
 from .canonical import canonical_json_sha256
+from .embedding_cache import EmbeddingCache
 
 GRAPHITI_CORE_VERSION = "0.29.3"
 FASTEMBED_VERSION = "0.8.0"
@@ -164,7 +165,12 @@ def _load_dependencies() -> dict[str, Any]:
     }
 
 
-def _client_types(deps: dict[str, Any], model_cache_dir: Path | None) -> tuple[type, type, type]:
+def _client_types(
+    deps: dict[str, Any],
+    model_cache_dir: Path | None,
+    embedding_cache: EmbeddingCache | None = None,
+    embedding_metrics: dict[str, float | int | bool] | None = None,
+) -> tuple[type, type, type]:
     embedder_base = deps["EmbedderClient"]
     llm_base = deps["LLMClient"]
     cross_encoder_base = deps["CrossEncoderClient"]
@@ -172,20 +178,53 @@ def _client_types(deps: dict[str, Any], model_cache_dir: Path | None) -> tuple[t
 
     class LocalFastEmbed(embedder_base):
         def __init__(self) -> None:
-            kwargs: dict[str, object] = {"model_name": EMBEDDING_MODEL}
+            self._kwargs: dict[str, object] = {"model_name": EMBEDDING_MODEL}
             if model_cache_dir is not None:
-                kwargs["cache_dir"] = str(model_cache_dir)
-            self.model = text_embedding(**kwargs)
+                self._kwargs["cache_dir"] = str(model_cache_dir)
+            self._model: Any | None = None
+
+        def _get_model(self) -> Any:
+            if self._model is None:
+                self._model = text_embedding(**self._kwargs)
+                if embedding_metrics is not None:
+                    embedding_metrics["embedding_model_initializations"] = int(
+                        embedding_metrics.get("embedding_model_initializations", 0)
+                    ) + 1
+            return self._model
+
+        def _compute(self, texts: list[str]) -> list[list[float]]:
+            model = self._get_model()
+            return [vector.tolist() for vector in model.embed(texts)]
 
         async def create(self, input_data: object) -> list[float]:
             if isinstance(input_data, list):
                 text = " ".join(str(item) for item in input_data)
             else:
                 text = str(input_data)
-            return next(iter(self.model.embed([text]))).tolist()
+            return (await self.create_batch([text]))[0]
 
         async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
-            return [vector.tolist() for vector in self.model.embed(input_data_list)]
+            if embedding_cache is None:
+                return self._compute(input_data_list)
+            result = embedding_cache.resolve(input_data_list, self._compute)
+            if embedding_metrics is not None:
+                embedding_metrics["embedding_cache_hits"] = int(
+                    embedding_metrics.get("embedding_cache_hits", 0)
+                ) + result.hits
+                embedding_metrics["embedding_cache_misses"] = int(
+                    embedding_metrics.get("embedding_cache_misses", 0)
+                ) + result.misses
+                embedding_metrics["embedding_cache_lookup_seconds"] = float(
+                    embedding_metrics.get("embedding_cache_lookup_seconds", 0.0)
+                ) + result.lookup_seconds
+                embedding_metrics["embedding_compute_seconds"] = float(
+                    embedding_metrics.get("embedding_compute_seconds", 0.0)
+                ) + result.compute_seconds
+                embedding_metrics["embedding_cache_store_seconds"] = float(
+                    embedding_metrics.get("embedding_cache_store_seconds", 0.0)
+                ) + result.store_seconds
+                embedding_metrics["embedding_cache_available"] = result.cache_available
+            return [list(vector) for vector in result.vectors]
 
     class NoLLM(llm_base):
         def __init__(self) -> None:
@@ -221,12 +260,33 @@ class GraphitiFalkorBackend:
         host: str = "127.0.0.1",
         port: int = 6379,
         model_cache_dir: Path | None = None,
+        embedding_cache_path: Path | None = None,
+        embedding_cache_namespace: str | None = None,
     ) -> None:
         self.repository_uid = repository_uid
         self.database = database
         self.host = host
         self.port = port
         self.model_cache_dir = model_cache_dir
+        self._embedding_cache = (
+            EmbeddingCache(
+                embedding_cache_path,
+                namespace=embedding_cache_namespace,
+                dimension=EMBEDDING_DIMENSION,
+            )
+            if embedding_cache_path is not None and embedding_cache_namespace is not None
+            else None
+        )
+        self._metrics: dict[str, float | int | bool] = {
+            "embedding_cache_hits": 0,
+            "embedding_cache_misses": 0,
+            "embedding_cache_seeded": 0,
+            "embedding_cache_lookup_seconds": 0.0,
+            "embedding_compute_seconds": 0.0,
+            "embedding_cache_store_seconds": 0.0,
+            "embedding_model_initializations": 0,
+            "embedding_cache_available": self._embedding_cache is not None,
+        }
         self._deps: dict[str, Any] | None = None
         self._driver: Any | None = None
         self._graphiti: Any | None = None
@@ -236,7 +296,12 @@ class GraphitiFalkorBackend:
         if self._driver is not None:
             return
         deps = _load_dependencies()
-        local_embedder, no_llm, no_cross = _client_types(deps, self.model_cache_dir)
+        local_embedder, no_llm, no_cross = _client_types(
+            deps,
+            self.model_cache_dir,
+            self._embedding_cache,
+            self._metrics,
+        )
         driver = deps["FalkorDriver"](
             host=self.host,
             port=self.port,
@@ -257,6 +322,42 @@ class GraphitiFalkorBackend:
     async def build_empty(self) -> None:
         await self._open()
         await self._graphiti.build_indices_and_constraints(delete_existing=True)
+
+    def diagnostics(self) -> dict[str, float | int | bool]:
+        return dict(self._metrics)
+
+    async def seed_embedding_cache_from_graph(self) -> int:
+        if self._embedding_cache is None:
+            return 0
+        await self._open()
+        node_records, _node_header, _node_summary = await self._driver.execute_query(
+            "MATCH (n:ReviewedResearchEntity) "
+            "WHERE n.group_id = $group_id AND n.name IS NOT NULL "
+            "AND n.name_embedding IS NOT NULL "
+            "RETURN n.name AS text, n.name_embedding AS embedding",
+            group_id=self.repository_uid,
+        )
+        relation_records, _relation_header, _relation_summary = await self._driver.execute_query(
+            "MATCH ()-[r:RELATES_TO]->() "
+            "WHERE r.group_id = $group_id AND r.fact IS NOT NULL "
+            "AND r.fact_embedding IS NOT NULL "
+            "RETURN r.fact AS text, r.fact_embedding AS embedding",
+            group_id=self.repository_uid,
+        )
+        pairs: list[tuple[str, list[float]]] = []
+        for record in [*node_records, *relation_records]:
+            text = record.get("text")
+            embedding = record.get("embedding")
+            if not isinstance(text, str) or not isinstance(embedding, (list, tuple)):
+                continue
+            if len(embedding) != EMBEDDING_DIMENSION:
+                continue
+            pairs.append((text, [float(value) for value in embedding]))
+        seeded = self._embedding_cache.store_many(pairs)
+        self._metrics["embedding_cache_seeded"] = int(
+            self._metrics.get("embedding_cache_seeded", 0)
+        ) + seeded
+        return seeded
 
     async def clone_from_current(self, source: object) -> None:
         del source
