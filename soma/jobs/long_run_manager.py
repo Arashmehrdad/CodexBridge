@@ -8,6 +8,7 @@ from uuid import uuid4
 from soma.config import AppConfig, resolve_repo
 from soma.local_agent.audit import create_audit_event
 from soma.local_agent.models import PermissionTier
+from soma.process_control import process_group_popen_kwargs
 from soma.run_store import utc_now
 
 from .job_monitor import JobMonitor
@@ -175,6 +176,7 @@ class LongRunJobManager:
                 stdout=stdout_handle,
                 stderr=stderr_handle,
                 text=True,
+                **process_group_popen_kwargs(),
             )
         except Exception as exc:
             stdout_handle.close()

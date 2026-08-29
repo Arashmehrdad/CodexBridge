@@ -17,7 +17,12 @@ def test_process_group_popen_kwargs_are_platform_specific(monkeypatch) -> None:
     monkeypatch.setattr(
         process_control.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False
     )
-    assert process_control.process_group_popen_kwargs() == {"creationflags": 512}
+    monkeypatch.setattr(
+        process_control.subprocess, "CREATE_NO_WINDOW", 134217728, raising=False
+    )
+    assert process_control.process_group_popen_kwargs() == {
+        "creationflags": 134218240
+    }
 
 
 def test_process_identity_matching_is_exact(monkeypatch) -> None:

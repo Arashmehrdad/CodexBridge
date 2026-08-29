@@ -15,11 +15,11 @@ def _is_windows() -> bool:
 
 
 def process_group_popen_kwargs() -> dict[str, Any]:
-    """Return platform-specific Popen options for an independently terminable tree."""
+    """Return platform-specific Popen options for a background-owned process tree."""
     if _is_windows():
-        return {
-            "creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        }
+        new_group = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return {"creationflags": new_group | no_window}
     return {"start_new_session": True}
 
 

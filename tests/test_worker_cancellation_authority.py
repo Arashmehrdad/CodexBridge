@@ -353,3 +353,52 @@ def test_containment_failure_at_launch_leaves_nothing_running(monkeypatch, tmp_p
     while process_is_running(started[0]) and time.monotonic() < deadline:
         time.sleep(0.2)
     assert not process_is_running(started[0]), "unassignable process was released"
+
+
+def test_contained_launch_uses_no_window_flag(monkeypatch):
+    """Contained Windows roots stay background-only while retaining suspension."""
+    captured: dict[str, object] = {}
+
+    class FakeJob:
+        def assign_pid(self, pid):
+            captured["assigned_pid"] = pid
+
+        def close(self):
+            captured["closed"] = True
+
+        def terminate(self, exit_code=1):
+            captured["terminated"] = exit_code
+
+    class FakeProcess:
+        pid = 4242
+
+        def kill(self):
+            captured["killed"] = True
+
+    monkeypatch.setattr(
+        containment_module.JobContainment,
+        "create",
+        classmethod(lambda cls, name: FakeJob()),
+    )
+    monkeypatch.setattr(
+        containment_module,
+        "_resume_process_threads",
+        lambda pid: captured.__setitem__("resumed_pid", pid),
+    )
+
+    def fake_popen(*args, **kwargs):
+        captured["creationflags"] = kwargs["creationflags"]
+        return FakeProcess()
+
+    process, _job = containment_module.launch_contained(
+        ["powershell.exe", "-NoProfile"],
+        job_name="Local\\soma-background-test",
+        popen=fake_popen,
+    )
+
+    assert process.pid == 4242
+    assert captured["assigned_pid"] == 4242
+    assert captured["resumed_pid"] == 4242
+    assert captured["creationflags"] == (
+        containment_module.CREATE_SUSPENDED | containment_module.CREATE_NO_WINDOW
+    )
