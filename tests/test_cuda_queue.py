@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,44 @@ def _acquire(
         requested_at=requested_at,
         now=now,
     )
+
+
+def test_cuda_queue_migrates_legacy_schema_before_reading_rows(tmp_path: Path) -> None:
+    database = tmp_path / "cuda_queue.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE cuda_queue_requests (
+                request_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL UNIQUE,
+                repo_name TEXT NOT NULL,
+                state TEXT NOT NULL,
+                requested_at REAL NOT NULL,
+                acquired_at REAL,
+                heartbeat_at REAL NOT NULL,
+                released_at REAL,
+                owner_pid INTEGER NOT NULL DEFAULT 0,
+                owner_identity TEXT NOT NULL DEFAULT '',
+                owner_key TEXT NOT NULL DEFAULT '',
+                lease_generation INTEGER NOT NULL DEFAULT 0,
+                reason TEXT NOT NULL DEFAULT ''
+            );
+            INSERT INTO cuda_queue_requests(
+                request_id, run_id, repo_name, state, requested_at, heartbeat_at
+            ) VALUES ('legacy_request', 'legacy_run', 'repo_a', 'queued', 1.0, 1.0);
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    queue = CudaQueueStore(tmp_path)
+    snapshot = queue.snapshot(now=1.0)
+    assert snapshot["queued_count"] == 1
+    assert snapshot["queued"][0]["run_id"] == "legacy_run"
+    assert snapshot["queued"][0]["child_pid"] == 0
+    assert snapshot["queued"][0]["child_identity_present"] is False
 
 
 def test_cuda_queue_is_fifo_exclusive_and_enforces_release_cooldown(

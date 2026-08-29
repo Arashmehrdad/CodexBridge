@@ -92,6 +92,23 @@ class CudaQueueStore:
                     VALUES (1, 0);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(cuda_queue_requests)"
+                ).fetchall()
+            }
+            if "child_pid" not in columns:
+                connection.execute(
+                    "ALTER TABLE cuda_queue_requests "
+                    "ADD COLUMN child_pid INTEGER NOT NULL DEFAULT 0"
+                )
+            if "child_identity" not in columns:
+                connection.execute(
+                    "ALTER TABLE cuda_queue_requests "
+                    "ADD COLUMN child_identity TEXT NOT NULL DEFAULT ''"
+                )
+            connection.commit()
         finally:
             connection.close()
 
