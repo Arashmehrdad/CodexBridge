@@ -30,6 +30,8 @@ EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIMENSION = 384
 FALKOR_QUERY_TIMEOUT_MS = 5000
 FALKOR_WRITE_CONCURRENCY = 8
+FALKOR_SAVE_BUSY_TIMEOUT_SECONDS = 30.0
+FALKOR_SAVE_BUSY_RETRY_SECONDS = 0.25
 GRAPHITI_PROJECTION_VERSION = "soma.research-map.graphiti-falkor.v2"
 LEGACY_V1_PROJECTION_SHA256 = "be63837b95386551f19b11db67cadce32171875786290c9e39ddd6d63543c953"
 EMBEDDING_CACHE_NAMESPACE = LEGACY_V1_PROJECTION_SHA256
@@ -545,7 +547,20 @@ class GraphitiFalkorBackend:
             raise ResearchMapBackendError(
                 "FalkorDB client does not expose an explicit SAVE command"
             )
-        reply = await _maybe_await(execute_command("SAVE"))
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + FALKOR_SAVE_BUSY_TIMEOUT_SECONDS
+        while True:
+            try:
+                reply = await _maybe_await(execute_command("SAVE"))
+                break
+            except Exception as exc:
+                if "Background save already in progress" not in str(exc):
+                    raise
+                if loop.time() >= deadline:
+                    raise ResearchMapBackendError(
+                        "FalkorDB SAVE remained busy beyond the bounded wait"
+                    ) from exc
+                await asyncio.sleep(FALKOR_SAVE_BUSY_RETRY_SECONDS)
         persisted = bool(reply)
         if not persisted:
             raise ResearchMapBackendError("FalkorDB SAVE did not report success")

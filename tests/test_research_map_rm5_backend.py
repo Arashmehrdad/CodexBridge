@@ -288,6 +288,30 @@ def test_rm5_server_backend_requires_explicit_save() -> None:
         asyncio.run(failing.persist())
 
 
+def test_rm5_server_backend_waits_for_transient_background_save() -> None:
+    class BusyThenSavedClient:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        async def execute_command(self, command: str) -> object:
+            self.commands.append(command)
+            if len(self.commands) == 1:
+                raise RuntimeError("Background save already in progress")
+            return True
+
+    backend = GraphitiFalkorBackend(
+        repository_uid="srepo_0123456789abcdef",
+        database="rm5_test",
+    )
+    client = BusyThenSavedClient()
+    backend._driver = _FakeDriver(client)
+
+    result = asyncio.run(backend.persist())
+
+    assert result.persisted is True
+    assert client.commands == ["SAVE", "SAVE"]
+
+
 def test_rm5_clone_from_current_is_disabled_after_live_copy_crash() -> None:
     backend = GraphitiFalkorBackend(
         repository_uid="srepo_0123456789abcdef",
