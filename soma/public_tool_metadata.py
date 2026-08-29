@@ -617,7 +617,7 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             title="Apply repository change",
             description=(
                 "Use this when the user authorized a managed Git repository preview, "
-                "cleanup, revert, or move. It can overwrite/remove repository "
+                "cleanup, revert, restore, or move. It can overwrite/remove repository "
                 "content but does not push. Do not use it for non-repository config "
                 "or service/watchdog/process operations; use run_start."
             ),

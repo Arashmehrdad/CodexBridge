@@ -2195,6 +2195,266 @@ def apply_previewed_repo_change(repo_root: Path, patch_id: str, runs_dir: Path) 
 
 
 # ---------------------------------------------------------------------------
+# restore_managed_patch
+# ---------------------------------------------------------------------------
+
+
+def _applied_result_rollback_bytes(
+    patch_dir: Path,
+    result: dict[str, Any],
+    index: int,
+) -> bytes:
+    path_str = str(result["path"])
+    rollback_file = str(result.get("rollback_file") or "")
+    if not rollback_file:
+        rollback_file = _legacy_rollback_file_name(path_str)
+    indexed_name = _rollback_file_name(index)
+    legacy_name = _legacy_rollback_file_name(path_str)
+    if rollback_file == indexed_name:
+        expected_name = indexed_name
+    elif rollback_file == legacy_name:
+        expected_name = legacy_name
+    else:
+        expected_name = indexed_name if result.get("rollback_file") else legacy_name
+    rollback_path = _resolve_bundle_file(
+        patch_dir / "rollback",
+        rollback_file,
+        expected_name,
+        kind="rollback",
+    )
+    return rollback_path.read_bytes()
+
+
+def restore_managed_patch(repo_root: Path, patch_id: str, runs_dir: Path) -> dict:
+    """Restore externally-lost bytes for an already-applied managed patch.
+
+    This is the inverse recovery path of ``revert_managed_patch``. It never
+    guesses from Git history: every affected path must still be either in the
+    intended applied state or exactly in the saved pre-patch rollback state.
+    Any unrelated content causes a fail-closed refusal.
+    """
+    patch_dir = _resolve_managed_patch_dir(runs_dir, patch_id)
+    if not patch_dir.exists():
+        raise ValueError(f"Unknown patch_id: {patch_id}")
+
+    manifest_path = patch_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("status") != "applied":
+        raise ValueError(
+            f"Patch {patch_id} is not in 'applied' state (status: {manifest.get('status')})"
+        )
+    if manifest.get("bundle_version") not in {2, 3, 4}:
+        raise ValueError(f"Patch {patch_id} does not include a restorable opaque bundle")
+
+    expected_repo_fingerprint = str(manifest.get("repo_fingerprint") or "")
+    if not expected_repo_fingerprint:
+        raise ValueError(f"Patch {patch_id} is missing repository binding metadata")
+    if _repo_fingerprint(repo_root) != expected_repo_fingerprint:
+        raise ValueError(f"Patch {patch_id} does not belong to the requested repository")
+
+    current_head = _git_head(repo_root)
+    applied_head = str(manifest.get("applied_git_head") or "")
+    if applied_head and current_head and current_head != applied_head:
+        raise ValueError(
+            f"Git HEAD has changed since patch application "
+            f"(applied: {applied_head[:12]}, current: {current_head[:12]})"
+        )
+
+    manifest_ops = manifest.get("operations", [])
+    applied_results = manifest.get("applied_results", [])
+    if not isinstance(manifest_ops, list) or not manifest_ops:
+        raise ValueError(f"Patch {patch_id} is missing operation metadata")
+    if not isinstance(applied_results, list) or not applied_results:
+        raise ValueError(f"Patch {patch_id} is missing applied result metadata")
+    if len(manifest_ops) != len(applied_results):
+        raise ValueError(f"Patch {patch_id} has inconsistent applied result metadata")
+
+    prepared: list[dict[str, Any]] = []
+    intact: list[str] = []
+    seen_paths: set[str] = set()
+    for index, (op, result) in enumerate(zip(manifest_ops, applied_results, strict=True)):
+        action = str(op.get("action") or "")
+        path_str = str(op.get("path") or "")
+        if action not in {"modify", "create", "remove"} or not path_str:
+            raise ValueError(f"Patch {patch_id} has an invalid operation entry")
+        if str(result.get("action") or "modify") != action or str(
+            result.get("path") or ""
+        ) != path_str:
+            raise ValueError(f"Patch {patch_id} has mismatched applied result metadata")
+        absolute = _resolve_and_validate_write(repo_root, path_str)
+        normalized_path = os.path.normcase(os.path.normpath(str(absolute.resolve())))
+        if normalized_path in seen_paths:
+            raise ValueError(f"Patch {patch_id} includes duplicate paths: {path_str}")
+        seen_paths.add(normalized_path)
+        if absolute.is_symlink():
+            raise ValueError(f"Cannot restore through symlink: {path_str}")
+
+        expected_applied_sha = str(result.get("sha256") or "")
+        payload_bytes: bytes | None = None
+        if action in {"modify", "create"}:
+            try:
+                payload_bytes = assemble_payload(
+                    index,
+                    op,
+                    lambda filename, expected: _resolve_bundle_file(
+                        patch_dir,
+                        filename,
+                        expected,
+                        kind="payload",
+                    ).read_bytes(),
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Patch {patch_id} payload verification failed for '{path_str}': {exc}"
+                ) from exc
+            if _sha256_bytes(payload_bytes) != expected_applied_sha:
+                raise ValueError(
+                    f"Patch {patch_id} applied hash does not match payload for '{path_str}'"
+                )
+
+        if action == "create":
+            if not absolute.exists():
+                prepared.append(
+                    {
+                        "action": action,
+                        "path": path_str,
+                        "absolute": absolute,
+                        "payload_bytes": payload_bytes,
+                        "before_exists": False,
+                        "before_bytes": None,
+                    }
+                )
+                continue
+            if absolute.is_dir():
+                raise ValueError(f"Cannot restore: path is a directory: {path_str}")
+            current_bytes = absolute.read_bytes()
+            if _sha256_bytes(current_bytes) == expected_applied_sha:
+                intact.append(path_str)
+                continue
+            raise ValueError(
+                f"Cannot restore: created file '{path_str}' contains unrelated content"
+            )
+
+        rollback_bytes = _applied_result_rollback_bytes(patch_dir, result, index)
+        rollback_sha = _sha256_bytes(rollback_bytes)
+        if action == "modify":
+            if not absolute.exists() or absolute.is_dir():
+                raise ValueError(f"Cannot restore: modified file '{path_str}' is missing")
+            current_bytes = absolute.read_bytes()
+            current_sha = _sha256_bytes(current_bytes)
+            if current_sha == expected_applied_sha:
+                intact.append(path_str)
+                continue
+            if current_sha != rollback_sha:
+                raise ValueError(
+                    f"Cannot restore: file '{path_str}' has unrelated edits "
+                    f"(expected applied {expected_applied_sha[:12]}… or rollback "
+                    f"{rollback_sha[:12]}…, got {current_sha[:12]}…)"
+                )
+            prepared.append(
+                {
+                    "action": action,
+                    "path": path_str,
+                    "absolute": absolute,
+                    "payload_bytes": payload_bytes,
+                    "before_exists": True,
+                    "before_bytes": current_bytes,
+                }
+            )
+            continue
+
+        if not absolute.exists():
+            intact.append(path_str)
+            continue
+        if absolute.is_dir():
+            raise ValueError(f"Cannot restore: path is a directory: {path_str}")
+        current_bytes = absolute.read_bytes()
+        current_sha = _sha256_bytes(current_bytes)
+        if current_sha != rollback_sha:
+            raise ValueError(
+                f"Cannot restore: removed file '{path_str}' contains unrelated content "
+                f"(expected rollback {rollback_sha[:12]}…, got {current_sha[:12]}…)"
+            )
+        prepared.append(
+            {
+                "action": action,
+                "path": path_str,
+                "absolute": absolute,
+                "payload_bytes": None,
+                "before_exists": True,
+                "before_bytes": current_bytes,
+            }
+        )
+
+    if not prepared:
+        return {
+            "ok": True,
+            "patch_id": patch_id,
+            "repo_name": "",
+            "restored_files": [],
+            "already_intact_files": intact,
+            "changed_files": [],
+            "git_head": current_head,
+            "idempotent_replay": True,
+            "error": "",
+        }
+
+    changed: list[dict[str, Any]] = []
+    try:
+        for item in prepared:
+            changed.append(item)
+            absolute = item["absolute"]
+            if item["action"] in {"modify", "create"}:
+                _atomic_write_bytes(
+                    absolute,
+                    item["payload_bytes"],
+                    ".soma_restore_tmp",
+                )
+            else:
+                absolute.unlink()
+
+        result = {
+            "ok": True,
+            "patch_id": patch_id,
+            "repo_name": "",
+            "restored_files": [item["path"] for item in prepared],
+            "already_intact_files": intact,
+            "changed_files": [item["path"] for item in prepared],
+            "git_head": current_head,
+            "idempotent_replay": False,
+            "error": "",
+        }
+        manifest["restored_at"] = _utc_now()
+        manifest["restore_count"] = int(manifest.get("restore_count") or 0) + 1
+        manifest["restore_result"] = result
+        _atomic_write_text(
+            manifest_path,
+            json.dumps(manifest, indent=2),
+            ".soma_manifest_tmp",
+        )
+        return result
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for item in reversed(changed):
+            try:
+                absolute = item["absolute"]
+                if item["before_exists"]:
+                    _atomic_write_bytes(
+                        absolute,
+                        item["before_bytes"],
+                        ".soma_restore_rollback_tmp",
+                    )
+                elif absolute.exists():
+                    absolute.unlink()
+            except Exception as rollback_exc:
+                rollback_errors.append(str(rollback_exc))
+        detail = f"Restore failed and was rolled back: {exc}"
+        if rollback_errors:
+            detail += f"; rollback errors: {'; '.join(rollback_errors)}"
+        raise RuntimeError(detail) from exc
+
+
+# ---------------------------------------------------------------------------
 # revert_managed_patch
 # ---------------------------------------------------------------------------
 

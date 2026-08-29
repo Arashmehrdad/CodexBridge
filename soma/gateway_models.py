@@ -1305,6 +1305,15 @@ class RepoRevertApply(GatewayModel):
     commit_description: str = Field(default="", max_length=10_000)
 
 
+class RepoRestoreApply(GatewayModel):
+    operation: Literal["restore"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    patch_id: str = Field(min_length=1, max_length=128)
+    commit_mode: Literal["auto", "manual"] = "manual"
+    commit_title: str = Field(default="", max_length=512)
+    commit_description: str = Field(default="", max_length=10_000)
+
+
 class RepoMoveFileApply(GatewayModel):
     operation: Literal["move_file"]
     repo_name: str = Field(min_length=1, max_length=128)
@@ -1317,7 +1326,11 @@ class RepoMoveFileApply(GatewayModel):
 
 
 RepoApplyRequest = Annotated[
-    RepoPreviewedChangeApply | RepoCleanupApply | RepoRevertApply | RepoMoveFileApply,
+    RepoPreviewedChangeApply
+    | RepoCleanupApply
+    | RepoRevertApply
+    | RepoRestoreApply
+    | RepoMoveFileApply,
     Field(discriminator="operation"),
 ]
 

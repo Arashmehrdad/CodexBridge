@@ -22,6 +22,7 @@ from soma.repo_writer import (
     apply_repo_patch,
     apply_previewed_repo_change,
     revert_managed_patch,
+    restore_managed_patch,
     create_repo_file,
     delete_repo_file,
     move_repo_file,
@@ -1649,6 +1650,126 @@ def test_apply_previewed_repo_change_rolls_back_if_manifest_write_fails(
     assert (repo / "remove.py").read_text(encoding="utf-8") == "delete me\n"
     final_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert final_manifest["status"] == "preview_ok"
+
+
+# ---------------------------------------------------------------------------
+# restore_managed_patch
+# ---------------------------------------------------------------------------
+
+
+def test_restore_recovers_externally_lost_applied_modify(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "restore.py", "value = 1\n")
+    original = target.read_bytes()
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "restore.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    applied = target.read_bytes()
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+
+    target.write_bytes(original)
+    restored = restore_managed_patch(repo, preview["patch_id"], runs)
+
+    assert restored["ok"] is True
+    assert restored["restored_files"] == ["restore.py"]
+    assert restored["already_intact_files"] == []
+    assert restored["idempotent_replay"] is False
+    assert target.read_bytes() == applied
+    manifest = json.loads(
+        (runs / "managed_patches" / preview["patch_id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["status"] == "applied"
+    assert manifest["restore_count"] == 1
+
+
+def test_restore_is_idempotent_when_applied_bytes_are_intact(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "intact.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "intact.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+
+    restored = restore_managed_patch(repo, preview["patch_id"], runs)
+
+    assert restored["ok"] is True
+    assert restored["changed_files"] == []
+    assert restored["already_intact_files"] == ["intact.py"]
+    assert restored["idempotent_replay"] is True
+
+
+def test_restore_refuses_unrelated_edits_without_overwriting(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+    target = write_file(repo / "conflict.py", "value = 1\n")
+    preview = preview_repo_patch(
+        repo,
+        [
+            {
+                "path": "conflict.py",
+                "expected_sha256": sha256_file(target),
+                "old_text": "value = 1",
+                "new_text": "value = 2",
+            }
+        ],
+        runs,
+    )
+    apply_previewed_repo_change(repo, preview["patch_id"], runs)
+    target.write_text("value = 999\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unrelated edits"):
+        restore_managed_patch(repo, preview["patch_id"], runs)
+
+    assert target.read_text(encoding="utf-8") == "value = 999\n"
+
+
+def test_restore_recovers_lost_create_and_remove_states(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    runs = tmp_path / "runs"
+
+    created = preview_repo_file_creation(repo, "created.py", "created = True\n", runs)
+    apply_previewed_repo_change(repo, created["patch_id"], runs)
+    (repo / "created.py").unlink()
+    restored_create = restore_managed_patch(repo, created["patch_id"], runs)
+    assert restored_create["restored_files"] == ["created.py"]
+    assert (repo / "created.py").read_text(encoding="utf-8") == "created = True\n"
+
+    removed_target = write_file(repo / "removed.py", "removed = False\n")
+    original = removed_target.read_bytes()
+    removed = preview_repo_file_removal(
+        repo,
+        "removed.py",
+        sha256_file(removed_target),
+        runs,
+    )
+    apply_previewed_repo_change(repo, removed["patch_id"], runs)
+    removed_target.write_bytes(original)
+    restored_remove = restore_managed_patch(repo, removed["patch_id"], runs)
+    assert restored_remove["restored_files"] == ["removed.py"]
+    assert not removed_target.exists()
 
 
 # ---------------------------------------------------------------------------

@@ -2604,7 +2604,8 @@ class JobWorker:
         input_data: dict,
     ) -> dict:
         operation = str(input_data["operation"])
-        commit_mode = str(input_data.get("commit_mode") or "auto")
+        default_commit_mode = "manual" if operation == "restore" else "auto"
+        commit_mode = str(input_data.get("commit_mode") or default_commit_mode)
         runs_dir = self.config.resolve_runs_dir()
         try:
             if operation == "previewed_change":
@@ -2617,6 +2618,10 @@ class JobWorker:
                 )
             elif operation == "revert":
                 result = repo_writer.revert_managed_patch(
+                    repo_root, str(input_data["patch_id"]), runs_dir
+                )
+            elif operation == "restore":
+                result = repo_writer.restore_managed_patch(
                     repo_root, str(input_data["patch_id"]), runs_dir
                 )
             else:

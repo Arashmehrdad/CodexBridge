@@ -7315,7 +7315,7 @@ def repo_preview(request: RepoPreviewRequest) -> dict:
 
 @mcp.tool(output_schema=GENERIC_OBJECT_OUTPUT, annotations=WRITE_ANNOTATIONS)
 def repo_apply(request: RepoApplyRequest) -> dict:
-    """Write gateway for hash-verified preview application, cleanup, rollback, and moves."""
+    """Write gateway for hash-verified apply, cleanup, revert, restore, and moves."""
     requested_repo_name = request.repo_name
     canonical_repo_name, _repo_root, _repo_config = resolve_repo_identity(
         get_config(), requested_repo_name

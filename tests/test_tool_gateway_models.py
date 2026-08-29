@@ -1239,6 +1239,11 @@ def test_repo_gateway_models_are_discriminated_and_strict() -> None:
             "commit_mode": "manual",
         }
     ).commit_mode == "manual"
+    restore_apply = adapters["apply"].validate_python(
+        {"operation": "restore", "repo_name": "repo", "patch_id": "patch_1"}
+    )
+    assert restore_apply.patch_id == "patch_1"
+    assert restore_apply.commit_mode == "manual"
     assert adapters["commit"].validate_python(
         {"operation": "commit_selected", "repo_name": "repo", "files": ["x.py"], "title": "fix: x"}
     ).title == "fix: x"

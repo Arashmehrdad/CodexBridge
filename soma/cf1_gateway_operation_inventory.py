@@ -1637,7 +1637,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "repo_apply",
-        ("previewed_change", "cleanup", "revert", "move_file"),
+        ("previewed_change", "cleanup", "revert", "restore", "move_file"),
         "soma.server:repo_apply -> soma.job_manager:JobManager.start_repo_apply",
         "durable compact managed-apply acknowledgement",
         request_echo=RequestEchoBehavior.DURABLE_INPUT_RECORD,

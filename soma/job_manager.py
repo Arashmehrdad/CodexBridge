@@ -1424,7 +1424,13 @@ class JobManager:
     ) -> dict:
         """Durably record and launch one managed repository apply request."""
         resolve_repo(self.config, repo_name)
-        if operation not in {"previewed_change", "cleanup", "revert", "move_file"}:
+        if operation not in {
+            "previewed_change",
+            "cleanup",
+            "revert",
+            "restore",
+            "move_file",
+        }:
             raise ValueError(f"Unsupported repository apply operation: {operation}")
         input_data = {"repo_name": repo_name, "operation": operation, **payload}
         decision = PolicyDecision(
