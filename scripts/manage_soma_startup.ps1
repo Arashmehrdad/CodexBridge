@@ -1,12 +1,15 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "uninstall", "status", "run")]
+    [ValidateSet("install", "uninstall", "status", "run", "ensure-research-map")]
     [string]$Action = "status",
     [string]$TaskName = "Soma MCP Startup",
+    [string]$ResearchMapWatchTaskName = "Soma Research Map Backend Watch",
     [string]$ProjectRoot = "",
     [ValidateRange(0, 600)]
     [int]$StartupDelaySeconds = 20,
+    [ValidateRange(1, 60)]
+    [int]$ResearchMapWatchIntervalMinutes = 1,
     [ValidateRange(15, 600)]
     [int]$StartupTimeoutSeconds = 120
 )
@@ -59,6 +62,9 @@ function Test-ResearchMapBackendPort {
 }
 
 function Ensure-ResearchMapBackend {
+    if (Test-ResearchMapBackendPort) {
+        return
+    }
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
     if (-not $wsl) {
         Write-StartupLog "Research Map backend warning: wsl.exe is unavailable."
@@ -113,6 +119,50 @@ function Get-StartupTask {
     return Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 
+function Get-ResearchMapWatchTask {
+    return Get-ScheduledTask -TaskName $ResearchMapWatchTaskName -ErrorAction SilentlyContinue
+}
+
+function Install-ResearchMapWatchTask {
+    Assert-InstallationInputs
+    $powershell = Get-Command powershell.exe -ErrorAction Stop
+    $scriptPath = [System.IO.Path]::GetFullPath($PSCommandPath)
+    $arguments = @(
+        "-NoProfile"
+        "-NonInteractive"
+        "-WindowStyle Hidden"
+        "-ExecutionPolicy Bypass"
+        "-File `"$scriptPath`""
+        "-Action ensure-research-map"
+        "-ProjectRoot `"$ProjectRoot`""
+    ) -join " "
+    $taskAction = New-ScheduledTaskAction -Execute $powershell.Source `
+        -Argument $arguments -WorkingDirectory $ProjectRoot
+    $trigger = New-ScheduledTaskTrigger -Once `
+        -At (Get-Date).AddMinutes($ResearchMapWatchIntervalMinutes) `
+        -RepetitionInterval (New-TimeSpan -Minutes $ResearchMapWatchIntervalMinutes) `
+        -RepetitionDuration (New-TimeSpan -Days 3650)
+    $principal = New-ScheduledTaskPrincipal -UserId $CurrentUser `
+        -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable `
+        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+    Register-ScheduledTask -TaskName $ResearchMapWatchTaskName -Action $taskAction `
+        -Trigger $trigger -Principal $principal -Settings $settings -Force `
+        -Description "Restarts the WSL Research Map FalkorDB backend when localhost:6379 is unavailable." | Out-Null
+    if (-not (Get-ResearchMapWatchTask)) {
+        throw "Research Map watchdog registration completed without a readable task record."
+    }
+}
+
+function Uninstall-ResearchMapWatchTask {
+    $task = Get-ResearchMapWatchTask
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $ResearchMapWatchTaskName -Confirm:$false
+        Write-Host "Removed Research Map watchdog task '$ResearchMapWatchTaskName'."
+    }
+}
+
 function Install-StartupTask {
     Assert-InstallationInputs
     $powershell = Get-Command powershell.exe -ErrorAction Stop
@@ -148,43 +198,47 @@ function Install-StartupTask {
     if (-not $task) {
         throw "Scheduled task registration completed without a readable task record."
     }
+    Install-ResearchMapWatchTask
     Write-Host "Installed hidden startup task '$TaskName' for $CurrentUser."
+    Write-Host "Installed hidden Research Map watchdog '$ResearchMapWatchTaskName' every $ResearchMapWatchIntervalMinutes minute(s)."
     Write-Host "Logon delay: $StartupDelaySeconds seconds"
     Write-Host "Startup log: $StartupLog"
 }
 
 function Uninstall-StartupTask {
     $task = Get-StartupTask
-    if (-not $task) {
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-Host "Removed startup task '$TaskName'."
+    } else {
         Write-Host "Startup task '$TaskName' is not installed."
-        return
     }
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Host "Removed startup task '$TaskName'."
+    Uninstall-ResearchMapWatchTask
 }
 
 function Show-StartupTaskStatus {
     $task = Get-StartupTask
-    if (-not $task) {
-        [pscustomobject]@{
-            installed = $false
-            task_name = $TaskName
-            current_user = $CurrentUser
-        } | ConvertTo-Json
-        return
-    }
-    $info = Get-ScheduledTaskInfo -TaskName $TaskName
+    $watch = Get-ResearchMapWatchTask
+    $info = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $null }
+    $watchInfo = if ($watch) { Get-ScheduledTaskInfo -TaskName $ResearchMapWatchTaskName } else { $null }
     [pscustomobject]@{
-        installed = $true
+        installed = [bool]$task
         task_name = $TaskName
-        state = [string]$task.State
-        hidden = [bool]$task.Settings.Hidden
+        state = if ($task) { [string]$task.State } else { "" }
+        hidden = if ($task) { [bool]$task.Settings.Hidden } else { $false }
         current_user = $CurrentUser
-        execute = [string]$task.Actions[0].Execute
-        arguments = [string]$task.Actions[0].Arguments
-        last_run_time = $info.LastRunTime
-        last_task_result = $info.LastTaskResult
-        next_run_time = $info.NextRunTime
+        execute = if ($task) { [string]$task.Actions[0].Execute } else { "" }
+        arguments = if ($task) { [string]$task.Actions[0].Arguments } else { "" }
+        last_run_time = if ($info) { $info.LastRunTime } else { $null }
+        last_task_result = if ($info) { $info.LastTaskResult } else { $null }
+        next_run_time = if ($info) { $info.NextRunTime } else { $null }
+        research_map_watch_installed = [bool]$watch
+        research_map_watch_task_name = $ResearchMapWatchTaskName
+        research_map_watch_state = if ($watch) { [string]$watch.State } else { "" }
+        research_map_watch_hidden = if ($watch) { [bool]$watch.Settings.Hidden } else { $false }
+        research_map_watch_last_run_time = if ($watchInfo) { $watchInfo.LastRunTime } else { $null }
+        research_map_watch_last_task_result = if ($watchInfo) { $watchInfo.LastTaskResult } else { $null }
+        research_map_watch_next_run_time = if ($watchInfo) { $watchInfo.NextRunTime } else { $null }
         startup_log = $StartupLog
     } | ConvertTo-Json -Depth 4
 }
@@ -194,5 +248,6 @@ switch ($Action) {
     "uninstall" { Uninstall-StartupTask }
     "status" { Show-StartupTaskStatus }
     "run" { Invoke-HiddenStartup }
+    "ensure-research-map" { Ensure-ResearchMapBackend }
     default { throw "Unknown action: $Action" }
 }
