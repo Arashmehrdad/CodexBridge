@@ -41,10 +41,56 @@ function Write-StartupLog {
     Add-Content -LiteralPath $StartupLog -Encoding utf8 -Value "[$([DateTimeOffset]::Now.ToString('o'))] $Message"
 }
 
+function Test-ResearchMapBackendPort {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $connect = $client.ConnectAsync("127.0.0.1", 6379)
+        if (-not $connect.Wait(1000)) {
+            return $false
+        }
+        return $client.Connected
+    }
+    catch {
+        return $false
+    }
+    finally {
+        $client.Dispose()
+    }
+}
+
+function Ensure-ResearchMapBackend {
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if (-not $wsl) {
+        Write-StartupLog "Research Map backend warning: wsl.exe is unavailable."
+        return
+    }
+    try {
+        $serviceOutput = @(
+            & $wsl.Source -d Ubuntu -u root -- systemctl start soma-falkordb.service 2>&1
+        )
+        if ($LASTEXITCODE -ne 0) {
+            throw "WSL systemd start failed with exit code $LASTEXITCODE. $($serviceOutput -join ' ')"
+        }
+        $deadline = (Get-Date).AddSeconds(30)
+        do {
+            if (Test-ResearchMapBackendPort) {
+                Write-StartupLog "Research Map WSL FalkorDB is ready on 127.0.0.1:6379."
+                return
+            }
+            Start-Sleep -Milliseconds 500
+        } while ((Get-Date) -lt $deadline)
+        Write-StartupLog "Research Map backend warning: WSL FalkorDB did not expose 127.0.0.1:6379 within 30 seconds."
+    }
+    catch {
+        Write-StartupLog "Research Map backend warning: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-HiddenStartup {
     Assert-InstallationInputs
     Write-StartupLog "Startup task invoked for $CurrentUser."
     try {
+        Ensure-ResearchMapBackend
         $controllerOutput = @(
             & $ControllerPath -Action start-all -ProjectRoot $ProjectRoot `
                 -StartupTimeoutSeconds $StartupTimeoutSeconds *>&1
