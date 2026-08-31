@@ -402,6 +402,44 @@ class ParallelGroupStore:
             ]
         return [self.refresh_group(group_id) for group_id in group_ids]
 
+    def list_reconcilable_group_ids(self) -> list[str]:
+        """Return only groups whose durable aggregate may still need repair.
+
+        A group is restart-relevant when either its stored aggregate is
+        non-terminal or at least one child is non-terminal. The second condition
+        protects against a stale terminal aggregate, while the first ensures a
+        group whose final child became terminal just before restart still gets
+        one last aggregate refresh. Fully terminal history is intentionally
+        excluded from the startup critical path.
+        """
+        terminal_statuses = tuple(sorted(TERMINAL_STATUSES))
+        placeholders = ", ".join("?" for _ in terminal_statuses)
+        with self.store.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT groups.group_id
+                FROM command_groups AS groups
+                WHERE groups.status NOT IN ({placeholders})
+                   OR EXISTS (
+                        SELECT 1
+                        FROM command_group_children AS child
+                        JOIN runs AS run ON run.run_id = child.run_id
+                        WHERE child.group_id = groups.group_id
+                          AND run.status NOT IN ({placeholders})
+                   )
+                ORDER BY groups.created_at ASC, groups.group_id ASC
+                """,
+                (*terminal_statuses, *terminal_statuses),
+            ).fetchall()
+        return [str(row["group_id"]) for row in rows]
+
+    def refresh_reconcilable_groups(self) -> list[dict[str, Any]]:
+        """Refresh restart-relevant groups without rescanning terminal history."""
+        return [
+            self.refresh_group(group_id)
+            for group_id in self.list_reconcilable_group_ids()
+        ]
+
     def claim_pending_launches(
         self,
         *,
@@ -624,11 +662,12 @@ def refill_powershell_groups(
     if not parallel.enabled:
         return []
     store = ParallelGroupStore(config.resolve_runs_dir())
-    store.refresh_all_groups()
+    store.refresh_reconcilable_groups()
     claimed = store.claim_pending_launches(
         max_concurrent_powershell=parallel.max_concurrent_powershell
     )
     launched: list[str] = []
+    touched_group_ids: set[str] = set()
     with store.store.connect() as conn:
         memberships = {
             str(row["run_id"]): str(row["group_id"])
@@ -647,6 +686,7 @@ def refill_powershell_groups(
         group_id = memberships.get(run_id)
         if not group_id:
             continue
+        touched_group_ids.add(group_id)
         if _launch_claimed_child(
             store=store,
             group_id=group_id,
@@ -654,7 +694,8 @@ def refill_powershell_groups(
             spawn_worker=spawn_worker,
         ):
             launched.append(run_id)
-    store.refresh_all_groups()
+    for group_id in sorted(touched_group_ids):
+        store.refresh_group(group_id)
     return launched
 
 

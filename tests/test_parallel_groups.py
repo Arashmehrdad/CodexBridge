@@ -531,6 +531,79 @@ def test_refresh_group_publishes_durable_aggregate_state(tmp_path: Path) -> None
     ]
 
 
+def test_refresh_reconcilable_groups_skips_terminal_history_and_repairs_stale_group(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    store = ParallelGroupStore(runs_dir)
+
+    terminal_group_id = "20260716T052050Z_powershell_group_a1b2c3d4"
+    terminal_child = child_spec(runs_dir, "a1b2c3d4")
+    store.reserve_group(
+        group_id=terminal_group_id,
+        repo_name="sample",
+        children=[terminal_child],
+    )
+    terminal_run = store.store.get_run(terminal_child["run_id"])
+    store.store.transition_terminal(
+        terminal_child["run_id"],
+        status="completed",
+        result={"run_id": terminal_child["run_id"], "status": "completed"},
+        expected_statuses=("launch_pending",),
+        expected_state_version=int(terminal_run["state_version"]),
+        expected_lease_token=terminal_run["worker_lease_token"],
+        expected_lease_generation=int(terminal_run["lease_generation"]),
+    )
+    assert store.refresh_group(terminal_group_id)["status"] == "completed"
+
+    stale_group_id = "20260716T052051Z_powershell_group_b2c3d4e5"
+    stale_child = child_spec(runs_dir, "b2c3d4e5")
+    store.reserve_group(
+        group_id=stale_group_id,
+        repo_name="sample",
+        children=[stale_child],
+    )
+    stale_run = store.store.get_run(stale_child["run_id"])
+    store.store.transition_terminal(
+        stale_child["run_id"],
+        status="completed",
+        result={"run_id": stale_child["run_id"], "status": "completed"},
+        expected_statuses=("launch_pending",),
+        expected_state_version=int(stale_run["state_version"]),
+        expected_lease_token=stale_run["worker_lease_token"],
+        expected_lease_generation=int(stale_run["lease_generation"]),
+    )
+    assert store.get_group(stale_group_id)["status"] == "launch_pending"
+
+    active_group_id = "20260716T052052Z_powershell_group_c3d4e5f6"
+    active_child = child_spec(runs_dir, "c3d4e5f6")
+    store.reserve_group(
+        group_id=active_group_id,
+        repo_name="sample",
+        children=[active_child],
+    )
+
+    refreshed_ids: list[str] = []
+    original_refresh = store.refresh_group
+
+    def recording_refresh(group_id: str) -> dict:
+        refreshed_ids.append(group_id)
+        return original_refresh(group_id)
+
+    monkeypatch.setattr(store, "refresh_group", recording_refresh)
+    refreshed = store.refresh_reconcilable_groups()
+
+    assert set(refreshed_ids) == {stale_group_id, active_group_id}
+    assert terminal_group_id not in refreshed_ids
+    assert {group["group_id"] for group in refreshed} == {
+        stale_group_id,
+        active_group_id,
+    }
+    assert store.get_group(terminal_group_id)["status"] == "completed"
+    assert store.get_group(stale_group_id)["status"] == "completed"
+    assert store.get_group(active_group_id)["status"] == "launch_pending"
+
+
 def test_refresh_group_marks_mixed_terminal_failure(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     store = ParallelGroupStore(runs_dir)
