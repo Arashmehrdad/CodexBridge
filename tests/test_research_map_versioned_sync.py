@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -343,50 +342,47 @@ def test_explicit_rebuild_creates_fresh_physical_lineage_database(tmp_path: Path
     assert store.persisted_edges[str(rebuilt["database"])]
 
 
-def test_graphiti_versioned_search_passes_exact_edge_uuid_filter() -> None:
+def test_graphiti_versioned_search_uses_exact_edge_uuid_vectors() -> None:
     captured: dict[str, object] = {}
+    relation_a = "rel_" + "a" * 64
+    relation_b = "rel_" + "b" * 64
+    relation_c = "rel_" + "c" * 64
 
-    class FakeSearchFilters:
-        def __init__(self, *, edge_uuids: list[str]) -> None:
-            self.edge_uuids = edge_uuids
-
-    class FakeGraphiti:
-        async def search(
-            self,
-            query: str,
-            *,
-            group_ids: object,
-            num_results: int,
-            search_filter: object,
-        ) -> list[object]:
-            captured.update(
-                query=query,
-                group_ids=group_ids,
-                num_results=num_results,
-                edge_uuids=list(search_filter.edge_uuids),  # type: ignore[attr-defined]
+    class FakeDriver:
+        async def execute_query(self, query: str, **kwargs: object) -> tuple[list[dict[str, object]], list[str], None]:
+            captured.update(query=query, edge_uuids=list(kwargs["edge_uuids"]))
+            return (
+                [
+                    {"relation_id": relation_b, "embedding": [0.0, 1.0]},
+                    {"relation_id": relation_c, "embedding": [-1.0, 0.0]},
+                    {"relation_id": relation_a, "embedding": [1.0, 0.0]},
+                ],
+                ["relation_id", "embedding"],
+                None,
             )
-            return [SimpleNamespace(attributes={"relation_id": "rel_" + "a" * 64})]
+
+    class FakeEmbedder:
+        async def create(self, query: str) -> list[float]:
+            captured["semantic_query"] = query
+            return [1.0, 0.0]
 
     backend = GraphitiFalkorBackend(
         repository_uid="srepo_0123456789abcdef",
         database="srm_" + "a" * 32,
     )
-    backend._driver = object()
-    backend._graphiti = FakeGraphiti()
-    backend._deps = {"SearchFilters": FakeSearchFilters}
+    backend._driver = FakeDriver()
+    backend._embedder = FakeEmbedder()
 
     hits = asyncio.run(
         backend.search_relation_versions(
             "constraint",
             edge_uuids=("edge-b", "edge-a"),
-            limit=7,
+            limit=2,
         )
     )
 
-    assert captured == {
-        "query": "constraint",
-        "group_ids": None,
-        "num_results": 7,
-        "edge_uuids": ["edge-b", "edge-a"],
-    }
-    assert [hit.relation_id for hit in hits] == ["rel_" + "a" * 64]
+    assert captured["edge_uuids"] == ["edge-b", "edge-a"]
+    assert "r.uuid IN $edge_uuids" in str(captured["query"])
+    assert captured["semantic_query"] == "constraint"
+    assert [hit.relation_id for hit in hits] == [relation_a, relation_b]
+    assert [hit.score for hit in hits] == pytest.approx([1.0, 0.0])

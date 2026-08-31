@@ -504,20 +504,48 @@ class GraphitiFalkorBackend:
         if not edge_uuids:
             return ()
         await self._open()
-        search_filter = self._deps["SearchFilters"](edge_uuids=list(edge_uuids))
-        edges = await self._graphiti.search(
-            query,
-            group_ids=None,
-            num_results=limit,
-            search_filter=search_filter,
+        records, _header, _summary = await self._driver.execute_query(
+            "MATCH ()-[r:RELATES_TO]->() "
+            "WHERE r.uuid IN $edge_uuids AND r.relation_id IS NOT NULL "
+            "AND r.fact_embedding IS NOT NULL "
+            "RETURN r.relation_id AS relation_id, r.fact_embedding AS embedding",
+            edge_uuids=list(edge_uuids),
         )
-        hits: list[BackendSearchHit] = []
-        for edge in edges:
-            attributes = getattr(edge, "attributes", {}) or {}
-            relation_id = str(attributes.get("relation_id", ""))
-            if relation_id:
-                hits.append(BackendSearchHit(relation_id=relation_id))
-        return tuple(hits)
+        query_embedding = await self._embedder.create(query)
+        query_norm_sq = sum(float(value) * float(value) for value in query_embedding)
+        if query_norm_sq <= 0.0:
+            return ()
+
+        scored: list[tuple[float, str]] = []
+        for record in records:
+            relation_id = str(record.get("relation_id", ""))
+            embedding = record.get("embedding")
+            if (
+                not relation_id
+                or not isinstance(embedding, (list, tuple))
+                or len(embedding) != len(query_embedding)
+            ):
+                continue
+            candidate = [float(value) for value in embedding]
+            candidate_norm_sq = sum(value * value for value in candidate)
+            if candidate_norm_sq <= 0.0:
+                continue
+            dot_product = sum(
+                float(query_value) * candidate_value
+                for query_value, candidate_value in zip(
+                    query_embedding,
+                    candidate,
+                    strict=True,
+                )
+            )
+            score = dot_product / ((query_norm_sq * candidate_norm_sq) ** 0.5)
+            scored.append((score, relation_id))
+
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return tuple(
+            BackendSearchHit(relation_id=relation_id, score=score)
+            for score, relation_id in scored[:limit]
+        )
 
     async def search(
         self,
