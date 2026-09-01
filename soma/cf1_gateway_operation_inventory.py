@@ -1554,6 +1554,23 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
     ),
     _entry(
         "repo_query",
+        ("search_fast",),
+        "soma.server:repo_query -> soma.repo_reader:search_repo_fast",
+        "bounded navigation-only tracked repository lexical search",
+        json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
+        default_response_bytes=16 * 1024,
+        maximum_response_bytes=64 * 1024,
+        pagination=PaginationBehavior.LIMIT_ONLY,
+        default_item_limit=100,
+        maximum_item_limit=500,
+        notes=(
+            "Fast tracked search delegates to Git grep without recursive filesystem walking "
+            "or corpus hashing. Results are navigation-only and exact source must be reopened "
+            "before source-dependent conclusions."
+        ),
+    ),
+    _entry(
+        "repo_query",
         ("recent_files",),
         "soma.server:repo_query -> soma.repo_tools:get_recent_files",
         "bounded compact recent-file list",

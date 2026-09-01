@@ -7209,6 +7209,26 @@ def repo_query(request: RepoQueryRequest) -> dict:
             request.cursor,
             request.response_budget_bytes,
         )
+    if request.operation == "search_fast":
+        canonical_name, repo_root, requested_name = _repo_context(request.repo_name)
+        result = _repo_reader.search_repo_fast(
+            repo_root,
+            request.query,
+            scope=request.scope,
+            match_mode=request.match_mode,
+            case_sensitive=request.case_sensitive,
+            directory=request.directory,
+            file_patterns=request.file_patterns,
+            max_results=request.max_results,
+            context_lines=request.context_lines,
+            result_mode=request.result_mode,
+            budget_ms=request.budget_ms,
+            response_budget_bytes=request.response_budget_bytes,
+        )
+        result["repo_name"] = canonical_name
+        if requested_name != canonical_name:
+            result["requested_repo_name"] = requested_name
+        return result
     if request.operation == "recent_files":
         return get_recently_modified_files(
             request.repo_name,

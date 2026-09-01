@@ -1051,6 +1051,22 @@ class RepoSearchTextQuery(GatewayModel):
         return self
 
 
+class RepoFastSearchQuery(GatewayModel):
+    operation: Literal["search_fast"]
+    repo_name: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=10_000)
+    scope: Literal["tracked"] = "tracked"
+    match_mode: Literal["literal", "regex"] = "literal"
+    case_sensitive: bool = False
+    directory: str = Field(default="", max_length=1024)
+    file_patterns: list[str] = Field(default_factory=list, max_length=20)
+    max_results: int = Field(default=100, ge=1, le=500)
+    context_lines: int = Field(default=0, ge=0, le=5)
+    result_mode: Literal["matches", "files", "count"] = "matches"
+    budget_ms: int = Field(default=5_000, ge=100, le=30_000)
+    response_budget_bytes: int = Field(default=16 * 1024, ge=4 * 1024, le=64 * 1024)
+
+
 class RepoRecentFilesQuery(GatewayModel):
     operation: Literal["recent_files"]
     repo_name: str = Field(min_length=1, max_length=128)
@@ -1105,6 +1121,7 @@ RepoQueryRequest = Annotated[
     | RepoListFilesQuery
     | RepoReadFilesQuery
     | RepoSearchTextQuery
+    | RepoFastSearchQuery
     | RepoRecentFilesQuery
     | RepoDiffQuery
     | RepoLogQuery

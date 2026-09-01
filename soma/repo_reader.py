@@ -720,6 +720,520 @@ def _stale_file_response(path: str, sha256: str, size: int, total_lines: int) ->
 
 
 # ---------------------------------------------------------------------------
+# search_repo_fast
+# ---------------------------------------------------------------------------
+
+DEFAULT_FAST_SEARCH_RESPONSE_BYTES = 16 * 1024
+MAX_FAST_SEARCH_RESPONSE_BYTES = 64 * 1024
+_FAST_SEARCH_NOTICE = (
+    "Fast lexical search results are navigation evidence only; reopen exact source "
+    "with repo_query(read_files) before relying on source content."
+)
+
+
+def _run_fast_git(repo_root: Path, args: list[str], deadline: float) -> subprocess.CompletedProcess[bytes]:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(["git", *args], 0)
+    env = os.environ.copy()
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=False,
+        timeout=max(0.001, remaining),
+        env=env,
+        check=False,
+    )
+
+
+def _fast_search_patterns(file_patterns: list[str] | None) -> list[str]:
+    patterns = list(file_patterns or [])
+    if len(patterns) > 20 or any(
+        not isinstance(pattern, str)
+        or not pattern.strip()
+        or len(pattern) > 200
+        or Path(pattern).is_absolute()
+        or ".." in Path(pattern).parts
+        for pattern in patterns
+    ):
+        raise ValueError("file_patterns must contain safe, non-empty glob patterns")
+    return patterns
+
+
+def _fast_search_read_head(repo_root: Path) -> str:
+    """Resolve HEAD from the exact repository marker without spawning Git."""
+    marker = repo_root / ".git"
+    try:
+        if marker.is_symlink():
+            return ""
+        if marker.is_dir():
+            git_dir = marker
+        elif marker.is_file():
+            marker_text = marker.read_text(encoding="utf-8", errors="strict").strip()
+            if not marker_text.lower().startswith("gitdir:"):
+                return ""
+            raw_git_dir = marker_text.split(":", 1)[1].strip()
+            if not raw_git_dir:
+                return ""
+            candidate = Path(raw_git_dir)
+            git_dir = (
+                candidate if candidate.is_absolute() else repo_root / candidate
+            ).resolve()
+            if not git_dir.is_dir():
+                return ""
+        else:
+            return ""
+
+        common_dir = git_dir
+        commondir_file = git_dir / "commondir"
+        if commondir_file.is_file():
+            raw_common = commondir_file.read_text(
+                encoding="utf-8", errors="strict"
+            ).strip()
+            if not raw_common:
+                return ""
+            candidate = Path(raw_common)
+            common_dir = (
+                candidate if candidate.is_absolute() else git_dir / candidate
+            ).resolve()
+            if not common_dir.is_dir():
+                return ""
+
+        head_text = (git_dir / "HEAD").read_text(
+            encoding="utf-8", errors="strict"
+        ).strip()
+        if head_text.startswith("ref:"):
+            reference = head_text[4:].strip().replace("\\", "/")
+            reference_parts = reference.split("/")
+            if (
+                not reference.startswith("refs/")
+                or any(part in {"", ".", ".."} for part in reference_parts)
+            ):
+                return ""
+            relative_ref = Path(*reference_parts)
+            for base in (git_dir, common_dir):
+                ref_file = base / relative_ref
+                if ref_file.is_file():
+                    candidate_head = ref_file.read_text(
+                        encoding="ascii", errors="strict"
+                    ).strip()
+                    if re.fullmatch(r"[0-9A-Fa-f]{40,64}", candidate_head):
+                        return candidate_head.lower()
+            packed_refs = common_dir / "packed-refs"
+            if packed_refs.is_file():
+                with packed_refs.open("r", encoding="ascii", errors="strict") as handle:
+                    for raw_line in handle:
+                        line = raw_line.strip()
+                        if not line or line.startswith(("#", "^")):
+                            continue
+                        parts = line.split(" ", 1)
+                        if len(parts) != 2 or parts[1] != reference:
+                            continue
+                        if re.fullmatch(r"[0-9A-Fa-f]{40,64}", parts[0]):
+                            return parts[0].lower()
+            return ""
+        if re.fullmatch(r"[0-9A-Fa-f]{40,64}", head_text):
+            return head_text.lower()
+    except (OSError, UnicodeError):
+        return ""
+    return ""
+
+
+def _fast_search_fallback_identity(
+    repo_root: Path, deadline: float
+) -> tuple[str, str]:
+    """Fallback for unusual Git layouts while preserving exact-root identity."""
+    identity = _run_fast_git(
+        repo_root,
+        ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "HEAD"],
+        deadline,
+    )
+    lines = identity.stdout.decode("utf-8", errors="replace").splitlines()
+    exact_root = False
+    if identity.returncode == 0 and len(lines) >= 3:
+        try:
+            exact_root = Path(lines[1]).resolve() == repo_root.resolve()
+        except OSError:
+            exact_root = False
+    if (
+        identity.returncode == 0
+        and len(lines) >= 3
+        and lines[0] == "true"
+        and exact_root
+        and re.fullmatch(r"[0-9A-Fa-f]{40,64}", lines[2].strip())
+    ):
+        return lines[2].strip().lower(), ""
+    error = identity.stderr.decode("utf-8", errors="replace").strip()[:1000]
+    return "", error or "Resolved Git top-level does not match the registered repository root"
+
+
+def _fast_search_path_allowed(
+    repo_root: Path, relative: str, patterns: list[str]
+) -> bool:
+    """Lexically validate a tracked path emitted by Git grep."""
+    del repo_root
+    normalized = relative.replace("\\", "/")
+    if (
+        not normalized
+        or normalized.startswith(("/", "//"))
+        or re.match(r"^[A-Za-z]:", normalized)
+    ):
+        return False
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return False
+    if any(_is_blocked_name(part) or _is_blocked_env(part) for part in parts):
+        return False
+    name = parts[-1]
+    return not patterns or any(Path(name).match(pattern) for pattern in patterns)
+
+
+def _fast_search_common_args(
+    query: str,
+    *,
+    match_mode: str,
+    case_sensitive: bool,
+    operation_args: list[str],
+) -> list[str]:
+    args = ["grep", "-z", "-I", *operation_args]
+    args.append("-F" if match_mode == "literal" else "-E")
+    if not case_sensitive:
+        args.append("-i")
+    args.extend(["-e", query])
+    return args
+
+
+def _fast_search_scope_args(directory: str) -> list[str]:
+    if not directory:
+        return ["--"]
+    return ["--", f":(top,literal){Path(directory).as_posix()}"]
+
+
+def _fast_search_parse_counts(raw: bytes) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in raw.splitlines():
+        parts = record.split(b"\x00", 1)
+        if len(parts) != 2:
+            continue
+        path = parts[0].decode("utf-8", errors="replace").replace("\\", "/")
+        try:
+            count = int(parts[1].decode("ascii", errors="strict"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        counts[path] = count
+    return counts
+
+
+def _fast_search_parse_matches(raw: bytes) -> list[dict[str, object]]:
+    hits: list[dict[str, object]] = []
+    for record in raw.splitlines():
+        parts = record.split(b"\x00", 3)
+        if len(parts) != 4:
+            continue
+        path = parts[0].decode("utf-8", errors="replace").replace("\\", "/")
+        try:
+            line = int(parts[1].decode("ascii", errors="strict"))
+            column = int(parts[2].decode("ascii", errors="strict"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        text = parts[3].decode("utf-8", errors="replace").rstrip("\r\n")
+        hits.append(
+            {
+                "path": path,
+                "line": line,
+                "column": column,
+                "snippet": _redact_text(text[:_SEARCH_SNIPPET_CHARS]),
+            }
+        )
+    return hits
+
+
+def _fast_search_add_context(
+    repo_root: Path,
+    hits: list[dict[str, object]],
+    context_lines: int,
+) -> None:
+    if context_lines <= 0 or not hits:
+        return
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for hit in hits:
+        grouped.setdefault(str(hit["path"]), []).append(hit)
+    for relative, file_hits in grouped.items():
+        requested: set[int] = set()
+        for hit in file_hits:
+            center = int(hit["line"])
+            requested.update(
+                range(max(1, center - context_lines), center + context_lines + 1)
+            )
+        if not requested:
+            continue
+        wanted_max = max(requested)
+        lines: dict[int, str] = {}
+        path = repo_root / Path(relative)
+        if not _path_is_allowed(repo_root, path) or path.is_symlink():
+            continue
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line_number, text in enumerate(handle, 1):
+                    if line_number in requested:
+                        lines[line_number] = _redact_text(
+                            text.rstrip("\r\n")[:_SEARCH_SNIPPET_CHARS]
+                        )
+                    if line_number >= wanted_max:
+                        break
+        except OSError:
+            continue
+        for hit in file_hits:
+            center = int(hit["line"])
+            hit["context"] = [
+                {"line": line_number, "text": lines[line_number]}
+                for line_number in range(
+                    max(1, center - context_lines), center + context_lines + 1
+                )
+                if line_number in lines
+            ]
+
+
+def _fast_search_finalize(result: dict, response_budget_bytes: int) -> dict:
+    def payload_size() -> int:
+        return len(
+            json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+
+    initial_size = payload_size()
+    if initial_size <= response_budget_bytes:
+        result["response_bytes"] = initial_size
+        return result
+
+    collection_key = "hits" if result.get("hits") else "files" if result.get("files") else ""
+    if collection_key:
+        original = list(result[collection_key])
+        result["truncated"] = True
+        result["has_more"] = True
+        result["truncation_reason"] = "response_budget"
+        low, high, best = 0, len(original), 0
+        while low <= high:
+            midpoint = (low + high) // 2
+            result[collection_key] = original[:midpoint]
+            result["count"] = midpoint
+            if collection_key == "hits":
+                result["match_count"] = midpoint
+                result["match_count_complete"] = False
+            if payload_size() <= response_budget_bytes:
+                best = midpoint
+                low = midpoint + 1
+            else:
+                high = midpoint - 1
+        result[collection_key] = original[:best]
+        result["count"] = best
+        if collection_key == "hits":
+            result["match_count"] = best
+            result["match_count_complete"] = False
+    else:
+        if len(str(result.get("error", ""))) > 256:
+            result["error"] = str(result["error"])[:256]
+        if len(str(result.get("notice", ""))) > 160:
+            result["notice"] = str(result["notice"])[:160]
+    result["response_bytes"] = payload_size()
+    return result
+
+
+def search_repo_fast(
+    repo_root: Path,
+    query: str,
+    *,
+    scope: str = "tracked",
+    match_mode: str = "literal",
+    case_sensitive: bool = False,
+    directory: str = "",
+    file_patterns: list[str] | None = None,
+    max_results: int = 100,
+    context_lines: int = 0,
+    result_mode: str = "matches",
+    budget_ms: int = 5_000,
+    response_budget_bytes: int = DEFAULT_FAST_SEARCH_RESPONSE_BYTES,
+) -> dict:
+    """Fast navigation-only lexical search over Git-tracked repository files."""
+    if not query or not query.strip():
+        raise ValueError("query must not be empty")
+    if scope != "tracked":
+        raise ValueError("search_repo_fast currently supports scope=tracked only")
+    if match_mode not in {"literal", "regex"}:
+        raise ValueError("match_mode must be literal or regex")
+    if result_mode not in {"matches", "files", "count"}:
+        raise ValueError("result_mode must be matches, files, or count")
+    max_results = max(1, min(int(max_results), 500))
+    context_lines = max(0, min(int(context_lines), 5))
+    budget_ms = max(100, min(int(budget_ms), 30_000))
+    response_budget_bytes = max(
+        4_096, min(int(response_budget_bytes), MAX_FAST_SEARCH_RESPONSE_BYTES)
+    )
+    patterns = _fast_search_patterns(file_patterns)
+    if directory:
+        base = _resolve_and_validate(repo_root, directory)
+        if not base.is_dir():
+            raise ValueError(f"Not a directory: {directory}")
+        directory = Path(directory).as_posix().rstrip("/")
+
+    started = time.monotonic()
+    deadline = started + budget_ms / 1000
+    base_result = {
+        "ok": True,
+        "status": "available",
+        "fresh": True,
+        "partial": False,
+        "timeout": False,
+        "repo_name": "",
+        "query": query,
+        "scope": "tracked",
+        "match_mode": match_mode,
+        "case_sensitive": case_sensitive,
+        "directory": directory,
+        "file_patterns": patterns,
+        "result_mode": result_mode,
+        "engine": "git-grep",
+        "navigation_only": True,
+        "notice": _FAST_SEARCH_NOTICE,
+        "git_head": "",
+        "match_count": 0,
+        "match_count_complete": True,
+        "files_matched": 0,
+        "hits": [],
+        "files": [],
+        "count": 0,
+        "duration_ms": 0.0,
+        "truncated": False,
+        "truncation_reason": "",
+        "max_results": max_results,
+        "has_more": False,
+        "error": "",
+        "response_budget_bytes": response_budget_bytes,
+    }
+
+    try:
+        head = _fast_search_read_head(repo_root)
+        identity_error = ""
+        if not head:
+            head, identity_error = _fast_search_fallback_identity(repo_root, deadline)
+        if not head:
+            base_result.update(
+                ok=False,
+                status="not_git_repository",
+                fresh=False,
+                error=identity_error
+                or "Repository has no exact readable Git worktree identity",
+            )
+            base_result["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
+            return _fast_search_finalize(base_result, response_budget_bytes)
+        base_result["git_head"] = head
+        scope_args = _fast_search_scope_args(directory)
+
+        if result_mode in {"files", "count"}:
+            command = _fast_search_common_args(
+                query,
+                match_mode=match_mode,
+                case_sensitive=case_sensitive,
+                operation_args=["-c"],
+            ) + scope_args
+            completed = _run_fast_git(repo_root, command, deadline)
+            if completed.returncode not in {0, 1}:
+                base_result.update(
+                    ok=False,
+                    status="search_failed",
+                    fresh=False,
+                    error=completed.stderr.decode("utf-8", errors="replace").strip()[:1000],
+                )
+            else:
+                counts = {
+                    path: count
+                    for path, count in _fast_search_parse_counts(completed.stdout).items()
+                    if _fast_search_path_allowed(repo_root, path, patterns)
+                }
+                ordered_files = sorted(counts)
+                base_result["match_count"] = sum(counts.values())
+                base_result["files_matched"] = len(ordered_files)
+                if result_mode == "files":
+                    base_result["files"] = ordered_files[:max_results]
+                    base_result["count"] = len(base_result["files"])
+                    if len(ordered_files) > max_results:
+                        base_result["truncated"] = True
+                        base_result["has_more"] = True
+                        base_result["truncation_reason"] = "max_results"
+                else:
+                    base_result["count"] = int(base_result["match_count"])
+        else:
+            match_command = _fast_search_common_args(
+                query,
+                match_mode=match_mode,
+                case_sensitive=case_sensitive,
+                operation_args=["-n", "--column", f"-m{max_results + 1}"],
+            ) + scope_args
+            matched = _run_fast_git(repo_root, match_command, deadline)
+            if matched.returncode not in {0, 1}:
+                base_result.update(
+                    ok=False,
+                    status="search_failed",
+                    fresh=False,
+                    error=matched.stderr.decode("utf-8", errors="replace").strip()[:1000],
+                )
+            else:
+                parsed_hits = _fast_search_parse_matches(matched.stdout)
+                allowed_paths: dict[str, bool] = {}
+                all_hits: list[dict[str, object]] = []
+                for hit in parsed_hits:
+                    path = str(hit["path"])
+                    allowed = allowed_paths.get(path)
+                    if allowed is None:
+                        allowed = _fast_search_path_allowed(repo_root, path, patterns)
+                        allowed_paths[path] = allowed
+                    if allowed:
+                        all_hits.append(hit)
+                all_hits.sort(
+                    key=lambda hit: (
+                        str(hit["path"]),
+                        int(hit["line"]),
+                        int(hit["column"]),
+                    )
+                )
+                base_result["files_matched"] = len(
+                    {str(hit["path"]) for hit in all_hits}
+                )
+                truncated = len(all_hits) > max_results
+                hits = all_hits[:max_results]
+                _fast_search_add_context(repo_root, hits, context_lines)
+                base_result["hits"] = hits
+                base_result["count"] = len(hits)
+                base_result["match_count"] = len(hits)
+                base_result["match_count_complete"] = not truncated
+                if truncated:
+                    base_result["truncated"] = True
+                    base_result["has_more"] = True
+                    base_result["truncation_reason"] = "max_results"
+    except subprocess.TimeoutExpired:
+        base_result["ok"] = False
+        base_result["status"] = "search_timeout"
+        base_result["fresh"] = False
+        base_result["partial"] = bool(base_result.get("hits") or base_result.get("files"))
+        base_result["timeout"] = True
+        base_result["truncated"] = True
+        base_result["has_more"] = True
+        base_result["truncation_reason"] = "timeout"
+        base_result["error"] = "Fast repository search exceeded its end-to-end budget"
+    except OSError as exc:
+        base_result["ok"] = False
+        base_result["status"] = "git_unavailable"
+        base_result["fresh"] = False
+        base_result["error"] = str(exc)[:1000]
+
+    base_result["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
+    return _fast_search_finalize(base_result, response_budget_bytes)
+
+
+# ---------------------------------------------------------------------------
 # search_repo_text
 # ---------------------------------------------------------------------------
 
